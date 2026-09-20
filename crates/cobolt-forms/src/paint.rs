@@ -5180,26 +5180,54 @@ fn draw_control_body(
                 .map(|v| v.as_i64())
                 .filter(|p| *p > 0)
                 .unwrap_or(crate::viewer::SPLIT_DEFAULT_PCT);
+            // R5/R5.1 — a HOST-decoded document wins, because it was read
+            // on the control's own thread. Only when none was published (the
+            // designer canvas, a test) does this fall back to decoding here,
+            // synchronously.
             let mut states = Vec::new();
             let mut contents = Vec::new();
+            let mut hosted = Vec::new();
             let mut sources = Vec::new();
             for i in 0..mode.view_count() {
                 let st = ViewerPaintState::from_control(ctrl, i, None, face_alpha);
+                let from_host = published_viewer_document(painter.ctx(), &st.source);
+                contents.push(match &from_host {
+                    Some(_) => None,
+                    None => viewer_first_page_content(painter.ctx(), &ctrl.id, &st.source),
+                });
                 sources.push(st.source.clone());
-                contents.push(viewer_first_page_content(painter.ctx(), &ctrl.id, &st.source));
+                hosted.push(from_host);
                 states.push(st);
             }
             let previews: Vec<_> = sources
                 .iter()
-                .map(|src| {
+                .zip(hosted.iter())
+                .map(|(src, host)| {
                     let src = src.clone();
+                    let host = host.clone();
                     let ctx = painter.ctx().clone();
-                    move |page: usize| viewer_page_preview(&ctx, &src, page)
+                    move |page: usize| match &host {
+                        // Whatever the worker has decoded so far; a page it
+                        // has not reached yet is simply absent, and its card
+                        // shows its number and no text. An empty card for a
+                        // moment is the right price for never blocking a
+                        // paint on a two-gigabyte file.
+                        Some(doc) => doc.previews.get(&page).cloned(),
+                        None => viewer_page_preview(&ctx, &src, page),
+                    }
                 })
                 .collect();
             for (i, st) in states.iter_mut().enumerate() {
-                st.content = contents[i].as_deref();
-                st.page_count = viewer_page_spans(painter.ctx(), &sources[i]).max(1);
+                match &hosted[i] {
+                    Some(doc) => {
+                        st.content = Some(&doc.content);
+                        st.page_count = doc.page_count.max(1);
+                    }
+                    None => {
+                        st.content = contents[i].as_deref();
+                        st.page_count = viewer_page_spans(painter.ctx(), &sources[i]).max(1);
+                    }
+                }
                 st.page_preview = Some(&previews[i]);
             }
             let ink = resolve_label_ink(
@@ -7996,7 +8024,7 @@ const VIEWER_TABLE_CELL_PADDING: f32 = 6.0;
 /// One resolved page's content, ready to paint — never holds a live
 /// session, a thread, or anything that outlives the frame it was decoded on.
 #[derive(Clone)]
-pub(crate) enum ViewerPageContent {
+pub enum ViewerPageContent {
     /// The raw stored text (T8/plan §3's canonical representation) — shown
     /// as-is for `Raw`, and reused for `Web`/`Print`/`Page` when the format
     /// carries no structure of its own (a plain `Text` document).
@@ -8009,6 +8037,66 @@ pub(crate) enum ViewerPageContent {
     /// and basic vector. The PDF's own bytes stay the stored form (plan §3);
     /// this is the derived read painting works from.
     Pdf(crate::viewer::PdfDocument),
+}
+
+/// A document decoded **off the UI thread** and handed to the paint (R5,
+/// R5.1).
+///
+/// This is the whole point of `cobolt-form-host`'s `ViewerSession`: indexing
+/// a two-gigabyte log takes seconds, and `spec.md`'s own user story is that
+/// such a file opens without the form stalling. The host does that work on
+/// the control's dedicated thread and publishes the result here; the paint
+/// reads it and draws.
+///
+/// The designer canvas publishes nothing (it has no thread, no clock and no
+/// session — `render_faces` never runs an interactive pass), so it falls
+/// back to the synchronous decode below. **Both paths end at the same
+/// `draw_viewer`**, which is what keeps AC11's parity exact.
+#[derive(Clone)]
+pub struct ViewerDocument {
+    pub format: crate::viewer::ViewerFormat,
+    pub page_count: usize,
+    /// The page this document was decoded for.
+    pub current_page: usize,
+    pub content: Arc<ViewerPageContent>,
+    /// Previews for the pages the worker has decoded so far — the filmstrip
+    /// and the card grid read these. A page that has not been decoded yet is
+    /// simply absent, and its card draws its number and no text: an empty
+    /// card for a moment is the right cost for never blocking a paint.
+    pub previews: std::collections::HashMap<usize, String>,
+}
+
+/// Publish (or withdraw, with `None`) the decoded document for `source`.
+///
+/// Keyed by the SOURCE PATH rather than by control and view, so two views of
+/// one document (R21.1) read one entry, and two controls showing the same
+/// file share it for free.
+pub fn publish_viewer_document(
+    ctx: &egui::Context,
+    source: &str,
+    doc: Option<Arc<ViewerDocument>>,
+) {
+    let id = egui::Id::new(("viewer-host-document", source));
+    match doc {
+        Some(d) => {
+            ctx.memory_mut(|m| m.data.insert_temp(id, d));
+        }
+        None => {
+            ctx.memory_mut(|m| m.data.remove::<Arc<ViewerDocument>>(id));
+        }
+    }
+}
+
+/// What a host published for `source`, if anything.
+pub(crate) fn published_viewer_document(
+    ctx: &egui::Context,
+    source: &str,
+) -> Option<Arc<ViewerDocument>> {
+    if source.trim().is_empty() {
+        return None;
+    }
+    let id = egui::Id::new(("viewer-host-document", source));
+    ctx.memory(|m| m.data.get_temp::<Arc<ViewerDocument>>(id))
 }
 
 /// Decodes (or returns the already-cached) first page of `source`,

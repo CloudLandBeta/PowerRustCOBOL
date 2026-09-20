@@ -790,6 +790,90 @@ pub(crate) fn footer_id_scope() -> egui::Id {
 }
 
 impl FormBody {
+    /// Spec 058 R5/R5.1 — give every Viewer on this form its own decode
+    /// thread, and collect whatever those threads have finished.
+    ///
+    /// Called once per frame, **before** the render: it asks (never waits),
+    /// drains (never blocks) and returns. The expensive part — indexing a
+    /// document that may be gigabytes — happens on the control's own thread,
+    /// which is the whole of R5.1 and the reason `spec.md`'s headline user
+    /// story ("open a 2 GB log and jump to its end immediately") is
+    /// achievable at all.
+    ///
+    /// A session is created per control and kept for as long as the control
+    /// exists; sessions for controls that have gone are dropped, which closes
+    /// their jobs channel and lets the worker exit on its own — the
+    /// detach-don't-join shape, never a `.join()` on this thread.
+    pub(crate) fn tick_viewers(&mut self, ctx: &egui::Context) {
+        use cobolt_forms::ControlType;
+
+        let viewers: Vec<cobolt_forms::Control> = self
+            .controls
+            .iter()
+            .filter(|c| c.control_type == ControlType::Viewer)
+            .map(|c| match self.state.keys().find(|k| k.eq_ignore_ascii_case(&c.id)) {
+                Some(k) => cobolt_forms::render::merge_props(c, self.state[k].props.iter()),
+                None => c.clone(),
+            })
+            .collect();
+
+        // Controls that are gone take their thread with them.
+        self.viewer_sessions.retain(|id, _| viewers.iter().any(|c| &c.id == id));
+        if viewers.is_empty() {
+            return;
+        }
+
+        let mut wanted_repaint = false;
+        for ctrl in &viewers {
+            let session = self
+                .viewer_sessions
+                .entry(ctrl.id.clone())
+                .or_insert_with(|| crate::viewer_session::ViewerSession::new(ctrl.id.clone()));
+
+            let mode = cobolt_forms::viewer::SplitMode::from_str(
+                &ctrl.get_prop("SplitMode").map(|v| v.as_str().to_owned()).unwrap_or_default(),
+            );
+            for view in 0..mode.view_count() {
+                let source = cobolt_forms::viewer::view_prop("Source", view);
+                let mut path = ctrl
+                    .get_prop(&source)
+                    .map(|v| v.as_str().trim().to_owned())
+                    .unwrap_or_default();
+                if view == 0 && path.is_empty() {
+                    path = ctrl.get_prop("Source").map(|v| v.as_str().trim().to_owned()).unwrap_or_default();
+                }
+                if path.is_empty() {
+                    continue;
+                }
+                let page = cobolt_forms::viewer::view_prop("Page", view);
+                let page = ctrl.get_prop(&page).map(|v| v.as_i64()).unwrap_or(1).max(1) as usize - 1;
+                if session.document(&path).is_none() {
+                    // Asked for but not answered yet: keep the frames coming
+                    // so the document appears the moment it is ready.
+                    wanted_repaint = true;
+                }
+                session.request(&path, page);
+            }
+            session.drain_completed();
+        }
+        if wanted_repaint {
+            ctx.request_repaint();
+        }
+    }
+
+    /// Everything this form's decode threads have finished, by source path.
+    pub(crate) fn viewer_documents(
+        &self,
+    ) -> std::collections::HashMap<String, std::sync::Arc<cobolt_forms::paint::ViewerDocument>> {
+        let mut out = std::collections::HashMap::new();
+        for session in self.viewer_sessions.values() {
+            for (source, doc) in session.ready_documents() {
+                out.insert(source, doc);
+            }
+        }
+        out
+    }
+
 
     /// Which page each `TabControl` is showing RIGHT NOW.
     ///
@@ -886,7 +970,8 @@ impl FormBody {
             state: &self.state,
             anim: &self.anim,
             hidden: None,
-            special_names: &self.special_names,
+            viewer_docs: None,
+                special_names: &self.special_names,
         };
         let active_tabs = self.active_tabs();
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(band));
@@ -2254,6 +2339,7 @@ impl FormBody {
                 state: &self.state,
                 anim: &self.anim,
                 hidden: Some(&self.footer_ids),
+                viewer_docs: None,
                 special_names: &self.special_names,
             };
             let active_tabs = self.active_tabs();
@@ -4599,12 +4685,17 @@ impl FormHost {
         // would be the already-consumed remainder, and every notification would
         // anchor to the wrong rectangle.
         let snack_surface = root_ui.available_rect_before_wrap();
+        // R5/R5.1 — ask this form's Viewer threads for their work and
+        // collect what is finished, BEFORE the render borrows the body.
+        self.root.tick_viewers(ctx);
+        let viewer_docs = self.root.viewer_documents();
         let output = {
             let controls = self.root.controls.clone();
             let st = LiveState {
                 state: &self.root.state,
                 anim: &self.root.anim,
                 hidden: Some(&self.root.footer_ids),
+                viewer_docs: Some(&viewer_docs),
                 special_names: &self.root.special_names,
             };
             let active_tabs = self.root.active_tabs();
@@ -5896,6 +5987,7 @@ mod parity {
                 state: &h.root.state,
                 anim: &h.root.anim,
                 hidden: None,
+                viewer_docs: None,
                 special_names: &h.root.special_names,
             };
             st.visible(&sw)
@@ -5996,6 +6088,7 @@ mod parity {
                 state: &h.root.state,
                 anim: &h.root.anim,
                 hidden: None,
+                viewer_docs: None,
                 special_names: &h.root.special_names,
             };
             cobolt_forms::containers::is_visible(controls, idx, &h.root.active_tabs(), &|c| {
@@ -6415,7 +6508,8 @@ mod parity {
             state: &pane.root.state,
             anim: &pane.root.anim,
             hidden: Some(&pane.root.footer_ids),
-            special_names: &pane.root.special_names,
+            viewer_docs: None,
+                special_names: &pane.root.special_names,
         };
         assert!(
             !st.visible(&ctrl_of(&pane, "SIDE-1-Footer"))

@@ -81,6 +81,28 @@ pub trait FormState {
     fn currency(&self) -> char {
         '$'
     }
+
+    /// Spec 058 R5/R5.1 — the document a Viewer view should paint, decoded
+    /// **off the UI thread** by the host.
+    ///
+    /// The default is `None`, and that default is the whole design: the
+    /// designer canvas has no thread, no clock and no `ViewerSession` to ask,
+    /// so it never overrides this and falls back to `paint`'s synchronous
+    /// decode. A running form's host does own one, overrides it, and hands
+    /// back what its worker already read. **Both then paint through the same
+    /// `draw_viewer`**, which is what keeps AC11's parity exact rather than
+    /// making it something two code paths have to agree about.
+    ///
+    /// It takes the SOURCE as well as the control because one control can
+    /// show two documents (R21) — `View1Source` and `View2Source` — and a
+    /// per-control answer could only ever be right about one of them.
+    fn viewer_document(
+        &self,
+        _base: &Control,
+        _source: &str,
+    ) -> Option<std::sync::Arc<crate::paint::ViewerDocument>> {
+        None
+    }
 }
 
 /// A live render transform for one control (animation). `dx`/`dy` shift it in
@@ -2082,6 +2104,35 @@ fn render_form_inner(
     let controls: &[Control] = expanded.as_deref().unwrap_or(input.controls);
     let order = containers::render_order(controls);
     let interactive = input.mode == RenderMode::Interactive;
+
+    // ── Spec 058 R5/R5.1 — hand the paint whatever the host has already
+    // decoded, before a single control is drawn.
+    //
+    // Once per form rather than once per control arm: this is a question
+    // about the FORM's state ("what has your worker finished?"), and asking
+    // it here means `render_interactive` needs no `FormState` of its own.
+    //
+    // **Interactive surfaces only.** The designer canvas has no thread, no
+    // clock and no `ViewerSession` to ask, so it publishes nothing and falls
+    // back to `paint`'s synchronous decode. That asymmetry is the design,
+    // not an oversight — and both paths still end at the same `draw_viewer`,
+    // which is what keeps AC11's parity exact.
+    if interactive {
+        for ctrl in live_controls.iter().filter(|c| c.control_type == ControlType::Viewer) {
+            let mode = crate::viewer::SplitMode::from_str(
+                &ctrl.get_prop("SplitMode").map(|v| v.as_str().to_owned()).unwrap_or_default(),
+            );
+            for view in 0..mode.view_count() {
+                let source =
+                    crate::paint::ViewerPaintState::from_control(ctrl, view, None, 1.0).source;
+                if source.is_empty() {
+                    continue;
+                }
+                let doc = input.state.viewer_document(ctrl, &source);
+                crate::paint::publish_viewer_document(ui.ctx(), &source, doc);
+            }
+        }
+    }
     // ComboBox dropdowns are drawn in a second pass so they float above every
     // other control. The Control itself is out of reach by then, so everything
     // the popup needs travels with it.
@@ -12117,6 +12168,170 @@ mod tests {
         }
 
         assert!(failures.is_empty(), "AC30: these events did not fire at their documented moment: {failures:?}");
+    }
+
+    // ── Spec 058 R5/R5.1: the host's decoded document reaches the paint ──
+
+    /// A `FormState` that answers `viewer_document` the way a running
+    /// form's host does — the one override that tells the two surfaces
+    /// apart.
+    struct HostedViewer {
+        doc: std::sync::Arc<crate::paint::ViewerDocument>,
+        source: String,
+    }
+
+    impl FormState for HostedViewer {
+        fn viewer_document(
+            &self,
+            _base: &Control,
+            source: &str,
+        ) -> Option<std::sync::Arc<crate::paint::ViewerDocument>> {
+            (source == self.source).then(|| self.doc.clone())
+        }
+    }
+
+    /// Every text a form painted, for one pass, under a given `FormState`.
+    fn painted_text_under(
+        controls: &[Control],
+        state: &dyn FormState,
+        mode: RenderMode,
+        ctx: &egui::Context,
+    ) -> Vec<String> {
+        let active = ActiveTabs::new();
+        let mut texts = Vec::new();
+        for _ in 0..2 {
+            texts.clear();
+            let mut input = egui::RawInput::default();
+            input.screen_rect =
+                Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(760.0, 560.0)));
+            let mut out = ctx.run_ui(input, |root| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
+                    let rin = RenderInput {
+                        controls,
+                        state,
+                        form_size: Vec2::new(700.0, 500.0),
+                        glass: true,
+                        mode,
+                        active_tabs: &active,
+                        backdrop: Default::default(),
+                    };
+                    let _ = render_form(ui, &rin);
+                });
+            });
+            out.textures_delta.clear();
+            fn walk(s: &egui::Shape, into: &mut Vec<String>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, into)),
+                    egui::Shape::Text(t) => into.push(t.galley.text().to_owned()),
+                    _ => {}
+                }
+            }
+            for cs in &out.shapes {
+                walk(&cs.shape, &mut texts);
+            }
+        }
+        texts
+    }
+
+    /// **R5/R5.1** — a running form paints the document its HOST decoded, and
+    /// does not open the file itself.
+    ///
+    /// The proof is a host document whose content the file on disk does not
+    /// contain: if the paint were still reading the file, the words it drew
+    /// would be the file's. Only the hook can put them there.
+    #[test]
+    fn a_running_form_paints_the_document_its_host_decoded() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("on-disk.txt");
+        std::fs::write(&path, "WHAT THE FILE SAYS\n").unwrap();
+        let source = path.to_string_lossy().into_owned();
+
+        let mut ctrl = ctrl("VWR-1", ControlType::Viewer, 20, 20, 600, 400);
+        ctrl.set_prop("Source", PropValue::String(source.clone()));
+        ctrl.set_prop("View1Source", PropValue::String(source.clone()));
+        ctrl.set_prop("Layout", PropValue::String("Raw".into()));
+        let controls = vec![ctrl];
+
+        let hosted = HostedViewer {
+            source: source.clone(),
+            doc: std::sync::Arc::new(crate::paint::ViewerDocument {
+                format: crate::viewer::ViewerFormat::Text,
+                page_count: 7,
+                current_page: 0,
+                content: std::sync::Arc::new(crate::paint::ViewerPageContent::Text(
+                    "WHAT THE WORKER DECODED".into(),
+                )),
+                previews: Default::default(),
+            }),
+        };
+
+        // A running form: the host answers the hook.
+        let running = painted_text_under(&controls, &hosted, RenderMode::Interactive, &egui::Context::default());
+        // The designer canvas: nothing overrides it, so it reads the file.
+        let canvas = painted_text_under(&controls, &DesignedVisibility, RenderMode::Static, &egui::Context::default());
+
+        let says = |texts: &[String], needle: &str| texts.iter().any(|t| t.contains(needle));
+        println!("running form painted the worker's text: {}", says(&running, "WHAT THE WORKER DECODED"));
+        println!("running form painted the file's text:   {}", says(&running, "WHAT THE FILE SAYS"));
+        println!("designer canvas painted the file's text: {}", says(&canvas, "WHAT THE FILE SAYS"));
+
+        assert!(
+            says(&running, "WHAT THE WORKER DECODED"),
+            "R5.1: the running form must paint what its host decoded, got {running:?}"
+        );
+        assert!(
+            !says(&running, "WHAT THE FILE SAYS"),
+            "and must NOT have opened the file itself"
+        );
+        assert!(
+            says(&canvas, "WHAT THE FILE SAYS"),
+            "the designer canvas has no host, so it still falls back to reading the file"
+        );
+    }
+
+    /// The host's page count reaches the chrome too — a filmstrip and a card
+    /// grid are drawn from what the worker counted, never from a second
+    /// count taken on the UI thread.
+    #[test]
+    fn the_hosts_page_count_is_what_the_card_grid_draws() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("one-page.txt");
+        // ONE page on disk; the host says nine. The grid must believe the
+        // host, or it is counting for itself somewhere.
+        std::fs::write(&path, "a single short page\n").unwrap();
+        let source = path.to_string_lossy().into_owned();
+
+        let mut ctrl = ctrl("VWR-1", ControlType::Viewer, 20, 20, 600, 400);
+        ctrl.set_prop("Source", PropValue::String(source.clone()));
+        ctrl.set_prop("View1Source", PropValue::String(source.clone()));
+        ctrl.set_prop("Layout", PropValue::String("Raw".into()));
+        ctrl.set_prop("View1ViewMode", PropValue::String("Cards".into()));
+        ctrl.set_prop("View1CardSize", PropValue::Int(0));
+        let controls = vec![ctrl];
+
+        let mut previews = std::collections::HashMap::new();
+        previews.insert(3usize, "the fourth page, as the worker read it".to_string());
+        let hosted = HostedViewer {
+            source,
+            doc: std::sync::Arc::new(crate::paint::ViewerDocument {
+                format: crate::viewer::ViewerFormat::Text,
+                page_count: 9,
+                current_page: 0,
+                content: std::sync::Arc::new(crate::paint::ViewerPageContent::Text("page one".into())),
+                previews,
+            }),
+        };
+
+        let texts = painted_text_under(&controls, &hosted, RenderMode::Interactive, &egui::Context::default());
+        let numbers: Vec<usize> =
+            texts.iter().filter_map(|t| t.trim().parse::<usize>().ok()).collect();
+        println!("card numbers painted: {numbers:?}");
+        println!("the worker's preview reached a card: {}", texts.iter().any(|t| t.contains("fourth page")));
+        assert!(numbers.contains(&9), "the host said nine pages, so there is a card 9: {numbers:?}");
+        assert!(
+            texts.iter().any(|t| t.contains("fourth page")),
+            "and a preview the worker decoded is drawn on its card"
+        );
     }
 
     /// **A MenuBar with ShadowEnabled off casts no shadow.**

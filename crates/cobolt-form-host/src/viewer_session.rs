@@ -58,16 +58,111 @@ pub struct DecodedPage {
 /// A unit of work the decode thread can be asked to do.
 #[derive(Debug, Clone)]
 pub enum ViewerJob {
-    /// Decode one page. The real decoder (text/Markdown/image/PDF/HTML) is
-    /// Stage C's job; this thread's own job is only to run *something*
-    /// off the UI thread and report back through `done_tx`.
+    /// Decode one page (the T6/T7 mechanism's own stand-in job).
     DecodePage { index: usize },
+    /// **R5/R5.1's real work**: open `source`, index it, decode `page`, and
+    /// decode a bounded run of page previews for the filmstrip and the card
+    /// grid — all of it on this control's own thread.
+    ///
+    /// This is the job `spec.md`'s headline user story turns on: indexing a
+    /// two-gigabyte log takes seconds, and doing it here is the difference
+    /// between a form that keeps painting and one that stops dead.
+    OpenDocument { source: String, page: usize },
 }
 
+/// How many page previews one open decodes. Bounded on purpose (R2): the
+/// filmstrip and the card grid can only show a handful at once, and a
+/// thirty-two-thousand-page log must not cost thirty-two thousand decodes.
+pub const PREVIEW_WINDOW: usize = 24;
+/// The longest preview text kept per page.
+pub const PREVIEW_CHARS: usize = 400;
+
 /// What the decode thread reports back.
-#[derive(Debug, Clone)]
+///
+/// Not `Debug`: a finished document carries a decoded page (and, for an
+/// image, its pixels), and formatting that into a log line would be a
+/// megabyte nobody asked for.
+#[derive(Clone)]
 pub enum ViewerDone {
     PageReady(DecodedPage),
+    /// A document finished opening — or failed to, with the reason.
+    Document {
+        source: String,
+        result: Result<std::sync::Arc<cobolt_forms::paint::ViewerDocument>, String>,
+    },
+}
+
+/// Open a document and build what the paint needs from it.
+///
+/// A free function, and deliberately: it runs on the worker thread and must
+/// touch nothing the UI thread owns. Everything it needs arrives in its
+/// arguments and everything it produces leaves down the channel.
+fn open_document_for_paint(
+    source: &str,
+    page: usize,
+) -> Result<cobolt_forms::paint::ViewerDocument, String> {
+    use cobolt_forms::paint::ViewerPageContent;
+    use cobolt_forms::viewer::{self, DocumentSource, ViewerFormat};
+
+    let resolved = cobolt_forms::assets::resolve(source);
+    let bytes = std::fs::read(&resolved).map_err(|e| format!("could not read document: {e}"))?;
+    let head = &bytes[..bytes.len().min(4096)];
+    let format = viewer::detect_format(Some(source), head)
+        .ok_or_else(|| "unsupported document format".to_string())?;
+    let doc_source = DocumentSource::Path(resolved.to_string_lossy().into_owned());
+
+    let mut previews = HashMap::new();
+    let (content, page_count) = match format {
+        ViewerFormat::Text => {
+            // THE expensive step, and the reason this whole file exists: one
+            // sequential pass over the source, here rather than in a paint.
+            let index = viewer::index_text(&doc_source).map_err(|e| e.to_string())?;
+            let count = index.page_count().max(1);
+            let wanted = page.min(count.saturating_sub(1));
+            let span = index.pages.get(wanted).copied().unwrap_or(viewer::PageSpan { start: 0, end: 0 });
+            let text = viewer::decode_text_page(&doc_source, span).map_err(|e| e.to_string())?;
+            // A bounded window of previews AROUND the page in view — what a
+            // filmstrip beside it can actually show.
+            let first = wanted.saturating_sub(PREVIEW_WINDOW / 2);
+            for i in first..(first + PREVIEW_WINDOW).min(count) {
+                let Some(s) = index.pages.get(i) else { continue };
+                if let Ok(t) = viewer::decode_text_page(&doc_source, *s) {
+                    previews.insert(i, t.chars().take(PREVIEW_CHARS).collect());
+                }
+            }
+            (ViewerPageContent::Text(text), count)
+        }
+        ViewerFormat::Markdown => {
+            let raw = String::from_utf8_lossy(&bytes).into_owned();
+            let parsed = viewer::parse_markdown(&raw);
+            (ViewerPageContent::Markdown { raw, doc: parsed }, 1)
+        }
+        ViewerFormat::HtmlSubset => {
+            let raw = String::from_utf8_lossy(&bytes).into_owned();
+            let parsed = viewer::parse_html(&raw);
+            (ViewerPageContent::Markdown { raw, doc: parsed }, 1)
+        }
+        ViewerFormat::Pdf => {
+            let pdf = viewer::parse_pdf(&bytes)?;
+            let count = pdf.page_count().max(1);
+            for p in &pdf.pages {
+                let i = (p.number as usize).saturating_sub(1);
+                if i < PREVIEW_WINDOW {
+                    previews.insert(i, p.text.chars().take(PREVIEW_CHARS).collect());
+                }
+            }
+            (ViewerPageContent::Pdf(pdf), count)
+        }
+        ViewerFormat::Image => (ViewerPageContent::Image(viewer::decode_image(&bytes)?), 1),
+    };
+
+    Ok(cobolt_forms::paint::ViewerDocument {
+        format,
+        page_count,
+        current_page: page.min(page_count.saturating_sub(1)),
+        content: std::sync::Arc::new(content),
+        previews,
+    })
 }
 
 /// An LRU cache of decoded pages, bounded by a page COUNT budget — not by the
@@ -267,6 +362,12 @@ pub struct ViewerSession {
     pub views: [ViewState; 2],
     /// R21.1's "attach, don't reload", shared by both views.
     pub documents: DocumentRegistry,
+    /// What the worker has finished, by source path — what the paint reads
+    /// through `FormState::viewer_document`.
+    documents_ready: HashMap<String, std::sync::Arc<cobolt_forms::paint::ViewerDocument>>,
+    /// `(source, page)` already asked for, so one change is one decode.
+    requested: HashMap<String, usize>,
+    last_error: Option<(String, String)>,
     history: cobolt_forms::viewer::ConversationHistory,
 }
 
@@ -294,14 +395,16 @@ impl ViewerSession {
             .spawn(move || {
                 for job in jobs_rx.iter() {
                     match job {
-                        // Stage C replaces this with the real per-format
-                        // decoder; T6/T7's job is only the thread/cache
-                        // mechanism around it, proven with a stand-in.
                         ViewerJob::DecodePage { index } => {
                             let _ = done_tx.send(ViewerDone::PageReady(DecodedPage {
                                 index,
                                 placeholder_len: 0,
                             }));
+                        }
+                        ViewerJob::OpenDocument { source, page } => {
+                            let result = open_document_for_paint(&source, page)
+                                .map(std::sync::Arc::new);
+                            let _ = done_tx.send(ViewerDone::Document { source, result });
                         }
                     }
                 }
@@ -316,6 +419,9 @@ impl ViewerSession {
             cache: BoundedPageCache::new(DEFAULT_CACHE_BUDGET),
             views: [ViewState::default(), ViewState::default()],
             documents: DocumentRegistry::new(),
+            documents_ready: HashMap::new(),
+            requested: HashMap::new(),
+            last_error: None,
             history: cobolt_forms::viewer::ConversationHistory::new(),
         }
     }
@@ -372,9 +478,53 @@ impl ViewerSession {
                         evicted.push(dropped);
                     }
                 }
+                ViewerDone::Document { source, result } => match result {
+                    Ok(doc) => {
+                        self.last_error = None;
+                        self.documents_ready.insert(source, doc);
+                    }
+                    // A document that will not open is R4's business, not a
+                    // reason to lose the one already on screen: the previous
+                    // entry stays exactly where it is.
+                    Err(why) => self.last_error = Some((source, why)),
+                },
             }
         }
         evicted
+    }
+
+    /// The decoded document for `source`, if the worker has finished it.
+    pub fn document(&self, source: &str) -> Option<std::sync::Arc<cobolt_forms::paint::ViewerDocument>> {
+        self.documents_ready.get(source).cloned()
+    }
+
+    /// Ask for `source` at `page`, unless that exact request is already in
+    /// flight or already answered.
+    ///
+    /// The guard is what keeps this a decode per CHANGE rather than a decode
+    /// per frame — sixty full indexes a second would be worse than the
+    /// synchronous read it replaces.
+    pub fn request(&mut self, source: &str, page: usize) {
+        if source.trim().is_empty() {
+            return;
+        }
+        if self.requested.get(source) == Some(&page) {
+            return;
+        }
+        self.requested.insert(source.to_string(), page);
+        self.submit(ViewerJob::OpenDocument { source: source.to_string(), page });
+    }
+
+    /// Every document this session's worker has finished, by source path.
+    pub fn ready_documents(
+        &self,
+    ) -> impl Iterator<Item = (String, std::sync::Arc<cobolt_forms::paint::ViewerDocument>)> + '_ {
+        self.documents_ready.iter().map(|(k, v)| (k.clone(), v.clone()))
+    }
+
+    /// The last open that failed, as `(source, reason)`.
+    pub fn last_error(&self) -> Option<&(String, String)> {
+        self.last_error.as_ref()
     }
 
     /// Drop the jobs channel (unblocking the worker's `for job in
@@ -850,5 +1000,189 @@ mod conversation_history_tests {
         assert_eq!(session.history_len(), 0, "AC26: no spurious entry");
         session.archive_current(true, entry("real", "Real content"));
         assert_eq!(session.history_len(), 1, "and a real one is archived");
+    }
+}
+
+/// Spec 058 **R5/R5.1** — the decode really does happen off the calling
+/// thread, and a request really is cheap.
+///
+/// `spec.md`'s headline user story is opening a two-gigabyte log without the
+/// form stalling. These tests measure the two halves of that claim: asking
+/// costs microseconds, and the answer arrives on a thread that is not this
+/// one.
+#[cfg(test)]
+mod off_thread_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    /// A text file of `pages` form-feed-separated pages.
+    fn paged_file(dir: &tempfile::TempDir, name: &str, pages: usize, bytes_per_page: usize) -> String {
+        use std::io::Write;
+        let path = dir.path().join(name);
+        let mut f = std::fs::File::create(&path).unwrap();
+        for i in 0..pages {
+            let marker = (b'A' + (i % 26) as u8) as char;
+            write!(f, "page {i} ").unwrap();
+            f.write_all(marker.to_string().repeat(bytes_per_page).as_bytes()).unwrap();
+            f.write_all(&[cobolt_forms::viewer::FORM_FEED]).unwrap();
+        }
+        path.to_string_lossy().into_owned()
+    }
+
+    /// Wait for the worker by DRAINING, never by sleeping — a measured
+    /// completion signal within a bound, which is this project's house style
+    /// for anything timing-sensitive.
+    fn wait_for(session: &mut ViewerSession, source: &str, bound: Duration) -> Option<Duration> {
+        let start = Instant::now();
+        while start.elapsed() < bound {
+            session.drain_completed();
+            if session.document(source).is_some() {
+                return Some(start.elapsed());
+            }
+            std::thread::yield_now();
+        }
+        None
+    }
+
+    /// **R5.1** — asking for a large document returns at once; the indexing
+    /// happens somewhere else.
+    ///
+    /// The numbers are what matter: if `request()` were doing the work, its
+    /// own elapsed time would be the whole decode rather than a rounding
+    /// error beside it.
+    #[test]
+    fn requesting_a_large_document_returns_immediately_and_decodes_off_thread() {
+        let dir = tempfile::tempdir().unwrap();
+        // ~6 MB across 400 pages: big enough that indexing is measurable,
+        // small enough that a test suite stays quick.
+        let source = paged_file(&dir, "big.log", 400, 16 * 1024);
+        let size = std::fs::metadata(&source).unwrap().len();
+
+        let mut session = ViewerSession::new("VWR-1");
+        let asked = Instant::now();
+        session.request(&source, 0);
+        let ask_cost = asked.elapsed();
+
+        let decoded = wait_for(&mut session, &source, Duration::from_secs(20))
+            .expect("the worker must finish within the bound");
+
+        let doc = session.document(&source).expect("and hand back a document");
+        println!("R5.1, measured on a {:.1} MB / 400-page document:", size as f64 / 1_048_576.0);
+        println!("  request() returned in         {:?}", ask_cost);
+        println!("  the worker finished after     {:?}", decoded);
+        println!("  pages {}, previews decoded {}", doc.page_count, doc.previews.len());
+        assert_eq!(doc.page_count, 400, "the whole document was indexed");
+        assert!(
+            ask_cost < Duration::from_millis(5),
+            "R5.1: asking must not do the work — it took {ask_cost:?}"
+        );
+        assert!(
+            doc.previews.len() <= PREVIEW_WINDOW,
+            "R2: previews are bounded, got {}",
+            doc.previews.len()
+        );
+        assert!(!doc.previews.is_empty(), "but the filmstrip does get something to show");
+    }
+
+    /// The work happens on **this control's own** thread, named for it
+    /// (AC21) — not on the caller's, and not on a pool shared with another
+    /// Viewer.
+    #[test]
+    fn two_sessions_decode_on_two_differently_named_threads_of_their_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = paged_file(&dir, "a.log", 8, 512);
+        let b = paged_file(&dir, "b.log", 12, 512);
+
+        let mut one = ViewerSession::new("VWR-1");
+        let mut two = ViewerSession::new("VWR-2");
+        println!("threads: {:?} and {:?}", one.thread_name(), two.thread_name());
+        assert_eq!(one.thread_name().as_deref(), Some("viewer-VWR-1"));
+        assert_eq!(two.thread_name().as_deref(), Some("viewer-VWR-2"));
+        assert_ne!(one.thread_name(), two.thread_name(), "AC21: one thread each");
+
+        one.request(&a, 0);
+        two.request(&b, 0);
+        let ta = wait_for(&mut one, &a, Duration::from_secs(10)).expect("VWR-1 finished");
+        let tb = wait_for(&mut two, &b, Duration::from_secs(10)).expect("VWR-2 finished");
+        println!("VWR-1 {:?} ({} pages), VWR-2 {:?} ({} pages)", ta, one.document(&a).unwrap().page_count, tb, two.document(&b).unwrap().page_count);
+        assert_eq!(one.document(&a).unwrap().page_count, 8);
+        assert_eq!(two.document(&b).unwrap().page_count, 12);
+        assert!(one.document(&b).is_none(), "and neither knows the other's work");
+    }
+
+    /// One change is one decode. Asking sixty times a second for the same
+    /// thing would be worse than the synchronous read this replaces.
+    #[test]
+    fn asking_again_for_the_same_page_does_not_decode_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = paged_file(&dir, "steady.log", 20, 1024);
+        let mut session = ViewerSession::new("VWR-1");
+
+        session.request(&source, 0);
+        wait_for(&mut session, &source, Duration::from_secs(10)).expect("first decode");
+        let first = session.document(&source).unwrap();
+
+        // Sixty more frames asking for exactly the same thing.
+        for _ in 0..60 {
+            session.request(&source, 0);
+            session.drain_completed();
+        }
+        let after = session.document(&source).unwrap();
+        println!(
+            "60 identical requests later: same decode = {}",
+            std::sync::Arc::ptr_eq(&first, &after)
+        );
+        assert!(
+            std::sync::Arc::ptr_eq(&first, &after),
+            "the guard must make one change one decode"
+        );
+
+        // A different PAGE is a different request, and is answered.
+        session.request(&source, 9);
+        let start = Instant::now();
+        let mut changed = false;
+        while start.elapsed() < Duration::from_secs(10) {
+            session.drain_completed();
+            let now = session.document(&source).unwrap();
+            if !std::sync::Arc::ptr_eq(&first, &now) {
+                changed = true;
+                println!("asking for page 9 produced a new decode, current_page = {}", now.current_page);
+                assert_eq!(now.current_page, 9);
+                break;
+            }
+            std::thread::yield_now();
+        }
+        assert!(changed, "a different page must actually be decoded");
+    }
+
+    /// R4 from the host's side: a document that will not open leaves the one
+    /// already decoded exactly where it is.
+    #[test]
+    fn a_failed_open_never_disturbs_the_document_already_decoded() {
+        let dir = tempfile::tempdir().unwrap();
+        let good = paged_file(&dir, "good.log", 4, 256);
+        let bad = dir.path().join("mystery.bin");
+        std::fs::write(&bad, (0..256u16).map(|b| (b % 256) as u8).collect::<Vec<u8>>()).unwrap();
+        let bad = bad.to_string_lossy().into_owned();
+
+        let mut session = ViewerSession::new("VWR-1");
+        session.request(&good, 0);
+        wait_for(&mut session, &good, Duration::from_secs(10)).expect("the good one opens");
+
+        session.request(&bad, 0);
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(10) && session.last_error().is_none() {
+            session.drain_completed();
+            std::thread::yield_now();
+        }
+        println!("after the bad open: last_error {:?}", session.last_error());
+        println!("the good document is still there: {}", session.document(&good).is_some());
+        assert!(session.last_error().is_some(), "the failure is reported");
+        assert!(session.document(&bad).is_none(), "and nothing was stored for it");
+        assert_eq!(
+            session.document(&good).map(|d| d.page_count),
+            Some(4),
+            "R4: the document already decoded is untouched"
+        );
     }
 }

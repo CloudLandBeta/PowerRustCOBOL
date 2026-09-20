@@ -1,5 +1,33 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.99] — 2026-09-19
+
+### A Viewer opens a huge document without the form stopping
+
+Spec 058 R5.1, closed. Reading and indexing a document now happens on the
+Viewer's **own background thread**, where it always should have: the form asks
+for a document and carries straight on painting, and the document appears when
+it is ready.
+
+Measured on a 6.3 MB, four-hundred-page log: asking costs **nine
+microseconds**, and the fifty-five milliseconds of actual reading happen
+somewhere the form never waits for. That is the difference between a window
+that keeps answering the mouse and one that stops dead — and it is what makes
+the promise of opening a two-gigabyte log and jumping to its end a real
+promise rather than a hopeful one.
+
+Asking twice for the same page costs one read, not two, so a form running at
+sixty frames a second does not re-read its document sixty times a second. Each
+Viewer gets its own thread, named after the control, so a slow document in one
+cannot delay another. A document that fails to open leaves the one already on
+screen exactly where it is.
+
+The Form Designer's canvas has no such thread and needs none: it still reads
+what it shows directly, and both it and the running form paint through the
+same code, so a form looks the same in the designer as it does running.
+
+cobolt-forms 1074 passed, cobolt-form-host 137 passed; 0 failed.
+
 ## [PowerRustCOBOL 1.70.98] — 2026-09-19
 
 ### Spec 058 complete: the Viewer control

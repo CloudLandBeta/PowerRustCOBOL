@@ -111,6 +111,13 @@ pub struct LiveState<'a> {
     /// each, so only WHO DRAWS THEM changes. The renderer skips an invisible
     /// control outright, leaving no rect behind.
     pub hidden: Option<&'a std::collections::HashSet<String>>,
+    /// Spec 058 R5/R5.1 — documents this form's Viewer sessions have already
+    /// decoded, by source path.
+    ///
+    /// `None` for a surface with no session behind it (a fragment pass, a
+    /// test), which then falls back to `paint`'s synchronous decode exactly
+    /// as the designer canvas does.
+    pub viewer_docs: Option<&'a std::collections::HashMap<String, std::sync::Arc<cobolt_forms::paint::ViewerDocument>>>,
     /// The form's `SPECIAL-NAMES` paragraph, verbatim.
     ///
     /// A control's `Picture` reads its decimal separator and currency character
@@ -161,6 +168,16 @@ impl<'a> cobolt_forms::render::FormState for LiveState<'a> {
     }
     fn transform(&self, base: &cobolt_forms::Control) -> cobolt_forms::render::RenderTransform {
         self.anim.transform(base)
+    }
+
+    /// Spec 058 R5/R5.1 — hand back what this form's own decode thread has
+    /// already read, so the paint never opens a document itself.
+    fn viewer_document(
+        &self,
+        _base: &cobolt_forms::Control,
+        source: &str,
+    ) -> Option<std::sync::Arc<cobolt_forms::paint::ViewerDocument>> {
+        self.viewer_docs?.get(source).cloned()
     }
 }
 
@@ -221,6 +238,7 @@ mod tests {
 
         let anim = cobolt_forms::anim::AnimRuntime::new(100.0, 100.0);
         let live = LiveState {
+            viewer_docs: None,
             state: &state,
             anim: &anim,
             hidden: None,

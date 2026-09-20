@@ -1113,18 +1113,22 @@ KB updated, and the change sits in feature commit(s) on `features` (do **not**
 commit or push unless the operator asks).
 
 > **Still open for the operator, recorded rather than quietly dropped:**
-> 1. **R5.1's background thread is not wired into the render path.**
->    `ViewerSession` exists, is tested, and owns a named thread per control
->    and a bounded page cache — but both surfaces still use `paint`'s
->    synchronous, memoized decode. That decode IS bounded (page offsets only,
->    and only the pages a card grid or filmstrip actually shows), so nothing
->    is unbounded; what is missing is the off-thread hop for the very first
->    index of a very large document. The intended shape is written down under
->    T12. It is one plumbing change through `cobolt-form-host`'s frame loop
->    and a defaulted `FormState` hook.
-> 2. **R29's coloured highlight overlay is painted on the single-galley path
->    only** — see T15. Counting and Next/Previous are correct everywhere;
->    the overlay is missing on a *formatted* Markdown or HTML document.
+> 1. ~~**R5.1's background thread is not wired into the render path.**~~
+>    **CLOSED — 2026-09-19 (1.70.99).** Built exactly as T12 designed it: a
+>    defaulted `FormState::viewer_document(base, source)` hook the host
+>    overrides and the designer canvas does not, published once per form in
+>    `render_form_inner` and read by `draw_control_body`'s `CT::Viewer`
+>    branch. `ViewerSession` now does real work — `ViewerJob::OpenDocument`
+>    indexes, decodes the page in view and a **bounded window of 24 page
+>    previews**, all on the control's own named thread — and
+>    `FormBody::tick_viewers` asks and drains once a frame.
+>    **Measured on a 6.3 MB / 400-page log: `request()` returns in 9.125 µs,
+>    the worker finishes 54.7 ms later.** The hook takes the SOURCE as well
+>    as the control, a deliberate widening of T12's sketch: one control can
+>    show two documents (R21), and a per-control answer could only ever be
+>    right about one of them.
+> 2. ~~**R29's coloured highlight overlay is painted on the single-galley
+>    path only.**~~ **CLOSED — see the entry under T15.**
 > 3. **The manual pass below is the operator's**, per this project's standing
 >    "never drive the application" rule.
 
