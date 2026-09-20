@@ -1,5 +1,25 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.100] — 2026-09-19
+
+### Find marks its matches on formatted documents too
+
+Spec 058 R29, closed. Searching a formatted Markdown or HTML document used to
+tell you how many matches there were and where you were among them, while
+showing you none of them — the coloured marks were drawn only on unformatted
+text. Now every match is marked wherever it is: in a heading, in a paragraph,
+in a list, inside a code block, in a table cell. The current match is picked
+out from the rest, and moving to the next one moves the distinguishing colour
+with it.
+
+Counting and marking are now the same walk, so the number in the Find bar and
+the marks on the page cannot disagree about how many there are. A Mermaid
+diagram — whose source is searchable while what you see is a picture — is
+counted as the walk passes it, so a match after a diagram still marks the
+right one rather than the one beside it.
+
+cobolt-forms 1076 passed, cobolt-form-host 137 passed; 0 failed.
+
 ## [PowerRustCOBOL 1.70.99] — 2026-09-19
 
 ### A Viewer opens a huge document without the form stopping

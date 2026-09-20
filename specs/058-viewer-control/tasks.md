@@ -405,16 +405,28 @@ not a claim about what §8.1 means architecturally.
     characters, each remembering its **source** char's byte range. The test
     asserts exact offsets, because "two matches" would pass with both of
     them misplaced.
-  - **⚠️ Known gap — highlights are painted on the single-galley path only.**
-    A plain-`Text` document in any layout, and any document under `Raw`, gets
-    R29's coloured overlay. A **formatted Markdown** document is many
-    galleys, and mapping a global span into the right one needs a running
-    text offset threaded through `paint_block`; the **count and
-    Next/Previous work correctly there** (both come from
-    `SearchableText`, the prose a reader actually sees), only the overlay is
-    missing. Recorded rather than half-done. **T22 is the natural place to
-    close it** — it already re-runs Stage D's tests against an HTML-subset
-    document, which is exactly when the blocks path matters.
+  - ~~**Known gap — highlights are painted on the single-galley path
+    only.**~~ **CLOSED — 2026-09-19 (1.70.100).** R29's overlay now reaches
+    formatted Markdown and HTML as well.
+    **The obvious approach was rejected:** mapping `SearchableText`'s global
+    spans onto each galley needs two independent walkers to agree, character
+    for character, about what a document's text is — and they would drift the
+    first time either changed. `FindPaint` instead searches **each galley's
+    own text** as it is painted, keeping a running count in document order to
+    say which match is the current one. The two counts agree because both
+    walkers see the same runs in the same order, and `find_total` is now what
+    the **walk** counted, so the counter and the marks cannot disagree about
+    how many there are.
+    A block that is *searched but not painted as text* — a Mermaid diagram,
+    whose source is findable while what is drawn is a picture — calls
+    `FindPaint::skip`, so every match **after** a diagram still highlights
+    the right one instead of shifting by one.
+    Measured on one Markdown document with a match in each construct that
+    owns a galley (heading, paragraph, list item, code block, table cell):
+    `Web` 5 marks / count 5, `Page` 5 / 5, `Raw` 5 / 5 — the formatted
+    layouts agreeing with each other and with the raw one. A second test
+    walks the current match through three positions and asserts exactly one
+    is distinguished each time, at a different place.
   - **Three engine bugs the tests caught, all worth remembering:**
     1. **Change-detection must compare against LAST FRAME's value, not the
        property.** `diverged()` stays true forever against a host that has

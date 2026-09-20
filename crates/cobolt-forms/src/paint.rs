@@ -8287,6 +8287,68 @@ fn viewer_mermaid_image(
     result
 }
 
+/// R29's overlay on a **formatted** document, which is many galleys rather
+/// than one.
+///
+/// The obvious approach — map the global spans `SearchableText` produces
+/// onto each galley — needs two independent walkers to agree, character for
+/// character, about what a document's text is. They would drift the first
+/// time either changed.
+///
+/// So this searches **each galley's own text** instead, and keeps a running
+/// count in document order to say which match is the current one. The two
+/// counts agree because both walkers see the same runs in the same order;
+/// where a block is *searched but not painted* (a Mermaid diagram, which is
+/// drawn as a picture while its source is findable), [`FindPaint::skip`]
+/// keeps the running index aligned rather than letting every later match
+/// shift by one.
+struct FindPaint<'a> {
+    query: &'a str,
+    case_sensitive: bool,
+    highlight: bool,
+    /// The match in view, as an index over the whole document.
+    current: usize,
+    /// How many matches the walk has passed so far.
+    seen: usize,
+    alpha: u8,
+}
+
+impl FindPaint<'_> {
+    fn searching(&self) -> bool {
+        !self.query.is_empty()
+    }
+
+    /// Mark every match inside `galley` and advance the running index.
+    /// Called **before** the galley is drawn, so the marks sit under the
+    /// glyphs rather than over them.
+    fn mark(&mut self, painter: &egui::Painter, galley: &egui::Galley, origin: egui::Pos2) {
+        if !self.searching() {
+            return;
+        }
+        let spans = crate::viewer::find_matches(&galley.job.text, self.query, self.case_sensitive);
+        if spans.is_empty() {
+            return;
+        }
+        if self.highlight {
+            // `current` is global; the helper wants it relative to this
+            // galley. An index outside the range simply marks none of them
+            // as active, which is right for every galley but one.
+            let local = self.current.wrapping_sub(self.seen);
+            draw_viewer_find_highlights(painter, galley, origin, &spans, local, self.alpha);
+        }
+        self.seen += spans.len();
+    }
+
+    /// Count matches in text that is searched but never painted, so the
+    /// running index stays aligned with the total.
+    fn skip(&mut self, text: &str) {
+        if !self.searching() {
+            return;
+        }
+        self.seen += crate::viewer::find_matches(text, self.query, self.case_sensitive).len();
+    }
+}
+
 #[derive(Clone, Copy)]
 struct BlockPaintCtx {
     font_size: f32,
@@ -8403,16 +8465,28 @@ fn build_inline_job(
     job
 }
 
-fn paint_blocks(painter: &egui::Painter, ctx: &BlockPaintCtx, blocks: &[crate::viewer::Block], origin: egui::Pos2) -> f32 {
+fn paint_blocks(
+    painter: &egui::Painter,
+    ctx: &BlockPaintCtx,
+    blocks: &[crate::viewer::Block],
+    origin: egui::Pos2,
+    find: &mut FindPaint<'_>,
+) -> f32 {
     let mut y = origin.y;
     for block in blocks {
-        let h = paint_block(painter, ctx, block, egui::pos2(origin.x, y));
+        let h = paint_block(painter, ctx, block, egui::pos2(origin.x, y), find);
         y += h + VIEWER_BLOCK_SPACING;
     }
     (y - origin.y).max(0.0)
 }
 
-fn paint_block(painter: &egui::Painter, ctx: &BlockPaintCtx, block: &crate::viewer::Block, pos: egui::Pos2) -> f32 {
+fn paint_block(
+    painter: &egui::Painter,
+    ctx: &BlockPaintCtx,
+    block: &crate::viewer::Block,
+    pos: egui::Pos2,
+    find: &mut FindPaint<'_>,
+) -> f32 {
     use crate::viewer::Block;
     match block {
         Block::Heading { level, content } => {
@@ -8420,6 +8494,7 @@ fn paint_block(painter: &egui::Painter, ctx: &BlockPaintCtx, block: &crate::view
             let job = build_inline_job(content, size, ctx.strong_ink, ctx.strong_ink, ctx.link_color, ctx.code_color, ctx.width);
             let galley = painter.layout_job(job);
             let h = galley.rect.height();
+            find.mark(painter, &galley, pos);
             painter.galley(pos, galley, ctx.strong_ink);
             h
         }
@@ -8427,6 +8502,7 @@ fn paint_block(painter: &egui::Painter, ctx: &BlockPaintCtx, block: &crate::view
             let job = build_inline_job(content, ctx.font_size, ctx.text_ink, ctx.strong_ink, ctx.link_color, ctx.code_color, ctx.width);
             let galley = painter.layout_job(job);
             let h = galley.rect.height();
+            find.mark(painter, &galley, pos);
             painter.galley(pos, galley, ctx.text_ink);
             h
         }
@@ -8440,7 +8516,9 @@ fn paint_block(painter: &egui::Painter, ctx: &BlockPaintCtx, block: &crate::view
             let h = galley.rect.height() + 2.0 * VIEWER_CODE_PADDING;
             let bg_rect = egui::Rect::from_min_size(pos, egui::vec2(ctx.width, h));
             painter.rect_filled(bg_rect, 4.0, Color32::from_rgba_premultiplied(ctx.code_color.r(), ctx.code_color.g(), ctx.code_color.b(), 20));
-            painter.galley(pos + egui::vec2(VIEWER_CODE_PADDING, VIEWER_CODE_PADDING), galley, ctx.code_color);
+            let at = pos + egui::vec2(VIEWER_CODE_PADDING, VIEWER_CODE_PADDING);
+            find.mark(painter, &galley, at);
+            painter.galley(at, galley, ctx.code_color);
             h
         }
         // T20: a diagram, drawn through the same `resvg` path an SVG
@@ -8448,6 +8526,12 @@ fn paint_block(painter: &egui::Painter, ctx: &BlockPaintCtx, block: &crate::view
         // source, because a blank space where a diagram should be tells a
         // developer nothing (T20's "not attempted, not silently ignored").
         Block::Mermaid { source } => {
+            // Searched but not painted as text: `SearchableText` includes a
+            // diagram's source (a node's label is findable), while what is
+            // drawn here is a picture. Counting it keeps the running index
+            // aligned, so every match AFTER a diagram still highlights the
+            // right one.
+            find.skip(source);
             let rendered = viewer_mermaid_image(painter.ctx(), source);
             match rendered {
                 Ok(handle) => {
@@ -8491,7 +8575,7 @@ fn paint_block(painter: &egui::Painter, ctx: &BlockPaintCtx, block: &crate::view
         }
         Block::BlockQuote { blocks } => {
             let inner_ctx = BlockPaintCtx { width: (ctx.width - VIEWER_QUOTE_INDENT).max(20.0), ..*ctx };
-            let h = paint_blocks(painter, &inner_ctx, blocks, pos + egui::vec2(VIEWER_QUOTE_INDENT, 0.0));
+            let h = paint_blocks(painter, &inner_ctx, blocks, pos + egui::vec2(VIEWER_QUOTE_INDENT, 0.0), find);
             painter.line_segment([pos, pos + egui::vec2(0.0, h)], Stroke::new(3.0, ctx.link_color));
             h
         }
@@ -8508,12 +8592,12 @@ fn paint_block(painter: &egui::Painter, ctx: &BlockPaintCtx, block: &crate::view
                 let marker_galley = painter.layout_job(marker_job);
                 painter.galley(egui::pos2(pos.x, y), marker_galley, ctx.text_ink);
                 let item_ctx = BlockPaintCtx { width: (ctx.width - VIEWER_LIST_INDENT).max(20.0), ..*ctx };
-                let h = paint_blocks(painter, &item_ctx, &item.blocks, egui::pos2(pos.x + VIEWER_LIST_INDENT, y));
+                let h = paint_blocks(painter, &item_ctx, &item.blocks, egui::pos2(pos.x + VIEWER_LIST_INDENT, y), find);
                 y += h + VIEWER_LIST_ITEM_SPACING;
             }
             (y - pos.y).max(0.0)
         }
-        Block::Table { header, rows, .. } => paint_table(painter, ctx, header, rows, pos),
+        Block::Table { header, rows, .. } => paint_table(painter, ctx, header, rows, pos, find),
         Block::ThematicBreak => {
             let mid_y = pos.y + VIEWER_RULE_HEIGHT / 2.0;
             painter.line_segment(
@@ -8533,7 +8617,7 @@ fn paint_block(painter: &egui::Painter, ctx: &BlockPaintCtx, block: &crate::view
             let marker_w = marker_galley.rect.width();
             painter.galley(pos, marker_galley, ctx.link_color);
             let item_ctx = BlockPaintCtx { font_size: ctx.font_size * 0.9, width: (ctx.width - marker_w).max(20.0), ..*ctx };
-            paint_blocks(painter, &item_ctx, blocks, egui::pos2(pos.x + marker_w, pos.y))
+            paint_blocks(painter, &item_ctx, blocks, egui::pos2(pos.x + marker_w, pos.y), find)
         }
         // Rendering HTML is a different format's job entirely (§3
         // `HtmlSubset`, T21) — Markdown's own raw-HTML escape hatch stays
@@ -8548,12 +8632,25 @@ fn paint_table(
     header: &[Vec<crate::viewer::Inline>],
     rows: &[Vec<Vec<crate::viewer::Inline>>],
     pos: egui::Pos2,
+    find: &mut FindPaint<'_>,
 ) -> f32 {
     let col_count = header.len().max(rows.first().map_or(0, |r| r.len())).max(1);
     let col_width = (ctx.width / col_count as f32).max(30.0);
     let mut y = pos.y;
 
-    let paint_row = |cells: &[Vec<crate::viewer::Inline>], y: f32, strong: bool| -> f32 {
+    // A closure that borrows `find` mutably cannot also be called twice
+    // below while `find` is borrowed elsewhere, so this is a plain fn of
+    // the cursor rather than a capture of it.
+    fn paint_row(
+        painter: &egui::Painter,
+        ctx: &BlockPaintCtx,
+        pos: egui::Pos2,
+        col_width: f32,
+        cells: &[Vec<crate::viewer::Inline>],
+        y: f32,
+        strong: bool,
+        find: &mut FindPaint<'_>,
+    ) -> f32 {
         let mut row_h: f32 = 0.0;
         let color = if strong { ctx.strong_ink } else { ctx.text_ink };
         for (i, cell) in cells.iter().enumerate() {
@@ -8562,13 +8659,15 @@ fn paint_table(
             let job = build_inline_job(cell, ctx.font_size * 0.95, color, ctx.strong_ink, ctx.link_color, ctx.code_color, cell_width);
             let galley = painter.layout_job(job);
             row_h = row_h.max(galley.rect.height());
-            painter.galley(egui::pos2(x + VIEWER_TABLE_CELL_PADDING, y + VIEWER_TABLE_CELL_PADDING), galley, color);
+            let at = egui::pos2(x + VIEWER_TABLE_CELL_PADDING, y + VIEWER_TABLE_CELL_PADDING);
+            find.mark(painter, &galley, at);
+            painter.galley(at, galley, color);
         }
         row_h + 2.0 * VIEWER_TABLE_CELL_PADDING
-    };
+    }
 
     if !header.is_empty() {
-        let h = paint_row(header, y, true);
+        let h = paint_row(painter, ctx, pos, col_width, header, y, true, find);
         painter.line_segment(
             [egui::pos2(pos.x, y + h), egui::pos2(pos.x + ctx.width, y + h)],
             Stroke::new(1.5, ctx.strong_ink),
@@ -8576,7 +8675,7 @@ fn paint_table(
         y += h + 2.0;
     }
     for row in rows {
-        let h = paint_row(row, y, false);
+        let h = paint_row(painter, ctx, pos, col_width, row, y, false, find);
         y += h;
     }
     (y - pos.y).max(0.0)
@@ -9024,21 +9123,25 @@ pub(crate) fn draw_viewer(
         let inner_width = (content_rect.width() - 2.0 * VIEWER_TEXT_INSET).max(20.0);
         let block_ctx = BlockPaintCtx { font_size, text_ink: muted, strong_ink: ink, link_color, code_color, width: inner_width };
         let origin = egui::pos2(content_rect.min.x + VIEWER_TEXT_INSET, top);
+        // R29 on a formatted document: each galley is searched as it is
+        // painted, with a running count in document order saying which match
+        // is the current one — see [`FindPaint`] for why that beats mapping
+        // global spans onto galleys.
+        let mut find = FindPaint {
+            query: st.find_text.as_str(),
+            case_sensitive: st.find_case_sensitive,
+            highlight: st.find_highlight,
+            current: st.find_current,
+            seen: 0,
+            alpha: a,
+        };
         result.content_height =
-            paint_blocks(&clip, &block_ctx, blocks, origin) + 2.0 * VIEWER_TEXT_INSET;
-        // The COUNT is honest for a formatted document — it is computed from
-        // exactly the prose a reader sees (`SearchableText`), so R30's
-        // counter and R28's Next/Previous both work here.
-        //
-        // ⚠️ The coloured OVERLAY is not painted on this path yet: a
-        // formatted document is many galleys, and mapping a global span into
-        // the right one needs a running text offset threaded through
-        // `paint_block`. Recorded as a known gap rather than half-done —
-        // see tasks.md under T15.
-        if let Some(text) = content_searchable_text(content) {
-            result.find_total =
-                crate::viewer::find_matches(&text, &st.find_text, st.find_case_sensitive).len();
-        }
+            paint_blocks(&clip, &block_ctx, blocks, origin, &mut find) + 2.0 * VIEWER_TEXT_INSET;
+        // The total is what the WALK counted, so the counter and the marks
+        // can never disagree about how many there are. It matches
+        // `SearchableText`'s own count because both see the same runs in the
+        // same order.
+        result.find_total = find.seen;
     }
 
     if paged {

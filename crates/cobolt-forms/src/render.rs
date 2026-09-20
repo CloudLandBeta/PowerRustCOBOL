@@ -12170,6 +12170,127 @@ mod tests {
         assert!(failures.is_empty(), "AC30: these events did not fire at their documented moment: {failures:?}");
     }
 
+    // ── Spec 058 R29: the overlay reaches FORMATTED documents too ───────
+
+    /// **R29 / AC22 on a formatted document** — "while Find has one or more
+    /// matches, the control shall highlight EVERY match, with the current
+    /// match visually distinguished from the rest."
+    ///
+    /// A formatted document is many galleys, not one, and the marks used to
+    /// be painted only on the single-galley path — so a Markdown or HTML
+    /// document counted its matches correctly and showed none of them. This
+    /// is the test that says otherwise, and it checks the layouts side by
+    /// side so a regression on one is visible against the other.
+    #[test]
+    fn every_match_is_marked_on_a_formatted_document_as_well_as_a_raw_one() {
+        let dir = tempfile::tempdir().unwrap();
+        // Five occurrences of "ledger", one in each construct the block
+        // painter draws with a galley of its own: a heading, a paragraph, a
+        // list item, a code block and a table cell.
+        let md = "# The ledger\n\nA ledger is a book.\n\n- the ledger opens\n- and closes\n\n\
+                  ```\nledger.cbl\n```\n\n| Item | Where |\n|---|---|\n| Total | ledger |\n";
+        let path = dir.path().join("doc.md");
+        std::fs::write(&path, md).unwrap();
+        let source = path.to_string_lossy().into_owned();
+
+        let marks_for = |layout: &str| -> (usize, String) {
+            let mut h = ViewerHarness::new(
+                Vec2::new(760.0, 560.0),
+                700,
+                500,
+                &[
+                    ("Source", PropValue::String(source.clone())),
+                    ("View1Source", PropValue::String(source.clone())),
+                    ("Layout", PropValue::String(layout.into())),
+                    ("View1FindOpen", PropValue::Bool(true)),
+                    ("View1SearchText", PropValue::String("ledger".into())),
+                ],
+            );
+            h.frame(0.0, vec![]);
+            let (_, shapes) = h.frame(0.02, vec![]);
+            (highlight_rects(&shapes).len(), h.prop("SearchMatchCount"))
+        };
+
+        let (web_marks, web_total) = marks_for("Web");
+        let (page_marks, page_total) = marks_for("Page");
+        let (raw_marks, raw_total) = marks_for("Raw");
+        println!("query \"ledger\" over a Markdown document:");
+        println!("  Web  (formatted) -> {web_marks} mark(s), SearchMatchCount {web_total}");
+        println!("  Page (formatted) -> {page_marks} mark(s), SearchMatchCount {page_total}");
+        println!("  Raw  (source)    -> {raw_marks} mark(s), SearchMatchCount {raw_total}");
+
+        assert!(web_marks > 0, "R29: a formatted document must MARK its matches, not merely count them");
+        assert_eq!(web_marks.to_string(), web_total, "every counted match is a marked one");
+        assert_eq!(web_marks, page_marks, "the two formatted layouts agree");
+        assert!(raw_marks > 0, "and the raw path still marks its own");
+    }
+
+    /// R29's "with the current match visually distinguished from the rest",
+    /// on a formatted document: moving Next repaints a DIFFERENT match in
+    /// the active colour, and only one at a time.
+    #[test]
+    fn the_current_match_is_the_distinguished_one_on_a_formatted_document() {
+        /// The brighter of the two marker colours is the current match.
+        fn active_marks(shapes: &[egui::Shape]) -> Vec<egui::Rect> {
+            fn walk(s: &egui::Shape, into: &mut Vec<egui::Rect>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, into)),
+                    egui::Shape::Rect(r) => {
+                        let f = r.fill;
+                        // active = (230,140,20) premultiplied at 4/5 alpha.
+                        if f.r() > 200 && (120..160).contains(&f.g()) && f.b() < 40 {
+                            into.push(r.rect);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let mut out = Vec::new();
+            for s in shapes {
+                walk(s, &mut out);
+            }
+            out
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let md = "# ledger one\n\nledger two here.\n\nAnd ledger three.\n";
+        let path = dir.path().join("doc.md");
+        std::fs::write(&path, md).unwrap();
+        let source = path.to_string_lossy().into_owned();
+
+        let at = |which: i64| -> Vec<egui::Rect> {
+            let mut h = ViewerHarness::new(
+                Vec2::new(760.0, 560.0),
+                700,
+                500,
+                &[
+                    ("Source", PropValue::String(source.clone())),
+                    ("View1Source", PropValue::String(source.clone())),
+                    ("Layout", PropValue::String("Web".into())),
+                    ("View1FindOpen", PropValue::Bool(true)),
+                    ("View1SearchText", PropValue::String("ledger".into())),
+                    ("View1SearchCurrentMatch", PropValue::Int(which)),
+                ],
+            );
+            h.frame(0.0, vec![]);
+            let (_, shapes) = h.frame(0.02, vec![]);
+            active_marks(&shapes)
+        };
+
+        let first = at(0);
+        let second = at(1);
+        let third = at(2);
+        println!("the ACTIVE mark, as the current match moves:");
+        for (i, marks) in [&first, &second, &third].iter().enumerate() {
+            println!("  match {i}: {} active mark(s) at {:?}", marks.len(), marks.first().map(|r| (r.min.x, r.min.y)));
+        }
+        assert_eq!(first.len(), 1, "exactly ONE match is the current one");
+        assert_eq!(second.len(), 1);
+        assert_eq!(third.len(), 1);
+        assert_ne!(first[0].min, second[0].min, "R29: Next distinguishes a DIFFERENT match");
+        assert_ne!(second[0].min, third[0].min);
+    }
+
     // ── Spec 058 R5/R5.1: the host's decoded document reaches the paint ──
 
     /// A `FormState` that answers `viewer_document` the way a running
