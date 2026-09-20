@@ -45,6 +45,23 @@ impl Language {
     /// `cobolt-forms` ships the English text itself and falls back to it,
     /// because a compiled COBOL binary has no `Tr` table at all; this is
     /// what the IDE installs on top.
+    /// The Viewer's selection menu, translated — `Select All` and `Copy`,
+    /// installed the same way the toolbar tooltips are and for the same
+    /// reason: `cobolt-forms` ships the English and a compiled COBOL binary
+    /// has no `Tr` table at all.
+    pub fn selection_menu(self) -> Vec<(cobolt_forms::viewer::SelectionMenuItem, String)> {
+        use cobolt_forms::viewer::SelectionMenuItem as MI;
+        let t: [&str; 2] = match self {
+            Language::English => ["Select All", "Copy"],
+            Language::Portuguese => ["Selecionar tudo", "Copiar"],
+            Language::Spanish => ["Seleccionar todo", "Copiar"],
+            Language::French => ["Tout sélectionner", "Copier"],
+            Language::Japanese => ["すべて選択", "コピー"],
+            Language::Chinese => ["全选", "复制"],
+        };
+        MI::ALL.into_iter().zip(t).map(|(i, s)| (i, s.to_string())).collect()
+    }
+
     pub fn viewer_tooltips(self) -> Vec<(cobolt_forms::viewer::ToolbarAction, String)> {
         use cobolt_forms::viewer::ToolbarAction as TA;
         let t: [&str; 12] = match self {
@@ -10280,6 +10297,32 @@ mod i18n_tests {
 #[cfg(test)]
 mod viewer_tooltip_tests {
     use super::*;
+
+    /// The Viewer's selection menu is two items, and every language has both
+    /// — the same rule the tooltips follow, and for the same reason: a menu
+    /// that falls back to English in one language falls back silently.
+    #[test]
+    fn the_selection_menu_is_translated_in_every_language() {
+        use cobolt_forms::viewer::SelectionMenuItem as MI;
+        println!("  language      Select All / Copy");
+        println!("  -----------   -----------------");
+        for lang in Language::ALL {
+            let table = lang.selection_menu();
+            assert_eq!(table.len(), MI::ALL.len(), "{lang:?}: every item");
+            let shown: Vec<&str> = table.iter().map(|(_, s)| s.as_str()).collect();
+            println!("  {:<13} {}", format!("{lang:?}"), shown.join(" / "));
+            for (item, text) in &table {
+                assert!(!text.trim().is_empty(), "{lang:?}/{item:?} is blank");
+            }
+            if *lang != Language::English {
+                let english = Language::English.selection_menu();
+                assert_ne!(
+                    table, english,
+                    "{lang:?} is still the English table — a fallback nobody asked for"
+                );
+            }
+        }
+    }
 
     #[test]
     fn viewer_tooltips_are_translated_in_every_language() {

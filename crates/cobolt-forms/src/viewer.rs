@@ -2818,6 +2818,99 @@ pub fn view_prop(name: &str, view_index: usize) -> String {
 // Modeled on `cobolt-ide`'s `code_search.rs::find_matches()` and
 // reimplemented rather than shared: that file is inside a binary crate.
 
+// ── Text selection (R31's "no capability reachable only by mouse", the
+// other way round: text a reader cannot select is text they cannot copy) ──
+//
+// A Viewer's document is not one string. It is a sequence of RUNS — the
+// galleys the paint laid down, in document order — because a heading, a
+// paragraph, a table cell and a code block are laid out separately and wrap
+// independently. So a selection is not a byte range over a document; it is a
+// pair of positions in that sequence.
+//
+// Everything here is arithmetic over those positions, with no egui in it, so
+// the awkward part (which runs are covered, and how much of the first and
+// last) is decided once and testable on its own.
+
+/// Where a selection starts or ends: which painted run, and how many
+/// characters into it.
+///
+/// Characters, not bytes: egui's own cursor counts characters, and a byte
+/// offset would land mid-glyph on any text that is not ASCII.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, PartialOrd, Ord)]
+pub struct TextAnchor {
+    pub run: usize,
+    pub char_index: usize,
+}
+
+impl TextAnchor {
+    pub fn new(run: usize, char_index: usize) -> Self {
+        Self { run, char_index }
+    }
+}
+
+/// A selection over the runs a paint laid down.
+///
+/// `anchor` is where the drag started and `head` where it is now, which is why
+/// they are kept apart rather than normalised: a selection dragged upward is
+/// the same selection as one dragged downward, but extending it later has to
+/// know which end is pinned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TextSelection {
+    pub anchor: TextAnchor,
+    pub head: TextAnchor,
+}
+
+impl TextSelection {
+    pub fn at(anchor: TextAnchor) -> Self {
+        Self { anchor, head: anchor }
+    }
+
+    /// Nothing is selected — a click that never became a drag.
+    pub fn is_empty(&self) -> bool {
+        self.anchor == self.head
+    }
+
+    /// The two ends in document order, whichever way the drag went.
+    pub fn ordered(&self) -> (TextAnchor, TextAnchor) {
+        if self.anchor <= self.head {
+            (self.anchor, self.head)
+        } else {
+            (self.head, self.anchor)
+        }
+    }
+
+    /// Everything, for `Select All` — from the start of the first run to the
+    /// end of the last.
+    pub fn all(runs: &[usize]) -> Self {
+        match runs.len() {
+            0 => Self::default(),
+            n => Self {
+                anchor: TextAnchor::new(0, 0),
+                head: TextAnchor::new(n - 1, runs[n - 1]),
+            },
+        }
+    }
+
+    /// Which characters of run `run` are selected, given how many characters
+    /// it holds — `None` when the run is outside the selection entirely.
+    ///
+    /// This is the whole of the awkward part: a run in the middle is selected
+    /// end to end, the first and last are cut at their anchors, and a
+    /// selection inside ONE run is cut at both.
+    pub fn span_in(&self, run: usize, len: usize) -> Option<(usize, usize)> {
+        if self.is_empty() {
+            return None;
+        }
+        let (from, to) = self.ordered();
+        if run < from.run || run > to.run {
+            return None;
+        }
+        let start = if run == from.run { from.char_index.min(len) } else { 0 };
+        let end = if run == to.run { to.char_index.min(len) } else { len };
+        (start < end).then_some((start, end))
+    }
+}
+
 /// One match, as byte offsets into the text that was searched.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TextSpan {
@@ -3238,6 +3331,52 @@ thread_local! {
     /// uses to publish the active editor palette into the painter.
     static TOOLBAR_TOOLTIPS: std::cell::RefCell<Vec<(ToolbarAction, String)>> =
         const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// What the selection menu offers, right-clicking inside a document.
+///
+/// Two items and no more. A reader's whole business with text they cannot edit
+/// is taking it somewhere else, and a menu of two is read at a glance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectionMenuItem {
+    SelectAll,
+    Copy,
+}
+
+impl SelectionMenuItem {
+    pub const ALL: [Self; 2] = [Self::SelectAll, Self::Copy];
+
+    /// This crate's English, used until a host installs its own.
+    pub fn default_label(self) -> &'static str {
+        match self {
+            Self::SelectAll => "Select All",
+            Self::Copy => "Copy",
+        }
+    }
+}
+
+thread_local! {
+    /// Same shape and the same reason as `TOOLBAR_TOOLTIPS` above: this crate
+    /// owns no translations, the host does, and egui renders on one thread.
+    static SELECTION_MENU: std::cell::RefCell<Vec<(SelectionMenuItem, String)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Install translated selection-menu labels for this thread.
+pub fn set_selection_menu_labels(table: &[(SelectionMenuItem, String)]) {
+    SELECTION_MENU.with(|t| *t.borrow_mut() = table.to_vec());
+}
+
+/// The label to show for `item` — the host's translation if one was
+/// installed, otherwise this crate's English.
+pub fn selection_menu_label(item: SelectionMenuItem) -> String {
+    SELECTION_MENU.with(|t| {
+        t.borrow()
+            .iter()
+            .find(|(i, _)| *i == item)
+            .map(|(_, s)| s.clone())
+            .unwrap_or_else(|| item.default_label().to_owned())
+    })
 }
 
 /// Install translated toolbar tooltips for this thread. An action left out
@@ -4479,6 +4618,79 @@ mod nav_tests {
     /// Inverted rather than deleted: the fact it guards is still a fact, it is
     /// just the other one now, and a layout that silently stopped placing a
     /// toolbar would otherwise have nothing to catch it.
+    /// **Which characters of which run a selection covers** — the whole of the
+    /// awkward part, decided once and checked here rather than at the paint.
+    ///
+    /// A Viewer's document is not one string: a heading, a paragraph and a
+    /// table cell are separate galleys that wrap independently, so a selection
+    /// is a pair of positions in that sequence. A run in the middle is taken
+    /// end to end, the first and last are cut at their anchors, and a
+    /// selection inside ONE run is cut at both.
+    #[test]
+    fn a_selection_takes_whole_runs_in_the_middle_and_cuts_the_ends() {
+        // Four runs of ten characters each.
+        let lens = [10usize, 10, 10, 10];
+        let sel = TextSelection {
+            anchor: TextAnchor::new(1, 4),
+            head: TextAnchor::new(3, 6),
+        };
+        println!("  run   chars   selected");
+        println!("  ---   -----   --------");
+        let mut got = Vec::new();
+        for (i, len) in lens.iter().enumerate() {
+            let span = sel.span_in(i, *len);
+            println!("  {i:<5} {len:<7} {span:?}");
+            got.push(span);
+        }
+        assert_eq!(
+            got,
+            vec![None, Some((4, 10)), Some((0, 10)), Some((0, 6))],
+            "the first run is cut at its anchor, the middle taken whole, the last cut at its head"
+        );
+
+        // The same selection dragged the other way is the same selection.
+        let backwards = TextSelection {
+            anchor: TextAnchor::new(3, 6),
+            head: TextAnchor::new(1, 4),
+        };
+        for (i, len) in lens.iter().enumerate() {
+            assert_eq!(
+                backwards.span_in(i, *len),
+                got[i],
+                "run {i}: a drag upward selects what the same drag downward does"
+            );
+        }
+
+        // Inside one run, cut at both ends.
+        let inside = TextSelection {
+            anchor: TextAnchor::new(2, 3),
+            head: TextAnchor::new(2, 7),
+        };
+        println!("  inside one run: {:?}", inside.span_in(2, 10));
+        assert_eq!(inside.span_in(2, 10), Some((3, 7)));
+        assert_eq!(inside.span_in(1, 10), None, "and nothing outside it");
+
+        // A click that never became a drag selects nothing at all.
+        let empty = TextSelection::at(TextAnchor::new(1, 5));
+        assert!(empty.is_empty());
+        assert_eq!(empty.span_in(1, 10), None, "an empty selection covers nothing");
+
+        // Select All covers every character of every run.
+        let all = TextSelection::all(&lens);
+        let covered: usize = lens
+            .iter()
+            .enumerate()
+            .filter_map(|(i, l)| all.span_in(i, *l).map(|(a, b)| b - a))
+            .sum();
+        println!("  Select All covers {covered} of {} characters", lens.iter().sum::<usize>());
+        assert_eq!(covered, lens.iter().sum::<usize>(), "Select All means all of it");
+
+        // An anchor past the end of a run that has since got shorter is
+        // clamped rather than panicking: the runs change with the zoom.
+        assert_eq!(sel.span_in(3, 2), Some((0, 2)), "a shortened run clamps");
+        assert_eq!(TextSelection::all(&[]), TextSelection::default());
+    }
+
     #[test]
     fn a_fullscreen_view_keeps_the_toolbar_that_lets_the_reader_leave() {
         let bounds = ViewRect::new(0.0, 0.0, 800.0, 600.0);

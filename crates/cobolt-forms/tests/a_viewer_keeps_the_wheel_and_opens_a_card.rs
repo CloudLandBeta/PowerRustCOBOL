@@ -86,6 +86,20 @@ fn frame(
     let active = ActiveTabs::new();
     let mut input = egui::RawInput::default();
     input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), FORM));
+    // `InputState::modifiers` is updated by `Event::ModifiersChanged`, NOT by
+    // the modifiers hanging off a key event — a real backend sends both, and a
+    // test that sends only the decorated key leaves `i.modifiers.command`
+    // false and every Cmd shortcut silently unpressed. Emit what the backend
+    // would.
+    let mut events = events;
+    if let Some(m) = events.iter().find_map(|e| match e {
+        egui::Event::Key { modifiers, .. } if *modifiers != egui::Modifiers::NONE => {
+            Some(*modifiers)
+        }
+        _ => None,
+    }) {
+        events.insert(0, egui::Event::ModifiersChanged(m));
+    }
     input.events = events;
     let mut produced = RenderOutput::default();
     let mut leaked = Vec2::ZERO;
@@ -107,7 +121,30 @@ fn frame(
             });
     });
     full.textures_delta.clear();
+    COPIED.with(|c| {
+        *c.borrow_mut() = full
+            .platform_output
+            .commands
+            .iter()
+            .filter_map(|cmd| match cmd {
+                egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+    });
     (produced, leaked)
+}
+
+thread_local! {
+    /// What the last frame put on the clipboard. egui reports a copy as an
+    /// `OutputCommand` on the platform output, which the render output never
+    /// sees — so the harness keeps it where a test can read it.
+    static COPIED: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
+
+fn last_copied() -> String {
+    COPIED.with(|c| c.borrow().clone())
 }
 
 fn wheel_at(p: egui::Pos2) -> Vec<egui::Event> {
@@ -458,4 +495,84 @@ fn fullscreen_asks_the_window_and_gives_it_back() {
     let after = commands(false, &ctx);
     println!("  a second windowed frame: {after:?}");
     assert!(after.is_empty(), "nothing further to ask: {after:?}");
+}
+
+/// **Text a reader cannot select is text they cannot copy** (operator,
+/// 2026-09-20: "Any content but images: text can be selected & copy").
+///
+/// Driven through the real engine, because a selection is expressed in the
+/// runs the PAINT laid down and no other surface knows where those are.
+/// Asserted on the clipboard, because what reaches it is the whole claim.
+#[test]
+fn a_reader_can_select_the_text_and_copy_it() {
+    use cobolt_forms::viewer::{TextAnchor, TextSelection};
+
+    let ctx = egui::Context::default();
+    let mut c = viewer(false);
+    // A Markdown document with words a copy can be recognised by.
+    let doc = "# Quarterly report\n\nRevenue rose in every region.\n";
+    let dir = std::env::temp_dir().join("prc-viewer-selection-test");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("report.md");
+    std::fs::write(&path, doc).unwrap();
+    c.set_prop("Source", PropValue::String(path.to_string_lossy().into_owned()));
+    let controls = [c];
+
+    // Two frames: the first lays the document out, the second senses against
+    // what it laid down.
+    frame(&ctx, &controls, Vec::new());
+    frame(&ctx, &controls, Vec::new());
+
+    // Select everything, then copy — the keyboard half, which is the half a
+    // reader reaches for without being told.
+    let over = pos2(400.0, 300.0);
+    let key = |k: egui::Key| egui::Event::Key {
+        key: k,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::COMMAND,
+    };
+    let (probe, _) = frame(
+        &ctx,
+        &controls,
+        vec![egui::Event::PointerMoved(over), key(egui::Key::A)],
+    );
+    let sel_id = cobolt_forms::render::control_widget_id(None, "VWR-1")
+        .with(("viewer-view", 0usize))
+        .with("viewer-selection");
+    let stored = ctx.memory(|m| m.data.get_temp::<TextSelection>(sel_id));
+    println!("  after Cmd+A the stored selection is {stored:?}");
+    let _ = probe;
+    let (out, _) = frame(
+        &ctx,
+        &controls,
+        vec![egui::Event::PointerMoved(over), key(egui::Key::C)],
+    );
+    let _ = &out;
+    let copied = last_copied();
+    println!("  Cmd+A then Cmd+C copied {:?}", copied);
+    assert!(
+        copied.contains("Quarterly report"),
+        "Select All then Copy must put the document's text on the clipboard, got {copied:?}"
+    );
+    assert!(
+        copied.contains("Revenue rose in every region."),
+        "including its body, got {copied:?}"
+    );
+    // Runs are joined by a newline, not run together: they are separate
+    // BLOCKS, and flattening them pastes a document with its shape gone.
+    assert!(
+        copied.contains('\n'),
+        "separate blocks stay separate lines: {copied:?}"
+    );
+
+    // And the arithmetic the paint is handed: a selection of part of one run
+    // copies exactly that part.
+    let partial = TextSelection {
+        anchor: TextAnchor::new(0, 0),
+        head: TextAnchor::new(0, 9),
+    };
+    println!("  a nine-character selection in run 0: {:?}", partial.span_in(0, 17));
+    assert_eq!(partial.span_in(0, 17), Some((0, 9)));
 }

@@ -8,6 +8,61 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.125] — 2026-09-20
+
+### A Viewer's text can be selected, and taken
+
+"Any content but images: text can be selected & copy … plus Control/Command+A
+to select all, Control/Command+C to copy selected text" (operator,
+2026-09-20). R31 says no capability may be reachable only by mouse; this is the
+same rule read the other way round — text a reader cannot select is text they
+cannot copy.
+
+**A Viewer's document is not one string.** A heading, a paragraph, a list item
+and a table cell are separate galleys that wrap independently, so a selection
+is not a byte range over a document: it is a pair of positions in the sequence
+of RUNS the paint laid down. `TextAnchor` and `TextSelection` are that pair,
+and `span_in` — which characters of which run are covered — is the whole of the
+awkward part, decided once in the pure model and checked there.
+
+The paint reports the runs it drew, exactly as it already reports its toolbar
+hits and its match count, because the paint is the only thing that knows where
+a galley landed. An image draws no runs, which is what makes a picture
+unselectable **without a rule of its own**; a card draws none either, because a
+contact sheet is not a page.
+
+The selection is painted **into** the galley through egui's own
+`paint_text_selection` rather than as rectangles over the top. That is what
+gets a wrapped selection right — every row filled edge to edge, not the two
+ends marked and the middle guessed at, which is all the Find marks ever needed.
+Its colours are the Viewer's, not egui's: a document painted in a form's theme
+is not the IDE's chrome.
+
+Copying joins runs with a newline rather than a space. They are separate
+galleys because they are separate blocks, and running them together pastes a
+document with its structure flattened out of it.
+
+The right-click menu is an `Area` the shared engine paints, not
+`Response::context_menu`, for the reason the Find bar is painted rather than
+hosted: a menu that exists on one surface and not the other is the drift AC11
+is about. `Copy` is disabled with nothing selected — a dead entry that looks
+alive is worse than none. Its two labels ship in all six languages through the
+thread-local table the toolbar tooltips already use, because `cobolt-forms`
+owns no translations and a compiled COBOL binary has no `Tr` at all.
+
+Guarded by `a_selection_takes_whole_runs_in_the_middle_and_cuts_the_ends`
+(the arithmetic, including a drag made upward and a run that has since got
+shorter), `a_paint_reports_the_text_runs_it_laid_down` (and that an image
+reports none), `a_reader_can_select_the_text_and_copy_it` (driven through the
+real engine, asserted on what reached the clipboard) and
+`the_selection_menu_is_translated_in_every_language`.
+
+**A trap the harness now avoids**, worth recording: `InputState::modifiers` is
+updated by `Event::ModifiersChanged`, **not** by the modifiers hanging off a
+key event. A test that sends only the decorated key leaves
+`i.modifiers.command` false and every `Cmd` shortcut silently unpressed — which
+is exactly how this looked broken when it was not.
+
 ## [PowerRustCOBOL 1.70.124] — 2026-09-20
 
 ### Fullscreen is the form's own window, and it is given back

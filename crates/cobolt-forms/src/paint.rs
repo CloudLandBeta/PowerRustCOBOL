@@ -8356,7 +8356,7 @@ fn viewer_mermaid_image(
 /// drawn as a picture while its source is findable), [`FindPaint::skip`]
 /// keeps the running index aligned rather than letting every later match
 /// shift by one.
-struct FindPaint<'a> {
+struct TextMarks<'a> {
     query: &'a str,
     case_sensitive: bool,
     highlight: bool,
@@ -8365,11 +8365,80 @@ struct FindPaint<'a> {
     /// How many matches the walk has passed so far.
     seen: usize,
     alpha: u8,
+    /// What the reader has selected, in runs this walk is about to number.
+    selection: Option<crate::viewer::TextSelection>,
+    /// The band behind selected glyphs, and the glyphs on it.
+    selection_fill: Color32,
+    selection_ink: Color32,
+    /// Every galley painted, in document order.
+    ///
+    /// A Viewer's document is not one string — a heading, a paragraph, a table
+    /// cell and a code block are laid out separately and wrap independently —
+    /// so a selection is a pair of positions in THIS sequence, and a copy is
+    /// assembled from it. Recorded by the paint because the paint is the only
+    /// thing that knows which text is on screen and where it landed, exactly
+    /// as `find_total` already is.
+    runs: Vec<TextRun>,
 }
 
-impl FindPaint<'_> {
+/// One galley the paint put on screen, and where.
+#[derive(Clone)]
+pub(crate) struct TextRun {
+    pub rect: egui::Rect,
+    pub galley: std::sync::Arc<egui::Galley>,
+}
+
+impl TextMarks<'_> {
     fn searching(&self) -> bool {
         !self.query.is_empty()
+    }
+
+    /// Number this run, paint the reader's selection into it, and mark every
+    /// search match — then hand back the galley to draw.
+    ///
+    /// The selection is painted INTO the galley (egui's own
+    /// `paint_text_selection` writes it into the mesh) rather than as rects
+    /// over the top, which is what gets a wrapped selection right: every row
+    /// filled edge to edge, not the two ends marked and the middle guessed at.
+    /// That clones the galley when it is shared, and only then — a document
+    /// with nothing selected keeps the one the cache handed over.
+    fn run(
+        &mut self,
+        painter: &egui::Painter,
+        galley: std::sync::Arc<egui::Galley>,
+        origin: egui::Pos2,
+    ) -> std::sync::Arc<egui::Galley> {
+        let index = self.runs.len();
+        let mut galley = galley;
+        if let Some(sel) = self.selection {
+            let len = galley.job.text.chars().count();
+            if let Some((from, to)) = sel.span_in(index, len) {
+                let range = egui::text::CCursorRange::two(
+                    egui::text::CCursor::new(from),
+                    egui::text::CCursor::new(to),
+                );
+                // The selection's colours are the VIEWER's, derived from the
+                // page the text is on — not egui's style, which belongs to the
+                // IDE's chrome and knows nothing about a document painted in a
+                // form's own theme. `paint_text_selection` reads exactly two
+                // fields, so exactly two are supplied.
+                let mut visuals = egui::Visuals::light();
+                visuals.selection.bg_fill = self.selection_fill;
+                visuals.selection.stroke.color = self.selection_ink;
+                egui::text_selection::visuals::paint_text_selection(
+                    &mut galley,
+                    &visuals,
+                    &range,
+                    None,
+                );
+            }
+        }
+        self.mark(painter, &galley, origin);
+        self.runs.push(TextRun {
+            rect: egui::Rect::from_min_size(origin, galley.rect.size()),
+            galley: galley.clone(),
+        });
+        galley
     }
 
     /// Mark every match inside `galley` and advance the running index.
@@ -8612,7 +8681,7 @@ fn paint_blocks(
     ctx: &BlockPaintCtx,
     blocks: &[crate::viewer::Block],
     origin: egui::Pos2,
-    find: &mut FindPaint<'_>,
+    find: &mut TextMarks<'_>,
 ) -> f32 {
     let mut y = origin.y;
     for block in blocks {
@@ -8627,7 +8696,7 @@ fn paint_block(
     ctx: &BlockPaintCtx,
     block: &crate::viewer::Block,
     pos: egui::Pos2,
-    find: &mut FindPaint<'_>,
+    find: &mut TextMarks<'_>,
 ) -> f32 {
     use crate::viewer::Block;
     match block {
@@ -8636,7 +8705,7 @@ fn paint_block(
             let job = build_inline_job(content, size, ctx.strong_ink, ctx.strong_ink, ctx.link_color, ctx.code_color, ctx.width);
             let galley = viewer_layout(painter, job);
             let h = galley.rect.height();
-            find.mark(painter, &galley, pos);
+            let galley = find.run(painter, galley, pos);
             painter.galley(pos, galley, ctx.strong_ink);
             h
         }
@@ -8644,7 +8713,7 @@ fn paint_block(
             let job = build_inline_job(content, ctx.font_size, ctx.text_ink, ctx.strong_ink, ctx.link_color, ctx.code_color, ctx.width);
             let galley = viewer_layout(painter, job);
             let h = galley.rect.height();
-            find.mark(painter, &galley, pos);
+            let galley = find.run(painter, galley, pos);
             painter.galley(pos, galley, ctx.text_ink);
             h
         }
@@ -8659,7 +8728,7 @@ fn paint_block(
             let bg_rect = egui::Rect::from_min_size(pos, egui::vec2(ctx.width, h));
             painter.rect_filled(bg_rect, 4.0, Color32::from_rgba_premultiplied(ctx.code_color.r(), ctx.code_color.g(), ctx.code_color.b(), 20));
             let at = pos + egui::vec2(VIEWER_CODE_PADDING, VIEWER_CODE_PADDING);
-            find.mark(painter, &galley, at);
+            let galley = find.run(painter, galley, at);
             painter.galley(at, galley, ctx.code_color);
             h
         }
@@ -8774,7 +8843,7 @@ fn paint_table(
     header: &[Vec<crate::viewer::Inline>],
     rows: &[Vec<Vec<crate::viewer::Inline>>],
     pos: egui::Pos2,
-    find: &mut FindPaint<'_>,
+    find: &mut TextMarks<'_>,
 ) -> f32 {
     let col_count = header.len().max(rows.first().map_or(0, |r| r.len())).max(1);
     let col_width = (ctx.width / col_count as f32).max(30.0);
@@ -8791,7 +8860,7 @@ fn paint_table(
         cells: &[Vec<crate::viewer::Inline>],
         y: f32,
         strong: bool,
-        find: &mut FindPaint<'_>,
+        find: &mut TextMarks<'_>,
     ) -> f32 {
         let mut row_h: f32 = 0.0;
         let color = if strong { ctx.strong_ink } else { ctx.text_ink };
@@ -8802,7 +8871,7 @@ fn paint_table(
             let galley = viewer_layout(painter, job);
             row_h = row_h.max(galley.rect.height());
             let at = egui::pos2(x + VIEWER_TABLE_CELL_PADDING, y + VIEWER_TABLE_CELL_PADDING);
-            find.mark(painter, &galley, at);
+            let galley = find.run(painter, galley, at);
             painter.galley(at, galley, color);
         }
         row_h + 2.0 * VIEWER_TABLE_CELL_PADDING
@@ -8945,6 +9014,10 @@ pub(crate) struct ViewerPaintState<'a> {
     /// 0-based, unlike the COBOL-facing `Page` property, which is 1-based.
     pub current_page: usize,
     pub page_preview: Option<ViewerPagePreview<'a>>,
+    /// What the reader has selected, in the runs a paint lays down (R31's
+    /// "no capability reachable only by mouse", read the other way: text a
+    /// reader cannot select is text they cannot copy).
+    pub selection: Option<crate::viewer::TextSelection>,
 }
 
 impl<'a> ViewerPaintState<'a> {
@@ -9026,6 +9099,7 @@ impl<'a> ViewerPaintState<'a> {
             page_count: 1,
             current_page: (int(&v("Page"), 1).max(1) - 1) as usize,
             page_preview: None,
+            selection: None,
         }
     }
 
@@ -9090,6 +9164,11 @@ pub(crate) struct ViewerPaintResult {
     /// How many matches the text on screen holds (R30's "total"), computed
     /// by the paint because the paint is what knows which text is showing.
     pub find_total: usize,
+    /// Every galley this paint put on screen, in document order — what a
+    /// selection is expressed in and what a copy is assembled from. Empty for
+    /// a document with no text in it, which is what makes an image
+    /// unselectable without a case of its own.
+    pub text_runs: Vec<TextRun>,
 }
 
 impl Default for ViewerPaintResult {
@@ -9106,6 +9185,7 @@ impl Default for ViewerPaintResult {
             toolbar_hits: Vec::new(),
             find_hits: Vec::new(),
             find_total: 0,
+            text_runs: Vec::new(),
         }
     }
 }
@@ -9412,16 +9492,24 @@ pub(crate) fn draw_viewer(
         // painted, with a running count in document order saying which match
         // is the current one — see [`FindPaint`] for why that beats mapping
         // global spans onto galleys.
-        let mut find = FindPaint {
+        let mut find = TextMarks {
             query: st.find_text.as_str(),
             case_sensitive: st.find_case_sensitive,
             highlight: st.find_highlight,
             current: st.find_current,
             seen: 0,
             alpha: a,
+            selection: st.selection,
+            // A selection is READ on the page it is on: a blue band on paper,
+            // and its own ink chosen for contrast against that band rather
+            // than inherited from the page.
+            selection_fill: Color32::from_rgba_premultiplied(60, 110, 200, (a as u32 * 3 / 5) as u8),
+            selection_ink: Color32::WHITE,
+            runs: Vec::new(),
         };
         result.content_height =
             paint_blocks(&clip, &block_ctx, blocks, origin, &mut find) + 2.0 * VIEWER_TEXT_INSET;
+        result.text_runs = std::mem::take(&mut find.runs);
         // The total is what the WALK counted, so the counter and the marks
         // can never disagree about how many there are. It matches
         // `SearchableText`'s own count because both see the same runs in the
@@ -9883,13 +9971,20 @@ fn draw_viewer_page_face(
                     code_color: VIEWER_CODE_COLOR,
                     width: body.width().max(4.0),
                 };
-                let mut find = FindPaint {
+                // A card is a MINIATURE: nothing in it is searched, and
+                // nothing in it is selectable — the reader selects the page,
+                // not the thumbnail standing for it.
+                let mut find = TextMarks {
                     query: "",
                     case_sensitive: false,
                     highlight: false,
                     current: 0,
                     seen: 0,
                     alpha: a,
+                    selection: None,
+                    selection_fill: Color32::TRANSPARENT,
+                    selection_ink: Color32::TRANSPARENT,
+                    runs: Vec::new(),
                 };
                 paint_blocks(&clip, &bctx, &doc.blocks, body.min, &mut find);
                 true
@@ -17111,6 +17206,7 @@ mod theme_render_tests {
             page_count: 1,
             current_page: 0,
             page_preview: None,
+            selection: None,
         }
     }
 
@@ -17946,6 +18042,66 @@ method. Nothing in the control is reachable only by mouse.";
             measured.content_height,
             rect.height()
         );
+    }
+
+    /// Spec 058 — the paint REPORTS the text it put on screen, because a
+    /// selection is expressed in those runs and nothing else knows where they
+    /// landed. An image reports none, which is what makes it unselectable
+    /// without a case of its own.
+    #[test]
+    fn a_paint_reports_the_text_runs_it_laid_down() {
+        let doc = crate::viewer::parse_markdown(
+            "# Quarterly report\n\nRevenue rose in **every** region.\n\n- North\n- South\n",
+        );
+        let content = ViewerPageContent::Markdown { raw: String::new(), doc };
+        let rect = egui::Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(420.0, 340.0));
+        let runs_for = |content: &ViewerPageContent| -> Vec<String> {
+            let ctx = egui::Context::default();
+            let ctrl = Control::new("V1", crate::model::ControlType::Viewer, 0, 0);
+            let mut input = egui::RawInput::default();
+            input.screen_rect =
+                Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(520.0, 440.0)));
+            let mut full = ctx.run_ui(input, |root| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
+                    let painter = ui.painter().clone();
+                    let st = test_viewer_state(content, "Web", 14.0);
+                    draw_viewer(&painter, rect, &ctrl, &st);
+                });
+            });
+            full.textures_delta.clear();
+            viewer_measurements(&ctx, "V1", 0)
+                .unwrap_or_default()
+                .text_runs
+                .iter()
+                .map(|r| r.galley.job.text.clone())
+                .collect()
+        };
+
+        let runs = runs_for(&content);
+        println!("  {} run(s) reported:", runs.len());
+        for r in &runs {
+            println!("    {:?}", r);
+        }
+        assert!(runs.len() >= 4, "a heading, a paragraph and two list items: {runs:?}");
+        assert!(
+            runs.iter().any(|r| r.contains("Quarterly report")),
+            "the heading is a run: {runs:?}"
+        );
+        assert!(
+            runs.iter().any(|r| r.contains("Revenue rose")),
+            "and so is the paragraph: {runs:?}"
+        );
+
+        // An image has no text, so it reports no runs — and a reader cannot
+        // select one without this needing a rule of its own.
+        let img = ViewerPageContent::Image(crate::viewer::DecodedImage {
+            width: 4,
+            height: 4,
+            frames: vec![crate::viewer::ImageFrame { rgba: vec![255u8; 4 * 16], delay_ms: 0 }],
+        });
+        let image_runs = runs_for(&img);
+        println!("  an image reports {} run(s)", image_runs.len());
+        assert!(image_runs.is_empty(), "nothing in an image is selectable: {image_runs:?}");
     }
 
     fn count_stroked_rects(shapes: &[egui::Shape]) -> usize {

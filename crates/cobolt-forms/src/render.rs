@@ -4146,6 +4146,31 @@ fn viewer_release_fullscreen(ctx: &egui::Context, id: &str) {
     }
 }
 
+/// The text a selection covers, assembled from the runs the paint laid down.
+///
+/// Runs are joined with a newline rather than a space: they are separate
+/// galleys because they are separate BLOCKS — a heading, a paragraph, a table
+/// cell — so running them together would paste a document with its structure
+/// flattened out of it.
+fn viewer_selected_text(
+    runs: &[crate::paint::TextRun],
+    selection: &crate::viewer::TextSelection,
+) -> String {
+    let mut out = String::new();
+    for (i, run) in runs.iter().enumerate() {
+        let text = &run.galley.job.text;
+        let len = text.chars().count();
+        let Some((from, to)) = selection.span_in(i, len) else {
+            continue;
+        };
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.extend(text.chars().skip(from).take(to.saturating_sub(from)));
+    }
+    out
+}
+
 /// Spec 058 T12 — the Viewer's interactive surface: wheel and double-click
 /// zoom (R11/R12), Esc (R13), the per-view `ViewMode` slider (R14.1), the
 /// filmstrip and its splitter (R14.3/R14.4), fullscreen (R15) and the whole
@@ -4194,6 +4219,16 @@ fn viewer_view_interactive(
     let page_count = crate::paint::viewer_page_spans(ui.ctx(), &source).max(1);
     st.content = content.as_deref();
     st.page_count = page_count;
+
+    // R31 read the other way round: text a reader cannot select is text they
+    // cannot copy. The selection is the ENGINE's — not a property — because it
+    // is expressed in the runs a paint laid down, and those change with the
+    // zoom, the width and the page. A COBOL program that wants the text has
+    // the document.
+    let sel_id = vid.with("viewer-selection");
+    let mut selection = ui
+        .ctx()
+        .memory(|m| m.data.get_temp::<crate::viewer::TextSelection>(sel_id));
 
     let live_id = vid.with("viewer-live");
     let mut live: ViewerLive = ui
@@ -4263,7 +4298,8 @@ fn viewer_view_interactive(
         0.0
     };
 
-    let (dt, now, pointer, primary_down, command, esc, keys) = ui.input(|i| {
+    let (dt, now, pointer, primary_down, command, esc, keys_select_all, keys_copy, keys) =
+        ui.input(|i| {
         (
             i.stable_dt.min(0.1),
             i.time,
@@ -4271,6 +4307,8 @@ fn viewer_view_interactive(
             i.pointer.primary_down(),
             i.modifiers.command,
             i.key_pressed(egui::Key::Escape),
+            i.key_pressed(egui::Key::A),
+            i.key_pressed(egui::Key::C),
             vw::KeyScrollInput {
                 down_held: i.key_down(egui::Key::ArrowDown),
                 up_held: i.key_down(egui::Key::ArrowUp),
@@ -4707,11 +4745,168 @@ fn viewer_view_interactive(
     st.find_highlight = find_highlight;
     st.find_current = find_current;
     st.find_total = find_total;
+    st.selection = selection;
     st.scroll = live.scroll.offset();
     // What the ONE paint of this control measured for this view. Absent
     // only on the very first frame, before anything has been drawn.
     let painted = crate::paint::viewer_measurements(ui.ctx(), &ctrl.id, view_index)
         .unwrap_or_default();
+
+    // ── Selecting text (R31, the other way round) ───────────────────────
+    //
+    // Against the runs the PAINT laid down, which is why it sits here rather
+    // than beside the other gestures: a run is a galley at a place, and only
+    // the paint knows where it put one. Nothing is selectable in `Cards` (a
+    // contact sheet is not a page) and nothing in an image, which needs no
+    // case of its own — an image paints no runs.
+    let selectable = enabled && view_mode == vw::ViewMode::Full && !painted.text_runs.is_empty();
+    if selectable {
+        let lengths: Vec<usize> = painted
+            .text_runs
+            .iter()
+            .map(|r| r.galley.job.text.chars().count())
+            .collect();
+
+        // Where in the document a point is: the run under it, or the nearest
+        // one above — dragging into the gap between two paragraphs must
+        // extend the selection, not abandon it.
+        let anchor_at = |p: egui::Pos2| -> Option<vw::TextAnchor> {
+            let mut best: Option<(usize, f32)> = None;
+            for (i, run) in painted.text_runs.iter().enumerate() {
+                let dy = if p.y < run.rect.min.y {
+                    run.rect.min.y - p.y
+                } else if p.y > run.rect.max.y {
+                    p.y - run.rect.max.y
+                } else {
+                    0.0
+                };
+                if best.map(|(_, d)| dy < d).unwrap_or(true) {
+                    best = Some((i, dy));
+                }
+                if dy == 0.0 {
+                    break;
+                }
+            }
+            let (i, _) = best?;
+            let run = &painted.text_runs[i];
+            let cursor = run.galley.cursor_from_pos(p - run.rect.min);
+            Some(vw::TextAnchor::new(i, cursor.index.0))
+        };
+
+        // A drag that began on the CONTENT, not on the chrome: pressing the
+        // Find bar and sliding into the page must not select anything.
+        let dragging = resp.dragged() && !slider_busy && !grip_busy;
+        if resp.drag_started() && over_content {
+            if let Some(a) = pointer.and_then(anchor_at) {
+                selection = Some(vw::TextSelection::at(a));
+            }
+        } else if dragging {
+            if let (Some(mut sel), Some(head)) = (selection, pointer.and_then(anchor_at)) {
+                sel.head = head;
+                selection = Some(sel);
+            }
+        } else if resp.clicked() && over_content {
+            // A plain click puts the selection down, as every text surface
+            // does — otherwise the last selection stays lit for ever.
+            selection = None;
+        }
+
+        let copy_now = |ui: &egui::Ui, sel: Option<vw::TextSelection>| {
+            if let Some(text) = sel
+                .filter(|s| !s.is_empty())
+                .map(|s| viewer_selected_text(&painted.text_runs, &s))
+                .filter(|t| !t.is_empty())
+            {
+                ui.ctx().copy_text(text);
+            }
+        };
+
+        // Select All, and Copy. Only while this view has the keyboard, so two
+        // views of one control never both answer one keystroke.
+        if keyboard_free && resp.hovered() {
+            if command && keys_select_all {
+                selection = Some(vw::TextSelection::all(&lengths));
+            }
+            if command && keys_copy {
+                copy_now(ui, selection);
+            }
+        }
+
+        // ── The menu, where the pointer is ──────────────────────────────
+        //
+        // A secondary click is where every text surface keeps this, and it is
+        // the only gesture that cannot be confused with selecting: a primary
+        // click already means "put the selection down".
+        //
+        // Painted here rather than through `egui::Response::context_menu` for
+        // the reason the Find bar is painted rather than hosted: the whole
+        // Viewer is drawn by the shared engine, and a menu that exists on one
+        // surface and not the other is the drift AC11 is about. This one is an
+        // `Area`, which both surfaces can carry.
+        let menu_id = vid.with("viewer-selection-menu");
+        let mut menu_at = ui
+            .ctx()
+            .memory(|m| m.data.get_temp::<egui::Pos2>(menu_id));
+        if resp.secondary_clicked() && over_content {
+            menu_at = pointer;
+        }
+        if let Some(at) = menu_at {
+            let mut close = esc;
+            egui::Area::new(menu_id.with("area"))
+                .order(egui::Order::Foreground)
+                .fixed_pos(at)
+                .show(ui.ctx(), |mui| {
+                    egui::Frame::popup(mui.style()).show(mui, |mui| {
+                        mui.set_min_width(140.0);
+                        for item in vw::SelectionMenuItem::ALL {
+                            let label = vw::selection_menu_label(item);
+                            // Copy with nothing selected is a dead entry, and a
+                            // dead entry that looks alive is worse than none.
+                            let live = match item {
+                                vw::SelectionMenuItem::SelectAll => true,
+                                vw::SelectionMenuItem::Copy => {
+                                    selection.is_some_and(|s| !s.is_empty())
+                                }
+                            };
+                            if mui
+                                .add_enabled(live, egui::Button::new(label).frame(false))
+                                .clicked()
+                            {
+                                match item {
+                                    vw::SelectionMenuItem::SelectAll => {
+                                        selection = Some(vw::TextSelection::all(&lengths));
+                                    }
+                                    vw::SelectionMenuItem::Copy => copy_now(mui, selection),
+                                }
+                                close = true;
+                            }
+                        }
+                    });
+                });
+            // A click anywhere else dismisses it, as a menu must.
+            if resp.clicked() || resp.drag_started() {
+                close = true;
+            }
+            menu_at = (!close).then_some(at);
+        }
+        ui.ctx().memory_mut(|m| match menu_at {
+            Some(at) => {
+                m.data.insert_temp(menu_id, at);
+            }
+            None => m.data.remove::<egui::Pos2>(menu_id),
+        });
+    } else if selection.is_some() {
+        // Nothing here is selectable any more — the view changed mode, or the
+        // document did. A selection over runs that no longer exist would be
+        // painted at whatever those indices now mean.
+        selection = None;
+    }
+    ui.ctx().memory_mut(|m| match selection {
+        Some(sel) => {
+            m.data.insert_temp(sel_id, sel);
+        }
+        None => m.data.remove::<crate::viewer::TextSelection>(sel_id),
+    });
 
     // A thumbnail click needs the rects the paint just produced — the strip
     // has no scroll model of its own, so its rows are wherever it drew them.

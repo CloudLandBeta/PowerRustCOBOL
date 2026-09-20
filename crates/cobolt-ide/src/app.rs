@@ -13905,6 +13905,7 @@ impl eframe::App for CoboltApp {
         // shape `theme::set_active` already uses to publish the palette. Per
         // frame and cheap: it is twelve strings into a thread-local.
         cobolt_forms::viewer::set_toolbar_tooltips(&self.lang.viewer_tooltips());
+        cobolt_forms::viewer::set_selection_menu_labels(&self.lang.selection_menu());
 
         let frame_start = std::time::Instant::now();
 
