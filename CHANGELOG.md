@@ -8,6 +8,37 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.135] — 2026-09-20
+
+### Plan 062 — printing a report into a Viewer
+
+Design only; no code has moved.
+
+The survey says the feature is mostly wiring parts that already exist — the
+ASSIGN device parses, a text line written with trailing spaces removed is the
+`LINE SEQUENTIAL` arm, `obj_set` already announces a property write to every
+host, the Viewer picks its renderer from the extension and its session is keyed
+by path, **plain text is already paginated on form feeds**, and `LoadBytes`
+already proves the in-memory route end to end.
+
+**One thing is genuinely missing, and the plan says so plainly:**
+`advance_linage` **counts and emits nothing**. It keeps `LINAGE-COUNTER` and
+fires `AT END-OF-PAGE`, then returns — no blank lines for `ADVANCING n LINES`,
+no form feed for `ADVANCING PAGE`, and nothing at all when the FD has no
+`LINAGE` clause. A print file's page breaks live in the program's head, not in
+its bytes.
+
+That gap is confined rather than closed (**D2**): the vertical movement is
+emitted for VIEWER files only. Making `advance_linage` emit for every sequential
+file would rewrite the bytes of every existing report program — including the
+CCVS85 programs behind **NIST NC and SQ, both finished at 100 %** — and that is
+a separate change with a full regression behind it, not a side effect of a
+feature. A test writes the same program both ways and asserts the disk bytes are
+unchanged.
+
+Six decisions with their rejected alternatives, seven risks with mitigations,
+and a test strategy of eleven named tests plus the NIST re-run. `/tasks` next.
+
 ## [PowerRustCOBOL 1.70.134] — 2026-09-20
 
 ### Spec 062 — printing a report into a Viewer
