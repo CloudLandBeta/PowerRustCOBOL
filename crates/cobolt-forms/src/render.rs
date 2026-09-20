@@ -4149,6 +4149,10 @@ fn viewer_view_interactive(
     let mut page = live.page.resolve(st.current_page).min(page_count.saturating_sub(1));
     let mut font_size = live.font.resolve(st.font_size.round() as i64);
     let mut split = live.split.resolve(st.split);
+    // Set when THIS view's Split button closed the split this frame, to the
+    // index of the view that asked. Which side asked decides which document
+    // survives — see the write-back below.
+    let mut closing_side: Option<usize> = None;
     let mut find_open = live.find.resolve(st.find_open);
     if st.layout != live.layout_seen {
         live.layout_own = st.layout.clone();
@@ -4198,7 +4202,13 @@ fn viewer_view_interactive(
             // T16 grows the second viewport; the property and its event are
             // R16/R32's and belong with the button that drives them, so the
             // button is never a control that does nothing.
-            vw::ToolbarAction::Split => split = !split,
+            vw::ToolbarAction::Split => {
+                split = !split;
+                // Which side asked to close matters (see `closing_side`).
+                if !split {
+                    closing_side = Some(view_index);
+                }
+            }
             // Likewise T15 builds the Find bar itself.
             vw::ToolbarAction::Find => find_open = !find_open,
             // R19/R20/R18: the OS does the deed. `cobolt-forms` knows the
@@ -4607,6 +4617,41 @@ fn viewer_view_interactive(
         // T16 gives the second view its own content; `LeftRight` is the
         // side-by-side arrangement R21 names first.
         push("SplitMode", if split { "LeftRight".into() } else { "None".to_string() });
+
+        // **Closing a side closes the document that was on it.**
+        //
+        // Side-by-side holding two different files is a reader comparing two
+        // things. Asking for a single view on the LEFT means "I am done with
+        // the left one" — so the survivor is the RIGHT document, and leaving
+        // the left one behind would close the side while keeping exactly the
+        // file the reader just dismissed (operator, 2026-09-20).
+        //
+        // Only when the two sides hold DIFFERENT documents. Two views of one
+        // file are one document seen twice; there is no file to lose, so
+        // closing either side closes a view and nothing else — which is the
+        // operator's own carve-out.
+        //
+        // Closing from the right needs no move at all: `View1Source` is
+        // already the survivor.
+        if !split && closing_side == Some(0) {
+            let prop = |k: &str| {
+                ctrl.get_prop(k)
+                    .map(|v| v.as_str().trim().to_owned())
+                    .unwrap_or_default()
+            };
+            let left = {
+                let named = prop("View1Source");
+                if named.is_empty() { prop("Source") } else { named }
+            };
+            let right = prop("View2Source");
+            if !right.is_empty() && right != left {
+                // Through `push`, like every other write-back: it owns the one
+                // mutable borrow of the output for this view.
+                push("View1Source", right.clone());
+                push("Source", right);
+                push("View2Source", String::new());
+            }
+        }
     }
     if live.find.diverged(find_open) {
         push("View#FindOpen", find_open.to_string());
@@ -11014,6 +11059,31 @@ fn render_interactive(
                 viewer_view_interactive(
                     ui, to_rect(second), ctrl, 1, ctrl_id, id, alpha, enabled, &bound, out,
                 );
+            } else {
+                // **A view that is not on screen must not keep a vote.**
+                //
+                // Each view reconciles the control-wide `SplitMode` through its
+                // own `SharedValue`, which prefers what the VIEW decided unless
+                // the property has changed since the view last looked. A second
+                // view that closed the split then stopped rendering never looks
+                // again — so its `seen` stays frozen at "split", and the moment
+                // the split is reopened it wakes, compares the property against
+                // that stale `seen`, finds no change, re-asserts its own stale
+                // "closed" and writes `SplitMode = None` straight back.
+                //
+                // The split therefore closed on the very frame it reopened, and
+                // side-by-side could not be reached again for the life of the
+                // form (operator, 2026-09-20: "I can't switch back to
+                // side-by-side (it stays a single view)").
+                //
+                // Forgetting the second view's state while it is not shown is
+                // the fix at the cause: a view with no memory re-seeds from the
+                // property it actually finds, which is the only value it has any
+                // business believing.
+                let second = ctrl_id.with(("viewer-view", 1usize));
+                ui.ctx().memory_mut(|m| {
+                    m.data.remove::<ViewerLive>(second.with("viewer-live"));
+                });
             }
 
             // R21's divider is drawn by that one paint; this only makes it

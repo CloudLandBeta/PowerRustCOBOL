@@ -8,6 +8,45 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.117] — 2026-09-20
+
+### A closed split can be reopened
+
+"if side-by-side is selected and then a view is closed thus returning to a
+single view mode, I can't switch back to side-by-side (it stays a single view)"
+(operator, 2026-09-20).
+
+Each view reconciles the control-wide `SplitMode` through its own shared value,
+which prefers what the VIEW decided unless the property has changed since the
+view last looked. A second view that closed the split then stopped rendering
+never looked again — its `seen` stayed frozen at "split". The moment the split
+reopened, that view woke, compared the property against the frozen value, found
+no change, re-asserted its own stale "closed" and wrote `SplitMode = None`
+straight back. The split closed on the very frame it opened, for the life of
+the form.
+
+A view that is not on screen no longer keeps a vote: its state is forgotten
+while it is hidden, so it re-seeds from the property it actually finds — the
+only value it has any business believing.
+
+### Closing a side closes the document that was on it
+
+Side-by-side holding two different files is a reader comparing two things.
+Asking for a single view on the LEFT means "I am done with the left one", so
+the survivor is the RIGHT document — closing the side while keeping exactly the
+file just dismissed is what was reported. Closing from the right needs no move:
+the left document is already the survivor.
+
+Only when the two sides hold **different** documents. Two views of one file are
+one document seen twice, there is no file to lose, and closing either side
+closes a view and nothing else.
+
+Guarded by `the_split_can_be_reopened_after_a_view_closed_it` — which drives
+the real gesture, feeds each frame's write-back into the control the way a host
+does, and was confirmed to fail without the fix — and by
+`closing_the_left_side_leaves_the_right_document_behind`, which asserts the
+carve-out as well as the rule.
+
 ## [PowerRustCOBOL 1.70.116] — 2026-09-20
 
 ### Cards and the filmstrip are the same list, so only one is shown

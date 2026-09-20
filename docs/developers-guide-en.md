@@ -3970,6 +3970,10 @@ no capability in this control that COBOL cannot reach.
   `Full` on that page. Pages the reader has not opened are not decoded — the
   control never reads a document it was not asked for — so those cards show a
   short extract and their number.
+- **Closing a side closes its document.** Side by side with two different
+  files, asking for a single view on the *left* leaves the *right* document in
+  the view that survives — you dismissed the left one. Two views of the same
+  file have no document to lose, so there only the view closes.
 - **One slider**, at the bottom right of each view, drives `Zoom` in `Full`
   mode and `CardSize` in `Cards` mode. Switching modes never disturbs the
   value you left the other one at.

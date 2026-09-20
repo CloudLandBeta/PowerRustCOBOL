@@ -19,6 +19,50 @@ use egui::{pos2, Rect, Vec2};
 
 const FORM: Vec2 = Vec2::new(900.0, 700.0);
 
+/// A side-by-side Viewer, optionally with a different document on each side.
+fn split_viewer(left: &str, right: &str) -> Control {
+    let mut c = Control::new("VWR-1", ControlType::Viewer, 40, 40);
+    c.rect = MRect::new(40, 40, 700, 560);
+    c.set_prop("Layout", PropValue::String("Web".into()));
+    c.set_prop("SplitMode", PropValue::String("LeftRight".into()));
+    c.set_prop("View1Source", PropValue::String(left.into()));
+    c.set_prop("View2Source", PropValue::String(right.into()));
+    c
+}
+
+/// Where the Split button sits in a view's own toolbar, in that view's rect.
+fn split_button(view: egui::Rect) -> egui::Pos2 {
+    let slots = cobolt_forms::viewer::toolbar_slots(cobolt_forms::viewer::ViewRect::new(
+        view.min.x,
+        view.min.y,
+        view.width(),
+        cobolt_forms::viewer::TOOLBAR_HEIGHT,
+    ));
+    let (_, slot) = slots
+        .into_iter()
+        .find(|(a, _)| *a == cobolt_forms::viewer::ToolbarAction::Split)
+        .expect("every view's toolbar carries the Split action");
+    pos2(slot.x + slot.w / 2.0, slot.y + slot.h / 2.0)
+}
+
+fn click_at(p: egui::Pos2) -> Vec<egui::Event> {
+    vec![
+        egui::Event::PointerMoved(p),
+        egui::Event::PointerButton {
+            pos: p,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Default::default(),
+        },
+        egui::Event::PointerButton {
+            pos: p,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        },
+    ]
+}
+
 fn viewer(cards: bool) -> Control {
     let mut c = Control::new("VWR-1", ControlType::Viewer, 40, 40);
     c.rect = MRect::new(40, 40, 700, 560);
@@ -158,5 +202,129 @@ fn double_clicking_a_card_opens_that_page() {
         mode.as_deref(),
         Some("Full"),
         "a double-clicked card must open the page, not stay on the contact sheet"
+    );
+}
+
+/// **Closing a side closes the document that was on it.**
+///
+/// Side-by-side holding two different files is a reader comparing two things.
+/// Asking for a single view on the LEFT means "I am done with the left one", so
+/// the survivor must be the RIGHT document — closing the side while keeping
+/// exactly the file just dismissed is what was reported (operator,
+/// 2026-09-20). Two views of ONE file have no file to lose, and there the view
+/// closes and nothing else.
+#[test]
+fn closing_the_left_side_leaves_the_right_document_behind() {
+    let wrote = |c: &Control, at: egui::Pos2| -> Vec<(String, String)> {
+        let ctx = egui::Context::default();
+        let controls = [c.clone()];
+        frame(&ctx, &controls, Vec::new());
+        let (out, _) = frame(&ctx, &controls, click_at(at));
+        out.prop_updates
+            .iter()
+            .map(|(_, k, v)| (k.clone(), v.clone()))
+            .collect()
+    };
+    // The left view occupies the left half of the control's 700x560 rect.
+    let left_view = Rect::from_min_size(pos2(40.0, 40.0), Vec2::new(350.0, 560.0));
+
+    let two = split_viewer("left.md", "right.md");
+    let updates = wrote(&two, split_button(left_view));
+    let get = |k: &str| {
+        updates
+            .iter()
+            .find(|(key, _)| key == k)
+            .map(|(_, v)| v.clone())
+    };
+    println!("  two files, closing the LEFT side:");
+    for (k, v) in &updates {
+        println!("    {k} = {v:?}");
+    }
+    assert_eq!(get("SplitMode").as_deref(), Some("None"), "the split must close");
+    assert_eq!(
+        get("View1Source").as_deref(),
+        Some("right.md"),
+        "the surviving view must show the document that was NOT dismissed"
+    );
+    assert_eq!(
+        get("View2Source").as_deref(),
+        Some(""),
+        "the closed side keeps no document"
+    );
+
+    // The carve-out: one file on both sides is one document seen twice.
+    let same = split_viewer("only.md", "only.md");
+    let updates = wrote(&same, split_button(left_view));
+    println!("  one file on both sides, closing the LEFT side:");
+    for (k, v) in &updates {
+        println!("    {k} = {v:?}");
+    }
+    let moved = updates.iter().any(|(k, _)| k == "View2Source");
+    assert!(
+        !moved,
+        "two views of one file lose no document — only the view closes"
+    );
+}
+
+/// Apply what a frame wrote back, the way a host does. Without this the
+/// control never changes and a multi-step gesture cannot be told from a
+/// single one.
+fn apply(c: &mut Control, out: &RenderOutput) {
+    for (_, key, val) in &out.prop_updates {
+        c.set_prop(key, PropValue::String(val.clone()));
+    }
+}
+
+fn prop(c: &Control, k: &str) -> String {
+    c.get_prop(k).map(|v| v.as_str().to_owned()).unwrap_or_default()
+}
+
+/// **A view that closed the split must not keep voting once it is gone.**
+///
+/// Each view reconciles the control-wide `SplitMode` through its own shared
+/// value, which prefers what the VIEW decided unless the property changed since
+/// the view last looked. A second view that closed the split then stopped
+/// rendering never looked again — so the moment the split reopened it woke,
+/// found no change against its frozen `seen`, re-asserted its stale "closed"
+/// and wrote `SplitMode = None` straight back. Side-by-side could not be
+/// reached again for the life of the form (operator, 2026-09-20).
+#[test]
+fn the_split_can_be_reopened_after_a_view_closed_it() {
+    let ctx = egui::Context::default();
+    let mut c = split_viewer("a.md", "b.md");
+    frame(&ctx, &[c.clone()], Vec::new());
+
+    // Close from the RIGHT side, which leaves the left document in place.
+    let right = Rect::from_min_size(pos2(390.0, 40.0), Vec2::new(350.0, 560.0));
+    let (out, _) = frame(&ctx, &[c.clone()], click_at(split_button(right)));
+    apply(&mut c, &out);
+    println!("  after closing from the right: SplitMode = {:?}", prop(&c, "SplitMode"));
+    assert_eq!(prop(&c, "SplitMode"), "None", "the split must close");
+
+    let (out, _) = frame(&ctx, &[c.clone()], Vec::new());
+    apply(&mut c, &out);
+
+    // Reopen from the one view that is left.
+    let whole = Rect::from_min_size(pos2(40.0, 40.0), Vec2::new(700.0, 560.0));
+    let (out, _) = frame(&ctx, &[c.clone()], click_at(split_button(whole)));
+    apply(&mut c, &out);
+    println!("  after asking for side-by-side: SplitMode = {:?}", prop(&c, "SplitMode"));
+    assert_eq!(
+        prop(&c, "SplitMode"),
+        "LeftRight",
+        "asking for side-by-side must open it"
+    );
+
+    // And it STAYS open. This is the half the bug failed: the second view woke
+    // on the very next frame and wrote the split shut again.
+    for n in 1..=3 {
+        let (out, _) = frame(&ctx, &[c.clone()], Vec::new());
+        apply(&mut c, &out);
+        println!("  {n} frame(s) later: SplitMode = {:?}", prop(&c, "SplitMode"));
+    }
+    assert_eq!(
+        prop(&c, "SplitMode"),
+        "LeftRight",
+        "a reopened split must stay open — no view may write it shut on its own"
     );
 }
