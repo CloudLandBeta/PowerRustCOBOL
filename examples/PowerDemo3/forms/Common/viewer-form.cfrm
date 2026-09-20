@@ -1,0 +1,865 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="VIEWER-FORM" title="Viewer - documents, split views, search and a live stream" width="1280" height="982" background="#EAEBEFFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" form-format="Both">
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+  <form-events>
+    <Event name="onLoad" paragraph="VIEWER-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           MOVE "Page" TO VWR-1::Layout.
+           MOVE "None" TO VWR-1::SplitMode.
+           MOVE "Full" TO VWR-1::View1ViewMode.
+           MOVE 100 TO VWR-1::View1Zoom.
+           MOVE 14 TO VWR-1::FontSize.
+      *> Something to look at before anything is picked. The sample
+      *> ships with the project, so the demo does not depend on where
+      *> the repository happens to sit, and it exercises headings,
+      *> tables, lists, quotes and fenced code all at once.
+           MOVE "assets/docs/viewer-sample.md" TO VWR-1::View1Source.
+           MOVE "Ready. Pick a file, or press Start stream." TO Lbl-Status::Caption.
+           Txt-Log::AppendText("Viewer demo ready.").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </form-events>
+  <Control id="Lbl-Title" type="Label" x="24" y="16" w="1232" h="28" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Viewer</Property>
+    <Property name="ForegroundColor">#2B2F38</Property>
+    <Property name="FontSize">20</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+  </Control>
+  <Control id="Lbl-Status" type="Label" x="24" y="50" w="1232" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Ready.</Property>
+    <Property name="ForegroundColor">#4A5060</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+  </Control>
+  <Control id="Fdz-View1" type="FileDropZone" x="24" y="84" w="352" h="52" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Hint">Click to choose a file for view 1 (or drop one here)</Property>
+    <Property name="StageOnly">true</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onFilesDropped" paragraph="FDZ-VIEW1--ONFILESDROPPED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       01 WS-ALL PIC X(2048).
+       01 WS-PATH PIC X(512).
+       01 WS-LINE PIC X(600).
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> A click on a FileDropZone opens the native OS picker; a drag
+      *> and drop lands here through the same event. StagedFiles holds
+      *> what was chosen, BEFORE any copying, so the Viewer opens the
+      *> operator's own file and nothing is duplicated anywhere.
+           MOVE Fdz-View1::StagedFiles TO WS-ALL.
+           UNSTRING WS-ALL DELIMITED BY X"0A" INTO WS-PATH.
+           IF FUNCTION TRIM(WS-PATH) NOT = SPACES
+               MOVE FUNCTION TRIM(WS-PATH) TO VWR-1::View1Source
+               STRING "view 1: " FUNCTION TRIM(WS-PATH) INTO WS-LINE
+               MOVE FUNCTION TRIM(WS-LINE) TO Lbl-Status::Caption
+           END-IF.
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Fdz-View2" type="FileDropZone" x="24" y="142" w="352" h="52" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Hint">Click to choose a file for view 2 (turns on split view)</Property>
+    <Property name="StageOnly">true</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onFilesDropped" paragraph="FDZ-VIEW2--ONFILESDROPPED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       01 WS-ALL PIC X(2048).
+       01 WS-PATH PIC X(512).
+       01 WS-LINE PIC X(600).
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> A click on a FileDropZone opens the native OS picker; a drag
+      *> and drop lands here through the same event. StagedFiles holds
+      *> what was chosen, BEFORE any copying, so the Viewer opens the
+      *> operator's own file and nothing is duplicated anywhere.
+           MOVE Fdz-View2::StagedFiles TO WS-ALL.
+           UNSTRING WS-ALL DELIMITED BY X"0A" INTO WS-PATH.
+           IF FUNCTION TRIM(WS-PATH) NOT = SPACES
+               MOVE FUNCTION TRIM(WS-PATH) TO VWR-1::View2Source
+               MOVE "LeftRight" TO VWR-1::SplitMode
+               STRING "view 2: " FUNCTION TRIM(WS-PATH) INTO WS-LINE
+               MOVE FUNCTION TRIM(WS-LINE) TO Lbl-Status::Caption
+           END-IF.
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Cap-Layout" type="Label" x="24" y="200" w="352" h="18" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Layout - how the document is presented</Property>
+    <Property name="ForegroundColor">#6A7183</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+  </Control>
+  <Control id="Btn-Raw" type="Button" x="24" y="222" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Raw</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-RAW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           MOVE "Raw" TO VWR-1::Layout.
+           Txt-Log::AppendText("Layout -> Raw").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Web" type="Button" x="204" y="222" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Web</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-WEB--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           MOVE "Web" TO VWR-1::Layout.
+           Txt-Log::AppendText("Layout -> Web").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Print" type="Button" x="24" y="254" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Print</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-PRINT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           MOVE "Print" TO VWR-1::Layout.
+           Txt-Log::AppendText("Layout -> Print").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Page" type="Button" x="204" y="254" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Page</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-PAGE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           MOVE "Page" TO VWR-1::Layout.
+           Txt-Log::AppendText("Layout -> Page").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Streamed" type="Button" x="24" y="286" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Streamed</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-STREAMED--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           MOVE "Streamed" TO VWR-1::Layout.
+           Txt-Log::AppendText("Layout -> Streamed").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Fullscreen" type="Button" x="204" y="286" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Fullscreen</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-FULLSCREEN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           IF VWR-1::Fullscreen = 1
+               MOVE 0 TO VWR-1::Fullscreen
+           ELSE
+               MOVE 1 TO VWR-1::Fullscreen
+           END-IF.
+           Txt-Log::AppendText("Fullscreen toggled").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Cap-Split" type="Label" x="24" y="318" w="352" h="18" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Split view, card grid and filmstrip</Property>
+    <Property name="ForegroundColor">#6A7183</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+  </Control>
+  <Control id="Btn-Split-None" type="Button" x="24" y="340" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Split: none</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-SPLIT-NONE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           MOVE "None" TO VWR-1::SplitMode.
+           Txt-Log::AppendText("SplitMode -> None").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Split-LR" type="Button" x="204" y="340" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Split: side by side</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-SPLIT-LR--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           MOVE "LeftRight" TO VWR-1::SplitMode.
+           Txt-Log::AppendText("SplitMode -> LeftRight").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Split-TB" type="Button" x="24" y="372" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Split: stacked</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-SPLIT-TB--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           MOVE "TopBottom" TO VWR-1::SplitMode.
+           Txt-Log::AppendText("SplitMode -> TopBottom").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Filmstrip" type="Button" x="204" y="372" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Filmstrip</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-FILMSTRIP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           IF VWR-1::View1ShowFilmstrip = 1
+               MOVE 0 TO VWR-1::View1ShowFilmstrip
+           ELSE
+               MOVE 1 TO VWR-1::View1ShowFilmstrip
+           END-IF.
+           Txt-Log::AppendText("Filmstrip toggled").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Full" type="Button" x="24" y="404" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Mode: full</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-FULL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           MOVE "Full" TO VWR-1::View1ViewMode.
+           Txt-Log::AppendText("ViewMode -> Full").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Cards" type="Button" x="204" y="404" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Mode: cards</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-CARDS--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           MOVE "Cards" TO VWR-1::View1ViewMode.
+           Txt-Log::AppendText("ViewMode -> Cards").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Cap-Zoom" type="Label" x="24" y="436" w="352" h="18" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Zoom, font size and pages</Property>
+    <Property name="ForegroundColor">#6A7183</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+  </Control>
+  <Control id="Btn-Zoom-Out" type="Button" x="24" y="458" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Zoom out</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-ZOOM-OUT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       01 WS-N PIC S9(5).
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           COMPUTE WS-N = VWR-1::View1Zoom - 25.
+           IF WS-N < 25 MOVE 25 TO WS-N END-IF.
+           MOVE WS-N TO VWR-1::View1Zoom.
+           Txt-Log::AppendText("Zoom out").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Zoom-In" type="Button" x="204" y="458" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Zoom in</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-ZOOM-IN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       01 WS-N PIC S9(5).
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> R12 caps magnification at 16x; the control clamps, so a
+      *> runaway loop here can never ask for more than that.
+           COMPUTE WS-N = VWR-1::View1Zoom + 25.
+           MOVE WS-N TO VWR-1::View1Zoom.
+           Txt-Log::AppendText("Zoom in").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Zoom-100" type="Button" x="24" y="490" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Zoom 100%</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-ZOOM-100--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           MOVE 100 TO VWR-1::View1Zoom.
+           Txt-Log::AppendText("Zoom reset").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Font-Up" type="Button" x="204" y="490" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Font +</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-FONT-UP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       01 WS-N PIC S9(5).
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> R10: FontSize scales the text independently of Zoom.
+           COMPUTE WS-N = VWR-1::FontSize + 2.
+           IF WS-N > 40 MOVE 12 TO WS-N END-IF.
+           MOVE WS-N TO VWR-1::FontSize.
+           Txt-Log::AppendText("Font size changed").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Prev-Page" type="Button" x="24" y="522" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Previous page</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-PREV-PAGE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       01 WS-N PIC S9(5).
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           COMPUTE WS-N = VWR-1::View1Page - 1.
+           IF WS-N < 1 MOVE 1 TO WS-N END-IF.
+           MOVE WS-N TO VWR-1::View1Page.
+           Txt-Log::AppendText("Page back").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Next-Page" type="Button" x="204" y="522" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Next page</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-NEXT-PAGE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       01 WS-N PIC S9(5).
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           COMPUTE WS-N = VWR-1::View1Page + 1.
+           MOVE WS-N TO VWR-1::View1Page.
+           Txt-Log::AppendText("Page forward").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Cap-Find" type="Label" x="24" y="554" w="352" h="18" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Find - search the document that is open</Property>
+    <Property name="ForegroundColor">#6A7183</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+  </Control>
+  <Control id="Txt-Find" type="TextBox" x="24" y="576" w="352" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Text">COBOL</Property>
+    <Property name="FontSize">11</Property>
+  </Control>
+  <Control id="Btn-Find" type="Button" x="24" y="608" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Find</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-FIND--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       01 WS-LINE PIC X(120).
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           MOVE Txt-Find::Text TO VWR-1::View1SearchText.
+           VWR-1::Find().
+           STRING "matches: " VWR-1::View1SearchMatchCount INTO WS-LINE.
+           MOVE FUNCTION TRIM(WS-LINE) TO Lbl-Matches::Caption.
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Find-Next" type="Button" x="204" y="608" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Next match</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-FIND-NEXT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       01 WS-LINE PIC X(120).
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           VWR-1::FindNext().
+           STRING VWR-1::View1SearchCurrentMatch " of "
+                  VWR-1::View1SearchMatchCount INTO WS-LINE.
+           MOVE FUNCTION TRIM(WS-LINE) TO Lbl-Matches::Caption.
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Find-Prev" type="Button" x="24" y="640" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Previous match</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-FIND-PREV--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       01 WS-LINE PIC X(120).
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           VWR-1::FindPrevious().
+           STRING VWR-1::View1SearchCurrentMatch " of "
+                  VWR-1::View1SearchMatchCount INTO WS-LINE.
+           MOVE FUNCTION TRIM(WS-LINE) TO Lbl-Matches::Caption.
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Find-Close" type="Button" x="204" y="640" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Close find</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-FIND-CLOSE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           VWR-1::FindClose().
+           Txt-Log::AppendText("Find closed").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Chk-Case" type="CheckBox" x="24" y="672" w="172" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Case sensitive</Property>
+    <Property name="Checked">false</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="CHK-CASE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           IF Chk-Case::Checked = 1
+               MOVE 1 TO VWR-1::View1SearchCaseSensitive
+           ELSE
+               MOVE 0 TO VWR-1::View1SearchCaseSensitive
+           END-IF.
+           VWR-1::Find().
+           Txt-Log::AppendText("Case sensitivity changed").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Chk-Highlight" type="CheckBox" x="204" y="672" w="172" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Highlight</Property>
+    <Property name="Checked">true</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="CHK-HIGHLIGHT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           IF Chk-Highlight::Checked = 1
+               MOVE 1 TO VWR-1::View1SearchHighlightEnabled
+           ELSE
+               MOVE 0 TO VWR-1::View1SearchHighlightEnabled
+           END-IF.
+           Txt-Log::AppendText("Highlight changed").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Lbl-Matches" type="Label" x="24" y="700" w="352" h="18" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">matches: -</Property>
+    <Property name="ForegroundColor">#4A5060</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+  </Control>
+  <Control id="Cap-Actions" type="Label" x="24" y="724" w="352" h="18" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Save, print, share - and the live stream</Property>
+    <Property name="ForegroundColor">#6A7183</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+  </Control>
+  <Control id="Btn-Save" type="Button" x="24" y="746" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Save as...</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-SAVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> R18: Save As writes the ORIGINAL bytes, untouched. What is
+      *> on screen is a derived reading of the stored form, never a
+      *> replacement for it, so the copy is byte-identical.
+           VWR-1::SaveAs().
+           Txt-Log::AppendText("Save As requested").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Print" type="Button" x="204" y="746" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Print</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-PRINT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           VWR-1::Print().
+           Txt-Log::AppendText("Print requested").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Share" type="Button" x="24" y="778" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Share</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-SHARE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           VWR-1::Share().
+           Txt-Log::AppendText("Share requested").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Jump" type="Button" x="204" y="778" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Jump to latest</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-JUMP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           VWR-1::JumpToLatest().
+           Txt-Log::AppendText("Jumped to latest").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Stream-Start" type="Button" x="24" y="810" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Start stream</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-STREAM-START--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> Streamed layout is one content pane and no chrome at all:
+      *> the conversation IS the document. Each tick appends another
+      *> chunk, and the Viewer keeps every chunk in its own native
+      *> form, assembling the stream on demand.
+           MOVE "Streamed" TO VWR-1::Layout.
+           MOVE 0 TO Num-Chunks::Value.
+           MOVE 1 TO Tmr-Stream::Enabled.
+           MOVE "Streaming..." TO Lbl-Status::Caption.
+           Txt-Log::AppendText("Stream started").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Stream-Stop" type="Button" x="204" y="810" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Stop stream</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-STREAM-STOP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           MOVE 0 TO Tmr-Stream::Enabled.
+           MOVE "Stream stopped." TO Lbl-Status::Caption.
+           Txt-Log::AppendText("Stream stopped").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-New-Conv" type="Button" x="24" y="842" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">New conversation</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-NEW-CONV--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           VWR-1::NewConversation().
+           MOVE 0 TO Num-Chunks::Value.
+           Txt-Log::AppendText("New conversation").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Reg-Conv" type="Button" x="204" y="842" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Register past one</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-REG-CONV--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> History holds an id and a title, never the content. The
+      *> host is asked for the text only when one is selected, which
+      *> is what keeps a long session bounded.
+           VWR-1::RegisterConversation("conv-archive", "Archived session").
+           Txt-Log::AppendText("Registered conv-archive").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Sel-Conv" type="Button" x="24" y="874" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Select past one</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-SEL-CONV--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           VWR-1::SelectConversation("conv-archive").
+           Txt-Log::AppendText("Selected conv-archive").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Num-Chunks" type="NumericUpDown" x="204" y="874" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Value">0</Property>
+    <Property name="Minimum">0</Property>
+    <Property name="Maximum">100000</Property>
+    <Property name="FontSize">11</Property>
+  </Control>
+  <Control id="Btn-Sample-Md" type="Button" x="24" y="906" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Sample: Markdown</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-SAMPLE-MD--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           MOVE "assets/docs/viewer-sample.md" TO VWR-1::View1Source.
+           MOVE "Page" TO VWR-1::Layout.
+           Txt-Log::AppendText("Opened the Markdown sample").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Btn-Sample-Txt" type="Button" x="204" y="906" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Sample: paged text</Property>
+    <Property name="FontSize">11</Property>
+    <Event name="onClick" paragraph="BTN-SAMPLE-TXT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> Plain text with real form-feed page breaks, so Previous and
+      *> Next page move between pages the file itself declares (R9)
+      *> rather than scrolling one continuous sheet.
+           MOVE "assets/docs/viewer-sample.txt" TO VWR-1::View1Source.
+           MOVE "Page" TO VWR-1::Layout.
+           MOVE 1 TO VWR-1::View1Page.
+           Txt-Log::AppendText("Opened the paged text sample").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="VWR-1" type="Viewer" x="400" y="84" w="856" h="726" tab-order="0" z-order="1" visible="true" enabled="true">
+    <Property name="Layout">Page</Property>
+    <Property name="SplitMode">None</Property>
+    <Property name="SplitPercent">50</Property>
+    <Property name="View1ViewMode">Full</Property>
+    <Property name="View1Zoom">100</Property>
+    <Property name="View1CardSize">55</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="RenderAsHtml">true</Property>
+    <Event name="onLoaded" paragraph="VWR-1--ONLOADED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       01 WS-LINE PIC X(200).
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           STRING "loaded, format: " VWR-1::Format INTO WS-LINE.
+           MOVE FUNCTION TRIM(WS-LINE) TO Lbl-Status::Caption.
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+    <Event name="onError" paragraph="VWR-1--ONERROR"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       01 WS-LINE PIC X(400).
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           STRING "error: " VWR-1::LastError INTO WS-LINE.
+           MOVE FUNCTION TRIM(WS-LINE) TO Lbl-Status::Caption.
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+    <Event name="onConversationSelected" paragraph="VWR-1--ONCONVERSATIONSELECTED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> The control does not keep a past conversation's text. It
+      *> asks, and the program answers - exactly the round trip the
+      *> design calls for. Without this handler the pane would open
+      *> empty, which is the documented behaviour, not a fault.
+           VWR-1::AppendMarkdown("## Archived session\n\nRestored by the program when the entry was chosen. The Viewer stored only an id and a title.\n\n").
+           Txt-Log::AppendText("Supplied the archived conversation").
+           Txt-Log::AppendText(WS-NL).
+]]></Event>
+  </Control>
+  <Control id="Tmr-Stream" type="Timer" x="1200" y="16" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Interval">120</Property>
+    <Property name="Enabled">false</Property>
+    <Event name="onTick" paragraph="TMR-STREAM--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NL PIC X.
+       01 WS-N PIC S9(6).
+       01 WS-Q PIC S9(6).
+       01 WS-KIND PIC S9(2).
+       01 WS-NUM PIC 9(4).
+       01 WS-CHUNK PIC X(900).
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+           COMPUTE WS-N = Num-Chunks::Value + 1.
+           MOVE WS-N TO WS-NUM.
+      *> Every chunk is Markdown, and the shape rotates so the stream
+      *> exercises headings, prose, lists, a table and fenced code
+      *> rather than one paragraph repeated.
+           DIVIDE WS-N BY 4 GIVING WS-Q REMAINDER WS-KIND.
+           EVALUATE WS-KIND
+               WHEN 0
+                   STRING "## Message " WS-NUM X"0A" X"0A"
+                          "A streamed append. The Viewer keeps every "
+                          "chunk in its own native form and assembles "
+                          "the conversation on demand, so a session "
+                          "that runs for hours stays bounded." X"0A" X"0A"
+                       INTO WS-CHUNK
+               WHEN 1
+                   STRING "### Checklist " WS-NUM X"0A" X"0A"
+                          "- [x] chunk stored in its own form" X"0A"
+                          "- [x] rendered from that form" X"0A"
+                          "- [ ] never converted on the way in" X"0A" X"0A"
+                       INTO WS-CHUNK
+               WHEN 2
+                   STRING "| field | value |" X"0A"
+                          "|---|---:|" X"0A"
+                          "| message | " WS-NUM " |" X"0A"
+                          "| layout | Streamed |" X"0A" X"0A"
+                       INTO WS-CHUNK
+               WHEN OTHER
+                   STRING "```cobol" X"0A"
+                          "           VWR-1::AppendMarkdown(WS-CHUNK)."
+                          X"0A" "```" X"0A" X"0A"
+                       INTO WS-CHUNK
+           END-EVALUATE.
+           VWR-1::AppendMarkdown(FUNCTION TRIM(WS-CHUNK)).
+           MOVE WS-N TO Num-Chunks::Value.
+      *> A long stream, on purpose: 150 chunks of mixed Markdown is a
+      *> document of real size, which is the point of the exercise.
+           IF WS-N >= 150
+               MOVE 0 TO Tmr-Stream::Enabled
+               MOVE "Stream complete - 150 messages." TO Lbl-Status::Caption
+           END-IF.
+]]></Event>
+  </Control>
+  <Control id="Txt-Log" type="TextBox" x="400" y="822" w="856" h="108" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Text"></Property>
+    <Property name="Multiline">true</Property>
+    <Property name="ReadOnly">true</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="FontName">Courier New</Property>
+  </Control>
+</Form>

@@ -1,5 +1,45 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.103] — 2026-09-20
+
+### PowerDemo3 gains a Viewer example that drives the whole control
+
+`forms/Common/viewer-form.cfrm`, 50 controls, generating 1465 lines of COBOL
+that parse and analyse with no errors.
+
+Two FileDropZones open the native OS picker on a click, and accept a drag and
+drop through the same event. They read `StagedFiles`, which holds what was
+chosen BEFORE any copying, so the Viewer opens the operator's own file and
+nothing is duplicated anywhere. Choosing a second file turns on split view.
+
+From there every surface the control has is reachable from a button: the five
+layouts including `Streamed`, split side by side and stacked, the card grid,
+the filmstrip, zoom, font size apart from zoom, page navigation, Find with its
+match counter and case and highlight switches, and Save As, Print and Share.
+`onLoaded`, `onError` and `onConversationSelected` are bound, the last one
+answering the control's request with content, which is the round trip history
+is designed around: the Viewer stores an id and a title, never the text.
+
+A Timer streams a genuinely long conversation. Each tick appends Markdown and
+the shape rotates through prose, a task list, a table and fenced code, so the
+stream exercises the renderer rather than repeating one paragraph. It stops
+at 150 messages.
+
+Two documents ship with the project so the demo stands on its own rather than
+reaching into the repository: a Markdown sample, and a plain text sample of 12
+pages separated by real form feeds, so Previous and Next page move between
+pages the file itself declares.
+
+`viewer_demo_compiles` guards all of it — that the form reloads as a Viewer and
+not as `Custom`, that its generated COBOL compiles, that 26 named capabilities
+are still exercised, and that the samples resolve to the formats the form
+expects. It reads the example from the repository's own `examples/PowerDemo3`,
+unlike its sibling demo guards, which look in `~/Documents/PowerDemo3` and have
+therefore never run on a machine without one.
+
+The version skips to .103 rather than taking .101: `main` and `fixes` already
+hold .101 and .102, and a third meaning for the same number helps nobody.
+
 ## [PowerRustCOBOL 1.70.100] — 2026-09-19
 
 ### Find marks its matches on formatted documents too
