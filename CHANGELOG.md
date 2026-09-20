@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.104] — 2026-09-20
+
+### One build carrying both lines of work
+
+`features` and `fixes` are both merged into `main`. Nothing new is implemented
+here: this number exists so a build can be told apart from one that has only
+half of it, which is what the version in the window title is for.
+
+What that build now carries: the Viewer control and its PowerDemo3 example
+(1.70.85 through 1.70.103 on `features`), and the form-size clamp that stops a
+mistyped Height from aborting the IDE (1.70.102 on `fixes`).
+
 ## [PowerRustCOBOL 1.70.103] — 2026-09-20
 
 ### PowerDemo3 gains a Viewer example that drives the whole control
@@ -47,6 +59,43 @@ therefore never run on a machine without one.
 
 The version skips to .103 rather than taking .101: `main` and `fixes` already
 hold .101 and .102, and a third meaning for the same number helps nobody.
+
+## [PowerRustCOBOL 1.70.102] — 2026-09-20
+
+### A form's size can no longer abort the IDE
+
+Previewing a form saved with `height="480768"` did not open a tall window.
+It killed the IDE outright, with no message in the crash log:
+
+```
+wgpu error: Validation Error
+  In Surface::configure
+    `Surface` width and height must be within the maximum supported texture
+    size. Requested was (2056, 20006), maximum extent for either dimension
+    is 8192.
+```
+
+The validation panic fires inside a callback macOS forbids unwinding
+through, so the process aborts instead of reporting. That is why the crash
+file recorded only `panic in a function that cannot unwind` and a backtrace
+ending in Objective-C. Any unsaved work went with it.
+
+Where the number came from is ordinary: the Height field held `480`, and
+typing `768` appended rather than replacing. Nothing refused the result.
+`set_form_prop` had a floor of 64 and no ceiling at all, and neither did
+either drag-resize path, so a form could be given a size no GPU can render
+and then saved that way.
+
+Two guards now, because one is not enough. `clamp_form_dim` bounds every
+path that SETS a form dimension — the property editor, the `Target` presets
+and both drag paths — to `FORM_MAX_SIZE`, 8192, the common desktop ceiling
+and already far past any form a person draws. And the preview viewport
+clamps again as it builds the window, because the first guard protects new
+input while the forms already saved with a bad size are still on disk. A
+typo deserves a clamp, not an abort.
+
+Ordinary sizes are untouched, the floor is unchanged, and the operator's own
+`480768` is the regression test.
 
 ## [PowerRustCOBOL 1.70.101] — 2026-09-19
 

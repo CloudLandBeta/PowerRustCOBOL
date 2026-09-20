@@ -14929,16 +14929,28 @@ impl eframe::App for CoboltApp {
                 let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("form");
                 format!("Preview — {stem}")
             };
+            // A form LOADED from disk can carry a size this IDE would no longer
+            // let anyone set: `designer::clamp_form_dim` guards new input, not
+            // the files saved before it existed. Asking for a surface past the
+            // GPU's maximum texture size is not merely a bad window — it is an
+            // abort, because the validation panic fires inside a callback macOS
+            // forbids unwinding through, taking the whole IDE and any unsaved
+            // work with it. So the last word belongs here, where the window is
+            // actually built, and not only at the places that set the number.
             let (form_w, form_h) = {
                 let d = &self.designers[idx].1;
-                (d.form.width as f32, d.form.height as f32)
+                let cap = crate::panels::designer::FORM_MAX_SIZE as f32;
+                (
+                    (d.form.width as f32 + 4.0).min(cap),
+                    (d.form.height as f32 + 4.0).min(cap),
+                )
             };
 
             ctx.show_viewport_immediate(
                 vp_id,
                 ViewportBuilder::default()
                     .with_title(&title)
-                    .with_inner_size([form_w + 4.0, form_h + 4.0])
+                    .with_inner_size([form_w, form_h])
                     .with_resizable(true)
                     .with_transparent(true),
                 |vp_ctx, _class| {
