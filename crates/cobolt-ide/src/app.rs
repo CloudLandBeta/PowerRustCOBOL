@@ -17532,6 +17532,7 @@ impl CoboltApp {
                         tr.clipboard_copy,
                         tr.clipboard_paste,
                         tr.clipboard_duplicate,
+                        tr.tb_format_painter,
                         preview_on,
                         grid_on,
                         glass_on,

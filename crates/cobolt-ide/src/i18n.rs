@@ -1326,6 +1326,10 @@ pub struct Tr {
     pub sec_form_props: &'static str,
     pub sec_form_events: &'static str,
     pub sec_format_painter: &'static str,
+    /// Designer toolbar tip for the Format Painter, including what SHIFT
+    /// does. It was a hard-coded English literal at the call site until
+    /// 2026-09-20, which is why five languages never had it.
+    pub tb_format_painter: &'static str,
     pub sec_target: &'static str,
     pub sec_bg_image: &'static str,
     // ── Beautify (spec 043) ─────────────────────────────────────────────
@@ -2800,6 +2804,7 @@ const EN: Tr = Tr {
     sec_form_props:     "🗔 Form Properties",
     sec_form_events:    "⚡ Form Events",
     sec_format_painter: "🖌 Format Painter",
+    tb_format_painter: "Format Painter — copy one control's style onto another. Hold SHIFT to keep the target's own size. Press ESC to stop.",
     sec_target:         "📱 Target Device",
     sec_bg_image:       "🖼 Background Image",
     bt_title:           "✨ Beautify",
@@ -4146,6 +4151,7 @@ const ES: Tr = Tr {
     sec_form_props:     "🗔 Propiedades del formulario",
     sec_form_events:    "⚡ Eventos del formulario",
     sec_format_painter: "🖌 Copiar estilo",
+    tb_format_painter: "Copiar estilo — aplica el estilo de un control a otro. Mantén MAYÚS para conservar el tamaño del destino. Pulsa ESC para salir.",
     sec_target:         "📱 Dispositivo destino",
     sec_bg_image:       "🖼 Imagen de fondo",
     bt_title:           "✨ Embellecer",
@@ -5492,6 +5498,7 @@ const PT: Tr = Tr {
     sec_form_props:     "🗔 Propriedades do formulário",
     sec_form_events:    "⚡ Eventos do formulário",
     sec_format_painter: "🖌 Copiar estilo",
+    tb_format_painter: "Copiar estilo — aplica o estilo de um controle em outro. Segure SHIFT para manter o tamanho do destino. Pressione ESC para sair.",
     sec_target:         "📱 Dispositivo alvo",
     sec_bg_image:       "🖼 Imagem de fundo",
     bt_title:           "✨ Embelezar",
@@ -6837,6 +6844,7 @@ const JA: Tr = Tr {
     sec_form_props:     "🗔 フォームのプロパティ",
     sec_form_events:    "⚡ フォームイベント",
     sec_format_painter: "🖌 スタイルのコピー",
+    tb_format_painter: "スタイルのコピー — あるコントロールのスタイルを別のコントロールに適用します。SHIFT を押しながらクリックすると、適用先のサイズは変わりません。ESC で終了します。",
     sec_target:         "📱 ターゲットデバイス",
     sec_bg_image:       "🖼 背景画像",
     bt_title:           "✨ 整形",
@@ -8189,6 +8197,7 @@ const ZH: Tr = Tr {
     sec_form_props: "🗔 窗体属性",
     sec_form_events: "⚡ 窗体事件",
     sec_format_painter: "🖌 复制样式",
+    tb_format_painter: "复制样式 — 将一个控件的样式应用到另一个控件。按住 SHIFT 可保持目标控件自身的尺寸。按 ESC 退出。",
     sec_target: "📱 目标设备",
     sec_bg_image: "🖼 背景图片",
     bt_title: "✨ 美化",
@@ -9536,6 +9545,7 @@ const FR: Tr = Tr {
     sec_form_props:     "🗔 Propriétés du formulaire",
     sec_form_events:    "⚡ Événements du formulaire",
     sec_format_painter: "🖌 Reproduire la mise en forme",
+    tb_format_painter: "Reproduire la mise en forme — applique le style d'un contrôle à un autre. Maintenez MAJ pour conserver la taille de la cible. Appuyez sur ÉCHAP pour quitter.",
     sec_target:         "📱 Appareil cible",
     sec_bg_image:       "🖼 Image d'arrière-plan",
     bt_title:           "✨ Embellir",

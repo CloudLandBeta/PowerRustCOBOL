@@ -3694,6 +3694,23 @@ impl PropertiesPanel {
                     self.show_form(ui, form, &mut action, tr);
                 }
             });
+        // Read back whatever `property_row`'s grip wrote while the rows were
+        // drawn, because the line above this block put `self.property_split`
+        // into that same slot and will do it again next frame. Without this,
+        // a drag is overwritten by the stale field one frame later and the
+        // split snaps back, which reads as "cannot resize".
+        //
+        // It lives HERE, in the one place that WRITES the split, rather than
+        // in each function that draws rows. It used to be duplicated into
+        // `show_control` and `show_form`, and a mixed-type multi-selection —
+        // which draws through `show_shared_properties` instead of either —
+        // got no copy and could not be dragged at all (operator,
+        // 2026-09-20: "I've lost the ability to resize the label/value
+        // separation... when I select multiple controls"). One owner cannot
+        // be forgotten by the next path that draws a row.
+        if let Some(split) = ui.data(|d| d.get_temp::<f32>(property_split_id())) {
+            self.property_split = split;
+        }
         if let Some(ctrl) = ctrl {
             if ctrl.control_type == ControlType::DataGrid {
                 self.show_datagrid_editor_modal(ui.ctx(), ctrl, &mut action, tr);
@@ -3953,9 +3970,6 @@ impl PropertiesPanel {
             InspectorTab::Animations => {
                 self.show_animations(ui, ctrl, &id, action, tr);
             }
-        }
-        if let Some(split) = ui.data(|d| d.get_temp::<f32>(property_split_id())) {
-            self.property_split = split;
         }
     }
 
@@ -10721,9 +10735,6 @@ impl PropertiesPanel {
                 });
             }
         }
-        if let Some(split) = ui.data(|d| d.get_temp::<f32>(property_split_id())) {
-            self.property_split = split;
-        }
 
         ui.add_space(8.0);
         ui.label(
@@ -13990,5 +14001,136 @@ mod property_split_tests {
             START - 80.0
         );
         println!("property split: {START} → {after} over a 4-step, 80 px drag");
+    }
+
+    /// The panel must CARRY a drag from one frame to the next, whatever drew
+    /// the rows.
+    ///
+    /// The test above proves the grip itself works, driving `property_row`
+    /// directly. That is not enough, and this is the gap it left: the grip
+    /// writes the new split into egui's temp store, while `show_selection`
+    /// writes `self.property_split` into that SAME slot at the top of every
+    /// frame. Unless the panel reads the grip's value back before the next
+    /// frame overwrites it, the drag is lost and the split snaps home.
+    ///
+    /// That read-back used to be copied into `show_control` and `show_form`.
+    /// A mixed-type multi-selection draws through neither — it goes to
+    /// `show_shared_properties` — so it got no copy and could not be dragged
+    /// at all, while a single control and a uniform selection both could
+    /// (operator, 2026-09-20). The fix gave the read-back one owner. This
+    /// test drives the real panel, through the real mixed path, so a fifth
+    /// way of drawing rows cannot quietly lose it again.
+    #[test]
+    fn a_mixed_multi_selection_keeps_a_dragged_split() {
+        use crate::i18n::Language;
+        use cobolt_forms::{Control, ControlType, Form};
+
+        let tr = Language::English.tr();
+        let mut form = Form::new("F1", "Test", 800, 600);
+        form.controls
+            .push(Control::new("BTN-1", ControlType::Button, 10, 10));
+        form.controls
+            .push(Control::new("LBL-1", ControlType::Label, 10, 60));
+        let primary = form.controls[0].clone();
+        // Not uniform: a Button and a Label. This is the path that broke.
+        let selection = MultiSelection {
+            count: 2,
+            uniform: false,
+            common_keys: vec![
+                "Width".to_owned(),
+                "Height".to_owned(),
+                "Caption".to_owned(),
+            ],
+        };
+
+        let ctx = egui::Context::default();
+        let mut panel = PropertiesPanel::new();
+        let mut run = |ctx: &egui::Context,
+                       panel: &mut PropertiesPanel,
+                       events: Vec<egui::Event>|
+         -> egui::CursorIcon {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(420.0, 600.0),
+                )),
+                events,
+                ..Default::default()
+            };
+            let mut full = ctx.run_ui(input, |ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show(ui, |ui| {
+                        panel.show_multi(ui, &form, Some(&primary), &[], &tr, selection.clone());
+                    });
+            });
+            full.textures_delta.clear();
+            full.platform_output.cursor_icon
+        };
+
+        // Settle, so `property_split` holds whatever the panel chose.
+        run(&ctx, &mut panel, vec![]);
+        run(&ctx, &mut panel, vec![]);
+        let settled = panel.property_split;
+
+        // Find a grip the same way the sibling test does: it is the only
+        // thing along x = split asking for a horizontal-resize cursor.
+        let mut grip_y = None;
+        let mut y = 4.0;
+        while y < 560.0 {
+            let cursor = run(
+                &ctx,
+                &mut panel,
+                vec![egui::Event::PointerMoved(egui::pos2(settled, y))],
+            );
+            if cursor == egui::CursorIcon::ResizeHorizontal {
+                grip_y = Some(y);
+                break;
+            }
+            y += 2.0;
+        }
+        let grip = egui::pos2(settled, grip_y.expect("a mixed selection must draw draggable rows"));
+
+        run(&ctx, &mut panel, vec![egui::Event::PointerMoved(grip)]);
+        run(
+            &ctx,
+            &mut panel,
+            vec![egui::Event::PointerButton {
+                pos: grip,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::default(),
+            }],
+        );
+        let mut pos = grip;
+        for _ in 0..3 {
+            pos.x -= 20.0;
+            run(&ctx, &mut panel, vec![egui::Event::PointerMoved(pos)]);
+        }
+        run(
+            &ctx,
+            &mut panel,
+            vec![egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::default(),
+            }],
+        );
+        // One more frame with no events: this is the one that used to undo
+        // the whole drag, by writing the stale field back over the slot.
+        run(&ctx, &mut panel, vec![]);
+
+        let expected = settled - 60.0;
+        println!(
+            "mixed selection: settled {settled}, dragged 60 px left, panel kept {}",
+            panel.property_split
+        );
+        assert!(
+            (panel.property_split - expected).abs() < 8.0,
+            "a mixed multi-selection must keep the dragged split \
+             (expected ≈{expected}, got {})",
+            panel.property_split
+        );
     }
 }
