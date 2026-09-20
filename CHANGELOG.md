@@ -8,6 +8,26 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.113] — 2026-09-20
+
+### The System KB knows a Viewer can open a web address
+
+1.70.111 taught `Source` to take a URL and said so in the Developer's Guide.
+The agents read neither — the System Knowledge Base is built from the compiler's
+own property, method and event doc tables, and those still described a Viewer
+whose `Source` was a path. An agent asked to point a Viewer at a published
+manual would have answered that it could not.
+
+The Viewer's control entry now carries what the address actually does: fetched
+once to a local file and then opened like any other path, off the UI thread,
+cached, capped at 256 MB, failing through `onError` and `LastError` — and
+**not a browser**, with nothing executed, no script run and no sub-resource
+followed.
+
+`assets/knowledge/chunked.data` is regenerated in the same change, which is
+what `prebuilt_chunked_kb_matches_the_published_documentation` exists to
+insist on.
+
 ## [PowerRustCOBOL 1.70.112] — 2026-09-20
 
 ### The rules inside a Viewer are one weight, and it is the stronger one
