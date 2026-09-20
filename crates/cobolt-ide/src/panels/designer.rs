@@ -1612,6 +1612,30 @@ const FORM_EDGE_GRAB: f32 = 7.0;
 /// Smallest form dimension allowed when resizing by drag (matches `set_form_prop`).
 const FORM_MIN_SIZE: i32 = 64;
 
+/// Largest form dimension allowed, in pixels.
+///
+/// This is not a matter of taste. A form becomes a real window, and asking the
+/// GPU for a surface larger than its maximum texture size is a validation
+/// error — which panics inside a callback macOS forbids unwinding through, so
+/// the process ABORTS instead of reporting anything. 8192 is the common
+/// desktop ceiling and is already far past any form a person designs.
+///
+/// A real one: on 2026-09-19 a form was saved with `height="480768"` and
+/// previewing it aborted the IDE with `Surface width and height must be within
+/// the maximum supported texture size. Requested was (2056, 20006)`. The
+/// Height field had held `480`, and typing `768` appended instead of
+/// replacing. Nothing between that keystroke and the GPU said no.
+pub(crate) const FORM_MAX_SIZE: i32 = 8192;
+
+/// A form dimension clamped into the range that can actually be rendered.
+///
+/// Every path that sets a form's width or height goes through this — the
+/// property editor, the `Target` presets and both drag-resize paths — so
+/// there is one answer to "how big may a form be" rather than five.
+pub(crate) fn clamp_form_dim(v: u32) -> u32 {
+    v.clamp(FORM_MIN_SIZE as u32, FORM_MAX_SIZE as u32)
+}
+
 /// How much of a roaming modal must stay on screen, in points.
 const MODAL_KEEP_ON_SCREEN: f32 = 120.0;
 
@@ -6041,13 +6065,13 @@ impl DesignerPanel {
             }
             "Width" => {
                 if let Ok(w) = value.parse::<u32>() {
-                    self.form.width = w.max(64);
+                    self.form.width = clamp_form_dim(w);
                     self.dirty = true;
                 }
             }
             "Height" => {
                 if let Ok(h) = value.parse::<u32>() {
-                    self.form.height = h.max(64);
+                    self.form.height = clamp_form_dim(h);
                     self.dirty = true;
                 }
             }
@@ -6106,8 +6130,8 @@ impl DesignerPanel {
             }
             "Target" => {
                 if let Some((w, h)) = target_preset_size(&value) {
-                    self.form.width = w;
-                    self.form.height = h;
+                    self.form.width = clamp_form_dim(w);
+                    self.form.height = clamp_form_dim(h);
                 }
                 self.form.target = value;
                 self.dirty = true;
@@ -12479,10 +12503,10 @@ impl DesignerPanel {
                     let gp = self.form.grid_size as i32;
                     let sn = self.form.snap_to_grid;
                     if matches!(edge, FormEdge::Right | FormEdge::Corner) {
-                        self.form.width = snap((orig_w + dx).max(FORM_MIN_SIZE), gp, sn) as u32;
+                        self.form.width = snap((orig_w + dx).clamp(FORM_MIN_SIZE, FORM_MAX_SIZE), gp, sn) as u32;
                     }
                     if matches!(edge, FormEdge::Bottom | FormEdge::Corner) {
-                        self.form.height = snap((orig_h + dy).max(FORM_MIN_SIZE), gp, sn) as u32;
+                        self.form.height = snap((orig_h + dy).clamp(FORM_MIN_SIZE, FORM_MAX_SIZE), gp, sn) as u32;
                     }
                     self.dirty = true;
                 }
@@ -15757,10 +15781,10 @@ mod form_resize_tests {
             let mut nw = w;
             let mut nh = h;
             if matches!(edge, FormEdge::Right | FormEdge::Corner) {
-                nw = (w + dx).max(FORM_MIN_SIZE);
+                nw = (w + dx).clamp(FORM_MIN_SIZE, FORM_MAX_SIZE);
             }
             if matches!(edge, FormEdge::Bottom | FormEdge::Corner) {
-                nh = (h + dy).max(FORM_MIN_SIZE);
+                nh = (h + dy).clamp(FORM_MIN_SIZE, FORM_MAX_SIZE);
             }
             (nw, nh)
         };
@@ -15772,6 +15796,51 @@ mod form_resize_tests {
             resize(FormEdge::Corner, 100, 100, -90, -90),
             (FORM_MIN_SIZE, FORM_MIN_SIZE)
         );
+        // ...and growing past the maximum clamps to FORM_MAX_SIZE, which is
+        // the half of this the drag path did not have until 2026-09-20.
+        assert_eq!(
+            resize(FormEdge::Corner, 400, 300, 1_000_000, 1_000_000),
+            (FORM_MAX_SIZE, FORM_MAX_SIZE)
+        );
+    }
+
+    /// The defect this clamp exists for, reproduced with the operator's own
+    /// number: a form saved `height="480768"` aborted the IDE on preview with
+    /// `Requested was (2056, 20006), maximum extent for either dimension is
+    /// 8192`. The Height field had held `480` and typing `768` appended to it
+    /// rather than replacing it, and nothing between that keystroke and the
+    /// GPU refused the result.
+    #[test]
+    fn a_typo_in_the_height_field_can_no_longer_reach_the_gpu() {
+        let typo = clamp_form_dim(480_768);
+        println!(
+            "Height 480768 -> {typo} (cap {FORM_MAX_SIZE}); the abort needed > {FORM_MAX_SIZE}"
+        );
+        assert_eq!(typo, FORM_MAX_SIZE as u32);
+        assert!(
+            (typo as i32) <= FORM_MAX_SIZE,
+            "a clamped form must be renderable, got {typo}"
+        );
+    }
+
+    /// The clamp must not quietly resize the forms people actually draw.
+    #[test]
+    fn ordinary_form_sizes_pass_through_untouched() {
+        for (w, h) in [(1024u32, 768u32), (800, 600), (1920, 1080), (640, 480)] {
+            let (cw, ch) = (clamp_form_dim(w), clamp_form_dim(h));
+            println!("{w}x{h} -> {cw}x{ch}");
+            assert_eq!((cw, ch), (w, h), "{w}x{h} must be left alone");
+        }
+    }
+
+    /// The floor did not move when the ceiling arrived.
+    #[test]
+    fn the_minimum_still_holds_from_below() {
+        assert_eq!(clamp_form_dim(0), FORM_MIN_SIZE as u32);
+        assert_eq!(clamp_form_dim(1), FORM_MIN_SIZE as u32);
+        assert_eq!(clamp_form_dim(FORM_MIN_SIZE as u32), FORM_MIN_SIZE as u32);
+        println!("floor {FORM_MIN_SIZE}, ceiling {FORM_MAX_SIZE}");
+        assert!(FORM_MIN_SIZE < FORM_MAX_SIZE);
     }
 }
 
