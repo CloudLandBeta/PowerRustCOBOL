@@ -8,6 +8,41 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.105] — 2026-09-20
+
+### The property splitter works on a mixed selection, and the painter carries shadows
+
+Three reports, three fixes.
+
+**The label/value splitter could not be dragged with several controls
+selected.** The panel writes its stored split into egui's shared slot at the
+top of every frame, and the grip writes the dragged value into that same slot
+while the rows are drawn. Unless the panel reads it back before the next frame
+overwrites it, the drag is undone one frame later and the split snaps home.
+
+That read-back had been COPIED into `show_control` and `show_form`. A
+mixed-type multi-selection draws through neither — it goes to
+`show_shared_properties` — so it got no copy and could not be dragged at all,
+while a single control and a uniform selection both could. The read-back now
+has ONE owner, the function that writes the split, so a fifth way of drawing
+rows cannot quietly lose it again. The new test drives a real pointer drag
+through the real panel on a Button-plus-Label selection, and fails without the
+fix.
+
+**The Format Painter dropped the drop shadow when painting between different
+control types.** Two gates decide what travels: a same-type paint deep-copies
+every copyable property, while a cross-type paint filters through the
+`STYLE_PROP_KEYS` allowlist — which did not name a single one of the seven
+shadow properties. So the same gesture carried the shadow or discarded it
+depending on what was under the cursor. All seven are on the list now.
+
+**Holding SHIFT while painting keeps the target's own size.** Painting a look
+onto a control that was deliberately sized meant resizing it back by hand
+every time. The modifier is read at the moment of the click, so one painter
+does either job with no mode to remember. The toolbar tip says so, and became
+a translated string in the process: it had been a hard-coded English literal,
+which is why five languages never had it.
+
 ## [PowerRustCOBOL 1.70.104] — 2026-09-20
 
 ### One build carrying both lines of work

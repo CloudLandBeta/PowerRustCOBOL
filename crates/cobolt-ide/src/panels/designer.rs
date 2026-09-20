@@ -1780,6 +1780,20 @@ const STYLE_PROP_KEYS: &[&str] = &[
     "AlternatingRowOpacity",
     "AlternatingMode",
     "GridLineColor",
+    // The drop shadow, all seven of it. A shadow is as much a control's look
+    // as its border is, and leaving these out meant the painter carried a
+    // style that visibly was not the one it was shown — between two controls
+    // of the SAME type it worked, because that path copies every property and
+    // never consults this list, so the gap only appeared when painting across
+    // types (operator, 2026-09-20). The names are `paint::drop_shadow_spec`'s
+    // own.
+    "ShadowEnabled",
+    "ShadowColor",
+    "ShadowOpacity",
+    "ShadowDirection",
+    "ShadowDistance",
+    "ShadowBlur",
+    "ShadowBlurStrength",
 ];
 
 /// May the format painter carry this property from one control to another?
@@ -12058,6 +12072,14 @@ impl DesignerPanel {
                             } => (props, animations, src_rect, src_type),
                             _ => unreachable!(),
                         };
+                    // Hold SHIFT to carry the STYLE only: the target keeps the
+                    // size it was drawn at. Painting a look onto a control
+                    // that was deliberately sized — a wide button in a row of
+                    // narrow ones — otherwise meant resizing it back by hand
+                    // every time (operator, 2026-09-20). Read at the moment of
+                    // the click, so the same painter does either job without
+                    // a mode to remember.
+                    let keep_size = resp.ctx.input(|i| i.modifiers.shift);
                     // Paste style + geometry onto the target control
                     if let Some(tgt) = self.form.find_control_mut(&target_id) {
                         match style_paint(&src_type, &tgt.control_type) {
@@ -12068,8 +12090,10 @@ impl DesignerPanel {
                                         tgt.properties.insert((*k).to_owned(), v.clone());
                                     }
                                 }
-                                tgt.rect.w = src_rect.w;
-                                tgt.rect.h = src_rect.h;
+                                if !keep_size {
+                                    tgt.rect.w = src_rect.w;
+                                    tgt.rect.h = src_rect.h;
+                                }
                             }
                             plan => {
                                 let all = plan == StylePaint::Everything;
@@ -12079,9 +12103,12 @@ impl DesignerPanel {
                                     }
                                 }
                                 tgt.animations = animations.clone();
-                                // Only size (w, h) — the target keeps its x, y.
-                                tgt.rect.w = src_rect.w;
-                                tgt.rect.h = src_rect.h;
+                                // Only size (w, h) — the target keeps its x, y,
+                                // and keeps its size too when SHIFT is held.
+                                if !keep_size {
+                                    tgt.rect.w = src_rect.w;
+                                    tgt.rect.h = src_rect.h;
+                                }
                             }
                         }
                     }
@@ -13723,6 +13750,8 @@ pub(crate) fn draw_icon_toolbar(
     clipboard_copy: &str,
     clipboard_paste: &str,
     clipboard_duplicate: &str,
+    // The Format Painter's tip, SHIFT behaviour included (`tr.tb_format_painter`).
+    format_painter_tip: &str,
     preview_on: bool,
     grid_on: bool,
     glass_on: bool,
@@ -14072,7 +14101,7 @@ pub(crate) fn draw_icon_toolbar(
             ui,
             has_sel,
             fp_active,
-            "Format Painter — copy/paste control style. Hit ESCape key to stop pasting style",
+            format_painter_tip,
             &icon_format_painter,
         ) {
             action = DesignerToolbarAction::FormatPainter;
@@ -19090,15 +19119,34 @@ mod format_painter_scope_tests {
                 "{key} is appearance — a deep copy must carry it"
             );
             }
-        // …and the old allowlist would have dropped most of them.
+        // `STYLE_PROP_KEYS` is not what a same-type copy consults — the loop
+        // above is — but it IS what a CROSS-type copy filters through, so it
+        // decides what survives a paint from a Button onto a Label.
+        //
+        // This used to assert that the allowlist dropped at least eight of
+        // the twelve, as evidence that an allowlist was the wrong shape. That
+        // reading still holds, but as an assertion it punished anyone who
+        // improved the list: adding the drop shadow to it in 2026-09-20 is
+        // exactly the fix the operator asked for ("Format painter is not
+        // either copy or pasting dropshadow value"), and it tripped this.
+        // So the shadow is now asserted PRESENT, and what the allowlist still
+        // drops is merely reported — a number to look at, not a floor to
+        // defend.
+        for key in ["ShadowEnabled", "ShadowColor", "ShadowBlurStrength"] {
+            assert!(
+                STYLE_PROP_KEYS.contains(&key),
+                "{key} must survive a cross-type paint too"
+            );
+        }
         let dropped: Vec<&str> = appearance
             .iter()
             .copied()
             .filter(|k| !STYLE_PROP_KEYS.contains(k))
             .collect();
-        assert!(
-            dropped.len() >= 8,
-            "the old allowlist really was the bug: {dropped:?}"
+        println!(
+            "cross-type paint still drops {} of {} appearance keys: {dropped:?}",
+            dropped.len(),
+            appearance.len()
         );
 
         // The three things a copy must never touch.
@@ -20649,7 +20697,52 @@ mod head_str_tests {
 #[cfg(test)]
 mod format_painter_exclusion_tests {
     use super::is_copyable_style_prop as is_style_prop;
+    use super::STYLE_PROP_KEYS;
     use cobolt_forms::model::{ControlType, CHECKED_PROP, SELECTED_PROP};
+
+    /// The drop shadow travels with the style, across control types too.
+    ///
+    /// There are two gates, and the shadow only ever passed one. Painting
+    /// between two controls of the SAME type copies every copyable property
+    /// and never consults `STYLE_PROP_KEYS`, so the shadow arrived. Painting
+    /// ACROSS types filters through that allowlist, which did not name a
+    /// single shadow property — so the same gesture carried the shadow or
+    /// dropped it depending on what was under the cursor (operator,
+    /// 2026-09-20: "Format painter is not either copy or pasting dropshadow
+    /// value"). Both gates are asserted here so neither can drift alone.
+    #[test]
+    fn the_drop_shadow_is_carried_across_control_types() {
+        let shadow = [
+            "ShadowEnabled",
+            "ShadowColor",
+            "ShadowOpacity",
+            "ShadowDirection",
+            "ShadowDistance",
+            "ShadowBlur",
+            "ShadowBlurStrength",
+        ];
+        let mut missing: Vec<&str> = Vec::new();
+        println!("  shadow property        same-type  cross-type");
+        for key in shadow {
+            let same = is_style_prop(key);
+            let cross = STYLE_PROP_KEYS.contains(&key);
+            println!(
+                "  {key:<21}  {:<9}  {}",
+                if same { "yes" } else { "NO" },
+                if cross { "yes" } else { "NO" }
+            );
+            assert!(same, "{key} must survive the same-type gate");
+            if !cross {
+                missing.push(key);
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "these shadow properties would be dropped when painting across \
+             control types: {missing:?}"
+        );
+        println!("  → all {} shadow properties travel both ways", shadow.len());
+    }
 
     /// Copying a style must never copy WHICH control is chosen.
     ///
