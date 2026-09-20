@@ -8017,7 +8017,13 @@ pub fn draw_animator(
 /// about the SET of them ("the lines separating the pane must be visible, but
 /// not too contrasted", 2026-09-20): two rules at two strengths is the thing
 /// being complained about, whatever either strength is.
-const VIEWER_RULE_ALPHA_DIV: u32 = 5;
+///
+/// A quarter, not a fifth — the two it unified were `a/4` on the filmstrip and
+/// `a/5` under the toolbar, and the filmstrip's rail fill went away in the same
+/// change. Taking the weaker of the two would have made the boundary fainter
+/// exactly where it now carries the separation on its own, and *visible* is
+/// half of what was asked for.
+const VIEWER_RULE_ALPHA_DIV: u32 = 4;
 
 const VIEWER_OUTER_GUTTER: f32 = 14.0;
 const VIEWER_TEXT_INSET: f32 = 16.0;

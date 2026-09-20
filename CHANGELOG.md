@@ -8,6 +8,22 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.112] — 2026-09-20
+
+### The rules inside a Viewer are one weight, and it is the stronger one
+
+1.70.110 unified the two rules a Viewer draws — the line under the toolbar band
+and the line down the filmstrip's edge — behind one constant, and took the
+weaker of the two values they had been using (`a/5`, the toolbar's; the
+filmstrip's was `a/4`).
+
+That was the wrong direction. The filmstrip's rail fill went away in the same
+change, so that line now carries the separation between the strip and the
+content pane on its own — and *visible* is half of what was asked for ("the
+lines separating the pane must be visible, but not too contrasted"). Both rules
+are now `a/4`: the filmstrip's boundary is exactly as strong as it was before
+the fill was removed, and the toolbar's matches it.
+
 ## [PowerRustCOBOL 1.70.111] — 2026-09-20
 
 ### A Viewer can open a document from the web
