@@ -8,6 +8,53 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.123] — 2026-09-20
+
+### The Viewer keeps its own laid-out page
+
+1.70.122 measured why the zoom slider is slow and did not fix it. This fixes
+most of it.
+
+epaint has a galley cache, and it is not one for this purpose: its collector
+keeps only what was drawn in the frame just painted —
+`retain(|_, cached| cached.last_used == current_generation)`. A Viewer's font
+size is its own size times its zoom, so moving the zoom **one per cent** gives
+every block on the page a new key, the whole document is laid out again, and
+coming *back* to a zoom is no cheaper than reaching it the first time. That is
+why snapping the slider to a ladder did nothing on its own: each stop is still
+a distinct size.
+
+The Viewer now holds its galleys itself, keyed exactly as epaint keys its own —
+the job's hash with the pixels-per-point it was laid out at, so a hit is the
+galley that call would have produced and never a stale one — bounded at 4096
+entries, dropping the oldest half when it fills rather than one per insert.
+
+On the same 360-block document:
+
+| frames | before | after |
+|---|---|---|
+| zoom unchanged at 100 % | 1.6 ms | 2.0 ms |
+| zoom unchanged at 300 % | 9.9 ms | 10.9 ms |
+| zoom alternating 100 / 101 | **107 ms** | **17 ms** |
+| a drag across the range, retracing | **160 ms** | **29 ms** |
+| a drag across the range, whole | 155 ms | 92 ms |
+| twenty zooms never seen before | 145 ms | 155 ms |
+
+A stop already visited is six times cheaper and a retraced drag five and a
+half. The ladder finally pays for itself.
+
+**The last row is the one that did not move, and it says what is left.** A size
+seen for the first time is still a full layout of the whole document, because
+nothing yet knows where a block lands without laying it out. Culling the page
+to the blocks actually on screen is what fixes that, and it needs the heights
+of everything above the viewport — a page-measurement model, not a cache, and
+its own piece of work.
+
+The two milliseconds the steady case gained are the cost of asking: a
+`LayoutJob` is still built and hashed for every block, every frame. Keying on
+the block's own identity instead would take that back, and would want the same
+page model.
+
 ## [PowerRustCOBOL 1.70.122] — 2026-09-20
 
 ### Zoom reaches a picture

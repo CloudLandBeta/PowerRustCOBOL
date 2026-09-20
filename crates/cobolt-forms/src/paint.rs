@@ -8425,6 +8425,83 @@ fn viewer_heading_size(base: f32, level: u8) -> f32 {
     base * scale
 }
 
+/// How many laid-out galleys one Viewer keeps.
+///
+/// A page of prose is a few hundred; this holds several zoom levels of one and
+/// drops the least recently used. Bounded rather than unbounded because a
+/// document the reader keeps re-zooming would otherwise accumulate a galley per
+/// block per size for the life of the form.
+const VIEWER_GALLEY_CACHE: usize = 4096;
+
+/// Laid-out galleys the **Viewer** keeps across frames.
+///
+/// epaint has a galley cache of its own, and it is not one: its GC keeps only
+/// the galleys used in the frame just painted —
+/// `retain(|_, cached| cached.last_used == current_generation)` — so every
+/// entry that was not drawn this frame is dropped.
+///
+/// That is exactly the wrong shape for a zoom. A Viewer's font size is its own
+/// size times its zoom, so moving the zoom one per cent gives every block on
+/// the page a new cache key, the whole document is laid out again, and coming
+/// BACK to a zoom is no cheaper than reaching it the first time. Measured on a
+/// 360-block document: **1.6 ms** a frame when the zoom does not move,
+/// **107 ms** when it alternates between 100 % and 101 %.
+///
+/// Holding the galleys here is what makes the zoom ladder pay: the stops a
+/// reader moves between are laid out once each and then free, and a drag back
+/// across ground already covered costs nothing.
+///
+/// It does NOT make the first visit to a size cheap — that is a full layout
+/// either way, and culling the page to what is on screen is the separate piece
+/// of work that would fix it.
+#[derive(Clone, Default)]
+struct ViewerGalleys(std::sync::Arc<Mutex<ViewerGalleyStore>>);
+
+#[derive(Default)]
+struct ViewerGalleyStore {
+    /// job hash → (galley, the tick it was last asked for)
+    kept: HashMap<u64, (std::sync::Arc<egui::Galley>, u64)>,
+    tick: u64,
+}
+
+/// Lay `job` out, or hand back the galley from the last time it was asked for.
+///
+/// Keyed exactly as epaint keys its own cache — the job's hash together with
+/// the pixels-per-point the galley was laid out at — so a hit is the galley
+/// that call would have produced and never a stale one.
+fn viewer_layout(
+    painter: &egui::Painter,
+    job: egui::text::LayoutJob,
+) -> std::sync::Arc<egui::Galley> {
+    let ctx = painter.ctx();
+    let key = egui::epaint::util::hash((&job, egui::emath::OrderedFloat(ctx.pixels_per_point())));
+    let store = ctx.memory_mut(|m| {
+        m.data
+            .get_temp_mut_or_default::<ViewerGalleys>(egui::Id::new("viewer-galleys"))
+            .clone()
+    });
+    let mut store = store.0.lock().unwrap_or_else(|e| e.into_inner());
+    store.tick = store.tick.wrapping_add(1);
+    let tick = store.tick;
+    if let Some((galley, last)) = store.kept.get_mut(&key) {
+        *last = tick;
+        return galley.clone();
+    }
+    // A miss goes through the painter, so epaint's own cache and atlas see it
+    // exactly as they would have.
+    let galley = painter.layout_job(job);
+    store.kept.insert(key, (galley.clone(), tick));
+    if store.kept.len() > VIEWER_GALLEY_CACHE {
+        // Drop the oldest half rather than one entry per insert: evicting one
+        // at a time turns every frame past the cap into a scan.
+        let mut ages: Vec<u64> = store.kept.values().map(|(_, t)| *t).collect();
+        ages.sort_unstable();
+        let cutoff = ages[ages.len() / 2];
+        store.kept.retain(|_, (_, t)| *t > cutoff);
+    }
+    galley
+}
+
 fn build_inline_job(
     inlines: &[crate::viewer::Inline],
     base_size: f32,
@@ -8557,7 +8634,7 @@ fn paint_block(
         Block::Heading { level, content } => {
             let size = viewer_heading_size(ctx.font_size, *level);
             let job = build_inline_job(content, size, ctx.strong_ink, ctx.strong_ink, ctx.link_color, ctx.code_color, ctx.width);
-            let galley = painter.layout_job(job);
+            let galley = viewer_layout(painter, job);
             let h = galley.rect.height();
             find.mark(painter, &galley, pos);
             painter.galley(pos, galley, ctx.strong_ink);
@@ -8565,7 +8642,7 @@ fn paint_block(
         }
         Block::Paragraph { content } => {
             let job = build_inline_job(content, ctx.font_size, ctx.text_ink, ctx.strong_ink, ctx.link_color, ctx.code_color, ctx.width);
-            let galley = painter.layout_job(job);
+            let galley = viewer_layout(painter, job);
             let h = galley.rect.height();
             find.mark(painter, &galley, pos);
             painter.galley(pos, galley, ctx.text_ink);
@@ -8577,7 +8654,7 @@ fn paint_block(
             job.wrap.max_width = (ctx.width - 2.0 * VIEWER_CODE_PADDING).max(10.0);
             job.wrap.break_anywhere = true;
             job.append(text, 0.0, egui::TextFormat { font_id, color: ctx.code_color, ..Default::default() });
-            let galley = painter.layout_job(job);
+            let galley = viewer_layout(painter, job);
             let h = galley.rect.height() + 2.0 * VIEWER_CODE_PADDING;
             let bg_rect = egui::Rect::from_min_size(pos, egui::vec2(ctx.width, h));
             painter.rect_filled(bg_rect, 4.0, Color32::from_rgba_premultiplied(ctx.code_color.r(), ctx.code_color.g(), ctx.code_color.b(), 20));
@@ -8625,7 +8702,7 @@ fn paint_block(
                             ..Default::default()
                         },
                     );
-                    let galley = painter.layout_job(job);
+                    let galley = viewer_layout(painter, job);
                     let h = galley.rect.height() + 2.0 * VIEWER_CODE_PADDING;
                     let bg = egui::Rect::from_min_size(pos, egui::vec2(ctx.width, h));
                     painter.rect_filled(
@@ -8654,7 +8731,7 @@ fn paint_block(
                     0.0,
                     egui::TextFormat { font_id: egui::FontId::proportional(ctx.font_size), color: ctx.text_ink, ..Default::default() },
                 );
-                let marker_galley = painter.layout_job(marker_job);
+                let marker_galley = viewer_layout(painter, marker_job);
                 painter.galley(egui::pos2(pos.x, y), marker_galley, ctx.text_ink);
                 let item_ctx = BlockPaintCtx { width: (ctx.width - VIEWER_LIST_INDENT).max(20.0), ..*ctx };
                 let h = paint_blocks(painter, &item_ctx, &item.blocks, egui::pos2(pos.x + VIEWER_LIST_INDENT, y), find);
@@ -8678,7 +8755,7 @@ fn paint_block(
                 0.0,
                 egui::TextFormat { font_id: egui::FontId::proportional(ctx.font_size * 0.85), color: ctx.link_color, ..Default::default() },
             );
-            let marker_galley = painter.layout_job(marker_job);
+            let marker_galley = viewer_layout(painter, marker_job);
             let marker_w = marker_galley.rect.width();
             painter.galley(pos, marker_galley, ctx.link_color);
             let item_ctx = BlockPaintCtx { font_size: ctx.font_size * 0.9, width: (ctx.width - marker_w).max(20.0), ..*ctx };
@@ -8722,7 +8799,7 @@ fn paint_table(
             let x = pos.x + i as f32 * col_width;
             let cell_width = (col_width - 2.0 * VIEWER_TABLE_CELL_PADDING).max(10.0);
             let job = build_inline_job(cell, ctx.font_size * 0.95, color, ctx.strong_ink, ctx.link_color, ctx.code_color, cell_width);
-            let galley = painter.layout_job(job);
+            let galley = viewer_layout(painter, job);
             row_h = row_h.max(galley.rect.height());
             let at = egui::pos2(x + VIEWER_TABLE_CELL_PADDING, y + VIEWER_TABLE_CELL_PADDING);
             find.mark(painter, &galley, at);
@@ -17669,28 +17746,33 @@ method. Nothing in the control is reachable only by mouse.";
     /// `cargo test -p cobolt-forms --features render --lib the_cost_of_a_viewer_paint -- --ignored --nocapture`.
     ///
     /// What it found (operator's report, 2026-09-20: "Zoom slider is too
-    /// slow"), on a 360-block document:
+    /// slow"), on a 360-block document, before and after [`ViewerGalleys`]:
     ///
-    /// | frames | ms each |
-    /// |---|---|
-    /// | zoom unchanged at 100 % | **1.6** |
-    /// | zoom unchanged at 300 % | 9.9 |
-    /// | zoom alternating 100/101 | **107** |
-    /// | a slider drag across the range | 155 |
+    /// | frames | before | after |
+    /// |---|---|---|
+    /// | zoom unchanged at 100 % | 1.6 ms | 2.0 ms |
+    /// | zoom unchanged at 300 % | 9.9 ms | 10.9 ms |
+    /// | zoom alternating 100/101 | **107 ms** | **17 ms** |
+    /// | a drag across the range, retracing | **160 ms** | **29 ms** |
+    /// | a drag across the range, whole | 155 ms | 92 ms |
+    /// | twenty zooms never seen before | 145 ms | 155 ms |
     ///
-    /// A **one per cent** change costs seventy times a frame that changes
-    /// nothing, and the size barely matters: it is the CHANGE that is
-    /// expensive. egui caches a laid-out galley keyed by its font size and
-    /// keeps only the previous frame's, so every distinct zoom lays the whole
-    /// document out again — and retracing a drag is no cheaper than making it,
-    /// which is why snapping the slider to a ladder did not help either.
+    /// A **one per cent** change used to cost seventy times a frame that
+    /// changes nothing, and the size barely mattered: it is the CHANGE that is
+    /// expensive. epaint's galley cache keeps only what was drawn in the frame
+    /// just painted, so every distinct zoom laid the whole document out again
+    /// and coming back to a zoom was no cheaper than reaching it — which is
+    /// also why snapping the slider to a ladder did nothing on its own.
     ///
-    /// No thread can fix this: text layout belongs to the UI thread and the
-    /// galleys are wanted for the frame being painted. What fixes it is the
-    /// Viewer owning its own laid-out page — laid out once per (document, font
-    /// size, width), cached across frames, and culled to what is on screen —
-    /// so a drag costs one layout per stop instead of one per frame, and a
-    /// scroll costs none.
+    /// Keeping the galleys makes the ladder pay: a stop already visited is six
+    /// times cheaper and a retraced drag five. The last row is the one that did
+    /// not move, and says what is left: a size seen for the FIRST time is still
+    /// a full layout of the whole document. Culling the page to the blocks on
+    /// screen is what would fix that, and it needs the heights of the blocks
+    /// above the viewport — which is a page-measurement model, not a cache.
+    ///
+    /// No thread can fix any of it: text layout belongs to the UI thread and
+    /// the galleys are wanted for the frame being painted.
     #[test]
     #[ignore]
     fn the_cost_of_a_viewer_paint() {
