@@ -8,6 +8,23 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.133] — 2026-09-20
+
+### The Viewer demo opens the file that was just dropped
+
+The other half of 1.70.132, on the demo's side. `Fdz-View1` and `Fdz-View2` in
+`examples/PowerDemo3/forms/Common/viewer-form.cfrm` read `StagedFiles` and took
+its first line, which is the first file ever dropped however the control
+behaves. One word each: `DroppedFiles`, which in a staging zone is what that
+drop brought, at its original path, with nothing copied — exactly what the
+handler's own comment says it wants.
+
+The comment now names both and says why one is not the other, because the next
+person to write this handler will reach for whichever the demo used.
+
+Only those two hunks are here. The working copy of that form carries the
+operator's own edits, which are theirs to commit.
+
 ## [PowerRustCOBOL 1.70.132] — 2026-09-20
 
 ### A staged drop reports the files THAT drop brought

@@ -98,10 +98,12 @@
        PROCEDURE DIVISION.
            MOVE FUNCTION CHAR(11) TO WS-NL.
       *> A click on a FileDropZone opens the native OS picker; a drag
-      *> and drop lands here through the same event. StagedFiles holds
-      *> what was chosen, BEFORE any copying, so the Viewer opens the
-      *> operator's own file and nothing is duplicated anywhere.
-           MOVE Fdz-View1::StagedFiles TO WS-ALL.
+      *> and drop lands here through the same event. DroppedFiles is
+      *> what THIS drop brought, BEFORE any copying, so the Viewer opens
+      *> the operator's own file and nothing is duplicated anywhere.
+      *> StagedFiles is the running basket: its first line stays the
+      *> first file ever dropped, which is not what a drop means here.
+           MOVE Fdz-View1::DroppedFiles TO WS-ALL.
            UNSTRING WS-ALL DELIMITED BY X"0A" INTO WS-PATH.
            IF FUNCTION TRIM(WS-PATH) NOT = SPACES
                MOVE FUNCTION TRIM(WS-PATH) TO VWR-1::View1Source
@@ -126,10 +128,12 @@
        PROCEDURE DIVISION.
            MOVE FUNCTION CHAR(11) TO WS-NL.
       *> A click on a FileDropZone opens the native OS picker; a drag
-      *> and drop lands here through the same event. StagedFiles holds
-      *> what was chosen, BEFORE any copying, so the Viewer opens the
-      *> operator's own file and nothing is duplicated anywhere.
-           MOVE Fdz-View2::StagedFiles TO WS-ALL.
+      *> and drop lands here through the same event. DroppedFiles is
+      *> what THIS drop brought, BEFORE any copying, so the Viewer opens
+      *> the operator's own file and nothing is duplicated anywhere.
+      *> StagedFiles is the running basket: its first line stays the
+      *> first file ever dropped, which is not what a drop means here.
+           MOVE Fdz-View2::DroppedFiles TO WS-ALL.
            UNSTRING WS-ALL DELIMITED BY X"0A" INTO WS-PATH.
            IF FUNCTION TRIM(WS-PATH) NOT = SPACES
                MOVE FUNCTION TRIM(WS-PATH) TO VWR-1::View2Source
