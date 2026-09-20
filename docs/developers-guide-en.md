@@ -3957,19 +3957,29 @@ no capability in this control that COBOL cannot reach.
 
 - **Zoom** runs to a maximum of sixteen times. The wheel with your platform's
   zoom modifier magnifies about the pointer — whatever is under it stays under
-  it. A double-click zooms one step. `Esc` returns to 100 %; in fullscreen it
-  leaves fullscreen first.
+  it. A double-click zooms one step, in `Full` mode; over a card it opens that
+  page instead. `Esc` returns to 100 %; in fullscreen it leaves fullscreen
+  first.
 - **View mode** is `Full` (the document) or `Cards` (a grid of one card per
   page, replacing the document). The grid reflows to **the control's own
   width** — make the control wider and you get more columns; making the
   *window* wider changes nothing, because a control should not depend on
-  something it cannot see.
+  something it cannot see. A card is the page **in miniature**, drawn by the
+  same renderer that draws the page, so a heading is a heading and a picture is
+  the picture. One click selects a card; two open it, leaving `Cards` for
+  `Full` on that page. Pages the reader has not opened are not decoded — the
+  control never reads a document it was not asked for — so those cards show a
+  short extract and their number.
 - **One slider**, at the bottom right of each view, drives `Zoom` in `Full`
   mode and `CardSize` in `Cards` mode. Switching modes never disturbs the
   value you left the other one at.
 - **The filmstrip** is a rail of page thumbnails docked to the left edge of the
   content. It closes two ways: its toolbar button again, or dragging its
   splitter all the way to the left edge.
+- **The wheel belongs to the Viewer.** While the pointer is over the control,
+  a wheel notch scrolls the document and stops there — it never also scrolls
+  the form, a Panel or a GroupBox behind it, and that holds even where the
+  document is already at its last line.
 - **Scrolling** behaves the way the IDE's own documentation viewer does: an
   arrow key taps one line and, held, winds up to four times that pace; Page Up
   and Page Down move a screenful less two lines so you keep your place;

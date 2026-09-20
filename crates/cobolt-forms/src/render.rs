@@ -4077,13 +4077,39 @@ fn viewer_view_interactive(
     let resp = ui.interact(screen, vid, Sense::click_and_drag());
     focus_keyboard_events(ui, &resp, id, out, bound);
 
-    let (dt, now, pointer, primary_down, wheel, command, esc, keys) = ui.input(|i| {
+    // While the pointer is anywhere over the Viewer, the Viewer owns the wheel:
+    // read AND *consume* it, so a notch never reaches the form behind it
+    // (operator, 2026-09-20: "Scroll up/down the content is passing through the
+    // form itself. It should not.").
+    //
+    // The same mechanism the DataGrid already uses, and for the same reason —
+    // the MouseWheel events are dropped for any event-based consumer, and this
+    // frame's smooth delta is zeroed, which is what an ancestor ScrollArea
+    // reads in its `end()`. That runs after this content, so zeroing here is
+    // what stops it.
+    //
+    // Unconditional over the control, even where there is nothing to scroll:
+    // "the Viewer keeps the wheel" is a rule about where the POINTER is, not
+    // about whether the document overflowed. The scroll model's own clamp makes
+    // an unscrollable Viewer a no-op rather than a leak.
+    let wheel = if ui.rect_contains_pointer(screen) {
+        ui.input_mut(|i| {
+            i.events
+                .retain(|e| !matches!(e, egui::Event::MouseWheel { .. }));
+            let dy = i.smooth_scroll_delta.y;
+            i.smooth_scroll_delta = egui::Vec2::ZERO;
+            dy
+        })
+    } else {
+        0.0
+    };
+
+    let (dt, now, pointer, primary_down, command, esc, keys) = ui.input(|i| {
         (
             i.stable_dt.min(0.1),
             i.time,
             i.pointer.latest_pos(),
             i.pointer.primary_down(),
-            i.smooth_scroll_delta.y,
             i.modifiers.command,
             i.key_pressed(egui::Key::Escape),
             vw::KeyScrollInput {
@@ -4121,6 +4147,10 @@ fn viewer_view_interactive(
     live.layout_seen = st.layout.clone();
     let mut layout_name = live.layout_own.clone();
     let mut zoom_active = false;
+    // Did THIS frame's notch go to zoom? Kept apart from `zoom_active`, which
+    // also means "a slider drag has not settled" and is read at the end to
+    // decide whether an event fires.
+    let mut zoomed_by_wheel = false;
     let mut card_active = false;
     let over_content = pointer.is_some_and(|p| content_rect.contains(p));
 
@@ -4376,13 +4406,17 @@ fn viewer_view_interactive(
                 zoom = new_zoom;
             }
             zoom_active = true;
-        } else if resp.hovered() && wheel != 0.0 {
-            // Plain wheel scrolls, in both view modes.
-            live.scroll.set_offset(live.scroll.offset() - wheel);
+            zoomed_by_wheel = true;
         }
 
         // ── R12: double-click zooms in one step, capped at 16x ──────────
-        if resp.double_clicked() && over_content {
+        //
+        // `Full` only. In `Cards` the double-click belongs to the card under
+        // the pointer — it opens that page — and zoom is not a card's property
+        // in any case: the one slider drives zoom in `Full` and card size in
+        // `Cards`, so a zoom step taken over a contact sheet changes nothing
+        // the reader can see and then surprises them when they leave it.
+        if resp.double_clicked() && over_content && view_mode == vw::ViewMode::Full {
             zoom = vw::zoom_in_step(zoom);
         }
 
@@ -4394,6 +4428,17 @@ fn viewer_view_interactive(
                 zoom = vw::ZOOM_DEFAULT_PCT;
             }
         }
+    }
+
+    // The plain wheel scrolls in EVERY layout and both view modes — the
+    // conversation surface included. `Streamed` was excluded from the wheel,
+    // the arrow keys and the drag alike, which left §8.3's "if the user has
+    // scrolled upward to read previous messages" with no way for them to have
+    // done it. And now that the Viewer CONSUMES the wheel, a mode left out
+    // would be a dead zone rather than merely an unscrolled one: the notch
+    // would reach neither the document nor the form.
+    if enabled && !zoomed_by_wheel && resp.hovered() && wheel != 0.0 {
+        live.scroll.set_offset(live.scroll.offset() - wheel);
     }
 
     // ── R33/R33.1/R33.2: keys, drag and throw — `Full` mode only ────────
@@ -4429,7 +4474,8 @@ fn viewer_view_interactive(
 
     // ── A card or a thumbnail click selects that page ───────────────────
     let card_grid = vw::card_grid(chrome.content.w, card_size, page_count);
-    if enabled && resp.clicked() && !slider_busy && !grip_busy {
+    let card_opened = resp.double_clicked();
+    if enabled && (resp.clicked() || card_opened) && !slider_busy && !grip_busy {
         if let Some(p) = pointer {
             if view_mode == vw::ViewMode::Cards && content_rect.contains(p) {
                 let local = p - content_rect.min;
@@ -4441,6 +4487,16 @@ fn viewer_view_interactive(
                     let hit = row as usize * card_grid.cols + col as usize;
                     if hit < page_count && (col as usize) < card_grid.cols {
                         page = hit;
+                        // One click selects a card; two OPEN it (operator,
+                        // 2026-09-20). Leaving `Cards` is the whole point —
+                        // a double-click that only re-selected the card it
+                        // was already on would do nothing at all — and the
+                        // new page starts at its top rather than at whatever
+                        // offset the contact sheet had been scrolled to.
+                        if card_opened {
+                            view_mode = vw::ViewMode::Full;
+                            live.scroll.set_offset(0.0);
+                        }
                     }
                 }
             }

@@ -8,6 +8,63 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.114] — 2026-09-20
+
+### The Viewer keeps the wheel
+
+"Scroll up/down the content is passing through the form itself. It should not."
+(operator, 2026-09-20.) The Viewer **read** the wheel and never consumed it, so
+one notch scrolled the document and then scrolled the form behind it.
+
+It is consumed now, by the same mechanism the DataGrid has used since it had
+the identical bug: the `MouseWheel` events are dropped, and this frame's smooth
+delta is zeroed — which is what an ancestor `ScrollArea` reads in its `end()`,
+and `end()` runs after this content. Unconditional while the pointer is over
+the control, even where there is nothing to scroll, because "the Viewer keeps
+the wheel" is a rule about where the POINTER is, not about whether the document
+overflowed.
+
+**The plain wheel now scrolls in `Streamed` too.** That mode was excluded from
+the wheel, the arrow keys and the drag alike, which left §8.3's "if the user has
+scrolled upward to read previous messages" with no way for them to have done
+it — and once the control consumes the wheel, a mode left out is a dead zone
+rather than merely an unscrolled one.
+
+### A card is the page, in miniature
+
+"Cards must show content miniature (a card is page in miniature)." A card drew
+only the bounded TEXT preview the document host keeps, and that preview exists
+for plain text and for a host-decoded PDF. A Markdown document — whose entire
+parsed content the paint was already holding — drew a blank sheet with a number
+on it.
+
+The decoded page is now painted into its card by **the same block painter that
+paints the page**, at a font sized to the card, so a heading is a heading, a
+table is a table, and an image is the image. That is also why the two accent
+colours a document uses became constants: a miniature drawn in different
+colours from the page it stands for is not a miniature of it.
+
+Only the decoded page can be drawn that way, and that is the honest limit
+rather than a shortcut — decoding every page of a document to fill a contact
+sheet is exactly the cost R2 exists to forbid. The rest keep the extract and
+their number.
+
+### Double-clicking a card opens it
+
+One click selects a card; two now **open** it, leaving `Cards` for `Full` on
+that page, at its top. A double-click that only re-selected the card it was
+already on did nothing at all.
+
+R12's double-click-to-zoom is `Full` only as a consequence, and should always
+have been: zoom is not a card's property — the one slider drives zoom in `Full`
+and card size in `Cards` — so a zoom step taken over a contact sheet changed
+nothing the reader could see and then surprised them when they left it.
+
+Guarded by `a_wheel_notch_over_a_viewer_never_reaches_the_form` (which also
+asserts a notch AWAY from the control still reaches the form, so the first half
+cannot pass vacuously), `double_clicking_a_card_opens_that_page` and
+`a_card_paints_the_page_it_stands_for`.
+
 ## [PowerRustCOBOL 1.70.113] — 2026-09-20
 
 ### The System KB knows a Viewer can open a web address

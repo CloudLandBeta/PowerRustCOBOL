@@ -8025,6 +8025,14 @@ pub fn draw_animator(
 /// half of what was asked for.
 const VIEWER_RULE_ALPHA_DIV: u32 = 4;
 
+/// A link's colour inside a rendered document, and a code span's.
+///
+/// Constants rather than locals because a page's MINIATURE is painted by the
+/// same block painter as the page, and a miniature drawn in different colours
+/// from the page it stands for is not a miniature of it.
+const VIEWER_LINK_COLOR: Color32 = Color32::from_rgb(70, 130, 220);
+const VIEWER_CODE_COLOR: Color32 = Color32::from_rgb(170, 70, 150);
+
 const VIEWER_OUTER_GUTTER: f32 = 14.0;
 const VIEWER_TEXT_INSET: f32 = 16.0;
 const VIEWER_PAGE_RADIUS: f32 = 6.0;
@@ -9081,8 +9089,8 @@ pub(crate) fn draw_viewer(
     // the document itself through `ink`, which is where prose lives.
     let face_ink = crate::map_tiles::readable_ink(face);
     let muted = muted_ink(surface, ink);
-    let link_color = Color32::from_rgb(70, 130, 220);
-    let code_color = Color32::from_rgb(170, 70, 150);
+    let link_color = VIEWER_LINK_COLOR;
+    let code_color = VIEWER_CODE_COLOR;
 
     // R15/R16/R14.3: one geometry decision, made in the pure model, for
     // every surface — see `viewer::chrome_layout`.
@@ -9111,7 +9119,7 @@ pub(crate) fn draw_viewer(
     if let Some(strip) = chrome.filmstrip {
         let strip_rect = egui_rect_of(strip);
         result.strip_hits =
-            draw_viewer_filmstrip(painter, strip_rect, st, face_ink, surface, ink, muted, a);
+            draw_viewer_filmstrip(painter, strip_rect, ctrl, st, face_ink, surface, ink, muted, a);
         result.splitter = Some(egui::Rect::from_min_max(
             egui::pos2(strip_rect.max.x - 3.0, strip_rect.min.y),
             egui::pos2(strip_rect.max.x + 3.0, strip_rect.max.y),
@@ -9126,7 +9134,7 @@ pub(crate) fn draw_viewer(
     // before the "nothing loaded" bail so a card grid is still shown for a
     // document whose pages are known but whose first page has not decoded.
     if st.view_mode == crate::viewer::ViewMode::Cards && !st.is_streamed() {
-        let (h, hits) = draw_viewer_cards(painter, view_rect, st, surface, ink, muted, a);
+        let (h, hits) = draw_viewer_cards(painter, view_rect, ctrl, st, surface, ink, muted, a);
         result.content_height = h;
         result.card_hits = hits;
         draw_viewer_slider(painter, result.slider_track, st, ink, a);
@@ -9534,6 +9542,7 @@ fn draw_viewer_find_highlights(
 fn draw_viewer_filmstrip(
     painter: &egui::Painter,
     rect: egui::Rect,
+    ctrl: &Control,
     st: &ViewerPaintState<'_>,
     face_ink: Color32,
     surface: Color32,
@@ -9583,7 +9592,7 @@ fn draw_viewer_filmstrip(
             break;
         }
         let tr = egui::Rect::from_min_size(egui::pos2(rect.min.x + pad, y), egui::vec2(thumb_w, thumb_h));
-        draw_viewer_page_face(&clip, tr, page, st, surface, ink, muted, a, page == st.current_page);
+        draw_viewer_page_face(&clip, tr, page, ctrl, st, surface, ink, muted, a, page == st.current_page);
         hits.push((page, tr));
     }
     hits
@@ -9595,6 +9604,7 @@ fn draw_viewer_filmstrip(
 fn draw_viewer_cards(
     painter: &egui::Painter,
     rect: egui::Rect,
+    ctrl: &Control,
     st: &ViewerPaintState<'_>,
     surface: Color32,
     ink: Color32,
@@ -9617,7 +9627,7 @@ fn draw_viewer_cards(
         if card.min.y > rect.max.y {
             break;
         }
-        draw_viewer_page_face(&clip, card, page, st, surface, ink, muted, a, page == st.current_page);
+        draw_viewer_page_face(&clip, card, page, ctrl, st, surface, ink, muted, a, page == st.current_page);
         hits.push((page, card));
     }
     (grid.content_height(), hits)
@@ -9630,6 +9640,7 @@ fn draw_viewer_page_face(
     painter: &egui::Painter,
     rect: egui::Rect,
     page: usize,
+    ctrl: &Control,
     st: &ViewerPaintState<'_>,
     surface: Color32,
     ink: Color32,
@@ -9647,9 +9658,61 @@ fn draw_viewer_page_face(
     };
     painter.rect_stroke(rect, round, Stroke::new(if current { 2.0 } else { 1.0 }, border), egui::StrokeKind::Middle);
 
-    if let Some(preview) = st.page_preview.and_then(|f| f(page)) {
-        let inset = 5.0;
-        let body = rect.shrink(inset);
+    let inset = 5.0;
+    let body = rect.shrink(inset);
+
+    // "A card is a page in miniature" (operator, 2026-09-20). Where the page
+    // is actually decoded, the miniature is painted by the SAME painter that
+    // paints the page, at a font sized to the card — so a heading is a
+    // heading, a table is a table, and an image is the image, not a blank
+    // sheet with a number on it.
+    //
+    // Only the decoded page can be drawn this way, and that is the honest
+    // limit rather than a shortcut: decoding every page of a document to fill
+    // a contact sheet is exactly the cost R2 exists to forbid. The rest fall
+    // back to the bounded text preview the host already keeps, and failing
+    // that to the page number alone.
+    let drew_miniature = if page == st.current_page {
+        let clip = painter.with_clip_rect(body);
+        match st.content {
+            Some(ViewerPageContent::Image(img)) => {
+                draw_viewer_image(&clip, body, ctrl, &st.source, img);
+                true
+            }
+            Some(ViewerPageContent::Markdown { doc, .. }) if !doc.blocks.is_empty() => {
+                // Deliberately tiny, for the same reason the text preview is:
+                // a miniature suggests a page's shape, it is not a second
+                // place to read it.
+                let size = (rect.width() / 26.0).clamp(3.0, 7.0);
+                let bctx = BlockPaintCtx {
+                    font_size: size,
+                    text_ink: muted,
+                    strong_ink: ink,
+                    link_color: VIEWER_LINK_COLOR,
+                    code_color: VIEWER_CODE_COLOR,
+                    width: body.width().max(4.0),
+                };
+                let mut find = FindPaint {
+                    query: "",
+                    case_sensitive: false,
+                    highlight: false,
+                    current: 0,
+                    seen: 0,
+                    alpha: a,
+                };
+                paint_blocks(&clip, &bctx, &doc.blocks, body.min, &mut find);
+                true
+            }
+            _ => false,
+        }
+    } else {
+        false
+    };
+
+    if let Some(preview) = (!drew_miniature)
+        .then(|| st.page_preview.and_then(|f| f(page)))
+        .flatten()
+    {
         // Deliberately tiny and wrapped: a thumbnail suggests a page's shape,
         // it is not a second place to read it.
         let size = (rect.width() / 16.0).clamp(4.0, 9.0);
@@ -17130,6 +17193,71 @@ mod theme_render_tests {
             "the band must be a shade of the face it sits on — got {light_band:?} \
              over white and {dark_band:?} over #202030"
         );
+    }
+
+    /// Spec 058 — **a card is a page in miniature**, not a blank sheet with a
+    /// number on it (operator, 2026-09-20: "Cards must show content
+    /// miniature").
+    ///
+    /// A card showed only the bounded TEXT preview the host keeps, and that
+    /// preview exists for plain text and for a host-decoded PDF. A Markdown
+    /// document — whose entire parsed content the paint is already holding —
+    /// therefore drew an empty sheet. The decoded page is now painted by the
+    /// same block painter that paints the page itself, so the card carries the
+    /// page's own words and its own structure.
+    #[test]
+    fn a_card_paints_the_page_it_stands_for() {
+        let doc = crate::viewer::parse_markdown(
+            "# Quarterly report\n\nRevenue rose in **every** region.\n\n- Northland\n- Southmoor\n",
+        );
+        let content = ViewerPageContent::Markdown { raw: String::new(), doc };
+        let rect = egui::Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(420.0, 340.0));
+
+        let ctx = egui::Context::default();
+        let ctrl = Control::new("V1", crate::model::ControlType::Viewer, 0, 0);
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(520.0, 440.0)));
+        let mut full = ctx.run_ui(input, |root| {
+            egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
+                let painter = ui.painter().clone();
+                let mut st = test_viewer_state(&content, "Web", 14.0);
+                st.view_mode = crate::viewer::ViewMode::Cards;
+                st.page_count = 1;
+                draw_viewer(&painter, rect, &ctrl, &st);
+            });
+        });
+        full.textures_delta.clear();
+
+        fn walk(s: &egui::Shape, into: &mut Vec<String>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, into)),
+                egui::Shape::Text(t) => into.push(t.galley.text().to_owned()),
+                _ => {}
+            }
+        }
+        let mut texts = Vec::new();
+        for cs in &full.shapes {
+            walk(&cs.shape, &mut texts);
+        }
+        let all = texts.join(" ");
+        println!("  {} text run(s) painted on the Cards view", texts.len());
+        println!("  word        on the card");
+        println!("  ---------   ------------");
+        let mut missing = Vec::new();
+        for word in ["Quarterly", "Revenue", "Northland", "Southmoor"] {
+            let found = all.contains(word);
+            println!("  {word:<9}   {}", if found { "yes" } else { "NO" });
+            if !found {
+                missing.push(word);
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "a card must show the page's own content, not a blank sheet — missing {missing:?}"
+        );
+        // And the page number is still there: a miniature does not replace the
+        // one thing a contact sheet must always say.
+        assert!(all.contains('1'), "the card must still carry its page number");
     }
 
     fn count_stroked_rects(shapes: &[egui::Shape]) -> usize {
