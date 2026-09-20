@@ -539,6 +539,27 @@ fn resolve_diag_origin(
     }
 }
 
+/// A refused Build/Run, raised in front of the developer instead of left in
+/// the Output pane.
+///
+/// The Data Binding Guardian speaks in codes (`ambiguous-target-control`) and
+/// its message names a control. Both are actionable, and neither is much use
+/// scrolling past in a log — so the refusal is shown, explained, and offers to
+/// open the form at the control it is complaining about.
+#[derive(Clone)]
+struct GuardianBlock {
+    /// The form's file name, as the developer sees it.
+    label: String,
+    /// Where that form lives, when the gate knew — a project-wide check does,
+    /// a check handed a loose `Form` does not.
+    path: Option<PathBuf>,
+    /// "Build", "Run", … — what was refused.
+    action: String,
+    /// Only the blockers. Warnings do not stop anything and do not belong in
+    /// a window the developer has to dismiss.
+    findings: Vec<cobolt_forms::GuardianFinding>,
+}
+
 pub struct CoboltApp {
     // Code workspace
     project: ProjectPanel,
@@ -559,6 +580,8 @@ pub struct CoboltApp {
 
     // Open form designers (each lives in its own viewport window)
     designers: Vec<(PathBuf, DesignerPanel)>,
+    /// A refused Build/Run awaiting acknowledgement. See [`GuardianBlock`].
+    guardian_block: Option<GuardianBlock>,
     designer_activation_requests: DesignerActivationRequests,
     /// Carries out a toolbar button's PLATFORM action pressed in **Preview**,
     /// so a toolbar can be tried at design time instead of only under Run Form.
@@ -1889,6 +1912,7 @@ impl CoboltApp {
             runner: Runner::new(),
             forms_list: FormsListPanel::new(),
             designers: Vec::new(),
+            guardian_block: None,
             designer_activation_requests: DesignerActivationRequests::default(),
             preview_toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
             clipboard: None,
@@ -2208,15 +2232,18 @@ impl CoboltApp {
         label: &str,
     ) -> bool {
         let report = validate_binding_action(form, action);
-        self.emit_data_binding_gate_report(label, &report);
+        // No path here: this gate gets a form in hand, not a file. The modal
+        // then offers its explanation without a jump, which is still better
+        // than a line that scrolls out of the Output pane.
+        self.emit_data_binding_gate_report(label, None, &report);
         !report.blocked()
     }
 
     fn allow_data_binding_project_action(&mut self, action: BindingActionGate) -> bool {
         let reports = self.data_binding_project_reports(action);
-        let blocked = reports.iter().any(|(_, report)| report.blocked());
-        for (label, report) in &reports {
-            self.emit_data_binding_gate_report(label, report);
+        let blocked = reports.iter().any(|(_, _, report)| report.blocked());
+        for (label, path, report) in &reports {
+            self.emit_data_binding_gate_report(label, path.clone(), report);
         }
         !blocked
     }
@@ -2224,7 +2251,7 @@ impl CoboltApp {
     fn data_binding_project_reports(
         &self,
         action: BindingActionGate,
-    ) -> Vec<(String, BindingActionGateReport)> {
+    ) -> Vec<(String, Option<PathBuf>, BindingActionGateReport)> {
         let mut reports = Vec::new();
         let mut seen = std::collections::HashSet::<PathBuf>::new();
 
@@ -2235,6 +2262,7 @@ impl CoboltApp {
                     .and_then(|name| name.to_str())
                     .unwrap_or("form")
                     .to_owned(),
+                Some(path.clone()),
                 validate_binding_action(&designer.form, action),
             ));
         }
@@ -2248,6 +2276,7 @@ impl CoboltApp {
                         .and_then(|name| name.to_str())
                         .unwrap_or("form")
                         .to_owned(),
+                    Some(inspect.path.clone()),
                     validate_binding_action(&inspect.designer.form, action),
                 ));
             }
@@ -2268,6 +2297,7 @@ impl CoboltApp {
                             .and_then(|name| name.to_str())
                             .unwrap_or("form")
                             .to_owned(),
+                        Some(path.clone()),
                         validate_binding_action(&form, action),
                     ));
                 }
@@ -2277,12 +2307,32 @@ impl CoboltApp {
         reports
     }
 
-    fn emit_data_binding_gate_report(&mut self, label: &str, report: &BindingActionGateReport) {
+    fn emit_data_binding_gate_report(
+        &mut self,
+        label: &str,
+        path: Option<PathBuf>,
+        report: &BindingActionGateReport,
+    ) {
         let blockers = report.blocker_count();
         let warnings = report.warning_count();
         let tr = self.lang.tr();
         let action = data_binding_action_label(&tr, report.action);
         if blockers > 0 {
+            // A refusal that only scrolls past in the Output pane is a
+            // refusal the developer has to go looking for. Raise it, name
+            // the form, and carry the offending control so the modal can
+            // offer to go there (operator, 2026-09-20).
+            self.guardian_block = Some(GuardianBlock {
+                label: label.to_owned(),
+                path: path.clone(),
+                action: action.to_owned(),
+                findings: report
+                    .findings
+                    .iter()
+                    .filter(|f| f.severity == cobolt_forms::GuardianSeverity::Blocker)
+                    .cloned()
+                    .collect(),
+            });
             self.output.push_status(
                 tr.data_binding_guardian_blocked
                     .replace("{action}", action)
@@ -5400,6 +5450,97 @@ impl CoboltApp {
         if dismiss {
             // Forgotten, not remembered. The next start-up asks again.
             self.update_offer = None;
+        }
+    }
+
+    /// The window a refused Build/Run raises.
+    ///
+    /// The Guardian's findings are actionable — a code, a sentence, and often
+    /// the id of the control at fault — and none of that helps in a log the
+    /// developer has to notice and scroll. This shows the refusal, explains
+    /// it, and offers to open the form at the control it names.
+    fn show_guardian_block_modal(&mut self, ctx: &egui::Context) {
+        let Some(block) = self.guardian_block.clone() else {
+            return;
+        };
+        let tr = self.lang.tr();
+        let theme = self.current_theme().clone();
+        // Owned by this function, exact, and never negotiated against the
+        // content — GOLDEN RULE: a window may never resize itself.
+        const SIZE: egui::Vec2 = egui::vec2(560.0, 340.0);
+        let mut open = true;
+        let mut dismiss = false;
+        let mut goto: Option<(std::path::PathBuf, Option<String>)> = None;
+
+        egui::Window::new(egui::RichText::new(tr.guardian_modal_title).size(18.0).strong())
+            .id(egui::Id::new("guardian_block_modal"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .fixed_size(SIZE)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                let margin = ui.style().spacing.window_margin.sum().x;
+                let inner_w = (SIZE.x - margin).max(160.0);
+
+                ui.label(
+                    egui::RichText::new(
+                        tr.guardian_modal_intro
+                            .replace("{action}", &block.action)
+                            .replace("{label}", &block.label),
+                    )
+                    .color(theme.text_bright),
+                );
+                ui.add_space(8.0);
+
+                egui::ScrollArea::vertical()
+                    .max_height(SIZE.y - 140.0)
+                    .show(ui, |ui| {
+                        for f in &block.findings {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.set_max_width(inner_w);
+                                ui.label(
+                                    egui::RichText::new(&f.code).strong().color(theme.accent),
+                                );
+                            });
+                            ui.horizontal_wrapped(|ui| {
+                                ui.set_max_width(inner_w);
+                                ui.label(egui::RichText::new(&f.message).color(theme.text_bright));
+                            });
+                            if let Some(path) = &block.path {
+                                let label = if f.target_control_id.is_some() {
+                                    tr.guardian_modal_goto
+                                    } else {
+                                    tr.guardian_modal_open
+                                };
+                                if ui.button(label).clicked() {
+                                    goto = Some((path.clone(), f.target_control_id.clone()));
+                                }
+                            }
+                            ui.add_space(10.0);
+                        }
+                    });
+
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.guardian_modal_close).clicked() {
+                        dismiss = true;
+                    }
+                });
+            });
+
+        if let Some((path, control)) = goto {
+            // Opens the designer, or brings the open one forward.
+            self.load_form_from_path(path.clone());
+            if let Some(i) = self.designers.iter().position(|(p, _)| *p == path) {
+                if let Some(id) = control {
+                    self.designers[i].1.selected_ids = vec![id];
+                }
+            }
+            dismiss = true;
+        }
+        if dismiss || !open {
+            self.guardian_block = None;
         }
     }
 
@@ -9913,6 +10054,7 @@ impl CoboltApp {
         }
         // Default Theme Settings (spec 016 Q2).
         self.show_theme_defaults_modal(ctx);
+        self.show_guardian_block_modal(ctx);
         self.show_indexed_engine_modal(ctx);
         self.show_update_offer(ctx);
         // Models Manager modal (spec 031) — taken out of self to split borrows.

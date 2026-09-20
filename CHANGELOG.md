@@ -8,6 +8,35 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.109] — 2026-09-20
+
+### A refused Build says so in a window, and offers to take you there
+
+The Data Binding Guardian's refusals went to the Output pane and nowhere
+else:
+
+```
+Data Binding Guardian blocked 🔨  Build for viewer-form.cfrm: 1 blocker(s).
+[Blocker] ambiguous-target-control: Controls 'Btn-Print' and 'Btn-Print' differ only by case
+```
+
+Everything needed to act on that is in those two lines — which form, which
+rule, which control — and all of it scrolls past in a log the developer has to
+notice first. A refusal now raises a window: what was refused and for which
+form, then each blocker with its code and its message, and a button that opens
+the form and selects the control the finding names. Findings that name no
+single control offer to open the form instead.
+
+Only blockers appear. A warning stops nothing and has no business in a window
+someone must dismiss.
+
+The gate now carries the form's path so the button has somewhere to go. The
+project-wide check always knew it and was throwing it away at the report
+boundary; the single-form gate genuinely does not have one, and there the
+window explains without offering a jump.
+
+Five strings, six languages.
+
 ## [PowerRustCOBOL 1.70.108] — 2026-09-20
 
 ### The Viewer example used one id for two buttons, and Build refused it
