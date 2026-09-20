@@ -1159,6 +1159,47 @@ pub fn clamp_zoom(pct: i64) -> i64 {
     pct.clamp(ZOOM_MIN_PCT, ZOOM_MAX_PCT)
 }
 
+/// The zoom levels the **slider** lands on.
+///
+/// Not a nicety — a measurement. One Viewer paint of a 360-block document costs
+/// **1.53 ms** when the zoom has not moved, because egui caches a laid-out
+/// galley and the cache key is the font size. Give it a new font size every
+/// frame and the whole document is laid out again from scratch: **145 ms**, a
+/// 95× difference and about seven frames a second. That is the whole of "Zoom
+/// slider is too slow" (operator, 2026-09-20).
+///
+/// A thread cannot fix it — text layout belongs to the UI thread and the
+/// galleys are wanted for this frame — but a LADDER can. Dragging the whole
+/// range now visits at most these levels instead of one per frame, each is laid
+/// out once, and dragging back over ground already covered costs nothing at
+/// all.
+///
+/// The stops are the ones a document viewer offers anyway, so the slider also
+/// stops landing on 137 %.
+///
+/// The wheel and the double-click keep their own continuous `ZOOM_STEP_RATIO`
+/// ladder: a notch is already a discrete jump, so it never produced the stream
+/// of distinct sizes a drag does.
+pub const ZOOM_STOPS: &[i64] = &[
+    25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500, 600, 800, 1000,
+    1200, 1600,
+];
+
+/// The stop nearest `pct`, on a **log** scale — the scale the slider itself
+/// uses, and the one the eye judges a zoom on: 90 is as far from 100 as 111 is,
+/// not as far as 110.
+pub fn nearest_zoom_stop(pct: i64) -> i64 {
+    let target = (clamp_zoom(pct) as f64).ln();
+    *ZOOM_STOPS
+        .iter()
+        .min_by(|a, b| {
+            let da = ((**a as f64).ln() - target).abs();
+            let db = ((**b as f64).ln() - target).abs();
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .unwrap_or(&ZOOM_DEFAULT_PCT)
+}
+
 /// One step in. Always advances by at least 1 % so a low zoom cannot get
 /// stuck on integer rounding, and never past R12's cap.
 pub fn zoom_in_step(pct: i64) -> i64 {
@@ -1315,7 +1356,13 @@ pub fn apply_slider(mode: ViewMode, t: f32, zoom_pct: i64, card_size_pct: i64) -
         ViewMode::Full => {
             let lo = ZOOM_MIN_PCT as f32;
             let hi = ZOOM_MAX_PCT as f32;
-            (clamp_zoom((lo * (hi / lo).powf(t)).round() as i64), card_size_pct)
+            // Snapped to a stop — see `ZOOM_STOPS` for the 95× measurement that
+            // put it there. The exponential placement is unchanged; only where
+            // it is allowed to come to rest.
+            (
+                nearest_zoom_stop((lo * (hi / lo).powf(t)).round() as i64),
+                card_size_pct,
+            )
         }
         ViewMode::Cards => (zoom_pct, (t * 100.0).round() as i64),
     }

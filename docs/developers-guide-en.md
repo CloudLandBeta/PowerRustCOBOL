@@ -3965,7 +3965,11 @@ no capability in this control that COBOL cannot reach.
   zoom modifier magnifies about the pointer — whatever is under it stays under
   it. A double-click zooms one step, in `Full` mode; over a card it opens that
   page instead. `Esc` returns to 100 %; in fullscreen it leaves fullscreen
-  first.
+  first. It reaches a **picture** as well as a page: 100 % is the whole image
+  fitted to the view, every other zoom is that size scaled, and a picture
+  larger than its view scrolls like any other document. The slider comes to
+  rest on the usual stops — 50, 75, 100, 125, 150, 200 and so on — rather than
+  on whatever percentage the pointer happened to be over.
 - **View mode** is `Full` (the document) or `Cards` (a grid of one card per
   page, replacing the document). The grid reflows to **the control's own
   width** — make the control wider and you get more columns; making the

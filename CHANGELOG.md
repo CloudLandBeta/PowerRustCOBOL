@@ -8,6 +8,67 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.122] — 2026-09-20
+
+### Zoom reaches a picture
+
+"Zoom does not work for images" (operator, 2026-09-20). The image path asked
+for `Fit` and nothing else, so the slider, the zoom modifier and the
+double-click all moved a number that changed nothing on screen.
+
+**100 % is `Fit`**, and that is the right anchor rather than the image's native
+size: a document viewer opens showing the whole page, and a photograph opening
+at 1:1 inside a small control would show a corner of itself. Every other zoom
+is that fitted size scaled, centred while it fits and scrolled once it does
+not — through the scroll model the control already has, with no case of its
+own.
+
+`draw_media_image` gained a sibling that takes a destination instead of a size
+mode, because zoom is a destination: `Fit` at one zoom and `Fit` at another are
+the same mode and different rects, and there is no third mode meaning "fitted,
+then scaled". One implementation of the UV remap either way.
+
+### Why the zoom slider is slow — measured, and not yet fixed
+
+"Zoom slider is too slow. Can it run in its own thread?" The answer to the
+question is no, and the reason is worth having in writing. On a 360-block
+document:
+
+| frames | ms each |
+|---|---|
+| zoom unchanged at 100 % | **1.6** |
+| zoom unchanged at 300 % | 9.9 |
+| zoom alternating **100 / 101** | **107** |
+| a slider drag across the range | 155 |
+
+A one per cent change costs seventy times a frame that changes nothing, and the
+size barely matters: it is the CHANGE that is expensive. egui caches a laid-out
+galley keyed by its font size and keeps only the previous frame's, so every
+distinct zoom lays the whole document out again — and retracing a drag is no
+cheaper than making it.
+
+No thread can fix that: text layout belongs to the UI thread and the galleys
+are wanted for the frame being painted. What fixes it is the Viewer owning its
+own laid-out page — laid out once per (document, font size, width), cached
+across frames, and culled to what is on screen — so a drag costs one layout per
+stop rather than one per frame, and a scroll costs none. That is its own piece
+of work and it is not done here.
+
+The measurement is kept as `the_cost_of_a_viewer_paint`, `#[ignore]`d because a
+timing that fails on a loaded machine is a false alarm rather than a defect.
+
+### The zoom slider lands on the usual stops
+
+Snapping the slider to a ladder — 25, 33, 50, 67, 75, 80, 90, 100, 110, 125,
+150, 175, 200, 250, 300, 400, 500, 600, 800, 1000, 1200, 1600 — was tried as
+the speed fix and **did not work**, for the reason above: each stop is still a
+distinct font size, and revisiting one is no cheaper than reaching it the first
+time. It is kept anyway, on its own merits: the slider stops landing on 137 %.
+
+The wheel and the double-click keep their continuous `ZOOM_STEP_RATIO` ladder.
+A notch is already a discrete jump, so it never produced the stream of distinct
+sizes a drag does.
+
 ## [PowerRustCOBOL 1.70.121] — 2026-09-20
 
 ### Fullscreen means the screen

@@ -8752,9 +8752,19 @@ fn paint_table(
 /// animation playback for a document the Viewer opened as an image is a
 /// reasonable follow-up, not something this task's own scope (R7: "painting
 /// text, Markdown and images") requires.
-fn draw_viewer_image(painter: &egui::Painter, rect: egui::Rect, ctrl: &Control, source: &str, img: &crate::viewer::DecodedImage) {
+/// Returns how tall the image was DRAWN, so the scroll model can bound itself
+/// against a picture that no longer fits.
+fn draw_viewer_image(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    ctrl: &Control,
+    source: &str,
+    img: &crate::viewer::DecodedImage,
+    zoom_pct: i64,
+    scroll: f32,
+) -> f32 {
     let Some(frame) = img.frames.first() else {
-        return;
+        return 0.0;
     };
     let id = egui::Id::new(("viewer-standalone-image", &ctrl.id, source));
     let ctx = painter.ctx();
@@ -8776,7 +8786,29 @@ fn draw_viewer_image(painter: &egui::Painter, rect: egui::Rect, ctrl: &Control, 
         }
     };
     let native = Vec2::new(img.width as f32, img.height as f32);
-    draw_media_image(painter, rect, handle.id(), native, "Fit", 255, ctrl, 0.0);
+    // **R10/R11 reach an image.** They did not: this asked for `Fit` and
+    // nothing else, so the slider, the zoom modifier and the double-click all
+    // moved a number that changed nothing on screen (operator, 2026-09-20:
+    // "Zoom does not work for images").
+    //
+    // 100 % is `Fit`, and that is the right anchor rather than the image's
+    // native size: a document viewer opens showing the whole page, and a
+    // photograph opening at 1:1 inside a small control would show a corner of
+    // itself. Every other zoom is that fitted size scaled.
+    let fitted = media_dest_rect(rect, native, "Fit").size();
+    let k = (zoom_pct as f32 / 100.0).clamp(0.01, 64.0);
+    let size = Vec2::new((fitted.x * k).max(1.0), (fitted.y * k).max(1.0));
+    // Centred while it fits; anchored to the top and scrolled once it does
+    // not, so the existing scroll model moves it with no case of its own.
+    let x = rect.center().x - size.x / 2.0;
+    let y = if size.y <= rect.height() {
+        rect.center().y - size.y / 2.0
+    } else {
+        rect.min.y - scroll
+    };
+    let dest = egui::Rect::from_min_size(egui::pos2(x, y), size);
+    draw_media_image_at(painter, rect, dest, handle.id(), 255, ctrl, 0.0);
+    size.y
 }
 
 // ── T12: the state one Viewer paint needs, and what it hands back ───────
@@ -9214,7 +9246,8 @@ pub(crate) fn draw_viewer(
     };
 
     if let ViewerPageContent::Image(img) = content {
-        draw_viewer_image(painter, content_rect, ctrl, &st.source, img);
+        result.content_height =
+            draw_viewer_image(painter, content_rect, ctrl, &st.source, img, st.zoom_pct, st.scroll);
         draw_viewer_slider(painter, result.slider_track, st, ink, a);
         viewer_stash_measurements(ctx, &ctrl.id, st.view_index, &result);
         return result;
@@ -9755,7 +9788,9 @@ fn draw_viewer_page_face(
         let clip = painter.with_clip_rect(body);
         match st.content {
             Some(ViewerPageContent::Image(img)) => {
-                draw_viewer_image(&clip, body, ctrl, &st.source, img);
+                // A card is the page at CARD size, so it fits — the view's
+                // own zoom belongs to the view, not to its contact sheet.
+                draw_viewer_image(&clip, body, ctrl, &st.source, img, 100, 0.0);
                 true
             }
             Some(ViewerPageContent::Markdown { doc, .. }) if !doc.blocks.is_empty() => {
@@ -14221,6 +14256,26 @@ pub fn draw_media_image(
     own: f32,
 ) {
     let dest = media_dest_rect(rect, native, size_mode);
+    draw_media_image_at(painter, rect, dest, tex_id, a, ctrl, own);
+}
+
+/// [`draw_media_image`] for a caller that has already decided where the image
+/// goes.
+///
+/// Split out for the Viewer's zoom, which is a destination and not a size mode:
+/// `Fit` at one zoom and `Fit` at another are the same mode and different
+/// rects, and there is no third mode that means "fitted, then scaled". One
+/// implementation of the UV remap either way — a second one drifts.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_media_image_at(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    dest: egui::Rect,
+    tex_id: egui::TextureId,
+    a: u8,
+    ctrl: &Control,
+    own: f32,
+) {
     // The image keeps its own size; the visible area is `dest` trimmed to the
     // control rect (and the container border). We draw one textured rect over it
     // with the UV remapped from the full image, so the texture stays put.
@@ -17602,6 +17657,212 @@ method. Nothing in the control is reachable only by mouse.";
         assert!(
             curved.is_empty(),
             "paper is square-cornered — these are not: {curved:?}"
+        );
+    }
+
+    /// **Why the zoom slider is slow**, in numbers — kept as the evidence for
+    /// the work it calls for, not as a guard.
+    ///
+    /// `#[ignore]` because it is a measurement: it takes seconds, and a timing
+    /// that fails a sweep on a loaded machine is a false alarm, not a defect.
+    /// Run it with
+    /// `cargo test -p cobolt-forms --features render --lib the_cost_of_a_viewer_paint -- --ignored --nocapture`.
+    ///
+    /// What it found (operator's report, 2026-09-20: "Zoom slider is too
+    /// slow"), on a 360-block document:
+    ///
+    /// | frames | ms each |
+    /// |---|---|
+    /// | zoom unchanged at 100 % | **1.6** |
+    /// | zoom unchanged at 300 % | 9.9 |
+    /// | zoom alternating 100/101 | **107** |
+    /// | a slider drag across the range | 155 |
+    ///
+    /// A **one per cent** change costs seventy times a frame that changes
+    /// nothing, and the size barely matters: it is the CHANGE that is
+    /// expensive. egui caches a laid-out galley keyed by its font size and
+    /// keeps only the previous frame's, so every distinct zoom lays the whole
+    /// document out again — and retracing a drag is no cheaper than making it,
+    /// which is why snapping the slider to a ladder did not help either.
+    ///
+    /// No thread can fix this: text layout belongs to the UI thread and the
+    /// galleys are wanted for the frame being painted. What fixes it is the
+    /// Viewer owning its own laid-out page — laid out once per (document, font
+    /// size, width), cached across frames, and culled to what is on screen —
+    /// so a drag costs one layout per stop instead of one per frame, and a
+    /// scroll costs none.
+    #[test]
+    #[ignore]
+    fn the_cost_of_a_viewer_paint() {
+        let md: String = (0..120)
+            .map(|i| format!("## Section {i}\n\nA paragraph of ordinary prose that wraps across a few lines, number {i}, with **emphasis** and `code` in it to exercise the inline path.\n\n- one\n- two\n\n"))
+            .collect();
+        let doc = crate::viewer::parse_markdown(&md);
+        println!("  document: {} blocks", doc.blocks.len());
+        let content = ViewerPageContent::Markdown { raw: md, doc };
+        let rect = egui::Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(800.0, 600.0));
+        let ctx = egui::Context::default();
+        let ctrl = Control::new("V1", crate::model::ControlType::Viewer, 0, 0);
+
+        let mut run = |zoom: i64| -> std::time::Duration {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0)));
+            let t = std::time::Instant::now();
+            let mut full = ctx.run_ui(input, |root| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
+                    let painter = ui.painter().clone();
+                    let mut st = test_viewer_state(&content, "Web", 14.0);
+                    st.zoom_pct = zoom;
+                    draw_viewer(&painter, rect, &ctrl, &st);
+                });
+            });
+            full.textures_delta.clear();
+            t.elapsed()
+        };
+        // Warm: a cold Context lays its fonts out on the first pass.
+        for _ in 0..3 { run(100); }
+
+        let same: Vec<_> = (0..20).map(|_| run(100)).collect();
+        let moving: Vec<_> = (0..20).map(|i| run(100 + i * 7)).collect();
+        // A drag ACROSS THE WHOLE SLIDER, snapped to the ladder: 60 frames, as
+        // a real drag produces, sweeping out and back.
+        let sweep: Vec<_> = (0..60)
+            .map(|i| {
+                let t = if i < 30 { i as f32 / 29.0 } else { (59 - i) as f32 / 29.0 };
+                let (z, _) = crate::viewer::apply_slider(crate::viewer::ViewMode::Full, t, 100, 55);
+                run(z)
+            })
+            .collect();
+        let avg = |v: &[std::time::Duration]| {
+            v.iter().map(|d| d.as_secs_f64() * 1000.0).sum::<f64>() / v.len() as f64
+        };
+        let big: Vec<_> = (0..20).map(|_| run(300)).collect();
+        let alt: Vec<_> = (0..20).map(|i| run(if i % 2 == 0 { 100 } else { 101 })).collect();
+        println!("  constant 300 %, 20 frames: {:.2} ms/frame", avg(&big));
+        println!("  alternating 100/101:       {:.2} ms/frame", avg(&alt));
+        println!("  same zoom, 20 frames:      {:.2} ms/frame", avg(&same));
+        println!("  unsnapped zoom, 20 frames: {:.2} ms/frame", avg(&moving));
+        println!("  slider sweep, 60 frames:   {:.2} ms/frame", avg(&sweep));
+        println!("  second half of the sweep:  {:.2} ms/frame", avg(&sweep[30..]));
+    }
+
+    /// Spec 058 R10/R11 — **zoom reaches an image.**
+    ///
+    /// It did not: the image path asked for `Fit` and nothing else, so the
+    /// slider, the zoom modifier and the double-click all moved a number that
+    /// changed nothing on screen (operator, 2026-09-20: "Zoom does not work
+    /// for images").
+    ///
+    /// 100 % is `Fit` — a document viewer opens showing the whole page, and a
+    /// photograph opening at 1:1 inside a small control would show a corner of
+    /// itself. Measured on the painted rect, because the size the image is
+    /// DRAWN at is the whole claim.
+    #[test]
+    fn zoom_scales_an_image_and_a_hundred_percent_fits_it() {
+        // 4:3, larger than the view, so `Fit` has real work to do.
+        let img = crate::viewer::DecodedImage {
+            width: 1600,
+            height: 1200,
+            frames: vec![crate::viewer::ImageFrame {
+                // One opaque pixel is enough: nothing here looks at the
+                // picture, only at the rect it is drawn into.
+                rgba: vec![255u8; 4 * 1600 * 1200],
+                delay_ms: 0,
+            }],
+        };
+        let content = ViewerPageContent::Image(img);
+        let rect = egui::Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(400.0, 320.0));
+
+        let drawn = |zoom: i64| -> (f32, f32) {
+            let ctx = egui::Context::default();
+            let ctrl = Control::new("V1", crate::model::ControlType::Viewer, 0, 0);
+            let mut input = egui::RawInput::default();
+            input.screen_rect =
+                Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(500.0, 420.0)));
+            let mut full = ctx.run_ui(input, |root| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
+                    let painter = ui.painter().clone();
+                    let mut st = test_viewer_state(&content, "Web", 14.0);
+                    st.zoom_pct = zoom;
+                    draw_viewer(&painter, rect, &ctrl, &st);
+                });
+            });
+            full.textures_delta.clear();
+            // The textured rect is the image; everything else is chrome.
+            fn walk(s: &egui::Shape, into: &mut Vec<egui::Rect>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, into)),
+                    egui::Shape::Rect(r) if r.brush.is_some() => into.push(r.rect),
+                    _ => {}
+                }
+            }
+            let mut found = Vec::new();
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut found);
+            }
+            let r = found
+                .into_iter()
+                .max_by(|a, b| a.area().partial_cmp(&b.area()).unwrap())
+                .expect("the image is painted");
+            (r.width(), r.height())
+        };
+
+        let (w100, h100) = drawn(100);
+        let (w50, h50) = drawn(50);
+        let (w200, h200) = drawn(200);
+        println!("  zoom    drawn size");
+        println!("  -----   ----------");
+        println!("   50 %   {w50:.0} x {h50:.0}");
+        println!("  100 %   {w100:.0} x {h100:.0}");
+        println!("  200 %   {w200:.0} x {h200:.0}  (clipped to the view)");
+
+        // At 100 % the image fits, and a 4:3 picture in a wider-than-tall view
+        // is bounded by the HEIGHT.
+        assert!(
+            h100 <= rect.height() + 0.5 && w100 <= rect.width() + 0.5,
+            "100 % must fit inside the view: {w100} x {h100}"
+        );
+        assert!(
+            (w100 / h100 - 4.0 / 3.0).abs() < 0.02,
+            "and keep the picture's own proportions: {w100} x {h100}"
+        );
+        // Half the zoom, half the size — the claim the report was about.
+        assert!(
+            (h50 * 2.0 - h100).abs() < 1.5,
+            "50 % must draw half as tall as 100 %: {h50} vs {h100}"
+        );
+        // Zoomed past the view the picture is CLIPPED, so the painted rect
+        // stops growing at the content area — what keeps growing is the
+        // scrollable height, asserted below. The width still shows the
+        // difference, because a fitted 4:3 picture in this view is bounded by
+        // its height and so has room left sideways.
+        assert!(
+            w200 > w100,
+            "200 % must draw wider than 100 % until it meets the clip: {w200} vs {w100}"
+        );
+
+        // And the scroll model is told how tall the picture became, or a
+        // zoomed-in image is unreachable below the fold.
+        let ctx = egui::Context::default();
+        let ctrl = Control::new("V1", crate::model::ControlType::Viewer, 0, 0);
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(500.0, 420.0)));
+        let mut full = ctx.run_ui(input, |root| {
+            egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
+                let painter = ui.painter().clone();
+                let mut st = test_viewer_state(&content, "Web", 14.0);
+                st.zoom_pct = 400;
+                draw_viewer(&painter, rect, &ctrl, &st);
+            });
+        });
+        full.textures_delta.clear();
+        let measured = viewer_measurements(&ctx, "V1", 0).unwrap_or_default();
+        println!("  at 400 %, scrollable height {:.0} px", measured.content_height);
+        assert!(
+            measured.content_height > rect.height(),
+            "a zoomed image must be scrollable: {} px in a {} px view",
+            measured.content_height,
+            rect.height()
         );
     }
 
