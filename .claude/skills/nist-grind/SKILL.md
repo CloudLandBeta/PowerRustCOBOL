@@ -75,12 +75,25 @@ Repeat until the current module is 100/100 on both axes, then advance
 ### 1. Orient (cheap — do not skip)
 
 ```bash
-git branch --show-current          # must be `fixes`; if not, checkout and merge main
+git branch --show-current          # must be `fixes`; if not, check it out and rebase main
 cat NIST/progress.json             # the state
 ```
 
-If the branch is not `fixes`, `git checkout fixes` **and merge `main` into it
-before the first edit** (GOLDEN RULE #5).
+If the branch is not `fixes`, `git checkout fixes` **and sync from `main` before
+the first edit** (GOLDEN RULE #5):
+
+```bash
+git rebase main                    # normal case, before the first commit
+git merge --ff-only main           # when the shared tree is dirty (rebase refuses)
+```
+
+⚠️ **Never plain `git merge main`** (operator ruling 2026-09-14): the remote
+refuses merge commits on a working branch, and that is the form that makes one.
+Rebase only before the first commit — afterwards it rewrites published history
+and needs a force-push, which on a shared branch destroys other sessions' work.
+
+⚠️ **If another worktree holds `fixes`** you cannot check it out. Work on a
+per-change branch off `main` and land it with `git push origin HEAD:fixes`.
 
 ### 2. Build both binaries — separately
 

@@ -46,5 +46,28 @@ CHANGELOG.md             Per-release notes (bump with features)
 ## Naming
 
 - Feature spec folders: `specs/NNN-<kebab-slug>/` (NNN = zero-padded, next free).
-- Branches follow the operator's convention: `feat/<slug>` and `fix/<slug>`,
-  merged `--no-ff` into `main`.
+  A number may be skipped: `008` was never used, and `064` was left as a gap
+  when that work was reclassified as a fix (fixes get no spec folder). So "next
+  free" means the next unused integer, never the count of folders.
+- **Branches — GOLDEN RULE #5.** `CONVENTIONS.md` §Git is authoritative; this is
+  the short form. Two long-lived working branches carry all work: **`features`**
+  for new functionality, **`fixes`** for corrections. Classify the request
+  *before* the first edit, check the matching branch out, and sync from `main`
+  straight after the switch:
+  - `git rebase main` normally — and only **before the first commit**, since
+    rebasing published history needs a force-push that can destroy another
+    session's work on a shared branch;
+  - `git merge --ff-only main` when the shared tree is dirty, which `rebase`
+    refuses. Equivalent whenever `main` is an ancestor.
+  - **Never plain `git merge main`** (operator ruling 2026-09-14): the remote
+    refuses merge commits on a working branch, and that is the form that makes
+    one.
+
+  `main` is never a workbench, and merging back into it happens **only when
+  explicitly asked**. Committing and pushing a working branch needs no such
+  request.
+- **When another worktree holds the branch** — the normal state here, since
+  sessions run in `.claude/worktrees/` — git refuses to check it out, and
+  refuses to move its ref too. Work on a per-change branch off `main` named for
+  the kind of change (`fixes-1.70.142` is one), then land it with
+  `git push origin HEAD:fixes`. Never force a shared branch.

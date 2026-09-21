@@ -8,6 +8,47 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.144] — 2026-09-21
+
+### Two files told agents to branch in a way the remote rejects
+
+`specs/steering/structure.md` said branches are `feat/<slug>` and `fix/<slug>`,
+merged `--no-ff` into `main`. That is not a stylistic difference from GOLDEN
+RULE #5 — it describes a workflow **the remote refuses**. Since the operator
+ruling of 2026-09-14 the remote rejects merge commits on a working branch, so an
+agent following the steering file produced a push that failed, with nothing in
+the file to explain why.
+
+It now states the rule the repository actually runs on, deferring to
+`CONVENTIONS.md` §Git rather than restating it: the two long-lived branches
+`features` and `fixes`, classification before the first edit, `git rebase main`
+to sync — `git merge --ff-only main` when the shared tree is dirty and rebase
+refuses — and never plain `git merge main`, which is the form that makes the
+commit the remote turns away. Rebasing is confined to *before the first commit*,
+because afterwards it rewrites published history and needs a force-push that can
+destroy another session's work.
+
+**And the copy an agent actually executes was wrong too.** Checking whether the
+rule was stated elsewhere — this repository has a habit of one rule living in
+several files, where the stale copy is the one being followed — turned up
+`.claude/skills/nist-grind/SKILL.md` instructing exactly the forbidden form:
+*"`git checkout fixes` and merge `main` into it before the first edit"*. Fixing
+only the steering file would have left every NIST session doing the wrong thing.
+It now carries the same rebase/`--ff-only` wording already proven in
+`.claude/skills/fix/SKILL.md`, which was correct and is untouched.
+
+Both files also gained the case neither documented: **when another worktree holds
+`fixes` or `features`**, git refuses to check the branch out *and* refuses to
+move its ref. The answer is a per-change branch off `main` — `fixes-1.70.142` is
+one already in use — landed with `git push origin HEAD:fixes`. That is the
+normal state in this repository, and it was written down nowhere.
+
+`specs/027-egui-035-upgrade/tasks.md` still cites the old `--no-ff` rule and is
+deliberately left alone: a completed spec's task list records what was done, and
+editing it would falsify the record.
+
+No code changed — documentation only.
+
 ## [PowerRustCOBOL 1.70.141] — 2026-09-21
 
 ### Four things a reader could see, and two that were never wired
