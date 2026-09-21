@@ -3299,7 +3299,11 @@ impl ToolbarAction {
 
     /// Lenient parse of [`Self::as_str`], for a host reading an action back.
     pub fn from_str(s: &str) -> Option<Self> {
-        TOOLBAR_ITEMS.iter().copied().find(|a| a.as_str() == s.trim().to_ascii_lowercase())
+        TOOLBAR_ITEMS
+            .iter()
+            .chain(HIDDEN_TOOLBAR_ITEMS)
+            .copied()
+            .find(|a| a.as_str() == s.trim().to_ascii_lowercase())
     }
 }
 
@@ -3315,9 +3319,24 @@ pub const TOOLBAR_ITEMS: &[ToolbarAction] = &[
     ToolbarAction::Find,
     ToolbarAction::Fullscreen,
     ToolbarAction::Print,
-    ToolbarAction::Share,
     ToolbarAction::SaveAs,
 ];
+
+/// Actions the control can still carry out, but does **not** offer.
+///
+/// `Share` is here (operator, 2026-09-20: *"hide the share feature until we
+/// investigate this in depth"*). What it does is hand the document to the
+/// platform's default opener — `open`, `xdg-open`, `start` — which is not
+/// sharing: there is no share sheet, no recipient, no AirDrop or Mail target.
+/// macOS's `NSSharingServicePicker` and the Windows share contract need native
+/// code this does not carry, and until they do, a button labelled Share
+/// promises something the control cannot do.
+///
+/// The machinery stays — [`ToolbarAction::Share`], the `_ShareAsk` round trip
+/// and `os_handoff` — so the investigation resumes from a working base rather
+/// than from a hole. Only the offer is withdrawn, from the toolbar here, from
+/// the Developer's Guide and from the System KB.
+pub const HIDDEN_TOOLBAR_ITEMS: &[ToolbarAction] = &[ToolbarAction::Share];
 
 /// One toolbar button's painted size, and the gap between two of them.
 pub const TOOLBAR_BUTTON: f32 = 26.0;
@@ -5059,7 +5078,14 @@ mod toolbar_tests {
             assert!(!tip.trim().is_empty(), "{} has no tooltip (AC10)", action.as_str());
         }
         println!("{} buttons, all painter-drawn, all with tooltips", TOOLBAR_ITEMS.len());
-        assert_eq!(TOOLBAR_ITEMS.len(), 12, "R16's list: layout, 2 view modes, 2 font sizes, filmstrip, split, find, fullscreen, print, share, save-as");
+        assert_eq!(TOOLBAR_ITEMS.len(), 11, "R16's list: layout, 2 view modes, 2 font sizes, filmstrip, split, find, fullscreen, print, save-as");
+        // …and Share is deliberately NOT among them (2026-09-20). It still
+        // exists, and a host reading the name back still resolves it.
+        assert!(
+            !TOOLBAR_ITEMS.contains(&ToolbarAction::Share),
+            "Share is hidden until it is a real share sheet — see HIDDEN_TOOLBAR_ITEMS"
+        );
+        assert_eq!(ToolbarAction::from_str("share"), Some(ToolbarAction::Share));
     }
 
     /// R16's own wording: "Zoom and card size are **not** toolbar items" —
@@ -5073,7 +5099,7 @@ mod toolbar_tests {
 
     #[test]
     fn every_action_round_trips_through_its_stable_name() {
-        for action in TOOLBAR_ITEMS {
+        for action in TOOLBAR_ITEMS.iter().chain(HIDDEN_TOOLBAR_ITEMS) {
             let back = ToolbarAction::from_str(action.as_str());
             println!("{:?} -> {:?} -> {back:?}", action, action.as_str());
             assert_eq!(back, Some(*action));

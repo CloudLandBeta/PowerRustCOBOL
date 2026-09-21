@@ -8,6 +8,38 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.138] — 2026-09-20
+
+### The Viewer stops offering Share
+
+"hide the share feature until we investigate this in depth" (operator,
+2026-09-20). Withdrawn from all three places a developer meets it: the
+**toolbar button**, the **Developer's Guide**, and the **System KB**.
+
+What `Share()` does is hand the document to the platform's default opener —
+`open`, `xdg-open`, `start`. That is not sharing: no share sheet, no recipient,
+no AirDrop or Mail target. macOS's `NSSharingServicePicker` and the Windows
+share contract need native code this does not carry, and until they do, a
+button labelled Share promises something the control cannot do. The code has
+always said so in its own comments; the surfaces are what said otherwise.
+
+**The machinery stays.** `ToolbarAction::Share`, the `_ShareAsk` /
+`_ShareRequest` / `_ShareAnswer` round trip, `os_handoff.rs` and the
+`onShareComplete`/`onShareCancelled` events are untouched, so the investigation
+resumes from a working base rather than from a hole. `ToolbarAction::from_str`
+still resolves `"share"` — a host reading an action back is not the toolbar
+offering one — and a new `HIDDEN_TOOLBAR_ITEMS` says in one place what is
+withheld and why. The toolbar is eleven buttons, and its test now asserts both
+the count **and** that Share is not among them.
+
+`INVOKE VWR-1::Share()` still runs. It is undocumented rather than removed,
+because a method that silently does nothing is worse than one nobody is told
+about — say the word if it should refuse instead.
+
+⚠️ **Not in scope, and worth its own look:** the **ToolBar control** has a
+`Share` action of its own (`toolbar_actions.rs`, `Capture::ToShareSheet`) which
+shares a screenshot. Whether it is the real thing was not investigated here.
+
 ## [PowerRustCOBOL 1.70.137] — 2026-09-20
 
 ### A COBOL report prints into a Viewer (spec 062)

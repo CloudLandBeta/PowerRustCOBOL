@@ -3848,7 +3848,7 @@ visible.
 
 A **Viewer** shows a document — plain text, Markdown, an image, a PDF or an
 HTML page — inside the form you built, with a toolbar, page navigation, zoom, a
-rail of page thumbnails, Find, Print, Share and Save As.
+rail of page thumbnails, Find, Print and Save As.
 
 It exists because a COBOL program that *produces* documents has, until now, had
 nowhere to *show* them. You write a PDF statement or a report and then hand it
@@ -4093,13 +4093,12 @@ statement, at no extra cost.
 > `View1Zoom`, `SearchText` means `View1SearchText`, and so on. A program
 > written before you split the control goes on meaning exactly what it did.
 
-#### Saving, printing and sharing
+#### Saving and printing
 
 ```cobol
        INVOKE VWR-1::SaveAs("archive/september-copy.pdf")
        INVOKE VWR-1::SaveAs()
        INVOKE VWR-1::Print()
-       INVOKE VWR-1::Share()
 ```
 
 **`SaveAs` two ways.** Given a path, that is the path written — always, with no
@@ -4123,10 +4122,10 @@ is raised, because the operator did exactly what they meant to.
            .
 ```
 
-> **Note — what each of the three actually does, and what its events mean.**
-> A platform takes a *file*, so a document opened from a `Source` is handed
-> over as it stands, and one given to `LoadBytes` is written out first — under
-> the same proposed name Save As would offer.
+> **Note — what `Print` does, and what its events mean.** A platform takes a
+> *file*, so a document opened from a `Source` is handed over as it stands, and
+> one given to `LoadBytes` is written out first — under the same proposed name
+> Save As would offer.
 >
 > **Print** goes to the print system: `lp` on macOS and Linux, the shell's own
 > `Print` verb on Windows. A document the spooler accepts is a document
@@ -4134,14 +4133,7 @@ is raised, because the operator did exactly what they meant to.
 > or a machine with no printer configured, raises `onPrintCancelled` with the
 > reason in `LastError`.
 >
-> **Share** hands the document to the platform's default opener — `open`,
-> `xdg-open`, `start`. ⚠️ **It is not the system share sheet.** macOS's
-> `NSSharingServicePicker` and the Windows share contract need native code the
-> control does not yet carry; when they arrive, `Share` will use them and
-> nothing in your program will change. `onShareComplete` today means the
-> platform accepted the document, not that anyone sent it anywhere.
->
-> Both run off the drawing, so a slow spooler never stops your form
+> It runs off the drawing, so a slow spooler never stops your form
 > repainting.
 
 > ⚠️ **Caveat — Save As writes the original bytes, and only those.** It copies
@@ -4151,8 +4143,8 @@ is raised, because the operator did exactly what they meant to.
 > a different document with the same name. The Viewer also never modifies the
 > document it is showing.
 
-Print and Share hand the document to the operating system. So their outcomes
-are the operating system's to report, and that is where the events come from:
+Print hands the document to the operating system. So its outcome is the
+operating system's to report, and that is where the events come from:
 
 ```cobol
        PROGRAM-ID. VWR-1--ONPRINTCOMPLETE.
@@ -4167,7 +4159,7 @@ are the operating system's to report, and that is where the events come from:
 ```
 
 > ⚠️ **Caveat — only the dialog knows.** `onPrintComplete` and
-> `onPrintCancelled` (and the Share and Save pairs beside them) report what the
+> `onPrintCancelled` (and the Save pair beside them) report what the
 > operating system told the Viewer. Your program cannot tell in advance which
 > one it will get, and should not assume the cheerful one.
 
@@ -6448,8 +6440,8 @@ The report lands in **view 1**, and nothing else about the control changes: the
 The report is written to a real file in the operating system's temporary
 directory, named after the form. That is what makes the rest of the Viewer work
 on it with no effort from you: **Save As** writes exactly those bytes,
-**Print** and **Share** hand that file to the platform, and search, zoom and the
-card grid behave as they do for any document you opened yourself.
+**Print** hands that file to the platform, and search, zoom and the card grid
+behave as they do for any document you opened yourself.
 
 When the temporary directory cannot be written, the report is held in memory and
 displayed from there instead. Nothing about the program changes; a filesystem
