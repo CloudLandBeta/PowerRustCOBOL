@@ -3971,6 +3971,12 @@ for some formats.
 `Page` is about pagination, not about the kind of document: Markdown and plain
 text page up as willingly as a PDF does.
 
+**A document is black.** Its text is dark ink in every layout — `Raw`, `Web`,
+`Print`, `Page` and `Streamed` — and does not follow the form's theme, because a
+document is a document wherever it is shown. Only the document itself overrides
+that: a colour it states, such as `<font color="#E00000">` in the HTML subset, is
+the colour it gets.
+
 `FontSize` scales the text **independently of** `Zoom`, so a reader who wants
 bigger words does not have to magnify the whole page to get them.
 

@@ -3950,6 +3950,23 @@ struct ViewerLive {
     find_case: SharedValue<bool>,
     find_highlight: SharedValue<bool>,
     find_current: SharedValue<usize>,
+    /// §8.3/§8.4 — is this `Streamed` view following the end, and has content
+    /// arrived where the reader cannot see it?
+    ///
+    /// The model was written and unit-tested at T24/T25 and then **called by
+    /// nobody**: `observe`, `after_height_change` and `jump_to_latest` had no
+    /// caller outside their own tests, so a conversation never followed and
+    /// `JumpToLatest()` left a request the surface never read (operator,
+    /// 2026-09-21: "Streamed: Auto-scroll not working", "Jump to the latest
+    /// does not work").
+    following: crate::viewer::AutoFollow,
+    /// The `_JumpToLatest` counter this view has already acted on. The
+    /// interpreter bumps the property; a surface acts once per bump.
+    jumped_seen: i64,
+    /// The scrollable extent the PREVIOUS frame measured. §8.3 is explicit
+    /// that the decision is made against the height before the new content
+    /// changed it, and in an immediate-mode paint that height is last frame's.
+    last_max: f32,
     pushed_total: usize,
     /// What this engine last pushed, so a COBOL write is told apart from its
     /// own echo arriving a frame later.
@@ -3986,6 +4003,9 @@ impl ViewerLive {
             find_case: SharedValue::new(st.find_case_sensitive),
             find_highlight: SharedValue::new(st.find_highlight),
             find_current: SharedValue::new(st.find_current),
+            following: crate::viewer::AutoFollow::default(),
+            jumped_seen: 0,
+            last_max: 0.0,
             pushed_total: st.find_total,
             pushed_scroll: st.scroll.round() as i64,
             last_layout: None,
@@ -4976,7 +4996,31 @@ fn viewer_view_interactive(
 
     // R33: the scrollable range is what the paint measured, against this
     // view's own content height.
-    live.scroll.set_max((painted.content_height - chrome.content.h).max(0.0));
+    //
+    // §8.3's order matters and is easy to get backwards: **observe first**,
+    // against the extent the reader was actually reading against, and only
+    // then adopt the new one. Asking "are they at the end?" after an append
+    // has already made the document taller answers a question nobody asked.
+    let new_max = (painted.content_height - chrome.content.h).max(0.0);
+    if streamed {
+        live.following.observe(live.scroll.offset(), live.last_max);
+    }
+    live.scroll.set_max(new_max);
+    if streamed {
+        // §8.4 — `JumpToLatest()` from COBOL arrives as a bumped counter, the
+        // same shape `SaveAs`/`Print` use. Acting on the COUNT rather than on
+        // a flag is what makes two calls in one frame still mean one jump, and
+        // a call while already at the end mean nothing at all.
+        let asked = ctrl.get_prop("_JumpToLatest").map(|v| v.as_i64()).unwrap_or(0);
+        let offset = if asked != live.jumped_seen {
+            live.jumped_seen = asked;
+            live.following.jump_to_latest(new_max)
+        } else {
+            live.following.after_height_change(live.scroll.offset(), new_max)
+        };
+        live.scroll.set_offset(offset);
+        live.last_max = new_max;
+    }
 
     // ── Write back every COBOL-visible value, then raise R32's events ───
     // A per-view property is written under its own `View{n}` name (the

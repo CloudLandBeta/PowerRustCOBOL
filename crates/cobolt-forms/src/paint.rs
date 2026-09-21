@@ -8035,6 +8035,17 @@ const VIEWER_CODE_COLOR: Color32 = Color32::from_rgb(170, 70, 150);
 
 const VIEWER_OUTER_GUTTER: f32 = 14.0;
 const VIEWER_TEXT_INSET: f32 = 16.0;
+
+/// A blank line's worth of paper AFTER the last line of a document, as a
+/// multiple of the font size.
+///
+/// The inset alone put the final line flush against the bottom of the
+/// viewport, where it came out cut through the middle of its own glyphs
+/// (operator, 2026-09-21, with a screenshot of exactly that). A reader
+/// reaching the end of a document should see the end of it, so the scrollable
+/// extent now runs one line past the last one — the same courtesy a printed
+/// page's bottom margin gives.
+const VIEWER_TRAILING_LINE: f32 = 1.6;
 /// The corner a sheet of paper has: **none** (operator, 2026-09-20).
 ///
 /// It was 6 px, which is a card's corner, not a page's — and against the
@@ -8048,6 +8059,15 @@ const VIEWER_TEXT_INSET: f32 = 16.0;
 /// (The rounded rect under a PRESSED TOOLBAR BUTTON is not paper and keeps its
 /// own radius.)
 const VIEWER_PAGE_RADIUS: f32 = 0.0;
+
+/// The ink a document is written in: **black**, in every layout, unless the
+/// content itself says otherwise (operator, 2026-09-21).
+///
+/// Not a theme colour and not derived from any surface — that derivation is
+/// what produced a light-on-light document. A document's own colours still
+/// win: `build_inline_job` gives an explicit `<font color="…">` precedence
+/// over every convention beneath it.
+const VIEWER_DOCUMENT_INK: Color32 = Color32::from_gray(25);
 const VIEWER_BLOCK_SPACING: f32 = 8.0;
 const VIEWER_LIST_INDENT: f32 = 20.0;
 const VIEWER_LIST_ITEM_SPACING: f32 = 4.0;
@@ -9378,11 +9398,24 @@ pub(crate) fn draw_viewer(
     // the form actually painted, which is what keeps the chrome one colour with
     // the content pane instead of three colours in one control.
     let (surface, ink) = if forced_paper {
-        (Color32::from_gray(250), Color32::from_gray(25))
+        (Color32::from_gray(250), VIEWER_DOCUMENT_INK)
     } else {
         let surface = theme_token(ctx, crate::surface_theme::ColorToken::Card).unwrap_or(Color32::from_gray(250));
-        let ink = resolve_label_ink(ctx, ctrl, false, surface, Color32::from_gray(25));
-        (surface, ink)
+        // ⚠️ A DOCUMENT IS BLACK unless it says otherwise (operator,
+        // 2026-09-21). It used to take its ink from the theme through
+        // `resolve_label_ink`, derived from the Card token — and when that
+        // token is dark while the pane the form actually paints is light, the
+        // ink comes out light-on-light and the document cannot be read at all.
+        // That is the same class as the map's info window and the non-visual
+        // badge before it: ink resolved against a surface that is not the one
+        // underneath it.
+        //
+        // The rule is now the document's own, and needs no surface to be right:
+        // prose is black in every layout — Raw, Web, Print, Page and Streamed —
+        // and only the CONTENT overrides it, through an explicit colour such as
+        // `<font color="…">` (see `build_inline_job`, where `style.color` wins
+        // over every convention below it).
+        (surface, VIEWER_DOCUMENT_INK)
     };
     let face = viewer_face_tone(ctx, ctrl);
     // The chrome's ink is FURNITURE, not prose. Toolbar icons, page numbers and
@@ -9397,7 +9430,11 @@ pub(crate) fn draw_viewer(
     // would get white icons on a white band. `ForegroundColor` still reaches
     // the document itself through `ink`, which is where prose lives.
     let face_ink = crate::map_tiles::readable_ink(face);
-    let muted = muted_ink(surface, ink);
+    // Body prose is the same black as its headings: the muted tone was derived
+    // from `surface` too, so on a mis-resolved surface it faded the body out
+    // exactly as it faded the headings. Emphasis is carried by weight and size,
+    // which is where a document has always carried it.
+    let muted = ink;
     let link_color = VIEWER_LINK_COLOR;
     let code_color = VIEWER_CODE_COLOR;
 
@@ -9559,7 +9596,8 @@ pub(crate) fn draw_viewer(
         job.wrap.break_anywhere = true;
         job.append(raw_text, 0.0, egui::TextFormat { font_id: egui::FontId::monospace(font_size), color: ink, ..Default::default() });
         let galley = clip.layout_job(job);
-        result.content_height = galley.size().y + 2.0 * VIEWER_TEXT_INSET;
+        result.content_height =
+            galley.size().y + 2.0 * VIEWER_TEXT_INSET + font_size * VIEWER_TRAILING_LINE;
         let origin = egui::pos2(content_rect.min.x + VIEWER_TEXT_INSET, top);
         // R29: the highlights go UNDER the glyphs, so the text stays the
         // thing being read rather than being tinted by its own marker.
@@ -9594,8 +9632,9 @@ pub(crate) fn draw_viewer(
             selection_ink: Color32::WHITE,
             runs: Vec::new(),
         };
-        result.content_height =
-            paint_blocks(&clip, &block_ctx, blocks, origin, &mut find) + 2.0 * VIEWER_TEXT_INSET;
+        result.content_height = paint_blocks(&clip, &block_ctx, blocks, origin, &mut find)
+            + 2.0 * VIEWER_TEXT_INSET
+            + font_size * VIEWER_TRAILING_LINE;
         result.text_runs = std::mem::take(&mut find.runs);
         // The total is what the WALK counted, so the counter and the marks
         // can never disagree about how many there are. It matches
@@ -18152,6 +18191,50 @@ method. Nothing in the control is reachable only by mouse.";
             kept, fresh,
             "the Viewer handed back a galley from an atlas that no longer \
              exists: it indexes {before:?}, the live atlas has the glyph at {fresh:?}"
+        );
+    }
+
+    /// **A document ends with room to end in** (operator, 2026-09-21, with a
+    /// screenshot of a last line cut through the middle of its own glyphs).
+    ///
+    /// The 16 px inset put the final line flush against the bottom of the
+    /// viewport, where the viewport's own rounding finished it off. The
+    /// measured extent now runs one line past the last one, which is the same
+    /// courtesy a printed page's bottom margin gives.
+    #[test]
+    fn a_document_is_measured_with_room_after_its_last_line() {
+        let md = "# Heading\n\nA paragraph that ends the document.";
+        let doc = crate::viewer::parse_markdown(md);
+        let content = ViewerPageContent::Markdown { raw: md.to_owned(), doc };
+        let rect = egui::Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(600.0, 400.0));
+        let ctx = egui::Context::default();
+        let ctrl = Control::new("V1", crate::model::ControlType::Viewer, 0, 0);
+
+        let measure = |font: f32| -> f32 {
+            let mut input = egui::RawInput::default();
+            input.screen_rect =
+                Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(700.0, 500.0)));
+            let mut height = 0.0;
+            let mut full = ctx.run_ui(input, |root| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
+                    let painter = ui.painter().clone();
+                    let st = test_viewer_state(&content, "Web", font);
+                    height = draw_viewer(&painter, rect, &ctrl, &st).content_height;
+                });
+            });
+            full.textures_delta.clear();
+            height
+        };
+
+        let small = measure(12.0);
+        let large = measure(24.0);
+        println!("  12 pt → {small:.1} px, 24 pt → {large:.1} px");
+        // The trailing room is a LINE, so it grows with the type: doubling the
+        // font must add more than the ink alone would.
+        assert!(large > small, "bigger type, taller document");
+        assert!(
+            large - small > 12.0 * VIEWER_TRAILING_LINE,
+            "the trailing line must scale with the font: {small:.1} → {large:.1}"
         );
     }
 

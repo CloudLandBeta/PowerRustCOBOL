@@ -8,6 +8,46 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.141] — 2026-09-21
+
+### Four things a reader could see, and two that were never wired
+
+All four reported together (operator, 2026-09-21, with screenshots).
+
+**A document is black.** Its ink used to come from the theme, derived from the
+Card token — and when that token is dark while the pane the form actually paints
+is light, the prose came out light-on-light and could not be read at all. That
+is the same class as the map's info window and the non-visual badge before it:
+ink resolved against a surface that is not the one underneath it. The rule is
+now the document's own and needs no surface to be right — **black in every
+layout**, `Raw`, `Web`, `Print`, `Page` and `Streamed` — and only the CONTENT
+overrides it, through a colour it states such as `<font color="…">`. Body prose
+takes the same black as its headings; emphasis is carried by weight and size,
+where a document has always carried it.
+
+**A document ends with room to end in.** The 16 px inset put the last line flush
+against the bottom of the viewport, where it came out cut through the middle of
+its own glyphs. The measured extent now runs one line past the last one — and
+the line scales with the type, which the test asserts by doubling the font.
+
+**`Streamed` follows the end**, and **`JumpToLatest()` returns a reader who
+scrolled away.** Both were written as a pure model at T24/T25, unit-tested, and
+then **called by nobody**: `observe`, `after_height_change` and
+`jump_to_latest` had no caller outside their own tests, and the interpreter's
+`_JumpToLatest` counter was read by nothing. The renderer now observes the
+reader's position **before** adopting a new extent — §8.3 is explicit that the
+decision is made against the height the reader was reading against, and asking
+after an append has already made the document taller answers a question nobody
+asked — and acts on the jump counter once per bump.
+
+Five tests, four of them driving `render_form` frame by frame with the host's
+own property echo, because a harness that skips that echo tells the engine one
+frame later that the developer moved the scroll — and the engine believes it,
+since that is exactly what a COBOL write looks like from there. That artifact
+cost two wrong readings before the harness was made faithful.
+
+Guide and System KB both state the black rule; `chunked.data` regenerated.
+
 ## [PowerRustCOBOL 1.70.140] — 2026-09-21
 
 ### A Viewer has one live state, not one per surface
