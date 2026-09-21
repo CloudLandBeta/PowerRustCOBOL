@@ -497,6 +497,105 @@ fn fullscreen_asks_the_window_and_gives_it_back() {
     assert!(after.is_empty(), "nothing further to ask: {after:?}");
 }
 
+/// **Entering fullscreen must not read as leaving it** (operator, 2026-09-20:
+/// *"Fullscreen now stay in an infinite loop, entering and leaving fullscreen
+/// and back"*).
+///
+/// The overlay asks the window for fullscreen, and on a later frame asks the
+/// platform whether it is still there — leaving through the platform's own
+/// control (the green button, `Esc`, a Space swipe) must turn the property off,
+/// because the property follows the window and never the other way round.
+///
+/// But a platform does not go fullscreen in the frame it is asked. macOS
+/// *animates* into it over hundreds of milliseconds, and reports
+/// `fullscreen: Some(false)` for every one of those frames. The check could not
+/// tell "not there YET" from "left", so the second frame turned the property
+/// off while the first frame's command was still being carried out — and then
+/// the window arrived in fullscreen with the property saying otherwise, and the
+/// two chased each other forever.
+///
+/// `fullscreen_asks_the_window_and_gives_it_back` above could not see this: it
+/// leaves `RawInput` alone, so the viewport reports `None` and the code's
+/// `unwrap_or(true)` keeps the overlay alive. This one says what the platform
+/// really says.
+#[test]
+fn a_platform_that_has_not_gone_fullscreen_yet_is_not_a_platform_leaving_it() {
+    // One frame, told exactly what the window's fullscreen state is.
+    let frame_with = |ctx: &egui::Context, platform: Option<bool>| -> Vec<(String, String)> {
+        let mut c = viewer(false);
+        c.set_prop("Fullscreen", PropValue::Bool(true));
+        let controls = [c];
+        let active = ActiveTabs::new();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), FORM));
+        input
+            .viewports
+            .entry(egui::ViewportId::ROOT)
+            .or_default()
+            .fullscreen = platform;
+        let mut out_props = Vec::new();
+        let mut full = ctx.run_ui(input, |root| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show(root, |ui| {
+                    let inp = RenderInput {
+                        controls: &controls,
+                        state: &DesignedState,
+                        form_size: FORM,
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Default::default(),
+                    };
+                    let out = cobolt_forms::render::render_form(ui, &inp);
+                    out_props = out
+                        .prop_updates
+                        .iter()
+                        .map(|(_, k, v)| (k.clone(), v.clone()))
+                        .collect();
+                });
+        });
+        full.textures_delta.clear();
+        out_props
+    };
+
+    let ctx = egui::Context::default();
+
+    // Frame 1: the property is on, the window is not fullscreen yet — this is
+    // the frame that ASKS. Nothing about the property may change.
+    let asking = frame_with(&ctx, Some(false));
+    println!("  frame 1, window not yet fullscreen: {asking:?}");
+    assert!(
+        !asking.iter().any(|(k, v)| k == "Fullscreen" && v == "false"),
+        "the frame that asks for fullscreen must not also turn it off: {asking:?}"
+    );
+
+    // Frame 2: the platform is STILL animating in. Still not a departure.
+    let waiting = frame_with(&ctx, Some(false));
+    println!("  frame 2, still animating in:        {waiting:?}");
+    assert!(
+        !waiting.iter().any(|(k, v)| k == "Fullscreen" && v == "false"),
+        "waiting for the platform is not the operator leaving: {waiting:?}"
+    );
+
+    // Frame 3: it arrived.
+    let arrived = frame_with(&ctx, Some(true));
+    println!("  frame 3, window is fullscreen:      {arrived:?}");
+    assert!(
+        !arrived.iter().any(|(k, v)| k == "Fullscreen" && v == "false"),
+        "being fullscreen is not leaving it: {arrived:?}"
+    );
+
+    // Frame 4: NOW the window is out of fullscreen, and it was not us — the
+    // green button, Esc, a swipe. THIS is the departure the property follows.
+    let left = frame_with(&ctx, Some(false));
+    println!("  frame 4, the operator left:         {left:?}");
+    assert!(
+        left.iter().any(|(k, v)| k == "Fullscreen" && v == "false"),
+        "leaving through the platform's own control must turn the property off: {left:?}"
+    );
+}
+
 /// **Text a reader cannot select is text they cannot copy** (operator,
 /// 2026-09-20: "Any content but images: text can be selected & copy").
 ///

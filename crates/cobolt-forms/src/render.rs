@@ -4046,9 +4046,30 @@ fn viewer_fullscreen_overlay(
 
     // Left fullscreen from the platform's control rather than ours: the
     // property follows the window, never the other way round.
-    let still_fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(true);
-    if already && !still_fullscreen {
-        ctx.memory_mut(|m| m.data.insert_temp(asked, false));
+    //
+    // ⚠️ "Not fullscreen" is two different things, and telling them apart is
+    // the whole of this. A platform does not go fullscreen in the frame it is
+    // asked — macOS ANIMATES into it over hundreds of milliseconds and reports
+    // `fullscreen: Some(false)` for every one of those frames. Reading that as
+    // a departure turned the property off while the first frame's command was
+    // still being carried out; the window then arrived in fullscreen with the
+    // property saying otherwise, and the two chased each other forever
+    // (operator, 2026-09-20: "Fullscreen now stay in an infinite loop,
+    // entering and leaving fullscreen and back").
+    //
+    // So a departure is only a departure once the platform has CONFIRMED it
+    // got there. Until then, `Some(false)` means "not yet".
+    let arrived = egui::Id::new(("viewer-fullscreen-arrived", id));
+    let live = ctx.input(|i| i.viewport().fullscreen);
+    if live == Some(true) {
+        ctx.memory_mut(|m| m.data.insert_temp(arrived, true));
+    }
+    let has_arrived = ctx.memory(|m| m.data.get_temp::<bool>(arrived)).unwrap_or(false);
+    if already && has_arrived && live == Some(false) {
+        ctx.memory_mut(|m| {
+            m.data.insert_temp(asked, false);
+            m.data.insert_temp(arrived, false);
+        });
         out.prop_updates
             .push((id.to_string(), "Fullscreen".to_string(), "false".to_string()));
         return;
@@ -4139,7 +4160,12 @@ fn viewer_release_fullscreen(ctx: &egui::Context, id: &str) {
     let asked = egui::Id::new(("viewer-fullscreen-asked", id));
     if ctx.memory(|m| m.data.get_temp::<bool>(asked)).unwrap_or(false) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
-        ctx.memory_mut(|m| m.data.insert_temp(asked, false));
+        ctx.memory_mut(|m| {
+            m.data.insert_temp(asked, false);
+            // The next entry starts over: it has not arrived anywhere yet.
+            m.data
+                .insert_temp(egui::Id::new(("viewer-fullscreen-arrived", id)), false);
+        });
         // The window is about to change size under a frame that has already
         // been laid out; ask for the next one.
         ctx.request_repaint();

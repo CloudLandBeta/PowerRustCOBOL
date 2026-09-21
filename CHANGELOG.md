@@ -8,6 +8,42 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.139] — 2026-09-20
+
+### Entering fullscreen is not leaving it
+
+"Fullscreen now stay in an infinite loop, entering and leaving fullscreen and
+back" (operator, 2026-09-20).
+
+The overlay asks the window for fullscreen, and on a later frame asks the
+platform whether it is still there — leaving through the platform's own control
+(the green button, `Esc`, a Space swipe) has to turn the property off, because
+the property follows the window and never the other way round.
+
+**But a platform does not go fullscreen in the frame it is asked.** macOS
+*animates* into it over hundreds of milliseconds and reports
+`fullscreen: Some(false)` for every one of those frames. The check could not
+tell *not there yet* from *left*, so the second frame turned the property off
+while the first frame's command was still being carried out. The window then
+arrived in fullscreen with the property saying otherwise, the host asked for the
+opposite, and the two chased each other forever.
+
+A departure is now only a departure once the platform has **confirmed it got
+there**: `Some(true)` seen at least once. Until then `Some(false)` means "not
+yet". Both flags reset when the window is given back, so the next entry starts
+over.
+
+**Why the existing test could not see it.** `fullscreen_asks_the_window_and_gives_it_back`
+leaves `RawInput` alone, so the viewport reports `None` and the code's
+`unwrap_or(true)` kept the overlay alive — the race needs a platform that
+*answers*. The new test says what a real one says, frame by frame: not-yet,
+still-animating, arrived, gone. It fails on the old code at frame 2.
+
+Untouched by 1.70.138 and by spec 062 — `git log -S` puts this logic at
+1.70.124 and nothing has edited it since. It has been there since fullscreen
+became the form's own window; today is when it was exercised on a platform that
+animates.
+
 ## [PowerRustCOBOL 1.70.138] — 2026-09-20
 
 ### The Viewer stops offering Share
