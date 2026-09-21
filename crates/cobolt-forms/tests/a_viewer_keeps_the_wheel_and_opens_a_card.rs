@@ -675,3 +675,145 @@ fn a_reader_can_select_the_text_and_copy_it() {
     println!("  a nine-character selection in run 0: {:?}", partial.span_in(0, 17));
     assert_eq!(partial.span_in(0, 17), Some((0, 9)));
 }
+
+/// **Fullscreen in, fullscreen out, and it STAYS out** (operator, 2026-09-20:
+/// *"Fullscreen now stay in an infinite loop, entering and leaving fullscreen
+/// and back"* — and, after the arrival race was fixed, *"loop still happening
+/// after leave fullscreen"*).
+///
+/// A Viewer is drawn on two surfaces: the copy in the form, and the fullscreen
+/// overlay. They have separate WIDGET id spaces on purpose — one control must
+/// not share widget ids with itself — and the per-view live state was keyed off
+/// that same id space, so each surface kept **its own** copy of control-wide
+/// values like `Fullscreen`, adopting whatever it last wrote.
+///
+/// That is a ping-pong with a frame of latency. Entering by the in-form
+/// toolbar left the in-form cache owning `true`; the overlay then owned the
+/// property for as long as fullscreen lasted, and leaving by the overlay's
+/// toolbar left the overlay cache owning `false`. The moment the property came
+/// back to the form, the in-form cache re-asserted the `true` it still
+/// believed, the overlay re-asserted its `false`, and neither ever saw the
+/// other's frames. The operator's trace shows it exactly: `st=false
+/// resolved=true` followed by `st=true resolved=false`, forever.
+///
+/// Live state belongs to the CONTROL; widget ids belong to the SURFACE. This
+/// drives the operator's own gesture — in by the toolbar button, out by the
+/// toolbar button — and holds the property still afterwards.
+#[test]
+fn leaving_fullscreen_by_the_toolbar_does_not_ping_pong() {
+    let ctx = egui::Context::default();
+    let mut c = viewer(false);
+    c.set_prop("Fullscreen", PropValue::Bool(false));
+    let mut platform: Option<bool> = Some(false);
+    let mut pending: Option<bool> = None;
+
+    // One frame: apply what the platform was asked for last time, render, let
+    // the host apply the write-backs, and report what was written.
+    let mut step = |ctx: &egui::Context,
+                    c: &mut cobolt_forms::model::Control,
+                    platform: &mut Option<bool>,
+                    pending: &mut Option<bool>,
+                    click: Option<egui::Pos2>|
+     -> Vec<String> {
+        if let Some(on) = pending.take() {
+            *platform = Some(on);
+        }
+        let controls = [c.clone()];
+        let active = ActiveTabs::new();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), FORM));
+        input.viewports.entry(egui::ViewportId::ROOT).or_default().fullscreen = *platform;
+        if let Some(at) = click {
+            input.events = click_at(at);
+        }
+        let mut written: Vec<String> = Vec::new();
+        let mut full = ctx.run_ui(input, |root| {
+            egui::CentralPanel::default().frame(egui::Frame::NONE).show(root, |ui| {
+                let inp = RenderInput {
+                    controls: &controls,
+                    state: &DesignedState,
+                    form_size: FORM,
+                    glass: true,
+                    mode: RenderMode::Interactive,
+                    active_tabs: &active,
+                    backdrop: Default::default(),
+                };
+                let out = cobolt_forms::render::render_form(ui, &inp);
+                written = out
+                    .prop_updates
+                    .iter()
+                    .filter(|(_, k, _)| k == "Fullscreen")
+                    .map(|(_, _, v)| v.clone())
+                    .collect();
+            });
+        });
+        for v in &full
+            .viewport_output
+            .values()
+            .flat_map(|v| v.commands.iter())
+            .filter_map(|x| match x {
+                egui::ViewportCommand::Fullscreen(on) => Some(*on),
+                _ => None,
+            })
+            .collect::<Vec<bool>>()
+        {
+            *pending = Some(*v);
+        }
+        full.textures_delta.clear();
+        for v in &written {
+            c.set_prop("Fullscreen", PropValue::Bool(v == "true"));
+        }
+        written
+    };
+
+    // Where each surface draws its Fullscreen button: the in-form copy sits at
+    // the control's own rect, the overlay across the whole screen.
+    let button_at = |x: f32, y: f32, w: f32| -> egui::Pos2 {
+        let (_, slot) = cobolt_forms::viewer::toolbar_slots(cobolt_forms::viewer::ViewRect::new(
+            x,
+            y,
+            w,
+            cobolt_forms::viewer::TOOLBAR_HEIGHT,
+        ))
+        .into_iter()
+        .find(|(a, _)| *a == cobolt_forms::viewer::ToolbarAction::Fullscreen)
+        .expect("the toolbar carries Fullscreen");
+        pos2(slot.x + slot.w / 2.0, slot.y + slot.h / 2.0)
+    };
+
+    step(&ctx, &mut c, &mut platform, &mut pending, None);
+
+    // ── IN, by the in-form toolbar button ──
+    let entered = step(&ctx, &mut c, &mut platform, &mut pending, Some(button_at(40.0, 40.0, 700.0)));
+    println!("  click in  -> wrote {entered:?}");
+    assert_eq!(entered, vec!["true".to_string()], "the button turns it on");
+    for _ in 0..4 {
+        step(&ctx, &mut c, &mut platform, &mut pending, None);
+    }
+    assert_eq!(platform, Some(true), "the window is fullscreen by now");
+
+    // ── OUT, by the overlay's toolbar button ──
+    let left = step(&ctx, &mut c, &mut platform, &mut pending, Some(button_at(0.0, 0.0, FORM.x)));
+    println!("  click out -> wrote {left:?}");
+    assert_eq!(left, vec!["false".to_string()], "the button turns it off");
+
+    // ── and it STAYS off. This is the loop, and where it showed itself. ──
+    let mut after: Vec<String> = Vec::new();
+    for i in 0..12 {
+        let w = step(&ctx, &mut c, &mut platform, &mut pending, None);
+        if !w.is_empty() {
+            after.push(format!("frame {i}: {w:?}"));
+        }
+    }
+    println!("  writes after leaving: {after:?}");
+    assert!(
+        after.is_empty(),
+        "leaving fullscreen must settle — these frames kept writing the property, \
+         which is the ping-pong the operator saw: {after:?}"
+    );
+    assert_eq!(
+        c.get_prop("Fullscreen").map(|v| v.as_bool()),
+        Some(false),
+        "…and it must be OFF at the end"
+    );
+}

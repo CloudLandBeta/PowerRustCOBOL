@@ -4152,6 +4152,7 @@ fn viewer_fullscreen_overlay(
         });
 }
 
+
 /// Give the window back when a Viewer stops being fullscreen.
 ///
 /// Separate from the overlay because it must run on the frame the property
@@ -4256,7 +4257,20 @@ fn viewer_view_interactive(
         .ctx()
         .memory(|m| m.data.get_temp::<crate::viewer::TextSelection>(sel_id));
 
-    let live_id = vid.with("viewer-live");
+    // ⚠️ Keyed by the CONTROL, not by the surface. A Viewer is drawn on two
+    // surfaces — the copy in the form and the fullscreen overlay — and they
+    // have separate WIDGET id spaces on purpose, because one control must not
+    // share widget ids with itself. Live state is not a widget id: it is what
+    // the control believes about itself, and there can only be one of that.
+    //
+    // Keyed off `vid` (the surface's space), each surface kept its own copy and
+    // adopted whatever it last wrote. Entering by the in-form toolbar left that
+    // cache owning `true`; leaving by the overlay's toolbar left the overlay's
+    // owning `false`; and from then on each re-asserted its own value the
+    // moment the other handed the property back — a ping-pong with a frame of
+    // latency, forever (operator, 2026-09-20, with a trace showing
+    // `st=false resolved=true` and `st=true resolved=false` alternating).
+    let live_id = egui::Id::new(("viewer-live", id, view_index));
     let mut live: ViewerLive = ui
         .ctx()
         .memory(|m| m.data.get_temp::<ViewerLive>(live_id))
@@ -11498,9 +11512,11 @@ fn render_interactive(
                 // the fix at the cause: a view with no memory re-seeds from the
                 // property it actually finds, which is the only value it has any
                 // business believing.
-                let second = ctrl_id.with(("viewer-view", 1usize));
+                // The same key `viewer_view_interactive` uses — by control,
+                // not by surface.
                 ui.ctx().memory_mut(|m| {
-                    m.data.remove::<ViewerLive>(second.with("viewer-live"));
+                    m.data
+                        .remove::<ViewerLive>(egui::Id::new(("viewer-live", id, 1usize)));
                 });
             }
 

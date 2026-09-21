@@ -8,6 +8,49 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.140] — 2026-09-21
+
+### A Viewer has one live state, not one per surface
+
+"loop still happening after leave fullscreen" (operator, 2026-09-20). 1.70.139
+fixed the race on the way IN; this is the one on the way OUT, and it was a
+different bug wearing the same symptom.
+
+**Found by instrumenting the real run**, because two headless simulations had
+already said the engine was clean. The operator's trace gave it away in two
+lines:
+
+```
+engine.view  VWR-1 view0 st=false resolved=true    → WRITING Fullscreen=true
+engine.view  VWR-1 view0 st=true  resolved=false   → WRITING Fullscreen=false
+```
+
+Every frame, each write the exact opposite of the property it had just read.
+
+A Viewer is drawn on **two surfaces** — the copy in the form and the fullscreen
+overlay — and they have separate WIDGET id spaces on purpose, because one
+control must not share widget ids with itself. The per-view live state
+(`ViewerLive`, which holds what the engine believes about `Zoom`, `ViewMode`,
+`Fullscreen` and the rest) was keyed off that same id space, so **each surface
+kept its own copy** and adopted whatever it last wrote.
+
+That is a ping-pong with a frame of latency. Entering by the in-form toolbar
+left the in-form cache owning `true`. The overlay then owned the property for as
+long as fullscreen lasted, and leaving by the overlay's toolbar left the overlay
+cache owning `false`. The moment the property came back to the form, the in-form
+cache re-asserted the `true` it still believed; the overlay re-asserted its
+`false`; and neither ever saw the other's frames.
+
+Live state belongs to the **control**; widget ids belong to the **surface**.
+`live_id` is now keyed by control id and view index, so there is one of it.
+
+`leaving_fullscreen_by_the_toolbar_does_not_ping_pong` drives the operator's own
+gesture — in by the toolbar button, out by the toolbar button, with the platform
+answering a frame late as a real one does — and fails on the old code with
+twelve consecutive frames of `true`, `false`, `true`, `false`.
+
+The temporary trace that found it has been removed.
+
 ## [PowerRustCOBOL 1.70.139] — 2026-09-20
 
 ### Entering fullscreen is not leaving it
