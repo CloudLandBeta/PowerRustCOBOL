@@ -6731,7 +6731,10 @@ fn render_interactive(
                     // the container edge — the face goes through a clipped
                     // painter — while the typed text carried on over whatever
                     // was beside it.
-                    ui.set_clip_rect(edit_rect.intersect(clip));
+                    // …and never wider than the surface itself: the ambient
+                    // clip is a scroll viewport or a host pane, and dropping it
+                    // let a scrolled editor paint over the chrome above it.
+                    ui.set_clip_rect(ui.clip_rect().intersect(edit_rect).intersect(clip));
                     ui.visuals_mut().text_cursor.stroke.color = caret_col;
                     egui::ScrollArea::new(scroll_dirs)
                         // Salted with the CONTROL, like every other scroll area
@@ -13088,7 +13091,15 @@ fn render_interactive(
                     painter.galley(cap.pos + vec2(0.5, 0.0), cap.galley.clone(), cap.color);
                 }
                 ui.scope_builder(egui::UiBuilder::new().max_rect(screen), |ui| {
-                    ui.set_clip_rect(clip);
+                    // NARROWED, never widened. `Ui::set_clip_rect` REPLACES the
+                    // clip, so passing the container's rect threw away whatever
+                    // the surface had already imposed — and the caption is the
+                    // one control painted through the `Ui` rather than through
+                    // `painter_at(clip)`, which intersects. A form taller than
+                    // the ContentPane scrolls inside it, and its labels went on
+                    // painting straight over the shell's breadcrumb as they
+                    // passed under it (operator, 2026-09-21).
+                    ui.set_clip_rect(ui.clip_rect().intersect(clip));
                     // Drag selects. FOCUSABLE is removed deliberately: a
                     // caption is not a tab stop, it is text that happens to be
                     // selectable, and TAB must keep walking the form's own

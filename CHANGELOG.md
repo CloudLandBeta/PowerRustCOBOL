@@ -8,6 +8,37 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.21] — 2026-09-30
+
+### A label scrolled under the breadcrumb is hidden by it
+
+A form loaded into the application shell's ContentPane starts **below** the
+breadcrumb frame — that is what keeps its first row of controls off the
+navigation chain. A form taller than the pane scrolls inside it, though, and
+its captions went on painting straight over the chain as they passed under it
+(operator, 2026-09-21, PowerDemo3's `viewer-form` on the sidebar shell).
+
+Every control is painted through `ui.painter_at(clip)`, which **intersects** —
+so no control can escape the surface it is drawn on. Two took a different road
+and called `Ui::set_clip_rect`, which **replaces**: the selectable caption a
+`Label` hosts (it goes through egui's label-selection machinery rather than
+through the painter) and a multiline `TextBox`'s editor. Both handed it the
+container's rect alone, discarding whatever the surface had already imposed —
+the ContentPane's scroll viewport, in this case — and painted over the chrome
+above them. Both now narrow the ambient clip instead of replacing it.
+
+Nothing about where a control may be placed changes: a control the developer
+puts over the band still paints on top of it, because the band is chrome and
+not a container. What is repaired is the *scrolled* case, which nobody designed
+and nothing masked.
+
+Guarded by `the_breadcrumb_masks_content_scrolled_under_it`, which loads a form
+taller than the pane into a shell, scrolls it a notch at a time and checks the
+caption's **visible** rect — its bounds intersected with the clip it was painted
+under — at every step.
+
+*(Written on 2026-09-21 as 1.70.142 on a side branch that was never merged; it reaches the release line here.)*
+
 ## [PowerRustCOBOL 1.80.20] — 2026-09-30
 
 ### Spec 078 (draft): AWS controls through MCP

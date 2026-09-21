@@ -5710,4 +5710,191 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             alone.len()
         );
     }
+
+    /// **The breadcrumb frame must MASK content that scrolls under it.**
+    ///
+    /// A form loaded into the ContentPane starts BELOW the band, which is what
+    /// keeps its first row of controls off the navigation chain. But a form
+    /// TALLER than the pane scrolls inside it, and the operator reported that
+    /// scrolling the content up drew the document's own text straight over the
+    /// chain instead of disappearing behind it (2026-09-21, PowerDemo3's
+    /// `viewer-form` on the sidebar shell).
+    ///
+    /// Measured where it shows: the occupant carries a Label with a word
+    /// nothing else paints, the pane is scrolled far enough to take that Label
+    /// into the band, and the assertion is on the VISIBLE rect — the shape's
+    /// bounds intersected with the clip it was painted under.
+    #[test]
+    fn the_breadcrumb_masks_content_scrolled_under_it() {
+        use crate::host::{FormHostConfig, FormSource, NoHooks, Surface};
+        use std::collections::HashMap;
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        use std::sync::{mpsc, Arc};
+
+        const MARK: &str = "BLEEDLINE";
+
+        fn program() -> cobolt_ast::program::Program {
+            let src = "\
+IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.\n";
+            cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free))
+                .program
+                .expect("parses")
+        }
+
+        let mut form = cobolt_forms::Form::new("MAIN-FORM", "Main", 900, 600);
+        form.main_form = true;
+        let mut side =
+            cobolt_forms::Control::new("Side-1", cobolt_forms::ControlType::SideMenu, 0, 0);
+        side.rect = cobolt_forms::model::Rect::new(0, 0, 200, 600);
+        let side_ctrl = side.clone();
+        form.controls.push(side.clone());
+        let flat = vec![side];
+
+        // The occupant: TALLER than the pane, so it scrolls, with one Label
+        // near its top carrying a word nothing else on screen paints.
+        let source: FormSource = Box::new(|id: &str| {
+            let up = id.trim().to_ascii_uppercase();
+            let mut inner = cobolt_forms::Form::new(up.as_str(), "Inner", 400, 1600);
+            let mut lbl =
+                cobolt_forms::Control::new("Doc-Line", cobolt_forms::ControlType::Label, 20, 120);
+            lbl.rect = cobolt_forms::model::Rect::new(20, 120, 300, 24);
+            lbl.set_prop("Caption", MARK);
+            inner.controls.push(lbl);
+            Ok((inner, program()))
+        });
+
+        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let (mut host, _f) = crate::FormHost::new(FormHostConfig {
+            form,
+            flat,
+            state: HashMap::new(),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx,
+            form_source: Some(source),
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Pane,
+        });
+        host.ensure_occupant("DOC").expect("the occupant builds");
+        host.show_occupant(Some("DOC"));
+
+        let ctx = egui::Context::default();
+        let mut shell = Shell::default();
+        shell.side_ctrl = Some(side_ctrl);
+        shell.breadcrumb = vec!["Main".into(), "Inner".into()];
+        let size = Vec2::new(900.0, 600.0);
+
+        // Every text shape painted this frame, as (text, visible rect).
+        fn texts(shape: &egui::Shape, clip: Rect, out: &mut Vec<(String, Rect, Rect)>) {
+            match shape {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| texts(s, clip, out)),
+                egui::Shape::Text(t) => {
+                    let r = shape.visual_bounding_rect().intersect(clip);
+                    out.push((t.galley.text().to_owned(), r, clip));
+                }
+                _ => {}
+            }
+        }
+
+        let run = |ctx: &egui::Context,
+                   shell: &mut Shell,
+                   host: &mut crate::FormHost,
+                   input: egui::RawInput|
+         -> (Rect, Vec<(String, Rect, Rect)>) {
+            let mut b = Rect::NOTHING;
+            let mut full = ctx.run_ui(input, |root_ui| {
+                b = shell.show_with_host(root_ui, |_ui| {}, host).breadcrumb_rect;
+            });
+            full.textures_delta.clear();
+            let mut out = Vec::new();
+            for cs in &full.shapes {
+                texts(&cs.shape, cs.clip_rect, &mut out);
+            }
+            (b, out)
+        };
+        let mut band;
+        let mut seen: Vec<(String, Rect, Rect)>;
+
+        // Settle, past the host's arming window.
+        let _ = run(&ctx, &mut shell, &mut host, raw(size));
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        (band, seen) = run(&ctx, &mut shell, &mut host, raw(size));
+        for _ in 0..2 {
+            (band, seen) = run(&ctx, &mut shell, &mut host, raw(size));
+        }
+        let mark = |seen: &[(String, Rect, Rect)]| {
+            seen.iter()
+                .find(|(t, _, _)| t.contains(MARK))
+                .map(|(_, r, c)| (*r, *c))
+        };
+        let (before, clip0) = mark(&seen).expect("the Label is on screen before any scrolling");
+        assert!(
+            before.min.y > band.max.y - 0.5,
+            "precondition: unscrolled, the Label is below the band ({before:?} vs {band:?})"
+        );
+
+        // Scroll the pane's content up one notch at a time, all the way past
+        // the band, checking EVERY step: the offending frame is the one where
+        // the Label is level with the chain, not the one where it has already
+        // gone by.
+        let mut worst: Option<(Rect, Rect)> = None;
+        let mut steps = 0;
+        for _ in 0..12 {
+            let mut input = raw(size);
+            input.events.push(egui::Event::PointerMoved(
+                egui::Pos2::new(band.center().x, band.max.y + 200.0),
+            ));
+            input.events.push(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: Vec2::new(0.0, -30.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: Default::default(),
+            });
+            (band, seen) = run(&ctx, &mut shell, &mut host, input);
+            steps += 1;
+            if let Some((r, c)) = mark(&seen) {
+                if r.intersects(band) && r.height() > 0.5 && r.width() > 0.5 && worst.is_none() {
+                    worst = Some((r, c));
+                }
+            }
+        }
+        println!(
+            "breadcrumb band {band:?}; {MARK} started at {before:?} under clip \
+             {clip0:?}; {steps} scroll notches"
+        );
+        assert!(
+            worst.is_none(),
+            "the breadcrumb must MASK content scrolled under it: {MARK} painted \
+             visibly at {:?} inside the band {band:?}, under clip {:?}",
+            worst.unwrap().0,
+            worst.unwrap().1,
+        );
+        println!(
+            "049 — {steps} notches of pane scroll: the {:.0}pt band masked the \
+             occupant's text at every one",
+            band.height()
+        );
+    }
+
 }
