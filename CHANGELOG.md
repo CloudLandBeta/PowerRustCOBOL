@@ -8,6 +8,56 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.145] — 2026-09-21
+
+### An indexed file's descriptions never reached the code it generates
+
+The Indexed File Editor lets you describe what a file is for and what each
+column means. The `.cidx` stores both, as CDATA. The editor's raw-text view
+shows them back to you. And then **Save & Generate** wrote a `.cbl` with none of
+them in it.
+
+Two renderers of one record structure, disagreeing:
+`cobolt-indexed`'s `record_to_text` — what you see while editing — has always
+trailed each field with `*> <your description>`. `cobolt-codegen`'s `write_field`
+— what actually gets written to `generated/<stem>-indexed.cbl` — never read the
+field at all. Not discarded; simply never consulted. So documentation the
+developer deliberately wrote vanished at exactly the moment it became useful, in
+the one artefact they open to read the layout.
+
+Both descriptions now reach the generated source, in the same form the editor
+already uses: the file's purpose as a comment line above its `FD`, and each
+column's description trailing its field —
+
+```cobol
+      *> Customer master — one row per account
+       FD  CUSTOMER-FILE.
+           RECORD CONTAINS 80 CHARACTERS.
+           01 CUSTOMER-RECORD. *> The record
+               05 CUST-ID PIC 9(8). *> Primary key
+```
+
+A field with nothing to say is byte-identical to before, whitespace included, so
+existing projects regenerate unchanged. Both FD writers emit the purpose through
+one helper, so the pair cannot drift apart again — which is how this started.
+
+Safe by construction rather than by luck: the parser filters `Token::Comment`
+out of the stream before parsing, and fixed-format flattening passes ordinary
+source lines through untouched, so an inline `*>` can never reach the grammar.
+Verified before the change, not assumed.
+
+**Parked, deliberately:** the Developer's Guide gains no sentence here. Its
+Indexed File Editor section already calls comments editable and already names
+the generated `.cbl`; it never claimed they appeared in it, so nothing in it is
+now false. Under GOLDEN RULE #8 one sentence would delete five translations of
+the largest document and redden two `docs_embed.rs` guards until the next minor.
+Banked for whenever this area is next opened, so the translation cost is paid
+once.
+
+**Not addressed here:** this makes the metadata visible to a *developer reading
+the source*, not readable by a *running program*. Comments are stripped before
+parsing by design. Exposing the purpose and column descriptions as data an agent
+can consult is spec 063's R21, and belongs with the MCP tool schema it serves.
 ## [PowerRustCOBOL 1.70.144] — 2026-09-21
 
 ### Two files told agents to branch in a way the remote rejects

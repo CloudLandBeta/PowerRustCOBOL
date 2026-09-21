@@ -81,6 +81,7 @@ pub fn generate_indexed_select(def: &IndexedDefinition) -> String {
 
 pub fn generate_indexed_fd(def: &IndexedDefinition) -> String {
     let mut out = String::with_capacity(1024);
+    write_file_purpose(&mut out, def);
     out.push_str(&format!("       FD  {}.\n", def.name));
     match def.record_format {
         RecordFormatDef::Fixed { length } => {
@@ -165,6 +166,7 @@ fn access_mode_cobol(mode: AccessMode) -> &'static str {
 fn write_file_section(out: &mut String, def: &IndexedDefinition) {
     out.push_str("       DATA DIVISION.\n");
     out.push_str("       FILE SECTION.\n");
+    write_file_purpose(out, def);
     out.push_str(&format!("       FD  {}.\n", def.name));
     match def.record_format {
         RecordFormatDef::Fixed { length } => {
@@ -203,12 +205,39 @@ fn write_field(out: &mut String, field: &IndexedField, indent: usize) {
         if !usage.is_empty() {
             out.push_str(&format!(" {usage}"));
         }
-        out.push_str(".\n");
+        out.push('.');
+        write_field_comment(out, field);
+        out.push('\n');
     } else {
-        out.push_str(&format!("{pad}{:02} {}.\n", field.level, field.name));
+        out.push_str(&format!("{pad}{:02} {}.", field.level, field.name));
+        write_field_comment(out, field);
+        out.push('\n');
         for child in &field.children {
             write_field(out, child, indent + 4);
         }
+    }
+}
+
+/// The developer's column description, trailing its field as an inline `*>`
+/// comment — the same form [`cobolt_indexed::raw_text::record_to_text`] uses in
+/// the editor's raw-text view.
+///
+/// Without this the description was written in the Indexed File Editor, stored
+/// in the `.cidx`, shown back in the raw-text view, and then silently absent
+/// from the generated `.cbl` — the one artefact the developer actually reads.
+/// Two renderers of one record that disagreed.
+fn write_field_comment(out: &mut String, field: &IndexedField) {
+    if !field.comment.trim().is_empty() {
+        out.push_str(&format!(" *> {}", field.comment.trim()));
+    }
+}
+
+/// The file's stated purpose, as a comment line above its `FD`.
+///
+/// Emitted by both FD writers so the two stay in step.
+fn write_file_purpose(out: &mut String, def: &IndexedDefinition) {
+    if !def.comment.trim().is_empty() {
+        out.push_str(&format!("      *> {}\n", def.comment.trim()));
     }
 }
 
@@ -286,6 +315,55 @@ mod tests {
         assert!(out.contains("RECORD KEY IS CUST-ID"));
         assert!(out.contains("FD  CUSTOMER-FILE"));
         assert!(out.contains("PIC 9(8)"));
+    }
+
+    /// The developer's descriptions reach the generated source.
+    ///
+    /// They were written in the Indexed File Editor, stored in the `.cidx` and
+    /// shown back in the raw-text view, but the generator never read them — so
+    /// the one artefact the developer actually reads carried none of them.
+    #[test]
+    fn purpose_and_column_descriptions_are_generated() {
+        let mut def = sample();
+        def.comment = "Customer master — one row per account".into();
+        def.fields[0].comment = "The record".into();
+        def.fields[0].children[0].comment = "Primary key".into();
+
+        let out = generate_indexed(&def);
+
+        // The file's purpose, as a comment line above its FD.
+        assert!(
+            out.contains("      *> Customer master — one row per account"),
+            "file purpose missing:\n{out}"
+        );
+        // Each column's description, trailing its field — the same form
+        // `cobolt_indexed::raw_text` uses in the editor.
+        assert!(
+            out.contains("01 CUSTOMER-RECORD. *> The record"),
+            "group description missing:\n{out}"
+        );
+        assert!(
+            out.contains("PIC 9(8). *> Primary key"),
+            "leaf description missing:\n{out}"
+        );
+        // Both FD writers agree.
+        assert!(generate_indexed_fd(&def).contains("      *> Customer master"));
+    }
+
+    /// A field with nothing to say gets no marker — the common case must stay
+    /// byte-identical to what it generated before.
+    #[test]
+    fn no_description_emits_no_comment_marker() {
+        let out = generate_indexed(&sample());
+        assert!(!out.contains("*> \n"), "empty comment emitted:\n{out}");
+        assert!(
+            out.contains("PIC 9(8).\n"),
+            "undescribed field changed shape:\n{out}"
+        );
+        // Whitespace-only is treated as nothing to say.
+        let mut def = sample();
+        def.fields[0].children[0].comment = "   ".into();
+        assert!(generate_indexed(&def).contains("PIC 9(8).\n"));
     }
 
     #[test]
