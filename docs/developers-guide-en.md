@@ -6405,6 +6405,105 @@ so the program can tell the two cases apart — `00` means the file was already
 there, `05` means it was not. Opened `INPUT`, a file that was not there behaves
 as an empty one: the first `READ` raises `AT END`.
 
+### Printing a report into a Viewer: `ASSIGN TO VIEWER`
+
+A report has always had two destinations — a printer, or a file you then have to
+find and open in something else. There is a third:
+
+```cobol
+       FILE-CONTROL.
+           SELECT REPORT-FILE ASSIGN TO VIEWER "VWR-1"
+               ORGANIZATION IS MARKDOWN
+               FILE STATUS IS REPORT-STATUS.
+```
+
+`"VWR-1"` is the **id of a Viewer control on the form**, exactly as it appears
+in the Form Designer. Everything else about the file is the COBOL you already
+write: the same `FD`, the same record description, the same `OPEN OUTPUT`,
+`WRITE` and `CLOSE`. Only the destination changed.
+
+What changes with `ORGANIZATION` is how the lines are **read**:
+
+| `ORGANIZATION IS` | The Viewer shows | Page control |
+|---|---|---|
+| `SEQUENTIAL` | plain text | **yes** — `ADVANCING PAGE` makes a page |
+| `MARKDOWN` | Markdown, rendered: headings, tables, emphasis | no |
+| `HTML` | HTML, rendered — the subset the Viewer draws, no CSS or scripts | no |
+
+Each `WRITE` contributes one line, with trailing spaces removed. Leading and
+intervening spaces are kept, which is what a report's columns are made of.
+
+#### When the report appears
+
+On `CLOSE`. Not before — a half-written report is not a document, and a reader
+watching a page assemble line by line is watching the machine work rather than
+reading. `STOP RUN` closes an open file, so a program that ends without `CLOSE`
+still shows its report.
+
+The report lands in **view 1**, and nothing else about the control changes: the
+`Layout`, `Zoom`, `SplitMode` and `FontSize` you set are yours.
+
+#### It really is a file
+
+The report is written to a real file in the operating system's temporary
+directory, named after the form. That is what makes the rest of the Viewer work
+on it with no effort from you: **Save As** writes exactly those bytes,
+**Print** and **Share** hand that file to the platform, and search, zoom and the
+card grid behave as they do for any document you opened yourself.
+
+When the temporary directory cannot be written, the report is held in memory and
+displayed from there instead. Nothing about the program changes; a filesystem
+problem simply cannot cost you the report.
+
+#### A paged report
+
+`ORGANIZATION IS SEQUENTIAL` keeps traditional print page control, and the page
+breaks you write are the pages the reader turns in the `Page` layout:
+
+```cobol
+       PRINT-HEADINGS.
+           MOVE "SALES BY REGION" TO REPORT-LINE
+           WRITE REPORT-LINE AFTER ADVANCING PAGE.
+
+       PRINT-DETAIL.
+           MOVE DETAIL-LINE TO REPORT-LINE
+           WRITE REPORT-LINE AFTER ADVANCING 2 LINES.
+```
+
+`AFTER ADVANCING 2 LINES` leaves one blank line, as it does on paper —
+`ADVANCING 1 LINE` is single spacing. In a **Markdown** report that blank line
+is not decoration: it is what separates one paragraph, or one table, from the
+next, so `ADVANCING n LINES` is accepted in all three organizations.
+
+`ADVANCING PAGE`, the `FD`'s `LINAGE` clause and `AT END-OF-PAGE` describe a
+printed page, and Markdown and HTML flow — they have no pages to break. Writing
+either on a rendered report is reported when you check the program, rather than
+quietly dropping the page breaks you asked for.
+
+> **Note** — `LINAGE-COUNTER` is one name for the whole program. A program with
+> two `LINAGE` files at once shares it between them; the overwhelmingly common
+> shape is one printed report, and that is the shape it serves.
+
+#### What a report will not do
+
+- **It cannot be read.** `OPEN INPUT` or `OPEN I-O` on a `VIEWER` file is
+  refused with `FILE STATUS` **`37`** — a Viewer is somewhere to print, not a
+  file to read back. Open the document with `Source` if you want to read it.
+- **It needs a form.** A console program has no Viewer to print into, and its
+  `OPEN` is refused with **`93`**.
+- `ASSIGN TO VIEWER` with no control id after it is **`31`**.
+- A **second** report closed into the same Viewer replaces the first. The first
+  one's file is left where it is — the operating system owns its temporary
+  directory, and deleting the file would break a Save As the reader had not got
+  to yet.
+- A report with **no records** is still a report: an empty document, which is a
+  result like any other.
+
+⚠️ A report held in memory (the fallback above) is held whole. One written to a
+file is indexed as the reader moves through it, so a very large report is
+cheaper on disk than in memory — which is the usual case, and the one you get
+unless the temporary directory refuses you.
+
 ### Ending a tape volume: `CLOSE … REEL` / `CLOSE … UNIT`
 
 `CLOSE file REEL` and `CLOSE file UNIT` end a *volume* of a multi-volume tape.

@@ -374,7 +374,7 @@ fn is_word_char(b: u8) -> bool {
 
 // ── AST walk helpers ──────────────────────────────────────────────────────────
 
-fn walk_stmts_in_program(program: &Program, visitor: &mut impl FnMut(&Stmt)) {
+pub(crate) fn walk_stmts_in_program(program: &Program, visitor: &mut impl FnMut(&Stmt)) {
     // Walk DATA DIVISION — no statements there, but keep structure symmetric.
     // Walk PROCEDURE DIVISION.
     match &program.procedure.body {

@@ -19,6 +19,7 @@ use crate::data::parse_data_division;
 use crate::error::{Diagnostic, ParseResult, Severity};
 use crate::identification::parse_identification_division;
 use crate::procedure::parse_procedure_division;
+use crate::stmt::is_word;
 
 // ── Parser ────────────────────────────────────────────────────────────────────
 
@@ -1354,6 +1355,19 @@ fn parse_organization(p: &mut Parser) -> Option<FileOrganization> {
     if p.eat(&Token::Indexed) {
         return Some(FileOrganization::Indexed);
     }
+    // Spec 062 — the two organizations a Viewer reads. Neither is a lexer
+    // keyword, so both arrive as ordinary identifiers and are recognised by
+    // name, the way `PAGE` is in `advancing_lines` and `REGISTERED` is in
+    // `parse_open`. A new token for each would make MARKDOWN and HTML reserved
+    // words, and a program is entitled to a data item called HTML.
+    if is_word(p.peek(), "MARKDOWN") {
+        p.advance();
+        return Some(FileOrganization::Markdown);
+    }
+    if is_word(p.peek(), "HTML") {
+        p.advance();
+        return Some(FileOrganization::Html);
+    }
     None
 }
 
@@ -1394,6 +1408,8 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
     let name = p.expect_identifier("file name in SELECT");
 
     let mut assign = String::new();
+    // Spec 062 — `ASSIGN TO VIEWER "<control-id>"`. Filled in by the ASSIGN arm.
+    let mut viewer_target: Option<String> = None;
     let mut organization = FileOrganization::Sequential;
     let mut access = AccessMode::Sequential;
     let mut record_key: Option<String> = None;
@@ -1506,6 +1522,17 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
                     assign = s;
                 } else if p.at_identifier() {
                     assign = p.eat_identifier().map(|(n, _)| n).unwrap_or_default();
+                    // Spec 062 — `ASSIGN TO VIEWER "<control-id>"`. The device
+                    // is an ordinary word like PRINTER, and the literal after
+                    // it names which Viewer on the form receives the report.
+                    // Without a literal the device is still recognised and the
+                    // target stays `None`, which `exec_open` reports as the
+                    // error it is rather than guessing at a control.
+                    if assign.eq_ignore_ascii_case("VIEWER") {
+                        if let Some((id, _)) = p.eat_string() {
+                            viewer_target = Some(id);
+                        }
+                    }
                 } else {
                     p.advance();
                 }
@@ -1522,6 +1549,19 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
             Token::Organization => {
                 p.advance();
                 p.eat(&Token::Is);
+                organization = parse_organization(p).unwrap_or(organization);
+            }
+            // The BARE form of spec 062's two organizations. The four original
+            // ones reach the loop as their own tokens — `Token::Sequential`,
+            // `Token::Indexed` and the rest — and are matched by the arms
+            // around this one. `MARKDOWN` and `HTML` are words, so a bare one
+            // arrives as an identifier and would otherwise fall to the
+            // catch-all below and be discarded, leaving the file SEQUENTIAL:
+            // exactly the silent failure the comment above this arm describes
+            // for IX103A, with the same shape and the same absence of an error.
+            Token::Identifier(_)
+                if is_word(p.peek(), "MARKDOWN") || is_word(p.peek(), "HTML") =>
+            {
                 organization = parse_organization(p).unwrap_or(organization);
             }
             // `RELATIVE [KEY] [IS] data-name` names the integer record number a
@@ -1632,5 +1672,6 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
         persist,
         span,
         optional,
+        viewer_target,
     })
 }

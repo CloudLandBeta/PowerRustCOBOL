@@ -131,6 +131,12 @@ pub struct FileControl {
     /// 🔴 A new field goes at the END — see `optional` above.
     #[serde(default)]
     pub engine: Option<EngineChoice>,
+    /// `ASSIGN TO VIEWER "<control-id>"` — the Viewer control this file's
+    /// records are printed into (spec 062). `None` for every ordinary file.
+    ///
+    /// 🔴 A new field goes at the END — see `optional` above.
+    #[serde(default)]
+    pub viewer_target: Option<String>,
 }
 
 /// File organisation.
@@ -143,6 +149,32 @@ pub enum FileOrganization {
     LineSequential,
     Relative,
     Indexed,
+    /// MARKDOWN — a report a Viewer reads as Markdown (spec 062). Written as
+    /// lines of text like `LineSequential`; what makes it different is who
+    /// reads it and how.
+    Markdown,
+    /// HTML — a report a Viewer reads as HTML, in the subset it renders
+    /// (spec 062). No CSS, no scripts.
+    Html,
+}
+
+impl FileOrganization {
+    /// Is this an organization only a Viewer can read? Spec 062's two, which
+    /// describe how a document is *rendered* rather than how records are
+    /// stored — so they are meaningless on a disk file and the analyser says so.
+    pub fn is_rendered(&self) -> bool {
+        matches!(self, Self::Markdown | Self::Html)
+    }
+
+    /// The file extension a report of this organization is written with, which
+    /// is also how the Viewer picks its renderer (`viewer::detect_format`).
+    pub fn report_extension(&self) -> &'static str {
+        match self {
+            Self::Markdown => "md",
+            Self::Html => "html",
+            _ => "txt",
+        }
+    }
 }
 
 /// Access mode.

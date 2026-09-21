@@ -57,6 +57,7 @@ pub mod indexed_log;
 pub mod indexed_redb;
 pub mod interpreter;
 pub mod maps_bridge;
+pub mod viewer_report;
 pub mod ors_bridge;
 /// The numeric-edited PICTURE engine, which now lives in `cobolt-forms` so a
 /// TextBox with a `Picture` edits its display exactly as the interpreter does.

@@ -34,6 +34,7 @@ pub mod duplicates;
 pub mod exec_rust;
 pub mod flagging;
 pub mod external;
+pub mod reports;
 pub mod resolver;
 pub mod symbol_table;
 pub mod type_checker;
@@ -217,6 +218,10 @@ fn analyze_contained(
 
     // Pass 1c: EXTERNAL placement (spec 005) — only on 01/77/FD items.
     external::check(program, &mut diagnostics);
+
+    // Pass 1d: a report printed into a Viewer (spec 062) — a rendered
+    // organization needs a Viewer to render it, and has no printed page.
+    reports::check(program, &mut diagnostics);
 
     // Pass 2: name resolution (carries the 049 R17 form-format map).
     resolver::resolve(

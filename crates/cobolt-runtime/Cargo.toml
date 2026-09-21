@@ -52,6 +52,9 @@ http = ["dep:ureq", "dep:native-tls"]
 maps = ["dep:google_maps", "dep:tokio"]
 
 [dependencies]
+# Spec 062 — the unique half of a printed report's filename. Already in the
+# lock as a transitive dependency, so naming it here resolves nothing new.
+uuid            = { version = "1", features = ["v4"] }
 cobolt-lexer    = { path = "../cobolt-lexer" }
 cobolt-ast      = { path = "../cobolt-ast" }
 # The debugger's expression evaluator parses what the developer types in a watch

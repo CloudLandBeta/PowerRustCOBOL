@@ -212,6 +212,9 @@ struct FileSpec {
     /// ASSIGN target — either a literal path or the name of a data item that
     /// holds the path (resolved at OPEN time).
     assign: String,
+    /// Spec 062 — `ASSIGN TO VIEWER "<control-id>"`: the Viewer control this
+    /// file's records are printed into. `None` for every ordinary file.
+    viewer_target: Option<String>,
     organization: FileOrganization,
     /// ACCESS MODE (SEQUENTIAL / RANDOM / DYNAMIC).
     access: AccessMode,
@@ -347,6 +350,17 @@ enum OpenFile {
     /// program keeps outside the record, which is why this cannot be an
     /// `IndexedStore`: that trait reads its keys out of the record bytes.
     Relative(Box<crate::relative::RelativeFile>),
+    /// Spec 062 — a report being printed into a Viewer. A stream of text
+    /// lines, not a keyed store: what makes it its own variant rather than a
+    /// flag on `Writer` is that `WRITE` and `CLOSE` both need to know which
+    /// control is waiting for it, and where the sink is putting the bytes.
+    ViewerReport {
+        sink: crate::viewer_report::ReportSink,
+        /// The control id the `SELECT` named.
+        target: String,
+        /// Which of the three readings the Viewer is to give it.
+        org: FileOrganization,
+    },
 }
 
 // ── Nested program registry ───────────────────────────────────────────────────
@@ -1036,6 +1050,7 @@ fn collect_file_specs(
                     key.clone(),
                     FileSpec {
                         assign: fc.assign.clone(),
+                        viewer_target: fc.viewer_target.clone(),
                         organization: fc.organization,
                         access: fc.access,
                         status_field: fc.file_status.clone().map(|s| s.to_ascii_uppercase()),
@@ -1711,6 +1726,9 @@ pub struct Interpreter {
     /// `LINAGE-COUNTER` per LINAGE file: lines written into the current page
     /// body, counting from 1. Reset when a new page begins.
     linage_counters: HashMap<String, u32>,
+    /// Spec 062 — the backing file of the last report each COBOL file wrote.
+    /// `OPEN EXTEND` continues that file; `OPEN OUTPUT` always starts a new one.
+    report_files: HashMap<String, std::path::PathBuf>,
     /// Selected indexed (ISAM) file engine (default: the built-in Rust engine).
     indexed_engine: crate::indexed::IndexedEngine,
     /// Per-file INDEXED observability log level (redb engine; default Off).
@@ -2029,6 +2047,7 @@ impl Interpreter {
             share_locks: HashMap::new(),
             locked_files: std::collections::HashSet::new(),
             linage_counters: HashMap::new(),
+            report_files: HashMap::new(),
             indexed_engine: crate::indexed::IndexedEngine::default(),
             indexed_log_level: crate::indexed_log::LogLevel::Off,
             indexed_log_format: crate::indexed_log::LogFormat::Text,
@@ -4054,8 +4073,47 @@ impl Interpreter {
         // ours back so a later activation in the same run unit sees them.
         self.load_external();
         let result = self.run_inner();
+        // Spec 062 — STOP RUN closes every open file, and closing a report is
+        // what shows it. Without this a program that writes a report and ends
+        // without CLOSE leaves the document written and never displayed: the
+        // sink flushes when it is dropped, and nobody is told where it went.
+        self.hand_over_open_reports();
         self.flush_external();
         result
+    }
+
+    /// Hand over every report still open, as `CLOSE` would.
+    ///
+    /// The COBOL file is left registered as closed exactly as `exec_close`
+    /// leaves it, so a program that goes on to reopen the file starts a new
+    /// report rather than continuing this one.
+    fn hand_over_open_reports(&mut self) {
+        let open: Vec<String> = self
+            .open_files
+            .iter()
+            .filter(|(_, h)| matches!(h, OpenFile::ViewerReport { .. }))
+            .map(|(f, _)| f.clone())
+            .collect();
+        for file in open {
+            let Some(OpenFile::ViewerReport { sink, target, .. }) = self.open_files.remove(&file)
+            else {
+                continue;
+            };
+            match sink.finish() {
+                crate::viewer_report::ReportOutcome::Path(path) => {
+                    self.obj_set(&target, "View1Source", path.display().to_string());
+                }
+                crate::viewer_report::ReportOutcome::Bytes(bytes) => {
+                    let format = cobolt_forms::viewer::detect_format(None, &bytes)
+                        .unwrap_or(cobolt_forms::viewer::ViewerFormat::Text);
+                    self.viewer_bytes.insert(target.clone(), bytes);
+                    self.obj_set(&target, "Format", format.as_str().to_string());
+                    self.obj_set(&target, "Progress", "100".into());
+                    self.obj_set(&target, "LastError", String::new());
+                    self.queue_control_event(&target, "onLoaded");
+                }
+            }
+        }
     }
 
     /// A clone of this interpreter's run-unit EXTERNAL store. Pass it to
@@ -8543,6 +8601,78 @@ impl Interpreter {
             // OPTIONAL` needs to know whether it was there beforehand.
             let existed = std::path::Path::new(&path).exists();
 
+            // ── VIEWER: a report printed into a control (spec 062) ─────────
+            //
+            // Before the keyed engines, because none of their machinery
+            // applies: a report has no keys, no container and no path of its
+            // own that the program chose.
+            if spec.viewer_target.is_some() || spec.assign.eq_ignore_ascii_case("VIEWER") {
+                // A Viewer is written to, never read from: there is no
+                // document to hand back as records, and pretending otherwise
+                // would give the program an empty file instead of an answer.
+                if matches!(mode, OpenMode::Input | OpenMode::InputOutput) {
+                    tracing::warn!("OPEN INPUT/I-O of '{}', which is a Viewer report", raw);
+                    self.set_file_status(&file, "37");
+                    self.fire_declarative(&file, "37", false)?;
+                    continue;
+                }
+                let Some(target) = spec.viewer_target.clone() else {
+                    // `ASSIGN TO VIEWER` with no control after it. The analyser
+                    // catches this for MARKDOWN and HTML, which cannot mean
+                    // anything else; a SEQUENTIAL file reaches here.
+                    tracing::warn!(
+                        "OPEN '{}': ASSIGN TO VIEWER names no control — write it as \
+                         ASSIGN TO VIEWER \"<control-id>\"",
+                        raw
+                    );
+                    self.set_file_status(&file, "31");
+                    self.fire_declarative(&file, "31", false)?;
+                    continue;
+                };
+                // No form, no Viewer. A console program can declare a report
+                // and will never be able to show one.
+                if self.state_tx.is_none() {
+                    tracing::warn!(
+                        "OPEN '{}': a report needs a running form, and this program has none \
+                         (target '{}')",
+                        raw,
+                        target
+                    );
+                    self.set_file_status(&file, crate::indexed::status::UNAVAILABLE);
+                    self.fire_declarative(&file, crate::indexed::status::UNAVAILABLE, false)?;
+                    continue;
+                }
+                let form = self
+                    .self_form_object
+                    .clone()
+                    .unwrap_or_else(|| "report".to_string());
+                let append_to = match mode {
+                    OpenMode::Extend => self.report_files.get(&file).cloned(),
+                    _ => None,
+                };
+                let sink = crate::viewer_report::ReportSink::open(
+                    &form,
+                    org,
+                    append_to.as_deref(),
+                );
+                if let Some(p) = sink.path() {
+                    self.report_files.insert(file.clone(), p.to_path_buf());
+                } else {
+                    self.report_files.remove(&file);
+                }
+                self.open_files.insert(
+                    file.clone(),
+                    OpenFile::ViewerReport { sink, target, org },
+                );
+                if spec.linage.is_some() {
+                    self.linage_counters.insert(file.clone(), 0);
+                    self.env.set_i64("LINAGE-COUNTER", 1);
+                }
+                self.set_file_status(&file, "00");
+                self.fire_declarative(&file, "00", false)?;
+                continue;
+            }
+
             // ── INDEXED: dispatch to the keyed engine ──────────────────────
             if org == FileOrganization::Indexed {
                 // Cross-run-unit sharing is decided BEFORE the engine is built:
@@ -8782,6 +8912,54 @@ impl Interpreter {
             // Dropping the handle releases the OS advisory lock, which is
             // what lets another run unit open the file after this one closes.
             self.share_locks.remove(&file);
+            // Spec 062 — a report is handed over, not just flushed, and the
+            // sink is consumed to do it: `finish()` flushes and drops the file
+            // BEFORE the Viewer is told where it is, because a session polls
+            // its source every frame and a path announced early indexes half a
+            // document.
+            //
+            // ⚠️ ONE `remove`, matched by value. Removing the handle inside an
+            // `if let` that only matches `ViewerReport` takes EVERY file out of
+            // the map — the pattern decides what the branch does, not what the
+            // call does — so an indexed file was dropped without
+            // `IndexedStore::close()` ever running and its container was left
+            // uncommitted. The whole `test_fileio_storage` suite went red on
+            // alternate keys and REWRITE, which is what that looks like from
+            // the outside.
+            let handed_over = match self.open_files.remove(&file) {
+                Some(OpenFile::ViewerReport { sink, target, .. }) => Some((sink, target)),
+                Some(other) => {
+                    self.open_files.insert(file.clone(), other);
+                    None
+                }
+                None => None,
+            };
+            if let Some((sink, target)) = handed_over {
+                match sink.finish() {
+                    crate::viewer_report::ReportOutcome::Path(path) => {
+                        self.obj_set(&target, "View1Source", path.display().to_string());
+                    }
+                    // No file to point at, so the document travels the way a
+                    // `LoadBytes` document does — the same fields, the same
+                    // event, and Save As already knows what to do with it.
+                    crate::viewer_report::ReportOutcome::Bytes(bytes) => {
+                        let format = cobolt_forms::viewer::detect_format(None, &bytes)
+                            // A report with no records is still a document: an
+                            // empty one. Letting `detect_format` call that
+                            // unsupported would report an error for a program
+                            // that did exactly what it was told.
+                            .unwrap_or(cobolt_forms::viewer::ViewerFormat::Text);
+                        self.viewer_bytes.insert(target.clone(), bytes);
+                        self.obj_set(&target, "Format", format.as_str().to_string());
+                        self.obj_set(&target, "Progress", "100".into());
+                        self.obj_set(&target, "LastError", String::new());
+                        self.queue_control_event(&target, "onLoaded");
+                    }
+                }
+                self.set_file_status(&file, "00");
+                self.fire_declarative(&file, "00", false)?;
+                continue;
+            }
             if let Some(mut handle) = self.open_files.remove(&file) {
                 let code = match &mut handle {
                     OpenFile::Writer { w, .. } => {
@@ -8791,6 +8969,8 @@ impl Interpreter {
                     OpenFile::Reader { .. } => "00",
                     OpenFile::Indexed(engine) => engine.close(),
                     OpenFile::Relative(engine) => engine.close(),
+                    // Taken by the branch above, which consumes the sink.
+                    OpenFile::ViewerReport { .. } => unreachable!("handed over above"),
                 };
                 self.set_file_status(&file, code);
                 self.fire_declarative(&file, code, false)?;
@@ -9149,6 +9329,14 @@ impl Interpreter {
         // and on a variable-length file that name is what sizes the record —
         // unless `DEPENDING ON` overrides it with a length the program set.
         let varying = self.file_specs.get(&file).is_some_and(|s| s.is_varying());
+        // Spec 062 — how far a report's page moves for this record, read before
+        // `open_files` is borrowed below. `0` lines means ADVANCING PAGE: a
+        // form feed is what `viewer::index_text` cuts a page on, so it is the
+        // page break the reader ends up turning.
+        let report_move: (bool, u32) = match advancing {
+            None => (false, 1),
+            Some(a) => (a.before, self.advancing_lines_public(a).unwrap_or(0)),
+        };
         let write_len = self.varying_write_len(&file, &rec_name);
         let buf = match self.file_specs.get(&file).cloned() {
             Some(spec) => {
@@ -9216,6 +9404,62 @@ impl Interpreter {
                 let (code, n) = engine.write(&buf, rel_key);
                 rel_assigned = Some(n);
                 code
+            }
+            // ── VIEWER report (spec 062) ───────────────────────────────────
+            //
+            // One record, one line of text, trailing spaces removed — the rule
+            // `LINE SEQUENTIAL` already follows, and for the same reason: a
+            // report's columns are made of leading and intervening spaces, and
+            // padding to the record length would put nothing on the page but
+            // bytes.
+            //
+            // The ADVANCING clause is EMITTED here, which is the one thing
+            // `advance_linage` has never done — it counts the page and fires
+            // END-OF-PAGE, and the movement itself reached the paper only in
+            // the program's imagination. Confined to a report on purpose
+            // (plan D2): emitting it for every sequential file would rewrite
+            // the bytes of every existing report program, the CCVS85 members
+            // behind NIST NC and SQ included.
+            Some(OpenFile::ViewerReport { sink, org, .. }) => {
+                let text = String::from_utf8_lossy(&buf);
+                let line = text.trim_end();
+                // A printer at the end of a line: advancing n lines moves down
+                // n, and the record itself occupies one of them. So n = 1 is
+                // single spacing (no blank line) and n = 2 leaves one blank —
+                // which is also how a Markdown paragraph break is written.
+                let (before, moves) = report_move;
+                let page = moves == 0;
+                let blanks = moves.saturating_sub(1) as usize;
+                let paged = *org == FileOrganization::Sequential;
+                let r = (|| -> std::io::Result<()> {
+                    if !before {
+                        if page && paged {
+                            write!(sink, "\u{000C}")?;
+                        } else {
+                            for _ in 0..blanks {
+                                writeln!(sink)?;
+                            }
+                        }
+                    }
+                    writeln!(sink, "{line}")?;
+                    if before {
+                        if page && paged {
+                            write!(sink, "\u{000C}")?;
+                        } else {
+                            for _ in 0..blanks {
+                                writeln!(sink)?;
+                            }
+                        }
+                    }
+                    Ok(())
+                })();
+                match r {
+                    Ok(()) => "00",
+                    Err(e) => {
+                        tracing::warn!("WRITE to report failed: {e}");
+                        "30"
+                    }
+                }
             }
             // ── SEQUENTIAL / LINE SEQUENTIAL ───────────────────────────────
             Some(OpenFile::Writer { w, org }) => {
@@ -9572,6 +9816,27 @@ impl Interpreter {
     /// and is recognised by name. Matching it explicitly matters: an undeclared
     /// identifier evaluates to zero rather than failing, so inferring "PAGE"
     /// from a failed evaluation would silently treat it as "advance 0 lines".
+    /// [`Self::advancing_lines`] for a caller that already holds a borrow of
+    /// `open_files` — the report arm of `exec_write`. Same recognition of the
+    /// word PAGE; it just cannot evaluate a data-name, which an ADVANCING
+    /// clause in a report is not written with.
+    fn advancing_lines_public(&self, a: &cobolt_ast::stmt::AdvancingClause) -> Option<u32> {
+        if let Expr::Identifier(name, _) = &a.lines {
+            if name.eq_ignore_ascii_case("PAGE") {
+                return None;
+            }
+        }
+        match &a.lines {
+            Expr::Literal(cobolt_ast::expr::Literal::Integer(n), _) => Some(n.unsigned_abs() as u32),
+            Expr::Literal(cobolt_ast::expr::Literal::IntegerDigits(n, _), _) => {
+                Some(n.unsigned_abs() as u32)
+            }
+            // A mnemonic or a data-name: one line, which is what an ADVANCING
+            // clause means when its count cannot be read here.
+            _ => Some(1),
+        }
+    }
+
     fn advancing_lines(&mut self, a: &cobolt_ast::stmt::AdvancingClause) -> Option<u32> {
         if let Expr::Identifier(name, _) = &a.lines {
             if name.eq_ignore_ascii_case("PAGE") {

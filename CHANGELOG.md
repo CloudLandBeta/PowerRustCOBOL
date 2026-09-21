@@ -8,6 +8,62 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.137] — 2026-09-20
+
+### A COBOL report prints into a Viewer (spec 062)
+
+```cobol
+       SELECT REPORT-FILE ASSIGN TO VIEWER "VWR-1"
+           ORGANIZATION IS MARKDOWN.
+```
+
+`FD` through `CLOSE` is the COBOL you already write. `ORGANIZATION` decides how
+the lines are read: `SEQUENTIAL` as plain text with traditional print page
+control, `MARKDOWN` and `HTML` as documents the Viewer renders. The report is
+backed by a real file, `<form>-<uuid>.<ext>` in the OS temp directory — which is
+what makes Save As, Print, Share and search work on it with no new machinery —
+and is held in memory when that directory will not take one. It appears on
+`CLOSE`, in view 1, and touches nothing else about the control.
+
+**`ADVANCING` now moves the page — for a report.** `advance_linage` has always
+counted the page and fired `AT END-OF-PAGE` while emitting **nothing**: no blank
+line for `ADVANCING 2 LINES`, no form feed for `ADVANCING PAGE`. A print file's
+page breaks lived in the program's head, not in its bytes. A report emits them,
+and every other file is byte-for-byte what it was — the test writes the same
+program both ways and asserts the disk half is unchanged. Closing that gap for
+ordinary files would rewrite what every existing report program produces,
+CCVS85's members included, and that is a spec of its own.
+
+The page breaks a program writes are the pages the reader turns: `index_text`
+has always cut plain text at a form feed, so R19 needed no Viewer change at all.
+
+**What the analyser says before it runs:** `MARKDOWN`/`HTML` without
+`ASSIGN TO VIEWER` (they describe rendering, and a disk file has nobody to
+render it), and `ADVANCING PAGE`, `LINAGE` or `AT END-OF-PAGE` on a flowing
+document. `ADVANCING n LINES` is *not* page control and is accepted everywhere —
+a blank line is what separates one Markdown paragraph from the next.
+
+**Refusals the program can test:** `37` for `OPEN INPUT`/`I-O`, `31` for
+`ASSIGN TO VIEWER` with no control id, `93` for a program with no form.
+
+**One bug found by the sweep, not by the feature's own tests.** The hand-over
+branch was written as
+`if let Some(OpenFile::ViewerReport { .. }) = self.open_files.remove(&file)` —
+and `remove` runs whatever the pattern decides, so EVERY file was taken out of
+the map and dropped, and `IndexedStore::close()` never ran. `cargo test -p
+cobolt-runtime` went 945/0 → 918/40 with `test_fileio_storage` red on alternate
+keys and REWRITE. The nine tests written for the feature were green throughout.
+
+Tests: `cobolt-runtime` 958/0, `cobolt-forms` 1102/0/1 ignored, `cobolt-parser`
+175/0, `cobolt-semantic` 88/0, `cobolt-form-host` 147/0, `cobolt-cli` 8/0,
+`cobolt-compiler` 131/0, `cobolt-ide` 1243/1 (the GOLDEN RULE #8 red).
+**NIST, all eight finished modules: 380 programs, 8,362 assertions, 0 failures**
+— NC 95/95, SQ 85/85, IX 41/41, IF 45/45, IC 25/25, ST 39/39, SM 16/16,
+RL 34/34.
+
+Three COBOL programs in `tests/cobol/report-viewer/`, each printing one
+quantified result block. Developer's Guide: "Printing a report into a Viewer".
+
 ## [PowerRustCOBOL 1.70.136] — 2026-09-20
 
 ### Tasks 062 — fifteen of them, and D4 settled
