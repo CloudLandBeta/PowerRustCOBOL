@@ -65,6 +65,8 @@ The shape, end to end:
   `exec_open` / `exec_write` / `exec_close` arms, the vertical-movement emitter.
 - `crates/cobolt-runtime/src/files.rs` — nothing expected; the record image is
   materialised by the existing path.
+- `crates/cobolt-runtime/Cargo.toml` — `uuid = { version = "1", features = ["v4"] }`
+  (D4). Already in the lock at 1.23.2 as a transitive dependency.
 - `docs/developers-guide-en.md` — a section under the report/printing material,
   written for a developer who knows `ASSIGN TO PRINTER`. English canonical only.
 - `crates/cobolt-compiler/src/lib.rs` — **only if** a Viewer property, method or
@@ -116,14 +118,15 @@ with no new machinery (spec §6). Bytes are the fallback R11 asks for, and the
 and Share would have to write the file out anyway (`host.rs:1130` does exactly
 that for a `LoadBytes` document), and a large report would be held twice.
 
-**D4 — `<unique>` is a timestamp + process id + a per-run counter.**
-*Why:* no crate in the workspace depends on `uuid` directly; the requirement is
-only that two reports never collide, and the operator's "UUID" names the shape,
-not the crate. A collision would need the same form, the same process, the same
-millisecond and the same counter.
-*Rejected:* adding the `uuid` crate for one filename.
-*(Open for the operator: if a v4 UUID is wanted literally, the dependency is
-small and the change is one line — say so before `/implement`.)*
+**D4 — `<unique>` is a v4 UUID** (operator, 2026-09-20: *"keep uuid"*).
+*Why:* it is what was asked for, and it is nearly free here — `uuid 1.23.2` and
+`getrandom` are already in `Cargo.lock` as transitive dependencies, so naming
+`uuid` directly in `cobolt-runtime` (features `["v4"]`) adds a line to one
+manifest and resolves nothing new.
+*Rejected:* timestamp + process id + a per-run counter, which this plan carried
+until the operator settled it. It would have avoided the direct dependency and
+nothing else; a UUID says "unique" without the reader having to reason about
+clocks and pids.
 
 **D5 — R20's diagnostic is semantic, at `rcrun check`.**
 *Why:* the developer learns before running, which is the whole point of a

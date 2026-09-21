@@ -8,6 +8,33 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.136] — 2026-09-20
+
+### Tasks 062 — fifteen of them, and D4 settled
+
+Task list only; no code has moved.
+
+Fifteen ordered tasks, each naming its files, its requirements and the exact
+command that proves it, ordered so the tree builds and the suites stay green
+after every one. A table at the end maps all sixteen acceptance criteria onto
+the task that verifies them, so a criterion cannot be quietly skipped.
+
+Three of them exist because of what the survey found rather than what the
+feature needs:
+
+- **T7** emits the vertical movement for a report and asserts the **disk** bytes
+  are identical to today's — the guard on plan D2.
+- **T11** proves the behaviour in all three hosts, the compiled binary included,
+  which is the one that gets forgotten.
+- **T13** re-runs the NIST compile census and the NC and SQ execution passes,
+  because the write path is what CCVS85 drives and both modules stand at 100 %.
+
+**D4 is settled**: `<unique>` is a v4 UUID (operator, "keep uuid"). `uuid 1.23.2`
+and `getrandom` are already in `Cargo.lock` as transitive dependencies, so naming
+`uuid` directly in `cobolt-runtime` adds one manifest line and resolves nothing
+new. The timestamp-plus-pid alternative the plan carried is recorded as rejected
+rather than dropped.
+
 ## [PowerRustCOBOL 1.70.135] — 2026-09-20
 
 ### Plan 062 — printing a report into a Viewer
