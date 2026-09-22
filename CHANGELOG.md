@@ -8,6 +8,74 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.148] — 2026-09-22
+
+### Spec 065 finished — a model can now query your indexed files
+
+1.70.147 landed the protocol and the half of the tool that reads what a file
+says about itself. This is the other half: the search, both front doors onto
+it, and the guards that keep them honest.
+
+**Your descriptions are the mechanism.** A user asks "how many contractors
+started in Q3" and names no file. The model chooses, and it can only choose
+from what each file says about itself — so the comment on an indexed file
+becomes a search tool's description, and each field's comment describes one of
+its parameters. A file described as *"one row per employment record"* can be
+chosen correctly; one described as *"loaded by `load-staff.cbl`"* cannot,
+however true that note is for a colleague.
+
+**Nothing is consultable until it is marked.** Describing a file does not
+publish it, and an application that marks nothing answers nothing. That is the
+deliberate default: the opposite would mean a half-built application quietly
+exposing every indexed file a developer happened to have.
+
+**Two front doors, one definition.** A COBOL program asks in process, with no
+port and no round trip —
+
+```cobol
+           CALL "COBOL-MCP-SEARCH" USING WS-TOOL WS-ARGS WS-RESULT.
+```
+
+— and an outside MCP client asks the same question over a transport. Both
+reach the same code, and a test drives both against one fixture and asserts the
+answers are equal. That guard is the point: two doors onto one definition is
+only true while something checks it.
+
+**Searching cannot write.** The file is opened `INPUT` and only read
+sequentially, so no path through this can `WRITE`, `REWRITE` or `DELETE` — with
+a test comparing the data file byte for byte before and after. Scans are bounded
+and report truncation. **A search that matches nothing is an answer, not a
+failure**, because a caller that cannot tell those apart asks the same question
+twice.
+
+**A tampered definition still cannot lie about your data.** The delivered
+`.cidx` is editable by whoever runs the application, so only its descriptive
+half is believed: layout, offsets, keys and storage mode come from the compiled
+program. A test doctors a delivered definition to claim a different offset and
+length, then asserts the records read *identically* and only the reported
+description changed. Someone can make a file describe itself wrongly — visible,
+and fixed by restoring the file. They cannot move a field or make a record read
+as something it is not.
+
+It buys something real in exchange: **a misleading description can be corrected
+in the field without a rebuild.**
+
+**The Guide's stale advice is corrected too.** It had been telling developers to
+*"ship the `indexed/` and data folders alongside"* by hand. Since 1.70.146 the
+build carries every declared `.cidx` into the delivery, and it had been carrying
+`data/` all along. That passage, F1's parked sentence about descriptions
+reaching generated COBOL, and the new MCP section were all written together —
+which is exactly why they were banked rather than settled three times.
+
+The bill they were banked against turned out to be already paid: the Guide's
+five translations were removed by earlier doc work, so this change deleted
+nothing. `every_document_ships_in_every_language` is red, and was red before
+this change — it reports `developers-guide` and `indexed-redb-engine` falling
+back to English, neither caused here. That red is the standing signal that a
+minor owes a regeneration; **do not re-add the `#[ignore]`.**
+
+Seventeen of seventeen tasks. `specs/065-cobolt-mcp/`.
+
 ## [PowerRustCOBOL 1.70.147] — 2026-09-22
 
 ### Spec 065 — `cobolt-mcp`, and the first half of the indexed-file tool

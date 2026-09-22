@@ -1,6 +1,6 @@
 # Tasks — `cobolt-mcp`: the Model Context Protocol server
 
-- **Status:** draft → in progress → done
+- **Status:** draft → in progress → **done (2026-09-22, 1.70.148)**
 - **Plan:** ./plan.md   **Date:** 2026-09-22
 
 Ordered so the workspace stays green after every task. T1–T5 build the protocol
@@ -99,7 +99,7 @@ needed only for an end-to-end delivery check (T15).
     schema carries the file purpose and the per-column text (AC8); editing the
     fixture's description changes the schema with no other file touched (AC7).
 
-- [ ] **T9 — The consultable list gates everything** (R16, R32)
+- [x] **T9 — The consultable list gates everything** (R16, R32)
   - Files: `crates/cobolt-runtime/src/mcp_tool.rs`
   - Do: read the application-side marking (spec Q3/R32). **Absent or empty means
     nothing is consultable** — never "everything", so a half-built application
@@ -108,7 +108,7 @@ needed only for an end-to-end delivery check (T15).
     appears in neither discovery nor results even when its description is the
     best match (AC10); an absent list exposes nothing.
 
-- [ ] **T10 — Search through `IndexedStore`** (R17, R18, R24, R25, R26)
+- [x] **T10 — Search through `IndexedStore`** (R17, R18, R24, R25, R26)
   - Files: `crates/cobolt-runtime/src/mcp_tool.rs`
   - Do: execute the search through the same `IndexedStore` surface the COBOL
     verbs use — never a private path to the bytes (R25). Read-only: no `WRITE`,
@@ -120,14 +120,14 @@ needed only for an end-to-end delivery check (T15).
     search (AC12); a large fixture is bounded and reports truncation (AC16); an
     in-memory file is searchable (AC15).
 
-- [ ] **T11 — Empty result is not an error** (R19)
+- [x] **T11 — Empty result is not an error** (R19)
   - Files: `crates/cobolt-runtime/src/mcp_tool.rs`
   - Do: a search matching nothing says so explicitly, distinguishable from a
     failure.
   - Verify: `cargo test -p cobolt-runtime --lib -- mcp_tool` — the no-match case
     and the error case produce different, checkable outcomes (AC13).
 
-- [ ] **T12 — `McpHandler` impl: the over-the-wire front door** (R21, R22)
+- [x] **T12 — `McpHandler` impl: the over-the-wire front door** (R21, R22)
   - Files: `crates/cobolt-runtime/src/mcp_tool.rs`,
     `crates/cobolt-runtime/Cargo.toml`
   - Do: implement `cobolt_mcp::McpHandler` by **delegating** to the functions
@@ -136,7 +136,7 @@ needed only for an end-to-end delivery check (T15).
     over `serve` lists tools and calls one, receiving a well-formed result
     (AC3, second half).
 
-- [ ] **T13 — The in-process front door, and the parity guard** (R20, R22, R23)
+- [x] **T13 — The in-process front door, and the parity guard** (R20, R22, R23)
   - Files: `crates/cobolt-runtime/src/interpreter.rs`,
     `crates/cobolt-runtime/tests/` (new integration test)
   - Do: one `exec_call` arm beside `COBOL-HTTP-*`, calling the **same** function
@@ -147,7 +147,7 @@ needed only for an end-to-end delivery check (T15).
     results are equal (AC14). This is the guard that stops R22 rotting, modelled
     on `engine_reference_form_parity_static_vs_faces`.
 
-- [ ] **T14 — R30 under attack** (R30)
+- [x] **T14 — R30 under attack** (R30)
   - Files: `crates/cobolt-runtime/tests/` (new integration test)
   - Do: a test that edits a *delivered* `.cidx` to claim a different offset, key
     and record length, then reads records.
@@ -155,7 +155,7 @@ needed only for an end-to-end delivery check (T15).
     description changes; every record reads identically (AC20). Without this the
     layout/description split is a comment, not a property.
 
-- [ ] **T15 — Delivery staging still holds** (R26 of the fix, AC18, AC19)
+- [x] **T15 — Delivery staging still holds** (R26 of the fix, AC18, AC19)
   - Files: none (verification only), unless a gap appears
   - Do: confirm 1.70.146's staging covers what this feature needs — declared
     definitions present at their project-relative paths, undeclared absent.
@@ -164,7 +164,7 @@ needed only for an end-to-end delivery check (T15).
     not merged when this task runs, say so rather than reporting a pass this
     branch cannot produce.
 
-- [ ] **T16 — Docs & i18n**
+- [x] **T16 — Docs & i18n**
   - Files: `docs/developers-guide-en.md`, and the five
     `docs/developers-guide-<lang>.md` **deleted**
   - Do: document the MCP server for a developer. **Carry the two parked
@@ -180,7 +180,7 @@ needed only for an end-to-end delivery check (T15).
     `every_translation_is_complete_and_current`. That red is intended until the
     next minor regenerates them; **do not re-add their `#[ignore]`**.
 
-- [ ] **T17 — Finalize**
+- [x] **T17 — Finalize**
   - Files: `crates/cobolt-ide/src/version.rs`, `CHANGELOG.md`
   - Do: one `z` bump for the whole job (never per task) and a dated CHANGELOG
     entry. **Feature** → `features` branch; never mixed with a fix commit.
@@ -199,6 +199,24 @@ All AC1–AC21 checked with real, measured results; the workspace green apart fr
 the named environmental failures; the Guide updated with its five translations
 deleted; and the work committed as a **feature** on `features`, separate from
 any fix, with no commit or push unless the operator asks.
+
+## Where verification stops
+
+Two criteria cannot be fully machine-checked, and are recorded here rather than
+quietly counted as green:
+
+- **AC9** — "a question naming no file returns records from the correct file."
+  The *choosing* is the model's, so no test asserts it. What is tested is that
+  choosing is possible: several files become distinctly named and distinctly
+  described tools, and each returns only its own records
+  (`several_files_become_distinctly_described_tools`). If that stopped holding,
+  no model could succeed however good its judgement.
+- **AC15** — "a file opened `STORAGE MODE IS MEMORY` is searchable." True, and
+  narrower than it reads. A MEMORY file's records live in the RAM of whoever
+  opened it, and the tool opens its own handle, so there is something to search
+  only when the file was declared `WITH PERSISTENCE`. Tested in that form
+  (`a_persisted_memory_file_is_searchable`); the non-persistent case is not a
+  failure but an absence.
 
 ## Coverage map
 

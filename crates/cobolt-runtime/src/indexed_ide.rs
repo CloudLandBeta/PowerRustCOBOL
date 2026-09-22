@@ -71,7 +71,7 @@ pub fn compare_schema(def: &IndexedDefinition, info: &IndexedFileInfo) -> Schema
 /// default `DiskIndexedFile` fails outright: the bytes do not even parse as
 /// `PRCIDXD1`, so the engine correctly (if confusingly) reports FILE STATUS 39
 /// — "conflicting file attributes" is exactly what a wrong container is.
-enum DiskFormat {
+pub(crate) enum DiskFormat {
     /// The default Rust engine's own container, or no file yet (nothing to
     /// sniff — the definition's own choice governs what gets CREATED).
     Prcidxd1,
@@ -79,7 +79,7 @@ enum DiskFormat {
     Redb,
 }
 
-fn sniff_disk_format(path: &Path) -> DiskFormat {
+pub(crate) fn sniff_disk_format(path: &Path) -> DiskFormat {
     let Ok(mut f) = std::fs::File::open(path) else {
         return DiskFormat::Prcidxd1;
     };

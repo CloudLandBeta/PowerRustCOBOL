@@ -1519,6 +1519,12 @@ pub struct Interpreter {
     db: DbRegistry,
     /// HTTP client (Phase 10) — manages persistent headers and sends requests.
     http: crate::http_runtime::HttpClient,
+    /// Spec 065 — the indexed files this application lets a model consult.
+    ///
+    /// Empty by default, and an empty set offers nothing: a program that never
+    /// marks a file exposes no data, which is the safe direction for a default
+    /// nobody set deliberately.
+    mcp_tools: crate::mcp_tool::IndexedToolSet,
     /// Generated data-binding helper CALL state, keyed by binding id.
     binding_states: HashMap<String, BindingRuntimeState>,
 
@@ -1998,6 +2004,7 @@ impl Interpreter {
             perform_depth: 0,
             db: DbRegistry::new(),
             http: crate::http_runtime::HttpClient::new(),
+            mcp_tools: crate::mcp_tool::IndexedToolSet::new(),
             binding_states: HashMap::new(),
             event_rx: None,
             input_rx: None,
@@ -10831,6 +10838,38 @@ impl Interpreter {
             //   Performs an HTTP GET.  Writes the response body into response-var
             //   and the numeric status code (200, 404, …) into status-var.
             //   On network error status-var is set to 0.
+            // COBOL-MCP-SEARCH USING tool-name, arguments-json, result-var
+            //   Spec 065 — the IN-PROCESS front door onto the same tool an
+            //   external MCP client reaches over the wire. No port, no
+            //   serialization of the result, no round trip: the mesh's own
+            //   agents ask the question directly.
+            //
+            //   `arguments-json` is a JSON object of column name → value, the
+            //   same shape `tools/call` carries, so the two doors take the
+            //   same input as well as reaching the same code.
+            "COBOL-MCP-SEARCH" if using.len() >= 3 => {
+                let tool = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let args_text = self.eval_call_arg(&using[1], span)?.as_display_string();
+                let result_name = self.expr_to_name(call_arg_expr(&using[2]));
+
+                // A malformed argument string is the caller's mistake, not a
+                // reason to fail the run — it reads as "no filters", which
+                // returns everything within the limit rather than nothing.
+                let arguments: serde_json::Value = serde_json::from_str(args_text.trim())
+                    .unwrap_or(serde_json::Value::Object(Default::default()));
+
+                let result = self.mcp_tools.call(tool.trim(), &arguments);
+                let text = result
+                    .content
+                    .iter()
+                    .map(|c| match c {
+                        cobolt_mcp::Content::Text { text } => text.as_str(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                self.env.set_str(&result_name, &text);
+            }
+
             "COBOL-HTTP-GET" if using.len() >= 3 => {
                 let url = self.eval_call_arg(&using[0], span)?.as_display_string();
                 let resp_name = self.expr_to_name(call_arg_expr(&using[1]));
@@ -11547,6 +11586,30 @@ impl Interpreter {
     /// `LastError` and clears `LastReply`, then queues `onError`. `onResponse`
     /// is left to the caller, which fires it on a non-empty reply exactly as it
     /// did before.
+    /// Mark one indexed file consultable by the MCP tool (spec 065 R32).
+    ///
+    /// The host calls this; nothing marks a file on its own. Layout comes from
+    /// the caller — which in a built application is this interpreter, reading
+    /// the program's own `FD` — never from a delivered `.cidx`, so a tampered
+    /// definition cannot change how a record is read.
+    pub fn allow_mcp_file(
+        &mut self,
+        description: crate::mcp_tool::FileDescription,
+        access: crate::mcp_tool::FileAccess,
+    ) {
+        self.mcp_tools.allow(description, access);
+    }
+
+    /// The tool set, for a host that wants to serve it over a transport.
+    pub fn mcp_tools(&self) -> &crate::mcp_tool::IndexedToolSet {
+        &self.mcp_tools
+    }
+
+    /// The tool set, mutably — `cobolt_mcp::serve` needs `&mut` on its handler.
+    pub fn mcp_tools_mut(&mut self) -> &mut crate::mcp_tool::IndexedToolSet {
+        &mut self.mcp_tools
+    }
+
     fn agent_ask(&mut self, obj: &str, prompt: &str) {
         use crate::agent_runtime as ag;
 
