@@ -1515,6 +1515,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cobolt-mcp"
+version = "0.2.0"
+dependencies = [
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cobolt-media"
 version = "0.2.0"
 dependencies = [
@@ -1544,6 +1553,7 @@ dependencies = [
  "cobolt-forms",
  "cobolt-indexed",
  "cobolt-lexer",
+ "cobolt-mcp",
  "cobolt-parser",
  "cobolt-semantic",
  "google_maps",

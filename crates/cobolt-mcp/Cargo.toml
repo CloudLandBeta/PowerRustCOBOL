@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name         = "cobolt-mcp"
+description  = "Wire-compatible Model Context Protocol for PowerRustCOBOL — JSON-RPC framing, types and server"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+[dependencies]
+# The protocol IS JSON, and that is the whole dependency list. A transport is
+# the HOST's to supply (spec 065 R4), which is what keeps TLS, an HTTP stack
+# and their C toolchains out of every application that links this crate.
+serde      = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

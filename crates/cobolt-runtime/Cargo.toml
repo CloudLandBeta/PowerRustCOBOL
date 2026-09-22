@@ -71,6 +71,9 @@ cobolt-indexed  = { path = "../cobolt-indexed" }
 # here: two tables of the same rule is how the IntelliSense/knowledge-base
 # drift got in, and a drop zone's rules are worth less to duplicate still.
 cobolt-forms    = { path = "../cobolt-forms" }
+# spec 065 — the MCP protocol. serde-only and transport-free, so linking it
+# adds no network stack to an application that serves a tool.
+cobolt-mcp      = { path = "../cobolt-mcp" }
 thiserror       = { workspace = true }
 indexmap        = { workspace = true }
 serde          = { workspace = true, features = ["derive"] }
