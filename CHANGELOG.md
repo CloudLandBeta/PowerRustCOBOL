@@ -8,6 +8,60 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.146] — 2026-09-22
+
+### A delivered application could not find its indexed definitions
+
+A DataGrid bound to an indexed file works in the Designer's browser, works under
+Run Form, works from `bin/` — and came up empty in the hand-over bundle. Only
+there.
+
+The chain is short once seen. A form stores its binding the way the Designer
+saved it, `indexed/actors.cidx`, project-relative. At run time the application
+resolves that against the folder it anchors on, which is the first folder above
+the executable carrying `assets/`. From `bin/` that walk reaches the project,
+where the `.cidx` has always been. A delivery carries its own `assets/`, so it
+anchors on itself — and **nothing had ever put a `.cidx` there.** The binding
+resolved to nothing, the grid blanked, and a warning went to a log nobody reads
+during a hand-over.
+
+The cause was one missing field. `cobolt.toml` has declared
+`indexed = ["indexed/actors.cidx"]` since indexed files were introduced; the
+compiler's own manifest deserializer had `sources`, `forms`, `assets`,
+`documentation` and `generated` — and no `indexed`. The build could not see the
+definitions it was failing to copy.
+
+Declared definitions are now staged into the delivery, keeping each one's
+project-relative path, so `indexed/BurguerTime/menu.cidx` lands where its form
+expects it. **Declared, not swept:** the project's own list decides, never the
+contents of `indexed/`. A definition the project does not list is not part of
+the application, and a delivery carries what it needs and nothing more. A
+declared file that has gone missing is reported rather than failing the build.
+
+**The Developer's Guide has been telling developers to do this by hand** — *"Ship
+the `indexed/` and data folders alongside, keeping the same relative layout your
+project uses."* It was documented as the developer's job rather than recognised
+as an inconsistency: the build already copied two of the three folders a binding
+needs, automatically. That sentence was also already stale about `data/`, which
+step 11c has been copying all along.
+
+Three tests: a declared definition reaches the delivery with its nested path
+intact; an undeclared one stays home while a declared-but-missing one is
+reported; and the manifest's `indexed` list survives deserialization — the root
+cause, pinned so it cannot be dropped again.
+
+**Parked, deliberately:** that Guide sentence is not corrected here. Under
+GOLDEN RULE #8 the edit would delete five translations of the largest document
+and redden two `docs_embed.rs` guards until the next minor — and 1.70.145
+already banked a Guide sentence for this same area. Spec `065` owes a Guide
+update that rewrites this passage anyway, so all three are paid once, there.
+Following the stale advice meanwhile is harmless: it copies files that are
+already in place.
+
+*Known-failing, unrelated:* `test_external_crates_e2e` fails its two cases on
+this machine. Verified pre-existing — the same two fail identically with this
+change stashed out. They vendor fixture crates from crates.io at run time.
+
 ## [PowerRustCOBOL 1.70.145] — 2026-09-21
 
 ### An indexed file's descriptions never reached the code it generates

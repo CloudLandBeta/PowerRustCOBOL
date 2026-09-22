@@ -172,6 +172,54 @@ fn copy_overwrite(src: &Path, dst: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Stage the indexed-file definitions a project DECLARES into its delivery
+/// folder, preserving each one's project-relative path. Returns how many landed.
+///
+/// # Why a delivery needs them at all
+///
+/// A form stores an indexed binding as the path the Designer saved —
+/// `indexed/actors.cidx` — and the runtime resolves it against whatever folder
+/// the application anchors on, which is the first one above the executable
+/// carrying `assets/`. Run Form and `bin/` both walk up to the project, where
+/// the file has always been. A hand-over bundle carries its own `assets/`, so
+/// it anchors on itself — and nothing had ever put a `.cidx` there. The binding
+/// resolved to nothing and a DataGrid bound to an indexed file came up empty,
+/// only in the delivery, which is exactly why it went unseen.
+///
+/// # Declared, not swept
+///
+/// The project's own list decides, not the contents of `indexed/`. A definition
+/// the project does not declare is not part of the application, and a delivery
+/// carries what it needs and nothing more. Nested paths survive, so
+/// `indexed/BurguerTime/menu.cidx` lands where its form expects it.
+fn stage_indexed_definitions(
+    project_dir: &Path,
+    dest_path: &Path,
+    declared: &[String],
+    log: &dyn Fn(&str),
+) -> usize {
+    let mut staged = 0usize;
+    for rel in declared {
+        let src = project_dir.join(rel);
+        if !src.exists() {
+            log(&format!("⚠️  Indexed definition not found, skipped: {rel}"));
+            continue;
+        }
+        let dst = dest_path.join(rel);
+        if let Some(parent) = dst.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                log(&format!("⚠️  Could not create '{}': {e}", parent.display()));
+                continue;
+            }
+        }
+        match copy_overwrite(&src, &dst) {
+            Ok(()) => staged += 1,
+            Err(e) => log(&format!("⚠️  Could not copy '{rel}': {e}")),
+        }
+    }
+    staged
+}
+
 /// The prefix every aside-renamed previous executable carries.
 fn parked_prefix(file_name: &str) -> String {
     format!(".{file_name}.old-")
@@ -648,6 +696,16 @@ struct ProjectFiles {
     /// runnable entry point.
     #[serde(default)]
     generated: Vec<String>,
+    /// Indexed-file definitions (`.cidx`) the project declares.
+    ///
+    /// The IDE has written this list since indexed files were introduced, and
+    /// this deserializer simply did not read it — which is why a delivery never
+    /// carried one. A form stores its binding as a project-relative path
+    /// (`indexed/actors.cidx`), the runtime resolves that against the folder it
+    /// anchors on, and in `dist/` that folder is the delivery — where nothing
+    /// had put the file. See the copy in step 11c.
+    #[serde(default)]
+    indexed: Vec<String>,
 }
 
 /// The `[forms]` section of `cobolt.toml` — the project's default form theme
@@ -2108,6 +2166,15 @@ fn build_core(
         if src.is_dir() {
             let _ = copy_dir_all(&src, &dest_path.join(name));
         }
+    }
+
+    let indexed_count =
+        stage_indexed_definitions(&project_dir, &dest_path, &proj.files.indexed, &log);
+    if indexed_count > 0 {
+        log(&format!(
+            "🗂️  Bundled {indexed_count} indexed definition(s) → {}",
+            dest_path.display()
+        ));
     }
 
     // `rcrun` is deliberately NOT shipped here. A built binary embeds its own
@@ -6992,6 +7059,94 @@ mod io_failure_tests {
     }
 
     /// …and `copy_overwrite` repeats, because it clears the flag on both ends.
+    #[test]
+    /// A declared `.cidx` reaches the delivery, nested path and all.
+    ///
+    /// Without this the file stayed in the project, the delivered binary
+    /// anchored on the bundle, and every indexed binding resolved to nothing.
+    #[test]
+    fn a_declared_indexed_definition_reaches_the_delivery() {
+        let dir = temp_dir("idx-stage");
+        let project = dir.join("proj");
+        let dist = dir.join("dist");
+        fs::create_dir_all(project.join("indexed/BurguerTime")).unwrap();
+        fs::write(project.join("indexed/actors.cidx"), b"<IndexedFile/>").unwrap();
+        fs::write(project.join("indexed/BurguerTime/menu.cidx"), b"<IndexedFile/>").unwrap();
+        fs::create_dir_all(&dist).unwrap();
+
+        let declared = vec![
+            "indexed/actors.cidx".to_string(),
+            "indexed/BurguerTime/menu.cidx".to_string(),
+        ];
+        let staged = stage_indexed_definitions(&project, &dist, &declared, &|_| {});
+
+        assert_eq!(staged, 2, "both declared definitions staged");
+        assert!(dist.join("indexed/actors.cidx").is_file());
+        assert!(
+            dist.join("indexed/BurguerTime/menu.cidx").is_file(),
+            "a nested definition keeps its path, or its form cannot find it"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Declared, not swept: a `.cidx` the project does not list stays home, and
+    /// a listed-but-missing one is reported rather than failing the build.
+    #[test]
+    fn an_undeclared_indexed_definition_is_not_delivered() {
+        let dir = temp_dir("idx-undeclared");
+        let project = dir.join("proj");
+        let dist = dir.join("dist");
+        fs::create_dir_all(project.join("indexed")).unwrap();
+        fs::write(project.join("indexed/wanted.cidx"), b"<IndexedFile/>").unwrap();
+        fs::write(project.join("indexed/private.cidx"), b"<IndexedFile/>").unwrap();
+        fs::create_dir_all(&dist).unwrap();
+
+        let warnings = std::cell::RefCell::new(Vec::<String>::new());
+        let declared = vec![
+            "indexed/wanted.cidx".to_string(),
+            "indexed/gone.cidx".to_string(),
+        ];
+        let staged = stage_indexed_definitions(&project, &dist, &declared, &|m| {
+            warnings.borrow_mut().push(m.to_string())
+        });
+        let warnings = warnings.into_inner();
+
+        assert_eq!(staged, 1, "only the declared file that exists");
+        assert!(dist.join("indexed/wanted.cidx").is_file());
+        assert!(
+            !dist.join("indexed/private.cidx").exists(),
+            "an undeclared definition is not part of the application"
+        );
+        assert!(
+            warnings.iter().any(|w| w.contains("gone.cidx")),
+            "a declared-but-missing definition is reported, not silent: {warnings:?}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The root cause: the manifest has always carried `indexed`, and this
+    /// deserializer dropped it.
+    #[test]
+    fn the_manifest_indexed_list_is_read() {
+        let toml = r#"
+[project]
+name = "demo"
+version = "1.0.0"
+main = "src/main.cbl"
+[files]
+sources = ["src/main.cbl"]
+indexed = ["indexed/actors.cidx"]
+"#;
+        let proj: CoboltProject = toml::from_str(toml).expect("manifest parses");
+        assert_eq!(
+            proj.files.indexed,
+            vec!["indexed/actors.cidx".to_string()],
+            "the indexed list must survive deserialization"
+        );
+    }
+
     #[test]
     fn copy_overwrite_restages_a_read_only_file_every_time() {
         let dir = temp_dir("overwrite");
