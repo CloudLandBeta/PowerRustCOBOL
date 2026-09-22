@@ -4012,7 +4012,7 @@ The PowerRustCOBOL IDE provides RAD (Rapid Application Development) capabilities
 ## RAD desktop Form Designer
 - A WYSIWYG visual layout canvas with grid snapping.
 - Visual positioning (X, Y) and sizing (Width, Height) of controls.
-- Tab-order management for keyboard navigation.
+- Tab-order management for keyboard navigation: **Visual Tab Order** (toggle it, click the controls in the order Tab should visit them — each shows its number — and toggle it off to finish) and the **Tab Order list** (drag a row or use ▲ ▼, selecting a row selects the control; Apply or Cancel). A newly placed control takes the next number.
 - Container hierarchies (e.g. Panels, TabControls) establishing parent-child ownership.
 
 ## Predefined Form Styles
@@ -4721,6 +4721,8 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             "The COBOL PICTURE the box's contents obey. It is both validator and mask: each keystroke is checked against what is legal at that character position (`A` letters and space, `9` digits, `X` any byte), and the box shows the edited form when it is not focused and the plain stored value when it is. The generated `-TEXT` and `-VALUE` items are declared with this same picture, so a comparison against them follows COBOL's rules by construction. The decimal separator is the form's: under DECIMAL-POINT IS COMMA a comma is the decimal point and a period is the grouping character. A sign may be typed at either end and is normalised to where the picture puts it. Left empty, the picture is `X(n)` sized from MaximumLength, or `X(256)` single-line / `X(2048)` multiline when that is 0; set explicitly, its own width is authoritative and MaximumLength no longer bounds the field.",
         ),
         "Multiline" => (BOOL_DOMAIN, "Multi-line editing."),
+        "EnterAsTab" => (BOOL_DOMAIN, "Enter moves the focus to the next control in the tab order, as Tab does; `onEnterPressed` still fires. On by default for TextBox, ComboBox, NumericUpDown, DateTimePicker, CheckBox and RadioButton. Ignored by a multi-line TextBox (Enter is its new line), and an open ComboBox list keeps Enter to pick its item. An Enter that moves the focus does not also press the form's default button."),
+        "AutoEnter" => (BOOL_DOMAIN, "TextBox: the keystroke that fills the box to its length counts as Enter — `onEnterPressed` fires and, with `EnterAsTab` on, the focus moves to the next control. The length is the one the box enforces: an explicit `Picture`'s width, or `MaximumLength`; with neither the box is never full and the property does nothing. Off by default."),
         "PasswordCharacter" => ("single character or empty", "Masks input with this character when set."),
         "ReadOnly" => (BOOL_DOMAIN, "Blocks user editing (value still settable from COBOL)."),
         "ScrollBars" => ("one of: `None` | `Horizontal` | `Vertical` | `Both`", "Which scrollbars a multiline box shows. None still scrolls, it just draws no bars. Horizontal and Both stop the text wrapping."),
@@ -5969,7 +5971,7 @@ fn controls_reference_doc() -> String {
         ("Y", "Integer — pixels from the form's top edge", "Vertical position."),
         ("Width", "Integer — pixels > 0", "Control width."),
         ("Height", "Integer — pixels > 0", "Control height."),
-        ("TabOrder", "Integer ≥ 0", "Keyboard Tab traversal order."),
+        ("TabOrder", "Integer ≥ 0", "Keyboard Tab traversal order: Tab goes up the numbers, Shift+Tab down, and both wrap; equal numbers go in the order the form is painted. Only visible, enabled controls that can take the keyboard are visited. A Label holds a place too but never keeps the focus: when Tab, Enter or a click reaches it, it raises `onGotFocus` (for a screen reader, say) and the focus walks straight on to the next control."),
         ("Parent", "String — container control id or empty", "The container that owns this control."),
         ("Tab", "Integer — 0-based tab page index", "Which TabControl page the control sits on (only inside a TabControl)."),
     ] {

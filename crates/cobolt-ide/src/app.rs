@@ -17623,6 +17623,7 @@ impl CoboltApp {
                     d.format_painter,
                     crate::panels::designer::FormatPainter::WaitingForTarget { .. }
                 );
+                let tab_order_on = d.tab_order_visual.is_some();
                 let form_path = self.designers[idx].0.clone();
                 // Exited external runs are reaped every frame in update(), so
                 // presence in the list means the process is alive.
@@ -17676,6 +17677,9 @@ impl CoboltApp {
                         tr.clipboard_paste,
                         tr.clipboard_duplicate,
                         tr.tb_format_painter,
+                        tr.tb_visual_tab_order,
+                        tr.tb_tab_order_list,
+                        tab_order_on,
                         preview_on,
                         grid_on,
                         glass_on,
@@ -17834,6 +17838,12 @@ impl CoboltApp {
                     }
                     DesignerToolbarAction::FormatPainter => {
                         self.designers[idx].1.toggle_format_painter();
+                    }
+                    DesignerToolbarAction::ToggleVisualTabOrder => {
+                        self.designers[idx].1.toggle_visual_tab_order();
+                    }
+                    DesignerToolbarAction::OpenTabOrderList => {
+                        self.designers[idx].1.open_tab_order_list();
                     }
                     DesignerToolbarAction::ToggleAnimPreview => {
                         self.designers[idx].1.play_all_form_load_anims();

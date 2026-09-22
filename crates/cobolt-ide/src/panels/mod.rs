@@ -37,6 +37,7 @@ pub mod project;
 pub mod prompt_review;
 pub mod properties;
 pub mod settings_form;
+pub mod tab_order;
 pub mod target_picker;
 pub mod theme_defaults_modal;
 

@@ -2137,15 +2137,22 @@ fn render_form_inner(
     // other control. The Control itself is out of reach by then, so everything
     // the popup needs travels with it.
     let mut open_combos: Vec<OpenCombo> = Vec::new();
-    let tab_focus_request = if interactive {
+    let tab_step = if interactive {
         apply_pending_tab_focus(ui);
         let mut tab_targets = collect_tab_targets(scope, input, controls, &order);
 
         resolve_tab_traversal(ui, &mut tab_targets)
     } else {
-        None
+        TabStep::default()
     };
-    let default_button_click = if interactive {
+    // Labels the walk passed through announce themselves, in walk order.
+    for label in &tab_step.labels {
+        out.events.push(UiEvent::ev(label, "onGotFocus"));
+    }
+    let tab_focus_request = tab_step.focus;
+    // An Enter that moved the focus has been spent: it must not also press the
+    // form's default button.
+    let default_button_click = if interactive && !tab_step.by_enter {
         resolve_default_button_enter(scope, input, controls, &order, ui)
 
     } else {
@@ -2558,6 +2565,13 @@ struct TabTarget {
     tab_order: u32,
     sequence: usize,
     focus_id: egui::Id,
+    ctrl_id: String,
+    /// A Label: passed through, never focused (`ControlType::takes_tab_order`).
+    is_label: bool,
+    /// The Label has an `onGotFocus` handler to tell.
+    announces: bool,
+    /// Enter in this control moves on, as Tab does (`Control::enter_as_tab`).
+    enter_as_tab: bool,
 }
 
 struct DefaultButtonTarget {
@@ -2580,13 +2594,21 @@ fn collect_tab_targets(
             continue;
         }
         if input.state.enabled(base)
-            && containers::is_enabled(controls, idx, &|c| input.state.enabled(c)) && is_tab_focusable(&base.control_type) {
+            && containers::is_enabled(controls, idx, &|c| input.state.enabled(c)) && base.control_type.takes_tab_order() {
             let live = input.state.live(base);
+            let is_label = base.control_type == ControlType::Label;
             targets.push(TabTarget {
                 tab_order: base.tab_order,
                 sequence,
-                focus_id: tab_focus_id(scope, &live),
-
+                focus_id: if is_label {
+                    label_tab_id(scope, &live.id)
+                } else {
+                    tab_focus_id(scope, &live)
+                },
+                ctrl_id: live.id.clone(),
+                is_label,
+                announces: is_label && live.events.iter().any(|e| e.event == "onGotFocus"),
+                enter_as_tab: live.enter_as_tab(),
             });
         }
         sequence += 1;
@@ -2693,24 +2715,6 @@ fn is_enter_input_control(ct: &ControlType) -> bool {
     )
 }
 
-fn is_tab_focusable(ct: &ControlType) -> bool {
-    use ControlType as CT;
-    matches!(
-        ct,
-        CT::Button
-            | CT::TextBox
-            | CT::CheckBox
-            | CT::RadioButton
-            | CT::ListBox
-            | CT::ComboBox
-            | CT::DataGrid
-            | CT::DateTimePicker
-            | CT::NumericUpDown
-            | CT::TreeView
-            | CT::Slider
-            | CT::Custom { .. }
-    )
-}
 
 fn tab_focus_id(scope: Option<egui::Id>, ctrl: &Control) -> egui::Id {
     let base = rt_id_in(scope, &ctrl.id);
@@ -2730,6 +2734,33 @@ fn tab_pending_id() -> egui::Id {
     egui::Id::new("powerrustcobol-tab-order-pending")
 }
 
+/// Where a control asks the next frame's traversal to move on from it — an
+/// `AutoEnter` box that filled, or a Label that was clicked.
+fn tab_advance_id() -> egui::Id {
+    egui::Id::new("powerrustcobol-tab-order-advance")
+}
+
+/// The tab-order position of a Label. Nothing is ever focused under this id;
+/// it only names where the walk starts from after a click on the caption.
+fn label_tab_id(scope: Option<egui::Id>, id: &str) -> egui::Id {
+    rt_id_in(scope, id).with("label-tab")
+}
+
+fn request_tab_advance(ui: &egui::Ui, from: egui::Id) {
+    ui.data_mut(|d| d.insert_temp(tab_advance_id(), Some(from)));
+}
+
+/// What one frame's keyboard traversal decided.
+#[derive(Default)]
+struct TabStep {
+    /// The control to focus next frame.
+    focus: Option<egui::Id>,
+    /// Labels passed on the way there, whose `onGotFocus` is bound.
+    labels: Vec<String>,
+    /// The move was an Enter (`EnterAsTab`), which is then spent.
+    by_enter: bool,
+}
+
 fn apply_pending_tab_focus(ui: &egui::Ui) {
     let pending_id = tab_pending_id();
     let pending = ui.data(|d| d.get_temp::<Option<egui::Id>>(pending_id));
@@ -2739,49 +2770,94 @@ fn apply_pending_tab_focus(ui: &egui::Ui) {
     }
 }
 
-fn resolve_tab_traversal(ui: &egui::Ui, targets: &mut Vec<TabTarget>) -> Option<egui::Id> {
-    if targets.is_empty() {
-        return None;
-    }
-    let (tab, shift) = ui.input(|i| (i.key_pressed(egui::Key::Tab), i.modifiers.shift));
-    if !tab {
-        return None;
-    }
-    ui.input_mut(|i| {
-        let modifiers = egui::Modifiers {
-            shift,
-            ..egui::Modifiers::default()
-        };
-        i.consume_key(modifiers, egui::Key::Tab);
-        i.events.retain(|event| {
-            !matches!(
-                event,
-                egui::Event::Key {
-                    key: egui::Key::Tab,
-                    ..
-                }
-            )
-        });
+/// Decide this frame's keyboard move, if any: Tab / Shift+Tab, an Enter in a
+/// control with `EnterAsTab`, or an advance a control requested last frame
+/// (`AutoEnter`, a clicked Label). Labels on the way are passed through — each
+/// is reported so its `onGotFocus` fires — and the walk goes on to the next
+/// control that can keep the focus.
+fn resolve_tab_traversal(ui: &egui::Ui, targets: &mut Vec<TabTarget>) -> TabStep {
+    let mut step = TabStep::default();
+    let advance = ui.data_mut(|d| {
+        let advance = d.get_temp::<Option<egui::Id>>(tab_advance_id()).flatten();
+        if advance.is_some() {
+            d.insert_temp(tab_advance_id(), None::<egui::Id>);
+        }
+        advance
     });
-
+    if targets.is_empty() {
+        return step;
+    }
     targets.sort_by_key(|t| (t.tab_order, t.sequence));
-    let current = ui
-        .data(|d| d.get_temp::<egui::Id>(tab_memory_id()))
-        .or_else(|| ui.ctx().memory(|m| m.focused()));
-    let current_idx =
-        current.and_then(|focused| targets.iter().position(|t| t.focus_id == focused));
-    let target_idx = if shift {
-        current_idx
-            .map(|idx| if idx == 0 { targets.len() - 1 } else { idx - 1 })
-            .unwrap_or_else(|| targets.len() - 1)
+    let position = |id: egui::Id| targets.iter().position(|t| t.focus_id == id);
+    // Where the operator actually is wins over where the last Tab left them:
+    // a click into another field has moved them, and Tab goes on from there.
+    let focused_idx = ui.ctx().memory(|m| m.focused()).and_then(position);
+
+    let (tab, shift) = ui.input(|i| (i.key_pressed(egui::Key::Tab), i.modifiers.shift));
+    let (from, backwards) = if tab {
+        ui.input_mut(|i| {
+            let modifiers = egui::Modifiers {
+                shift,
+                ..egui::Modifiers::default()
+            };
+            i.consume_key(modifiers, egui::Key::Tab);
+            i.events.retain(|event| {
+                !matches!(
+                    event,
+                    egui::Event::Key {
+                        key: egui::Key::Tab,
+                        ..
+                    }
+                )
+            });
+        });
+        let remembered = ui
+            .data(|d| d.get_temp::<egui::Id>(tab_memory_id()))
+            .and_then(position);
+        (focused_idx.or(remembered), shift)
+    } else if let Some(source) = advance {
+        match position(source) {
+            Some(idx) => (Some(idx), false),
+            None => return step,
+        }
     } else {
-        current_idx
-            .map(|idx| (idx + 1) % targets.len())
-            .unwrap_or(0)
+        // Enter is NOT consumed: the control still sees it, so a TextBox
+        // raises `onEnterPressed` and gives up its caret as it always has.
+        let enter = ui.input(|i| i.key_pressed(egui::Key::Enter) && i.modifiers.is_none());
+        let Some(idx) = focused_idx else {
+            return step;
+        };
+        // An open ComboBox list owns Enter: it picks the highlighted item.
+        let list_open = ui
+            .data(|d| d.get_temp::<bool>(targets[idx].focus_id.with("combo_open")))
+            .unwrap_or(false);
+        if !enter || !targets[idx].enter_as_tab || list_open {
+            return step;
+        }
+        step.by_enter = true;
+        (Some(idx), false)
     };
-    let focus_id = targets[target_idx].focus_id;
-    ui.data_mut(|d| d.insert_temp(tab_memory_id(), focus_id));
-    Some(focus_id)
+
+    let n = targets.len();
+    let next = |idx: usize| if backwards { (idx + n - 1) % n } else { (idx + 1) % n };
+    let mut idx = match from {
+        Some(idx) => next(idx),
+        None if backwards => n - 1,
+        None => 0,
+    };
+    for _ in 0..n {
+        let target = &targets[idx];
+        if !target.is_label {
+            ui.data_mut(|d| d.insert_temp(tab_memory_id(), target.focus_id));
+            step.focus = Some(target.focus_id);
+            return step;
+        }
+        if target.announces {
+            step.labels.push(target.ctrl_id.clone());
+        }
+        idx = next(idx);
+    }
+    step
 }
 
 /// Draw just the control **faces** (no backdrop, no interaction) onto an existing
@@ -6111,6 +6187,16 @@ fn render_interactive(
                     .push((id.to_owned(), "Text".to_owned(), buf.clone()));
                 out.events.push(UiEvent::change(id, &buf));
                 out.events.push(UiEvent::ev(id, "onTextChanged"));
+                // `AutoEnter`: the keystroke that fills the box to the length
+                // it enforces counts as Enter — `onEnterPressed`, and the move
+                // to the next control where `EnterAsTab` allows it. The move is
+                // handed to the next frame's traversal, which owns the order.
+                if ctrl.auto_enter() && char_limit > 0 && buf.chars().count() >= char_limit {
+                    out.events.push(UiEvent::ev(id, "onEnterPressed"));
+                    if ctrl.enter_as_tab() {
+                        request_tab_advance(ui, ctrl_id);
+                    }
+                }
             }
             if resp.gained_focus() {
                 out.events.push(UiEvent::ev(id, "onGotFocus"));
@@ -11455,6 +11541,17 @@ fn render_interactive(
                         ctrl_id.with("caption"),
                         Sense::click_and_drag() - Sense::FOCUSABLE,
                     );
+                    // A click on a caption reaches it in the tab order: it
+                    // raises `onGotFocus` (for a screen reader, say) and the
+                    // focus goes on to the control after it — the Label itself
+                    // never keeps it. `onClick` comes from the universal
+                    // pointer events above.
+                    if resp.clicked() && enabled {
+                        if ctrl.events.iter().any(|e| e.event == "onGotFocus") {
+                            out.events.push(UiEvent::ev(id, "onGotFocus"));
+                        }
+                        request_tab_advance(ui, label_tab_id(scope, id));
+                    }
                     egui::text_selection::LabelSelectionState::label_text_selection(
                         ui,
                         &resp,
@@ -19295,6 +19392,144 @@ mod tests {
         assert!(
             evs.iter().all(|event| event.event != "onClick"),
             "Enter should be ignored when no default button exists; got {evs:?}"
+        );
+    }
+
+    /// Two text boxes, `First` then `Second` in the tab order.
+    fn two_boxes() -> Vec<Control> {
+        let mut first = ctrlp("First", ControlType::TextBox, 0, 0, 160, 24, &[("Text", "")]);
+        first.tab_order = 1;
+        let mut second = ctrlp("Second", ControlType::TextBox, 0, 40, 160, 24, &[("Text", "")]);
+        second.tab_order = 2;
+        vec![first, second]
+    }
+
+    fn text_of(map: &Map<String, Map<String, String>>, id: &str) -> String {
+        map.get(id).and_then(|m| m.get("Text")).cloned().unwrap_or_default()
+    }
+
+    #[test]
+    fn engine_enter_moves_to_the_next_control_like_tab() {
+        let (_evs, map) = drive(
+            &two_boxes(),
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![tab_key(false, true)]),
+                (2.0, vec![tab_key(false, false)]),
+                (3.0, vec![Event::Text("A".to_owned())]),
+                (4.0, vec![enter_key(true)]),
+                (5.0, vec![enter_key(false)]),
+                (6.0, vec![Event::Text("B".to_owned())]),
+            ],
+        );
+        assert_eq!(text_of(&map, "First"), "A");
+        assert_eq!(text_of(&map, "Second"), "B", "Enter should move on to Second");
+    }
+
+    #[test]
+    fn engine_enter_stays_put_when_enter_as_tab_is_off() {
+        let mut controls = two_boxes();
+        controls[0].set_prop("EnterAsTab".to_owned(), PropValue::Bool(false));
+        let (_evs, map) = drive(
+            &controls,
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![tab_key(false, true)]),
+                (2.0, vec![tab_key(false, false)]),
+                (3.0, vec![Event::Text("A".to_owned())]),
+                (4.0, vec![enter_key(true)]),
+                (5.0, vec![enter_key(false)]),
+                (6.0, vec![Event::Text("B".to_owned())]),
+            ],
+        );
+        assert_eq!(text_of(&map, "Second"), "", "with EnterAsTab off, Enter must not move the focus");
+    }
+
+    #[test]
+    fn engine_a_filled_auto_enter_box_moves_on_by_itself() {
+        let mut controls = two_boxes();
+        controls[0].set_prop("MaximumLength".to_owned(), PropValue::Int(2));
+        controls[0].set_prop("AutoEnter".to_owned(), PropValue::Bool(true));
+        controls[0].ensure_event("onEnterPressed");
+        let (evs, map) = drive(
+            &controls,
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![tab_key(false, true)]),
+                (2.0, vec![tab_key(false, false)]),
+                (3.0, vec![Event::Text("1".to_owned())]),
+                (4.0, vec![Event::Text("2".to_owned())]),
+                (5.0, vec![]),
+                (6.0, vec![Event::Text("X".to_owned())]),
+            ],
+        );
+        assert_eq!(text_of(&map, "First"), "12");
+        assert_eq!(text_of(&map, "Second"), "X", "filling First should move on to Second");
+        assert!(
+            evs.iter().any(|e| e.ctrl_id == "First" && e.event == "onEnterPressed"),
+            "a filled AutoEnter box reports Enter; got {evs:?}"
+        );
+    }
+
+    #[test]
+    fn engine_tab_passes_through_a_label_and_announces_it() {
+        let mut controls = two_boxes();
+        controls[1].tab_order = 3;
+        let mut label = ctrlp_events(
+            "Caption",
+            ControlType::Label,
+            0,
+            80,
+            160,
+            20,
+            &[("Caption", "Name")],
+            &["onGotFocus"],
+        );
+        label.tab_order = 2;
+        controls.push(label);
+        let (evs, map) = drive(
+            &controls,
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![tab_key(false, true)]),
+                (2.0, vec![tab_key(false, false)]),
+                (3.0, vec![tab_key(false, true)]),
+                (4.0, vec![tab_key(false, false)]),
+                (5.0, vec![Event::Text("B".to_owned())]),
+            ],
+        );
+        assert_eq!(text_of(&map, "Second"), "B", "the Label must not keep the focus");
+        assert_eq!(
+            evs.iter().filter(|e| e.ctrl_id == "Caption" && e.event == "onGotFocus").count(),
+            1,
+            "the Label announces itself once as the focus passes; got {evs:?}"
+        );
+    }
+
+    #[test]
+    fn engine_enter_that_moved_the_focus_does_not_press_the_default_button() {
+        let mut check = ctrlp("Agree", ControlType::CheckBox, 0, 0, 160, 24, &[]);
+        check.tab_order = 1;
+        let mut boxed = ctrlp("Notes", ControlType::TextBox, 0, 40, 160, 24, &[("Text", "")]);
+        boxed.tab_order = 2;
+        let mut save = ctrlp_events("Save", ControlType::Button, 0, 80, 100, 30, &[], &["onClick"]);
+        save.set_prop("IsDefault".to_owned(), PropValue::Bool(true));
+        save.tab_order = 3;
+        let (evs, map) = drive(
+            &[check, boxed, save],
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![tab_key(false, true)]),
+                (2.0, vec![tab_key(false, false)]),
+                (3.0, vec![enter_key(true)]),
+                (4.0, vec![enter_key(false)]),
+                (5.0, vec![Event::Text("Z".to_owned())]),
+            ],
+        );
+        assert_eq!(text_of(&map, "Notes"), "Z", "Enter on the CheckBox moves on to Notes");
+        assert!(
+            evs.iter().all(|e| !(e.ctrl_id == "Save" && e.event == "onClick")),
+            "the Enter was spent on moving; got {evs:?}"
         );
     }
 

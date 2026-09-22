@@ -8,6 +8,60 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.153] — 2026-09-22
+
+### The Form Designer had no way to set the tab order
+
+Every control carried a `TabOrder`, the running form walked it, and the only way
+to set it was typing a number into each control's property row — while every
+control the designer placed arrived as 0, so Tab followed the paint order no
+matter what the developer intended.
+
+**Two editors, the ones RAD developers expect.** At the right end of the
+designer toolbar:
+
+- **Visual Tab Order** — toggle it on and click the controls in the order Tab
+  should visit them. Each tab-order control shows its number beside it; the ones
+  clicked in this session are drawn in the accent colour, the rest keep their
+  order after them. Clicking a control again moves it to the latest number.
+  Nothing moves or resizes while the mode is on. Toggling it off writes the
+  order as one undo step.
+- **Tab Order list** — a window listing the same controls. Drag a row or use
+  ▲ / ▼; selecting a row selects the control on the form, and the numbers are
+  shown on the canvas while it is open. Apply (one undo step) or Cancel. The
+  window has a fixed size that only its grip changes.
+
+A newly placed control now takes the next number, so Tab follows the order the
+form was built in.
+
+**Enter can move on, like Tab.** A new `EnterAsTab` property — on by default for
+TextBox, ComboBox, NumericUpDown, DateTimePicker, CheckBox and RadioButton —
+makes Enter move to the next control in the tab order. `onEnterPressed` still
+fires. A multi-line TextBox keeps Enter for its new line, an open ComboBox list
+keeps it to pick the item, and an Enter spent on moving never also presses the
+form's default button. Forms saved before this change get the property on load,
+with the same default.
+
+**`AutoEnter`** (TextBox, off by default): the keystroke that fills the box to
+the length it enforces — an explicit `Picture`'s width, or `MaximumLength` —
+counts as Enter.
+
+**Labels hold a place but never keep the focus.** A Label is numbered in the
+order; when Tab, Enter or a click reaches it at run time it raises `onGotFocus`
+(now bindable on a Label) — a hook for a screen reader — and the focus walks on
+to the next control.
+
+**Tab goes on from where the operator is.** It used to go on from the last
+control Tab itself reached, so after clicking into another field, Tab jumped
+back to the old position.
+
+Tests: 5 new engine tests (Enter moves on; Enter stays when switched off;
+AutoEnter; passing through a Label; Enter not pressing the default button) and 4
+for the designer's ordering. `cobolt-forms` engine tests 33/33, IDE (tab order,
+i18n, KB freshness, property rows) 38/38, `cobolt-compiler` 136/136. System KB
+updated and `chunked.data` regenerated; Guide section *Tab order and the Enter
+key* added.
+
 ## [PowerRustCOBOL 1.70.150] — 2026-09-22
 
 ### A delivered application carried the developer's AI chat history

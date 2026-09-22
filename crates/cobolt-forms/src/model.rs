@@ -2984,6 +2984,9 @@ impl ControlType {
             ],
             ControlType::Label => &[
                 "onClick",
+                // Tab, Enter or a click reaching the Label in the tab order —
+                // see `ControlType::takes_tab_order`.
+                "onGotFocus",
                 "onDblClick",
                 "onDoubleClick",
                 "onRightClick",
@@ -4593,10 +4596,19 @@ impl Control {
         props.insert("DataItem".into(), PropValue::String("".into()));
         props.insert("DataFormat".into(), PropValue::String("".into()));
 
+        // ── Keyboard: Enter moves to the next control, like Tab ────────────────
+        // See `Control::enter_as_tab` for who honours it.
+        if control_type.supports_enter_as_tab() {
+            props.insert("EnterAsTab".into(), PropValue::Bool(true));
+        }
+
         // ── Type-specific props ────────────────────────────────────────────────
         match &control_type {
             ControlType::TextBox => {
                 props.insert("Text".into(), PropValue::String("".into()));
+                // Filling the box to its length acts as Enter — see
+                // `Control::auto_enter`.
+                props.insert("AutoEnter".into(), PropValue::Bool(false));
                 props.insert("HintText".into(), PropValue::String("".into()));
                 props.insert("TextAlignment".into(), PropValue::String("Left".into()));
                 props.insert(
@@ -6083,6 +6095,34 @@ impl Control {
         Some(crate::picture::default_textbox_picture(max_len, multiline))
     }
 
+    /// Does Enter in this control move the focus to the next control in the
+    /// tab order, as Tab does?
+    ///
+    /// **Absent means yes** on the types that support it, so a `.cfrm` written
+    /// before `EnterAsTab` existed behaves like a freshly dropped control. A
+    /// multi-line TextBox never does: Enter is its new line.
+    pub fn enter_as_tab(&self) -> bool {
+        if !self.control_type.supports_enter_as_tab() {
+            return false;
+        }
+        if self.control_type == ControlType::TextBox
+            && self.get_prop("Multiline").map(|v| v.as_bool()).unwrap_or(false)
+        {
+            return false;
+        }
+        self.get_prop("EnterAsTab").map(|v| v.as_bool()).unwrap_or(true)
+    }
+
+    /// Does filling this TextBox to its length act as pressing Enter?
+    ///
+    /// The length is the one the box already enforces — the explicit
+    /// `Picture`'s width, or `MaximumLength`. With neither there is no "full",
+    /// so the property does nothing. Absent means no.
+    pub fn auto_enter(&self) -> bool {
+        self.control_type == ControlType::TextBox
+            && self.get_prop("AutoEnter").map(|v| v.as_bool()).unwrap_or(false)
+    }
+
     pub fn get_prop(&self, name: &str) -> Option<&PropValue> {
         self.properties.get(name).or_else(|| {
             let lower = name.to_ascii_lowercase();
@@ -6625,6 +6665,49 @@ impl GlassStyle {
 }
 
 impl ControlType {
+    /// The types Tab (and Enter, where enabled) can land on at run time.
+    pub fn is_tab_stop(&self) -> bool {
+        matches!(
+            self,
+            ControlType::Button
+                | ControlType::TextBox
+                | ControlType::CheckBox
+                | ControlType::RadioButton
+                | ControlType::ListBox
+                | ControlType::ComboBox
+                | ControlType::DataGrid
+                | ControlType::DateTimePicker
+                | ControlType::NumericUpDown
+                | ControlType::TreeView
+                | ControlType::Slider
+                | ControlType::Custom { .. }
+        )
+    }
+
+    /// The types that hold a place in the form's tab order: every tab stop,
+    /// plus `Label`. A Label cannot keep the focus — when Tab or Enter reaches
+    /// one it raises `onGotFocus` and the focus walks straight on to the next
+    /// control — but it is numbered beside its field so the order reads the
+    /// way the form does, and so a screen reader can announce it.
+    pub fn takes_tab_order(&self) -> bool {
+        self.is_tab_stop() || matches!(self, ControlType::Label)
+    }
+
+    /// The types whose Enter key may move to the next control, as Tab does.
+    /// Controls that use Enter for themselves — a multi-line TextBox, a
+    /// ListBox, a DataGrid, a TreeView — are not among them.
+    pub fn supports_enter_as_tab(&self) -> bool {
+        matches!(
+            self,
+            ControlType::TextBox
+                | ControlType::ComboBox
+                | ControlType::NumericUpDown
+                | ControlType::DateTimePicker
+                | ControlType::CheckBox
+                | ControlType::RadioButton
+        )
+    }
+
     pub fn is_data_input_control(&self) -> bool {
         matches!(
             self,

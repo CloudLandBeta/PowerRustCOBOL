@@ -2689,6 +2689,10 @@ pub struct DesignerPanel {
     /// The ToolBar editor, while it is open. Edits its own copy of the
     /// definition, so Cancel really cancels.
     pub toolbar_modal: Option<super::toolbar_editor::ToolbarEditorModal>,
+    /// Visual Tab Order, while the mode is on: each click numbers a control.
+    pub tab_order_visual: Option<super::tab_order::VisualTabOrder>,
+    /// The Tab Order list, while it is open.
+    pub tab_order_modal: Option<super::tab_order::TabOrderModal>,
 
     // ── Event editor modal ────────────────────────────────────────────────────
     /// When `Some`, a modal COBOL code editor is displayed over the canvas.
@@ -2874,6 +2878,8 @@ impl DesignerPanel {
             press_line_anchor: None,
             menu_modal: None,
             toolbar_modal: None,
+            tab_order_visual: None,
+            tab_order_modal: None,
             event_modal: None,
             event_editor: super::editor::EditorPanel::new(),
             ai_prompt_editor: super::editor::EditorPanel::new(),
@@ -4407,6 +4413,11 @@ impl DesignerPanel {
             .max()
             .unwrap_or(-1);
         ctrl.z_order = max_z + 1;
+        // …and the next place in the tab order, so Tab visits controls in the
+        // order they were placed until the developer says otherwise. Every
+        // designed control used to arrive as 0.
+        let max_tab = self.form.controls.iter().map(|c| c.tab_order).max().unwrap_or(0);
+        ctrl.tab_order = max_tab + 1;
         // Controls whose control intrinsically shows a text label get a Caption.
         let has_caption = matches!(
             ct,
@@ -6503,6 +6514,84 @@ impl DesignerPanel {
         !self.redo_stack.is_empty()
     }
 
+    /// Turn Visual Tab Order on, or — when it is on — off, writing the order
+    /// the clicks built. Toggling off is how the task finishes.
+    pub(crate) fn toggle_visual_tab_order(&mut self) {
+        if let Some(visual) = self.tab_order_visual.take() {
+            self.apply_tab_order(&visual.order);
+            return;
+        }
+        // One tab-order editor at a time, and no painter waiting for a click
+        // that the mode would swallow.
+        self.tab_order_modal = None;
+        self.format_painter = FormatPainter::Idle;
+        self.tab_order_visual = Some(super::tab_order::VisualTabOrder::start(&self.form));
+    }
+
+    /// Open the Tab Order list. A Visual Tab Order session in progress is
+    /// finished first, so the list starts from the order it built.
+    pub(crate) fn open_tab_order_list(&mut self) {
+        if let Some(visual) = self.tab_order_visual.take() {
+            self.apply_tab_order(&visual.order);
+        }
+        let mut modal = super::tab_order::TabOrderModal::new(&self.form);
+        modal.select_id(self.selected_ids.first().map(String::as_str));
+        self.tab_order_modal = Some(modal);
+    }
+
+    /// Write `order` to the form as `TabOrder` 1, 2, 3 …, as ONE undo step.
+    /// Controls already holding their number are left alone.
+    pub(crate) fn apply_tab_order(&mut self, order: &[String]) {
+        let mut batch: Vec<Cmd> = Vec::new();
+        for (id, number) in super::tab_order::numbering(order) {
+            let Some(current) = self.form.find_control(&id).map(|c| c.tab_order) else {
+                continue;
+            };
+            if current == number {
+                continue;
+            }
+            let before = self.undo_stack.len();
+            self.set_property(&id, "TabOrder", PropValue::Int(number as i64));
+            batch.extend(self.undo_stack.drain(before..));
+        }
+        if batch.is_empty() {
+            return;
+        }
+        self.undo_stack.push(Cmd::Batch { cmds: batch });
+        self.redo_stack.clear();
+        self.dirty = true;
+    }
+
+    /// The Tab Order list, while it is open. Returns whether it changed the
+    /// designer's selection.
+    fn show_tab_order_list(&mut self, ui: &mut Ui) -> bool {
+        let primary = self.selected_ids.first().cloned();
+        let Some(modal) = self.tab_order_modal.as_mut() else {
+            return false;
+        };
+        // The list follows the form: a control clicked on the canvas is the
+        // row selected here.
+        modal.select_id(primary.as_deref());
+        let tr = crate::i18n::current_tr(ui.ctx());
+        let theme = crate::theme::active();
+        match modal.show(ui.ctx(), &theme, &tr) {
+            super::tab_order::TabOrderOutcome::Open => false,
+            super::tab_order::TabOrderOutcome::Selected(id) => {
+                self.select_only(&id);
+                true
+            }
+            super::tab_order::TabOrderOutcome::Cancelled => {
+                self.tab_order_modal = None;
+                false
+            }
+            super::tab_order::TabOrderOutcome::Apply(order) => {
+                self.tab_order_modal = None;
+                self.apply_tab_order(&order);
+                false
+            }
+        }
+    }
+
     /// Toggle the format-painter state machine.
     pub(crate) fn toggle_format_painter(&mut self) {
         match &self.format_painter {
@@ -8262,6 +8351,21 @@ impl DesignerPanel {
                     }
                 }
 
+                // Tab order numbers, beside every tab-order control, while
+                // either editor is open: the clicked ones (or the selected row)
+                // in the accent colour.
+                if let Some(visual) = &self.tab_order_visual {
+                    let picked = visual.picked();
+                    super::tab_order::paint_numbers(&painter, &control_rects, &visual.order, &|i, _| {
+                        i < picked
+                    });
+                } else if let Some(modal) = &self.tab_order_modal {
+                    let selected = modal.selected_id().map(str::to_owned);
+                    super::tab_order::paint_numbers(&painter, &control_rects, &modal.order(), &|_, id| {
+                        selected.as_deref() == Some(id)
+                    });
+                }
+
                 // Refresh all databindings (so DataGrids get updated Rows etc. live in canvas too)
                 // + special array seeding for counts + per-row preview_state for ghosts.
                 refresh_data_binding_target_properties(&mut self.form);
@@ -8921,6 +9025,9 @@ impl DesignerPanel {
 
         // ── Toolbar Editor Modal ────────────────────────────────────────────
         self.show_toolbar_editor(ui);
+
+        // ── Tab Order list ──────────────────────────────────────────────────
+        selection_changed |= self.show_tab_order_list(ui);
 
         // ── Event Editor Modal ──────────────────────────────────────────────────
         self.show_event_modal(ui, llm_cfg, project_root);
@@ -12135,6 +12242,24 @@ impl DesignerPanel {
             None => return,
         };
 
+        // ── Visual Tab Order: every click numbers a control ─────────────────
+        // Nothing moves or resizes while the mode is on; a click on a control
+        // outside the tab order (a Panel, a picture) simply does not count.
+        if self.tab_order_visual.is_some() {
+            resp.ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+            if resp.clicked() {
+                if let Some(target_id) = self.hit_top_id(px, py) {
+                    if let Some(visual) = self.tab_order_visual.as_mut() {
+                        if visual.click(&target_id) {
+                            self.select_only(&target_id);
+                            *selection_changed = true;
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
         // ── Format Painter: intercept clicks while in WaitingForTarget mode ───
         if matches!(self.format_painter, FormatPainter::WaitingForTarget { .. }) {
             resp.ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
@@ -13809,6 +13934,9 @@ pub(crate) enum DesignerToolbarAction {
     // Style
     FormatPainter,
     AutoArrange,
+    // Tab order
+    ToggleVisualTabOrder,
+    OpenTabOrderList,
     // Debug
     DebugForm,
 }
@@ -13834,6 +13962,12 @@ pub(crate) fn draw_icon_toolbar(
     clipboard_duplicate: &str,
     // The Format Painter's tip, SHIFT behaviour included (`tr.tb_format_painter`).
     format_painter_tip: &str,
+    // Tips for the two tab-order buttons (`tr.tb_visual_tab_order`,
+    // `tr.tb_tab_order_list`).
+    visual_tab_order_tip: &str,
+    tab_order_list_tip: &str,
+    // Visual Tab Order is on — its button reads as engaged.
+    tab_order_on: bool,
     preview_on: bool,
     grid_on: bool,
     glass_on: bool,
@@ -14196,6 +14330,22 @@ pub(crate) fn draw_icon_toolbar(
             &icon_auto_arrange,
         ) {
             action = DesignerToolbarAction::AutoArrange;
+        }
+
+        group_separator(ui, group_gap);
+
+        // ── Group 8: Tab order ───────────────────────────────────────────────
+        if icon_btn(
+            ui,
+            true,
+            tab_order_on,
+            visual_tab_order_tip,
+            &icon_visual_tab_order,
+        ) {
+            action = DesignerToolbarAction::ToggleVisualTabOrder;
+        }
+        if icon_btn(ui, true, false, tab_order_list_tip, &icon_tab_order_list) {
+            action = DesignerToolbarAction::OpenTabOrderList;
         }
 
     });
@@ -14942,6 +15092,48 @@ fn icon_format_painter(out: &mut Vec<Shape>, r: Rect, c: Color32) {
         Stroke::new(1.2, c),
     ));
     out.push(Shape::circle_filled(Pos2::new(cx + 2.0, cy + 8.0), 1.5, c));
+}
+
+/// Visual Tab Order: three fields joined by the path Tab takes through them.
+fn icon_visual_tab_order(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+    let s = Stroke::new(1.4, c);
+    let sr = r.shrink(3.0);
+    let box_w = sr.width() * 0.34;
+    let box_h = 5.0;
+    let tops = [sr.min.y, sr.center().y - box_h / 2.0, sr.max.y - box_h];
+    let lefts = [sr.min.x, sr.max.x - box_w, sr.min.x];
+    for (x, y) in lefts.iter().zip(tops.iter()) {
+        out.push(Shape::rect_stroke(
+            Rect::from_min_size(Pos2::new(*x, *y), Vec2::new(box_w, box_h)),
+            1.0,
+            s,
+            egui::StrokeKind::Middle,
+        ));
+    }
+    let a = Pos2::new(sr.min.x + box_w, tops[0] + box_h / 2.0);
+    let b = Pos2::new(sr.max.x - box_w, tops[1] + box_h / 2.0);
+    let d = Pos2::new(sr.min.x + box_w, tops[2] + box_h / 2.0);
+    out.push(Shape::line_segment([a, b], s));
+    out.push(Shape::line_segment([b, d], s));
+    // Arrow head on the last leg.
+    let dir = (d - b).normalized();
+    let side = Vec2::new(-dir.y, dir.x);
+    out.push(Shape::line_segment([d, d - dir * 4.0 + side * 3.0], s));
+    out.push(Shape::line_segment([d, d - dir * 4.0 - side * 3.0], s));
+}
+
+/// The Tab Order list: numbered rows.
+fn icon_tab_order_list(out: &mut Vec<Shape>, r: Rect, c: Color32) {
+    let s = Stroke::new(1.4, c);
+    let sr = r.shrink(3.0);
+    for i in 0..3 {
+        let y = sr.min.y + 3.0 + i as f32 * (sr.height() - 6.0) / 2.0;
+        out.push(Shape::circle_filled(Pos2::new(sr.min.x + 2.5, y), 2.0, c));
+        out.push(Shape::line_segment(
+            [Pos2::new(sr.min.x + 7.0, y), Pos2::new(sr.max.x, y)],
+            s,
+        ));
+    }
 }
 
 fn icon_auto_arrange(out: &mut Vec<Shape>, r: Rect, c: Color32) {

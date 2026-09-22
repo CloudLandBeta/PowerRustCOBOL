@@ -4577,6 +4577,23 @@ impl PropertiesPanel {
                     .push((id.to_owned(), "TabOrder".into(), PropValue::Int(to)));
             }
         });
+        // Enter moves on, as Tab does. Absent reads as on — see
+        // `Control::enter_as_tab`.
+        if ctrl.control_type.supports_enter_as_tab() {
+            let mut enter_as_tab = ctrl
+                .get_prop("EnterAsTab")
+                .map(|v| v.as_bool())
+                .unwrap_or(true);
+            property_row(ui, "EnterAsTab", |ui| {
+                if ui.checkbox(&mut enter_as_tab, "").changed() {
+                    action.set_props.push((
+                        id.to_owned(),
+                        "EnterAsTab".into(),
+                        PropValue::Bool(enter_as_tab),
+                    ));
+                }
+            });
+        }
         // Transparency, not Opacity: 0 % is opaque and 100 % lets the form (or
         // whatever control sits underneath) through completely. Reading through
         // `transparency_of` means a form saved before the rename still shows the
@@ -6081,6 +6098,7 @@ impl PropertiesPanel {
                 bool_row_inline(ui, id, "Multiline", "Multiline", ctrl, action);
                 bool_row_inline(ui, id, "WordWrap", "WordWrap", ctrl, action);
                 bool_row_inline(ui, id, "ReadOnly", "ReadOnly", ctrl, action);
+                bool_row_inline(ui, id, "AutoEnter", "AutoEnter", ctrl, action);
                 {
                     let buf_key = format!("{id}-PasswordChar");
                     let wid = egui::Id::new(&buf_key);

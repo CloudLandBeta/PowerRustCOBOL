@@ -1583,6 +1583,77 @@ without the property are left alone rather than given it, and identity — the
 control ID, tab order and parent — is never shared, since two controls cannot
 have the same one.
 
+### Tab order and the Enter key
+
+The **tab order** is the path the keyboard takes through a running form: Tab
+moves to the next control, Shift+Tab to the previous one, and both wrap around.
+Each control's place is its `TabOrder` property. A control you drop on the form
+takes the next number, so until you say otherwise Tab follows the order you
+placed things in — the same default PowerCOBOL and isCOBOL give you.
+
+Two toolbar buttons at the right end of the designer toolbar set it:
+
+- **Visual Tab Order** — toggle it on, then click the controls in the order Tab
+  should visit them. Every control that takes part shows its number beside it;
+  the ones you have clicked in this session show it in the accent colour, and
+  the rest keep their previous order after them. Clicked the wrong one? Click on
+  in the right order — a control clicked again moves to the latest number.
+  Nothing moves or resizes while the mode is on. **Toggle the button off to
+  finish**: the new order is written to the form as one undo step.
+- **Tab Order list** — a window listing the same controls, first to last. Drag a
+  row, or select it and use **▲ / ▼**, to move it. Selecting a row selects that
+  control on the form, and the numbers are shown beside the controls while the
+  window is open. **Apply** writes the order (one undo step); **Cancel** leaves
+  the form as it was.
+
+> 📷 Screenshot needed — `designer-visual-tab-order.png`. Capture a form with
+> four or five labelled fields while Visual Tab Order is on and two controls
+> have been clicked, so both badge colours show.
+
+> 📷 Screenshot needed — `designer-tab-order-list.png`. Capture the Tab Order
+> list over the same form with one row selected and being dragged, showing the
+> insertion line.
+
+**Who takes part.** Controls that can take the keyboard — Button, TextBox,
+CheckBox, RadioButton, ListBox, ComboBox, DataGrid, DateTimePicker,
+NumericUpDown, TreeView, Slider — and **Label**. At run time only the visible,
+enabled ones are visited.
+
+**Labels never keep the focus.** A Label is numbered so the order reads the way
+the form does, but when Tab, Enter or a click reaches it, it raises
+`onGotFocus` and the focus walks straight on to the next control. That is your
+hook for accessibility — announcing the field about to be filled, for example:
+
+```cobol
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CUSTOMER-LABEL--ONGOTFOCUS.
+       PROCEDURE DIVISION.
+      *> Hand the caption to whatever reads the screen aloud.
+           DISPLAY "Customer name"
+           GOBACK.
+```
+
+**Enter can move on, like Tab.** On a TextBox, ComboBox, NumericUpDown,
+DateTimePicker, CheckBox or RadioButton, the property **`EnterAsTab`** (on by
+default) makes Enter move to the next control in the tab order. `onEnterPressed`
+still fires first, so a handler that validates on Enter keeps working. Switch it
+off on a control where Enter should stay put. It has no effect on a multi-line
+TextBox, where Enter is the new line, and an open ComboBox list keeps Enter to
+pick its item.
+
+**`AutoEnter` fills and moves on.** On a TextBox, `AutoEnter` makes the
+keystroke that fills the box count as Enter: `onEnterPressed` fires and, with
+`EnterAsTab` on, the focus moves on. "Full" means the length the box already
+enforces — an explicit `Picture`'s width, or `MaximumLength`. A box with neither
+is never full, so the property does nothing there. This is the classic
+data-entry rhythm: type a six-digit date into `9(6)` and the cursor is already
+in the next field.
+
+> ⚠️ **Enter and the default button.** An Enter that moved the focus is spent:
+> it does not also press the form's `IsDefault` button. With the focus on a
+> control whose `EnterAsTab` is off (or on a Button), Enter reaches the default
+> button exactly as before.
+
 ### Target devices
 
 The **Target Device** section lets you size the form for a real device profile

@@ -682,6 +682,16 @@ fn seed_missing_props(form: &mut Form) {
                 c.set_prop(*key, value.clone());
             }
         }
+        // Keyboard keys added after these controls shipped: the row appears in
+        // the pane, and the value is the reader's own default, so nothing a
+        // saved form does changes.
+        for key in ["EnterAsTab", "AutoEnter"] {
+            if c.get_prop(key).is_none() {
+                if let Some(value) = seeded.get_prop(key) {
+                    c.set_prop(key, value.clone());
+                }
+            }
+        }
         match c.control_type {
             // Border keys arrived after these controls shipped. Without the
             // backfill an existing .cfrm keeps no border property at all, and
