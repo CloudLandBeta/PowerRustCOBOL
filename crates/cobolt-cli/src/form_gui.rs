@@ -110,6 +110,18 @@ fn parse_fx_args(
     )
 }
 
+/// `--focus-ring <#RRGGBB>` and `--focus-pulse`: how keyboard focus is marked.
+fn parse_focus_ring_args(args: &[String]) -> cobolt_forms::render::FocusRing {
+    let color = args
+        .iter()
+        .position(|a| a == "--focus-ring")
+        .and_then(|i| args.get(i + 1))
+        .map(String::as_str)
+        .unwrap_or("");
+    let pulse = args.iter().any(|a| a == "--focus-pulse");
+    cobolt_forms::render::FocusRing::from_settings(color, pulse)
+}
+
 /// Exit code for an application whose own records disagree about which form
 /// is the main one. Distinct from a plain failure so a launcher can tell
 /// "this copy has been tampered with" from "this program has a bug".
@@ -248,6 +260,9 @@ pub fn cmd_run_form(args: &[String]) {
     // shared truthiness rule (spec 042 R28).
     let fx_killed = env_flag("PRC_NO_WINDOW_FX");
     let (fx_entrance, fx_exit, fx_restore) = parse_fx_args(args, fx_killed);
+    // The project's focus ring (`[forms] focus-ring-color` / `-pulse`), passed
+    // by the IDE; absent means the renderer's default.
+    cobolt_forms::render::set_focus_ring(parse_focus_ring_args(args));
 
     // ── Load the form layout ──────────────────────────────────────────────────
     let form = match cobolt_forms::load_form(&cfrm_path) {

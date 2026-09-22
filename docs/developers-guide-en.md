@@ -1669,6 +1669,18 @@ is never full, so the property does nothing there. This is the classic
 data-entry rhythm: type a six-digit date into `9(6)` and the cursor is already
 in the next field.
 
+**Seeing where the keyboard is.** While the user moves through a running form
+with Tab, Shift+Tab or Enter, the control that has the focus wears a border —
+the *focus ring* — so a data-entry operator never loses their place. It is a
+project setting, the same for every form: **Settings → Appearance → Keyboard
+focus ring** picks the colour (a blue by default) and, optionally, **Pulse**,
+which makes the border breathe slowly. The ring goes the moment the focus leaves
+the control, and a mouse click hides it — it marks keyboard navigation, not the
+last thing clicked. Run Form and your built application show it the same way.
+
+> 📷 Screenshot needed — `running-form-focus-ring.png`. Capture a running form
+> after pressing Tab twice, so the second field shows the focus ring.
+
 > ⚠️ **Enter and the default button.** An Enter that moved the focus is spent:
 > it does not also press the form's `IsDefault` button. With the focus on a
 > control whose `EnterAsTab` is off (or on a Button), Enter reaches the default

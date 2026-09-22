@@ -317,6 +317,15 @@ pub struct FormsConfig {
     #[serde(default, rename = "entrance-on-restore")]
     pub entrance_on_restore: bool,
 
+    // ── Keyboard focus — PROJECT-level, applied to every form ─────────────
+    /// The border marking the control the keyboard (Tab, Shift+Tab, Enter as
+    /// Tab) moved the focus to, as `#RRGGBB`. Empty ⇒ the renderer's default.
+    #[serde(default, rename = "focus-ring-color")]
+    pub focus_ring_color: String,
+    /// Pulse that border slowly while the control keeps the focus.
+    #[serde(default, rename = "focus-ring-pulse")]
+    pub focus_ring_pulse: bool,
+
     // ── The main-form designation, and its seal ────────────────────────────
     // Only the main form starts an application: `rcrun` and a built binary
     // open the form the project designates, never one a caller names. These
@@ -369,6 +378,8 @@ impl Default for FormsConfig {
             exit_ms: Self::default_exit_ms(),
             exit_easing: String::new(),
             entrance_on_restore: false,
+            focus_ring_color: String::new(),
+            focus_ring_pulse: false,
             // No designation until a save records one from the form files.
             main_form: String::new(),
             main_form_seal: String::new(),

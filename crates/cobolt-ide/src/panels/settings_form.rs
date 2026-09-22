@@ -56,6 +56,9 @@ pub struct SettingsDraft {
     pub fx_exit_ms: u32,
     pub fx_exit_easing: String,
     pub fx_restore: bool,
+    // ── Keyboard focus ring (project-level) ──
+    pub focus_ring_color: String,
+    pub focus_ring_pulse: bool,
     // ── Runtime ──
     pub fixed_format: bool,
     // ── Run-Form inspector ──
@@ -150,6 +153,8 @@ impl SettingsDraft {
             fx_exit_ms: p.forms.exit_ms,
             fx_exit_easing: p.forms.exit_easing.clone(),
             fx_restore: p.forms.entrance_on_restore,
+            focus_ring_color: p.forms.focus_ring_color.clone(),
+            focus_ring_pulse: p.forms.focus_ring_pulse,
             fixed_format: p.runtime.fixed_format,
             insp_dump_enabled: p.ide.inspector_dump_enabled,
             insp_dump_path: p.ide.inspector_dump_path.clone(),
@@ -230,6 +235,8 @@ impl SettingsDraft {
         p.forms.exit_ms = self.fx_exit_ms;
         p.forms.exit_easing = self.fx_exit_easing.clone();
         p.forms.entrance_on_restore = self.fx_restore;
+        p.forms.focus_ring_color = self.focus_ring_color.clone();
+        p.forms.focus_ring_pulse = self.focus_ring_pulse;
         p.runtime.fixed_format = self.fixed_format;
         p.ide.inspector_dump_enabled = self.insp_dump_enabled;
         p.ide.inspector_dump_path = self.insp_dump_path.clone();
@@ -1852,6 +1859,44 @@ impl SettingsForm {
                                 }
                             }
                         }
+
+                        // Keyboard focus ring — the border marking the control Tab
+                        // moved to, in every form of the project. Colour + pulse.
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new(tr.set_focus_ring).truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            ui.horizontal(|ui| {
+                                let mut colour = if self.draft.focus_ring_color.trim().is_empty() {
+                                    cobolt_forms::render::FocusRing::DEFAULT_COLOR
+                                } else {
+                                    crate::panels::properties::hex_to_color32(
+                                        &self.draft.focus_ring_color,
+                                    )
+                                };
+                                if crate::panels::properties::color_edit_button_closing(
+                                    ui,
+                                    &mut colour,
+                                )
+                                .changed()
+                                {
+                                    self.draft.focus_ring_color =
+                                        crate::panels::properties::color32_to_hex(colour);
+                                }
+                                ui.checkbox(&mut self.draft.focus_ring_pulse, tr.set_focus_ring_pulse);
+                            });
+                        });
 
                         // Background image (the button row + shown path is the "value")
                         ui.horizontal_top(|ui| {

@@ -373,6 +373,9 @@ impl ExternalFormRun {
         // The project's default indexed engine ("" = the runtime's own). Only
         // governs files the form CREATES; an existing container names its own.
         indexed_engine: Option<&str>,
+        // The project's focus ring: colour ("" = the renderer's default) and
+        // whether it pulses. `None` passes nothing, which is the same default.
+        focus_ring: Option<(&str, bool)>,
     ) -> Result<Self, String> {
         let exe = std::env::current_exe().map_err(|e| format!("failed to get current exe: {e}"))?;
         let rcrun_path = sibling_rcrun(&exe);
@@ -398,6 +401,14 @@ impl ExternalFormRun {
             if let Some(engine) = indexed_engine {
                 if !engine.trim().is_empty() {
                     cmd.arg("--indexed-engine").arg(engine);
+                }
+            }
+            if let Some((color, pulse)) = focus_ring {
+                if !color.trim().is_empty() {
+                    cmd.arg("--focus-ring").arg(color.trim());
+                }
+                if pulse {
+                    cmd.arg("--focus-pulse");
                 }
             }
             // 038 — window effects, already resolved by the IDE.

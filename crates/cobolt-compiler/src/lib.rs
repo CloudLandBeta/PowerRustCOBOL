@@ -756,6 +756,28 @@ struct ProjectFiles {
     indexed: Vec<String>,
 }
 
+/// The two focus-ring constants every generated `main.rs` carries, as
+/// `generate_main_rs` writes them. `build_core` replaces them with the
+/// project's own values, so the generator's many callers need not know.
+const FOCUS_RING_COLOR_DEFAULT_LINE: &str = "const PROJECT_FOCUS_RING_COLOR: &str = \"\";";
+const FOCUS_RING_PULSE_DEFAULT_LINE: &str = "const PROJECT_FOCUS_RING_PULSE: bool = false;";
+
+/// Put the project's focus ring into a generated `main.rs`.
+fn bake_focus_ring(main_rs: String, color: &str, pulse: bool) -> String {
+    main_rs
+        .replace(
+            FOCUS_RING_COLOR_DEFAULT_LINE,
+            &format!(
+                "const PROJECT_FOCUS_RING_COLOR: &str = \"{}\";",
+                color.trim().escape_default()
+            ),
+        )
+        .replace(
+            FOCUS_RING_PULSE_DEFAULT_LINE,
+            &format!("const PROJECT_FOCUS_RING_PULSE: bool = {pulse};"),
+        )
+}
+
 /// The `[forms]` section of `cobolt.toml` — the project's default form theme
 /// (spec 007). Empty/absent ⇒ Liquid Glass.
 #[derive(Deserialize, Default)]
@@ -779,6 +801,11 @@ struct FormsConfig {
     exit_easing: String,
     #[serde(default, rename = "entrance-on-restore")]
     entrance_on_restore: bool,
+    // How keyboard focus is marked in every form. Empty colour ⇒ the default.
+    #[serde(default, rename = "focus-ring-color")]
+    focus_ring_color: String,
+    #[serde(default, rename = "focus-ring-pulse")]
+    focus_ring_pulse: bool,
 }
 
 /// The `[integrations]` table — the non-secret half of the project's external
@@ -1964,6 +1991,11 @@ fn build_core(
         }
         .to_json(),
     );
+    let main_rs = bake_focus_ring(
+        main_rs,
+        &proj.forms.focus_ring_color,
+        proj.forms.focus_ring_pulse,
+    );
     write_if_changed(&src_dir.join("main.rs"), main_rs.as_bytes())?;
 
     // ── 10. Run cargo build --release ─────────────────────────────────────────
@@ -3035,7 +3067,10 @@ fn generate_main_rs(
          #[allow(dead_code)]\nconst PROJECT_FX_ENTRANCE: &str = \"{}\";\n\
          #[allow(dead_code)]\nconst PROJECT_FX_EXIT: &str = \"{}\";\n\
          /// Replay the entrance when the window is restored after minimizing.\n\
-         #[allow(dead_code)]\nconst PROJECT_FX_ON_RESTORE: bool = {};\n",
+         #[allow(dead_code)]\nconst PROJECT_FX_ON_RESTORE: bool = {};\n\
+         /// How keyboard focus is marked (`[forms] focus-ring-color` / `-pulse`).\n\
+         #[allow(dead_code)]\n{FOCUS_RING_COLOR_DEFAULT_LINE}\n\
+         #[allow(dead_code)]\n{FOCUS_RING_PULSE_DEFAULT_LINE}\n",
         entrance_fx.escape_default(),
         exit_fx.escape_default(),
         entrance_on_restore
@@ -3242,6 +3277,11 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     // 042 R11 — window effects: the baked project settings × the form's own
     // `WindowEffects` opt-out × the machine kill switch, the same resolution
     // rule the IDE applies before Run Form.
+    // The project's focus ring, for every form this process shows.
+    cobolt_forms::render::set_focus_ring(cobolt_forms::render::FocusRing::from_settings(
+        PROJECT_FOCUS_RING_COLOR,
+        PROJECT_FOCUS_RING_PULSE,
+    ));
     let fx_killed = cobolt_form_host::diagnostics::env_flag("PRC_NO_WINDOW_FX");
     let fx_on = first_form.window_effects && !fx_killed;
     let (fx_entrance, fx_exit, fx_restore) = if fx_on {
@@ -4013,6 +4053,7 @@ The PowerRustCOBOL IDE provides RAD (Rapid Application Development) capabilities
 - A WYSIWYG visual layout canvas with grid snapping.
 - Visual positioning (X, Y) and sizing (Width, Height) of controls.
 - Tab-order management for keyboard navigation: **Visual Tab Order** (toggle it, click the controls in the order Tab should visit them — each shows its number — and toggle it off to finish) and the **Tab Order list** (drag a row or use ▲ ▼, selecting a row selects the control; Apply or Cancel). A newly placed control takes the next number.
+- Keyboard focus ring: while the operator moves through a running form with Tab, Shift+Tab or Enter-as-Tab, the focused control carries a border in the project's focus-ring colour (Settings → Appearance → Keyboard focus ring; `[forms] focus-ring-color` in cobolt.toml, empty = a default blue), optionally pulsing slowly (`focus-ring-pulse`). It goes the moment the focus leaves the control or the pointer is pressed. The same in Run Form and in a built application.
 - Container hierarchies (e.g. Panels, TabControls) establishing parent-child ownership.
 
 ## Predefined Form Styles
@@ -7979,6 +8020,25 @@ mod resolve_main_tests {
         );
         assert!(quiet.contains(r#"const PROJECT_FX_ENTRANCE: &str = "none:600:ease-out";"#));
         assert!(quiet.contains("const PROJECT_FX_ON_RESTORE: bool = false;"));
+    }
+
+    /// The project's focus ring is baked into the generated glue and handed to
+    /// the renderer before the first form is shown; with none set, the
+    /// generator's defaults stand and the renderer uses its default colour.
+    #[test]
+    fn generated_glue_bakes_the_focus_ring() {
+        let src = generate_main_rs(
+            "Demo", "1.2.3", true, &["MAIN"], "MAIN", &[], &[], &[], "",
+            "none:600:ease-out", "none:600:ease-out", false,
+        "[]",
+        );
+        assert!(src.contains(r#"const PROJECT_FOCUS_RING_COLOR: &str = "";"#));
+        assert!(src.contains("const PROJECT_FOCUS_RING_PULSE: bool = false;"));
+        assert!(src.contains("cobolt_forms::render::set_focus_ring("));
+
+        let baked = bake_focus_ring(src, " #FF8800 ", true);
+        assert!(baked.contains(r##"const PROJECT_FOCUS_RING_COLOR: &str = "#FF8800";"##));
+        assert!(baked.contains("const PROJECT_FOCUS_RING_PULSE: bool = true;"));
     }
 
     /// The `[forms]` values reach the baked triples through `fx_triple` —

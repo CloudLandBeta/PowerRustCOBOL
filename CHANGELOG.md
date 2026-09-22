@@ -8,6 +8,29 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.157] — 2026-09-22
+
+### A running form now shows where the keyboard is
+
+While the user moves through a running form with Tab, Shift+Tab, Enter-as-Tab
+or an AutoEnter box filling, the focused control wears a **focus ring**: a
+border in the project's colour, optionally pulsing slowly. It goes the moment
+the focus leaves the control, and a pointer press hides it — it marks keyboard
+navigation, not the last thing clicked.
+
+It is a project setting, applied to every form: **Settings → Appearance →
+Keyboard focus ring** (colour + Pulse), stored as `[forms] focus-ring-color` and
+`focus-ring-pulse` in `cobolt.toml`. An empty colour means a default blue. The
+IDE hands it to `rcrun run-form` as `--focus-ring <#RRGGBB>` / `--focus-pulse`;
+a built application carries it as baked constants, since it has no manifest to
+read. One renderer draws it, so Run Form, child and embedded forms, and the
+compiled binary look the same.
+
+Tests: `engine_focus_ring_follows_the_keyboard_only`,
+`engine_focus_ring_settings_fall_back_to_the_default_colour`,
+`generated_glue_bakes_the_focus_ring`. New IDE strings in all six languages.
+System KB regenerated; Guide updated.
+
 ## [PowerRustCOBOL 1.70.156] — 2026-09-22
 
 ### Six more defects, found while surveying specs 067 and 072 and the debugger

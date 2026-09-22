@@ -2137,9 +2137,15 @@ fn render_form_inner(
     // other control. The Control itself is out of reach by then, so everything
     // the popup needs travels with it.
     let mut open_combos: Vec<OpenCombo> = Vec::new();
+    let mut tab_targets: Vec<TabTarget> = Vec::new();
     let tab_step = if interactive {
         apply_pending_tab_focus(ui);
-        let mut tab_targets = collect_tab_targets(scope, input, controls, &order);
+        // A press of the pointer is not keyboard navigation: the focus ring
+        // goes, whatever the press lands on.
+        if ui.input(|i| i.pointer.any_pressed()) {
+            ui.data_mut(|d| d.insert_temp(keyboard_focus_id(), None::<egui::Id>));
+        }
+        tab_targets = collect_tab_targets(scope, input, controls, &order);
 
         resolve_tab_traversal(ui, &mut tab_targets)
     } else {
@@ -2439,6 +2445,9 @@ fn render_form_inner(
     );
     draw_deferred_groupbox_captions(&painter, input, &out);
     draw_deferred_tabcontrol_tabs(&painter, input, &out);
+    if interactive {
+        paint_focus_ring(ui, &painter, controls, &tab_targets, &out);
+    }
 
     clear_radio_group_siblings(input, controls, &mut out);
     move_radio_focus(ui, scope, controls, &out);
@@ -2734,6 +2743,116 @@ fn tab_pending_id() -> egui::Id {
     egui::Id::new("powerrustcobol-tab-order-pending")
 }
 
+/// The control the keyboard last moved the focus to — Tab, Shift+Tab, an
+/// `EnterAsTab` Enter, an `AutoEnter` box filling. Cleared by any pointer
+/// press, so the focus ring shows only while the operator is navigating by
+/// keyboard.
+fn keyboard_focus_id() -> egui::Id {
+    egui::Id::new("powerrustcobol-keyboard-focus")
+}
+
+/// How the focused control is marked while the operator navigates by
+/// keyboard: a border in `color`, optionally pulsing slowly. A project
+/// setting (`[forms] focus-ring-color` / `focus-ring-pulse`), handed to the
+/// renderer once per process by whoever hosts the form — `rcrun run-form` from
+/// its command line, a built application from its baked-in constants.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FocusRing {
+    pub color: egui::Color32,
+    pub pulse: bool,
+}
+
+impl FocusRing {
+    /// The colour a project that names none gets.
+    pub const DEFAULT_COLOR: egui::Color32 = egui::Color32::from_rgb(0x2F, 0x80, 0xED);
+
+    /// From the project's settings: an empty or unreadable colour means the
+    /// default one.
+    pub fn from_settings(color: &str, pulse: bool) -> Self {
+        let color = crate::paint::parse_hex(color.trim()).unwrap_or(Self::DEFAULT_COLOR);
+        Self { color, pulse }
+    }
+}
+
+impl Default for FocusRing {
+    fn default() -> Self {
+        Self {
+            color: Self::DEFAULT_COLOR,
+            pulse: false,
+        }
+    }
+}
+
+static FOCUS_RING: std::sync::RwLock<Option<FocusRing>> = std::sync::RwLock::new(None);
+
+/// Set how this process marks keyboard focus. Called once at start-up by the
+/// host; a surface that never calls it gets [`FocusRing::default`].
+pub fn set_focus_ring(ring: FocusRing) {
+    if let Ok(mut slot) = FOCUS_RING.write() {
+        *slot = Some(ring);
+    }
+}
+
+/// How this process marks keyboard focus.
+pub fn focus_ring() -> FocusRing {
+    FOCUS_RING
+        .read()
+        .ok()
+        .and_then(|slot| *slot)
+        .unwrap_or_default()
+}
+
+/// Seconds for one full pulse — slow on purpose: it says "here", it does not
+/// flash.
+const FOCUS_PULSE_SECS: f64 = 1.6;
+
+/// Draw the focus ring around the control the keyboard moved to, while it
+/// still has the focus. Nothing is drawn once the focus leaves it or the
+/// pointer is pressed.
+fn paint_focus_ring(
+    ui: &egui::Ui,
+    painter: &egui::Painter,
+    controls: &[Control],
+    targets: &[TabTarget],
+    out: &RenderOutput,
+) {
+    let Some(focused) = ui.ctx().memory(|m| m.focused()) else {
+        return;
+    };
+    let by_keyboard = ui
+        .data(|d| d.get_temp::<Option<egui::Id>>(keyboard_focus_id()))
+        .flatten();
+    if by_keyboard != Some(focused) {
+        return;
+    }
+    let Some(target) = targets.iter().find(|t| t.focus_id == focused && !t.is_label) else {
+        return;
+    };
+    let Some(rect) = out.control_rects.get(&target.ctrl_id) else {
+        return;
+    };
+    let radius = controls
+        .iter()
+        .find(|c| c.id == target.ctrl_id)
+        .map_or(0.0, crate::paint::corner_radius);
+    let ring = focus_ring();
+    let alpha = if ring.pulse {
+        let t = ui.input(|i| i.time);
+        let phase = (t / FOCUS_PULSE_SECS * std::f64::consts::TAU).cos() as f32;
+        // Between 35 % and 100 %: it breathes, it never vanishes.
+        ui.ctx().request_repaint();
+        0.35 + 0.65 * (0.5 + 0.5 * phase)
+    } else {
+        1.0
+    };
+    painter.rect_stroke(
+        rect.expand(2.0),
+        radius + 2.0,
+        egui::Stroke::new(2.0, ring.color.gamma_multiply(alpha)),
+        egui::StrokeKind::Outside,
+    );
+}
+
 /// Where a control asks the next frame's traversal to move on from it — an
 /// `AutoEnter` box that filled, or a Label that was clicked.
 fn tab_advance_id() -> egui::Id {
@@ -2848,7 +2967,12 @@ fn resolve_tab_traversal(ui: &egui::Ui, targets: &mut Vec<TabTarget>) -> TabStep
     for _ in 0..n {
         let target = &targets[idx];
         if !target.is_label {
-            ui.data_mut(|d| d.insert_temp(tab_memory_id(), target.focus_id));
+            ui.data_mut(|d| {
+                d.insert_temp(tab_memory_id(), target.focus_id);
+                // Reached by the keyboard: this is the control the focus
+                // ring marks (`paint_focus_ring`).
+                d.insert_temp(keyboard_focus_id(), Some(target.focus_id));
+            });
             step.focus = Some(target.focus_id);
             return step;
         }
@@ -19530,6 +19654,85 @@ mod tests {
         assert!(
             evs.iter().all(|e| !(e.ctrl_id == "Save" && e.event == "onClick")),
             "the Enter was spent on moving; got {evs:?}"
+        );
+    }
+
+    /// For each frame, whether the focus ring was painted.
+    fn ring_frames(controls: &[Control], frames: Vec<Vec<Event>>) -> Vec<bool> {
+        fn has_ring(shape: &egui::Shape) -> bool {
+            match shape {
+                egui::Shape::Rect(r) => {
+                    r.stroke.width == 2.0
+                        && r.stroke.color == FocusRing::DEFAULT_COLOR
+                        && r.stroke_kind == egui::StrokeKind::Outside
+                }
+                egui::Shape::Vec(v) => v.iter().any(has_ring),
+                _ => false,
+            }
+        }
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let active = ActiveTabs::new();
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let mut painted = Vec::new();
+        for (i, evs) in frames.into_iter().enumerate() {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(1000.0, 800.0)));
+            input.focused = true;
+            input.time = Some(i as f64 * 0.05);
+            input.events = evs;
+            let st = MapState(&overrides);
+            let mut full = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        ui.set_min_size(Vec2::new(400.0, 300.0));
+                        let inp = RenderInput {
+                            controls,
+                            state: &st,
+                            form_size: Vec2::new(400.0, 300.0),
+                            glass: true,
+                            mode: RenderMode::Interactive,
+                            active_tabs: &active,
+                            backdrop: Backdrop::default(),
+                        };
+                        render_form(ui, &inp);
+                    });
+            });
+            full.textures_delta.clear();
+            painted.push(full.shapes.iter().any(|c| has_ring(&c.shape)));
+        }
+        painted
+    }
+
+    /// The ring marks the control the KEYBOARD moved to, and goes the moment
+    /// the pointer is pressed.
+    #[test]
+    fn engine_focus_ring_follows_the_keyboard_only() {
+        let p = pos2(80.0, 52.0); // inside Second
+        let painted = ring_frames(
+            &two_boxes(),
+            vec![
+                vec![],
+                vec![tab_key(false, true)],
+                vec![tab_key(false, false)],
+                vec![],
+                vec![Event::PointerMoved(p), press(p)],
+                vec![],
+            ],
+        );
+        assert!(!painted[0], "nothing is focused yet");
+        assert!(painted[3], "after Tab the focused box is ringed: {painted:?}");
+        assert!(!painted[5], "a pointer press ends keyboard navigation: {painted:?}");
+    }
+
+    #[test]
+    fn engine_focus_ring_settings_fall_back_to_the_default_colour() {
+        assert_eq!(FocusRing::from_settings("", true).color, FocusRing::DEFAULT_COLOR);
+        assert_eq!(FocusRing::from_settings("not-a-colour", false).color, FocusRing::DEFAULT_COLOR);
+        assert_eq!(
+            FocusRing::from_settings("#FF0000", false).color,
+            egui::Color32::from_rgb(255, 0, 0)
         );
     }
 
