@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.152] — 2026-09-22
+
+### Spec 067 — a drop moves the node by default
+
+Operator ruling on 067 Q2: a TreeView moves a dropped node itself, controlled
+by a new `AutoMove` property (default on). With it on, the tree moves the node
+and fires `onNodeMoved`, which says where the node came from so one `MoveNode`
+call can undo the move. With it off, the tree only fires `onNodeDragDrop`, and
+the program moves the node with `MoveNode` if it agrees. The renderer never
+waits on a handler, and a program-driven move fires no drag event, so a handler
+cannot trigger itself again. Spec text only; no code changes.
+
 ## [PowerRustCOBOL 1.70.151] — 2026-09-22
 
 ### Specs 066, 067 and 072 — drafted for review
