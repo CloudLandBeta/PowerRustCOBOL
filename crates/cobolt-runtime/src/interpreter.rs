@@ -14511,7 +14511,10 @@ impl Interpreter {
                 none
             }
             "SETMODEL" => {
-                self.obj_set(obj, "Model", arg(0));
+                // `AgentModel` — the property `agent_ask` sends. This wrote
+                // `Model`, which nothing reads, so switching models from COBOL
+                // silently kept the designed one.
+                self.obj_set(obj, "AgentModel", arg(0));
                 none
             }
             "ASK" => {
@@ -20891,6 +20894,17 @@ mod queued_event_spelling_tests {
         // One question at a time: the second Ask is ignored, not raced.
         i.agent_ask("Agent-Helper", "again");
         assert_eq!(i.async_pending.len(), 1);
+    }
+
+    /// `SetModel` changes the model the next `Ask` sends. It wrote `Model`,
+    /// which nothing reads, so the designed `AgentModel` went on being used.
+    #[test]
+    fn set_model_changes_the_model_ask_sends() {
+        let mut i = interp();
+        i.set_control_ids(["Agent-Helper"]);
+        i.obj_set("Agent-Helper", "AgentModel", "llama3.2".into());
+        i.exec_method("Agent-Helper", "SetModel", &[CobolValue::from_str("qwen3:8b", 8)]);
+        assert_eq!(i.obj_get("Agent-Helper", "AgentModel"), "qwen3:8b");
     }
 
     /// A delivered reply lands on the control and raises `onResponse` — with

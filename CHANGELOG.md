@@ -8,6 +8,14 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.155] — 2026-09-22
+
+### `SetModel()` on an AgentObject had no effect
+
+`SetModel` wrote a `Model` property that nothing reads; every `Ask` sends
+`AgentModel`. Switching models from COBOL therefore kept the designed one,
+silently. It now writes `AgentModel`. Test: `set_model_changes_the_model_ask_sends`.
+
 ## [PowerRustCOBOL 1.70.154] — 2026-09-22
 
 ### Debugging a form that opens another hung when the called form closed
