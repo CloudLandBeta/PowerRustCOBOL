@@ -8560,8 +8560,48 @@ plainly, which is different from a tool that could not run. A caller that
 cannot tell those apart will ask the same question twice.
 
 **Results are bounded.** Pass `"limit"` to cap them; the reply says when it was
-truncated and that more exist. Searching never writes: there is no path through
-this that can `WRITE`, `REWRITE` or `DELETE`.
+truncated and that more exist.
+
+#### Your data is read, never touched
+
+The indexed files a tool reads are **yours and pre-existing**. Neither the model
+nor the tool may change one — not a record, not a key, not a byte. This is not a
+rule the tool checks and could get wrong: the file is opened `INPUT`, only
+sequential reads are issued, and no write, rewrite, delete or commit exists
+anywhere on that path. There is no writable handle to obtain.
+
+#### Memory, and which engine actually opens your file
+
+A file that already exists has already chosen its engine. The three containers
+PowerRustCOBOL writes are mutually unreadable — a `STORAGE IS MEMORY` file and a
+`STORAGE IS DISK` file are different formats on disk — so nothing decides this
+at search time. The container does.
+
+What *is* decided at search time is whether to pay that engine's cost:
+
+| Your file's storage | How it reads | Memory cost |
+|---|---|---|
+| `STORAGE IS MEMORY` | loaded whole | grows with the file |
+| `STORAGE IS DISK` | records on demand | bounded, any size |
+
+So the project carries a **memory limit**, and it applies to the first row only.
+Ask to search a memory-resident file larger than that limit and the tool
+declines, naming both numbers:
+
+```
+    ACTORS-FILE is held in an in-memory container of 412000000 bytes, over
+    this project's 67108864-byte limit, so it was not loaded. Raise the
+    limit, or rebuild the file with STORAGE IS DISK so it can be read
+    without loading it whole.
+```
+
+That is deliberately a refusal rather than an attempt. A process killed for
+running out of memory tells you nothing; this tells you the two numbers and the
+two ways out.
+
+> 💡 **Rule of thumb.** `STORAGE IS MEMORY` suits small, hot reference data —
+> lookup tables, code lists. For anything that grows with your business, build
+> it `STORAGE IS DISK` and the size stops being a question.
 
 #### What a delivered `.cidx` is trusted for
 

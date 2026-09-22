@@ -169,7 +169,6 @@ pub struct FileAccess {
     pub record_len: usize,
     pub primary: crate::indexed::KeySpec,
     pub columns: Vec<ColumnLayout>,
-    pub storage: cobolt_indexed::StorageMode,
 }
 
 impl FileAccess {
@@ -206,7 +205,6 @@ impl FileAccess {
             record_len,
             primary,
             columns,
-            storage: def.storage,
         }
     }
 }
@@ -229,9 +227,20 @@ pub struct ConsultableFile {
 /// would mean a half-built application silently publishing every indexed file
 /// the developer happened to have, and nobody would notice until it answered a
 /// question it should not have.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct IndexedToolSet {
     files: Vec<ConsultableFile>,
+    /// How much RAM one search may commit to loading a file (spec 065 R33).
+    memory_limit_bytes: u64,
+}
+
+impl Default for IndexedToolSet {
+    fn default() -> Self {
+        Self {
+            files: Vec::new(),
+            memory_limit_bytes: DEFAULT_MEMORY_LIMIT_BYTES,
+        }
+    }
 }
 
 /// How many records one search may return before it reports truncation (R26).
@@ -255,6 +264,18 @@ impl IndexedToolSet {
 
     pub fn is_empty(&self) -> bool {
         self.files.is_empty()
+    }
+
+    /// Set the project's memory limit for searches.
+    ///
+    /// Only an in-RAM container spends it — the paged and redb engines read on
+    /// demand, so their cost does not grow with the file.
+    pub fn set_memory_limit(&mut self, bytes: u64) {
+        self.memory_limit_bytes = bytes;
+    }
+
+    pub fn memory_limit(&self) -> u64 {
+        self.memory_limit_bytes
     }
 
     /// The tools to advertise. An unmarked file has none, however well its
@@ -303,12 +324,33 @@ impl IndexedToolSet {
             })
             .collect();
 
+        // Decide, before opening, whether this file can be loaded at all.
+        //
+        // The container already fixes WHICH engine opens it — that is a fact
+        // about the bytes, not a preference. What is still a decision is
+        // whether to pay its cost: an in-RAM container loads whole, so a file
+        // larger than the project's limit would take the memory rather than be
+        // refused. Declining with the numbers is more useful than an
+        // out-of-memory kill with none.
+        let container = sniff_container(&file.access.path);
+        let file_bytes = std::fs::metadata(&file.access.path)
+            .map(|m| m.len())
+            .unwrap_or(0);
+        if exceeds_memory_limit(container, file_bytes, self.memory_limit_bytes) {
+            return cobolt_mcp::ToolResult::failed(format!(
+                "{} is held in an in-memory container of {} bytes, over this project's \
+                 {}-byte limit, so it was not loaded. Raise the limit, or rebuild the \
+                 file with STORAGE IS DISK so it can be read without loading it whole.",
+                file.description.name, file_bytes, self.memory_limit_bytes
+            ));
+        }
+
         match scan(&file.access, &filters, limit) {
             Err(e) => cobolt_mcp::ToolResult::failed(format!(
                 "{} could not be searched: {e}",
                 file.description.name
             )),
-            Ok(Scan { rows, truncated }) if rows.is_empty() => {
+            Ok(Scan { rows, .. }) if rows.is_empty() => {
                 // Emphatically NOT an error (R19): the search ran and matched
                 // nothing, which is an answer. A caller that cannot tell this
                 // from a failure will retry a question that was already
@@ -379,7 +421,7 @@ fn scan(
     filters: &[(&ColumnLayout, String)],
     limit: usize,
 ) -> Result<Scan, String> {
-    use crate::indexed::{IndexedStore, OpenMode, ReadDir};
+    use crate::indexed::{OpenMode, ReadDir};
 
     let mut engine = open_for_reading(access);
     // INPUT, never I-O: the engine is given no opportunity to write (R18).
@@ -412,10 +454,76 @@ fn scan(
     Ok(Scan { rows, truncated })
 }
 
+/// Which engine an existing container demands.
+///
+/// **Not a preference — a fact about the bytes on disk.** The three engines
+/// write three different containers: `PRCIDX1\0` for the in-RAM engine,
+/// `PRCIDXD1` for the paged on-disk one, and redb's own. A file written by one
+/// cannot be opened by another, so for a file that already exists the storage
+/// mode is not something a caller gets to choose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Container {
+    /// `PRCIDX1` — the in-RAM engine. **Loads the whole file**, so its cost is
+    /// the file's size and it is the only one the memory limit constrains.
+    InRam,
+    /// `PRCIDXD1` — paged B+tree, records read on demand. Bounded RAM.
+    PagedDisk,
+    /// A redb database. Also read on demand.
+    Redb,
+}
+
+/// Read the container's magic to see which engine must open it.
+///
+/// A file that does not exist yet reads as [`Container::PagedDisk`], matching
+/// what the build would create — but the tool never creates one, so in
+/// practice this is only reached for a file the search then reports as empty.
+pub fn sniff_container(path: &std::path::Path) -> Container {
+    use std::io::Read;
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return Container::PagedDisk;
+    };
+    let mut head = [0u8; 8];
+    if f.read_exact(&mut head).is_err() {
+        return Container::PagedDisk;
+    }
+    if &head[0..4] == b"redb" {
+        Container::Redb
+    } else if &head == b"PRCIDX1\0" {
+        Container::InRam
+    } else {
+        Container::PagedDisk
+    }
+}
+
+/// How much RAM one search may commit to loading a file, by default.
+///
+/// Only an in-RAM container spends it; the paged and redb engines read on
+/// demand and cost roughly nothing here however large the file.
+pub const DEFAULT_MEMORY_LIMIT_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Would opening this file exceed the budget?
+///
+/// Pure, so the rule can be tested without touching a disk.
+pub fn exceeds_memory_limit(container: Container, file_bytes: u64, limit_bytes: u64) -> bool {
+    matches!(container, Container::InRam) && file_bytes > limit_bytes
+}
+
+/// Open a file for READING ONLY.
+///
+/// # The data is never modified. There is no path here that can.
+///
+/// These files pre-exist and belong to the developer's application. Neither a
+/// model nor this tool may alter one, and that is not a policy enforced by
+/// checking — it is arranged so there is nothing to check. The engine is only
+/// ever opened [`OpenMode::Input`], only [`IndexedStore::read_seq`] is called,
+/// and no `write`, `rewrite`, `delete` or `commit` appears anywhere in this
+/// module. A caller cannot ask for a writable handle because none is returned.
+///
+/// [`OpenMode::Input`]: crate::indexed::OpenMode::Input
+/// [`IndexedStore::read_seq`]: crate::indexed::IndexedStore::read_seq
 fn open_for_reading(access: &FileAccess) -> Box<dyn crate::indexed::IndexedStore> {
-    use cobolt_indexed::StorageMode;
-    match access.storage {
-        StorageMode::Memory => {
+    match sniff_container(&access.path) {
+        Container::InRam => {
             let mut f = crate::indexed::IndexedFile::new(
                 &access.path,
                 access.record_len,
@@ -425,26 +533,22 @@ fn open_for_reading(access: &FileAccess) -> Box<dyn crate::indexed::IndexedStore
             f.set_strict_metadata(false);
             Box::new(f)
         }
-        StorageMode::Disk => match crate::indexed_ide::sniff_disk_format(&access.path) {
-            crate::indexed_ide::DiskFormat::Redb => {
-                let mut f = crate::indexed_redb::RedbIndexedFile::new(
-                    &access.path,
-                    access.record_len,
-                    access.primary.clone(),
-                    Vec::new(),
-                );
-                f.set_strict_metadata(false);
-                Box::new(f)
-            }
-            crate::indexed_ide::DiskFormat::Prcidxd1 => {
-                Box::new(crate::indexed_disk::DiskIndexedFile::new(
-                    &access.path,
-                    access.record_len,
-                    access.primary.clone(),
-                    Vec::new(),
-                ))
-            }
-        },
+        Container::Redb => {
+            let mut f = crate::indexed_redb::RedbIndexedFile::new(
+                &access.path,
+                access.record_len,
+                access.primary.clone(),
+                Vec::new(),
+            );
+            f.set_strict_metadata(false);
+            Box::new(f)
+        }
+        Container::PagedDisk => Box::new(crate::indexed_disk::DiskIndexedFile::new(
+            &access.path,
+            access.record_len,
+            access.primary.clone(),
+            Vec::new(),
+        )),
     }
 }
 
@@ -665,7 +769,7 @@ mod tests {
     /// Build a real PRCIDXD1 file matching the `.cidx` fixture's layout:
     /// `ACTOR-ID` at 0..9, `ACTOR-SALARY` at 99..110, 111-byte records.
     fn build_indexed_fixture(path: &std::path::Path, rows: &[(&str, &str)]) {
-        use crate::indexed::{IndexedStore, KeySpec, OpenMode, status};
+        use crate::indexed::{KeySpec, OpenMode, status};
         let primary = KeySpec {
             offset: 0,
             len: 9,
@@ -703,7 +807,6 @@ mod tests {
                     len: 11,
                 },
             ],
-            storage: cobolt_indexed::StorageMode::Disk,
         }
     }
 
@@ -827,6 +930,148 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// The container decides the engine — it is not a preference.
+    ///
+    /// Two of these formats are mutually unreadable: a file written by the
+    /// in-RAM engine (`PRCIDX1`) cannot be opened by the paged one and vice
+    /// versa. So for a file that already exists, "open it in memory" is not a
+    /// choice anyone gets to make; the bytes already made it.
+    #[test]
+    fn an_existing_container_dictates_its_engine() {
+        let dir = temp("sniff");
+
+        // The paged on-disk engine's container.
+        let paged = dir.join("paged.idx");
+        build_indexed_fixture(&paged, &[("1", "100000")]);
+        assert_eq!(sniff_container(&paged), Container::PagedDisk);
+
+        // The in-RAM engine's container, written with persistence on.
+        {
+            use crate::indexed::{KeySpec, OpenMode, status};
+            let inram = dir.join("inram.mem");
+            let mut f = crate::indexed::IndexedFile::new(
+                &inram,
+                111,
+                KeySpec {
+                    offset: 0,
+                    len: 9,
+                    duplicates: false,
+                },
+                Vec::new(),
+            );
+            f.set_persist(true);
+            assert_eq!(f.open(OpenMode::Output), status::OK);
+            let mut rec = vec![b' '; 111];
+            rec[0..9].copy_from_slice(b"        1");
+            assert_eq!(f.write(&rec), status::OK);
+            f.close();
+            assert_eq!(sniff_container(&inram), Container::InRam);
+        }
+
+        // A file that is not there yet does not panic.
+        assert_eq!(
+            sniff_container(&dir.join("absent.idx")),
+            Container::PagedDisk
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The memory limit constrains the engine that loads whole files, and only
+    /// that one.
+    #[test]
+    fn the_memory_limit_applies_only_to_the_in_ram_container() {
+        // An in-RAM container over the limit is refused...
+        assert!(exceeds_memory_limit(Container::InRam, 200, 100));
+        // ...and under it is fine.
+        assert!(!exceeds_memory_limit(Container::InRam, 50, 100));
+        // The engines that read on demand cost nothing here, at any size.
+        assert!(!exceeds_memory_limit(Container::PagedDisk, u64::MAX, 100));
+        assert!(!exceeds_memory_limit(Container::Redb, u64::MAX, 100));
+    }
+
+    /// A file too big for the project's budget is declined with the numbers,
+    /// rather than loaded until the process dies.
+    #[test]
+    fn a_file_over_the_memory_limit_is_declined_with_its_numbers() {
+        use crate::indexed::{KeySpec, OpenMode, status};
+
+        let dir = temp("overbudget");
+        let data = dir.join("actors.mem");
+        let mut f = crate::indexed::IndexedFile::new(
+            &data,
+            111,
+            KeySpec {
+                offset: 0,
+                len: 9,
+                duplicates: false,
+            },
+            Vec::new(),
+        );
+        f.set_persist(true);
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        let mut rec = vec![b' '; 111];
+        rec[0..9].copy_from_slice(b"        1");
+        assert_eq!(f.write(&rec), status::OK);
+        f.close();
+
+        let cidx = write_fixture(&dir, "actors.cidx", &fixture("Performers", "Key"));
+        let mut set = IndexedToolSet::new();
+        set.allow(read_description_at(&cidx).unwrap(), access_for(&data));
+
+        // A limit of one byte is under any real file.
+        set.set_memory_limit(1);
+        let refused = set.call("search_actors_file", &serde_json::json!({}));
+        assert_eq!(refused.is_error, Some(true), "over budget must be refused");
+        let cobolt_mcp::Content::Text { text } = &refused.content[0];
+        assert!(text.contains("limit"), "the limit is named: {text}");
+        assert!(text.contains("STORAGE IS DISK"), "a remedy is offered: {text}");
+
+        // Raised, the same call succeeds — so the refusal was the budget and
+        // not a broken file.
+        set.set_memory_limit(DEFAULT_MEMORY_LIMIT_BYTES);
+        let allowed = set.call("search_actors_file", &serde_json::json!({}));
+        assert_eq!(allowed.is_error, None, "within budget it opens: {allowed:?}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The data is pre-existing and must never change. Totally forbidden.
+    ///
+    /// Belt and braces: the byte-for-byte check below is the outcome, and the
+    /// grep is the structural claim — this module contains no call that could
+    /// write, so there is no path to audit rather than a policy to trust.
+    #[test]
+    fn nothing_in_this_module_can_modify_an_indexed_file() {
+        let source = include_str!("mcp_tool.rs");
+        // Strip the test module: fixtures legitimately write, to create the
+        // pre-existing files the tool then only reads.
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("a production half");
+
+        for forbidden in [
+            ".write(",
+            ".rewrite(",
+            ".delete(",
+            ".commit(",
+            "OpenMode::Output",
+            "OpenMode::Io",
+            "OpenMode::Extend",
+        ] {
+            assert!(
+                !production.contains(forbidden),
+                "the read-only path contains `{forbidden}` — indexed data is \
+                 pre-existing and this tool may never alter it"
+            );
+        }
+        assert!(
+            production.contains("OpenMode::Input"),
+            "the only open mode must be INPUT"
+        );
+    }
+
     /// AC9, as far as a test can reach it.
     ///
     /// The criterion is "a question naming no file returns records from the
@@ -892,7 +1137,7 @@ mod tests {
     /// there for a second reader.
     #[test]
     fn a_persisted_memory_file_is_searchable() {
-        use crate::indexed::{IndexedStore, KeySpec, OpenMode, status};
+        use crate::indexed::{KeySpec, OpenMode, status};
 
         let dir = temp("memory");
         let data = dir.join("actors.mem");
@@ -916,11 +1161,11 @@ mod tests {
             "actors.cidx",
             &fixture("Performers held in memory", "Unique performer number"),
         );
-        let mut acc = access_for(&data);
-        acc.storage = cobolt_indexed::StorageMode::Memory;
-
+        // No storage mode is passed: the container's own magic decides, and
+        // this one was written by the in-RAM engine.
+        assert_eq!(sniff_container(&data), Container::InRam);
         let mut set = IndexedToolSet::new();
-        set.allow(read_description_at(&cidx).unwrap(), acc);
+        set.allow(read_description_at(&cidx).unwrap(), access_for(&data));
 
         let result = set.call("search_actors_file", &serde_json::json!({"ACTOR-ID": "7"}));
         assert_eq!(result.is_error, None, "the memory engine opened: {result:?}");

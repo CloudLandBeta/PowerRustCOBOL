@@ -19,10 +19,9 @@
 use std::path::Path;
 use std::sync::mpsc;
 
-use cobolt_indexed::StorageMode;
 use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::{parse, Severity};
-use cobolt_runtime::indexed::{IndexedStore, KeySpec, OpenMode, status};
+use cobolt_runtime::indexed::{KeySpec, OpenMode, status};
 use cobolt_runtime::mcp_tool::{
     read_description_at, ColumnLayout, FileAccess, IndexedToolSet,
 };
@@ -92,7 +91,6 @@ fn access(path: &Path) -> FileAccess {
                 len: 11,
             },
         ],
-        storage: StorageMode::Disk,
     }
 }
 

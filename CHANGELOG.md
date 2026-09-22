@@ -8,6 +8,59 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.149] — 2026-09-22
+
+### The data is read and never touched, and a memory limit decides what may be opened
+
+Two rulings from the operator (2026-09-22), and the second corrected a reading
+of the spec that could not have been implemented.
+
+**Indexed files are pre-existing and may never be modified — totally
+forbidden.** Not the model, not the tool, not by accident. This was already the
+behaviour; it is now a property rather than a promise. The read path opens
+`INPUT`, issues only sequential reads, and contains no `WRITE`, `REWRITE`,
+`DELETE` or `COMMIT` anywhere — with a test that reads the module's own source
+and fails if one appears. There is no writable handle to obtain, so there is
+nothing to enforce at run time.
+
+**A memory limit now decides whether a file may be opened at all.** The
+project carries a limit; a file whose load would exceed it is declined, naming
+both numbers and the two ways out:
+
+```
+    ACTORS-FILE is held in an in-memory container of 412000000 bytes, over
+    this project's 67108864-byte limit, so it was not loaded. Raise the
+    limit, or rebuild the file with STORAGE IS DISK so it can be read
+    without loading it whole.
+```
+
+A refusal with numbers beats a process killed for running out of memory, which
+explains nothing.
+
+**Why it is a limit and not a choice of engine.** The request was to check
+available memory and then decide whether to open a file in memory or go
+straight to disk. For a file being *created* that is a real choice. For one that
+already exists it is not: the three containers PowerRustCOBOL writes —
+`PRCIDX1`, `PRCIDXD1` and redb — are **mutually unreadable**, so the bytes on
+disk already decided which engine opens them. The engine is now sniffed from the
+container's own magic rather than taken from any declared preference, and the
+decision that remains is whether to pay that engine's cost. Only the in-RAM
+container grows with file size; the paged and redb engines read on demand and
+are never constrained by the limit.
+
+That also removed a field that had become a lie: `FileAccess.storage` was still
+being set and no longer read, and a future reader would reasonably have assumed
+it selected the engine. It is gone.
+
+The limit is exposed on the tool set with a 64 MiB default. Wiring it to a
+`[rag]` key in the project manifest belongs with spec 070, which owns that
+section.
+
+Tests: `cobolt-runtime`, all targets — 118 suites, 987 passed, 0 failed. The
+mcp_tool suite is 23, including the structural read-only check, the
+container-dictates-the-engine check, and the over-budget refusal proving itself
+by succeeding once the limit is raised.
+
 ## [PowerRustCOBOL 1.70.148] — 2026-09-22
 
 ### Spec 065 finished — a model can now query your indexed files
