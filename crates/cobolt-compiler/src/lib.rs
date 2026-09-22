@@ -2453,13 +2453,16 @@ fn walk_controls(controls: &[cobolt_forms::Control]) -> Vec<&cobolt_forms::Contr
 /// [`sdk_manifest`] names exactly this list as the workspace members — keeping
 /// both beside [`resolve_workspace_root`] is what stops the shipped layout and
 /// the layout we look for from drifting apart.
-pub const SDK_CRATES: [&str; 10] = [
+pub const SDK_CRATES: [&str; 11] = [
     "cobolt-ast",
     "cobolt-codegen",
     "cobolt-form-host",
     "cobolt-forms",
     "cobolt-indexed",
     "cobolt-lexer",
+    // spec 065 — the MCP server a built application exposes. `cobolt-runtime`
+    // depends on it, so the closure guard below requires it here.
+    "cobolt-mcp",
     "cobolt-media",
     "cobolt-parser",
     "cobolt-runtime",

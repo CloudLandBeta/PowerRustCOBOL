@@ -57,6 +57,8 @@ pub mod indexed_log;
 pub mod indexed_redb;
 pub mod interpreter;
 pub mod maps_bridge;
+/// Spec 065 — the indexed-file tool served over MCP.
+pub mod mcp_tool;
 pub mod viewer_report;
 pub mod ors_bridge;
 /// The numeric-edited PICTURE engine, which now lives in `cobolt-forms` so a

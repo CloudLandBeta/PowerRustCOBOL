@@ -8,6 +8,62 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.147] — 2026-09-22
+
+### Spec 065 — `cobolt-mcp`, and the first half of the indexed-file tool
+
+An application can talk to a model, and it can open an indexed file. It cannot
+yet let the model *decide* to open one. This lands the protocol that will, and
+the half of the tool that reads what each file says about itself.
+
+**`cobolt-mcp` — a new crate, wire-compatible.** JSON-RPC 2.0 envelopes, the
+`initialize` handshake with version negotiation, `tools/list`, `tools/call`,
+message framing, and a `serve` loop. Built to the `cobolt-dap` pattern, and the
+dependency list is the point: **`serde`, `serde_json`, and nothing else** — 14
+transitive crates, no `cobolt-*`, no TLS, no HTTP, no tokio. The transport is
+the host's to supply, which is what keeps rustls and aws-lc-rs out of every
+application that serves a tool. It joins `SDK_CRATES`, taking it to eleven.
+
+Protocol behaviour that is easy to get wrong, and is tested: an unknown method
+returns a JSON-RPC error and **the session continues** rather than closing; an
+unparseable message is answered with a null id rather than met with silence; a
+notification is never answered, not even to report that its method was unknown;
+and a body this crate does not model survives a round trip unchanged.
+
+**Reading what a file says about itself.** `cobolt-runtime`'s new `mcp_tool`
+reads an indexed file's purpose and its columns' descriptions through the same
+`assets::resolve` + `load_indexed` pair the DataGrid binding already uses, so a
+delivered application anchors them the way that already works. The schema a
+model sees is generated from that text and nowhere else — the file's purpose
+becomes the tool's description, each column's description becomes its
+parameter's. Change the `.cidx`, and the tool changes with it.
+
+**Descriptive fields only, and it is a safety property.** A `.cidx` in a
+delivery is editable by whoever runs the application. So only the descriptive
+half is read: offsets, lengths, keys, record format and storage mode come from
+the compiled program. A tampered definition can therefore give a file a wrong
+*description* — visible, recoverable — and can never move an offset or make a
+record read as something it is not. Two tests hold that line, one at the struct
+and one at the generated schema.
+
+It has a consequence worth stating: **every tool parameter is a string.** A
+column's type would have to come from its `PIC`, and `PIC` is layout. Matching
+is textual as a result, which costs little and keeps the property whole.
+
+**A hole found and closed while testing.** `load_indexed` never fails on
+*content* — only on I/O. Garbage parses to a placeholder definition with no
+fields, so a corrupt `.cidx` in a delivery would have been offered as a
+nameless tool. A definition describing **no columns** is now not offered at all:
+there is nothing to search and nothing to tell a model. Filtering on meaning
+rather than on the parser's placeholder name means a future parser default
+cannot quietly reopen it.
+
+**Half a feature, deliberately.** Eight of seventeen tasks
+(`specs/065-cobolt-mcp/tasks.md`). Search through `IndexedStore`, the
+consultable-file gate, the two front doors and their parity test are still to
+come. Nothing depends on the unfinished parts; an application links the protocol
+crate and is not yet offered a tool.
+
 ## [PowerRustCOBOL 1.70.145] — 2026-09-21
 
 ### An indexed file's descriptions never reached the code it generates
