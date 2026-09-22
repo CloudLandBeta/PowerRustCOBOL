@@ -8,6 +8,28 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.151] — 2026-09-22
+
+### Specs 066, 067 and 072 — drafted for review
+
+Three more features of the spec 063 umbrella, written as requirements only; no
+code changes.
+
+- **`066` — SideMenu run-time rows and hosted controls.** A running program adds,
+  changes and removes rows (a conversation list is data, not a designed menu),
+  and a header band hosts controls in the rail, like the footer band already
+  does.
+- **`067` — TreeView drag-and-drop.** Opt-in, off by default; onto/before/after
+  drops, subtree kept, the program can refuse or perform the move itself.
+- **`072` — `AgentObject` tool calling.** The call loop on all three protocols,
+  indexed-file tools from `065` plus tools the COBOL program answers, a fenced
+  fallback for models without native function-calling, and token usage.
+
+The surveys behind them found six defects, listed in the specs for the `fixes`
+branch. Among them: `SetModel()` has no effect; a TreeView handler's
+`CONTROL-NODE-INDEX` is one-based while every `Node*` method is zero-based; and
+the generated agent stub still treats `Ask` as synchronous.
+
 ## [PowerRustCOBOL 1.70.149] — 2026-09-22
 
 ### The data is read and never touched, and a memory limit decides what may be opened
