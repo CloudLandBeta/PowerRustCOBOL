@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.160] — 2026-09-22
+
+### Spec 066 — plan drafted
+
+`specs/066-sidemenu-runtime-rows/plan.md`: three phases — run-time rows (one
+`RuntimeRows` property, one shared merge for both surfaces, the operations as a
+pure module, designed ids seeded into the interpreter at all three hosts), the
+header band (mirroring the footer Panel), and rows that host a control (a
+render-time geometry hook, the Splitter precedent). Two pre-existing gaps are
+flagged rather than fixed: a SideMenu outside shell mode ignores its designed
+rows' actions, and the menu registry is keyed without the form. Plan text only.
+
 ## [PowerRustCOBOL 1.70.159] — 2026-09-22
 
 ### Specs 066, 067 and 072 — open questions answered
