@@ -98,6 +98,64 @@ deliberately left alone: a completed spec's task list records what was done, and
 editing it would falsify the record.
 
 No code changed — documentation only.
+## [PowerRustCOBOL 1.70.143] — 2026-09-21
+
+> **1.70.142 is skipped deliberately.** It is held by an unmerged branch on this
+> machine, and the note at the top of this file records what happened the last
+> time two lines of work claimed one fix number. Taking the next free number
+> costs nothing; a duplicate costs a reader's afternoon.
+
+### Spec 063 — the RAG / Transactional Chatbot boilerplate
+
+An umbrella spec for a boilerplate from which a developer builds a complete
+RAG + *transactional* chatbot as a single application binary. "Transactional"
+is the half that makes it a COBOL product: besides retrieval over end-user
+documents, the assistant reaches **live data** in the developer's own indexed
+files through a real MCP server, choosing which file to consult from the purpose
+and column descriptions written on its `.cidx` definition.
+
+**What the verification established.** The IDE's Knowledge Base machinery is
+genuinely reusable — the four modules in `cobolt-agents` import nothing from
+Grace or `rig`, only std, serde, redb and candle. But it cannot reach a compiled
+application: `cobolt-agents` is named in `SDK_CRATES`' own doc comment among the
+crates that "build the tooling, never the output". Neither can the IDE's `Tr`
+table, its painted flags, or `model_policy.rs` — which is why the boilerplate
+localises itself in COBOL and owns its own model capability table. MCP exists
+nowhere in the product; the `mcp_tool` property on `Panel`, `GroupBox` and
+`TabControl` is inert. `AgentObject` cannot call a tool at all. The concurrency
+an agent mesh needs, however, is already built: spec 032's `async_op.rs` runs
+each `Ask` on its own thread with per-control generation guards, so N agents can
+already have N requests in flight.
+
+**The invariant the spec is built around** is that the application's Knowledge
+Base shares nothing with Grace's — not its folder, not its store file, not its
+table names. It is a *derived cache* of a live drop-folder the end user owns, so
+a schema change rebuilds rather than migrates and user data is safe by
+construction. Conversation history is the opposite: a system of record, behind a
+pluggable scheme-classified backend, with real migrations, and Amazon Bedrock
+gated for later so the AWS SDK never enters a build that did not ask for it —
+this workspace having spent real effort staying clear of aws-lc-rs.
+
+**Document ingestion, checked rather than assumed.** The operator proposed
+`markdownify` to convert source documents to markdown so the existing
+heading-driven chunker keeps working. Its dependency list at 0.3.8 says it
+converts **DOCX, PPTX and XLSX** — pure Rust, no C toolchain — which removes what
+looked like the expensive half of that problem. It carries **no PDF parser of
+any kind**, so PDF still needs a route, and the ingestion seam is specified as
+"bytes in, markdown out" so a better converter can replace a worse one without
+touching the chunker. One caveat recorded: `zip`'s `bzip2` and `zstd` backends
+must stay off, or the C toolchain comes back with them.
+
+76 requirements, 34 acceptance criteria. Six questions are settled — including
+that the delivery document folder has no project-side counterpart at all, that
+token usage is read from model responses rather than provider APIs, and that the
+agent capability table is the developer's to own. One remains open: how PDF is
+converted. Two prerequisites are classified as **fixes** and stay out of the
+feature pipeline entirely: `.cidx` metadata propagation, and the delivery folder
+currently shipping Grace's stores and the developer's own AI conversation
+history to end users. Nine features and the boilerplate project follow.
+
+No code changed — specification only.
 
 ## [PowerRustCOBOL 1.70.141] — 2026-09-21
 
