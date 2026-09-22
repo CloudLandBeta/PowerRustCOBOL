@@ -160,6 +160,9 @@ struct Debuggee {
 pub struct DebugRouter {
     debuggees: Mutex<HashMap<String, Debuggee>>,
     out: Sender<DebugWire>,
+    /// The debuggees stopped right now. The application is paused while ANY
+    /// is — see [`Self::mark_stopped`].
+    stopped: Mutex<std::collections::HashSet<String>>,
 }
 
 impl DebugRouter {
@@ -170,6 +173,7 @@ impl DebugRouter {
         Arc::new(Self {
             debuggees: Mutex::new(HashMap::new()),
             out,
+            stopped: Mutex::new(std::collections::HashSet::new()),
         })
     }
 
@@ -260,7 +264,7 @@ impl DebugRouter {
                     // resuming command NO window takes input — the whole
                     // application is stopped, not just this form.
                     if matches!(ev, DebugEvent::Stopped { .. }) {
-                        set_paused(true);
+                        router.mark_stopped(&handle, true);
                     }
                     if router
                         .out
@@ -280,10 +284,32 @@ impl DebugRouter {
         (cmd_rx, ev_tx, breakpoints, scope)
     }
 
+    /// Record whether `handle` is stopped, and pause the application while any
+    /// debuggee is.
+    ///
+    /// This was one flag for the whole process: set by any form's stop,
+    /// cleared by any resume. Continuing one form while another was still
+    /// stopped let every window take clicks for a program that could not run
+    /// them; and a command for a form that had already closed was dropped
+    /// before the flag was cleared, leaving every window refusing input for
+    /// good.
+    fn mark_stopped(&self, handle: &str, stopped: bool) {
+        if let Ok(mut set) = self.stopped.lock() {
+            if stopped {
+                set.insert(handle.to_owned());
+            } else {
+                set.remove(handle);
+            }
+            set_paused(!set.is_empty());
+        }
+    }
+
     /// Drop a debuggee and say so upstream. Idempotent: announcing a
     /// `Detached` twice would have the IDE forget a handle it has already
     /// forgotten, or worse, one that has been re-announced.
     pub fn unregister(&self, handle: &str) {
+        // A form that is gone is not stopped, whatever it last said.
+        self.mark_stopped(handle, false);
         let existed = self
             .debuggees
             .lock()
@@ -310,6 +336,14 @@ impl DebugRouter {
                 )
             })
         });
+        // A resuming command releases ITS form — before the lookup, so a
+        // command for a form that has closed cannot leave the application
+        // paused on that form's behalf.
+        if let RemoteDebugCmd::Cmd(c) = &msg.cmd {
+            if resumes(c) {
+                self.mark_stopped(target, false);
+            }
+        }
         let Some((cmd_tx, breakpoints, scope)) = found else {
             // A command for a form that has closed. Dropping it is right —
             // and saying so is what stops it looking like a lost command.
@@ -324,9 +358,6 @@ impl DebugRouter {
                 // rather than waiting to be told the program moved — means the
                 // window is live again on the same frame the developer pressed
                 // Continue.
-                if resumes(&c) {
-                    set_paused(false);
-                }
                 let _ = cmd_tx.send(c);
             }
             RemoteDebugCmd::SetBreakpoints(lines) => {

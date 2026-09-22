@@ -41,14 +41,16 @@ fn run(src: &str) -> Vec<String> {
     display_rx.try_iter().collect()
 }
 
-/// The tree every test below builds, and the indexes it produces:
+/// The tree every test below builds, and the handles it produces. A handle is
+/// 1-based — the number a node event hands the handler in `CONTROL-NODE-INDEX`
+/// — so a handler passes that straight to any `Node…` call:
 ///
 /// ```text
-/// 0 Warehouse
-/// 1   Inbound
-/// 2     Dock A
-/// 3   Outbound
-/// 4 Office
+/// 1 Warehouse
+/// 2   Inbound
+/// 3     Dock A
+/// 4   Outbound
+/// 5 Office
 /// ```
 const BUILD: &str = r#"
            TREE-1::AddNode(0, "Warehouse").
@@ -84,15 +86,15 @@ fn a_tree_is_built_by_level_and_counted() {
         r#"
            MOVE TREE-1::NodeCount() TO WS-IDX.
            DISPLAY "COUNT=" WS-IDX.
-           MOVE TREE-1::NodeText(2) TO WS-TEXT.
+           MOVE TREE-1::NodeText(3) TO WS-TEXT.
            DISPLAY "N2=[" WS-TEXT "]".
-           MOVE TREE-1::NodeLevel(2) TO WS-IDX.
+           MOVE TREE-1::NodeLevel(3) TO WS-IDX.
            DISPLAY "L2=" WS-IDX.
 "#,
     ));
     let joined = out.join("\n");
     assert!(joined.contains("COUNT=0005"), "five nodes: {joined}");
-    assert!(joined.contains("N2=[Dock A"), "index 2 is Dock A: {joined}");
+    assert!(joined.contains("N2=[Dock A"), "handle 3 is Dock A: {joined}");
     assert!(joined.contains("L2=0002"), "Dock A sits two deep: {joined}");
 }
 
@@ -102,7 +104,7 @@ fn a_tree_is_built_by_level_and_counted() {
 fn a_handler_climbs_from_a_node_to_its_root() {
     let out = run(&program(
         r#"
-           MOVE TREE-1::NodeParent(2) TO WS-IDX.
+           MOVE TREE-1::NodeParent(3) TO WS-IDX.
            DISPLAY "P=" WS-IDX.
            MOVE TREE-1::NodeText(WS-IDX) TO WS-TEXT.
            DISPLAY "PT=[" WS-TEXT "]".
@@ -113,9 +115,9 @@ fn a_handler_climbs_from_a_node_to_its_root() {
 "#,
     ));
     let joined = out.join("\n");
-    assert!(joined.contains("P=0001"), "Dock A hangs under Inbound: {joined}");
+    assert!(joined.contains("P=0002"), "Dock A hangs under Inbound: {joined}");
     assert!(joined.contains("PT=[Inbound"), "and the index reads back: {joined}");
-    assert!(joined.contains("GP=0000"), "Inbound hangs under Warehouse: {joined}");
+    assert!(joined.contains("GP=0001"), "Inbound hangs under Warehouse: {joined}");
     assert!(
         joined.contains("ROOT-PARENT=-0001"),
         "a root has no parent, and says so with -1: {joined}"
@@ -128,13 +130,13 @@ fn a_handler_climbs_from_a_node_to_its_root() {
 fn a_handler_runs_along_the_siblings() {
     let out = run(&program(
         r#"
-           MOVE TREE-1::NodeFirstChild(0) TO WS-IDX.
+           MOVE TREE-1::NodeFirstChild(1) TO WS-IDX.
            PERFORM UNTIL WS-IDX < 0
                MOVE TREE-1::NodeText(WS-IDX) TO WS-TEXT
                DISPLAY "CHILD=[" WS-TEXT "]"
                MOVE TREE-1::NodeNextSibling(WS-IDX) TO WS-IDX
            END-PERFORM.
-           MOVE TREE-1::NodeChildCount(0) TO WS-IDX.
+           MOVE TREE-1::NodeChildCount(1) TO WS-IDX.
            DISPLAY "KIDS=" WS-IDX.
 "#,
     ));
@@ -167,12 +169,12 @@ fn a_node_carries_and_returns_its_own_dress() {
            DISPLAY "COLOR=[" WS-TEXT "]".
            MOVE TREE-1::NodeBackColor(WS-IDX) TO WS-TEXT.
            DISPLAY "BACK=[" WS-TEXT "]".
-           MOVE TREE-1::NodePath(2) TO WS-TEXT.
+           MOVE TREE-1::NodePath(3) TO WS-TEXT.
            DISPLAY "PATH=[" WS-TEXT "]".
 "##,
     ));
     let joined = out.join("\n");
-    assert!(joined.contains("AT=0005"), "appended as node 5: {joined}");
+    assert!(joined.contains("AT=0006"), "appended as node 6: {joined}");
     assert!(joined.contains("ICON=[alert"), "{joined}");
     assert!(joined.contains("COLOR=[#C81E1E"), "{joined}");
     assert!(joined.contains("BACK=[#202020"), "{joined}");
@@ -190,13 +192,13 @@ fn checked_and_collapsed_read_the_controls_live_state() {
         r#"
            MOVE "Inbound" TO TREE-1::CheckedNodes.
            MOVE "Warehouse" TO TREE-1::CollapsedNodes.
-           MOVE TREE-1::NodeChecked(1) TO WS-IDX.
+           MOVE TREE-1::NodeChecked(2) TO WS-IDX.
            DISPLAY "CHK1=" WS-IDX.
-           MOVE TREE-1::NodeChecked(3) TO WS-IDX.
+           MOVE TREE-1::NodeChecked(4) TO WS-IDX.
            DISPLAY "CHK3=" WS-IDX.
-           MOVE TREE-1::NodeCollapsed(0) TO WS-IDX.
-           DISPLAY "COL0=" WS-IDX.
            MOVE TREE-1::NodeCollapsed(1) TO WS-IDX.
+           DISPLAY "COL0=" WS-IDX.
+           MOVE TREE-1::NodeCollapsed(2) TO WS-IDX.
            DISPLAY "COL1=" WS-IDX.
 "#,
     ));
@@ -226,4 +228,65 @@ fn asking_past_the_end_is_answered_not_raised() {
     assert!(joined.contains("GONE=[ "), "an absent node reads empty: {joined}");
     assert!(joined.contains("GONE-P=-0001"), "{joined}");
     assert!(joined.contains("MISSING=-0001"), "{joined}");
+}
+
+/// The handle a node event hands over IS the one the methods take: the node on
+/// line 3 of `Items` arrives as `CONTROL-NODE-INDEX` 3, and `NodeText(3)` must
+/// be that node. Until 1.70.156 the methods counted from 0 and read the next
+/// node. `0` is no node at all.
+#[test]
+fn the_event_handle_and_the_method_handle_are_the_same_number() {
+    let out = run(&program(
+        r#"
+           MOVE TREE-1::NodeText(1) TO WS-TEXT.
+           DISPLAY "FIRST=[" WS-TEXT "]".
+           MOVE TREE-1::NodeText(0) TO WS-TEXT.
+           DISPLAY "ZERO=[" WS-TEXT "]".
+           MOVE TREE-1::NodeIndexOf("Warehouse") TO WS-IDX.
+           DISPLAY "WH=" WS-IDX.
+"#,
+    ));
+    let joined = out.join("\n");
+    assert!(joined.contains("FIRST=[Warehouse"), "handle 1 is the first line: {joined}");
+    assert!(joined.contains("ZERO=[ "), "handle 0 names no node: {joined}");
+    assert!(joined.contains("WH=0001"), "{joined}");
+}
+
+/// `RemoveNode` takes the node and everything under it; the five methods the
+/// editor always offered now answer. Removing Inbound (handle 2) takes Dock A
+/// with it and leaves Warehouse / Outbound / Office.
+#[test]
+fn remove_expand_collapse_and_select_answer() {
+    let out = run(&program(
+        r#"
+           MOVE TREE-1::RemoveNode(2) TO WS-IDX.
+           DISPLAY "REMOVED=" WS-IDX.
+           MOVE TREE-1::NodeCount() TO WS-IDX.
+           DISPLAY "LEFT=" WS-IDX.
+           MOVE TREE-1::NodeText(2) TO WS-TEXT.
+           DISPLAY "SECOND=[" WS-TEXT "]".
+           MOVE TREE-1::RemoveNode(40) TO WS-IDX.
+           DISPLAY "NONE=" WS-IDX.
+           TREE-1::CollapseAll().
+           MOVE TREE-1::NodeCollapsed(1) TO WS-IDX.
+           DISPLAY "FOLDED=" WS-IDX.
+           MOVE TREE-1::NodeCollapsed(3) TO WS-IDX.
+           DISPLAY "LEAF-FOLDED=" WS-IDX.
+           TREE-1::ExpandAll().
+           MOVE TREE-1::NodeCollapsed(1) TO WS-IDX.
+           DISPLAY "OPENED=" WS-IDX.
+           TREE-1::SetSelectedNode("Office").
+           MOVE TREE-1::GetSelectedNode() TO WS-TEXT.
+           DISPLAY "SEL=[" WS-TEXT "]".
+"#,
+    ));
+    let joined = out.join("\n");
+    assert!(joined.contains("REMOVED=0001"), "{joined}");
+    assert!(joined.contains("LEFT=0003"), "Inbound went, and Dock A with it: {joined}");
+    assert!(joined.contains("SECOND=[Outbound"), "{joined}");
+    assert!(joined.contains("NONE=0000"), "no node, nothing removed: {joined}");
+    assert!(joined.contains("FOLDED=0001"), "Warehouse has children to fold: {joined}");
+    assert!(joined.contains("LEAF-FOLDED=0000"), "Office has none: {joined}");
+    assert!(joined.contains("OPENED=0000"), "{joined}");
+    assert!(joined.contains("SEL=[Office"), "{joined}");
 }

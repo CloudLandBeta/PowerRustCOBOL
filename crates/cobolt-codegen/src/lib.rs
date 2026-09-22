@@ -530,9 +530,9 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
         .any(|c| c.control_type == ControlType::AgentObject);
     if has_agents {
         out.push_str("      *>── AI Agent infrastructure ────────────────────────────────────\n");
-        out.push_str("      *>   INVOKE agent-id 'Ask'\n");
-        out.push_str("      *>       USING BY VALUE WS-AGENT-PROMPT\n");
-        out.push_str("      *>       RETURNING WS-AGENT-RESPONSE\n");
+        out.push_str("      *>   INVOKE agent-id 'Ask' USING BY VALUE WS-AGENT-PROMPT\n");
+        out.push_str("      *>   returns at once; the reply arrives as onResponse (LastReply)\n");
+        out.push_str("      *>   or onError (LastError).\n");
         out.push_str("       01 WS-AGENT-PROMPT        PIC X(4096)  VALUE SPACES.\n");
         out.push_str("       01 WS-AGENT-RESPONSE      PIC X(32767) VALUE SPACES.\n");
         out.push_str("       01 WS-AGENT-ERROR         PIC X(512)   VALUE SPACES.\n");
@@ -1421,29 +1421,32 @@ fn write_agent_stubs(out: &mut String, all_controls: &[&Control]) {
             ctrl.id, model, url
         ));
         out.push_str("      *>    Set WS-AGENT-PROMPT before calling.\n");
+        // `Ask` is asynchronous (since 1.65.63): it returns at once, and the
+        // answer arrives later as `onResponse` / `onError`. This paragraph
+        // used to read `WS-AGENT-RESPONSE` and test `WS-AGENT-ERROR` right
+        // after the call — both still blank — so it always took the "response"
+        // branch with an empty reply.
         out.push_str(&format!(
-            "           INVOKE {id} 'Ask'\n               USING BY VALUE WS-AGENT-PROMPT\n               RETURNING WS-AGENT-RESPONSE\n",
-            id = ctrl.id
+            "      *>    Returns at once. The reply arrives as {id}--ONRESPONSE\n",
+            id = ctrl.id.to_ascii_uppercase()
         ));
+        out.push_str("      *>    (read LastReply) or --ONERROR (read LastError).\n");
         if !resp_item.is_empty() {
             out.push_str(&format!(
-                "           MOVE WS-AGENT-RESPONSE TO {}\n",
-                resp_item
+                "      *>    The reply is also written to {resp_item} when it arrives.\n"
             ));
         }
-        out.push_str("           EVALUATE TRUE\n");
-        out.push_str("               WHEN WS-AGENT-ERROR = SPACES\n");
-        out.push_str(&format!("                   PERFORM {}\n", resp_para));
-        out.push_str("               WHEN OTHER\n");
-        out.push_str(&format!("                   PERFORM {}\n", err_para));
-        out.push_str("           END-EVALUATE.\n");
+        out.push_str(&format!(
+            "           INVOKE {id} 'Ask'\n               USING BY VALUE WS-AGENT-PROMPT.\n",
+            id = ctrl.id
+        ));
         out.push('\n');
 
         write_stub_paragraph(
             out,
             &resp_para,
             &format!(
-                "{} response ready — WS-AGENT-RESPONSE contains the LLM reply",
+                "{} — not called by the runtime; bind onResponse and read LastReply",
                 ctrl.id
             ),
         );
@@ -1451,7 +1454,7 @@ fn write_agent_stubs(out: &mut String, all_controls: &[&Control]) {
             out,
             &err_para,
             &format!(
-                "{} error handler — WS-AGENT-ERROR contains the error message",
+                "{} — not called by the runtime; bind onError and read LastError",
                 ctrl.id
             ),
         );

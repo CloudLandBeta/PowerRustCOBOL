@@ -1390,8 +1390,12 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
         "StagedFiles",
         "CommitSummary",
     ];
+    // An `Ask`'s answer: written when the reply arrives, just before
+    // `onResponse` (or `onError`) fires — the only place a handler reads it.
+    const AGENT: &[&str] = &["LastReply", "Result", "LastError", "Busy"];
     match ControlType::from_str(type_name) {
         ControlType::Maps => MAPS,
+        ControlType::AgentObject => AGENT,
         ControlType::RestClient | ControlType::WebSearch => ASYNC,
         ControlType::Snackbar => SNACKBAR,
         ControlType::ToolBar => TOOLBAR,
@@ -3276,6 +3280,12 @@ impl ControlType {
                 "onNodeDblClick",
                 "onNodeDoubleClick",
                 "onNodeSelect",
+                // The renderer has raised these three since 1.61.157/158 and
+                // the KB documents them, but they were missing here — so the
+                // designer offered no way to bind a handler to them.
+                "onNodeCheck",
+                "onNodeCollapse",
+                "onNodeExpand",
                 "onClick",
                 "onDblClick",
                 "onDoubleClick",

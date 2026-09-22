@@ -4357,7 +4357,7 @@ impl Interpreter {
         cmd_rx: &mpsc::Receiver<crate::debugger::DebugCmd>,
         ev_tx: &mpsc::Sender<crate::debugger::DebugEvent>,
     ) -> Result<(), RuntimeError> {
-        use crate::debug_session::{StepDecision, StepMode, StopReason};
+        use crate::debug_session::{StepDecision, StopReason};
 
         let span = stmt_span(stmt);
         let line = span.map(|s| s.line).unwrap_or(0);
@@ -4416,49 +4416,33 @@ impl Interpreter {
             });
         }
 
-        // A watched data item that changed since the previous statement.
+        // A watched data item that changed since the previous statement, and
+        // a condition that matched an enabled exception filter (raised by a
+        // file verb or a runtime error since the last safepoint). Either one
+        // STOPS here, whatever a step would have decided — the developer asked
+        // to be told. Each used to send its own `Stopped` and then carry on
+        // unless a step or breakpoint also stopped: the IDE and every window
+        // were told the program was paused while it ran on.
+        let mut forced: Option<StopReason> = None;
         if let Some((name, value)) = self.debug_changed_item() {
-            self.debug_var_refs.clear();
-            let _ = ev_tx.send(crate::debugger::DebugEvent::Stopped {
-                line,
-                col,
-                paragraph: self.current_paragraph.clone(),
-                reason: StopReason::DataChanged {
-                    name: name.clone(),
-                    value: value.clone(),
-                },
-                frames: self.debug_stack(),
-            });
             self.debug_out(
                 crate::debugger::OutputChannel::Events,
                 format!("CHANGED  {name} = {value}"),
             );
-            // A data change stops even mid-step: it is why the developer set it.
-            self.debug_step = StepMode::Into;
+            forced = Some(StopReason::DataChanged { name, value });
         }
-
-        // A condition that matched an enabled filter, raised by a file verb or
-        // a runtime error since the last safepoint. It outranks a step: the
-        // developer asked to be told when this happens.
         if let Some((filter, detail)) = self.debug_pending_exception.take() {
-            self.debug_var_refs.clear();
-            let _ = ev_tx.send(crate::debugger::DebugEvent::Stopped {
-                line,
-                col,
-                paragraph: self.current_paragraph.clone(),
-                reason: StopReason::Exception {
-                    filter: filter.clone(),
-                    detail: detail.clone(),
-                },
-                frames: self.debug_stack(),
-            });
             self.debug_out(
                 crate::debugger::OutputChannel::Problems,
                 format!("{filter}: {detail}"),
             );
+            // An exception outranks a data change reported at the same line.
+            forced = Some(StopReason::Exception { filter, detail });
         }
 
-        let mut reason = if hit_breakpoint {
+        let mut reason = if forced.is_some() {
+            forced
+        } else if hit_breakpoint {
             Some(StopReason::Breakpoint(hit_ids))
         } else {
             match decision {
@@ -11687,6 +11671,17 @@ impl Interpreter {
                     self.agent_log_block(obj, "reply", &text);
                 }
                 self.obj_set(obj, "LastReply", text.clone());
+                // `ResponseDataItem` names a WORKING-STORAGE item that receives
+                // the reply. The generated `<agent>-ASK` paragraph used to MOVE
+                // the answer into it straight after `Ask` — which has returned
+                // at once since 1.65.63, so it always moved spaces. The reply is
+                // written here instead, when it exists, and only into an item
+                // the program actually declares.
+                let target = self.obj_get(obj, "ResponseDataItem");
+                let target = target.trim();
+                if !target.is_empty() && self.env.contains(target) {
+                    self.env.set_str(target, &text);
+                }
                 self.obj_set(obj, "Result", text);
                 self.obj_set(obj, "LastError", String::new());
                 if self.agent_is_verbose(obj) {
@@ -13032,10 +13027,7 @@ impl Interpreter {
         index: &str,
         field: impl Fn(&cobolt_forms::treenodes::NodeInfo) -> String,
     ) -> String {
-        index
-            .trim()
-            .parse::<usize>()
-            .ok()
+        Self::tree_line(index)
             .and_then(|i| cobolt_forms::treenodes::node_at(&self.obj_get(obj, "Items"), i))
             .map(|n| field(&n))
             .unwrap_or_default()
@@ -13048,14 +13040,49 @@ impl Interpreter {
         index: &str,
         link: impl Fn(&cobolt_forms::treenodes::NodeInfo) -> Option<usize>,
     ) -> String {
-        index
-            .trim()
-            .parse::<usize>()
-            .ok()
+        Self::tree_line(index)
             .and_then(|i| cobolt_forms::treenodes::node_at(&self.obj_get(obj, "Items"), i))
             .and_then(|n| link(&n))
-            .map(|i| i.to_string())
+            .map(Self::tree_handle)
             .unwrap_or_else(|| "-1".into())
+    }
+
+    /// A node handle, as COBOL holds it, to its 0-based line in `Items`.
+    ///
+    /// Handles are **1-based** — the number a node event hands the handler in
+    /// `CONTROL-NODE-INDEX` — so a handler can pass that straight to any
+    /// `Node…` call. The methods took the 0-based line until 1.70.156, so the
+    /// documented `TREE-1::NodeText(CONTROL-NODE-INDEX)` read the NEXT node.
+    fn tree_line(handle: &str) -> Option<usize> {
+        let n = handle.trim().parse::<i64>().ok()?;
+        (n >= 1).then(|| (n - 1) as usize)
+    }
+
+    /// `Items` with the node at `handle` and its whole subtree taken out, or
+    /// `None` when the handle names no node.
+    fn tree_without(items: &str, handle: &str) -> Option<String> {
+        let line = Self::tree_line(handle)?;
+        let all = cobolt_forms::treenodes::nodes(items);
+        let node = all.iter().find(|n| n.index == line)?;
+        let lines: Vec<&str> = items.lines().collect();
+        // The subtree runs until the next node at the same depth or shallower.
+        let end = all
+            .iter()
+            .find(|n| n.index > line && n.level <= node.level)
+            .map_or(lines.len(), |n| n.index);
+        Some(
+            lines[..line]
+                .iter()
+                .chain(lines[end..].iter())
+                .copied()
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
+    }
+
+    /// A 0-based line in `Items` back to the 1-based handle COBOL holds.
+    fn tree_handle(line: usize) -> String {
+        (line + 1).to_string()
     }
 
     /// Whether a newline-separated node list (`CheckedNodes`, `CollapsedNodes`)
@@ -14019,7 +14046,7 @@ impl Interpreter {
             ),
             "NODEINDEXOF" => val(
                 cobolt_forms::treenodes::index_of(&self.obj_get(obj, "Items"), &arg(0))
-                    .map(|i| i.to_string())
+                    .map(Self::tree_handle)
                     .unwrap_or_else(|| "-1".into()),
             ),
             "NODETEXT" | "NODENAME" => val(self.tree_node_field(obj, &arg(0), |n| n.text.clone())),
@@ -14057,6 +14084,47 @@ impl Interpreter {
             "NODECOLLAPSED" => {
                 let text = self.tree_node_field(obj, &arg(0), |n| n.text.clone());
                 val(Self::tree_list_holds(&self.obj_get(obj, "CollapsedNodes"), &text))
+            }
+            // The editor offered these five long before anything answered
+            // them: each call parsed, did nothing, and returned empty.
+            //
+            // `RemoveNode(handle)` takes the node AND everything under it — a
+            // child left behind would silently re-parent onto the node above.
+            // It answers `1` when it removed something, `0` when the handle
+            // names no node.
+            "REMOVENODE" => {
+                let items = self.obj_get(obj, "Items");
+                match Self::tree_without(&items, &arg(0)) {
+                    Some(rest) => {
+                        self.obj_set(obj, "Items", rest);
+                        val("1".into())
+                    }
+                    None => val("0".into()),
+                }
+            }
+            // Folding is `CollapsedNodes`, a list of labels — so opening
+            // everything empties it and closing everything lists every node
+            // that has something to fold.
+            "EXPANDALL" => {
+                self.obj_set(obj, "CollapsedNodes", String::new());
+                none
+            }
+            "COLLAPSEALL" => {
+                let parents: Vec<String> =
+                    cobolt_forms::treenodes::nodes(&self.obj_get(obj, "Items"))
+                        .into_iter()
+                        .filter(|n| n.child_count > 0)
+                        .map(|n| n.text)
+                        .collect();
+                self.obj_set(obj, "CollapsedNodes", parents.join("\n"));
+                none
+            }
+            // The selection is held by LABEL (`SelectedNode`), the key every
+            // TreeView list uses.
+            "GETSELECTEDNODE" => val(self.obj_get(obj, "SelectedNode")),
+            "SETSELECTEDNODE" => {
+                self.obj_set(obj, "SelectedNode", arg(0));
+                none
             }
             // ── FileDropZone: the confirmation half of a staged drop ──
             "COMMITFILES" => val(self.commit_staged_files(obj)),
@@ -17437,6 +17505,7 @@ fn is_known_method(name: &str) -> bool {
         // parses its parens as a collection subscript instead of as a call, and
         // `TV::NodeParent(3)` would silently mean "element 3 of NodeParent".
             | "ADDNODE"
+            | "REMOVENODE" | "EXPANDALL" | "COLLAPSEALL" | "GETSELECTEDNODE" | "SETSELECTEDNODE"
             | "NODECOUNT" | "NODEINDEXOF" | "NODETEXT" | "NODENAME" | "NODEPATH"
             | "NODELEVEL" | "NODEICON" | "NODECOLOR" | "NODECOLOUR"
             | "NODEBACKCOLOR" | "NODEBACKGROUND" | "NODECHILDCOUNT"
@@ -20928,6 +20997,38 @@ mod queued_event_spelling_tests {
             i.async_dispatch_queue.back(),
             Some(&("Agent-Helper".to_string(), "onResponse".to_string()))
         );
+    }
+
+    /// `ResponseDataItem` receives the reply when it ARRIVES. The generated
+    /// `<agent>-ASK` paragraph moved the answer straight after `Ask`, which
+    /// returns at once — so the item always got spaces. A name the program
+    /// does not declare is left alone rather than created.
+    #[test]
+    fn a_delivered_reply_fills_the_response_data_item() {
+        let source = "IDENTIFICATION DIVISION.\nPROGRAM-ID. T.\nDATA DIVISION.\n\
+                      WORKING-STORAGE SECTION.\n01 WS-ANSWER PIC X(40).\n\
+                      PROCEDURE DIVISION.\n    STOP RUN.\n";
+        let program = parse(tokenize(source, SourceFormat::Free))
+            .program
+            .expect("program should parse");
+        let mut i = Interpreter::new(program);
+        i.set_control_ids(["Agent-Helper"]);
+        i.obj_set("Agent-Helper", "ResponseDataItem", "WS-ANSWER".into());
+        i.agent_delivered(
+            "AGENT-HELPER",
+            200,
+            r#"{"message":{"role":"assistant","content":"COBOL is fine."}}"#,
+        );
+        let got = i.env.get("WS-ANSWER").map(|v| v.as_display_string()).unwrap_or_default();
+        assert_eq!(got.trim_end(), "COBOL is fine.");
+
+        i.obj_set("Agent-Helper", "ResponseDataItem", "WS-NOT-DECLARED".into());
+        i.agent_delivered(
+            "AGENT-HELPER",
+            200,
+            r#"{"message":{"role":"assistant","content":"again"}}"#,
+        );
+        assert!(!i.env.contains("WS-NOT-DECLARED"), "an undeclared name is not created");
     }
 
     /// A dead socket is a dead socket. Status 0 is the transport convention —

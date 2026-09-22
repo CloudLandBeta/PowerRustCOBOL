@@ -8,6 +8,54 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.156] — 2026-09-22
+
+### Six more defects, found while surveying specs 067 and 072 and the debugger
+
+**A TreeView handler's node number named the wrong node.** `CONTROL-NODE-INDEX`
+is 1-based — the Guide, the KB and the PowerDemo3 TreeView form all say so, and
+all say it is the handle every `Node…` method takes. The methods counted from 0,
+so `TREE-1::NodeText(CONTROL-NODE-INDEX)` read the node AFTER the one the event
+named, and the demo's `1 … NodeCount()` walk skipped the first node and ran off
+the end. Every `Node…` method now takes and returns the 1-based handle; `-1` (or
+`0`) still names no node. `AddNode(level, …)` and `NodeLevel` keep their 0-based
+*level*, which is a depth, not a handle.
+
+**Five TreeView methods the editor offered did nothing.** `RemoveNode(handle)`
+(the node and everything under it; `1`/`0`), `ExpandAll()`, `CollapseAll()`,
+`GetSelectedNode()` and `SetSelectedNode(label)` are now implemented, and the
+autocomplete descriptions say what they really take.
+
+**Three TreeView events could not be bound.** `onNodeCheck`, `onNodeCollapse`
+and `onNodeExpand` have been raised by the renderer since 1.61.157/158 but were
+missing from the control's declared events, so the designer offered no way to
+attach a handler.
+
+**The KB said TreeView ignores `Sorted`.** It sorts siblings; corrected.
+
+**The generated agent code read an answer that did not exist yet.** The
+`<agent>-ASK` paragraph invoked `Ask … RETURNING WS-AGENT-RESPONSE` and then
+tested `WS-AGENT-ERROR` — but `Ask` has returned at once since 1.65.63, so it
+always took the "response" branch with blanks. The paragraph now only sends the
+question and says where the reply arrives. `ResponseDataItem` finally receives
+the reply: the runtime writes it when it arrives, just before `onResponse`, and
+only into an item the program declares. The KB gains a `LastReply` entry, and
+its `Verbose` text no longer claims a form run outside the IDE has no model, or
+that the key is never printed (it is, deliberately, with a warning).
+
+**Two more ways a debug session could look hung.** The form host's pause flag
+was one bit for the whole process, and a command for a form that had already
+closed was dropped before the flag was cleared — every window then refused
+input for good. The router now tracks which forms are stopped and pauses only
+while one is. And a watched data change or an exception filter reported a stop
+without stopping unless a step also did; each is now the reason for a real stop.
+
+Tests: runtime 974 (2 file-lock/transaction tests failed only while two sweeps
+shared the disk, and pass alone), form host 147/0, codegen 69/0, compiler
+136/0, forms 1114/0, IDE 1243 passed / 7 failed — `every_document_ships_in_every_language`
+(the standing translation signal) and six `external_crates_service` tests that
+reach crates.io. System KB regenerated; Guide's TreeView table updated.
+
 ## [PowerRustCOBOL 1.70.155] — 2026-09-22
 
 ### `SetModel()` on an AgentObject had no effect

@@ -429,13 +429,13 @@ fn methods_for_type(ctrl_type: &str) -> Vec<Method> {
         "TreeView" => (
             UNIVERSAL_VISUAL,
             &[
-                ("AddNode", "Add a node (parent, text)"),
-                ("RemoveNode", "Remove a node by path"),
+                ("AddNode", "Add a node (level, text)"),
+                ("RemoveNode", "Remove a node and everything under it, by handle"),
                 ("Clear", "Remove all nodes"),
                 ("ExpandAll", "Expand every node"),
                 ("CollapseAll", "Collapse every node"),
-                ("GetSelectedNode", "Return the selected node"),
-                ("SetSelectedNode", "Select a node by path"),
+                ("GetSelectedNode", "Return the selected node's label"),
+                ("SetSelectedNode", "Select a node by label"),
             ],
         ),
         "TabControl" => (

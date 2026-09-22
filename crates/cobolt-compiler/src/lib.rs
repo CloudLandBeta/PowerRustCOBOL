@@ -3707,7 +3707,7 @@ PowerRustCOBOL extends COBOL-85 with inline RAD Form and UI Control access featu
 - **Boolean properties** store `1` (true) / `0` (false). Write `SET C::Visible TO 1`. On method arguments, `true`/`yes`/`on` (any case) also count as true.
 - **Colors** are hex strings: `"#RRGGBB"` or `"#RRGGBBAA"` (e.g. `"#FF0000"`, `"#00000000"` = transparent).
 - **Coordinates and sizes** (`X`, `Y`, `Width`, `Height`, paddings, radii) are integer pixels.
-- **List content** (`Items` of ListBox/ComboBox/ToolBar/StatusBar/TreeView) is ONE ITEM PER LINE (newline-separated); TreeView nests children with two leading spaces per level, and a node may carry up to three TAB-separated fields of its own after its label (`label\\ticon\\tcolour\\tbackground`). Indexes (`SelectedIndex`, grid rows/columns) are 0-based; -1 = no selection. A TreeView node's index is its LINE in `Items` as written, and it is the handle every `Node…` method takes.
+- **List content** (`Items` of ListBox/ComboBox/ToolBar/StatusBar/TreeView) is ONE ITEM PER LINE (newline-separated); TreeView nests children with two leading spaces per level, and a node may carry up to three TAB-separated fields of its own after its label (`label\\ticon\\tcolour\\tbackground`). Indexes (`SelectedIndex`, grid rows/columns) are 0-based; -1 = no selection. A TreeView node's handle is its **1-based** LINE in `Items` as written — the number a node event hands the handler in `CONTROL-NODE-INDEX` — and it is what every `Node…` method takes and every traversal method returns; `-1` (or `0`) names no node.
 - **DataGrid data**: `Columns` is one `Name:Type` per line (`Type` ∈ `string`|`number`|`datetime`); `Rows` separates rows with newlines and cells with TAB.
 - **Enumerated properties** accept only their listed values EXACTLY as spelled (e.g. `Orientation` is `Horizontal` or `Vertical`); an unrecognised value falls back to the default without an error.
 - **Property names**: setting a misspelled property silently creates a new, unused property — never guess names; use the ones in the Form Controls Reference.
@@ -4864,7 +4864,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
              keys are on. Kept fainter than ActiveItemColor by default so hovering an item \
              never looks like selecting it.",
         ),
-        "Sorted" => (BOOL_DOMAIN, "Shows the items in alphabetical order, by TEXT and ignoring case, so 10 sorts before 9. Display order only - the stored Items keeps the order it was written in. ListBox and ComboBox; TreeView carries the property but does not act on it yet."),
+        "Sorted" => (BOOL_DOMAIN, "Shows the items in alphabetical order, by TEXT and ignoring case, so 10 sorts before 9. Display order only - the stored Items keeps the order it was written in. ListBox, ComboBox and TreeView. A TreeView sorts SIBLINGS only — every child stays under the parent it was written under — and a node's handle (`CONTROL-NODE-INDEX`, the `Node…` methods) is still its line as written, so sorting never renumbers a handler."),
         "DropDownStyle" => ("one of: `DropDown` | `DropDownList` | `Simple`", "ComboBox edit/list behaviour."),
         "DropDownHeight" => ("pixels > 0", "Maximum height of the opened list. The list is as tall as its items need up to this, and scrolls past it."),
         "Editable" => (BOOL_DOMAIN, "Allows typing free text into the combo. It does not change what the arrow keys do: those always walk the list."),
@@ -5020,8 +5020,9 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "Stream" => (BOOL_DOMAIN, "Streams the response as it generates."),
         "TimeoutSeconds" => ("seconds > 0", "Request timeout."),
         "TargetControls" => ("comma-separated control ids", "Controls this agent is allowed to modify."),
-        "ResponseDataItem" => ("COBOL data-item name", "WORKING-STORAGE item that receives the response."),
-        "Verbose" => ("true | false", "Narrate the whole call into the program's output. Off by default; turn it on when the control appears to do nothing, because an operation that returned nothing and one that never ran produce the same empty log, and this is what separates them. **On an AgentObject**: the model, endpoint and whether an API key is set (never the key itself), the prompt, and what came back. Note that a form run outside the IDE has no model attached: LastReply stays empty, so onResponse does not fire, and the verbose line says so. **On a WebSearch**: the provider, the method and URL, the request headers, the body sent, whether the call is async or sync, then the HTTP status and the raw response — uncut, so it can be compared against the provider's own documentation. Credentials are masked in both: a key in a header or in the URL query (Google signs there) prints as its first few characters and a length, because program output ends up in bug reports."),
+        "ResponseDataItem" => ("COBOL data-item name", "AgentObject: a WORKING-STORAGE item that receives the reply when it arrives — written just before `onResponse` fires, and only when the program declares an item of that name. Empty = none; read `LastReply` in the handler instead."),
+        "LastReply" => ("text (runtime-only, read-only)", "AgentObject: the model's answer to the last `Ask`, written when it arrives and just before `onResponse` fires. Cleared on a failure, when `LastError` is set instead. `Result` carries the same text."),
+        "Verbose" => ("true | false", "Narrate the whole call into the program's output. Off by default; turn it on when the control appears to do nothing, because an operation that returned nothing and one that never ran produce the same empty log, and this is what separates them. **On an AgentObject**: the endpoint, every request header and the payload exactly as sent, then the HTTP status, the raw body and the reply read out of it. The headers include the API key **unmasked, on purpose** — a key wrong by one character is invisible once masked — and the log says so on the next line, so do not paste it into a bug report. The call is made the same way in the IDE, under `rcrun` and in a built application. **On a WebSearch**: the provider, the method and URL, the request headers, the body sent, whether the call is async or sync, then the HTTP status and the raw response — uncut, so it can be compared against the provider's own documentation. A WebSearch masks its credentials: a key in a header or in the URL query (Google signs there) prints as its first few characters and a length."),
 
         // ── RestClient ──
         "Configuration" => (
@@ -5396,6 +5397,9 @@ fn event_reference(name: &str) -> &'static str {
         "onNodeClick" => "a tree node was clicked",
         "onNodeDblClick" | "onNodeDoubleClick" => "a tree node was double-clicked",
         "onNodeSelect" => "a tree node became selected",
+        "onNodeCheck" => "a tree node's tick box was ticked or cleared",
+        "onNodeCollapse" => "a tree node was folded shut",
+        "onNodeExpand" => "a tree node was opened",
         "onTick" => "fires every `Interval` ms while `Enabled` = 1",
         // ── Viewer (spec 058 R32) ──
         "onLoadProgress" => "a document is opening; `Progress` carries 0-100",
@@ -5545,7 +5549,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
         ("GetCount() → Integer", "Number of items."),
         ("Clear()", "Remove all items."),
     ];
-    // TreeView nodes. Every call takes the node's INDEX — the same number the
+    // TreeView nodes. Every call takes the node's 1-based INDEX — the same number the
     // node event hands the handler in `CONTROL-NODE-INDEX`. The traversal calls
     // RETURN an index, so they chain; -1 means there is no such node.
     let tree_node_methods: Vec<(&'static str, &'static str)> = vec![
@@ -5568,6 +5572,11 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
         ("NodeHasChildren(index) → 1/0", "Whether anything hangs under it."),
         ("NodeChecked(index) → 1/0", "Whether its box is ticked — read from the control's live `CheckedNodes`, not from the node's line."),
         ("NodeCollapsed(index) → 1/0", "Whether it is folded shut — read from the control's live `CollapsedNodes`."),
+        ("RemoveNode(index) → 1/0", "Remove the node AND everything under it — a child left behind would re-parent onto the node above. `0` when the index names no node."),
+        ("ExpandAll()", "Open every node: empties `CollapsedNodes`."),
+        ("CollapseAll()", "Fold every node that has children: `CollapsedNodes` lists them all."),
+        ("GetSelectedNode() → String", "The selected node's label (`SelectedNode`)."),
+        ("SetSelectedNode(label: String)", "Select the node with this label (writes `SelectedNode`)."),
     ];
     let chart_methods: Vec<(&'static str, &'static str)> = vec![
         (
@@ -6600,7 +6609,7 @@ fn methods_reference_doc() -> String {
         ),
         (
             "TreeView nodes",
-            "Every call takes the node's INDEX — the same number a node event hands the handler in `CONTROL-NODE-INDEX`. That index IS the node's handle: there is no node object to hold, because a held object would go stale the moment `Items` changed. The traversal calls RETURN an index, so they chain; -1 means there is no such node, and that is what ends a walk.",
+            "Every call takes the node's INDEX — its 1-based line in `Items`, the same number a node event hands the handler in `CONTROL-NODE-INDEX`. That index IS the node's handle: there is no node object to hold, because a held object would go stale the moment `Items` changed. The traversal calls RETURN an index, so they chain; -1 means there is no such node, and that is what ends a walk.",
             &[
                 ("AddNode(level, text [, icon, color, background])", "Append a node at `level` (0 = root). The level is a number, not leading spaces — `AddItem` trims its argument."),
                 ("NodeCount() → Integer", "How many nodes the tree holds."),
@@ -6615,6 +6624,9 @@ fn methods_reference_doc() -> String {
                 ("NodeChildCount(index) → Integer", "Direct children only."),
                 ("NodeHasChildren(index) → 1/0", "Whether anything hangs under it."),
                 ("NodeChecked / NodeCollapsed (index) → 1/0", "Live state, read from `CheckedNodes` / `CollapsedNodes`."),
+                ("RemoveNode(index) → 1/0", "Remove the node and everything under it; 0 when the index names no node."),
+                ("ExpandAll() / CollapseAll()", "Open every node / fold every node that has children (writes `CollapsedNodes`)."),
+                ("GetSelectedNode() → String / SetSelectedNode(label)", "Read / set `SelectedNode`, the selected node's label."),
             ],
         ),
         (

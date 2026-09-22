@@ -2639,6 +2639,14 @@ designer canvas, the preview, Run Form and the compiled binary.
 > | `NodeIcon(i)` / `NodeColor(i)` / `NodeBackColor(i)` | what the node itself carries                                  |
 > | `NodeChecked(i)` / `NodeCollapsed(i)`               | `1`/`0`, read from the live `CheckedNodes` / `CollapsedNodes` |
 > | `NodeCount()` / `NodeIndexOf(text)`                 | how many nodes; the handle for a label you already know       |
+> | `RemoveNode(i)`                                     | removes the node and everything under it; `1`, or `0` if none |
+> | `ExpandAll()` / `CollapseAll()`                     | open every node / fold every node that has children           |
+> | `GetSelectedNode()` / `SetSelectedNode(label)`      | read / set the selected node, by label                        |
+>
+> Handles count from **1** — the first line of `Items` is node 1 — so the
+> number in `CONTROL-NODE-INDEX` goes straight into any call above. (Before
+> 1.70.156 the calls counted from 0 and quietly read the node *after* the one
+> the event named.)
 >
 > There is deliberately **no node object to hold**. A handle you kept would go
 > stale the moment `Items` changed under it; an index is simply re-read against
