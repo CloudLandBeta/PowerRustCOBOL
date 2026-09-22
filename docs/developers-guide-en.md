@@ -1673,8 +1673,9 @@ in the next field.
 with Tab, Shift+Tab or Enter, the control that has the focus wears a border —
 the *focus ring* — so a data-entry operator never loses their place. It is a
 project setting, the same for every form: **Settings → Appearance → Keyboard
-focus ring** picks the colour (a blue by default) and, optionally, **Pulse**,
-which makes the border breathe slowly. The ring goes the moment the focus leaves
+focus ring** has a checkbox that turns it on or off (on by default), picks the
+colour (a blue by default) and, optionally, **Pulse**, which makes the border
+breathe slowly. The ring goes the moment the focus leaves
 the control, and a mouse click hides it — it marks keyboard navigation, not the
 last thing clicked. Run Form and your built application show it the same way.
 

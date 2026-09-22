@@ -3183,7 +3183,13 @@ impl CoboltApp {
                 .map(|p| p.ide.indexed_engine.as_str()),
             self.cobolt_project
                 .as_ref()
-                .map(|p| (p.forms.focus_ring_color.as_str(), p.forms.focus_ring_pulse)),
+                .map(|p| {
+                    (
+                        p.forms.focus_ring,
+                        p.forms.focus_ring_color.as_str(),
+                        p.forms.focus_ring_pulse,
+                    )
+                }),
         ) {
             Ok(run) => {
                 if debug {

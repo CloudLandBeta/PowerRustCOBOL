@@ -761,10 +761,15 @@ struct ProjectFiles {
 /// project's own values, so the generator's many callers need not know.
 const FOCUS_RING_COLOR_DEFAULT_LINE: &str = "const PROJECT_FOCUS_RING_COLOR: &str = \"\";";
 const FOCUS_RING_PULSE_DEFAULT_LINE: &str = "const PROJECT_FOCUS_RING_PULSE: bool = false;";
+const FOCUS_RING_ENABLED_DEFAULT_LINE: &str = "const PROJECT_FOCUS_RING_ENABLED: bool = true;";
 
 /// Put the project's focus ring into a generated `main.rs`.
-fn bake_focus_ring(main_rs: String, color: &str, pulse: bool) -> String {
+fn bake_focus_ring(main_rs: String, enabled: bool, color: &str, pulse: bool) -> String {
     main_rs
+        .replace(
+            FOCUS_RING_ENABLED_DEFAULT_LINE,
+            &format!("const PROJECT_FOCUS_RING_ENABLED: bool = {enabled};"),
+        )
         .replace(
             FOCUS_RING_COLOR_DEFAULT_LINE,
             &format!(
@@ -780,7 +785,7 @@ fn bake_focus_ring(main_rs: String, color: &str, pulse: bool) -> String {
 
 /// The `[forms]` section of `cobolt.toml` — the project's default form theme
 /// (spec 007). Empty/absent ⇒ Liquid Glass.
-#[derive(Deserialize, Default)]
+#[derive(Deserialize)]
 struct FormsConfig {
     #[serde(default)]
     theme: String,
@@ -802,10 +807,36 @@ struct FormsConfig {
     #[serde(default, rename = "entrance-on-restore")]
     entrance_on_restore: bool,
     // How keyboard focus is marked in every form. Empty colour ⇒ the default.
+    #[serde(default = "default_true", rename = "focus-ring")]
+    focus_ring: bool,
     #[serde(default, rename = "focus-ring-color")]
     focus_ring_color: String,
     #[serde(default, rename = "focus-ring-pulse")]
     focus_ring_pulse: bool,
+}
+
+/// Absent `[forms]` is every default — and the focus ring's is ON, which a
+/// derived `Default` would have made off.
+impl Default for FormsConfig {
+    fn default() -> Self {
+        Self {
+            theme: String::new(),
+            entrance_effect: String::new(),
+            entrance_ms: 0,
+            entrance_easing: String::new(),
+            exit_effect: String::new(),
+            exit_ms: 0,
+            exit_easing: String::new(),
+            entrance_on_restore: false,
+            focus_ring: true,
+            focus_ring_color: String::new(),
+            focus_ring_pulse: false,
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// The `[integrations]` table — the non-secret half of the project's external
@@ -1993,6 +2024,7 @@ fn build_core(
     );
     let main_rs = bake_focus_ring(
         main_rs,
+        proj.forms.focus_ring,
         &proj.forms.focus_ring_color,
         proj.forms.focus_ring_pulse,
     );
@@ -3070,7 +3102,8 @@ fn generate_main_rs(
          #[allow(dead_code)]\nconst PROJECT_FX_ON_RESTORE: bool = {};\n\
          /// How keyboard focus is marked (`[forms] focus-ring-color` / `-pulse`).\n\
          #[allow(dead_code)]\n{FOCUS_RING_COLOR_DEFAULT_LINE}\n\
-         #[allow(dead_code)]\n{FOCUS_RING_PULSE_DEFAULT_LINE}\n",
+         #[allow(dead_code)]\n{FOCUS_RING_PULSE_DEFAULT_LINE}\n\
+         #[allow(dead_code)]\n{FOCUS_RING_ENABLED_DEFAULT_LINE}\n",
         entrance_fx.escape_default(),
         exit_fx.escape_default(),
         entrance_on_restore
@@ -3279,6 +3312,7 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     // rule the IDE applies before Run Form.
     // The project's focus ring, for every form this process shows.
     cobolt_forms::render::set_focus_ring(cobolt_forms::render::FocusRing::from_settings(
+        PROJECT_FOCUS_RING_ENABLED,
         PROJECT_FOCUS_RING_COLOR,
         PROJECT_FOCUS_RING_PULSE,
     ));
@@ -4053,7 +4087,7 @@ The PowerRustCOBOL IDE provides RAD (Rapid Application Development) capabilities
 - A WYSIWYG visual layout canvas with grid snapping.
 - Visual positioning (X, Y) and sizing (Width, Height) of controls.
 - Tab-order management for keyboard navigation: **Visual Tab Order** (toggle it, click the controls in the order Tab should visit them — each shows its number — and toggle it off to finish) and the **Tab Order list** (drag a row or use ▲ ▼, selecting a row selects the control; Apply or Cancel). A newly placed control takes the next number.
-- Keyboard focus ring: while the operator moves through a running form with Tab, Shift+Tab or Enter-as-Tab, the focused control carries a border in the project's focus-ring colour (Settings → Appearance → Keyboard focus ring; `[forms] focus-ring-color` in cobolt.toml, empty = a default blue), optionally pulsing slowly (`focus-ring-pulse`). It goes the moment the focus leaves the control or the pointer is pressed. The same in Run Form and in a built application.
+- Keyboard focus ring: while the operator moves through a running form with Tab, Shift+Tab or Enter-as-Tab, the focused control carries a border in the project's focus-ring colour (Settings → Appearance → Keyboard focus ring; `[forms] focus-ring-color` in cobolt.toml, empty = a default blue), optionally pulsing slowly (`focus-ring-pulse`); `focus-ring = false` (the row's own checkbox) turns it off entirely. It goes the moment the focus leaves the control or the pointer is pressed. The same in Run Form and in a built application.
 - Container hierarchies (e.g. Panels, TabControls) establishing parent-child ownership.
 
 ## Predefined Form Styles
@@ -8022,6 +8056,18 @@ mod resolve_main_tests {
         assert!(quiet.contains("const PROJECT_FX_ON_RESTORE: bool = false;"));
     }
 
+    /// The ring is ON unless the project says otherwise — with no `[forms]`
+    /// table at all, and with one that does not mention it.
+    #[test]
+    fn the_focus_ring_is_on_unless_the_project_turns_it_off() {
+        let absent: FormsConfig = FormsConfig::default();
+        assert!(absent.focus_ring);
+        let silent: FormsConfig = toml::from_str("theme = \"\"").unwrap();
+        assert!(silent.focus_ring);
+        let off: FormsConfig = toml::from_str("focus-ring = false").unwrap();
+        assert!(!off.focus_ring);
+    }
+
     /// The project's focus ring is baked into the generated glue and handed to
     /// the renderer before the first form is shown; with none set, the
     /// generator's defaults stand and the renderer uses its default colour.
@@ -8034,9 +8080,11 @@ mod resolve_main_tests {
         );
         assert!(src.contains(r#"const PROJECT_FOCUS_RING_COLOR: &str = "";"#));
         assert!(src.contains("const PROJECT_FOCUS_RING_PULSE: bool = false;"));
+        assert!(src.contains("const PROJECT_FOCUS_RING_ENABLED: bool = true;"));
         assert!(src.contains("cobolt_forms::render::set_focus_ring("));
 
-        let baked = bake_focus_ring(src, " #FF8800 ", true);
+        let baked = bake_focus_ring(src, false, " #FF8800 ", true);
+        assert!(baked.contains("const PROJECT_FOCUS_RING_ENABLED: bool = false;"));
         assert!(baked.contains(r##"const PROJECT_FOCUS_RING_COLOR: &str = "#FF8800";"##));
         assert!(baked.contains("const PROJECT_FOCUS_RING_PULSE: bool = true;"));
     }

@@ -318,6 +318,9 @@ pub struct FormsConfig {
     pub entrance_on_restore: bool,
 
     // ── Keyboard focus — PROJECT-level, applied to every form ─────────────
+    /// Mark the control the keyboard moved to at all. On by default.
+    #[serde(default = "FormsConfig::default_focus_ring", rename = "focus-ring")]
+    pub focus_ring: bool,
     /// The border marking the control the keyboard (Tab, Shift+Tab, Enter as
     /// Tab) moved the focus to, as `#RRGGBB`. Empty ⇒ the renderer's default.
     #[serde(default, rename = "focus-ring-color")]
@@ -344,6 +347,10 @@ pub struct FormsConfig {
 }
 
 impl FormsConfig {
+    fn default_focus_ring() -> bool {
+        true
+    }
+
     fn default_entrance_ms() -> u32 {
         600
     }
@@ -378,6 +385,7 @@ impl Default for FormsConfig {
             exit_ms: Self::default_exit_ms(),
             exit_easing: String::new(),
             entrance_on_restore: false,
+            focus_ring: true,
             focus_ring_color: String::new(),
             focus_ring_pulse: false,
             // No designation until a save records one from the form files.

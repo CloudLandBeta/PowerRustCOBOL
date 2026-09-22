@@ -110,7 +110,8 @@ fn parse_fx_args(
     )
 }
 
-/// `--focus-ring <#RRGGBB>` and `--focus-pulse`: how keyboard focus is marked.
+/// `--focus-ring <#RRGGBB>`, `--focus-pulse` and `--no-focus-ring`: how
+/// keyboard focus is marked, or that it is not.
 fn parse_focus_ring_args(args: &[String]) -> cobolt_forms::render::FocusRing {
     let color = args
         .iter()
@@ -119,7 +120,8 @@ fn parse_focus_ring_args(args: &[String]) -> cobolt_forms::render::FocusRing {
         .map(String::as_str)
         .unwrap_or("");
     let pulse = args.iter().any(|a| a == "--focus-pulse");
-    cobolt_forms::render::FocusRing::from_settings(color, pulse)
+    let enabled = !args.iter().any(|a| a == "--no-focus-ring");
+    cobolt_forms::render::FocusRing::from_settings(enabled, color, pulse)
 }
 
 /// Exit code for an application whose own records disagree about which form

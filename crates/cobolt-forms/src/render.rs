@@ -2758,6 +2758,8 @@ fn keyboard_focus_id() -> egui::Id {
 /// its command line, a built application from its baked-in constants.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FocusRing {
+    /// Off: keyboard focus is not marked at all.
+    pub enabled: bool,
     pub color: egui::Color32,
     pub pulse: bool,
 }
@@ -2768,15 +2770,20 @@ impl FocusRing {
 
     /// From the project's settings: an empty or unreadable colour means the
     /// default one.
-    pub fn from_settings(color: &str, pulse: bool) -> Self {
+    pub fn from_settings(enabled: bool, color: &str, pulse: bool) -> Self {
         let color = crate::paint::parse_hex(color.trim()).unwrap_or(Self::DEFAULT_COLOR);
-        Self { color, pulse }
+        Self {
+            enabled,
+            color,
+            pulse,
+        }
     }
 }
 
 impl Default for FocusRing {
     fn default() -> Self {
         Self {
+            enabled: true,
             color: Self::DEFAULT_COLOR,
             pulse: false,
         }
@@ -2836,6 +2843,9 @@ fn paint_focus_ring(
         .find(|c| c.id == target.ctrl_id)
         .map_or(0.0, crate::paint::corner_radius);
     let ring = focus_ring();
+    if !ring.enabled {
+        return;
+    }
     let alpha = if ring.pulse {
         let t = ui.input(|i| i.time);
         let phase = (t / FOCUS_PULSE_SECS * std::f64::consts::TAU).cos() as f32;
@@ -19728,10 +19738,15 @@ mod tests {
 
     #[test]
     fn engine_focus_ring_settings_fall_back_to_the_default_colour() {
-        assert_eq!(FocusRing::from_settings("", true).color, FocusRing::DEFAULT_COLOR);
-        assert_eq!(FocusRing::from_settings("not-a-colour", false).color, FocusRing::DEFAULT_COLOR);
+        assert_eq!(FocusRing::from_settings(true, "", true).color, FocusRing::DEFAULT_COLOR);
         assert_eq!(
-            FocusRing::from_settings("#FF0000", false).color,
+            FocusRing::from_settings(true, "not-a-colour", false).color,
+            FocusRing::DEFAULT_COLOR
+        );
+        assert!(!FocusRing::from_settings(false, "", false).enabled);
+        assert!(FocusRing::default().enabled, "on unless a project turns it off");
+        assert_eq!(
+            FocusRing::from_settings(true, "#FF0000", false).color,
             egui::Color32::from_rgb(255, 0, 0)
         );
     }

@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.158] — 2026-09-22
+
+### The focus ring can be switched off
+
+Settings → Appearance → Keyboard focus ring gains an on/off checkbox (on by
+default); the colour and Pulse stay, greyed, while it is off. Stored as
+`[forms] focus-ring = false`, passed to `rcrun run-form` as `--no-focus-ring`
+and baked into built applications. A project that never mentions it — or has no
+`[forms]` table — keeps the ring on. Test:
+`the_focus_ring_is_on_unless_the_project_turns_it_off`.
+
 ## [PowerRustCOBOL 1.70.157] — 2026-09-22
 
 ### A running form now shows where the keyboard is
