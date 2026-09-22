@@ -8,6 +8,27 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.159] — 2026-09-22
+
+### Specs 066, 067 and 072 — open questions answered
+
+The operator's rulings (2026-09-22) are recorded in each spec, which is now ready
+for `/plan`:
+
+- **066 SideMenu** — run-time rows use the list-control names (`AddItem`,
+  `RemoveItem`, `Clear`, `GetCount`, plus `SetItem…` setters); a run-time row
+  takes the same actions a designed one does; controls sit both in a header band
+  and inside menu rows; the transport is decided in `/plan`.
+- **067 TreeView drag-and-drop** — names follow PowerCOBOL conventions; `/plan`
+  proposes the exact list for confirmation.
+- **072 AgentObject tools** — methods only (`AllowFile` / `DenyFile` on the
+  agent, no new `CALL` names); every consultable file is offered to every agent;
+  a tool the program answers counts against `TimeoutSeconds` and an unanswered
+  one returns an empty result.
+
+The defects each spec listed are marked as shipped (1.70.155 / 1.70.156). Spec
+text only; no code changes.
+
 ## [PowerRustCOBOL 1.70.158] — 2026-09-22
 
 ### The focus ring can be switched off

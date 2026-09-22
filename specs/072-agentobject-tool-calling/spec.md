@@ -1,6 +1,6 @@
 # Spec — `AgentObject` tool calling
 
-- **Status:** draft → awaiting operator review
+- **Status:** open questions resolved (operator, 2026-09-22) → ready for `/plan`
 - **Folder:** specs/072-agentobject-tool-calling/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-09-22
 
@@ -89,8 +89,9 @@ reports (063 R76).
 - **R8 (event):** When a call names an indexed-file tool, the agent shall run it
   through the same `065` dispatch as `COBOL-MCP-SEARCH`, read-only.
 - **R9 (event):** When a call names a program-declared tool, the agent shall fire
-  an event carrying the tool name and its arguments, and continue the loop only
-  after the program supplies a result for that call.
+  an event carrying the tool name and its arguments, and continue the loop once
+  the handler has returned — with the result it supplied, or an empty result if
+  it supplied none. The wait counts against `TimeoutSeconds`. *(Q3)*
 - **R10 (event):** When a call names a tool that was not offered, or its
   arguments are not valid JSON, the agent shall return an error result to the
   model rather than fail the question.
@@ -171,7 +172,8 @@ reports (063 R76).
 
 ### Defects found while surveying — not this feature's work
 
-**Fixes**, for the `fixes` branch, listed so they are not lost:
+These were **fixes**, and all three shipped on `fixes` — 1 in **1.70.155**, 2
+and 3 in **1.70.156**:
 
 1. **`SetModel()` has no effect.** It writes `Model`
    (`interpreter.rs` `SETMODEL`); `agent_ask` reads `AgentModel`.
@@ -184,9 +186,11 @@ reports (063 R76).
 
 ## 7. Open questions
 
-- **Q1 — the COBOL surface.** Proposed:
-  - Files: `CALL "COBOL-MCP-ALLOW" USING file-name` / `"COBOL-MCP-DENY"`, next
-    to the existing `COBOL-MCP-SEARCH`.
+- **Q1 — ✅ methods only (operator, 2026-09-22).** No new `CALL` names: the
+  whole surface is on `AgentObject`.
+  - Files: `AGENT-1::AllowFile(file-name)` / `AGENT-1::DenyFile(file-name)`.
+    Consultability stays the application's (065 R32): marking a file through
+    any agent marks it for every agent (Q2).
   - Agent methods: `AddTool(name, description)`,
     `AddToolParameter(tool, name, description)`, `RemoveTool(name)`,
     `SetToolResult(call-id, text)`.
@@ -195,14 +199,9 @@ reports (063 R76).
     `LastOutputTokens`, `LastToolCallCount`, and during the tool event
     `ToolCallId`, `ToolName`, `ToolArguments`.
   - Event: `onToolCall`.
-  *Recommendation:* these; the operator may prefer different names.
-- **Q2 — are all consultable files offered to every agent?** *Recommendation:*
-  yes in `072` — consultability is the end user's decision (065 R32), and
-  per-agent restriction belongs to the mesh in `071`.
-- **Q3 — waiting for a COBOL tool result.** R9 pauses the loop until the
-  program answers. *Recommendation:* the pause counts against `TimeoutSeconds`,
-  and a handler that returns without calling `SetToolResult` sends the model an
-  empty result rather than hanging.
-- **Q4 — fix order.** *Recommendation:* land defect 1 (`SetModel`) on `fixes`
-  first — AC tests will set models, and a feature should not be tested through a
-  broken setter.
+  Every name is also added to `is_known_method`.
+- **Q2 — ✅ every consultable file, to every agent.** Per-agent restriction
+  belongs to the mesh in `071`.
+- **Q3 — ✅ the wait counts against `TimeoutSeconds`**, and a handler that
+  returns without `SetToolResult` sends the model an empty result (R9).
+- **Q4 — ✅ moot.** `SetModel` was fixed in 1.70.155.

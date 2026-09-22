@@ -1,6 +1,6 @@
 # Spec — SideMenu: run-time rows and hosted controls
 
-- **Status:** draft → awaiting operator review
+- **Status:** open questions resolved (operator, 2026-09-22) → ready for `/plan`
 - **Folder:** specs/066-sidemenu-runtime-rows/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-09-22
 
@@ -55,8 +55,6 @@ in the rail — with identical behaviour on all four surfaces the renderer serve
 - Editing the `.menu.yaml` from a running program. Run-time rows are never
   written back; the designed menu and its hash stay the developer's.
 - Drag-and-drop reordering of menu rows.
-- Run-time *navigation* actions (`open-form:`, `open-standalone-*`) on a row
-  created at run time — see Q2.
 - Changing MenuBar. It is a separate type and stays static.
 
 ## 3. User stories
@@ -87,9 +85,14 @@ in the rail — with identical behaviour on all four surfaces the renderer serve
 - **R6 (ubiquitous):** Run-time rows shall appear after the designed rows, in
   the order they were added, unless added under a parent row, in which case they
   appear as that row's last children.
-- **R7 (event):** When a run-time row is clicked, the SideMenu shall set
-  `SelectedItemId` to the row's id and fire `onMenuItemClick`, exactly as for a
-  designed row with the `event` action.
+- **R7 (event):** When a run-time row is clicked, the SideMenu shall do exactly
+  what a designed row with the same action does: with no action or the `event`
+  action, set `SelectedItemId` to the row's id and fire `onMenuItemClick`; with
+  a navigation action (`open-form:`, `open-standalone-sync:`,
+  `open-standalone-async:`, `home`, `close-application`), navigate as the
+  designed row would. *(Q2)*
+- **R7a (ubiquitous):** A running program shall be able to give a row an action
+  when adding it, and change it afterwards.
 - **R8 (ubiquitous):** A row id shall be unique within the SideMenu. Adding a
   row whose id already exists shall replace the run-time row of that id in
   place, and shall fail for a designed row's id (R5).
@@ -108,6 +111,12 @@ in the rail — with identical behaviour on all four surfaces the renderer serve
   expanded.
 - **R13 (ubiquitous):** Controls hosted in a band shall receive events and
   property changes exactly as they do anywhere else on the form.
+- **R13a (ubiquitous):** A menu row shall be able to host one control in place
+  of its label, placed in the designer or named by a running program, so a
+  picker can sit among the rows as well as in the header band. *(Q3)*
+- **R13b (state):** While the SideMenu is collapsed to its rail, a control row
+  shall show only its icon, as any other row does, and its control shall be
+  hidden.
 
 ### 4.3 Parity
 
@@ -132,6 +141,11 @@ in the rail — with identical behaviour on all four surfaces the renderer serve
 - [ ] **AC5** — Clearing run-time rows restores exactly the designed menu. *(R4)*
 - [ ] **AC6** — A ComboBox dropped into the header band is shown in the rail
       when expanded, hidden when collapsed, and fires its events. *(R11–R13)*
+- [ ] **AC6a** — A ComboBox hosted in a menu row lays out in that row's
+      rectangle on every surface, and hides when the menu collapses. *(R13a,
+      R13b)*
+- [ ] **AC6b** — A run-time row added with `open-form:SETTINGS` opens that form
+      when clicked, exactly as a designed row with the same action. *(R7)*
 - [ ] **AC7** — The same rows, produced by the same program, lay out to the
       same row rectangles on `render_interactive` and on the shell's
       MenuPane (a test compares `sidebar::layout` inputs from both). *(R14)*
@@ -169,26 +183,24 @@ in the rail — with identical behaviour on all four surfaces the renderer serve
 
 ## 7. Open questions
 
-- **Q1 — the method surface.** Proposed, in COBOL call form:
-  `AddRow(id, label [, icon [, parent-id]])`, `AddSection(title)`,
-  `SetRowLabel(id, text)`, `SetRowIcon(id, icon)`, `SetRowBadge(id, text)`,
-  `SetRowEnabled(id, flag)`, `RemoveRow(id)`, `ClearRows()`, `RowCount()`,
-  `HasRow(id)`. *Recommendation:* these names, because the generic `AddItem`
-  / `Clear` already mean "append a line to `Items`" on list controls and a
-  SideMenu has no `Items` — reusing them would suggest a shape that is not
-  there.
-- **Q2 — navigation on run-time rows.** Designed rows can open forms
-  (`open-form:`, `open-standalone-*`). *Recommendation:* run-time rows fire
-  only `onMenuItemClick` in this feature; the handler opens whatever it needs
-  with the existing COBOL form-opening calls. Adding an action argument later
-  stays compatible.
-- **Q3 — the header band vs. controls inside rows.** The umbrella asks for
-  controls "in the rail". *Recommendation:* a header band mirroring the
-  existing footer Panel (R11), rather than a row type that embeds a control —
-  it reuses a proven mechanism on every surface, and the assistant and
-  language pickers are both fixed-position controls. A per-row hosted control
-  can follow if an application needs one.
-- **Q4 — transport.** How run-time rows travel from the interpreter to the
-  renderer and the shell is a `/plan` decision. The constraint it must honour:
-  the shell and `render_interactive` read the *same* merged row list, so AC7
-  can compare them.
+All four were answered by the operator on 2026-09-22.
+
+- **Q1 — ✅ the method surface: the list-control names.** The SideMenu answers
+  the names a developer already uses on a ListBox — `AddItem`, `RemoveItem`,
+  `Clear`, `GetCount` — with its own arguments, plus setters in the same
+  family:
+  `AddItem(id, label [, icon [, parent-id [, action]]])`, `AddSection(title)`,
+  `SetItemLabel(id, text)`, `SetItemIcon(id, icon)`, `SetItemBadge(id, text)`,
+  `SetItemEnabled(id, flag)`, `SetItemAction(id, action)`, `RemoveItem(id)`,
+  `Clear()` (run-time rows only — R4), `GetCount()`, `HasItem(id)`.
+  ⚠️ For `/plan`: today `ADDITEM`/`REMOVEITEM`/`CLEAR`/`GETCOUNT` are generic
+  handlers that edit an `Items` property, which a SideMenu does not have. They
+  must dispatch on the control's type first, or a SideMenu call silently writes
+  a property nothing reads. Exact setter names may be adjusted at `/plan`.
+- **Q2 — ✅ actions too.** A run-time row takes the same actions a designed row
+  does (R7, R7a).
+- **Q3 — ✅ both.** The header band (R11–R12) *and* menu rows that host a
+  control (R13a–R13b).
+- **Q4 — transport: decided in `/plan`**, under one hard rule: the shell's
+  MenuPane and `render_interactive` read the *same* merged row list, so AC7 can
+  compare them.

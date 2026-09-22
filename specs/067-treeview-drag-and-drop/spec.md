@@ -1,6 +1,6 @@
 # Spec — TreeView drag-and-drop
 
-- **Status:** draft → awaiting operator review
+- **Status:** open questions resolved (operator, 2026-09-22) → ready for `/plan`
 - **Folder:** specs/067-treeview-drag-and-drop/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-09-22
 
@@ -161,7 +161,7 @@ only reports the drop and the program performs the move itself.
 
 ### Defects found while surveying — not this feature's work
 
-These are **fixes**, belong on `fixes`, and are listed so they are not lost:
+These were **fixes**, and all four shipped on `fixes` in **1.70.156**:
 
 1. `CONTROL-NODE-INDEX` is **1-based** (`render.rs` `node_payload`), while every
    `Node*(index)` method takes the **0-based** line index; the KB says they are
@@ -174,18 +174,20 @@ These are **fixes**, belong on `fixes`, and are listed so they are not lost:
    them; `onDataChanged` is filtered out the same way.
 4. The KB's `Sorted` entry says TreeView "does not act on it yet"; it does.
 
-Fix 1 matters here: this feature's events report node indexes, and should not
-inherit an off-by-one. **Recommendation:** fix 1 lands on `fixes` before `/plan`
-for this spec starts.
+Fix 1 mattered here: this feature's events report node handles, and every
+`Node…` method now takes the same 1-based handle `CONTROL-NODE-INDEX` carries.
 
 ## 7. Open questions
 
-- **Q1 — names.** Proposed: property `AllowDragDrop` (Boolean, default false);
-  `AutoMove` (Boolean, default true); events `onNodeMoved` (`AutoMove` on,
-  after the move) and `onNodeDragDrop` (`AutoMove` off, the request); method
-  `MoveNode(node-index, target-index, position)` with position `"ONTO"`,
-  `"BEFORE"`, `"AFTER"`. *Recommendation:* these, unless the operator prefers
-  PowerCOBOL-style names.
+- **Q1 — ✅ names: PowerCOBOL style (operator, 2026-09-22).** The property,
+  event and method names follow the conventions a Fujitsu PowerCOBOL developer
+  already knows, rather than the generic `AllowDragDrop` / `onNodeMoved` /
+  `onNodeDragDrop` / `MoveNode` first proposed. `/plan` proposes the exact list
+  for the operator to confirm before implementation, derived from the
+  platform's own existing naming — never copied from vendor documentation. The
+  roles stay as specified: an enabling property (default off), `AutoMove`'s
+  switch (default on), an after-move event, a drop-request event, and a
+  program-driven move taking node, target and ONTO / BEFORE / AFTER.
 - **Q2 — ✅ Resolved (operator, 2026-09-22): move by default, controlled by an
   `AutoMove` property.** With `AutoMove` on (the default) the tree moves the node
   and reports it; the handler may undo with `MoveNode`. With it off the tree only
