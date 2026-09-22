@@ -8,6 +8,29 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.150] — 2026-09-22
+
+### A delivered application carried the developer's AI chat history
+
+The build copied `data/` into the hand-over folder verbatim — and `data/` is
+also where the IDE's assistant keeps its per-project files: the Project
+Knowledge store (`project-knowledge.redb`, and the older
+`project-knowledge.sqlite`), the chunked index (`<name>-chunked.data`), and
+`grace-conversation.json`, the developer's own conversation with Grace. Every
+delivery shipped several megabytes the application never reads, and a private
+chat log beside it.
+
+Those four are now left behind; everything else in `data/`, nested folders
+included, is delivered exactly as before. Only the top level is filtered,
+because that is where the assistant writes. A delivery an earlier build had
+already leaked into is cleaned on the next build, or rebuilding would never
+repair it. A failed `data/` copy is now reported in the build log instead of
+being ignored.
+
+Satisfies spec 063 AC1 (R5). Test:
+`the_delivery_carries_the_applications_data_and_none_of_graces`.
+`cobolt-compiler` lib: 136 passed, 0 failed.
+
 ## [PowerRustCOBOL 1.70.147] — 2026-09-22
 
 ### Spec 065 — `cobolt-mcp`, and the first half of the indexed-file tool

@@ -375,7 +375,7 @@ changes — not behaviour hidden in the runtime.
 
 ## 5. Acceptance criteria
 
-- [ ] **AC1** — A built application's delivery folder contains no Grace store
+- [x] **AC1** — A built application's delivery folder contains no Grace store
       and no `grace-conversation.json`. *(R5)*
 - [ ] **AC2** — The application Knowledge Base file name and table names differ
       from every Grace store's. *(R1, R2)*

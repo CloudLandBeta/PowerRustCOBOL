@@ -1279,6 +1279,14 @@ HelloPower/
 └── data/               ← project data files (e.g. the AI conversation store)
 ```
 
+> **`data/` is shared with the AI assistant.** Your program's data files live
+> there, and so do Grace's per-project files: `project-knowledge.redb`,
+> `<project>-chunked.data`, and `grace-conversation.json` — your own chat
+> history with her. A build copies `data/` into the hand-over folder for your
+> application, but **leaves those assistant files behind**, and removes any
+> that an earlier build had already copied there. Your application never reads
+> them, and the conversation is yours alone.
+
 A new project also gets a **runnable starter `main` program** (by default
 `src/main.cbl`) — a minimal `IDENTIFICATION DIVISION` / `DISPLAY` / `GOBACK` that
 you can **Run** straight away and then grow.

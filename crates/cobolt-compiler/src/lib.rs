@@ -220,6 +220,54 @@ fn stage_indexed_definitions(
     staged
 }
 
+/// Is this top-level `data/` entry one of Grace's files rather than the
+/// application's?
+///
+/// The IDE's assistant keeps its per-project state beside the application's
+/// data: the Project Knowledge store (`project-knowledge.redb`, and the older
+/// `project-knowledge.sqlite`), the project's chunked index
+/// (`<name>-chunked.data`) and the developer's own conversation with Grace
+/// (`grace-conversation.json`). None of it is read by the application, and the
+/// conversation is private.
+fn is_grace_artefact(file_name: &str) -> bool {
+    matches!(
+        file_name,
+        "project-knowledge.redb" | "project-knowledge.sqlite" | "grace-conversation.json"
+    ) || file_name.ends_with("-chunked.data")
+}
+
+/// Copy the project's `data/` into the delivery, leaving Grace's files behind.
+///
+/// `data/` used to be copied verbatim, so every hand-over carried the
+/// assistant's stores — several megabytes — and the developer's AI chat
+/// history. Only the top level is filtered, because that is where Grace
+/// writes; everything else the application opens keeps its layout. A copy an
+/// earlier build left in the delivery is withdrawn too, or rebuilding would
+/// never repair a folder that already leaked.
+fn copy_delivery_data(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if is_grace_artefact(&name.to_string_lossy()) {
+            continue;
+        }
+        if entry.file_type()?.is_dir() {
+            copy_dir_all(entry.path(), dst.join(&name))?;
+        } else {
+            std::fs::copy(entry.path(), dst.join(&name))?;
+        }
+    }
+    for entry in std::fs::read_dir(dst)? {
+        let entry = entry?;
+        if is_grace_artefact(&entry.file_name().to_string_lossy()) && entry.file_type()?.is_file() {
+            make_writable(&entry.path());
+            std::fs::remove_file(entry.path())?;
+        }
+    }
+    Ok(())
+}
+
 /// The prefix every aside-renamed previous executable carries.
 fn parked_prefix(file_name: &str) -> String {
     format!(".{file_name}.old-")
@@ -2161,10 +2209,17 @@ fn build_core(
     // `bin/` deliberately gets neither: it lives INSIDE the project, one level
     // below the same folders, and the binary anchors on the project when its
     // own directory carries no `assets/`.
-    for name in ["assets", "data"] {
-        let src = project_dir.join(name);
-        if src.is_dir() {
-            let _ = copy_dir_all(&src, &dest_path.join(name));
+    //
+    // `data/` also holds the IDE assistant's per-project files, which are not
+    // the application's — see `copy_delivery_data`.
+    let assets_src = project_dir.join("assets");
+    if assets_src.is_dir() {
+        let _ = copy_dir_all(&assets_src, &dest_path.join("assets"));
+    }
+    let data_src = project_dir.join("data");
+    if data_src.is_dir() {
+        if let Err(e) = copy_delivery_data(&data_src, &dest_path.join("data")) {
+            log(&format!("⚠️  Could not copy data/ to the destination folder: {e}"));
         }
     }
 
@@ -7148,6 +7203,43 @@ indexed = ["indexed/actors.cidx"]
             vec!["indexed/actors.cidx".to_string()],
             "the indexed list must survive deserialization"
         );
+    }
+
+    /// Grace's stores and the developer's chat history stay in the project;
+    /// the application's own data — nested folders included — is delivered,
+    /// and a copy an earlier build leaked into the delivery is withdrawn.
+    #[test]
+    fn the_delivery_carries_the_applications_data_and_none_of_graces() {
+        let dir = temp_dir("data-stage");
+        let src = dir.join("proj/data");
+        let dst = dir.join("dist/data");
+        fs::create_dir_all(src.join("idxfiles")).unwrap();
+        fs::write(src.join("idxfiles/actors.idx"), b"records").unwrap();
+        fs::write(src.join("rates.txt"), b"1.5").unwrap();
+        for grace in [
+            "project-knowledge.redb",
+            "project-knowledge.sqlite",
+            "grace-conversation.json",
+            "PowerDemo3-chunked.data",
+        ] {
+            fs::write(src.join(grace), b"private").unwrap();
+        }
+        // What a pre-fix build left behind.
+        fs::create_dir_all(&dst).unwrap();
+        fs::write(dst.join("grace-conversation.json"), b"leaked").unwrap();
+
+        copy_delivery_data(&src, &dst).expect("copy");
+
+        assert!(dst.join("idxfiles/actors.idx").is_file());
+        assert!(dst.join("rates.txt").is_file());
+        let left: Vec<String> = fs::read_dir(&dst)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| is_grace_artefact(n))
+            .collect();
+        assert!(left.is_empty(), "Grace artefacts reached the delivery: {left:?}");
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
