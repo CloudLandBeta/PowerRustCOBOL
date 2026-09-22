@@ -8854,6 +8854,12 @@ worth knowing:
   you continue it, brings up the one still waiting.
 - **Only my code** is one switch, but it reads each form's own lines — so
   stepping through the called form follows *its* handlers, not the caller's.
+- **Step Into does not cross into a called form.** Pressing **F11** on an
+  `OpenFormSync` line opens the called form and lets it run freely; it stops
+  only at a breakpoint of its own. When you close it — its Ok or Cancel —
+  control comes back to the caller, and since you were stepping, the caller
+  stops on the line after the `OpenFormSync`, ready to read the result. To
+  follow the called form's handlers too, put a breakpoint in its program.
 
 > ⚠️ **A form the debugger cannot place.** If a form's `.cfrm` is not in the
 > open project, or its program has not been generated yet, the debugger says

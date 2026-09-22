@@ -8,6 +8,36 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.154] — 2026-09-22
+
+### Debugging a form that opens another hung when the called form closed
+
+Reported against PowerDemo3: debugging CALL-FORM-DEMO with F11, "Open Called
+Form" opened CALLED-FORM-DEMO, and its Ok or Cancel left the application stuck —
+control never came back to the caller.
+
+Each form runs its own program, and each reports `Finished` when it ends. Ok
+hands control back to the caller and closes the called form in the same frame;
+the caller, still stepping, stops on the next line at once — and the called
+form's `Finished`, arriving just after, was applied to the debugger as if the
+whole session had ended. It cleared the caller's stop: Continue and the step
+keys went dead while the caller sat waiting for a command, and every window
+refused clicks because the application was still paused. Only Stop got out.
+
+A called form's `Finished` now ends only that form: it leaves the list of
+stopped forms, and the caller's stop stays on screen. A form that leaves while
+it is the one being shown hands the panel back to a form still stopped, or to
+the root, so commands are no longer sent to a debuggee that is gone.
+
+The Guide now says what F11 does on an `OpenFormSync` line: the called form runs
+freely (it stops only at its own breakpoints), and the caller stops on the next
+line when it closes.
+
+Tests: `a_called_form_ending_does_not_end_the_session`,
+`a_form_that_leaves_while_shown_hands_the_panel_back`; IDE debug tests 19/19.
+Verified by test and by reading the code path, not by driving the IDE — the
+operator should confirm with the PowerDemo3 repro.
+
 ## [PowerRustCOBOL 1.70.153] — 2026-09-22
 
 ### The Form Designer had no way to set the tab order

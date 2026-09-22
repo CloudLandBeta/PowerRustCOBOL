@@ -356,6 +356,36 @@ fn debug_next_shown(
     None
 }
 
+/// A form the application opened has ended or left the session: it is no
+/// longer stopped, and if it was the one on screen the panel goes back to a
+/// form that still exists — the most recent one still stopped, else the root.
+///
+/// Without this, the panel went on showing a form that was gone, and the
+/// commands the developer sent went to a debuggee that was no longer there.
+fn debug_form_gone(stopped: &mut Vec<String>, shown_handle: &str, handle: &str) -> Option<String> {
+    stopped.retain(|h| h != handle);
+    (shown_handle == handle).then(|| {
+        stopped
+            .last()
+            .cloned()
+            .unwrap_or_else(|| cobolt_runtime::form_host::ROOT_HANDLE.to_owned())
+    })
+}
+
+/// Is this the end of ONE opened form rather than of the debug session?
+///
+/// Every form's program reports `Finished` when it ends. The root's is the
+/// session ending; a called form's is only that window closing — and it
+/// arrives in the very frame its Ok or Cancel hands control back to the
+/// caller, which, stepping, stops at once. Applied to the panel, that
+/// `Finished` cleared the caller's stop: Continue and the step keys went
+/// dead while the caller sat waiting for a command, and every window went on
+/// refusing clicks because the application was still paused.
+fn debug_ends_one_form(handle: &str, ev: &cobolt_runtime::DebugEvent) -> bool {
+    matches!(ev, cobolt_runtime::DebugEvent::Finished)
+        && handle != cobolt_runtime::form_host::ROOT_HANDLE
+}
+
 /// One form taking part in a debug session (spec 061).
 ///
 /// A debuggee is a form's program: it reports stops against its own generated
@@ -3390,6 +3420,25 @@ impl CoboltApp {
             self.editor.debug_line = None;
         }
         Some(path)
+    }
+
+    /// A form has ended or left the session — see `debug_form_gone`.
+    fn debug_form_left(&mut self, handle: &str) {
+        let next = debug_form_gone(&mut self.debug_stopped, &self.debug_shown_handle, handle);
+        if let Some(next) = next {
+            let path = self
+                .debug_forms
+                .get(&next)
+                .map(|form| form.generated.display().to_string());
+            if let Some(path) = path {
+                if self.debugger.show_source(&path) {
+                    self.editor.debug_line = None;
+                }
+            }
+            // Even without a listing to show, commands must stop going to a
+            // form that is gone.
+            self.debug_shown_handle = next;
+        }
     }
 
     /// Keep track of which forms are stopped, and fall back to one that
@@ -15198,6 +15247,14 @@ impl eframe::App for CoboltApp {
                         }
                         cobolt_runtime::DebugWire::Detached { handle } => {
                             self.debug_forms.remove(&handle);
+                            self.debug_form_left(&handle);
+                        }
+                        // A called form ended: its window closed, not the
+                        // session. See `debug_ends_one_form`.
+                        cobolt_runtime::DebugWire::Event { handle, event }
+                            if debug_ends_one_form(&handle, &event) =>
+                        {
+                            self.debug_form_left(&handle);
                         }
                         cobolt_runtime::DebugWire::Event { handle, event } => {
                             // Noted before the event is consumed, applied
@@ -19431,7 +19488,47 @@ mod debug_gate_tests {
 
 #[cfg(test)]
 mod debug_multi_stop_tests {
-    use super::debug_next_shown;
+    use super::{debug_ends_one_form, debug_form_gone, debug_next_shown};
+    use cobolt_runtime::DebugEvent;
+
+    /// The operator's hang: stepping CALL-FORM-DEMO, Ok in CALLED-FORM-DEMO
+    /// hands control back and the caller stops — while the called form's
+    /// program ends in the same frame. Its `Finished` is that window's, not
+    /// the session's, so the caller's stop must survive it.
+    #[test]
+    fn a_called_form_ending_does_not_end_the_session() {
+        assert!(debug_ends_one_form("W1", &DebugEvent::Finished));
+        assert!(
+            !debug_ends_one_form("W0", &DebugEvent::Finished),
+            "the root's Finished is the session ending"
+        );
+        assert!(!debug_ends_one_form("W1", &DebugEvent::Resumed));
+
+        let mut stopped = v(&["W0"]);
+        assert_eq!(
+            debug_form_gone(&mut stopped, "W0", "W1"),
+            None,
+            "the caller's listing stays on screen"
+        );
+        assert_eq!(stopped, v(&["W0"]), "and the caller is still stopped");
+    }
+
+    /// A form that closes while it is the one on screen hands the panel back
+    /// — to a form still stopped, else to the root — so no command is sent to
+    /// a debuggee that no longer exists.
+    #[test]
+    fn a_form_that_leaves_while_shown_hands_the_panel_back() {
+        let mut stopped = v(&["W0", "W1"]);
+        assert_eq!(debug_form_gone(&mut stopped, "W1", "W1"), Some("W0".to_owned()));
+        assert_eq!(stopped, v(&["W0"]));
+
+        let mut none_stopped = Vec::new();
+        assert_eq!(
+            debug_form_gone(&mut none_stopped, "W2", "W2"),
+            Some("W0".to_owned()),
+            "with nothing stopped, back to the root"
+        );
+    }
 
     fn v(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| (*s).to_owned()).collect()
