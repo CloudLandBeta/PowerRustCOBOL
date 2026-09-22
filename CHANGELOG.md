@@ -148,6 +148,40 @@ i18n, KB freshness, property rows) 38/38, `cobolt-compiler` 136/136. System KB
 updated and `chunked.data` regenerated; Guide section *Tab order and the Enter
 key* added.
 
+## [PowerRustCOBOL 1.70.152] — 2026-09-22
+
+### Spec 067 — a drop moves the node by default
+
+Operator ruling on 067 Q2: a TreeView moves a dropped node itself, controlled
+by a new `AutoMove` property (default on). With it on, the tree moves the node
+and fires `onNodeMoved`, which says where the node came from so one `MoveNode`
+call can undo the move. With it off, the tree only fires `onNodeDragDrop`, and
+the program moves the node with `MoveNode` if it agrees. The renderer never
+waits on a handler, and a program-driven move fires no drag event, so a handler
+cannot trigger itself again. Spec text only; no code changes.
+
+## [PowerRustCOBOL 1.70.151] — 2026-09-22
+
+### Specs 066, 067 and 072 — drafted for review
+
+Three more features of the spec 063 umbrella, written as requirements only; no
+code changes.
+
+- **`066` — SideMenu run-time rows and hosted controls.** A running program adds,
+  changes and removes rows (a conversation list is data, not a designed menu),
+  and a header band hosts controls in the rail, like the footer band already
+  does.
+- **`067` — TreeView drag-and-drop.** Opt-in, off by default; onto/before/after
+  drops, subtree kept, the program can refuse or perform the move itself.
+- **`072` — `AgentObject` tool calling.** The call loop on all three protocols,
+  indexed-file tools from `065` plus tools the COBOL program answers, a fenced
+  fallback for models without native function-calling, and token usage.
+
+The surveys behind them found six defects, listed in the specs for the `fixes`
+branch. Among them: `SetModel()` has no effect; a TreeView handler's
+`CONTROL-NODE-INDEX` is one-based while every `Node*` method is zero-based; and
+the generated agent stub still treats `Ask` as synchronous.
+
 ## [PowerRustCOBOL 1.70.150] — 2026-09-22
 
 ### A delivered application carried the developer's AI chat history
@@ -170,6 +204,126 @@ being ignored.
 Satisfies spec 063 AC1 (R5). Test:
 `the_delivery_carries_the_applications_data_and_none_of_graces`.
 `cobolt-compiler` lib: 136 passed, 0 failed.
+## [PowerRustCOBOL 1.70.149] — 2026-09-22
+
+### The data is read and never touched, and a memory limit decides what may be opened
+
+Two rulings from the operator (2026-09-22), and the second corrected a reading
+of the spec that could not have been implemented.
+
+**Indexed files are pre-existing and may never be modified — totally
+forbidden.** Not the model, not the tool, not by accident. This was already the
+behaviour; it is now a property rather than a promise. The read path opens
+`INPUT`, issues only sequential reads, and contains no `WRITE`, `REWRITE`,
+`DELETE` or `COMMIT` anywhere — with a test that reads the module's own source
+and fails if one appears. There is no writable handle to obtain, so there is
+nothing to enforce at run time.
+
+**A memory limit now decides whether a file may be opened at all.** The
+project carries a limit; a file whose load would exceed it is declined, naming
+both numbers and the two ways out:
+
+```
+    ACTORS-FILE is held in an in-memory container of 412000000 bytes, over
+    this project's 67108864-byte limit, so it was not loaded. Raise the
+    limit, or rebuild the file with STORAGE IS DISK so it can be read
+    without loading it whole.
+```
+
+A refusal with numbers beats a process killed for running out of memory, which
+explains nothing.
+
+**Why it is a limit and not a choice of engine.** The request was to check
+available memory and then decide whether to open a file in memory or go
+straight to disk. For a file being *created* that is a real choice. For one that
+already exists it is not: the three containers PowerRustCOBOL writes —
+`PRCIDX1`, `PRCIDXD1` and redb — are **mutually unreadable**, so the bytes on
+disk already decided which engine opens them. The engine is now sniffed from the
+container's own magic rather than taken from any declared preference, and the
+decision that remains is whether to pay that engine's cost. Only the in-RAM
+container grows with file size; the paged and redb engines read on demand and
+are never constrained by the limit.
+
+That also removed a field that had become a lie: `FileAccess.storage` was still
+being set and no longer read, and a future reader would reasonably have assumed
+it selected the engine. It is gone.
+
+The limit is exposed on the tool set with a 64 MiB default. Wiring it to a
+`[rag]` key in the project manifest belongs with spec 070, which owns that
+section.
+
+Tests: `cobolt-runtime`, all targets — 118 suites, 987 passed, 0 failed. The
+mcp_tool suite is 23, including the structural read-only check, the
+container-dictates-the-engine check, and the over-budget refusal proving itself
+by succeeding once the limit is raised.
+
+## [PowerRustCOBOL 1.70.148] — 2026-09-22
+
+### Spec 065 finished — a model can now query your indexed files
+
+1.70.147 landed the protocol and the half of the tool that reads what a file
+says about itself. This is the other half: the search, both front doors onto
+it, and the guards that keep them honest.
+
+**Your descriptions are the mechanism.** A user asks "how many contractors
+started in Q3" and names no file. The model chooses, and it can only choose
+from what each file says about itself — so the comment on an indexed file
+becomes a search tool's description, and each field's comment describes one of
+its parameters. A file described as *"one row per employment record"* can be
+chosen correctly; one described as *"loaded by `load-staff.cbl`"* cannot,
+however true that note is for a colleague.
+
+**Nothing is consultable until it is marked.** Describing a file does not
+publish it, and an application that marks nothing answers nothing. That is the
+deliberate default: the opposite would mean a half-built application quietly
+exposing every indexed file a developer happened to have.
+
+**Two front doors, one definition.** A COBOL program asks in process, with no
+port and no round trip —
+
+```cobol
+           CALL "COBOL-MCP-SEARCH" USING WS-TOOL WS-ARGS WS-RESULT.
+```
+
+— and an outside MCP client asks the same question over a transport. Both
+reach the same code, and a test drives both against one fixture and asserts the
+answers are equal. That guard is the point: two doors onto one definition is
+only true while something checks it.
+
+**Searching cannot write.** The file is opened `INPUT` and only read
+sequentially, so no path through this can `WRITE`, `REWRITE` or `DELETE` — with
+a test comparing the data file byte for byte before and after. Scans are bounded
+and report truncation. **A search that matches nothing is an answer, not a
+failure**, because a caller that cannot tell those apart asks the same question
+twice.
+
+**A tampered definition still cannot lie about your data.** The delivered
+`.cidx` is editable by whoever runs the application, so only its descriptive
+half is believed: layout, offsets, keys and storage mode come from the compiled
+program. A test doctors a delivered definition to claim a different offset and
+length, then asserts the records read *identically* and only the reported
+description changed. Someone can make a file describe itself wrongly — visible,
+and fixed by restoring the file. They cannot move a field or make a record read
+as something it is not.
+
+It buys something real in exchange: **a misleading description can be corrected
+in the field without a rebuild.**
+
+**The Guide's stale advice is corrected too.** It had been telling developers to
+*"ship the `indexed/` and data folders alongside"* by hand. Since 1.70.146 the
+build carries every declared `.cidx` into the delivery, and it had been carrying
+`data/` all along. That passage, F1's parked sentence about descriptions
+reaching generated COBOL, and the new MCP section were all written together —
+which is exactly why they were banked rather than settled three times.
+
+The bill they were banked against turned out to be already paid: the Guide's
+five translations were removed by earlier doc work, so this change deleted
+nothing. `every_document_ships_in_every_language` is red, and was red before
+this change — it reports `developers-guide` and `indexed-redb-engine` falling
+back to English, neither caused here. That red is the standing signal that a
+minor owes a regeneration; **do not re-add the `#[ignore]`.**
+
+Seventeen of seventeen tasks. `specs/065-cobolt-mcp/`.
 
 ## [PowerRustCOBOL 1.70.147] — 2026-09-22
 

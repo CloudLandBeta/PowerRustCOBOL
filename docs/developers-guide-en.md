@@ -1399,6 +1399,26 @@ and schema-drift protection when the on-disk file no longer matches the `.cidx`.
 Each `.cidx` produces `generated/<stem>-indexed.cbl` (`SELECT` / `FD` fragment),
 regenerated on **Build / Run / Debug / Check** like form output.
 
+**Your descriptions travel with it.** The comment you write on the file becomes
+a comment line above its `FD`, and each field's comment trails that field — the
+same form the editor's raw-text view shows you:
+
+```cobol
+      *> Customer master — one row per account
+       FD  CUSTOMER-FILE.
+           RECORD CONTAINS 80 CHARACTERS.
+           01 CUSTOMER-RECORD. *> The record
+               05 CUST-ID PIC 9(8). *> Primary key
+```
+
+A field you have said nothing about generates exactly as before. These are
+ordinary COBOL comments: the compiler strips them, so they cost nothing at run
+time and exist for whoever reads the layout next.
+
+Those same descriptions have a second reader. See **Letting a model query your
+data (MCP)** under *HTTP / REST and AI agents*, where the file's comment becomes
+a tool description and each field's comment describes a search parameter.
+
 ---
 
 ## 7. The Form Designer (RAD)
@@ -2205,9 +2225,18 @@ data.
 
 > ⚠️ **A built application carries its own idea of "the project".** It anchors
 > on the folder holding `assets/` — `bin/` inside the project during
-> development, and the hand-over folder in `dist/`. Ship the `indexed/` and
-> data folders alongside, keeping the same relative layout your project uses,
-> and the binding resolves identically.
+> development, and the hand-over folder in `dist/`.
+>
+> **The build carries the pieces a binding needs.** Your `assets/` and `data/`
+> folders are copied into the delivery, and so is every `.cidx` the project
+> declares, each keeping the relative path your forms already store — so
+> `indexed/BurguerTime/menu.cidx` lands exactly where its form looks for it.
+> You do not copy them by hand.
+>
+> Only **declared** definitions travel. A `.cidx` sitting in `indexed/` that
+> the project does not list is not part of the application and is not
+> delivered. A program that builds an indexed path at run time, rather than
+> binding to a declared definition, is still yours to ship.
 
 Each binding stores its source descriptor, target descriptor, ordered field
 mappings, read-only/writable mode, saved source metadata, and validation
@@ -8550,6 +8579,139 @@ controls, resize the window, and capture screenshots.
 > ⚠️ **Caveat.** The endpoint is bound to `127.0.0.1` only — it is never
 > reachable from the network. It also exists **only in the IDE**: applications
 > you build and ship, and `rcrun`, contain no inspection endpoint at all.
+
+### Letting a model query your data (MCP)
+
+The inspection endpoint above lets an agent drive *the IDE*. This is the other
+direction, and it belongs to **your application**: letting a model answer
+questions from your own indexed files.
+
+The problem it solves is the one every "AI assistant over business data" runs
+into. A user asks *"how many contractors started in Q3"* and names no file. The
+model has to choose one — and it can only choose from what each file says about
+itself.
+
+**So your descriptions are the mechanism.** The comment you write on an indexed
+file becomes the description of a search tool, and each field's comment
+describes one of that tool's parameters. Nothing else is involved. A file
+described as *"one row per employment record"* with a field described as
+*"start date"* can be chosen correctly; one described as *"loaded by
+`load-staff.cbl`"* cannot, however accurate that note is for a colleague.
+
+> 💡 **Write the comment for the reader who will use it.** A note explaining
+> where a file came from helps the next developer. A sentence saying what the
+> file *holds* helps a model pick it. If you want both, lead with what it
+> holds.
+
+#### Choosing which files may be consulted
+
+Describing a file does **not** publish it. Nothing is consultable until your
+application marks it so, and an application that marks nothing answers nothing:
+
+```
+    ACTORS-FILE: no consultable file is served by that tool
+```
+
+That is the deliberate default. A half-built application should not quietly
+expose every indexed file you happen to have.
+
+#### Asking from your own COBOL
+
+Your program asks the same question an outside client would, without a port or
+a round trip:
+
+```cobol
+       01 WS-TOOL   PIC X(40) VALUE "search_actors_file".
+       01 WS-ARGS   PIC X(80) VALUE '{"ACTOR-SALARY": "100000"}'.
+       01 WS-RESULT PIC X(500).
+       ...
+           CALL "COBOL-MCP-SEARCH" USING WS-TOOL WS-ARGS WS-RESULT.
+           DISPLAY WS-RESULT.
+```
+
+which answers with the file that responded and the records it matched:
+
+```
+    ACTORS-FILE: 2 record(s)
+    ACTOR-ID=1  ACTOR-SALARY=100000
+    ACTOR-ID=3  ACTOR-SALARY=100000
+```
+
+`WS-ARGS` is a JSON object of field name to value — the same shape an external
+client sends, so both callers take the same input and reach the same code.
+Matching is textual and case-insensitive, and a field you leave out is simply
+not filtered on.
+
+**No match is an answer, not a failure.** A search that matches nothing says so
+plainly, which is different from a tool that could not run. A caller that
+cannot tell those apart will ask the same question twice.
+
+**Results are bounded.** Pass `"limit"` to cap them; the reply says when it was
+truncated and that more exist.
+
+#### Your data is read, never touched
+
+The indexed files a tool reads are **yours and pre-existing**. Neither the model
+nor the tool may change one — not a record, not a key, not a byte. This is not a
+rule the tool checks and could get wrong: the file is opened `INPUT`, only
+sequential reads are issued, and no write, rewrite, delete or commit exists
+anywhere on that path. There is no writable handle to obtain.
+
+#### Memory, and which engine actually opens your file
+
+A file that already exists has already chosen its engine. The three containers
+PowerRustCOBOL writes are mutually unreadable — a `STORAGE IS MEMORY` file and a
+`STORAGE IS DISK` file are different formats on disk — so nothing decides this
+at search time. The container does.
+
+What *is* decided at search time is whether to pay that engine's cost:
+
+| Your file's storage | How it reads | Memory cost |
+|---|---|---|
+| `STORAGE IS MEMORY` | loaded whole | grows with the file |
+| `STORAGE IS DISK` | records on demand | bounded, any size |
+
+So the project carries a **memory limit**, and it applies to the first row only.
+Ask to search a memory-resident file larger than that limit and the tool
+declines, naming both numbers:
+
+```
+    ACTORS-FILE is held in an in-memory container of 412000000 bytes, over
+    this project's 67108864-byte limit, so it was not loaded. Raise the
+    limit, or rebuild the file with STORAGE IS DISK so it can be read
+    without loading it whole.
+```
+
+That is deliberately a refusal rather than an attempt. A process killed for
+running out of memory tells you nothing; this tells you the two numbers and the
+two ways out.
+
+> 💡 **Rule of thumb.** `STORAGE IS MEMORY` suits small, hot reference data —
+> lookup tables, code lists. For anything that grows with your business, build
+> it `STORAGE IS DISK` and the size stops being a question.
+
+#### What a delivered `.cidx` is trusted for
+
+Your application reads its descriptions from the `.cidx` files delivered beside
+it, which is what lets you **correct a misleading description in the field
+without rebuilding** — edit the file, restart, and the tool describes itself
+differently.
+
+That file is also editable by whoever runs your application, so only the
+descriptive half is believed. Record layout, field offsets, keys and storage
+mode come from your compiled program and are never read from the delivery. The
+consequence is worth knowing:
+
+> ⚠️ Someone who edits a delivered `.cidx` can make a file **describe itself
+> wrongly** — visible, and fixed by restoring the file. They cannot move a field,
+> change a key, or make a record read as something it is not.
+
+A definition that describes no fields is not offered as a tool at all: there is
+nothing to search, and nothing to tell a model.
+
+> ⚠️ **No authentication.** Anything that can reach the server can call the
+> tools you marked. Treat what you mark, and where you serve it, as the whole
+> of the security boundary.
 
 ---
 

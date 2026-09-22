@@ -184,6 +184,27 @@ and it is the prerequisite for the tool schema.
   through the same `IndexedStore` surface COBOL verbs use.
 - **R26 (event):** When a search would scan an unbounded number of records, the
   tool shall bound the work and report that the result was truncated.
+- **R33 (constraint):** The indexed files a tool reads **pre-exist and belong to
+  the application**. Neither the tool nor a model shall modify one — no
+  `WRITE`, `REWRITE`, `DELETE`, `COMMIT`, nor any open mode but `INPUT`. This is
+  absolute (operator, 2026-09-22) and is arranged so there is nothing to
+  enforce: no writable handle is ever constructed or returned.
+- **R34 (ubiquitous):** The project shall carry a **memory limit** for searches.
+- **R35 (event):** When a file is opened, the engine shall be determined from
+  the **container itself**, never from a declared preference — the three
+  containers (`PRCIDX1`, `PRCIDXD1`, redb) are mutually unreadable, so for a
+  file that already exists the storage mode is a fact, not a choice.
+- **R36 (event):** When opening a file would load it whole and exceed the
+  memory limit, the tool shall **decline and report the sizes**, rather than
+  load it. Containers read on demand are unaffected however large.
+
+> **R35 corrects a reading of R24 that cannot be implemented.** "Decide at open
+> time whether to use memory or disk" is available when *creating* a file. For
+> one that already exists the bytes have decided: a `PRCIDX1` container is
+> readable only by the in-RAM engine, a `PRCIDXD1` only by the paged one. What
+> remains a real decision — and what R34/R36 make — is whether to *pay* the
+> cost of the engine the file demands. Only the in-RAM one grows with file size;
+> the paged and redb engines read on demand, so the limit never constrains them.
 
 ## 5. Acceptance criteria
 
@@ -214,6 +235,17 @@ and it is the prerequisite for the tool schema.
       description it reports changes. *(R30)*
 - [ ] **AC21** — A missing or malformed `.cidx` removes that file from tool
       discovery, and every other file stays searchable. *(R31)*
+- [ ] **AC22** — The read path contains no write, rewrite, delete or commit,
+      and no open mode but `INPUT` — checked structurally, not only by
+      outcome. *(R33)*
+- [ ] **AC23** — An existing container's engine is chosen from its own magic
+      bytes; a `PRCIDX1` file and a `PRCIDXD1` file are each recognised, and a
+      file that is absent does not panic. *(R35)*
+- [ ] **AC24** — A file whose in-RAM load would exceed the project's limit is
+      declined with both sizes named and a remedy offered; raising the limit
+      makes the same call succeed. *(R34, R36)*
+- [ ] **AC25** — The limit constrains only the in-RAM container; a paged or
+      redb file of any size is unaffected. *(R36)*
 - [ ] **AC8** — The generated tool schema carries the file's purpose as its
       description and each column's description on the matching parameter.
       *(R13)*
