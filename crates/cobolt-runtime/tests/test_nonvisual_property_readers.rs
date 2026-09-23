@@ -37,6 +37,7 @@ use std::collections::BTreeSet;
 /// interpreter reads control properties.
 const RUNTIME_SOURCES: &[&str] = &[
     include_str!("../src/interpreter.rs"),
+    include_str!("../src/interpreter/agent_loop.rs"),
     include_str!("../src/http_runtime.rs"),
 ];
 
@@ -168,6 +169,9 @@ fn declared_readers() -> Vec<(ControlType, Vec<(&'static str, Reader)>)> {
                 )),
                 ("ResponseDataItem", Generated),
                 ("Verbose", Runtime),
+                // Spec 072 — how tools are offered, and how many rounds.
+                ("ToolProtocol", Runtime),
+                ("MaximumToolRounds", Runtime),
             ],
         ),
         (

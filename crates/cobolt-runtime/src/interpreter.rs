@@ -25,6 +25,9 @@
 //! | PERFORM … UNTIL/TIMES/VARYING | Rust loop inside `exec_perform`    |
 
 use indexmap::IndexMap;
+
+/// Spec 072 — the AgentObject tool loop.
+mod agent_loop;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
 use std::sync::mpsc;
@@ -1530,6 +1533,12 @@ pub struct Interpreter {
     /// be refused on a designed id and the nesting limit checked. Handed over
     /// by every host at start-up (`set_designed_menu`).
     designed_menus: HashMap<String, Vec<cobolt_forms::menu::MenuItem>>,
+    /// Spec 072 — tools a program declared on each AgentObject (upper-cased id).
+    agent_declared_tools: HashMap<String, Vec<agent_loop::DeclaredTool>>,
+    /// Spec 072 — each tool-offering `Ask` in progress, by control id.
+    tool_loops: HashMap<String, agent_loop::ToolLoop>,
+    /// Spec 072 — `SetToolResult(call-id, text)`, waiting to be collected.
+    tool_results: HashMap<String, String>,
     /// Generated data-binding helper CALL state, keyed by binding id.
     binding_states: HashMap<String, BindingRuntimeState>,
 
@@ -2011,6 +2020,9 @@ impl Interpreter {
             http: crate::http_runtime::HttpClient::new(),
             mcp_tools: crate::mcp_tool::IndexedToolSet::new(),
             designed_menus: HashMap::new(),
+            agent_declared_tools: HashMap::new(),
+            tool_loops: HashMap::new(),
+            tool_results: HashMap::new(),
             binding_states: HashMap::new(),
             event_rx: None,
             input_rx: None,
@@ -3504,9 +3516,15 @@ impl Interpreter {
     /// ops are pending it polls (`recv_timeout`) so completions/timeouts are
     /// noticed even with no UI activity; otherwise it blocks on `recv()`.
     fn next_wait_outcome(&mut self) -> WaitOutcome {
+        // Spec 072 — an `onToolCall` handler handed out at the previous wait
+        // has returned by now: collect its result and move the loop on.
+        self.tool_loops_resume();
         loop {
             self.drain_async_ops();
             if let Some((ctrl, event_id)) = self.async_dispatch_queue.pop_front() {
+                if event_id == "onToolCall" {
+                    self.tool_loop_dispatched(&ctrl);
+                }
                 return WaitOutcome::AsyncDispatch(ctrl, event_id);
             }
             // Under a debugger the wait polls, so a Pause pressed while the
@@ -11620,7 +11638,24 @@ impl Interpreter {
             self.agent_failed(obj, "AgentURL is not set — there is nowhere to send the prompt");
             return;
         }
-        let body = ag::body_for(&req, protocol);
+        // Spec 072 — offering no tools keeps today's request byte-for-byte
+        // (R5); offering any makes this the first round of a tool loop.
+        let tools = self.agent_offered_tools(obj);
+        let fenced = self
+            .obj_get(obj, "ToolProtocol")
+            .trim()
+            .eq_ignore_ascii_case("fenced");
+        let body = if tools.is_empty() {
+            ag::body_for(&req, protocol)
+        } else {
+            crate::agent_tools::body_for_turns(
+                &req,
+                protocol,
+                &[crate::agent_tools::Turn::User(req.prompt.clone())],
+                &tools,
+                fenced,
+            )
+        };
         let cfg = crate::http_runtime::RequestConfig {
             timeout_ms: self
                 .obj_get(obj, "TimeoutSeconds")
@@ -11678,6 +11713,20 @@ impl Interpreter {
             gen.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
         };
         let timeout_ms = cfg.timeout_ms;
+        self.tool_loops.remove(obj);
+        if !tools.is_empty() {
+            self.agent_begin_tool_loop(
+                obj,
+                req.clone(),
+                protocol,
+                fenced,
+                url.clone(),
+                cfg.headers.clone(),
+                timeout_ms,
+                generation,
+                tools,
+            );
+        }
         self.obj_set(obj, "Busy", "1".to_owned());
         self.async_pending.insert(
             obj.to_string(),
@@ -11718,6 +11767,11 @@ impl Interpreter {
     fn agent_delivered(&mut self, obj: &str, status: u16, body: &str) {
         use crate::agent_runtime as ag;
 
+        // Spec 072 — a round of a tool-offering Ask.
+        if self.tool_loops.contains_key(obj) {
+            self.tool_loop_delivered(obj, status, body);
+            return;
+        }
         self.obj_set(obj, "Busy", "0".to_owned());
         if self.agent_is_verbose(obj) {
             self.agent_log(format!("[agent {obj}] ── response ─────────────────────"));
@@ -11734,32 +11788,41 @@ impl Interpreter {
             self.agent_failed(obj, body.trim());
             return;
         }
+        // R17 — the usage the provider reported, even with no tools.
+        let usage = crate::agent_tools::usage_from_body(body);
+        self.obj_set(obj, "LastInputTokens", usage.input.to_string());
+        self.obj_set(obj, "LastOutputTokens", usage.output.to_string());
+        self.obj_set(obj, "LastToolCallCount", "0".to_owned());
         match ag::parse_reply(status, body) {
-            Ok(text) => {
-                if self.agent_is_verbose(obj) {
-                    self.agent_log_block(obj, "reply", &text);
-                }
-                self.obj_set(obj, "LastReply", text.clone());
-                // `ResponseDataItem` names a WORKING-STORAGE item that receives
-                // the reply. The generated `<agent>-ASK` paragraph used to MOVE
-                // the answer into it straight after `Ask` — which has returned
-                // at once since 1.65.63, so it always moved spaces. The reply is
-                // written here instead, when it exists, and only into an item
-                // the program actually declares.
-                let target = self.obj_get(obj, "ResponseDataItem");
-                let target = target.trim();
-                if !target.is_empty() && self.env.contains(target) {
-                    self.env.set_str(target, &text);
-                }
-                self.obj_set(obj, "Result", text);
-                self.obj_set(obj, "LastError", String::new());
-                if self.agent_is_verbose(obj) {
-                    self.agent_log(format!("[agent {obj}] LastReply set — onResponse fires next"));
-                }
-                self.queue_control_event(obj, "onResponse");
-            }
+            Ok(text) => self.agent_answered(obj, text),
             Err(message) => self.agent_failed(obj, &message),
         }
+    }
+
+    /// A reply arrived: `LastReply`, `ResponseDataItem`, `Result`, and
+    /// `onResponse`. Shared by a plain `Ask` and the last round of a tool loop.
+    fn agent_answered(&mut self, obj: &str, text: String) {
+        if self.agent_is_verbose(obj) {
+            self.agent_log_block(obj, "reply", &text);
+        }
+        self.obj_set(obj, "LastReply", text.clone());
+        // `ResponseDataItem` names a WORKING-STORAGE item that receives
+        // the reply. The generated `<agent>-ASK` paragraph used to MOVE
+        // the answer into it straight after `Ask` — which has returned
+        // at once since 1.65.63, so it always moved spaces. The reply is
+        // written here instead, when it exists, and only into an item
+        // the program actually declares.
+        let target = self.obj_get(obj, "ResponseDataItem");
+        let target = target.trim();
+        if !target.is_empty() && self.env.contains(target) {
+            self.env.set_str(target, &text);
+        }
+        self.obj_set(obj, "Result", text);
+        self.obj_set(obj, "LastError", String::new());
+        if self.agent_is_verbose(obj) {
+            self.agent_log(format!("[agent {obj}] LastReply set — onResponse fires next"));
+        }
+        self.queue_control_event(obj, "onResponse");
     }
 
     /// Record a failed `Ask` and raise `onError`.
@@ -14748,6 +14811,61 @@ impl Interpreter {
                 self.obj_set(obj, "AgentModel", arg(0));
                 none
             }
+            // ── Spec 072 — AgentObject tools ──
+            "ADDTOOL" => {
+                let key = obj.trim().to_ascii_uppercase();
+                let name = arg(0);
+                let list = self.agent_declared_tools.entry(key).or_default();
+                list.retain(|t| !t.name.eq_ignore_ascii_case(&name));
+                list.push(agent_loop::DeclaredTool {
+                    name,
+                    description: arg(1),
+                    params: Vec::new(),
+                });
+                val("1".into())
+            }
+            "ADDTOOLPARAMETER" => {
+                let key = obj.trim().to_ascii_uppercase();
+                let (tool, name, description) = (arg(0), arg(1), arg(2));
+                let found = self
+                    .agent_declared_tools
+                    .get_mut(&key)
+                    .and_then(|l| l.iter_mut().find(|t| t.name.eq_ignore_ascii_case(&tool)));
+                match found {
+                    Some(t) => {
+                        t.params.retain(|(n, _)| !n.eq_ignore_ascii_case(&name));
+                        t.params.push((name, description));
+                        val("1".into())
+                    }
+                    None => val("0".into()),
+                }
+            }
+            "REMOVETOOL" => {
+                let key = obj.trim().to_ascii_uppercase();
+                let name = arg(0);
+                let removed = self
+                    .agent_declared_tools
+                    .get_mut(&key)
+                    .map(|l| {
+                        let before = l.len();
+                        l.retain(|t| !t.name.eq_ignore_ascii_case(&name));
+                        before != l.len()
+                    })
+                    .unwrap_or(false);
+                val(if removed { "1" } else { "0" }.into())
+            }
+            "SETTOOLRESULT" => {
+                self.tool_results.insert(arg(0), arg(1));
+                none
+            }
+            "ALLOWFILE" => {
+                let ok = self.agent_allow_file(&arg(0), &arg(1));
+                val(if ok { "1" } else { "0" }.into())
+            }
+            "DENYFILE" => {
+                self.mcp_tools.deny(&arg(0));
+                none
+            }
             "ASK" => {
                 let prompt = arg(0);
                 self.obj_set(obj, "Prompt", prompt.clone());
@@ -17669,6 +17787,8 @@ fn is_known_method(name: &str) -> bool {
         // `TV::NodeParent(3)` would silently mean "element 3 of NodeParent".
             | "ADDNODE"
             | "REMOVENODE" | "EXPANDALL" | "COLLAPSEALL" | "GETSELECTEDNODE" | "SETSELECTEDNODE"
+            // Spec 072 — AgentObject tools.
+            | "ADDTOOL" | "ADDTOOLPARAMETER" | "REMOVETOOL" | "SETTOOLRESULT" | "ALLOWFILE" | "DENYFILE"
             // Spec 066 — SideMenu rows added at run time.
             | "ADDSECTION" | "SETITEMLABEL" | "SETITEMICON" | "SETITEMBADGE" | "SETITEMENABLED"
             | "SETITEMACTION" | "HASITEM"

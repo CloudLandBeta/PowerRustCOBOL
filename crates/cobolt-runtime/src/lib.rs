@@ -33,6 +33,8 @@
 //! ```
 
 pub mod agent_runtime;
+/// Spec 072 — AgentObject tool calling: the pure half.
+pub mod agent_tools;
 pub mod async_op;
 pub mod channels;
 pub mod collation;

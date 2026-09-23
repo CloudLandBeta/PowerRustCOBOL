@@ -1392,7 +1392,21 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
     ];
     // An `Ask`'s answer: written when the reply arrives, just before
     // `onResponse` (or `onError`) fires — the only place a handler reads it.
-    const AGENT: &[&str] = &["LastReply", "Result", "LastError", "Busy"];
+    //
+    // Spec 072 — what the last Ask cost (summed over its tool rounds), and,
+    // during `onToolCall`, the call the program is asked to answer.
+    const AGENT: &[&str] = &[
+        "LastReply",
+        "Result",
+        "LastError",
+        "Busy",
+        "LastInputTokens",
+        "LastOutputTokens",
+        "LastToolCallCount",
+        "ToolCallId",
+        "ToolName",
+        "ToolArguments",
+    ];
     // Spec 066 — the rows a program added (JSON, see `menu::runtime`), and the
     // row the user last clicked.
     const SIDE_MENU: &[&str] = &[crate::menu::runtime::RUNTIME_ROWS_PROP, "SelectedItemId"];
@@ -3420,7 +3434,7 @@ impl ControlType {
                 "onEnabledChanged",
                 "onLoad",
             ],
-            ControlType::AgentObject => &["onResponse", "onError"],
+            ControlType::AgentObject => &["onResponse", "onError", "onToolCall"],
             ControlType::RestClient => {
                 // The last two are the uniform async lifecycle events (spec 032);
                 // onError/onTimeout already double as the async error/timeout events.
@@ -5332,6 +5346,13 @@ impl Control {
                 // Without it an Ask that yields nothing is indistinguishable
                 // from an Ask that was never made (operator, 2026-09-07).
                 props.insert("Verbose".into(), PropValue::Bool(false));
+                // Spec 072 — how tools are offered to the model: `Native` uses
+                // the protocol's own tool fields, `Fenced` describes them in the
+                // system prompt for a model without function calling. Chosen by
+                // the developer, never guessed from the model's name.
+                props.insert("ToolProtocol".into(), PropValue::String("Native".into()));
+                // Rounds of tool calls one Ask may take before it gives up.
+                props.insert("MaximumToolRounds".into(), PropValue::Int(8));
             }
             ControlType::Slider => {
                 props.insert("Minimum".into(), PropValue::Int(0));
@@ -10675,7 +10696,7 @@ mod tests {
         assert_eq!(ControlType::Timer.supported_events(), &["onTick"]);
         assert_eq!(
             ControlType::AgentObject.supported_events(),
-            &["onResponse", "onError"]
+            &["onResponse", "onError", "onToolCall"]
         );
         // RestClient / SqlDatabase / IndexedFile gain the uniform async lifecycle
         // events onComplete/onError/onCancelled/onTimeout (skipping any the

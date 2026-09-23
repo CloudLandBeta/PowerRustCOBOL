@@ -8578,6 +8578,27 @@ impl PropertiesPanel {
                 // The debugging switch. An Ask that yields nothing looks exactly
                 // like an Ask that never ran, and this is what tells them apart.
                 bool_row_inline(ui, id, "Verbose", "Verbose log", ctrl, action);
+                // Spec 072 — tool calling.
+                combo_row_labeled(
+                    ui,
+                    id,
+                    "ToolProtocol",
+                    "Tool protocol:",
+                    ctrl,
+                    action,
+                    &["Native", "Fenced"],
+                );
+                int_prop_row(
+                    ui,
+                    id,
+                    "MaximumToolRounds",
+                    "Max tool rounds",
+                    ctrl,
+                    action,
+                    1..=50,
+                    None,
+                    8,
+                );
 
                 section_header(ui, tr.sec_cobol_integration);
                 {

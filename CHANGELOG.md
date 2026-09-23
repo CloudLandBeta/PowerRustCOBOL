@@ -8,6 +8,51 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.162] — 2026-09-22
+
+### Spec 072 — an AgentObject can use tools
+
+One `Ask` can now become a short conversation: the model calls a tool, the tool
+runs, the result goes back, and `onResponse` receives the finished answer.
+
+- **Indexed files** — `AllowFile(fd-name [, cidx-path])` offers an indexed file
+  to every agent in the application as its read-only `search_<file>` tool
+  (spec 065); the meaning comes from the `.cidx`, the layout from the
+  program's own `FD`. `DenyFile` withdraws it. The search runs inside the
+  program.
+- **Tools the program answers** — `AddTool`, `AddToolParameter`, `RemoveTool`;
+  the new `onToolCall` event carries `ToolCallId`, `ToolName` and
+  `ToolArguments`, and `SetToolResult(call-id, text)` answers. Calls are handed
+  over one at a time; a handler that sets nothing (or an unbound event) sends
+  an empty result.
+- **Protocols** — native tool calling for OpenAI-compatible servers, Ollama
+  and Anthropic, and `ToolProtocol = Fenced` for a model without it (tools in
+  the system prompt, a fenced JSON block for the call). Chosen by the
+  developer, never from the model's name.
+- **Limits and cost** — `MaximumToolRounds` (default 8) ends a model that keeps
+  calling tools with `onError`; `TimeoutSeconds` bounds the whole question;
+  `Cancel()` works mid-loop, including inside `onToolCall`.
+  `LastInputTokens`, `LastOutputTokens` and `LastToolCallCount` report what
+  each `Ask` used, with or without tools.
+- An agent offering no tools sends exactly the request it always sent
+  (checked byte for byte).
+
+The wire formats live in the new pure module `agent_tools.rs`; the loop in
+`interpreter/agent_loop.rs`. The interpreter is shared by `rcrun run-form`,
+embedded forms and the compiled binary, so all three hosts get it. Properties
+pane rows for `ToolProtocol` and `MaximumToolRounds`; older forms get both
+filled in with their defaults on load. KB tables, `chunked.data` (1761 records)
+and the Developer's Guide (*Letting an agent use tools*) updated.
+
+`test_agent_tool_calling.rs` runs a real COBOL event loop against a scripted
+local model server: 7 tests covering the indexed-file tool, a COBOL tool in all
+three protocols, the no-tools body, the round limit, bad calls, the fenced
+protocol against a server that refuses `tools`, and a cancel — 45–132 ms per
+question.
+Sweeps: forms 1118/0, runtime 1003/0, form host 148/0, cli 8/0, compiler
+139/0, IDE 1243 passed / 7 failed (the standing translation signal and the six
+offline crate-resolver tests).
+
 ## [PowerRustCOBOL 1.70.161] — 2026-09-22
 
 ### Spec 066 Phase A — a running program adds its own SideMenu rows

@@ -682,10 +682,11 @@ fn seed_missing_props(form: &mut Form) {
                 c.set_prop(*key, value.clone());
             }
         }
-        // Keyboard keys added after these controls shipped: the row appears in
-        // the pane, and the value is the reader's own default, so nothing a
-        // saved form does changes.
-        for key in ["EnterAsTab", "AutoEnter"] {
+        // Keys added after these controls shipped — the keyboard pair, and an
+        // AgentObject's spec-072 tool settings: the row appears in the pane,
+        // and the value is the reader's own default, so nothing a saved form
+        // does changes. Only a type whose `Control::new` seeds the key gets it.
+        for key in ["EnterAsTab", "AutoEnter", "ToolProtocol", "MaximumToolRounds"] {
             if c.get_prop(key).is_none() {
                 if let Some(value) = seeded.get_prop(key) {
                     c.set_prop(key, value.clone());

@@ -8728,6 +8728,129 @@ nothing to search, and nothing to tell a model.
 > tools you marked. Treat what you mark, and where you serve it, as the whole
 > of the security boundary.
 
+### Letting an agent use tools (`onToolCall`, `AllowFile`)
+
+An `AgentObject` can do more than answer from what it already knows. Give it
+**tools** and one `Ask` becomes a short conversation: the model asks for a tool,
+the tool runs, the result goes back, and the model answers with that result in
+hand. Your `onResponse` handler still receives one finished answer — the rounds
+in between happen for you.
+
+If you have written PowerCOBOL or isCOBOL event handlers, the shape is familiar:
+the model raises an event, your handler fills in the answer, and control goes
+back to it.
+
+```mermaid
+sequenceDiagram
+    participant P as Your program
+    participant A as AgentObject
+    participant M as Model
+    P->>A: Ask(question)
+    A->>M: question + tool list
+    M-->>A: call search_actors_file
+    Note over A: indexed-file tool:<br/>searched in-process
+    A->>M: search result
+    M-->>A: call get_rate(CURRENCY)
+    A->>P: onToolCall (ToolName, ToolArguments)
+    P->>A: SetToolResult(ToolCallId, text)
+    A->>M: your result
+    M-->>A: final answer
+    A->>P: onResponse (LastReply)
+```
+
+A tool comes from one of two places.
+
+**An indexed file you allow.** `AllowFile` offers one of your indexed files to
+every agent in the application, as the same read-only `search_<file>` tool
+described in *Letting a model query your data* above:
+
+```cobol
+           MOVE AGENT-1::AllowFile("ACTORS-FILE", "indexed/actors.cidx")
+             TO WS-OK
+```
+
+The first argument is the file's name in your `SELECT`; the second is its
+`.cidx` definition (leave it out and the delivered `indexed/` folder is searched
+for the definition of that file). What the file *means* — its description and
+the field comments — comes from the `.cidx`. How its records are *laid out*
+comes from your program's own `FD`, never from the definition. The search runs
+inside your program and never reaches a handler. `DenyFile("ACTORS-FILE")`
+withdraws it. `AllowFile` answers `0` when it cannot find the `FD` or the
+definition, and the file is simply not offered.
+
+**A tool your program answers.** Declare it, describe its arguments, and answer
+it in `onToolCall`:
+
+```cobol
+       FORM-1--ONLOAD.
+           MOVE AGENT-1::AddTool("get_rate",
+                "Today's exchange rate from euros to a currency") TO WS-OK
+           MOVE AGENT-1::AddToolParameter("get_rate", "CURRENCY",
+                "Three-letter currency code, e.g. USD") TO WS-OK.
+
+       AGENT-1--ONTOOLCALL.
+           MOVE AGENT-1::ToolCallId    TO WS-CALL-ID
+           MOVE AGENT-1::ToolArguments TO WS-ARGS
+      *>   WS-ARGS holds {"CURRENCY":"USD"}
+           PERFORM LOOK-UP-RATE
+           MOVE AGENT-1::SetToolResult(WS-CALL-ID, WS-RATE-TEXT) TO WS-OK.
+
+       AGENT-1--ONRESPONSE.
+           MOVE AGENT-1::LastReply TO ANSWER-BOX::Text.
+```
+
+`ToolName` says which tool was called, when you declared more than one.
+`ToolArguments` is a JSON object whose keys are the parameter names you
+declared, and every value in it is a string.
+
+| Member | What it does |
+|---|---|
+| `AddTool(name, description)` | Offers a tool your program answers. The description is what the model reads when it decides whether to call the tool, so say what the tool *returns*. |
+| `AddToolParameter(tool, name, description)` | Describes one argument. |
+| `RemoveTool(name)` | Stops offering a tool. |
+| `SetToolResult(call-id, text)` | The answer, sent when your handler returns. |
+| `AllowFile(fd-name [, cidx-path])` / `DenyFile(fd-name)` | Offers or withdraws an indexed file, for every agent. |
+| `ToolProtocol` | `Native` (default) or `Fenced` — see below. |
+| `MaximumToolRounds` | How many rounds of tool calls one `Ask` may take (default 8). |
+| `LastInputTokens`, `LastOutputTokens` | Tokens the provider reported for the last `Ask`, summed over every round. |
+| `LastToolCallCount` | How many tools the model called during the last `Ask`. |
+
+**`Native` or `Fenced`.** With `Native`, tools use the provider's own
+tool-calling format — OpenAI-compatible servers, Ollama and Anthropic each have
+one, and the control speaks all three. Some local models have no tool calling
+at all. For those, set `ToolProtocol` to `Fenced`: the tools are described in
+the system prompt, and the model calls one by answering with a small fenced
+JSON block. It is slower and relies on the model following instructions, but it
+works with any model that can follow them. The control never guesses which one
+a model needs from its name — you choose.
+
+> **Notes.**
+> - An agent that offers no tools sends exactly the request it always sent.
+>   Tools cost nothing until you declare one.
+> - Your program answers **one call at a time**, in the order the model made
+>   them. If the model asks for three things at once, `onToolCall` fires three
+>   times.
+> - A handler that never calls `SetToolResult` sends the model an **empty**
+>   result. An unbound `onToolCall` does the same, so the question never hangs.
+> - A call to a tool that was never offered, or arguments that are not valid
+>   JSON, are reported **to the model** as an error result so it can try again.
+>   Your handler never sees them.
+> - `LastInputTokens` / `LastOutputTokens` are written on every `Ask`, with or
+>   without tools. They are how you watch what a question costs.
+
+> ⚠️ **Caveats.**
+> - `TimeoutSeconds` bounds the **whole** question — every round, and every
+>   wait for your handler. A tool that runs a long batch job should hand the
+>   work off and answer at once.
+> - A model that keeps calling tools is stopped at `MaximumToolRounds` with
+>   `onError`, and `LastError` says so. Raise the limit only for a question
+>   that really needs many steps.
+> - `Cancel()` stops the question at any point, including inside your own
+>   `onToolCall` handler. `onCancelled` fires, and nothing more is sent to the
+>   model.
+> - An allowed file is visible to **every** agent in the application. Allow
+>   only files whose contents any of your agents may repeat to its user.
+
 ---
 
 ## 17. The command line (rcrun)

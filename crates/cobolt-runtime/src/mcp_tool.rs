@@ -262,6 +262,12 @@ impl IndexedToolSet {
         });
     }
 
+    /// Withdraw a file (spec 072 `DenyFile`), by its COBOL file name.
+    pub fn deny(&mut self, name: &str) {
+        self.files
+            .retain(|f| !f.description.name.eq_ignore_ascii_case(name.trim()));
+    }
+
     pub fn is_empty(&self) -> bool {
         self.files.is_empty()
     }

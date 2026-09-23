@@ -5107,6 +5107,14 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "ResponseDataItem" => ("COBOL data-item name", "AgentObject: a WORKING-STORAGE item that receives the reply when it arrives — written just before `onResponse` fires, and only when the program declares an item of that name. Empty = none; read `LastReply` in the handler instead."),
         "LastReply" => ("text (runtime-only, read-only)", "AgentObject: the model's answer to the last `Ask`, written when it arrives and just before `onResponse` fires. Cleared on a failure, when `LastError` is set instead. `Result` carries the same text."),
         "Verbose" => ("true | false", "Narrate the whole call into the program's output. Off by default; turn it on when the control appears to do nothing, because an operation that returned nothing and one that never ran produce the same empty log, and this is what separates them. **On an AgentObject**: the endpoint, every request header and the payload exactly as sent, then the HTTP status, the raw body and the reply read out of it. The headers include the API key **unmasked, on purpose** — a key wrong by one character is invisible once masked — and the log says so on the next line, so do not paste it into a bug report. The call is made the same way in the IDE, under `rcrun` and in a built application. **On a WebSearch**: the provider, the method and URL, the request headers, the body sent, whether the call is async or sync, then the HTTP status and the raw response — uncut, so it can be compared against the provider's own documentation. A WebSearch masks its credentials: a key in a header or in the URL query (Google signs there) prints as its first few characters and a length."),
+        "ToolProtocol" => ("one of: `Native` | `Fenced`", "AgentObject (spec 072): how tools are offered to the model. `Native` (default) uses the provider's own tool-calling fields — OpenAI-compatible `tools`/`tool_calls`, Ollama `tools`, Anthropic `tools`/`tool_use`. `Fenced` is for a model without function calling: the tools are described in the system prompt and the model calls one by answering with a fenced ```json block `{\"tool_calls\":[{\"tool\":…,\"args\":{…}}]}`; the results come back as a user message. The setting is yours — it is never guessed from the model's name. An agent that offers no tools sends exactly the same request whatever this says."),
+        "MaximumToolRounds" => ("integer > 0 (default 8)", "AgentObject (spec 072): how many rounds of tool calls one `Ask` may take. A model still calling tools when the limit is reached ends the question with `onError` (`LastError` names `MaximumToolRounds`) instead of looping for ever."),
+        "LastInputTokens" => ("integer (runtime-only, read-only)", "AgentObject (spec 072): the input (prompt) tokens the provider reported for the last `Ask`, summed over every tool round. 0 when the provider reports none. Written before `onResponse` / `onError`."),
+        "LastOutputTokens" => ("integer (runtime-only, read-only)", "AgentObject (spec 072): the output (completion) tokens the provider reported for the last `Ask`, summed over every tool round. 0 when the provider reports none."),
+        "LastToolCallCount" => ("integer (runtime-only, read-only)", "AgentObject (spec 072): how many tool calls the model made during the last `Ask` — indexed-file searches and program-answered tools alike. 0 for a question that used no tools."),
+        "ToolCallId" => ("text (runtime-only, read-only)", "AgentObject (spec 072): during `onToolCall`, the id of the call the program is asked to answer. Pass it to `SetToolResult(ToolCallId, text)`."),
+        "ToolName" => ("text (runtime-only, read-only)", "AgentObject (spec 072): during `onToolCall`, the name of the tool the model called — one the program declared with `AddTool`."),
+        "ToolArguments" => ("JSON object text (runtime-only, read-only)", "AgentObject (spec 072): during `onToolCall`, the arguments the model sent, as a JSON object whose keys are the parameter names declared with `AddToolParameter`. Every value is a string."),
 
         // ── RestClient ──
         "Configuration" => (
@@ -5537,6 +5545,7 @@ fn event_reference(name: &str) -> &'static str {
         "onMenuOpen" => "a menu opened",
         "onMenuClose" => "a menu closed",
         "onResponse" => "the LLM reply arrived",
+        "onToolCall" => "the model called a tool the program declared with `AddTool` — read `ToolCallId` / `ToolName` / `ToolArguments`, answer with `SetToolResult`; a handler that sets nothing sends an empty result",
         "onError" => "the operation failed (message in `LastError`)",
         "onTimeout" => "the async operation exceeded its timeout",
         "onComplete" => "the async operation finished successfully",
@@ -5820,6 +5829,12 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("GetResult() → String", "Read the `Result` property."),
             ("Cancel()", "Cancel the in-flight request."),
             ("IsBusy() → Boolean (0/1)", "An async request is in flight."),
+            ("AddTool(name: String, description: String) → Boolean (0/1)", "Spec 072: offer the model a tool that THIS PROGRAM answers. When the model calls it, `onToolCall` fires with `ToolCallId`, `ToolName` and `ToolArguments` set; the handler answers with `SetToolResult`. Calls are handed to the program one at a time, in the order the model made them. Adding a name again replaces it. Declared tools belong to this control only."),
+            ("AddToolParameter(tool: String, name: String, description: String) → Boolean (0/1)", "Spec 072: describe one argument of a tool declared with `AddTool` (a string). `0` when no such tool is declared."),
+            ("RemoveTool(name: String) → Boolean (0/1)", "Spec 072: stop offering a declared tool. `0` when it was not declared."),
+            ("SetToolResult(call-id: String, text: String)", "Spec 072: the answer to the tool call `call-id` (use `ToolCallId`), sent back to the model when the `onToolCall` handler returns. A handler that sets nothing sends an empty result; the wait counts against `TimeoutSeconds`."),
+            ("AllowFile(fd-name: String, cidx-path: String?) → Boolean (0/1)", "Spec 072: let every AgentObject in the application search an indexed file (read-only). What the file means comes from its `.cidx` definition (`cidx-path`, or found under the delivered `indexed/` folder by file name); how its records are laid out always comes from this program's own `FD`. The model sees one `search_<file>` tool per allowed file, and the search runs inside the program — never through `onToolCall`. `0` when the FD or the definition cannot be found."),
+            ("DenyFile(fd-name: String)", "Spec 072: stop offering an indexed file allowed with `AllowFile`."),
         ],
         "RestClient" => vec![
             ("Get(url: String) → String", "HTTP GET. Async mode: returns immediately, response lands in `ResponseBody`/`StatusCode` + `onComplete`. Sync mode: returns the body."),
@@ -6791,6 +6806,9 @@ fn methods_reference_doc() -> String {
                 ("SetModel(model: String)", "Switch models."),
                 ("GetResult() → String", "Read the `Result` property."),
                 ("Cancel() / IsBusy() → Boolean", "Async control."),
+                ("AddTool / AddToolParameter / RemoveTool", "Offer the model tools the program answers in `onToolCall`."),
+                ("SetToolResult(call-id, text)", "Answer a tool call from `onToolCall`."),
+                ("AllowFile(fd-name, cidx-path?) / DenyFile(fd-name)", "Let the model search an indexed file."),
             ],
         ),
         (
