@@ -1525,6 +1525,11 @@ pub struct Interpreter {
     /// marks a file exposes no data, which is the safe direction for a default
     /// nobody set deliberately.
     mcp_tools: crate::mcp_tool::IndexedToolSet,
+    /// Spec 066 — each SideMenu's designed rows (its `.menu.yaml`), keyed by
+    /// the upper-cased control id, so a program's `AddItem`/`RemoveItem` can
+    /// be refused on a designed id and the nesting limit checked. Handed over
+    /// by every host at start-up (`set_designed_menu`).
+    designed_menus: HashMap<String, Vec<cobolt_forms::menu::MenuItem>>,
     /// Generated data-binding helper CALL state, keyed by binding id.
     binding_states: HashMap<String, BindingRuntimeState>,
 
@@ -2005,6 +2010,7 @@ impl Interpreter {
             db: DbRegistry::new(),
             http: crate::http_runtime::HttpClient::new(),
             mcp_tools: crate::mcp_tool::IndexedToolSet::new(),
+            designed_menus: HashMap::new(),
             binding_states: HashMap::new(),
             event_rx: None,
             input_rx: None,
@@ -12667,6 +12673,94 @@ impl Interpreter {
     /// is the same test `SideMenu` and `ToolbarButton` already use. It matters
     /// only where a method name is shared with the universal verb set —
     /// `Show()` — and nowhere else.
+    /// Spec 066 — hand the interpreter a SideMenu's designed rows. Every host
+    /// that loads a form's menus calls this: `rcrun run-form`, a built
+    /// application, and the form host when it seeds a child form.
+    pub fn set_designed_menu(&mut self, ctrl_id: &str, def: &cobolt_forms::menu::MenuDefinition) {
+        self.designed_menus
+            .insert(ctrl_id.trim().to_ascii_uppercase(), def.menu.clone());
+    }
+
+    fn is_side_menu(&self, obj: &str) -> bool {
+        self.objects
+            .get(obj.trim())
+            .map(|o| o.class == "SideMenu")
+            .unwrap_or(false)
+    }
+
+    /// Spec 066 — a method called on a SideMenu that edits the rows the
+    /// program added. `None` when the name is not one of them, so every other
+    /// method (`Collapse`, `OpenStandAloneFormSync`, …) goes on as before.
+    ///
+    /// The list-control names (`AddItem`, `RemoveItem`, `Clear`, `GetCount`)
+    /// MUST be answered here: their generic arms edit an `Items` property a
+    /// SideMenu does not have, so falling through would do nothing, silently.
+    /// A change answers `1`; a refused one — a designed row, an unknown id, too
+    /// deep — answers `0` and leaves the menu exactly as it was.
+    fn side_menu_method(&mut self, obj: &str, m: &str, arg: &dyn Fn(usize) -> String) -> Option<String> {
+        use cobolt_forms::menu::runtime as rt;
+        let designed = self
+            .designed_menus
+            .get(&obj.trim().to_ascii_uppercase())
+            .cloned()
+            .unwrap_or_default();
+        let mut rows = rt::parse_rows(&self.obj_get(obj, rt::RUNTIME_ROWS_PROP));
+        let truthy = |s: &str| matches!(s.trim().to_ascii_uppercase().as_str(), "1" | "TRUE" | "YES" | "ON");
+        let outcome: Result<(), rt::Refusal> = match m {
+            // AddItem(id, label [, icon [, parent-id [, action]]])
+            "ADDITEM" => rt::add_item(&designed, &mut rows, &arg(0), &arg(1), &arg(2), &arg(3), &arg(4)),
+            "ADDSECTION" => {
+                let id = rt::add_section(&designed, &mut rows, &arg(0));
+                self.obj_set(obj, rt::RUNTIME_ROWS_PROP, rt::rows_json(&rows));
+                return Some(id);
+            }
+            "REMOVEITEM" => rt::remove_item(&designed, &mut rows, &arg(0)),
+            "SETITEMLABEL" => {
+                let v = arg(1);
+                rt::set_field(&designed, &mut rows, &arg(0), |i| i.label = v)
+            }
+            "SETITEMICON" => {
+                let v = arg(1);
+                rt::set_field(&designed, &mut rows, &arg(0), |i| {
+                    i.icon = Some(v).filter(|s| !s.is_empty())
+                })
+            }
+            "SETITEMBADGE" => {
+                let v = arg(1);
+                rt::set_field(&designed, &mut rows, &arg(0), |i| {
+                    i.badge = Some(v).filter(|s| !s.is_empty())
+                })
+            }
+            "SETITEMENABLED" => {
+                let v = truthy(&arg(1));
+                rt::set_field(&designed, &mut rows, &arg(0), |i| i.enabled = v)
+            }
+            "SETITEMACTION" => {
+                let v = arg(1);
+                rt::set_field(&designed, &mut rows, &arg(0), |i| {
+                    i.action = Some(if v.is_empty() { rt::DEFAULT_ACTION.to_owned() } else { v })
+                })
+            }
+            // Only the program's rows: the designed menu is the developer's.
+            "CLEAR" => {
+                rows.clear();
+                Ok(())
+            }
+            "GETCOUNT" => return Some(rows.len().to_string()),
+            "HASITEM" => {
+                return Some(if rt::has_item(&designed, &rows, &arg(0)) { "1" } else { "0" }.into())
+            }
+            _ => return None,
+        };
+        Some(match outcome {
+            Ok(()) => {
+                self.obj_set(obj, rt::RUNTIME_ROWS_PROP, rt::rows_json(&rows));
+                "1".into()
+            }
+            Err(_) => "0".into(),
+        })
+    }
+
     fn is_snackbar(&self, obj: &str) -> bool {
         self.objects
             .get(obj.trim())
@@ -13813,6 +13907,12 @@ impl Interpreter {
         };
         let none = CobolValue::from_str("", 0);
         let parse_i = |s: String| s.trim().parse::<i64>().unwrap_or(0);
+
+        if self.is_side_menu(obj) {
+            if let Some(answer) = self.side_menu_method(obj, &m, &arg) {
+                return val(answer);
+            }
+        }
 
         match m.as_str() {
             // ── Universal lifecycle / visibility ──
@@ -17569,6 +17669,9 @@ fn is_known_method(name: &str) -> bool {
         // `TV::NodeParent(3)` would silently mean "element 3 of NodeParent".
             | "ADDNODE"
             | "REMOVENODE" | "EXPANDALL" | "COLLAPSEALL" | "GETSELECTEDNODE" | "SETSELECTEDNODE"
+            // Spec 066 — SideMenu rows added at run time.
+            | "ADDSECTION" | "SETITEMLABEL" | "SETITEMICON" | "SETITEMBADGE" | "SETITEMENABLED"
+            | "SETITEMACTION" | "HASITEM"
             | "NODECOUNT" | "NODEINDEXOF" | "NODETEXT" | "NODENAME" | "NODEPATH"
             | "NODELEVEL" | "NODEICON" | "NODECOLOR" | "NODECOLOUR"
             | "NODEBACKCOLOR" | "NODEBACKGROUND" | "NODECHILDCOUNT"

@@ -15230,6 +15230,17 @@ pub fn register_menus(
     }
 }
 
+/// The menu a host registered for `ctrl_id`, without an egui context — for the
+/// form host, which hands a child form's designed SideMenu rows to its
+/// interpreter before it runs (spec 066).
+pub fn registered_menu(ctrl_id: &str) -> Option<std::sync::Arc<crate::menu::MenuDefinition>> {
+    menu_registry()
+        .read()
+        .ok()?
+        .get(&ctrl_id.to_ascii_uppercase())
+        .cloned()
+}
+
 /// Retrieve the MenuDefinition for a control (if any).
 ///
 /// The per-context cache first — a Designer edit must be visible on the next

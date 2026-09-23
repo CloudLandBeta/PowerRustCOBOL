@@ -4343,6 +4343,8 @@ The Viewer does not draw a chat sidebar, a "new chat" button or a history list.
 That is on purpose: your application's chrome should look like your
 application. What you get is the machinery, and you build the buttons out of
 the controls you already know.
+In an application shell the natural home for that history is the sidebar
+itself: see **Rows your program adds** in the application-shell chapter.
 
 | Method or property | What it does |
 |---|---|
@@ -9821,6 +9823,61 @@ The shell window has three fixed regions:
 > its own, the shell's ContentPane untouched. A target with an ordinary
 > `MenuBar` (a horizontal strip, not a rail) still loads into the
 > ContentPane as always — only a `SideMenu` triggers this.
+
+### Rows your program adds
+
+The menu editor draws the sidebar you know at design time. Much of a real
+sidebar is only known while the program runs — the user's past conversations,
+the documents in a folder, the reports they can open. Add those rows from COBOL;
+they appear after the designed ones, look and click exactly like them, and
+disappear when the program ends. Nothing is written back to the menu file.
+
+```cobol
+       PROGRAM-ID. MAIN-FORM--ONLOAD.
+       PROCEDURE DIVISION.
+      *> A section title, then one row per conversation.
+           MOVE SIDEMENU-1::AddSection("History") TO WS-SECTION-ID
+           MOVE SIDEMENU-1::AddItem("CHAT-0041", "Tuesday's invoice query",
+                                    "chat") TO WS-OK
+           MOVE SIDEMENU-1::AddItem("CHAT-0042", "Supplier onboarding",
+                                    "chat") TO WS-OK
+      *> A row under a designed row, which opens a form when clicked.
+           MOVE SIDEMENU-1::AddItem("RPT-Q3", "Q3 report", "report",
+                                    "REPORTS", "open-form:Q3-REPORT") TO WS-OK
+           .
+
+       PROGRAM-ID. SIDEMENU-1--ONMENUITEMCLICK.
+       PROCEDURE DIVISION.
+           MOVE SIDEMENU-1::SelectedItemId TO WS-CHAT-ID
+           INVOKE VWR-1::SelectConversation(WS-CHAT-ID)
+           .
+```
+
+| Call | What it does |
+|---|---|
+| `AddItem(id, label [, icon [, parent-id [, action]]])` | Adds a row, or replaces the row *you* added with that id, in place. `parent-id` hangs it under any row, designed or yours, up to three levels. `action` is what a designed row's action would be; empty means `onMenuItemClick` |
+| `AddSection(title)` | Adds a section title; answers its id |
+| `SetItemLabel` / `SetItemIcon` / `SetItemBadge` / `SetItemEnabled` / `SetItemAction` `(id, value)` | Change one of your rows |
+| `RemoveItem(id)` | Removes one of your rows and everything under it |
+| `Clear()` | Removes all of your rows; the designed menu stays |
+| `GetCount()` / `HasItem(id)` | How many rows you added; whether an id exists at all |
+
+Every call that changes something answers `1` when it did and `0` when it did
+not, so a program can tell.
+
+> ⚠️ **The designed menu is yours at design time, not at run time.** A program
+> can never rename, remove or replace a row that came from the menu editor —
+> the call answers `0` and the menu is untouched. Give your own rows ids that
+> cannot collide with the designed ones (a prefix such as `CHAT-` is enough).
+
+> **Note — actions and where the sidebar lives.** In the application shell a
+> row's action navigates, whether it was designed or added. A SideMenu on a
+> plain window raises `onMenuItemClick` for every row and leaves the navigating
+> to your handler — the same for both kinds of row.
+
+> 📷 Screenshot needed — `sidemenu-runtime-rows.png`. Capture a shell whose
+> rail shows two designed rows, a "History" section and three conversation rows
+> added by the program, with one of them selected.
 
 ### The breadcrumb frame
 

@@ -8,6 +8,42 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.161] — 2026-09-22
+
+### Spec 066 Phase A — a running program adds its own SideMenu rows
+
+A SideMenu's rows used to be fixed at design time. A program now adds, changes
+and removes its own — a list of conversations, the documents in a folder:
+`AddItem(id, label [, icon [, parent-id [, action]]])`, `AddSection(title)`,
+`SetItemLabel` / `SetItemIcon` / `SetItemBadge` / `SetItemEnabled` /
+`SetItemAction`, `RemoveItem(id)` (children go with it), `Clear()` (the
+program's rows only), `GetCount()`, `HasItem(id)`. Every change answers `1`, a
+refused one `0`.
+
+Run-time rows follow the designed ones, click exactly like them
+(`SelectedItemId` + `onMenuItemClick`, or their action in the shell), and never
+reach the `.menu.yaml` or the designer canvas. A designed row can never be
+renamed, removed or replaced from COBOL. They travel as one run-time-only
+property, `RuntimeRows`, and the engine and the shell's MenuPane merge them
+with the same function, so both rails lay out the same list. Each host — `rcrun
+run-form`, a built application, a child form — hands the interpreter the
+designed menus before the program runs.
+
+The list-control names (`AddItem`, `RemoveItem`, `Clear`, `GetCount`) are
+answered by the SideMenu first; their generic arms edit an `Items` property a
+SideMenu does not have, and would have done nothing, silently.
+
+Phases B (a header band hosting controls) and C (controls inside rows) are not
+yet built.
+
+Tests: `menu::runtime` 15 cases; `test_side_menu_rows` (50 rows + section +
+nested row, 53 calls in 22.89 ms; refusals; `Items` never written); engine
+layout+click; shell rail with actions and engine/shell spacing parity;
+compiled-template hand-over order. Sweeps: forms 1118/0, runtime 993/0, form
+host 148/0, cli 8/0, compiler 139/0, IDE 1249 passed / 1 failed (the standing
+translation signal). System KB regenerated; Guide section *Rows your program
+adds*.
+
 ## [PowerRustCOBOL 1.70.160] — 2026-09-22
 
 ### Spec 066 — plan drafted

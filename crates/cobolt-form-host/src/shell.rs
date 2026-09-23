@@ -461,6 +461,11 @@ pub struct Shell {
     /// colours, title and profile card from the application's own theme
     /// rather than from constants baked into the shell.
     pub side_ctrl: Option<cobolt_forms::Control>,
+    /// Spec 066 — the root SideMenu's live `RuntimeRows` and `SelectedItemId`,
+    /// copied from the host each frame by `show_with_host`. Empty without a
+    /// host (the shell alone has no program to add rows).
+    live_rows: String,
+    live_selected: String,
     /// The MAIN form's own resolved backdrop colour. The rail paints ON this,
     /// never straight onto the window: a SideMenu's `BackgroundColor` is
     /// commonly translucent, and on the designer canvas that translucency
@@ -523,6 +528,8 @@ impl Default for Shell {
             menu_background: None,
             icon_effect: "None".to_owned(),
             side_ctrl: None,
+            live_rows: String::new(),
+            live_selected: String::new(),
             form_backdrop: None,
             breadcrumb: Vec::new(),
             detail: None,
@@ -839,7 +846,13 @@ impl Shell {
         let ctx_menu = self.contextual_menu.clone();
         let mut items: Vec<MenuItem> = Vec::new();
         if let Some(r) = &root {
-            items.extend(r.def.menu.iter().cloned());
+            // The rows the program added belong to the root SideMenu, after its
+            // designed rows — merged with the same function the engine uses, so
+            // this rail and a window's lay out the same list (spec 066).
+            items.extend(cobolt_forms::menu::runtime::merge_rows(
+                &r.def.menu,
+                &cobolt_forms::menu::runtime::parse_rows(&self.live_rows),
+            ));
         }
         let root_len = items.len();
         let mut divider = 0usize;
@@ -985,6 +998,10 @@ impl Shell {
         // The pane's own state wins over whatever the designed control said.
         ctrl.set_prop("Collapsed", self.collapsed);
         ctrl.set_prop("IconEffect", self.icon_effect.clone());
+        // The selection the program (or the last click) left — spec 066.
+        if !self.live_selected.is_empty() {
+            ctrl.set_prop("SelectedItemId", self.live_selected.clone());
+        }
         ctrl
     }
 
@@ -1095,6 +1112,16 @@ impl Shell {
         // function — by which time the chrome is already on screen wearing
         // whatever the pane's occupant left behind last frame.
         host.publish_root_theme(root_ui.ctx());
+        // Spec 066 — the rows and selection the program wrote on the root
+        // SideMenu. Read before the rail is drawn; the pane drains this frame's
+        // writes further down, so a write shows here one frame later than in a
+        // window — invisible at frame rate.
+        if let Some(side) = self.side_ctrl.as_ref().map(|c| c.id.clone()) {
+            self.live_rows = host
+                .control_prop(&side, cobolt_forms::menu::runtime::RUNTIME_ROWS_PROP)
+                .unwrap_or_default();
+            self.live_selected = host.control_prop(&side, "SelectedItemId").unwrap_or_default();
+        }
         let mut menu_scroll = Vec2::ZERO;
         // See `show` — panel order is what makes FullHeight true or false.
         let mut breadcrumb_rect = Rect::NOTHING;
@@ -4047,6 +4074,91 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
     /// AC3 (mount half) — entering a subsystem replaces the contextual slot
     /// WHOLESALE while the root slot never changes; clicks carry the item's
     /// action and PreservePreviousForm flag.
+    /// Spec 066 (AC2, AC6b, AC7) — the rows a program added reach the shell's
+    /// rail: after the designed rows, laid out with the same geometry the
+    /// engine uses, and a click carries the row's own action to the dispatcher.
+    #[test]
+    fn runtime_rows_reach_the_shell_rail_with_their_actions() {
+        use cobolt_forms::menu::runtime::{add_item, merge_rows, rows_json};
+        use cobolt_forms::menu::{MenuDefinition, MenuItem};
+        use cobolt_forms::sidebar::{self, RowKind};
+
+        let designed = vec![MenuItem {
+            action: Some("event".into()),
+            ..MenuItem::new_action("home", "Home")
+        }];
+        let mut rows = Vec::new();
+        add_item(&designed, &mut rows, "chat-7", "Yesterday", "", "", "open-form:CHAT").unwrap();
+
+        let ctx = egui::Context::default();
+        let size = Vec2::new(900.0, 600.0);
+        let mut shell = Shell::default();
+        shell.mount_root_menu("MAIN-FORM", MenuDefinition { menu: designed.clone(), hash: String::new() });
+        shell.live_rows = rows_json(&rows);
+        let frame_with = |shell: &mut Shell, input: egui::RawInput| {
+            let mut full = ctx.run_ui(input, |root_ui| {
+                shell.show(root_ui, |_ui| {}, |_ui| {});
+            });
+            full.textures_delta.clear();
+        };
+        frame_with(&mut shell, raw(size));
+
+        let home = shell.item_rect("home").expect("designed row drawn");
+        let chat = shell.item_rect("chat-7").expect("run-time row drawn");
+        assert!(chat.top() > home.top(), "the program's row follows the designed one");
+
+        // AC7 — the engine lays out the same merged rows with the same
+        // geometry: the offset between the two rows is identical.
+        let merged = merge_rows(&designed, &rows);
+        let side = cobolt_forms::Control::new("SIDE", cobolt_forms::ControlType::SideMenu, 0, 0);
+        let mut engine_rows = Vec::new();
+        // Its own context: a frame on the shell's would leave no rows for the
+        // click below to hit (egui hit-tests against the previous frame).
+        let engine_ctx = egui::Context::default();
+        engine_ctx.run_ui(raw(size), |_| {
+            let state = sidebar::state_for_control(&engine_ctx, &side, &merged, 255, &[]);
+            engine_rows = sidebar::layout(Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(240.0, 600.0)), &state);
+        })
+        .textures_delta
+        .clear();
+        let at = |id: &str| {
+            engine_rows
+                .iter()
+                .find(|r| matches!(&r.kind, RowKind::Item { id: i, .. } if i == id))
+                .map(|r| r.rect)
+                .unwrap()
+        };
+        assert_eq!(
+            chat.top() - home.top(),
+            at("chat-7").top() - at("home").top(),
+            "shell and engine space the rows alike"
+        );
+        assert_eq!(chat.height(), at("chat-7").height());
+
+        // A click on it carries ITS action — the dispatcher opens the form.
+        let p = chat.center();
+        let mut input = raw(size);
+        input.events.push(egui::Event::PointerMoved(p));
+        for pressed in [true, false] {
+            input.events.push(egui::Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: Default::default(),
+            });
+        }
+        frame_with(&mut shell, input);
+        let clicked: Vec<_> = shell
+            .take_menu_clicks()
+            .into_iter()
+            .map(|c| (c.item_id, c.action))
+            .collect();
+        assert!(
+            clicked.contains(&("chat-7".to_owned(), Some("open-form:CHAT".to_owned()))),
+            "{clicked:?}"
+        );
+    }
+
     #[test]
     fn menu_slots_mount_root_once_and_swap_contextual_wholesale() {
         use cobolt_forms::menu::{MenuDefinition, MenuItem};

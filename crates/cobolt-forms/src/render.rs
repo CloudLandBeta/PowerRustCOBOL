@@ -11528,8 +11528,19 @@ fn render_interactive(
             // out ONCE, painted from that layout, and hit-tested against the
             // very same rectangles. There is no second geometry to drift.
             let def = paint::get_menu_cache(ui.ctx(), &ctrl.id);
-            let items: &[crate::menu::MenuItem] =
+            let designed: &[crate::menu::MenuItem] =
                 def.as_ref().map(|d| d.menu.as_slice()).unwrap_or(&[]);
+            // Spec 066 — the rows the program added, after the designed ones.
+            // The shell merges with the same function, so both rails lay out
+            // the same list.
+            let merged = crate::menu::runtime::merge_rows(
+                designed,
+                &crate::menu::runtime::parse_rows(&sv(
+                    ctrl,
+                    crate::menu::runtime::RUNTIME_ROWS_PROP,
+                )),
+            );
+            let items: &[crate::menu::MenuItem] = &merged;
 
             // Live state, so the preview behaves like the running app without
             // touching the designed control: `Collapsed` and the open parents
@@ -19748,6 +19759,76 @@ mod tests {
         assert_eq!(
             FocusRing::from_settings(true, "#FF0000", false).color,
             egui::Color32::from_rgb(255, 0, 0)
+        );
+    }
+
+    /// Spec 066 — a row the program added is laid out after the designed ones
+    /// and answers a click like one: `SelectedItemId` + `onMenuItemClick`.
+    #[test]
+    fn engine_side_menu_lays_out_and_clicks_a_runtime_row() {
+        use crate::menu::runtime::{add_item, rows_json, RUNTIME_ROWS_PROP};
+        use crate::menu::{MenuDefinition, MenuItem};
+        let _guard = crate::paint::menu_registry_test_lock();
+
+        let designed = vec![MenuItem::new_action("home", "Home")];
+        crate::paint::register_menus([(
+            "SideMenu-1".to_owned(),
+            MenuDefinition { menu: designed.clone(), hash: String::new() },
+        )]);
+        let mut rows = Vec::new();
+        add_item(&designed, &mut rows, "chat-7", "Yesterday's chat", "", "", "").unwrap();
+        let side = ctrlp(
+            "SideMenu-1",
+            ControlType::SideMenu,
+            0,
+            0,
+            200,
+            300,
+            &[(RUNTIME_ROWS_PROP, rows_json(&rows).as_str())],
+        );
+
+        // Where the engine will put the rows: the same layout it uses.
+        let merged = crate::menu::runtime::merge_rows(&designed, &rows);
+        let ctx = egui::Context::default();
+        let mut rects = Vec::new();
+        ctx.run_ui(egui::RawInput::default(), |_| {
+            let state = crate::sidebar::state_for_control(&ctx, &side, &merged, 255, &[]);
+            let rect = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(200.0, 300.0));
+            rects = crate::sidebar::layout(rect, &state);
+        })
+        .textures_delta
+        .clear();
+        let row_ids: Vec<String> = rects
+            .iter()
+            .filter_map(|r| match &r.kind {
+                crate::sidebar::RowKind::Item { id, .. } => Some(id.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(row_ids, ["home", "chat-7"], "designed first, then the program's");
+        let target = rects
+            .iter()
+            .find(|r| matches!(&r.kind, crate::sidebar::RowKind::Item { id, .. } if id == "chat-7"))
+            .unwrap()
+            .visible
+            .center();
+
+        let (evs, map) = drive(
+            &[side],
+            vec![
+                (0.0, vec![]),
+                (1.0, vec![Event::PointerMoved(target), press(target)]),
+                (2.0, vec![release(target)]),
+            ],
+        );
+        crate::paint::register_menus(std::iter::empty());
+        assert_eq!(
+            map.get("SideMenu-1").and_then(|m| m.get("SelectedItemId")).map(String::as_str),
+            Some("chat-7")
+        );
+        assert!(
+            evs.iter().any(|e| e.ctrl_id == "SideMenu-1" && e.event == "onMenuItemClick"),
+            "{evs:?}"
         );
     }
 

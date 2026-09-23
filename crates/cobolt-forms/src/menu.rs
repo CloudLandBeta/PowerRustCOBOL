@@ -12,10 +12,14 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::path::Path;
 
+/// Rows a running program adds to a SideMenu (spec 066).
+pub mod runtime;
+
 type HmacSha256 = Hmac<Sha256>;
 
 const HMAC_KEY: &[u8] = b"PowerRustCOBOL-menu-integrity-2026";
-const MAX_DEPTH: usize = 3;
+/// How deep a menu may nest — designed rows and rows a program adds alike.
+pub const MAX_DEPTH: usize = 3;
 
 // ── Data model ──────────────────────────────────────────────────────────────────
 

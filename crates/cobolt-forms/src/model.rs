@@ -1393,7 +1393,11 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
     // An `Ask`'s answer: written when the reply arrives, just before
     // `onResponse` (or `onError`) fires — the only place a handler reads it.
     const AGENT: &[&str] = &["LastReply", "Result", "LastError", "Busy"];
+    // Spec 066 — the rows a program added (JSON, see `menu::runtime`), and the
+    // row the user last clicked.
+    const SIDE_MENU: &[&str] = &[crate::menu::runtime::RUNTIME_ROWS_PROP, "SelectedItemId"];
     match ControlType::from_str(type_name) {
+        ControlType::SideMenu => SIDE_MENU,
         ControlType::Maps => MAPS,
         ControlType::AgentObject => AGENT,
         ControlType::RestClient | ControlType::WebSearch => ASYNC,

@@ -3653,6 +3653,18 @@ impl FormHost {
         // itself must be dispatched under the same literal the generated
         // EVALUATE compares against.
         let control_ids: Vec<String> = form.controls.iter().map(|c| c.id.clone()).collect();
+        // Spec 066 — this form's SideMenu designed rows, from the menus the
+        // process registered at start-up, so its interpreter can refuse a
+        // program's edit to them. The same hand-over `rcrun run-form` and a
+        // built application make for the root form.
+        let designed_menus: Vec<(String, cobolt_forms::menu::MenuDefinition)> = form
+            .controls
+            .iter()
+            .filter(|c| c.control_type == cobolt_forms::ControlType::SideMenu)
+            .filter_map(|c| {
+                cobolt_forms::paint::registered_menu(&c.id).map(|d| (c.id.clone(), (*d).clone()))
+            })
+            .collect();
         // 049 R28/R29 — the caller of THIS handle, resolved now while `self`
         // is still reachable (the supervisor does not cross into the spawned
         // thread below). `open_form`/`open_embedded` both record it at
@@ -3710,6 +3722,9 @@ impl FormHost {
                     setup(&mut interp);
                 }
                 interp.seed_objects(seed);
+                for (id, def) in &designed_menus {
+                    interp.set_designed_menu(id, def);
+                }
                 match interp.run() {
                     Ok(()) => {}
                     Err(e) if e.is_exit_signal() => {}
@@ -4027,6 +4042,20 @@ impl FormHost {
     /// 049 R43 — the resolved solid fill of the pane backdrop last frame.
     pub fn pane_backdrop_fill(&self) -> Option<egui::Color32> {
         self.last_pane_backdrop_fill
+    }
+
+    /// A root-form control's live property, as the program last wrote it
+    /// (case-insensitive id and name). Read-only: the shell uses it to draw the
+    /// SideMenu's run-time rows and selection (spec 066), which it would
+    /// otherwise never see — it draws from its own mounted definition.
+    pub fn control_prop(&self, ctrl_id: &str, prop: &str) -> Option<String> {
+        let key = self.root.resolve_ctrl_key(ctrl_id);
+        self.root.state.get(&key).and_then(|s| {
+            s.props
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(prop))
+                .map(|(_, v)| v.clone())
+        })
     }
 
     /// 049 R44 — drain a COBOL-driven MenuPane state change (the shell
