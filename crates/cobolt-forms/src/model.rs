@@ -1393,7 +1393,10 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
     // An `Ask`'s answer: written when the reply arrives, just before
     // `onResponse` (or `onError`) fires — the only place a handler reads it.
     const AGENT: &[&str] = &["LastReply", "Result", "LastError", "Busy"];
+    // The item a click or an accelerator chose, written before `onMenuClick`.
+    const MENU_BAR: &[&str] = &["SelectedItemId"];
     match ControlType::from_str(type_name) {
+        ControlType::MenuBar => MENU_BAR,
         ControlType::Maps => MAPS,
         ControlType::AgentObject => AGENT,
         ControlType::RestClient | ControlType::WebSearch => ASYNC,
