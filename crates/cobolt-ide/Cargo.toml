@@ -105,6 +105,8 @@ tracing-subscriber   = { workspace = true }
 
 # For random quote selection on the welcome screen
 rand = "0.8"
+# 4-character menu item ids, unique within a window
+tiny_id = { version = "0.1.6", default-features = false, features = ["getrandom"] }
 egui_commonmark = "0.25"
 pulldown-cmark = { version = "0.12", default-features = false }
 include_dir = "0.7"

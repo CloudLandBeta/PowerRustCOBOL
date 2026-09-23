@@ -1936,6 +1936,10 @@ pub struct MenuEditorModal {
     /// 051 R16 — the edited menu belongs to a SideMenu (the editor is shared
     /// with MenuBar): only a SideMenu's menu offers the standalone actions.
     pub is_side_menu: bool,
+    /// Item ids used by the OTHER menus on the same form. An item id must be
+    /// unique within the window, not just within its own menu, so a new id
+    /// avoids these as well as this menu's own.
+    reserved_ids: HashSet<String>,
 }
 
 impl MenuEditorModal {
@@ -1952,7 +1956,14 @@ impl MenuEditorModal {
             icon_picker_gen: 0,
             split_ratio: 0.40,
             is_side_menu: false,
+            reserved_ids: HashSet::new(),
         }
+    }
+
+    /// Builder: the item ids already taken by the form's other menus.
+    pub fn with_reserved_ids(mut self, ids: HashSet<String>) -> Self {
+        self.reserved_ids = ids;
+        self
     }
 
     /// 051 R16 — builder: mark this menu as a SideMenu's.
@@ -2017,12 +2028,28 @@ impl MenuEditorModal {
         path.len()
     }
 
+    /// A new item id: four lowercase letters `a`–`z` (4 bytes) from `tiny_id`,
+    /// shared by no other item in this menu or in the form's other menus.
     fn next_id(&self) -> String {
-        fn count_all(items: &[cobolt_forms::menu::MenuItem]) -> usize {
-            items.iter().map(|i| 1 + count_all(&i.items)).sum()
+        let mut taken = self.reserved_ids.clone();
+        taken.extend(cobolt_forms::menu::all_item_ids(&self.def.menu));
+        super::item_ids::fresh_id(&taken)
+    }
+
+    /// Builder: give every item that lacks one a generated id — an old
+    /// `item-N`, a hand-written id, or one another item in the window already
+    /// uses. An item whose id is already four lowercase letters and unique
+    /// keeps it, so opening the editor again changes nothing.
+    pub fn with_generated_ids(mut self) -> Self {
+        fn walk(items: &mut [cobolt_forms::menu::MenuItem], taken: &mut HashSet<String>) {
+            for item in items {
+                super::item_ids::claim(&mut item.id, taken);
+                walk(&mut item.items, taken);
+            }
         }
-        let n = count_all(&self.def.menu);
-        format!("item-{}", n + 1)
+        let mut taken = self.reserved_ids.clone();
+        walk(&mut self.def.menu, &mut taken);
+        self
     }
 
     fn sync_bufs_from_selection(&mut self) {
@@ -9523,6 +9550,7 @@ impl DesignerPanel {
                                 let cur_icon = item.icon.clone().unwrap_or_default();
                                 let cur_enabled = item.enabled;
                                 let cur_preserve = item.preserve_previous_form;
+                                let item_id = item.id.clone();
 
                                 if !is_sep {
                                     // Label
@@ -9539,6 +9567,9 @@ impl DesignerPanel {
                                                 it.label = modal.label_buf.clone();
                                             }
                                         }
+                                        // The id is generated and fixed — shown
+                                        // here only to be copied into a handler.
+                                        super::item_ids::id_with_copy(ui, &tr, &item_id);
                                     });
 
                                     // Icon — click to open picker, Delete to clear
@@ -21469,5 +21500,82 @@ mod change_outcome_ubiquity_tests {
             "the account is of the last change-set only: {}",
             dp.last_change_outcome
         );
+    }
+}
+
+#[cfg(test)]
+mod menu_item_id_tests {
+    use super::MenuEditorModal;
+    use cobolt_forms::menu::{MenuDefinition, MenuItem};
+    use std::collections::HashSet;
+
+    /// A distinct four-letter code per `n`, to fill the other menus with.
+    fn lowercase_code(mut n: u32) -> String {
+        (0..4)
+            .map(|_| {
+                let c = (b'a' + (n % 26) as u8) as char;
+                n /= 26;
+                c
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_new_item_id_is_four_lowercase_letters() {
+        let id = MenuEditorModal::new("MenuBar-1".into(), MenuDefinition::default()).next_id();
+        assert_eq!(id.len(), 4, "{id:?}");
+        assert!(id.bytes().all(|b| b.is_ascii_lowercase()), "{id:?}");
+    }
+
+    /// Ids are unique across the window: a new one repeats neither an item of
+    /// this menu (submenus included) nor one of the form's other menus.
+    #[test]
+    fn a_new_item_id_repeats_no_id_in_the_window() {
+        let mut modal = MenuEditorModal::new("MenuBar-1".into(), MenuDefinition::default());
+        let reserved: HashSet<String> = (0..300u32).map(|i| lowercase_code(i)).collect();
+        modal = modal.with_reserved_ids(reserved.clone());
+        let mut file = MenuItem::new_action("file", "File");
+        for _ in 0..500 {
+            let id = modal.next_id();
+            assert!(id.bytes().all(|b| b.is_ascii_lowercase()), "{id:?}");
+            assert!(!reserved.contains(&id), "reused another menu's id {id}");
+            file.items = modal.def.menu.first().map(|f| f.items.clone()).unwrap_or_default();
+            file.items.push(MenuItem::new_action(id, "Item"));
+            modal.def.menu = vec![file.clone()];
+        }
+        let ids = cobolt_forms::menu::all_item_ids(&modal.def.menu);
+        let unique: HashSet<&String> = ids.iter().collect();
+        assert_eq!(unique.len(), ids.len(), "duplicate ids in {ids:?}");
+    }
+
+    /// Opening an existing MenuBar replaces every id that is not a generated
+    /// one, or that repeats another in the window; generated ids survive.
+    #[test]
+    fn opening_an_existing_menu_generates_the_missing_ids() {
+        let mut file = MenuItem::new_action("item-1", "File");
+        file.items = vec![
+            MenuItem::new_action("abcd", "Keep"),
+            MenuItem::new_action("wxyz", "Taken by another menu"),
+            MenuItem::new_action("abcd", "Repeat"),
+            MenuItem::new_action("file-save", "Save"),
+        ];
+        let def = MenuDefinition { menu: vec![file], hash: String::new() };
+        let reserved: HashSet<String> = ["wxyz".to_string()].into();
+        let modal = MenuEditorModal::new("MenuBar-1".into(), def)
+            .with_reserved_ids(reserved)
+            .with_generated_ids();
+        let ids = cobolt_forms::menu::all_item_ids(&modal.def.menu);
+        assert_eq!(ids.len(), 5);
+        assert_eq!(ids[1], "abcd", "a valid, unique id is kept");
+        assert!(!ids.contains(&"item-1".to_string()) && !ids.contains(&"file-save".to_string()));
+        assert!(!ids.contains(&"wxyz".to_string()), "another menu's id was reused");
+        for id in &ids {
+            assert!(id.len() == 4 && id.bytes().all(|b| b.is_ascii_lowercase()), "{id:?}");
+        }
+        let unique: HashSet<&String> = ids.iter().collect();
+        assert_eq!(unique.len(), ids.len(), "duplicate ids in {ids:?}");
+        // Idempotent: a second open changes nothing.
+        let again = MenuEditorModal::new("MenuBar-1".into(), modal.def.clone()).with_generated_ids();
+        assert_eq!(again.def, modal.def);
     }
 }

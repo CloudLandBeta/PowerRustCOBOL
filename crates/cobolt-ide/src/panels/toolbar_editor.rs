@@ -22,6 +22,7 @@ use cobolt_forms::toolbar::{
     ButtonStyle, ToolbarAction, ToolbarButton, ToolbarDef, ToolbarGroup,
 };
 use eframe::egui;
+use std::collections::HashSet;
 use egui::Color32;
 
 /// What the right-hand pane is editing.
@@ -60,6 +61,9 @@ pub struct ToolbarEditorModal {
     /// handler. Nesting a code editor inside this window would put two modals on
     /// screen at once and leave the developer with two Saves to reason about.
     edit_event: Option<(String, String)>,
+    /// Item ids used by the form's OTHER menus and toolbars — see
+    /// [`super::item_ids`]: ids are unique within the window.
+    reserved_ids: HashSet<String>,
 }
 
 impl ToolbarEditorModal {
@@ -76,7 +80,37 @@ impl ToolbarEditorModal {
             icon_picker: Default::default(),
             split_ratio: 0.38,
             edit_event: None,
+            reserved_ids: HashSet::new(),
         }
+    }
+
+    /// Builder: the item ids already taken by the form's other menus and toolbars.
+    pub fn with_reserved_ids(mut self, ids: HashSet<String>) -> Self {
+        self.reserved_ids = ids;
+        self
+    }
+
+    /// Builder: give every group and button a generated id, keeping one that
+    /// already is generated and unique — so opening again changes nothing.
+    pub fn with_generated_ids(mut self) -> Self {
+        let mut taken = self.reserved_ids.clone();
+        for g in &mut self.def.groups {
+            super::item_ids::claim(&mut g.id, &mut taken);
+            for b in &mut g.buttons {
+                super::item_ids::claim(&mut b.id, &mut taken);
+            }
+        }
+        self
+    }
+
+    /// A new id no group or button in the window has.
+    fn next_id(&self) -> String {
+        let mut taken = self.reserved_ids.clone();
+        for g in &self.def.groups {
+            taken.insert(g.id.clone());
+            taken.extend(g.buttons.iter().map(|b| b.id.clone()));
+        }
+        super::item_ids::fresh_id(&taken)
     }
 
     fn group(&self, i: usize) -> Option<&ToolbarGroup> {
@@ -84,7 +118,7 @@ impl ToolbarEditorModal {
     }
 
     fn add_group(&mut self) {
-        let id = self.def.next_group_id();
+        let id = self.next_id();
         let n = self.def.groups.len() + 1;
         self.def
             .groups
@@ -106,7 +140,7 @@ impl ToolbarEditorModal {
                 n => n - 1,
             },
         };
-        let id = self.def.next_button_id();
+        let id = self.next_id();
         // Carry the LAST button's settings over (operator, 2026-08-17). Building
         // a toolbar means six buttons that differ only in icon and action, and
         // re-entering the size and colours on each was the work.
@@ -532,6 +566,7 @@ fn show_props(modal: &mut ToolbarEditorModal, ui: &mut egui::Ui, tr: &crate::i18
             };
             prop_grid(ui, "group", |ui| {
                 text_row(ui, "Name:", &mut g.label);
+                id_row(ui, tr, &g.id);
                 section(ui, tr.sec_appearance);
                 combo_row(ui, "Border:", &mut g.border_style, &["Single", "None", "Fixed3D"]);
                 color_row(ui, "Border colour:", &mut g.border_color, "theme");
@@ -579,6 +614,7 @@ fn show_props(modal: &mut ToolbarEditorModal, ui: &mut egui::Ui, tr: &crate::i18
                     if text_row(ui, "Label:", &mut label) {
                         b.set_label(label);
                     }
+                    id_row(ui, tr, &b.id);
                     ui.label("Icon:");
                     ui.horizontal(|ui| {
                         let shown = if b.icon.trim().is_empty() {
@@ -936,6 +972,13 @@ fn section(ui: &mut egui::Ui, text: &str) {
     ui.end_row();
 }
 
+/// The generated, fixed id — shown only to be copied into a handler.
+fn id_row(ui: &mut egui::Ui, tr: &crate::i18n::Tr, id: &str) {
+    ui.label(tr.lbl_item_id);
+    ui.horizontal(|ui| super::item_ids::id_with_copy(ui, tr, id));
+    ui.end_row();
+}
+
 fn text_row(ui: &mut egui::Ui, label: &str, value: &mut String) -> bool {
     ui.label(label);
     let changed = ui.text_edit_singleline(value).changed();
@@ -1076,6 +1119,48 @@ fn color_row(ui: &mut egui::Ui, label: &str, value: &mut String, unset_hint: &st
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Opening an older toolbar gives every group and button a generated id,
+    /// avoiding the window's other ids; a second open changes nothing.
+    #[test]
+    fn opening_an_older_toolbar_generates_every_id() {
+        let mut g = ToolbarGroup::new("group-1", "File");
+        g.buttons = vec![
+            ToolbarButton::new("button-1", "New"),
+            ToolbarButton::new("abcd", "Open"),
+            ToolbarButton::new("wxyz", "Save"),
+        ];
+        let def = ToolbarDef { groups: vec![g], ..ToolbarDef::default() };
+        let reserved: HashSet<String> = ["wxyz".to_string()].into();
+        let modal = ToolbarEditorModal::new("ToolBar-1".into(), def)
+            .with_reserved_ids(reserved)
+            .with_generated_ids();
+        let g = &modal.def.groups[0];
+        let ids: Vec<&str> =
+            std::iter::once(g.id.as_str()).chain(g.buttons.iter().map(|b| b.id.as_str())).collect();
+        assert_eq!(ids[2], "abcd", "a valid, unique id is kept");
+        assert!(!ids.contains(&"wxyz"), "another control's id was reused");
+        assert!(ids.iter().all(|i| super::super::item_ids::is_generated(i)), "{ids:?}");
+        assert_eq!(ids.iter().collect::<HashSet<_>>().len(), ids.len(), "{ids:?}");
+        let again = ToolbarEditorModal::new("ToolBar-1".into(), modal.def.clone()).with_generated_ids();
+        assert_eq!(again.def, modal.def);
+    }
+
+    /// A new group or button repeats no id in the window.
+    #[test]
+    fn a_new_group_or_button_gets_a_fresh_id() {
+        let mut modal = ToolbarEditorModal::new("ToolBar-1".into(), ToolbarDef::default())
+            .with_reserved_ids(["aaaa".to_string()].into());
+        modal.add_group();
+        for _ in 0..50 {
+            modal.add_button();
+        }
+        let g = &modal.def.groups[0];
+        let ids: Vec<&String> = std::iter::once(&g.id).chain(g.buttons.iter().map(|b| &b.id)).collect();
+        assert_eq!(ids.len(), 51);
+        assert!(ids.iter().all(|i| super::super::item_ids::is_generated(i) && i.as_str() != "aaaa"));
+        assert_eq!(ids.iter().collect::<HashSet<_>>().len(), ids.len());
+    }
 
     fn modal() -> ToolbarEditorModal {
         ToolbarEditorModal::new("TB-1".into(), ToolbarDef::default())

@@ -18147,9 +18147,19 @@ impl CoboltApp {
                 .find_control(&ctrl_id)
                 .map(|c| c.control_type == cobolt_forms::ControlType::SideMenu)
                 .unwrap_or(false);
+            // Every other menu and toolbar on this form: an item id must be
+            // unique in the window, not just in its own menu.
+            let reserved_ids = crate::panels::item_ids::window_ids(
+                &self.designers[idx].1.form,
+                dir.as_deref(),
+                &ctrl_id,
+            );
+            // Opening converts every item to a generated id (kept if it has one).
             self.designers[idx].1.menu_modal = Some(
                 super::panels::designer::MenuEditorModal::new(ctrl_id, existing)
-                    .for_side_menu(is_side_menu),
+                    .for_side_menu(is_side_menu)
+                    .with_reserved_ids(reserved_ids)
+                    .with_generated_ids(),
             );
         }
         // The toolbar's own editor. Its definition lives on the control, not in a
@@ -18161,8 +18171,16 @@ impl CoboltApp {
                 .find_control(&ctrl_id)
                 .map(cobolt_forms::toolbar::ToolbarDef::from_control)
                 .unwrap_or_default();
+            let reserved_ids = crate::panels::item_ids::window_ids(
+                &self.designers[idx].1.form,
+                self.designers[idx].1.cfrm_dir.as_deref(),
+                &ctrl_id,
+            );
+            // Opening converts every group and button to a generated id.
             self.designers[idx].1.toolbar_modal = Some(
-                crate::panels::toolbar_editor::ToolbarEditorModal::new(ctrl_id, def),
+                crate::panels::toolbar_editor::ToolbarEditorModal::new(ctrl_id, def)
+                    .with_reserved_ids(reserved_ids)
+                    .with_generated_ids(),
             );
         }
         if let Some((ctrl_id, ev_name)) = inspector_action.open_event_in_code {

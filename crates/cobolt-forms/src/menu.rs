@@ -250,6 +250,14 @@ impl MenuItem {
     }
 }
 
+/// Every item id in a menu tree, submenus included.
+pub fn all_item_ids(items: &[MenuItem]) -> Vec<String> {
+    items
+        .iter()
+        .flat_map(|i| std::iter::once(i.id.clone()).chain(all_item_ids(&i.items)))
+        .collect()
+}
+
 // ── Depth validation ────────────────────────────────────────────────────────────
 
 #[derive(Debug, thiserror::Error)]

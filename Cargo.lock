@@ -1485,6 +1485,7 @@ dependencies = [
  "sysinfo",
  "tar",
  "tempfile",
+ "tiny_id",
  "tokio",
  "toml",
  "tracing",
@@ -7884,6 +7885,17 @@ dependencies = [
  "arrayref",
  "bytemuck",
  "strict-num",
+]
+
+[[package]]
+name = "tiny_id"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26f686a3694293e6039185ef4cf4e3ca5101a09172426ac8da84c3d60564fb93"
+dependencies = [
+ "getrandom 0.2.17",
+ "rand 0.8.6",
+ "rand_chacha 0.3.1",
 ]
 
 [[package]]

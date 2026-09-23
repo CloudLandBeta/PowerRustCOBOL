@@ -3044,11 +3044,16 @@ button it was (a button can also carry its **own** handler; see below):
 ```cobol
       *>   in the TOOLBAR-1 onClick handler:
            EVALUATE TOOLBAR-1::LastButton
-               WHEN "button-1"  PERFORM SAVE-RECORD
-               WHEN "button-2"  PERFORM DELETE-RECORD
-               WHEN OTHER       CONTINUE
+               WHEN "bnsq"  PERFORM SAVE-RECORD
+               WHEN "dlrx"  PERFORM DELETE-RECORD
+               WHEN OTHER   CONTINUE
            END-EVALUATE
 ```
+
+Every group and button has a fixed id of four lowercase letters, given when you
+add it and shown in the Toolbar Editor beside its name with a **Copy** button —
+the same ids, under the same rules, as menu items (see *Which item was chosen*
+under the MenuBar).
 
 ##### Giving a button its own handler
 
@@ -3080,8 +3085,8 @@ or the form needs works the way you would write it — the handler runs first.
 A button lets your COBOL change its **colours** and its **tooltip**:
 
 ```cobol
-           MOVE "#204080FF" TO TOOLBAR-1-GROUP-1-BUTTON-1::BackgroundColor.
-           MOVE "Record saved" TO TOOLBAR-1-GROUP-1-BUTTON-1::Tooltip.
+           MOVE "#204080FF" TO TOOLBAR-1-FMTG-BNSQ::BackgroundColor.
+           MOVE "Record saved" TO TOOLBAR-1-FMTG-BNSQ::Tooltip.
 ```
 
 
@@ -3101,7 +3106,7 @@ naming the property and what is allowed instead:
 
 ```cobol
       *>   this stops the form with an error, on purpose:
-           MOVE "200" TO TOOLBAR-1-GROUP-1-BUTTON-1::Width.
+           MOVE "200" TO TOOLBAR-1-FMTG-BNSQ::Width.
 ```
 
 That is deliberate. The toolbar owns the layout — it is what keeps the buttons
@@ -3122,8 +3127,8 @@ the generated event loop that dispatches it. That name is derived, and it is
 
 ```text
    ToolBar  TOOLBAR-1
-     group  group-1
-    button  button-2      ⇒   TOOLBAR-1-GROUP-1-BUTTON-2
+     group  fmtg
+    button  dlrx          ⇒   TOOLBAR-1-FMTG-DLRX
 ```
 
 You do not type it anywhere — `procedure` and `open-modal` are wired through it
@@ -3140,12 +3145,12 @@ arrives under, and it is how your COBOL addresses the button:
 ```cobol
       *>   generated, in COBOL-EVENT-LOOP:
            EVALUATE COBOL-CONTROL-ID
-               WHEN "TOOLBAR-1-GROUP-1-BUTTON-1"
+               WHEN "TOOLBAR-1-FMTG-BNSQ"
                    EVALUATE COBOL-EVENT-ID
                        WHEN "onClick"
                            CALL "UPDATE-TOTAL"
                    END-EVALUATE
-               WHEN "TOOLBAR-1-GROUP-1-BUTTON-2"
+               WHEN "TOOLBAR-1-FMTG-DLRX"
                    EVALUATE COBOL-EVENT-ID
                        WHEN "onClick"
                            INVOKE ME::"OpenFormSync"("CUST-LOOKUP")
@@ -3682,25 +3687,41 @@ accelerator key is pressed. `onMenuOpen` / `onMenuClose` fire when dropdowns
 open/close.
 
 **Which item was chosen.** Read the MenuBar's **`SelectedItemId`** property in
-the `onMenuClick` handler. It holds the `id` you gave the item in the menu
-editor, and it is written just before the event fires — so it is always the
-item this event is about, whether it was clicked or reached by its accelerator:
+the `onMenuClick` handler. It holds the item's **id**, and it is written just
+before the event fires — so it is always the item this event is about, whether
+it was clicked or reached by its accelerator.
+
+Every item gets its id when you add it in the menu editor: four lowercase
+letters, such as `kqpv`, never shared with another item of any menu — or any
+toolbar group or button — in the same window. The id is fixed — renaming or moving the item does not change it, and
+the editor offers no way to type one. It is shown beside the item's label, with
+a **Copy** button that puts it on the clipboard, ready to paste into your
+handler:
 
 ```cobol
        MENUBAR-1--ONMENUCLICK.
            MOVE MenuBar-1::SelectedItemId TO WS-ITEM
            EVALUATE WS-ITEM
-               WHEN "file-save"  PERFORM SAVE-DOCUMENT
-               WHEN "file-open"  PERFORM OPEN-DOCUMENT
-               WHEN "help-about" PERFORM SHOW-ABOUT
+               WHEN "kqpv" PERFORM SAVE-DOCUMENT
+               WHEN "zmae" PERFORM OPEN-DOCUMENT
+               WHEN "txbo" PERFORM SHOW-ABOUT
            END-EVALUATE.
 ```
 
 > ⚠️ **`COBOL-CONTROL-ID` is the MenuBar, not the item.** One handler serves the
 > whole menu, so the control id it receives is the bar's own (`MenuBar-1`).
-> Branch on `SelectedItemId`, and give your items ids you will recognise in an
-> `EVALUATE` — the menu editor's generated ids work, but `file-save` reads
-> better than `item-7`.
+> Branch on `SelectedItemId`.
+>
+> ⚠️ **Opening an older menu or toolbar in its editor renumbers it.** This
+> applies to a MenuBar, a SideMenu and a ToolBar alike. An id that is not four
+> lowercase letters — an `item-3`, a `button-2`, a hand-written `file-save` —
+> or that another item in the window already uses is replaced by a generated
+> one the moment the editor opens; **OK**/**Save** keeps the change and
+> **Cancel** discards it. Update any COBOL that names an old id: a `WHEN` on
+> `SelectedItemId` or `LastButton`, the `parent-id` of a SideMenu `AddItem`,
+> or a button's derived name (`TOOLBAR-1-GROUP-1-BUTTON-1::Tooltip` becomes
+> `TOOLBAR-1-FMTG-BNSQ::Tooltip`). A button's own handler needs nothing — it
+> moves with the button.
 
 **Enabling and disabling items.** Every item carries an **enabled** flag you
 set in the menu editor, and a disabled item is drawn greyed and raises no
@@ -9985,9 +10006,10 @@ disappear when the program ends. Nothing is written back to the menu file.
                                     "chat") TO WS-OK
            MOVE SIDEMENU-1::AddItem("CHAT-0042", "Supplier onboarding",
                                     "chat") TO WS-OK
-      *> A row under a designed row, which opens a form when clicked.
+      *> A row under a designed row (its id copied from the menu editor),
+      *> which opens a form when clicked.
            MOVE SIDEMENU-1::AddItem("RPT-Q3", "Q3 report", "report",
-                                    "REPORTS", "open-form:Q3-REPORT") TO WS-OK
+                                    "rpqx", "open-form:Q3-REPORT") TO WS-OK
            .
 
        PROGRAM-ID. SIDEMENU-1--ONMENUITEMCLICK.

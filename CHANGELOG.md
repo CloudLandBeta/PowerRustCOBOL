@@ -8,6 +8,42 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.164] — 2026-09-23
+
+### Feature — every menu item and toolbar button has a fixed four-letter id
+
+The menu editor numbered new items `item-N`, and the toolbar editor `group-N`
+and `button-N`, so the ids told a handler nothing and a menu delete followed by
+an add could hand out an id another item still had. Every new menu item,
+toolbar group and toolbar button now gets an id of **four lowercase letters**
+(`kqpv`) drawn from the `tiny_id` crate, never one used by any other menu item,
+group or button on the same form — the window is where `SelectedItemId` and
+`LastButton` have to be unambiguous. One module (`panels/item_ids.rs`) serves
+both editors.
+
+- **Fixed.** Neither editor offers a way to type or change an id. Each shows
+  it beside the item's name, with a **Copy** button that puts it on the
+  clipboard for a handler's `EVALUATE`.
+- **Older MenuBars, SideMenus and ToolBars are converted on open.** Every id
+  that is not four lowercase letters, or that repeats another in the window,
+  is replaced the moment the editor opens; OK/Save keeps it, Cancel discards
+  it. A valid, unique id is kept, so a second open changes nothing.
+  ⚠️ COBOL naming an old id must be updated: a `WHEN` on `SelectedItemId` or
+  `LastButton`, a SideMenu `AddItem` parent-id, a button's derived name
+  (`TOOLBAR-1-GROUP-1-BUTTON-1` → `TOOLBAR-1-FMTG-BNSQ`). A button's own handler
+  moves with the button.
+
+Guide (toolbar *LastButton*, *How a button reaches your code*, MenuBar *Which
+item was chosen*, SideMenu `AddItem` example) and KB updated. New i18n keys
+`menu_copy_id`, `menu_copy_id_hover`, `lbl_item_id` in all six languages.
+Tests: `menu_item_id_tests` (format, uniqueness across the window over 500
+adds, on-open conversion and its idempotence) and two in
+`toolbar_editor::tests` (conversion, 51 fresh ids).
+
+⚠️ PowerDemo3's `menubar-form` handler tests `COBOL-CONTROL-ID` and old ids;
+the form carries the operator's uncommitted edits, so it is left to the
+operator.
+
 ## [PowerRustCOBOL 1.70.163] — 2026-09-22
 
 ### Fix — a MenuBar handler can tell which item was chosen
