@@ -1410,7 +1410,10 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
     // Spec 066 — the rows a program added (JSON, see `menu::runtime`), and the
     // row the user last clicked.
     const SIDE_MENU: &[&str] = &[crate::menu::runtime::RUNTIME_ROWS_PROP, "SelectedItemId"];
+    // The item a click or an accelerator chose, written before `onMenuClick`.
+    const MENU_BAR: &[&str] = &["SelectedItemId"];
     match ControlType::from_str(type_name) {
+        ControlType::MenuBar => MENU_BAR,
         ControlType::SideMenu => SIDE_MENU,
         ControlType::Maps => MAPS,
         ControlType::AgentObject => AGENT,

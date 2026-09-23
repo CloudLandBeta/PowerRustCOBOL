@@ -3678,8 +3678,29 @@ contrasts with whatever it ends up sitting on, so a menu bar you have not
 recoloured stays visible and legible on both a dark and a light form.
 
 **Events.** `onMenuClick` fires when any action item is clicked or its
-accelerator key is pressed. The clicked item's `id` is passed as the event
-value. `onMenuOpen` / `onMenuClose` fire when dropdowns open/close.
+accelerator key is pressed. `onMenuOpen` / `onMenuClose` fire when dropdowns
+open/close.
+
+**Which item was chosen.** Read the MenuBar's **`SelectedItemId`** property in
+the `onMenuClick` handler. It holds the `id` you gave the item in the menu
+editor, and it is written just before the event fires — so it is always the
+item this event is about, whether it was clicked or reached by its accelerator:
+
+```cobol
+       MENUBAR-1--ONMENUCLICK.
+           MOVE MenuBar-1::SelectedItemId TO WS-ITEM
+           EVALUATE WS-ITEM
+               WHEN "file-save"  PERFORM SAVE-DOCUMENT
+               WHEN "file-open"  PERFORM OPEN-DOCUMENT
+               WHEN "help-about" PERFORM SHOW-ABOUT
+           END-EVALUATE.
+```
+
+> ⚠️ **`COBOL-CONTROL-ID` is the MenuBar, not the item.** One handler serves the
+> whole menu, so the control id it receives is the bar's own (`MenuBar-1`).
+> Branch on `SelectedItemId`, and give your items ids you will recognise in an
+> `EVALUATE` — the menu editor's generated ids work, but `file-save` reads
+> better than `item-7`.
 
 **Enabling and disabling items.** Every item carries an **enabled** flag you
 set in the menu editor, and a disabled item is drawn greyed and raises no

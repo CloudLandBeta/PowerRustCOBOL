@@ -10920,6 +10920,16 @@ fn render_interactive(
                                                         });
                                                     }
                                                 }
+                                                // The item chosen, as a property
+                                                // the handler can read — the
+                                                // event's value never reaches
+                                                // COBOL. Same name the SideMenu
+                                                // uses.
+                                                out.prop_updates.push((
+                                                    id.to_owned(),
+                                                    "SelectedItemId".to_owned(),
+                                                    item.id.clone(),
+                                                ));
                                                 out.events.push(UiEvent {
                                                     ctrl_id: id.to_owned(),
                                                     event: "onMenuClick".to_owned(),
@@ -11032,6 +11042,11 @@ fn render_interactive(
                     mods.alt = accel.alt;
                     mods.command = accel.cmd;
                     if ui.input(|i| i.modifiers == mods && i.key_pressed(char_to_key(accel.key))) {
+                        out.prop_updates.push((
+                            id.to_owned(),
+                            "SelectedItemId".to_owned(),
+                            item.id.clone(),
+                        ));
                         out.events.push(UiEvent {
                             ctrl_id: id.to_owned(),
                             event: "onMenuClick".to_owned(),
@@ -13707,6 +13722,7 @@ mod tests {
 
         let active = ActiveTabs::new();
         let events = std::cell::RefCell::new(Vec::<UiEvent>::new());
+        let props = std::cell::RefCell::new(Vec::<(String, String, String)>::new());
         let run = |time: f64, evs: Vec<egui::Event>| {
             let mut input = egui::RawInput::default();
             input.time = Some(time);
@@ -13724,7 +13740,9 @@ mod tests {
                             active_tabs: &active,
                             backdrop: Default::default(),
                         };
-                        *events.borrow_mut() = render_form(ui, &rin).events;
+                        let out = render_form(ui, &rin);
+                        *events.borrow_mut() = out.events;
+                        *props.borrow_mut() = out.prop_updates;
                     });
             });
             out.textures_delta.clear();
@@ -13760,6 +13778,15 @@ mod tests {
         // Release completes the click: the events fire NOW, menu stays open.
         run(0.15, vec![button(false)]);
         assert!(fired_save(), "onMenuClick must fire on the click");
+        // The handler reads which item from a property: the event's value
+        // never reaches COBOL (operator, 2026-09-22).
+        assert!(
+            props.borrow().iter().any(|(c, p, v)| {
+                c == "MenuBar-1" && p == "SelectedItemId" && v == "save"
+            }),
+            "the click must write SelectedItemId: {:?}",
+            props.borrow()
+        );
         assert_eq!(
             open_now(),
             Some(0),
@@ -13773,6 +13800,71 @@ mod tests {
         assert_eq!(open_now(), None, "the menu closes after the 300 ms blink");
 
         crate::paint::register_menus(std::iter::empty());
+    }
+
+    /// **An accelerator names its item the same way a click does** —
+    /// `SelectedItemId` on the MenuBar, then `onMenuClick`.
+    #[test]
+    fn an_accelerator_writes_selected_item_id_before_on_menu_click() {
+        use crate::menu::{MenuDefinition, MenuItem};
+        let _guard = crate::paint::menu_registry_test_lock();
+
+        let controls = vec![ctrl("MenuBar-1", ControlType::MenuBar, 0, 0, 400, 28)];
+        let mut file = MenuItem::new_action("file", "File");
+        let mut open = MenuItem::new_action("open", "Open");
+        open.accelerator = Some("Ctrl+O".to_owned());
+        file.items = vec![open];
+        crate::paint::register_menus([(
+            "MenuBar-1".to_owned(),
+            MenuDefinition { menu: vec![file], hash: String::new() },
+        )]);
+
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+        let mut input = egui::RawInput::default();
+        input.events = vec![
+            egui::Event::ModifiersChanged(egui::Modifiers::CTRL),
+            egui::Event::Key {
+                key: egui::Key::O,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::CTRL,
+            },
+        ];
+        let mut result = None;
+        let mut frame = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    let rin = RenderInput {
+                        controls: &controls,
+                        state: &DesignedVisibility,
+                        form_size: Vec2::new(400.0, 200.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Default::default(),
+                    };
+                    result = Some(render_form(ui, &rin));
+                });
+        });
+        frame.textures_delta.clear();
+        let out = result.expect("rendered");
+        crate::paint::register_menus(std::iter::empty());
+
+        assert!(
+            out.events.iter().any(|e| e.event == "onMenuClick" && e.value.as_deref() == Some("open")),
+            "Ctrl+O must fire onMenuClick: {:?}",
+            out.events
+        );
+        assert!(
+            out.prop_updates
+                .iter()
+                .any(|(c, p, v)| c == "MenuBar-1" && p == "SelectedItemId" && v == "open"),
+            "Ctrl+O must write SelectedItemId: {:?}",
+            out.prop_updates
+        );
     }
 
     /// **An open pulldown looks the same whatever the host is wearing.**

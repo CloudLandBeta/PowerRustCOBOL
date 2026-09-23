@@ -8,6 +8,37 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.163] — 2026-09-22
+
+### Fix — a MenuBar handler can tell which item was chosen
+
+`onMenuClick` carried the chosen item's id only as the event's value, and that
+value never reached COBOL: the wait loop reads an event value only as a
+TreeView node, so for a menu item it cleared `CONTROL-NODE` and threw the id
+away. `COBOL-CONTROL-ID` holds the MenuBar's own id. A handler therefore had no
+way to know which item had been clicked, although the Developer's Guide said
+the id was passed.
+
+The MenuBar now writes the run-time property **`SelectedItemId`** — the name
+the SideMenu already uses — just before `onMenuClick`, for a click and for an
+accelerator alike:
+
+```cobol
+       MENUBAR-1--ONMENUCLICK.
+           MOVE MenuBar-1::SelectedItemId TO WS-ITEM
+```
+
+It is written in the shared renderer, so `rcrun run-form`, embedded child forms
+and the compiled binary all get it. Guide (*Which item was chosen*) and KB
+updated. Regression tests: the click test now also asserts the property, and a
+new test covers `Ctrl+O`.
+Sweeps: forms 1117/0 and form host 147/0; the compiler and IDE sweeps were
+cut short by a full disk and have **not** been run against this change.
+
+⚠️ PowerDemo3's `menubar-form.cfrm` still says `COBOL-CONTROL-ID` carries the
+chosen item (a handler comment and a Label caption). The form has the
+operator's uncommitted edits in it, so it is left for the operator to correct.
+
 ## [PowerRustCOBOL 1.70.162] — 2026-09-22
 
 ### Spec 072 — an AgentObject can use tools
