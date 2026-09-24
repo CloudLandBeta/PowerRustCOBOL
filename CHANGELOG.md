@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.168] — 2026-09-23
+
+### Fix — the focus ring follows a click too, and pulses 4× slower
+
+The focus ring marked keyboard navigation only: a click into a field hid it,
+so a field reached by Enter was ringed and the same field clicked into was not
+(operator, 2026-09-23). The ring now marks the focused control however the
+focus got there — Tab, Shift+Tab, Enter or a click. With **Pulse** on, one
+breath now takes 6.4 s instead of 1.6 s. Guide (*Seeing where the focus is*)
+updated. Test: `engine_focus_ring_follows_the_focus` (was
+`…_follows_the_keyboard_only`; a click now rings the box).
+
 ## [PowerRustCOBOL 1.70.167] — 2026-09-23
 
 ### Fix — Tab reaches a control whose TabOrder was changed

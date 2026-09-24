@@ -2140,11 +2140,6 @@ fn render_form_inner(
     let mut tab_targets: Vec<TabTarget> = Vec::new();
     let tab_step = if interactive {
         apply_pending_tab_focus(ui);
-        // A press of the pointer is not keyboard navigation: the focus ring
-        // goes, whatever the press lands on.
-        if ui.input(|i| i.pointer.any_pressed()) {
-            ui.data_mut(|d| d.insert_temp(keyboard_focus_id(), None::<egui::Id>));
-        }
         tab_targets = collect_tab_targets(scope, input, controls, &order);
 
         resolve_tab_traversal(ui, &mut tab_targets)
@@ -2743,14 +2738,6 @@ fn tab_pending_id() -> egui::Id {
     egui::Id::new("powerrustcobol-tab-order-pending")
 }
 
-/// The control the keyboard last moved the focus to — Tab, Shift+Tab, an
-/// `EnterAsTab` Enter, an `AutoEnter` box filling. Cleared by any pointer
-/// press, so the focus ring shows only while the operator is navigating by
-/// keyboard.
-fn keyboard_focus_id() -> egui::Id {
-    egui::Id::new("powerrustcobol-keyboard-focus")
-}
-
 /// How the focused control is marked while the operator navigates by
 /// keyboard: a border in `color`, optionally pulsing slowly. A project
 /// setting (`[forms] focus-ring-color` / `focus-ring-pulse`), handed to the
@@ -2810,12 +2797,11 @@ pub fn focus_ring() -> FocusRing {
 }
 
 /// Seconds for one full pulse — slow on purpose: it says "here", it does not
-/// flash.
-const FOCUS_PULSE_SECS: f64 = 1.6;
+/// flash. It was 1.6 s, which the operator found too fast (2026-09-23).
+const FOCUS_PULSE_SECS: f64 = 6.4;
 
-/// Draw the focus ring around the control the keyboard moved to, while it
-/// still has the focus. Nothing is drawn once the focus leaves it or the
-/// pointer is pressed.
+/// Draw the focus ring around the control that has the focus — reached by
+/// the keyboard or clicked into. Nothing is drawn once the focus leaves it.
 fn paint_focus_ring(
     ui: &egui::Ui,
     painter: &egui::Painter,
@@ -2823,15 +2809,11 @@ fn paint_focus_ring(
     targets: &[TabTarget],
     out: &RenderOutput,
 ) {
+    // Whatever put the focus there — Tab, Enter, a click (operator,
+    // 2026-09-23; it used to mark keyboard navigation only).
     let Some(focused) = ui.ctx().memory(|m| m.focused()) else {
         return;
     };
-    let by_keyboard = ui
-        .data(|d| d.get_temp::<Option<egui::Id>>(keyboard_focus_id()))
-        .flatten();
-    if by_keyboard != Some(focused) {
-        return;
-    }
     let Some(target) = targets.iter().find(|t| t.focus_id == focused && !t.is_label) else {
         return;
     };
@@ -2986,12 +2968,7 @@ fn resolve_tab_traversal(ui: &egui::Ui, targets: &mut Vec<TabTarget>) -> TabStep
     for _ in 0..n {
         let target = &targets[idx];
         if !target.is_label {
-            ui.data_mut(|d| {
-                d.insert_temp(tab_memory_id(), target.focus_id);
-                // Reached by the keyboard: this is the control the focus
-                // ring marks (`paint_focus_ring`).
-                d.insert_temp(keyboard_focus_id(), Some(target.focus_id));
-            });
+            ui.data_mut(|d| d.insert_temp(tab_memory_id(), target.focus_id));
             step.focus = Some(target.focus_id);
             return step;
         }
@@ -19872,10 +19849,10 @@ mod tests {
         painted
     }
 
-    /// The ring marks the control the KEYBOARD moved to, and goes the moment
-    /// the pointer is pressed.
+    /// The ring marks the focused control however the focus got there — Tab
+    /// or a click into it.
     #[test]
-    fn engine_focus_ring_follows_the_keyboard_only() {
+    fn engine_focus_ring_follows_the_focus() {
         let p = pos2(80.0, 52.0); // inside Second
         let painted = ring_frames(
             &two_boxes(),
@@ -19890,7 +19867,7 @@ mod tests {
         );
         assert!(!painted[0], "nothing is focused yet");
         assert!(painted[3], "after Tab the focused box is ringed: {painted:?}");
-        assert!(!painted[5], "a pointer press ends keyboard navigation: {painted:?}");
+        assert!(painted[5], "a click into a box rings it too: {painted:?}");
     }
 
     #[test]
