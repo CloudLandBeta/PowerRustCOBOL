@@ -187,9 +187,10 @@ PowerRustCOBOL gets it.
 - **Developer's Guide.** The indexed-file-tool chapter gains *Registering a
   file by path*: path forms, `smb://`, read-only guarantees, the fit test and
   the fallback. GOLDEN RULE #8 applies.
-- **Toolchain.** The `smb://` client must be pure Rust (the `smb` crate, 0.12.1,
-  MIT, was found on 2026-09-24; it is async by default, and /plan must decide
-  how it runs inside the runtime).
+- **Toolchain.** The `smb://` client must be pure Rust: **`smb2` 0.26.0**
+  (MIT OR Apache-2.0; operator, 2026-09-24). `smb` 0.12.1 was rejected — it
+  hard-requires `sspi` with `ring` (C/asm) — and so was `remotefs-smb`, whose
+  default back end is Samba's C `libsmbclient`. See `plan.md`.
 - **Interpreter–binary parity.** R22; read the `interpreter-binary-parity`
   skill before planning.
 

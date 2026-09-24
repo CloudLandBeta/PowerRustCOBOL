@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.191] — 2026-09-24
+
+### Spec 075 — plan, drafted for review
+
+`specs/075-registered-indexed-files/plan.md`: `AgentObject::RegisterFile` /
+`UnregisterFile`, `.cidx` validated against the file's own stored schema,
+coded refusals, a memory fit with a local in-place fallback, and the 065
+memory limit made a project setting (`[agents] file_memory_limit_mb`, 64 by
+default) for all three hosts. `smb://` uses the pure-Rust `smb2` crate: `smb`
+needs `ring` (C) and `remotefs-smb` needs `libsmbclient`. Two defects found
+while planning are recorded for `fixes`. Spec only.
+
 ## [PowerRustCOBOL 1.70.190] — 2026-09-24
 
 ### Feature — document import for the KnowledgeBase control (spec 074)
