@@ -7728,6 +7728,20 @@ matters for performance and for what survives across runs:
   **uncompressed logical record**, so search order and key comparisons are
   unaffected.
 
+**Changing a file's storage mode.** The two modes keep their data in different
+on-disk formats, and a file can move between them freely — one program may
+declare it `STORAGE IS DISK` and another `STORAGE IS MEMORY`:
+
+- Opened as **MEMORY**, a file written by a DISK program loads with all its
+  records, and `WITH PERSISTENCE` saves it back **in the DISK format**, so the
+  DISK program still reads it, including the records the MEMORY program added.
+- Opened as **DISK**, a file written by a MEMORY program is converted to the
+  DISK format on `OPEN`, every record kept. From then on it is a DISK-format
+  file, which a MEMORY program also reads.
+
+A file that is not an indexed file at all is refused on `OPEN` (FILE STATUS
+90); it is never read as an empty file and never overwritten.
+
 > ⚠️ **Durability caveat.** A plain `STORAGE IS MEMORY` file keeps *nothing*: at
 > `CLOSE` its in-RAM contents are discarded. Use `WITH PERSISTENCE` when the data
 > must survive, remembering it is saved only at `CLOSE` — if the program crashes

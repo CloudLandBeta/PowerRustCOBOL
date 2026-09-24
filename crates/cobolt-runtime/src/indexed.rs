@@ -389,6 +389,10 @@ pub struct IndexedFile {
     persist: bool,
     /// Creation timestamp (ms), preserved across load/save.
     created_ms: u64,
+    /// The file on disk is a `PRCIDXD1` container — a `STORAGE IS DISK` file
+    /// opened here as MEMORY. It is saved back in that format, so the DISK
+    /// program that owns it can still read it.
+    disk_container: bool,
 }
 
 impl IndexedFile {
@@ -417,7 +421,13 @@ impl IndexedFile {
             compressing: false,
             persist: false,
             created_ms: 0,
+            disk_container: false,
         }
+    }
+
+    /// Every record, in primary-key order.
+    pub(crate) fn records_in_key_order(&self) -> Vec<Bytes> {
+        self.records.values().cloned().collect()
     }
 
     /// Attach descriptive key-field names (`[primary, alt1, alt2, …]`) for the
@@ -507,13 +517,38 @@ impl IndexedFile {
             OpenMode::Output => {
                 self.records.clear();
                 self.rebuild_alt_index();
+                self.disk_container = false;
                 // OPEN OUTPUT always (re)creates the on-disk container, even for
                 // an ephemeral (non-persistent) MEMORY file — so the file exists
                 // on disk regardless of the WITH PERSISTENCE setting.
                 let _ = self.save();
             }
             OpenMode::Input | OpenMode::Io | OpenMode::Extend => {
-                if self.path.exists() {
+                if crate::indexed_disk::is_disk_container(&self.path) {
+                    // A `STORAGE IS DISK` file. It used to be taken for an
+                    // unknown container and loaded EMPTY — and `WITH
+                    // PERSISTENCE` then saved that empty image over it at
+                    // `CLOSE`, destroying every record (operator, 2026-09-24).
+                    match crate::indexed_disk::read_disk_container(
+                        &self.path,
+                        self.record_len,
+                        &self.primary,
+                        &self.alternates,
+                        self.strict_metadata,
+                    ) {
+                        Ok(records) => {
+                            self.records.clear();
+                            for rec in records {
+                                let pkey = self.primary.extract(&rec);
+                                self.records.insert(pkey, rec);
+                            }
+                            self.rebuild_alt_index();
+                            self.disk_container = true;
+                        }
+                        Err(st) => return st,
+                    }
+                } else if self.path.exists() {
+                    self.disk_container = false;
                     match self.load() {
                         Ok(stored) => {
                             // Strict mode: the declared SELECT/FD keys + record
@@ -972,9 +1007,18 @@ impl IndexedFile {
             self.rebuild_alt_index();
             return Ok(None);
         }
-        // Unknown container — treat as empty rather than failing hard.
-        self.rebuild_alt_index();
-        Ok(None)
+        // An empty file holds no records. Anything else is a container this
+        // engine cannot read, and taking it for an empty file is how a
+        // `PRCIDXD1` file was destroyed: `WITH PERSISTENCE` saved the "empty"
+        // image over it. Refuse instead (operator, 2026-09-24).
+        if data.is_empty() {
+            self.rebuild_alt_index();
+            return Ok(None);
+        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("{} is not an indexed-file container", self.path.display()),
+        ))
     }
 
     /// Parse the legacy `PRCISAM1` container (records only, no schema).
@@ -1115,6 +1159,17 @@ impl IndexedFile {
     }
 
     fn save(&self) -> std::io::Result<()> {
+        if self.disk_container {
+            return crate::indexed_disk::write_disk_container(
+                &self.path,
+                self.record_len,
+                &self.primary,
+                &self.alternates,
+                &self.key_names,
+                self.compressing,
+                &self.records_in_key_order(),
+            );
+        }
         let info = self.inspect();
         let mut out = Vec::new();
         out.extend_from_slice(b"PRCIDX1\0"); // 8-byte magic

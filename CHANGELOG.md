@@ -8,6 +8,34 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.173] — 2026-09-24
+
+### Fix — a file can move between MEMORY and DISK storage without losing data
+
+The two storage modes keep an indexed file in different containers: MEMORY in
+`PRCIDX1`, DISK in `PRCIDXD1`. Neither engine could read the other's:
+
+- A DISK file opened `STORAGE IS MEMORY` was taken for an unknown container and
+  loaded **empty**, while `OPEN` returned 00. Opened `I-O … WITH PERSISTENCE`,
+  its `CLOSE` then saved that empty image over the file. Measured: a 16,384-byte
+  file holding two records became a 79-byte empty `PRCIDX1`, and the DISK
+  program that owned it got 39 on its next `OPEN`. **Silent data loss.**
+- A MEMORY file opened `STORAGE IS DISK` was refused with 39.
+
+Now a MEMORY open reads a `PRCIDXD1` file's records and, with `WITH
+PERSISTENCE`, saves them back **as `PRCIDXD1`**, its own changes included. A
+DISK open converts a `PRCIDX1`/`PRCISAM1` file to `PRCIDXD1` with every record
+kept, then opens it. Both write through a sibling file renamed over the
+original, so a failure never leaves a half-written file. A file that is no
+indexed container at all is refused with 90 instead of being read as empty.
+All four MEMORY/DISK write/read combinations were verified with `rcrun`.
+
+Found while specifying 071, where PowerChat opens its files `STORAGE IS
+MEMORY` with a DISK fallback (operator, 2026-09-24). Guide (*When data reaches
+disk*) updated. Tests: `a_disk_file_opened_as_memory_keeps_its_records_and_its_format`,
+`a_memory_file_opened_as_disk_is_converted_not_refused`,
+`an_unknown_file_is_refused_as_memory_and_left_untouched`.
+
 ## [PowerRustCOBOL 1.70.168] — 2026-09-23
 
 ### Fix — the focus ring follows a click too, and pulses 4× slower

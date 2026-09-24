@@ -299,6 +299,95 @@ enum DiskUndo {
 
 type R<T> = std::io::Result<T>;
 
+/// The first eight bytes of the file at `path` — its container magic — or
+/// `None` when it cannot be read or is shorter than that.
+pub(crate) fn container_magic(path: &Path) -> Option<[u8; 8]> {
+    let mut m = [0u8; 8];
+    File::open(path).ok()?.read_exact(&mut m).ok()?;
+    Some(m)
+}
+
+/// Whether the file at `path` is a `PRCIDXD1` container — a `STORAGE IS DISK`
+/// file.
+pub(crate) fn is_disk_container(path: &Path) -> bool {
+    container_magic(path).is_some_and(|m| &m == MAGIC)
+}
+
+/// Every record of the `PRCIDXD1` container at `path`, in primary-key order —
+/// how a `STORAGE IS MEMORY` open reads a file a `STORAGE IS DISK` program
+/// wrote. `Err` carries the FILE STATUS the open failed with (39 when the
+/// declared keys do not match the file's).
+pub(crate) fn read_disk_container(
+    path: &Path,
+    record_len: usize,
+    primary: &KeySpec,
+    alternates: &[KeySpec],
+    strict_metadata: bool,
+) -> Result<Vec<Bytes>, &'static str> {
+    let mut f = DiskIndexedFile::new(path, record_len, primary.clone(), alternates.to_vec());
+    f.set_strict_metadata(strict_metadata);
+    let st = f.open(OpenMode::Input);
+    if st != status::OK {
+        return Err(st);
+    }
+    let mut records = Vec::new();
+    while let (Some(rec), _) = f.read_seq(ReadDir::Next) {
+        records.push(rec);
+    }
+    f.close();
+    Ok(records)
+}
+
+/// Write `records` as a complete `PRCIDXD1` container at `path`, replacing
+/// whatever is there — how a file changes storage mode without losing a record.
+///
+/// Written to a sibling file first and renamed over `path`, so a failure part
+/// way never leaves a half-written file where the old one was. The replaced
+/// container's undo journal goes with it: it describes pages that no longer
+/// exist, and applying it would turn the new file back into the old one's shape.
+pub(crate) fn write_disk_container(
+    path: &Path,
+    record_len: usize,
+    primary: &KeySpec,
+    alternates: &[KeySpec],
+    key_names: &[Option<String>],
+    compressing: bool,
+    records: &[Bytes],
+) -> std::io::Result<()> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".convert");
+    let tmp = PathBuf::from(tmp);
+    let fail = |what: &str, st: &str| {
+        std::io::Error::other(format!("{what} {} failed with status {st}", tmp.display()))
+    };
+    let mut f = DiskIndexedFile::new(&tmp, record_len, primary.clone(), alternates.to_vec());
+    f.set_key_names(key_names.to_vec());
+    f.set_compressing(compressing);
+    let st = f.open(OpenMode::Output);
+    if st != status::OK {
+        return Err(fail("OPEN OUTPUT", st));
+    }
+    for rec in records {
+        let st = f.write(rec);
+        if st != status::OK {
+            f.close();
+            let _ = std::fs::remove_file(&tmp);
+            return Err(fail("WRITE", st));
+        }
+    }
+    let st = f.close();
+    if st != status::OK {
+        return Err(fail("CLOSE", st));
+    }
+    std::fs::rename(&tmp, path)?;
+    let mut journal = path.as_os_str().to_owned();
+    journal.push(".jrn");
+    match std::fs::remove_file(journal) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
+    }
+}
+
 impl DiskIndexedFile {
     pub fn new(
         path: impl AsRef<Path>,
@@ -1482,6 +1571,41 @@ impl DiskIndexedFile {
 
     // ── OPEN / CLOSE ─────────────────────────────────────────────────────────
 
+    /// When the file is a `STORAGE IS MEMORY` container, rewrite it as a
+    /// `PRCIDXD1` one with the same records. `None` when it is not one (nothing
+    /// to do); otherwise the FILE STATUS of the conversion.
+    fn convert_memory_container(&mut self) -> Option<&'static str> {
+        let magic = container_magic(&self.path)?;
+        if &magic != b"PRCIDX1\0" && &magic != b"PRCISAM1" {
+            return None;
+        }
+        let mut mem = crate::indexed::IndexedFile::new(
+            &self.path,
+            self.record_len,
+            self.primary.clone(),
+            self.alternates.clone(),
+        );
+        mem.set_strict_metadata(self.strict_metadata);
+        let st = mem.open(OpenMode::Input);
+        if st != status::OK {
+            return Some(st);
+        }
+        let records = mem.records_in_key_order();
+        mem.close();
+        match write_disk_container(
+            &self.path,
+            self.record_len,
+            &self.primary,
+            &self.alternates,
+            &self.key_names,
+            self.compressing,
+            &records,
+        ) {
+            Ok(()) => Some(status::OK),
+            Err(_) => Some(status::IO_ERROR),
+        }
+    }
+
     pub fn open(&mut self, mode: OpenMode) -> &'static str {
         if self.open.is_some() {
             return status::LOGIC_ERROR;
@@ -1535,6 +1659,16 @@ impl DiskIndexedFile {
                         return status::IO_ERROR;
                     }
                 } else {
+                    // A file a `STORAGE IS MEMORY` program wrote (`PRCIDX1`, or
+                    // the legacy `PRCISAM1`) is converted to this container,
+                    // every record kept, before it is opened. It used to be
+                    // refused with 39, so a file could not move from MEMORY to
+                    // DISK storage (operator, 2026-09-24).
+                    if let Some(st) = self.convert_memory_container() {
+                        if st != status::OK {
+                            return st;
+                        }
+                    }
                     let f = match OpenOptions::new().read(true).write(true).open(&self.path) {
                         Ok(f) => f,
                         Err(_) => return status::IO_ERROR,
@@ -2941,6 +3075,114 @@ mod tests {
             },
             Vec::new(),
         )
+    }
+
+    /// The same file as the MEMORY engine sees it: same record, same keys.
+    fn memfile(p: PathBuf, persist: bool) -> crate::indexed::IndexedFile {
+        let mut f = crate::indexed::IndexedFile::new(
+            p,
+            15,
+            KeySpec {
+                offset: 0,
+                len: 5,
+                duplicates: false,
+            },
+            vec![KeySpec {
+                offset: 5,
+                len: 10,
+                duplicates: true,
+            }],
+        );
+        f.set_persist(persist);
+        f
+    }
+
+    fn names_by_key(recs: &[(String, String)]) -> String {
+        recs.iter().map(|(k, n)| format!("{k}:{n}")).collect::<Vec<_>>().join(",")
+    }
+
+    fn scan_disk(p: &PathBuf) -> String {
+        let mut f = newfile(p.clone(), true, false);
+        assert_eq!(f.open(OpenMode::Input), status::OK, "DISK open");
+        let mut out = Vec::new();
+        while let (Some(r), _) = f.read_seq(ReadDir::Next) {
+            out.push((
+                String::from_utf8_lossy(&r[..5]).into_owned(),
+                String::from_utf8_lossy(&r[5..]).trim().to_owned(),
+            ));
+        }
+        f.close();
+        names_by_key(&out)
+    }
+
+    /// A `STORAGE IS DISK` file opened as `STORAGE IS MEMORY` shows its records,
+    /// and a MEMORY session `WITH PERSISTENCE` saves them back in the DISK
+    /// format, its own changes included. It used to load EMPTY and then save the
+    /// empty image over the file at CLOSE, destroying every record (operator,
+    /// 2026-09-24).
+    #[test]
+    fn a_disk_file_opened_as_memory_keeps_its_records_and_its_format() {
+        let p = tmp("disk-as-memory");
+        let _ = std::fs::remove_file(&p);
+        let mut d = newfile(p.clone(), true, false);
+        assert_eq!(d.open(OpenMode::Output), status::OK);
+        assert_eq!(d.write(&rec("1", "ALPHA")), status::OK);
+        assert_eq!(d.write(&rec("2", "BETA")), status::OK);
+        d.close();
+
+        let mut m = memfile(p.clone(), true);
+        assert_eq!(m.open(OpenMode::Io), status::OK);
+        let (r, st) = m.read_key(b"00002");
+        assert_eq!(st, status::OK, "the DISK file's record is visible as MEMORY");
+        assert_eq!(&r.unwrap()[5..9], b"BETA");
+        assert_eq!(m.write(&rec("3", "GAMMA")), status::OK);
+        assert_eq!(m.close(), status::OK);
+
+        assert!(is_disk_container(&p), "saved back as PRCIDXD1, not PRCIDX1");
+        assert_eq!(scan_disk(&p), "00001:ALPHA,00002:BETA,00003:GAMMA");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A `STORAGE IS MEMORY` file opened as `STORAGE IS DISK` is converted, every
+    /// record kept, instead of being refused with 39 — and the MEMORY engine can
+    /// read it again afterwards.
+    #[test]
+    fn a_memory_file_opened_as_disk_is_converted_not_refused() {
+        let p = tmp("memory-as-disk");
+        let _ = std::fs::remove_file(&p);
+        let mut m = memfile(p.clone(), true);
+        assert_eq!(m.open(OpenMode::Output), status::OK);
+        assert_eq!(m.write(&rec("7", "SEVEN")), status::OK);
+        assert_eq!(m.write(&rec("8", "EIGHT")), status::OK);
+        assert_eq!(m.close(), status::OK);
+        assert_eq!(container_magic(&p).as_ref().map(|m| &m[..]), Some(&b"PRCIDX1\0"[..]));
+
+        let mut d = newfile(p.clone(), true, false);
+        assert_eq!(d.open(OpenMode::Io), status::OK, "converted, not refused with 39");
+        assert_eq!(d.write(&rec("9", "NINE")), status::OK);
+        d.close();
+        assert_eq!(scan_disk(&p), "00007:SEVEN,00008:EIGHT,00009:NINE");
+
+        let mut again = memfile(p.clone(), false);
+        assert_eq!(again.open(OpenMode::Input), status::OK);
+        assert_eq!(again.read_key(b"00009").1, status::OK, "MEMORY reads the converted file");
+        again.close();
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A file that is no indexed container at all is refused — never taken for
+    /// an empty file, which `WITH PERSISTENCE` would then save over it.
+    #[test]
+    fn an_unknown_file_is_refused_as_memory_and_left_untouched() {
+        let p = tmp("not-a-container");
+        std::fs::write(&p, b"this is somebody's text file, not an index").unwrap();
+        let mut m = memfile(p.clone(), true);
+        assert_eq!(m.open(OpenMode::Io), status::IO_ERROR);
+        assert_eq!(
+            std::fs::read(&p).unwrap(),
+            b"this is somebody's text file, not an index"
+        );
+        let _ = std::fs::remove_file(&p);
     }
 
     /// A commit interrupted part-way is undone whole, header included.
