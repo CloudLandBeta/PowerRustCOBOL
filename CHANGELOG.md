@@ -8,6 +8,32 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.178] — 2026-09-24
+
+### Spec 068 — the application Knowledge Base, drafted for review
+
+`specs/068-application-knowledge-base/spec.md`: the KB a built application
+owns. It is the third KB, separate from Grace's System and Project KBs. A COBOL
+program uses it through a new non-visual **`KnowledgeBase`** control and can
+hand a collection to an `AgentObject` as a tool.
+
+Operator decisions of 2026-09-24 it carries:
+
+- The engine lives in the runtime; a built app depends on neither the IDE nor
+  `cobolt-agents`.
+- The index is redb 4.3 on disk in multi-process mode, so users on a LAN
+  share one KB.
+- Three embedders: lexical (always available), an endpoint model over HTTP,
+  and an opt-in built-in semantic model. When the lexical fallback is in use,
+  the app says so.
+- Progress is reported through events, and the app draws its own modal.
+- Changes are picked up when made through the control, and by a content-based
+  refresh that catches outside edits. There is no file watcher.
+
+Three open questions: how the built-in embedder is switched on, where its
+~470 MB model is cached, and how a shared collection handles mismatched
+embedders. Spec only.
+
 ## [PowerRustCOBOL 1.70.177] — 2026-09-24
 
 ### Spec 071 — MEMORY for user data only; the KB updates with a progress modal
