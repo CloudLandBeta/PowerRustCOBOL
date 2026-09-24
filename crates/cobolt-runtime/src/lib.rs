@@ -58,6 +58,10 @@ pub mod indexed_import;
 pub mod indexed_log;
 pub mod indexed_redb;
 pub mod interpreter;
+#[cfg(feature = "kb")]
+pub mod kb_transport;
+#[cfg(feature = "kb")]
+pub(crate) mod kb_runtime;
 pub mod maps_bridge;
 /// Spec 065 — the indexed-file tool served over MCP.
 pub mod mcp_tool;

@@ -280,8 +280,15 @@ pub fn agent_from_json(raw: &str) -> Vec<AgentConnection> {
 /// `AgentAPIKey` is not set here; it arrives from the environment.
 pub fn apply_agent(ctrl: &mut crate::Control, conn: &AgentConnection) {
     use crate::PropValue as P;
-    ctrl.set_prop("AgentAPI", P::String(conn.provider.clone()));
-    ctrl.set_prop("AgentURL", P::String(conn.endpoint.clone()));
+    // Spec 068 — a KnowledgeBase's endpoint embedder takes a provider the same
+    // way, into its own `Embedding…` properties; its model stays its own.
+    let (api, url) = if ctrl.control_type == crate::ControlType::KnowledgeBase {
+        ("EmbeddingAPI", "EmbeddingURL")
+    } else {
+        ("AgentAPI", "AgentURL")
+    };
+    ctrl.set_prop(api, P::String(conn.provider.clone()));
+    ctrl.set_prop(url, P::String(conn.endpoint.clone()));
 }
 
 /// Resolve every `AgentObject` bound to a configured provider.
@@ -291,7 +298,10 @@ pub fn resolve_agent_all(
 ) -> Vec<(String, String)> {
     let mut dangling = Vec::new();
     for ctrl in controls.iter_mut() {
-        if ctrl.control_type != crate::ControlType::AgentObject {
+        if !matches!(
+            ctrl.control_type,
+            crate::ControlType::AgentObject | crate::ControlType::KnowledgeBase
+        ) {
             continue;
         }
         let Some(id) = configuration_id(ctrl) else {
@@ -387,7 +397,7 @@ pub fn connection_key_env(id: &str) -> String {
 /// value is "a plain, non-secret id, not the API key", and `ConnectionString`
 /// is an ADDRESS a form cannot reach its database without — withholding either
 /// would break working forms to protect nothing.
-pub const CREDENTIAL_PROPS: [&str; 3] = ["AgentAPIKey", "ApiKey", "AuthToken"];
+pub const CREDENTIAL_PROPS: [&str; 4] = ["AgentAPIKey", "ApiKey", "AuthToken", "EmbeddingAPIKey"];
 
 /// Is `name` one of [`CREDENTIAL_PROPS`]? Case-insensitive, because a property
 /// name reaches this from XML a human may have edited.
@@ -615,6 +625,32 @@ mod tests {
         );
     }
 
+    /// Spec 068 — a KnowledgeBase bound to a model provider takes its
+    /// endpoint into its own `Embedding…` properties and keeps its model; an
+    /// AgentObject beside it resolves exactly as before.
+    #[test]
+    fn a_knowledge_base_takes_its_provider_into_its_embedding_settings() {
+        let provider = AgentConnection {
+            id: "ollama_local".into(),
+            name: "Ollama".into(),
+            provider: "Ollama".into(),
+            endpoint: "http://gpu-box:11434".into(),
+        };
+        let mut kb = Control::new("KB-1", ControlType::KnowledgeBase, 0, 0);
+        kb.set_prop(CONFIGURATION_PROP, PropValue::String("ollama_local".into()));
+        let mut agent = Control::new("AGT-1", ControlType::AgentObject, 0, 0);
+        agent.set_prop(CONFIGURATION_PROP, PropValue::String("ollama_local".into()));
+        let mut controls = vec![kb, agent];
+        assert!(resolve_agent_all(&mut controls, &[provider]).is_empty());
+        let get = |c: &Control, p: &str| c.get_prop(p).map(|v| v.as_str().to_owned()).unwrap_or_default();
+        assert_eq!(get(&controls[0], "EmbeddingURL"), "http://gpu-box:11434");
+        assert_eq!(get(&controls[0], "EmbeddingAPI"), "Ollama");
+        assert_eq!(get(&controls[0], "EmbeddingModel"), "nomic-embed-text", "its model stays its own");
+        assert!(controls[0].get_prop("AgentURL").is_none(), "no agent property invented");
+        assert_eq!(get(&controls[1], "AgentURL"), "http://gpu-box:11434");
+        assert!(is_credential_prop("EmbeddingAPIKey"), "never written into a form");
+    }
+
     /// **Only RestClients are touched.**
     #[test]
     fn controls_of_other_types_are_never_rewritten() {
@@ -684,6 +720,7 @@ mod credential_serialisation_tests {
             ("Agent-Helper", CT::AgentObject, "AgentAPIKey"),
             ("Web-Find", CT::WebSearch, "ApiKey"),
             ("Rest-1", CT::RestClient, "AuthToken"),
+            ("KB-1", CT::KnowledgeBase, "EmbeddingAPIKey"),
         ] {
             let mut c = Control::new(id, ct, 10, 10);
             c.set_prop(prop, PropValue::String(SECRET.into()));
@@ -725,7 +762,7 @@ mod credential_serialisation_tests {
     /// exactly as before. A rule that quietly ate settings would be a worse
     /// bug than the one it fixes.
     #[test]
-    fn only_the_three_credentials_are_withheld() {
+    fn only_the_credentials_are_withheld() {
         let mut form = Form::new("F", "F", 400, 300);
         let mut c = Control::new("Web-Find", CT::WebSearch, 10, 10);
         // The neighbours a WebSearch keeps beside its key, including the two

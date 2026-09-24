@@ -22,7 +22,9 @@ cobolt-lexer    = { path = "../cobolt-lexer" }
 cobolt-ast      = { path = "../cobolt-ast" }
 cobolt-parser   = { path = "../cobolt-parser" }
 cobolt-semantic = { path = "../cobolt-semantic" }
-cobolt-runtime  = { path = "../cobolt-runtime" }
+# `kb-semantic`: Run Form carries the built-in semantic model, so a
+# KnowledgeBase set to Builtin behaves as in the built application (spec 068).
+cobolt-runtime  = { path = "../cobolt-runtime", features = ["kb-semantic"] }
 cobolt-stdlib   = { path = "../cobolt-stdlib" }
 tracing              = { workspace = true }
 tracing-subscriber   = { workspace = true }

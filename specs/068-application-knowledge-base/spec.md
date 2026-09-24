@@ -1,6 +1,6 @@
 # Spec — Application Knowledge Base (the KnowledgeBase control)
 
-- **Status:** draft → awaiting operator review
+- **Status:** implemented 2026-09-24 (1.70.189). Open: AC4 on an SMB share (operator), AC16 as a full run in all three hosts.
 - **Folder:** specs/068-application-knowledge-base/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-09-24
 - **Parents:** `specs/063-rag-chatbot-boilerplate/spec.md` (umbrella, §4.1–4.2,
@@ -200,51 +200,51 @@ uses them however it likes.
 
 ## 5. Acceptance criteria
 
-- [ ] **AC1** — `cargo tree` for a built application using `KnowledgeBase` shows
+- [x] **AC1** — `cargo tree` for a built application using `KnowledgeBase` shows
       neither `cobolt-ide` nor `cobolt-agents`. *(R4)*
-- [ ] **AC2** — The KB's file and table names differ from every Grace store's;
+- [x] **AC2** — The KB's file and table names differ from every Grace store's;
       pointing the control at a Grace store fails with a clear error. *(R1, R2)*
-- [ ] **AC3** — A fresh install creates `assets/KB/<collection>/` empty; an
+- [x] **AC3** — A fresh install creates `assets/KB/<collection>/` empty; an
       existing one is left untouched. *(R5, R7)*
 - [ ] **AC4** — Three processes use one KB at once — two searching while one
       indexes, then two indexing together; every search answers, every
       document lands, and redb's integrity check passes. Run on a local disk
       and on an SMB share, and the guide says which shares were verified.
       *(R8–R11)*
-- [ ] **AC5** — A writer kept waiting past the bound gets a "busy" result, not an
+- [x] **AC5** — A writer kept waiting past the bound gets a "busy" result, not an
       error or a corrupt index. *(R10)*
-- [ ] **AC6** — Deleting the index and refreshing yields the same search results
+- [x] **AC6** — Deleting the index and refreshing yields the same search results
       for a fixed set of queries. *(R12)*
-- [ ] **AC7** — An index written under an older schema version is moved aside,
+- [x] **AC7** — An index written under an older schema version is moved aside,
       still present, and a new one built. *(R13)*
-- [ ] **AC8** — Creating, updating and deleting a document through the control
+- [x] **AC8** — Creating, updating and deleting a document through the control
       each change the next search's results, without a restart. *(R16)*
-- [ ] **AC9** — A document added, changed and removed with the file manager is
+- [x] **AC9** — A document added, changed and removed with the file manager is
       picked up by the next refresh, which touches only those three. *(R17,
       R18)*
-- [ ] **AC10** — An unreadable document is reported by name, and the rest of the
+- [x] **AC10** — An unreadable document is reported by name, and the rest of the
       folder is indexed. *(R20)*
-- [ ] **AC11** — A build without the built-in semantic embedder shows neither
+- [x] **AC11** — A build without the built-in semantic embedder shows neither
       candle nor tokenizers in `cargo tree` and needs no C compiler; a build
       with it answers semantic queries offline. *(R22)*
-- [ ] **AC12** — With no embedder reachable, search still answers, and the
+- [x] **AC12** — With no embedder reachable, search still answers, and the
       control reports that it is lexical. *(R25)*
-- [ ] **AC13** — Switching a collection's embedder re-indexes it; no query ever
+- [x] **AC13** — Switching a collection's embedder re-indexes it; no query ever
       compares vectors from two embedders. *(R26)*
-- [ ] **AC13a** — Two installations share a collection, one on the endpoint
+- [x] **AC13a** — Two installations share a collection, one on the endpoint
       embedder and one on built-in: the one that did not index it searches
       lexically, reports why, and leaves the index as it was. *(R26a)*
-- [ ] **AC13b** — With the built-in embedder, the model is fetched once into the
+- [x] **AC13b** — With the built-in embedder, the model is fetched once into the
       application's folder, and a second user of the same installation uses it
       without fetching again. *(R23, R23a)*
-- [ ] **AC14** — Progress events arrive in order during indexing, and a
+- [x] **AC14** — Progress events arrive in order during indexing, and a
       completion event reports the counts; the form redraws throughout.
       *(R30, R31)*
-- [ ] **AC15** — An `AgentObject` given a collection answers a question from one
+- [x] **AC15** — An `AgentObject` given a collection answers a question from one
       of its documents and names that document. *(R32, R33)*
 - [ ] **AC16** — The same program gives the same results under `rcrun run-form`,
       as an embedded child form, and as a compiled binary. *(R34)*
-- [ ] **AC17** — Tests report quantified results: documents and chunks indexed,
+- [x] **AC17** — Tests report quantified results: documents and chunks indexed,
       time per phase, searches per second (GOLDEN RULE #7).
 
 ## 6. Constraints & steering check
@@ -278,3 +278,14 @@ All settled with the operator on 2026-09-24:
   shared by all its users (R23a).
 - **Q3 — ✅ A mismatched application searches lexically** and says why,
   instead of re-indexing a shared collection (R26a).
+
+## 8. Verification notes (2026-09-24, 1.70.189)
+
+- **AC4** — the local half passes (`cobolt-kb/tests/multiprocess.rs`: three
+  processes, 140 documents, integrity check). The SMB run between two machines
+  is the operator's; until it is done the guide names only local disks as
+  verified.
+- **AC16** — every host seeds through the one `build_object_seed`
+  (`a_knowledge_base_is_seeded_with_its_settings`), the control's behaviour is
+  the interpreter's, and `rcrun` links `kb-semantic`. A program has not yet been
+  run as a compiled binary and as an embedded child form side by side.

@@ -866,6 +866,19 @@ struct CoboltProject {
     crates: Vec<ExternalCrate>,
     #[serde(default)]
     integrations: ProjectIntegrations,
+    /// `[rag]` — the application Knowledge Base's build settings (spec 068).
+    #[serde(default)]
+    rag: RagConfig,
+}
+
+/// `[rag]` in the project manifest (spec 068).
+#[derive(Debug, Clone, Default, Deserialize)]
+struct RagConfig {
+    /// `"builtin"` links the built-in semantic model into the application; any
+    /// other value (or none) leaves it out. `"lexical"` and `"endpoint"` need
+    /// nothing in the build.
+    #[serde(default)]
+    embedder: String,
 }
 
 /// The project's named REST connections, read straight from `cobolt.toml`.
@@ -1220,6 +1233,7 @@ pub fn build_single_file(
         // (spec 044 R22) and no named connections either.
         crates: Vec::new(),
         integrations: ProjectIntegrations::default(),
+        rag: RagConfig::default(),
     };
     build_core(proj, project_dir, opts, false)
 }
@@ -1943,6 +1957,17 @@ fn build_core(
     if !features.maps {
         log("   no Maps control — building without the Google Maps client");
     }
+    // Spec 068 — the built-in semantic model only on request, and only for an
+    // application that has a Knowledge Base to use it.
+    let features = runtime_features::RuntimeFeatures {
+        kb_semantic: features.kb && proj.rag.embedder.trim().eq_ignore_ascii_case("builtin"),
+        ..features
+    };
+    if features.kb && !features.kb_semantic {
+        log("   Knowledge Base without the built-in semantic model (no C toolchain needed)");
+    } else if features.kb_semantic {
+        log("   Knowledge Base WITH the built-in semantic model — [rag] embedder = \"builtin\" (needs a C compiler)");
+    }
 
     let blocks = exec_rust::generate_all(&units, has_forms);
     if blocks.block_count > 0 || blocks.item_count > 0 {
@@ -2278,7 +2303,9 @@ fn build_core(
     // the application's — see `copy_delivery_data`.
     let assets_src = project_dir.join("assets");
     if assets_src.is_dir() {
-        let _ = copy_dir_all(&assets_src, &dest_path.join("assets"));
+        if let Err(e) = copy_delivery_assets(&assets_src, &dest_path.join("assets")) {
+            log(&format!("⚠️  Could not copy assets/ to the destination folder: {e}"));
+        }
     }
     let data_src = project_dir.join("data");
     if data_src.is_dir() {
@@ -2639,12 +2666,15 @@ fn walk_controls(controls: &[cobolt_forms::Control]) -> Vec<&cobolt_forms::Contr
 /// [`sdk_manifest`] names exactly this list as the workspace members — keeping
 /// both beside [`resolve_workspace_root`] is what stops the shipped layout and
 /// the layout we look for from drifting apart.
-pub const SDK_CRATES: [&str; 11] = [
+pub const SDK_CRATES: [&str; 12] = [
     "cobolt-ast",
     "cobolt-codegen",
     "cobolt-form-host",
     "cobolt-forms",
     "cobolt-indexed",
+    // spec 068 — the application Knowledge Base. `cobolt-runtime` depends on
+    // it (feature `kb`), so the closure guard below requires it here.
+    "cobolt-kb",
     "cobolt-lexer",
     // spec 065 — the MCP server a built application exposes. `cobolt-runtime`
     // depends on it, so the closure guard below requires it here.
@@ -3717,6 +3747,62 @@ fn find_workspace_root(start: &Path) -> Option<PathBuf> {
         dir = dir.parent()?;
     }
 }
+/// Copy `assets/` into a delivery — except what belongs to the application's
+/// users by then (spec 068).
+///
+/// - `assets/KB` holds their Knowledge Base: documents they added and the index
+///   built from them. A collection is **seeded** only where it does not exist
+///   at the destination, and only with its `documents/`; an index is never
+///   copied, and an existing collection is never touched. The old blanket copy
+///   would have overwritten users' documents on every rebuild.
+/// - `assets/models` holds the built-in model (~470 MB, per application). Only
+///   files missing at the destination are copied: a developer may ship the
+///   model with the application, but a delivered copy is never overwritten.
+/// - Everything else is copied as before.
+fn copy_delivery_assets(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let target = dst.join(&name);
+        let is_dir = entry.file_type()?.is_dir();
+        match name.to_str() {
+            Some("KB") if is_dir => {
+                std::fs::create_dir_all(&target)?;
+                for coll in std::fs::read_dir(entry.path())? {
+                    let coll = coll?;
+                    let docs = coll.path().join("documents");
+                    let dest_coll = target.join(coll.file_name());
+                    if coll.file_type()?.is_dir() && docs.is_dir() && !dest_coll.exists() {
+                        copy_dir_all(&docs, dest_coll.join("documents"))?;
+                    }
+                }
+            }
+            Some("models") if is_dir => copy_missing(&entry.path(), &target)?,
+            _ if is_dir => copy_dir_all(entry.path(), &target)?,
+            _ => {
+                std::fs::copy(entry.path(), &target)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Copy the files of `src` that `dst` does not have yet; never overwrite.
+fn copy_missing(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let target = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_missing(&entry.path(), &target)?;
+        } else if !target.exists() {
+            std::fs::copy(entry.path(), &target)?;
+        }
+    }
+    Ok(())
+}
+
 fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
     std::fs::create_dir_all(&dst)?;
     for entry in std::fs::read_dir(src)? {
@@ -5090,6 +5176,29 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "Enabled" => (BOOL_DOMAIN, "Timer running state (this is the timer's own property, distinct from control chrome)."),
 
         // ── AgentObject (LLM) ──
+        // ── KnowledgeBase (spec 068) ──
+        "Location" => ("folder path", "KnowledgeBase: the folder holding its collections. Relative paths are the application's folder, so the default `assets/KB` is `<app>/assets/KB`. May be a folder on another machine in the LAN."),
+        "Collection" => ("collection name", "KnowledgeBase: the collection its document and search methods act on — a folder under `Location` holding `documents/` and its index."),
+        "Embedder" => ("one of: `Lexical` | `Endpoint` | `Builtin`", "KnowledgeBase: how text becomes vectors. `Lexical` (built in, matches words), `Endpoint` (an embedding model on a server), `Builtin` (the semantic model inside the application, linked only when the project sets `[rag] embedder = \"builtin\"`)."),
+        "EmbeddingURL" => ("HTTP(S) URL", "KnowledgeBase (Endpoint): the embedding server's base URL; `/api/embed` (Ollama) or `/embeddings` (OpenAI-style) is added."),
+        "EmbeddingAPI" => ("one of: `Ollama` | `OpenAI` | `LMStudio` | `Custom`", "KnowledgeBase (Endpoint): the server's wire format — Ollama's, or the OpenAI-style one every other choice uses."),
+        "EmbeddingModel" => ("model id string", "KnowledgeBase (Endpoint): the embedding model requested, e.g. `nomic-embed-text`."),
+        "EmbeddingAPIKey" => ("credential (never saved in the form)", "KnowledgeBase (Endpoint): the embedding server's key. Filled at run time from the machine's key store or the environment, like an AgentObject's `AgentAPIKey`; never written into the `.cfrm`."),
+        "WriteWaitMilliseconds" => ("integer ms (default 5000)", "KnowledgeBase: how long a write waits while another application writes the same collection before raising `onBusy`."),
+        "MaximumResults" => ("integer (default 5)", "KnowledgeBase: hits a `Search` returns when it names no maximum."),
+        "SearchMode" => ("`Semantic` | `Lexical` (run-time)", "KnowledgeBase: how the last search was scored, or how the last update stored its documents."),
+        "SearchModeReason" => ("text (run-time)", "KnowledgeBase: why the search is lexical, when it is — the lexical embedder, an unreachable embedding server, a model not fetched, or a collection indexed with another embedder."),
+        "ProgressDocument" => ("text (run-time)", "KnowledgeBase: in `onProgress`, the document just handled."),
+        "ProgressCurrent" => ("integer (run-time)", "KnowledgeBase: in `onProgress`, how many documents are done."),
+        "ProgressTotal" => ("integer (run-time)", "KnowledgeBase: in `onProgress`, how many documents the update touches."),
+        "AddedCount" => ("integer (run-time)", "KnowledgeBase: in `onIndexed`, documents newly indexed."),
+        "UpdatedCount" => ("integer (run-time)", "KnowledgeBase: in `onIndexed`, documents re-indexed because they changed."),
+        "RemovedCount" => ("integer (run-time)", "KnowledgeBase: in `onIndexed`, documents removed from the index."),
+        "SkippedCount" => ("integer (run-time)", "KnowledgeBase: in `onIndexed`, documents that could not be read."),
+        "SkippedDocuments" => ("text (run-time)", "KnowledgeBase: in `onIndexed`, `document: reason` for each skipped document, separated by `; `."),
+        "ResultCount" => ("integer (run-time)", "KnowledgeBase: in `onSearchComplete`, how many hits the search returned; read each with `GetResult…(n)`."),
+        "CollectionCount" => ("integer (run-time)", "KnowledgeBase: collections found by the last `ListCollections`."),
+        "DocumentCount" => ("integer (run-time)", "KnowledgeBase: documents found by the last `ListDocuments`."),
         "AgentURL" => ("HTTP(S) URL", "Base URL of the LLM provider."),
         "AgentModel" => ("model id string", "Model requested from the provider."),
         "AgentAPI" => ("one of: `Ollama` | `LMStudio` | `OpenAI` | `Anthropic` | `Custom`", "Provider protocol."),
@@ -5544,6 +5653,10 @@ fn event_reference(name: &str) -> &'static str {
         "onMenuItemClick" => "a menu item was activated",
         "onMenuOpen" => "a menu opened",
         "onMenuClose" => "a menu closed",
+        "onProgress" => "KnowledgeBase: an update moved on — `ProgressDocument`, `ProgressCurrent`, `ProgressTotal` hold THIS event's values",
+        "onIndexed" => "KnowledgeBase: an update finished (add, update, delete, import, refresh, reindex, model fetch) — read `AddedCount`/`UpdatedCount`/`RemovedCount`/`SkippedCount`/`SkippedDocuments`",
+        "onSearchComplete" => "KnowledgeBase: a search finished — `ResultCount` hits, read with `GetResultDocument/Heading/Passage/Score(n)`; `SearchMode` says Semantic or Lexical",
+        "onBusy" => "KnowledgeBase: another application held the collection's write lock past `WriteWaitMilliseconds`; `LastError` says so and nothing was written",
         "onResponse" => "the LLM reply arrived",
         "onToolCall" => "the model called a tool the program declared with `AddTool` — read `ToolCallId` / `ToolName` / `ToolArguments`, answer with `SetToolResult`; a handler that sets nothing sends an empty result",
         "onError" => "the operation failed (message in `LastError`)",
@@ -5595,6 +5708,7 @@ fn control_purpose(name: &str) -> &'static str {
         "Shape" => "Decorative rectangle / circle / triangle.",
         "Animator" => "Plays an animated image (GIF / WebP / APNG).",
         "AgentObject" => "Non-visual LLM client (ask a model from COBOL).",
+        "KnowledgeBase" => "Non-visual application Knowledge Base (spec 068): collections of the application's users' documents, each with a searchable index derived from them, kept under `Location` (default `<app>/assets/KB`). NOT the IDE's System or Project Knowledge Base, and a built application links nothing of the IDE for it. Documents are Markdown or plain text (more formats with spec 074); a document that cannot be read is skipped and reported. Every operation that writes or searches runs in the background and reports through events that carry their own property values — `onProgress`, then `onIndexed`, `onSearchComplete`, `onBusy` or `onError`. Several applications, on one machine or on a LAN share, can search and write one collection at once; a writer waits `WriteWaitMilliseconds` for another and then raises `onBusy`. Embedder `Lexical` matches words; `Endpoint` uses an embedding model on a server; `Builtin` runs the semantic model inside the application (project setting `[rag] embedder = \"builtin\"`, fetched once per installation with `FetchModel`). When the configured embedder cannot be used, search falls back to lexical and `SearchModeReason` says why. An AgentObject is given a collection as a tool with `AllowKnowledgeBase`; the model then searches it and cites the document each passage came from.",
         "RestClient" => "Non-visual HTTP/REST client (async by default).",
         "SqlDatabase" => "Non-visual SQL connection (sqlite / postgres / mysql / mssql).",
         "IndexedFile" => "Non-visual COBOL indexed-file access (driven by generated PERFORM paragraphs).",
@@ -5835,6 +5949,29 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("SetToolResult(call-id: String, text: String)", "Spec 072: the answer to the tool call `call-id` (use `ToolCallId`), sent back to the model when the `onToolCall` handler returns. A handler that sets nothing sends an empty result; the wait counts against `TimeoutSeconds`."),
             ("AllowFile(fd-name: String, cidx-path: String?) → Boolean (0/1)", "Spec 072: let every AgentObject in the application search an indexed file (read-only). What the file means comes from its `.cidx` definition (`cidx-path`, or found under the delivered `indexed/` folder by file name); how its records are laid out always comes from this program's own `FD`. The model sees one `search_<file>` tool per allowed file, and the search runs inside the program — never through `onToolCall`. `0` when the FD or the definition cannot be found."),
             ("DenyFile(fd-name: String)", "Spec 072: stop offering an indexed file allowed with `AllowFile`."),
+            ("AllowKnowledgeBase(kb-control: String, collection: String?) → Boolean (0/1)", "Spec 068: let every AgentObject search a KnowledgeBase collection (the control's `Collection` when none is named) as a tool, `kb_<control>_<collection>`. The model sends a query and gets numbered passages, each naming its document and section."),
+            ("DenyKnowledgeBase(kb-control: String, collection: String?)", "Spec 068: stop offering a collection (all of the control's collections when none is named)."),
+        ],
+        "KnowledgeBase" => vec![
+            ("CreateCollection(name: String) → Boolean (0/1)", "Create a collection folder (and its empty index) under `Location`. Never touches an existing one."),
+            ("RemoveCollection(name: String) → Boolean (0/1)", "Take a collection out of use by moving its folder aside (`<name>.removed-<time>`); its documents are kept, never deleted."),
+            ("ListCollections() → Integer", "List the collections under `Location`; answers how many (also `CollectionCount`). Read each with `GetCollection(n)`."),
+            ("GetCollection(n: Integer) → String", "The n-th collection's name, from the last `ListCollections` (1-based)."),
+            ("AddDocument(name: String, text: String) → Boolean (0/1)", "ASYNCHRONOUS: save `text` as the document `name` (sub-folders allowed, e.g. `policies/leave.md`) in the collection and index it; `onIndexed` follows. `0` with `LastError` when another operation is running on this control."),
+            ("UpdateDocument(name: String, text: String) → Boolean (0/1)", "ASYNCHRONOUS: replace a document's text and re-index it; `onIndexed` follows."),
+            ("ImportDocument(path: String, name: String?) → Boolean (0/1)", "ASYNCHRONOUS: copy a file into the collection (named after the file unless `name` is given) and index it; `onIndexed` follows."),
+            ("DeleteDocument(name: String) → Boolean (0/1)", "ASYNCHRONOUS: delete a document from the collection's folder and from its index; `onIndexed` follows."),
+            ("ListDocuments() → Integer", "List the collection's documents; answers how many (also `DocumentCount`). Read each with `GetDocument(n)`."),
+            ("GetDocument(n: Integer) → String", "The n-th document's name, from the last `ListDocuments` (1-based)."),
+            ("Refresh() → Boolean (0/1)", "ASYNCHRONOUS: compare the documents folder with the index by content and index only what was added, changed or removed — including changes made outside the application; `onProgress`…`onIndexed` follow."),
+            ("Reindex() → Boolean (0/1)", "ASYNCHRONOUS: index every document again with this control's embedder — how a collection changes embedder."),
+            ("Search(query: String, max: Integer?) → Boolean (0/1)", "ASYNCHRONOUS: search the collection; `onSearchComplete` follows with `ResultCount` hits (at most `max`, else `MaximumResults`)."),
+            ("GetResultDocument(n: Integer) → String", "The n-th hit's document, from the last search (1-based)."),
+            ("GetResultHeading(n: Integer) → String", "The n-th hit's section: `document › heading › sub-heading`."),
+            ("GetResultPassage(n: Integer) → String", "The n-th hit's text — a split section comes back whole."),
+            ("GetResultScore(n: Integer) → String", "The n-th hit's score (higher is closer), four decimals."),
+            ("FetchModel() → Boolean (0/1)", "ASYNCHRONOUS: fetch the built-in model (~470 MB) into `<app>/assets/models`, once per installation; `onProgress` then `onIndexed`."),
+            ("Cancel()", "Stop the running operation; what it already committed stays."),
         ],
         "RestClient" => vec![
             ("Get(url: String) → String", "HTTP GET. Async mode: returns immediately, response lands in `ResponseBody`/`StatusCode` + `onComplete`. Sync mode: returns the body."),
@@ -5936,6 +6073,22 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
 /// data-flow contracts, and other things a code generator must know).
 fn control_usage_notes(name: &str) -> &'static str {
     match name {
+        "KnowledgeBase" => "\
+### Usage (events carry their own values)\n\
+Every call that writes or searches answers at once with 1 (started) or 0 (see `LastError`); the result arrives as an event, and the properties you read in that event's branch are the values THAT event carried:\n\
+```cobol\n\
+       MOVE KB-1::AddDocument(\"policies/leave.md\", WS-TEXT) TO WS-OK\n\
+       ...\n\
+       WHEN \"onProgress\"\n\
+           MOVE KB-1::ProgressCurrent TO WS-DONE\n\
+           MOVE KB-1::ProgressTotal   TO WS-TOTAL\n\
+       WHEN \"onIndexed\"\n\
+           MOVE KB-1::Search(\"annual leave\") TO WS-OK\n\
+       WHEN \"onSearchComplete\"\n\
+           MOVE KB-1::GetResultDocument(1) TO WS-DOC\n\
+           MOVE KB-1::GetResultPassage(1)  TO WS-PASSAGE\n\
+```\n\
+One operation at a time per control: a second call while one runs answers 0. To let a model search a collection: `MOVE AGT-1::AllowKnowledgeBase(\"KB-1\") TO WS-OK`.\n",
         "IndexedFile" => "\
 ### Usage (generated paragraphs — NOT `::` methods)\n\
 An IndexedFile control named `IXF-1` is driven with `PERFORM` on the paragraphs the IDE generates:\n\
@@ -6811,6 +6964,19 @@ fn methods_reference_doc() -> String {
                 ("AddTool / AddToolParameter / RemoveTool", "Offer the model tools the program answers in `onToolCall`."),
                 ("SetToolResult(call-id, text)", "Answer a tool call from `onToolCall`."),
                 ("AllowFile(fd-name, cidx-path?) / DenyFile(fd-name)", "Let the model search an indexed file."),
+                ("AllowKnowledgeBase(kb, collection?) / DenyKnowledgeBase(kb, collection?)", "Let the model search a KnowledgeBase collection."),
+            ],
+        ),
+        (
+            "KnowledgeBase (documents)",
+            "Operations that write or search are asynchronous: the method answers 1 (started) or 0 (`LastError`), then `onProgress` and `onIndexed` / `onSearchComplete` / `onBusy` / `onError` follow, each carrying its own property values.",
+            &[
+                ("CreateCollection / RemoveCollection / ListCollections / GetCollection(n)", "Manage the collections under `Location`."),
+                ("AddDocument(name, text) / UpdateDocument(name, text) / ImportDocument(path, name?) / DeleteDocument(name)", "Change a document and its index."),
+                ("ListDocuments / GetDocument(n)", "The collection's documents."),
+                ("Refresh() / Reindex()", "Bring the index into agreement with the folder; re-embed everything."),
+                ("Search(query, max?) / GetResultDocument / GetResultHeading / GetResultPassage / GetResultScore(n)", "Search, then read each hit."),
+                ("FetchModel() / Cancel()", "Fetch the built-in model; stop the running operation."),
             ],
         ),
         (
@@ -7615,6 +7781,7 @@ mod resolve_main_tests {
             forms: FormsConfig::default(),
             crates: Vec::new(),
             integrations: ProjectIntegrations::default(),
+            rag: RagConfig::default(),
         }
     }
 
@@ -9952,6 +10119,7 @@ generated = ["generated/inner-form1.cbl"]
             cobolt_forms::ControlType::RestClient,
             cobolt_forms::ControlType::SqlDatabase,
             cobolt_forms::ControlType::IndexedFile,
+            cobolt_forms::ControlType::KnowledgeBase,
             cobolt_forms::ControlType::Slider,
             cobolt_forms::ControlType::BarChart,
             cobolt_forms::ControlType::LineChart,
@@ -10345,5 +10513,86 @@ mod published_documentation_tests {
             );
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod knowledge_base_build_tests {
+    use super::*;
+    use crate::runtime_features::{scan_forms, RuntimeFeatures};
+
+    fn write(p: &Path, bytes: &str) {
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, bytes).unwrap();
+    }
+
+    fn scratch(tag: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let d = std::env::temp_dir().join(format!("prc-068-{tag}-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// A rebuild never overwrites what the users own: their collections and a
+    /// delivered model stay byte-identical; a new collection is seeded with its
+    /// documents only; other assets copy as before (spec 068).
+    #[test]
+    fn delivery_leaves_the_users_knowledge_base_alone() {
+        let project = scratch("project");
+        let dist = scratch("dist");
+        let src = project.join("assets");
+        let dst = dist.join("assets");
+        write(&src.join("logo.png"), "new logo");
+        write(&src.join("KB/hr/documents/handbook.md"), "designer's handbook");
+        write(&src.join("KB/hr/collection.kbindex"), "designer's index");
+        write(&src.join("KB/legal/documents/nda.md"), "designer's nda");
+        write(&src.join("KB/legal/collection.kbindex"), "designer's index");
+        write(&src.join("models/multilingual-e5-small/config.json"), "new config");
+        write(&src.join("models/multilingual-e5-small/tokenizer.json"), "tokenizer");
+        // What the installation already has — the users' own.
+        write(&dst.join("KB/hr/documents/handbook.md"), "users' edited handbook");
+        write(&dst.join("KB/hr/documents/their-own.md"), "users' document");
+        write(&dst.join("KB/hr/collection.kbindex"), "users' index");
+        write(&dst.join("models/multilingual-e5-small/config.json"), "delivered config");
+
+        copy_delivery_assets(&src, &dst).unwrap();
+
+        let read = |p: &str| std::fs::read_to_string(dst.join(p)).unwrap_or_default();
+        assert_eq!(read("logo.png"), "new logo", "ordinary assets copy as before");
+        assert_eq!(read("KB/hr/documents/handbook.md"), "users' edited handbook");
+        assert_eq!(read("KB/hr/documents/their-own.md"), "users' document");
+        assert_eq!(read("KB/hr/collection.kbindex"), "users' index");
+        assert_eq!(read("KB/legal/documents/nda.md"), "designer's nda", "a new collection is seeded");
+        assert!(!dst.join("KB/legal/collection.kbindex").exists(), "an index is never copied");
+        assert_eq!(read("models/multilingual-e5-small/config.json"), "delivered config", "never overwritten");
+        assert_eq!(read("models/multilingual-e5-small/tokenizer.json"), "tokenizer", "a missing file is added");
+        let _ = std::fs::remove_dir_all(&project);
+        let _ = std::fs::remove_dir_all(&dist);
+    }
+
+    #[test]
+    fn a_knowledge_base_control_links_kb_and_only_the_setting_links_the_model() {
+        let mut form = cobolt_forms::Form::new("F", "F", 400, 300);
+        form.controls.push(cobolt_forms::Control::new(
+            "KB-1",
+            cobolt_forms::ControlType::KnowledgeBase,
+            0,
+            0,
+        ));
+        let f = scan_forms([&form]);
+        assert!(f.kb && !f.kb_semantic, "the setting, never the scan, asks for the model");
+        assert!(RuntimeFeatures::all().kb && !RuntimeFeatures::all().kb_semantic);
+        let lexical = RuntimeFeatures { kb: true, ..Default::default() }.as_toml_features();
+        assert_eq!(lexical, "\"kb\"");
+        let builtin = RuntimeFeatures { kb: true, kb_semantic: true, ..Default::default() }.as_toml_features();
+        assert_eq!(builtin, "\"kb-semantic\"");
+        let rag: CoboltProject = toml::from_str(
+            "[project]\nname = \"P\"\nversion = \"1\"\nmain = \"src/main.cbl\"\n[rag]\nembedder = \"builtin\"\n",
+        )
+        .unwrap();
+        assert_eq!(rag.rag.embedder, "builtin");
     }
 }

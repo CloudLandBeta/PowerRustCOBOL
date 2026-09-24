@@ -2178,6 +2178,26 @@ pub fn nv_icon_snackbar(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
     );
 }
 
+/// A closed book with a search lens over its lower corner — the
+/// KnowledgeBase (spec 068): documents you search.
+pub fn nv_icon_knowledge_base(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
+    let book = egui::Rect::from_min_max(
+        Pos2::new(c.x - s * 0.72, c.y - s * 0.92),
+        Pos2::new(c.x + s * 0.55, c.y + s * 0.75),
+    );
+    painter.rect_stroke(book, 1.5, st, egui::StrokeKind::Middle);
+    // The spine, and two lines of text on the cover.
+    painter.line_segment(
+        [Pos2::new(book.min.x + s * 0.28, book.min.y), Pos2::new(book.min.x + s * 0.28, book.max.y)],
+        st,
+    );
+    for dy in [0.45, 0.70] {
+        let y = book.min.y + s * dy;
+        painter.line_segment([Pos2::new(book.min.x + s * 0.48, y), Pos2::new(book.max.x - s * 0.22, y)], st);
+    }
+    nv_icon_search(painter, Pos2::new(c.x + s * 0.55, c.y + s * 0.55), s * 0.42, st);
+}
+
 pub fn nv_icon_indexed_file(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
     let pts = [
         Pos2::new(c.x - s * 0.75, c.y - s * 0.95),
@@ -2898,6 +2918,13 @@ fn draw_control_body(
             CT::SqlDatabase => {
                 nv_icon_database(painter, cen, s, st);
                 ctrl.get_prop("Driver").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "sqlite".into())
+            }
+            CT::KnowledgeBase => {
+                nv_icon_knowledge_base(painter, cen, s, st);
+                ctrl.get_prop("Collection")
+                    .map(|v| v.as_str().trim().to_owned())
+                    .filter(|c| !c.is_empty())
+                    .unwrap_or_else(|| "KB".into())
             }
             CT::IndexedFile => {
                 nv_icon_indexed_file(painter, cen, s, st);
@@ -12429,6 +12456,7 @@ pub(crate) fn drop_shadow_spec(ctrl: &Control, is_neumorphic: bool) -> Option<Dr
             CT::Line
                 | CT::Timer
                 | CT::AgentObject
+                | CT::KnowledgeBase
                 | CT::RestClient
                 | CT::SqlDatabase
                 | CT::IndexedFile

@@ -1407,6 +1407,25 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
         "ToolName",
         "ToolArguments",
     ];
+    // Spec 068 — what a KnowledgeBase reports: the state of the operation in
+    // hand, how search was scored, the last update's counts, and the results.
+    const KNOWLEDGE_BASE: &[&str] = &[
+        "Busy",
+        "LastError",
+        "SearchMode",
+        "SearchModeReason",
+        "ProgressDocument",
+        "ProgressCurrent",
+        "ProgressTotal",
+        "AddedCount",
+        "UpdatedCount",
+        "RemovedCount",
+        "SkippedCount",
+        "SkippedDocuments",
+        "ResultCount",
+        "CollectionCount",
+        "DocumentCount",
+    ];
     // Spec 066 — the rows a program added (JSON, see `menu::runtime`), and the
     // row the user last clicked.
     const SIDE_MENU: &[&str] = &[crate::menu::runtime::RUNTIME_ROWS_PROP, "SelectedItemId"];
@@ -1417,6 +1436,7 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
         ControlType::SideMenu => SIDE_MENU,
         ControlType::Maps => MAPS,
         ControlType::AgentObject => AGENT,
+        ControlType::KnowledgeBase => KNOWLEDGE_BASE,
         ControlType::RestClient | ControlType::WebSearch => ASYNC,
         ControlType::Snackbar => SNACKBAR,
         ControlType::ToolBar => TOOLBAR,
@@ -2448,6 +2468,7 @@ pub enum ControlType {
     RestClient,  // REST API client (non-visual) — INVOKE-based HTTP calls
     SqlDatabase, // SQL database client (non-visual) — SQLx-backed open/query/fetch
     IndexedFile, // Indexed file object (non-visual) — generated COBOL file-method facade
+    KnowledgeBase, // Application Knowledge Base (non-visual) — spec 068
     Slider,      // Horizontal or vertical slider with min/max/step/tick marks
     // Charts — each binds to a COBOL data structure (table/array) and supports INVOKE
     BarChart,     // Vertical / horizontal bar chart
@@ -2588,6 +2609,7 @@ impl ControlType {
         ControlType::RestClient,
         ControlType::SqlDatabase,
         ControlType::IndexedFile,
+        ControlType::KnowledgeBase,
         ControlType::Slider,
         ControlType::BarChart,
         ControlType::LineChart,
@@ -2633,6 +2655,7 @@ impl ControlType {
             ControlType::Timer => "Timer",
             ControlType::Shape => "Shape",
             ControlType::AgentObject => "AgentObject",
+            ControlType::KnowledgeBase => "KnowledgeBase",
             ControlType::RestClient => "RestClient",
             ControlType::SqlDatabase => "SqlDatabase",
             ControlType::IndexedFile => "IndexedFile",
@@ -2686,6 +2709,7 @@ impl ControlType {
             "Timer" => ControlType::Timer,
             "Shape" => ControlType::Shape,
             "AgentObject" => ControlType::AgentObject,
+            "KnowledgeBase" => ControlType::KnowledgeBase,
             "RestClient" => ControlType::RestClient,
             "SqlDatabase" => ControlType::SqlDatabase,
             "IndexedFile" => ControlType::IndexedFile,
@@ -2757,6 +2781,7 @@ impl ControlType {
             ControlType::Timer => (48, 48),
             ControlType::Shape => (120, 80),
             ControlType::AgentObject => (56, 56),
+            ControlType::KnowledgeBase => (56, 56),
             ControlType::RestClient => (56, 56),
             ControlType::SqlDatabase => (64, 64),
             ControlType::IndexedFile => (64, 64),
@@ -2795,6 +2820,7 @@ impl ControlType {
             ControlType::TreeView => "onNodeClick",
             ControlType::Timer => "onTick",
             ControlType::AgentObject => "onResponse",
+            ControlType::KnowledgeBase => "onIndexed",
             ControlType::RestClient => "onResponseReceived",
             ControlType::SqlDatabase => "onQueryComplete",
             ControlType::IndexedFile => "onComplete",
@@ -3438,6 +3464,9 @@ impl ControlType {
                 "onLoad",
             ],
             ControlType::AgentObject => &["onResponse", "onError", "onToolCall"],
+            ControlType::KnowledgeBase => {
+                &["onProgress", "onIndexed", "onSearchComplete", "onBusy", "onError"]
+            }
             ControlType::RestClient => {
                 // The last two are the uniform async lifecycle events (spec 032);
                 // onError/onTimeout already double as the async error/timeout events.
@@ -3708,6 +3737,7 @@ impl ControlType {
             self,
             ControlType::Timer
                 | ControlType::AgentObject
+                | ControlType::KnowledgeBase
                 | ControlType::RestClient
                 | ControlType::SqlDatabase
                 | ControlType::IndexedFile
@@ -5356,6 +5386,31 @@ impl Control {
                 props.insert("ToolProtocol".into(), PropValue::String("Native".into()));
                 // Rounds of tool calls one Ask may take before it gives up.
                 props.insert("MaximumToolRounds".into(), PropValue::Int(8));
+            }
+            ControlType::KnowledgeBase => {
+                // Spec 068. Where the collections live: relative paths are the
+                // application's folder, so `assets/KB` is `<app>/assets/KB`.
+                props.insert("Location".into(), PropValue::String("assets/KB".into()));
+                props.insert("Collection".into(), PropValue::String("".into()));
+                // Lexical (built in) | Endpoint (a model on a server) | Builtin
+                // (the semantic model inside the application, an opt-in build).
+                props.insert("Embedder".into(), PropValue::String("Lexical".into()));
+                // The endpoint embedder's connection — the same shape as an
+                // AgentObject's, and the key likewise never on the form.
+                props.insert("Configuration".into(), PropValue::String("".into()));
+                props.insert(
+                    "EmbeddingURL".into(),
+                    PropValue::String("http://localhost:11434".into()),
+                );
+                props.insert("EmbeddingAPI".into(), PropValue::String("Ollama".into()));
+                props.insert("EmbeddingModel".into(), PropValue::String("nomic-embed-text".into()));
+                // Filled at run time from the machine's key store or the
+                // environment, never saved in the form (a credential).
+                props.insert("EmbeddingAPIKey".into(), PropValue::String("".into()));
+                // How long a write waits for another application writing the
+                // same collection before it answers "busy".
+                props.insert("WriteWaitMilliseconds".into(), PropValue::Int(5000));
+                props.insert("MaximumResults".into(), PropValue::Int(5));
             }
             ControlType::Slider => {
                 props.insert("Minimum".into(), PropValue::Int(0));

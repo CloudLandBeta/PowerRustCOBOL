@@ -81,6 +81,13 @@ pub struct RuntimeFeatures {
     /// The Google Maps data verbs. Pure Rust, but the largest dependency the
     /// runtime carries.
     pub maps: bool,
+    /// Spec 068 — the application Knowledge Base (a `KnowledgeBase` control).
+    /// Pure Rust.
+    pub kb: bool,
+    /// Spec 068 — the built-in semantic model, only when the project asks for
+    /// it (`[rag] embedder = "builtin"`): it links candle and tokenizers, and
+    /// tokenizers' `onig` compiles C. Never inferred, never in [`Self::all`].
+    pub kb_semantic: bool,
 }
 
 impl RuntimeFeatures {
@@ -90,6 +97,8 @@ impl RuntimeFeatures {
             sql: true,
             http: true,
             maps: true,
+            kb: true,
+            kb_semantic: false,
         }
     }
 
@@ -99,6 +108,8 @@ impl RuntimeFeatures {
             sql: self.sql || other.sql,
             http: self.http || other.http,
             maps: self.maps || other.maps,
+            kb: self.kb || other.kb,
+            kb_semantic: self.kb_semantic || other.kb_semantic,
         }
     }
 
@@ -117,6 +128,11 @@ impl RuntimeFeatures {
         }
         if self.maps {
             names.push("\"maps\"");
+        }
+        if self.kb_semantic {
+            names.push("\"kb-semantic\"");
+        } else if self.kb {
+            names.push("\"kb\"");
         }
         names.join(", ")
     }
@@ -147,6 +163,9 @@ pub fn scan_forms<'a>(forms: impl IntoIterator<Item = &'a cobolt_forms::Form>) -
                 cobolt_forms::ControlType::Maps | cobolt_forms::ControlType::WebSearch
             ) {
                 found.maps = true;
+            }
+            if ctrl.control_type == cobolt_forms::ControlType::KnowledgeBase {
+                found.kb = true;
             }
         }
     }
@@ -209,6 +228,8 @@ fn scan_rust(source: &str) -> RuntimeFeatures {
         sql: SQL_RUST_PATHS.iter().any(|p| source.contains(p)),
         http: HTTP_RUST_PATHS.iter().any(|p| source.contains(p)),
         maps: MAPS_RUST_PATHS.iter().any(|p| source.contains(p)),
+        kb: source.contains("cobolt_kb"),
+        kb_semantic: false,
     }
 }
 
@@ -389,8 +410,9 @@ mod tests {
         assert!(none.union(sql).sql);
         assert!(!none.union(sql).http, "union must not invent a feature");
         let all = RuntimeFeatures::all();
-        assert!(all.sql && all.http && all.maps);
-        assert_eq!(all.as_toml_features(), "\"sql\", \"http\", \"maps\"");
+        assert!(all.sql && all.http && all.maps && all.kb);
+        assert!(!all.kb_semantic, "the built-in model is never part of \"everything\"");
+        assert_eq!(all.as_toml_features(), "\"sql\", \"http\", \"maps\", \"kb\"");
     }
 
     /// A Maps control is reached by method call on a control id, which the AST
@@ -475,7 +497,7 @@ mod tests {
 
         let full = crate::base_dependency_block(dir, false, RuntimeFeatures::all());
         assert!(
-            full.contains("features = [\"sql\", \"http\", \"maps\"]"),
+            full.contains("features = [\"sql\", \"http\", \"maps\", \"kb\"]"),
             "a program that reaches everything asks for everything:\n{full}"
         );
 

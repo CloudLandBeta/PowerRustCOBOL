@@ -61,6 +61,9 @@ pub(super) enum Waiting {
     Queued(ToolCall),
     /// The event was handed to the program; the next wait means it returned.
     Dispatched(ToolCall),
+    /// Spec 068 — a KnowledgeBase search is running on a worker (the query
+    /// needed the embedding server); its result moves the loop on.
+    KbSearch(ToolCall),
 }
 
 /// One `Ask` in progress that offers tools.
@@ -99,10 +102,32 @@ impl Interpreter {
                 parameters: t.input_schema,
             })
             .collect();
+        tools.extend(self.kb_tool_specs());
         if let Some(declared) = self.agent_declared_tools.get(&obj.trim().to_ascii_uppercase()) {
             tools.extend(declared.iter().map(DeclaredTool::spec));
         }
         tools
+    }
+
+    /// The generation this agent's tool loop runs under — what a worker that
+    /// answers one of its calls must report with.
+    pub(super) fn tool_loop_generation(&self, obj: &str) -> Option<u64> {
+        self.tool_loops.get(obj).map(|l| l.generation)
+    }
+
+    /// Spec 068 — a KnowledgeBase search a worker finished for this agent's
+    /// tool loop: answer the call and move the loop on.
+    pub(super) fn kb_tool_delivered(&mut self, obj: &str, call_id: &str, text: String) {
+        let Some(l) = self.tool_loops.get_mut(obj) else {
+            return;
+        };
+        let call = match &l.waiting {
+            Waiting::KbSearch(call) if call.id == call_id => call.clone(),
+            _ => return,
+        };
+        l.waiting = Waiting::Nothing;
+        l.results.push((call, text));
+        self.tool_loop_advance(obj);
     }
 
     /// Record a new tool-offering `Ask`; called by `agent_ask` once the
@@ -244,6 +269,19 @@ impl Interpreter {
                 ))
             } else if declared {
                 None
+            } else if self.kb_tool_is(&call.name) {
+                // Spec 068 — a KnowledgeBase collection. Answered here, or on a
+                // worker when the query needs the embedding server.
+                match self.kb_tool_search(obj, &call) {
+                    Some(text) => Some(text),
+                    None => {
+                        if let Some(l) = self.tool_loops.get_mut(obj) {
+                            l.waiting = Waiting::KbSearch(call);
+                        }
+                        self.tool_loop_keep_pending(obj);
+                        return;
+                    }
+                }
             } else {
                 // A consultable indexed file (spec 065), read-only.
                 let r = self
@@ -302,7 +340,7 @@ impl Interpreter {
     /// Keep the `Ask` registered as in flight across the loop, so the timeout
     /// sweep bounds the WHOLE question — handler waits included (Q3) — and a
     /// `Cancel` finds something to cancel.
-    fn tool_loop_keep_pending(&mut self, obj: &str) {
+    pub(super) fn tool_loop_keep_pending(&mut self, obj: &str) {
         if let Some(l) = self.tool_loops.get(obj) {
             self.async_pending.insert(
                 obj.to_string(),

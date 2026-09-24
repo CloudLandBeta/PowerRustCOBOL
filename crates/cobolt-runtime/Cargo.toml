@@ -16,7 +16,7 @@ repository.workspace   = true
 [features]
 # Everything the interpreter has always had. Nothing in this workspace turns it
 # off — `rcrun`, the IDE and every test keep the full surface.
-default = ["sql", "http", "maps"]
+default = ["sql", "http", "maps", "kb"]
 
 # The SQL bridge: `COBOL-OPEN-DB` and its five companions, over SQLite,
 # PostgreSQL and MySQL.
@@ -51,6 +51,16 @@ http = ["dep:ureq", "dep:native-tls"]
 # runtime carries and one only a program with a Maps control ever touches.
 maps = ["dep:google_maps", "dep:tokio"]
 
+# The application Knowledge Base — the `KnowledgeBase` control (spec 068). Pure
+# Rust: redb and the lexical and endpoint embedders.
+kb = ["dep:cobolt-kb"]
+
+# …plus the built-in semantic model inside the application. Opt-in per project
+# (`[rag] embedder = "builtin"`): it links candle and tokenizers, and
+# tokenizers' `onig` compiles C. `rcrun` always carries it, so Run Form behaves
+# like the built application.
+kb-semantic = ["kb", "cobolt-kb/semantic"]
+
 [dependencies]
 # Spec 062 — the unique half of a printed report's filename. Already in the
 # lock as a transitive dependency, so naming it here resolves nothing new.
@@ -74,6 +84,8 @@ cobolt-forms    = { path = "../cobolt-forms" }
 # spec 065 — the MCP protocol. serde-only and transport-free, so linking it
 # adds no network stack to an application that serves a tool.
 cobolt-mcp      = { path = "../cobolt-mcp" }
+# spec 068 — the application Knowledge Base engine (feature `kb`).
+cobolt-kb       = { path = "../cobolt-kb", optional = true }
 thiserror       = { workspace = true }
 indexmap        = { workspace = true }
 serde          = { workspace = true, features = ["derive"] }
@@ -87,7 +99,15 @@ rusqlite        = { workspace = true, optional = true }
 postgres        = { version = "0.19", optional = true }
 mysql           = { version = "28", default-features = false, features = ["minimal-rust"], optional = true }
 # Phase 12 — crash-safe INDEXED engine substrate (pure-Rust ACID, no system lib).
-redb            = { version = "4.3" }
+#
+# `experimental-api-5` is asked for HERE, not only by `cobolt-kb`. The
+# Knowledge Base needs redb's multi-process mode, which requires that API, and
+# cargo unions features — so whenever `kb` is in a build this crate is compiled
+# against the api-5 signatures. Asking for it always keeps ONE redb API in this
+# crate, with or without `kb` (spec 068). It changes signatures only: the file
+# format and the default whole-file lock are unchanged. Pinned exactly, since an
+# experimental API may move between releases.
+redb            = { version = "=4.3.0", features = ["experimental-api-5"] }
 # The v2→v3 upgrade shim, and nothing else. redb 3 REMOVED the v2 file format
 # and the only `Database::upgrade()` that reads v2 lives in redb 2.6 — so a
 # container written by an earlier PowerRustCOBOL can be migrated by exactly one

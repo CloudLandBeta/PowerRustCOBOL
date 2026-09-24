@@ -1003,6 +1003,7 @@ pub const MENU_ICON_CATEGORIES: &[(&str, &[&str])] = &[
             "control-rest-client",
             "control-sql-database",
             "control-indexed-file",
+            "control-knowledge-base",
             "control-slider",
             "control-bar-chart",
             "control-line-chart",
@@ -7259,6 +7260,16 @@ fn control_shapes(name: &str) -> Option<Vec<IconShape>> {
             p(&[(18.0, 21.8), (21.5, 21.8)]),
         ],
         // A record page with its key: the INDEXED file, keyed access.
+        // A book with a search lens over its lower corner — documents you
+        // search (spec 068), the same picture as its designer badge.
+        "control-knowledge-base" => vec![
+            pathc(vec![L(3.5, 3.0), L(15.5, 3.0), L(15.5, 19.0), L(3.5, 19.0)]),
+            p(&[(6.5, 3.0), (6.5, 19.0)]),
+            p(&[(9.0, 7.5), (13.5, 7.5)]),
+            p(&[(9.0, 10.5), (13.0, 10.5)]),
+            c(17.0, 16.5, 3.2),
+            p(&[(19.3, 18.8), (21.8, 21.3)]),
+        ],
         "control-indexed-file" => vec![
             pathc(vec![
                 L(4.5, 2.8), L(13.0, 2.8), L(17.5, 7.3), L(17.5, 17.0), L(4.5, 17.0),
@@ -9594,7 +9605,11 @@ mod tests {
         let controls = count("PowerRustCOBOL Controls");
         let cs = count("Computer Science");
         let ui = count("User Interface");
-        assert_eq!(controls, 45, "44 ControlType::ALL entries + Custom");
+        assert_eq!(
+            controls,
+            crate::model::ControlType::ALL.len() + 1,
+            "every ControlType::ALL entry + Custom"
+        );
         assert!(cs >= 79, "computer-science set, got {cs}");
         assert!(ui >= 49, "user-interface set, got {ui}");
 

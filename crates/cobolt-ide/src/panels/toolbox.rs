@@ -213,6 +213,11 @@ const TOOLS: &[ToolEntry] = &[
         category: "NonVisual",
     },
     ToolEntry {
+        label: "KnowledgeBase",
+        ct: ControlType::KnowledgeBase,
+        category: "NonVisual",
+    },
+    ToolEntry {
         label: "WebSearch",
         ct: ControlType::WebSearch,
         category: "NonVisual",
@@ -1414,6 +1419,10 @@ pub(crate) fn paint_control_icon(
                 ],
                 s,
             );
+        }
+        // Spec 068 — the same glyph its designer badge draws.
+        ControlType::KnowledgeBase => {
+            cobolt_forms::paint::nv_icon_knowledge_base(painter, c, r, s);
         }
         ControlType::AgentObject => {
             let hc = c + Vec2::new(0.0, r * 0.14);

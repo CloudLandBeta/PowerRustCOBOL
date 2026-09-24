@@ -66,6 +66,10 @@ pub struct CoboltProject {
     /// (R31), never here.
     #[serde(default)]
     pub integrations: ProjectIntegrationSettings,
+    /// `[rag]` — the application Knowledge Base's build settings (spec 068).
+    /// Kept here so saving the project from the IDE never drops it.
+    #[serde(default, skip_serializing_if = "RagSettings::is_default")]
+    pub rag: RagSettings,
 }
 
 /// Non-secret configuration for the spec 039 Maps/WebSearch controls'
@@ -73,6 +77,21 @@ pub struct CoboltProject {
 /// not a credential — Google's own docs treat it as a public identifier,
 /// scoped by the API key that accompanies each request — so it round-trips
 /// in `cobolt.toml` like any other project setting.
+/// `[rag]` in the project manifest (spec 068): `embedder = "builtin"` links the
+/// built-in semantic model into the application; `"lexical"` / `"endpoint"`
+/// (or nothing) leave it out.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RagSettings {
+    #[serde(default)]
+    pub embedder: String,
+}
+
+impl RagSettings {
+    fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProjectIntegrationSettings {
     #[serde(default)]
@@ -783,6 +802,7 @@ impl CoboltProject {
             user_controls: Vec::new(),
             crates: Vec::new(),
             integrations: ProjectIntegrationSettings::default(),
+            rag: RagSettings::default(),
         }
     }
 

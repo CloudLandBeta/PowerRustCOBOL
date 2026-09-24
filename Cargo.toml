@@ -23,6 +23,7 @@ members = [
     # "crates/cobolt-plugin-loader",
     "crates/cobolt-dap",       # wire-compatible Debug Adapter Protocol (client + adapter)
     "crates/cobolt-mcp",       # spec 065 — wire-compatible Model Context Protocol (framing + server)
+    "crates/cobolt-kb",        # spec 068 — the application Knowledge Base (collections, index, search)
     "crates/cobolt-ide", "crates/cobolt-agents",
     "crates/cobolt-bench",   # performance + allocation baseline harness
 ]

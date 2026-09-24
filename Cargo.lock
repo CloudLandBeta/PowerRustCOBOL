@@ -1506,6 +1506,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cobolt-kb"
+version = "0.2.0"
+dependencies = [
+ "bincode",
+ "candle-core",
+ "candle-nn",
+ "candle-transformers",
+ "redb 4.3.0",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokenizers 0.23.1",
+]
+
+[[package]]
 name = "cobolt-lexer"
 version = "0.2.0"
 dependencies = [
@@ -1553,6 +1568,7 @@ dependencies = [
  "cobolt-codegen",
  "cobolt-forms",
  "cobolt-indexed",
+ "cobolt-kb",
  "cobolt-lexer",
  "cobolt-mcp",
  "cobolt-parser",

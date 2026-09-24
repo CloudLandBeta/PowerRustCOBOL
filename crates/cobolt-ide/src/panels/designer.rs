@@ -13300,6 +13300,7 @@ fn control_type_name(ct: &ControlType) -> &'static str {
         CT::Slider => "Slider",
         CT::SqlDatabase => "SqlDatabase",
         CT::IndexedFile => "IndexedFile",
+        CT::KnowledgeBase => "KnowledgeBase",
         CT::BarChart => "BarChart",
         CT::LineChart => "LineChart",
         CT::PieChart => "PieChart",

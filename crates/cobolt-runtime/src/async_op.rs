@@ -38,6 +38,48 @@ pub enum AsyncOutcome {
     /// provider that answers in an unexpected shape produces one diagnosis,
     /// not two that can drift apart.
     AgentReply { status: u16, body: String },
+    /// Spec 068 — a KnowledgeBase operation moved on. Not final: the operation
+    /// is still pending. Throttled by the worker.
+    KbProgress {
+        document: String,
+        current: usize,
+        total: usize,
+    },
+    /// Spec 068 — an update (add, update, delete, refresh, reindex, fetching
+    /// the model) finished.
+    KbIndexed {
+        added: usize,
+        updated: usize,
+        removed: usize,
+        /// `"<document>: <reason>"`, one per document not indexed.
+        skipped: Vec<String>,
+        /// Why documents were stored without vectors, when they were.
+        note: String,
+    },
+    /// Spec 068 — a search finished.
+    KbSearchDone {
+        hits: Vec<KbHit>,
+        mode: String,
+        reason: String,
+    },
+    /// Spec 068 — another application held the collection's write lock past
+    /// the wait.
+    KbBusy { message: String },
+    /// Spec 068 — the operation failed.
+    KbError { message: String },
+    /// Spec 068 — a model's search of a KnowledgeBase collection, run on a
+    /// worker because it needed the embedding server. Delivered to the
+    /// AGENT's tool loop, which it moves on; not the end of the agent's `Ask`.
+    KbToolResult { call_id: String, text: String },
+}
+
+/// One passage a KnowledgeBase search found (spec 068 R33).
+#[derive(Debug, Clone, PartialEq)]
+pub struct KbHit {
+    pub document: String,
+    pub heading: String,
+    pub passage: String,
+    pub score: f32,
 }
 
 /// A completed background operation, matched to a control by id + generation.

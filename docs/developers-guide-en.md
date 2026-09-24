@@ -8909,6 +8909,161 @@ a model needs from its name — you choose.
 > - An allowed file is visible to **every** agent in the application. Allow
 >   only files whose contents any of your agents may repeat to its user.
 
+### Your users' documents: the KnowledgeBase control
+
+A **KnowledgeBase** gives your application a library of its users' documents
+that a program — or a model — can search: company policies, manuals, meeting
+notes. It is the application's own. It has nothing to do with the Knowledge
+Base the IDE's assistant uses while you design, and a built application carries
+nothing of the IDE for it.
+
+Drop a **KnowledgeBase** from the Toolbox (*NonVisual*) onto a form. It holds
+**collections**: independent sets of documents, each in its own folder with a
+searchable index built from them.
+
+```text
+<app>/assets/KB/                  ← Location (the default)
+    hr/                           ← a collection
+        documents/                ← the users' files
+        collection.kbindex        ← the index, built from them
+    legal/
+        documents/
+        collection.kbindex
+```
+
+| Property | What it does |
+|---|---|
+| `Location` | The folder holding the collections. Relative paths start at the application's folder; it may be a folder on another machine in your network. |
+| `Collection` | The collection the document and search methods act on. |
+| `Embedder` | `Lexical`, `Endpoint` or `Builtin` — see *How text is matched*. |
+| `MaximumResults` | Hits a `Search` returns when it names no maximum (5). |
+| `WriteWaitMilliseconds` | How long a write waits for another application writing the same collection (5000). |
+
+#### Everything happens in the background
+
+Adding, changing, deleting, refreshing and searching run while the form stays
+responsive. The method answers at once — `1` when the work started, `0` when it
+could not (read `LastError`) — and the result arrives as an event. **The
+properties you read inside an event's branch are the values that event
+carried**, so two progress reports never overwrite each other before your
+handler sees them:
+
+```cobol
+           MOVE KB-1::AddDocument("policies/leave.md", WS-TEXT) TO WS-OK
+      *>   …then, in the event loop:
+           EVALUATE COBOL-EVENT-ID
+               WHEN "onProgress"
+                   MOVE KB-1::ProgressCurrent TO WS-DONE
+                   MOVE KB-1::ProgressTotal   TO WS-TOTAL
+                   PERFORM SHOW-PROGRESS
+               WHEN "onIndexed"
+                   MOVE KB-1::Search("annual leave") TO WS-OK
+               WHEN "onSearchComplete"
+                   MOVE KB-1::ResultCount TO WS-COUNT
+                   PERFORM VARYING WS-N FROM 1 BY 1
+                           UNTIL WS-N > WS-COUNT
+                       MOVE KB-1::GetResultDocument(WS-N) TO WS-DOC
+                       MOVE KB-1::GetResultPassage(WS-N)  TO WS-PASSAGE
+                       PERFORM SHOW-HIT
+                   END-PERFORM
+               WHEN "onBusy"
+                   MOVE KB-1::LastError TO WS-MESSAGE
+           END-EVALUATE
+```
+
+| Methods | |
+|---|---|
+| `AddDocument(name, text)`, `UpdateDocument(name, text)` | Save a document (sub-folders allowed: `policies/leave.md`) and index it. |
+| `ImportDocument(path [, name])` | Copy a file in and index it. |
+| `DeleteDocument(name)` | Delete a document and its entries in the index. |
+| `Refresh()` | Index what changed in the folder — see below. |
+| `Search(query [, max])` | Search; then `GetResultDocument`, `GetResultHeading`, `GetResultPassage`, `GetResultScore(n)`. |
+| `CreateCollection(name)`, `RemoveCollection(name)`, `ListCollections()`, `GetCollection(n)` | Manage collections. |
+| `ListDocuments()`, `GetDocument(n)` | The collection's documents. |
+| `Reindex()`, `FetchModel()`, `Cancel()` | Re-embed everything; fetch the built-in model; stop the running operation. |
+
+A document is split into passages by its headings, so a search returns the
+section that answers — `GetResultHeading` names it as
+`leave › Leave › Carry-over` — and a long section comes back whole. The
+Knowledge Base reads Markdown and plain text; a document it cannot read is
+skipped, and `onIndexed` names it in `SkippedDocuments` with the reason.
+
+#### Keeping the index current
+
+Changes made through the control update the index straight away. Files your
+users copy into `documents/` with the file manager — or that a colleague adds on
+a shared folder — are picked up by `Refresh()`: it compares the folder with the
+index **by content** and indexes only what was added, changed or removed. Call it
+when your form opens a collection. Nothing watches the folder in the
+background; on a network share such watching is unreliable.
+
+#### How text is matched
+
+- **`Lexical`** — built in, always available. Matches words: "leave" finds
+  "leave", not "vacation".
+- **`Endpoint`** — an embedding model on a server (`EmbeddingAPI`,
+  `EmbeddingURL`, `EmbeddingModel`, or a **Configuration** naming one of your
+  Model Providers). Its key comes from the machine's key store, never from the
+  form.
+- **`Builtin`** — the semantic model runs inside your application and finds
+  meaning offline. It is linked only when the project asks for it:
+
+  ```toml
+  [rag]
+  embedder = "builtin"
+  ```
+
+  The model (about 470 MB) is fetched once per installation into
+  `<app>/assets/models` with `FetchModel()`, and shared by every user of that
+  installation.
+
+`SearchMode` tells you how a search was scored. When the chosen embedder cannot
+be used — the server is down, the model not fetched yet, or the collection was
+indexed with a different embedder — search falls back to lexical and
+`SearchModeReason` says why. Documents added meanwhile are stored without
+vectors and still found by their words; the next `Refresh()` with a working
+embedder gives them vectors. Changing a collection's embedder takes a
+`Reindex()`.
+
+> 📷 Screenshot needed — `knowledgebase-properties.png`. Select a KnowledgeBase
+> on a form with `Embedder = Endpoint` and capture the properties pane showing
+> Location, Collection, Embedder, Configuration and EmbeddingModel.
+
+#### Sharing one Knowledge Base
+
+Several applications — on one machine, or users on a network share — can search
+and write the same collection at once. Writes take turns; one that waits longer
+than `WriteWaitMilliseconds` raises `onBusy` and writes nothing, so you can tell
+the user to try again. Concurrent use has been verified on a **local disk**
+(three processes searching and writing one collection). Point `Location` at a
+network share only after trying it there: sharing relies on the file locks the
+share provides.
+
+#### Letting an agent read the documents
+
+```cobol
+           MOVE AGT-1::AllowKnowledgeBase("KB-1") TO WS-OK
+           MOVE AGT-1::Ask("How much annual leave do we get?") TO WS-OK
+```
+
+The model now has a tool that searches the collection (the control's
+`Collection`, or the one you name as a second argument). It decides when to
+search, and each passage it receives names its document and section, so it can
+cite them. `DenyKnowledgeBase` withdraws it. As with `AllowFile`, a collection
+you allow is visible to every agent in the application.
+
+> ⚠️ **Caveats.**
+> - One operation at a time per control: a second call while one runs answers
+>   `0`. Use a second KnowledgeBase control for work in parallel.
+> - `RemoveCollection` moves the folder aside (`hr.removed-<time>`) instead of
+>   deleting it — its documents may be the only copy your users have.
+> - Rebuilding your application never overwrites what your users own: a
+>   collection that already exists in the delivered `assets/KB` is left alone,
+>   and `assets/models` only gains missing files. A collection you ship in
+>   `assets/KB/<name>/documents` is copied only where it does not exist yet.
+> - An application installed in a read-only folder cannot keep its
+>   Knowledge Base under `assets/KB`; set `Location` to a writable folder.
+
 ---
 
 ## 17. The command line (rcrun)

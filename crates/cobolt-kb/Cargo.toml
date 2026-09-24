@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name         = "cobolt-kb"
+description  = "The application Knowledge Base for PowerRustCOBOL applications — chunking, embedding, a shared index, search (spec 068)"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+[dependencies]
+# The index. Pinned exactly: the multi-process mode is an experimental redb
+# feature (spec 068 R9), and an experimental API is allowed to move between
+# releases. `experimental-multiprocess` adds byte-range file locking and no C.
+redb    = { version = "=4.3.0", features = ["experimental-multiprocess"] }
+serde      = { workspace = true }
+serde_json = { workspace = true }
+bincode    = { workspace = true }
+
+# The built-in semantic embedder — only with the `semantic` feature. Same
+# versions and settings as the IDE's `cobolt-agents`, so the two build once.
+# tokenizers' default `esaxx_fast` would bring C++; `onig` is kept (the IDE's
+# regex behaviour), and it compiles C — which is why the feature is opt-in.
+candle-core         = { version = "0.11", optional = true }
+candle-nn           = { version = "0.11", optional = true }
+candle-transformers = { version = "0.11", optional = true }
+tokenizers          = { version = "0.23", default-features = false, features = ["onig"], optional = true }
+
+# Metal needs no extra toolchain, so a macOS build with `semantic` carries it and
+# the device probe decides.
+[target.'cfg(target_os = "macos")'.dependencies]
+candle-transformers = { version = "0.11", features = ["metal"], optional = true }
+
+[features]
+# The built-in semantic embedder (spec 068 R22). Off by default: it links candle
+# and tokenizers, and tokenizers' `onig` regex engine compiles C.
+semantic = ["dep:candle-core", "dep:candle-nn", "dep:candle-transformers", "dep:tokenizers"]
+
+[dev-dependencies]
+tempfile = "3.10"

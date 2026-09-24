@@ -502,7 +502,7 @@ pub(crate) fn form_property_valid(key: &str) -> bool {
 /// operation this rejects is exactly one the apply path would silently skip.
 /// Every control type the designer can deploy. One list, used to build the
 /// context block AND to prove an event name wrong without a form.
-pub(crate) const ALL_CONTROL_TYPES: [&str; 35] = [
+pub(crate) const ALL_CONTROL_TYPES: [&str; 36] = [
     "Button",
     "TextBox",
     "Label",
@@ -531,6 +531,7 @@ pub(crate) const ALL_CONTROL_TYPES: [&str; 35] = [
     "RestClient",
     "SqlDatabase",
     "IndexedFile",
+    "KnowledgeBase",
     "Slider",
     "BarChart",
     "LineChart",
@@ -1909,7 +1910,7 @@ pub fn build_context(form: &Form) -> String {
     );
 
     out.push_str("AVAILABLE CONTROL TYPES (use these for 'deploy_control'):\n");
-    out.push_str("  Button, TextBox, Label, CheckBox, RadioButton, ListBox, ComboBox, GroupBox, Panel, TabControl, DataGrid, PictureBox, ProgressBar, MenuBar, ToolBar, StatusBar, Line, DateTimePicker, NumericUpDown, TreeView, Splitter, Timer, Shape, Animator, AgentObject, RestClient, SqlDatabase, IndexedFile, Slider, BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart\n\n");
+    out.push_str("  Button, TextBox, Label, CheckBox, RadioButton, ListBox, ComboBox, GroupBox, Panel, TabControl, DataGrid, PictureBox, ProgressBar, MenuBar, ToolBar, StatusBar, Line, DateTimePicker, NumericUpDown, TreeView, Splitter, Timer, Shape, Animator, AgentObject, RestClient, SqlDatabase, IndexedFile, KnowledgeBase, Slider, BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart\n\n");
 
     out.push_str("CONTROLS:\n");
     if form.controls.is_empty() {

@@ -28,6 +28,7 @@ use indexmap::IndexMap;
 
 /// Spec 072 — the AgentObject tool loop.
 mod agent_loop;
+mod kb;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
 use std::sync::mpsc;
@@ -1607,6 +1608,16 @@ pub struct Interpreter {
     /// Live generation per control. A delivered result whose generation no
     /// longer matches (cancelled / timed-out / superseded) is discarded.
     async_generations: HashMap<String, Arc<AtomicU64>>,
+    /// Spec 068 — per KnowledgeBase: its last search's hits, the collections
+    /// and documents its list methods read, and the running operation's cancel
+    /// flag. Keyed by the control id, upper-cased.
+    kb_states: HashMap<String, kb::KbControlState>,
+    /// Spec 068 — the values each queued KnowledgeBase event carries, applied
+    /// when that event is dispatched. Keyed by the form's spelling, upper-cased.
+    kb_payloads: HashMap<String, std::collections::VecDeque<kb::KbPayload>>,
+    /// Spec 068 — collections handed to agents as tools (every agent sees
+    /// them, as with `AllowFile`).
+    kb_tools: Vec<kb::KbTool>,
     /// Completed async operations awaiting dispatch to COBOL as
     /// `(control-id, event-id)`, one presented per `COBOL-WAIT-EVENT` return.
     /// The form's control ids as the FORM spells them, keyed by their
@@ -2042,6 +2053,9 @@ impl Interpreter {
             async_result_rx,
             async_pending: HashMap::new(),
             async_generations: HashMap::new(),
+            kb_states: HashMap::new(),
+            kb_payloads: HashMap::new(),
+            kb_tools: Vec::new(),
             control_ids: std::collections::HashMap::new(),
             async_dispatch_queue: std::collections::VecDeque::new(),
             viewer_bytes: std::collections::HashMap::new(),
@@ -3437,8 +3451,26 @@ impl Interpreter {
             if r.generation != live {
                 continue; // stale — cancelled / timed-out / superseded
             }
-            self.async_pending.remove(&r.ctrl_id);
+            // A progress report is not the end of its operation: only a final
+            // outcome releases the control (spec 068).
+            if !matches!(
+                r.outcome,
+                crate::async_op::AsyncOutcome::KbProgress { .. }
+                    | crate::async_op::AsyncOutcome::KbToolResult { .. }
+            ) {
+                self.async_pending.remove(&r.ctrl_id);
+            }
             match r.outcome {
+                o @ (crate::async_op::AsyncOutcome::KbProgress { .. }
+                | crate::async_op::AsyncOutcome::KbIndexed { .. }
+                | crate::async_op::AsyncOutcome::KbSearchDone { .. }
+                | crate::async_op::AsyncOutcome::KbBusy { .. }
+                | crate::async_op::AsyncOutcome::KbError { .. }) => {
+                    self.kb_delivered(&r.ctrl_id, o);
+                }
+                crate::async_op::AsyncOutcome::KbToolResult { call_id, text } => {
+                    self.kb_tool_delivered(&r.ctrl_id, &call_id, text);
+                }
                 crate::async_op::AsyncOutcome::AgentReply { status, body } => {
                     self.agent_delivered(&r.ctrl_id, status, &body);
                 }
@@ -3522,6 +3554,9 @@ impl Interpreter {
         loop {
             self.drain_async_ops();
             if let Some((ctrl, event_id)) = self.async_dispatch_queue.pop_front() {
+                // Spec 068 — a KnowledgeBase event's own values, written as it
+                // is presented, so its handler reads exactly them.
+                self.kb_apply_payload(&ctrl, &event_id);
                 if event_id == "onToolCall" {
                     self.tool_loop_dispatched(&ctrl);
                 }
@@ -13976,6 +14011,13 @@ impl Interpreter {
                 return val(answer);
             }
         }
+        // Spec 068 — routed by class first: `Search`, `Refresh` and `Cancel`
+        // mean something else on other controls.
+        if self.is_knowledge_base(obj) {
+            if let Some(answer) = self.kb_method(obj, &m, args) {
+                return val(answer);
+            }
+        }
 
         match m.as_str() {
             // ── Universal lifecycle / visibility ──
@@ -14864,6 +14906,12 @@ impl Interpreter {
             }
             "DENYFILE" => {
                 self.mcp_tools.deny(&arg(0));
+                none
+            }
+            // Spec 068 — a KnowledgeBase collection as a tool the model uses.
+            "ALLOWKNOWLEDGEBASE" => val(self.agent_allow_kb(&arg(0), &arg(1))),
+            "DENYKNOWLEDGEBASE" => {
+                self.agent_deny_kb(&arg(0), &arg(1));
                 none
             }
             "ASK" => {
@@ -17789,6 +17837,14 @@ fn is_known_method(name: &str) -> bool {
             | "REMOVENODE" | "EXPANDALL" | "COLLAPSEALL" | "GETSELECTEDNODE" | "SETSELECTEDNODE"
             // Spec 072 — AgentObject tools.
             | "ADDTOOL" | "ADDTOOLPARAMETER" | "REMOVETOOL" | "SETTOOLRESULT" | "ALLOWFILE" | "DENYFILE"
+            // Spec 068 — the KnowledgeBase control.
+            | "CREATECOLLECTION" | "REMOVECOLLECTION" | "LISTCOLLECTIONS" | "GETCOLLECTION"
+            | "LISTDOCUMENTS" | "GETDOCUMENT" | "GETRESULTDOCUMENT" | "GETRESULTHEADING"
+            | "GETRESULTPASSAGE" | "GETRESULTSCORE" | "ADDDOCUMENT" | "UPDATEDOCUMENT"
+            | "IMPORTDOCUMENT" | "DELETEDOCUMENT" | "REINDEX" | "FETCHMODEL"
+            | "ALLOWKNOWLEDGEBASE" | "DENYKNOWLEDGEBASE"
+            // (SEARCH and CANCEL are listed below, for WebSearch and the async
+            // controls.)
             // Spec 066 — SideMenu rows added at run time.
             | "ADDSECTION" | "SETITEMLABEL" | "SETITEMICON" | "SETITEMBADGE" | "SETITEMENABLED"
             | "SETITEMACTION" | "HASITEM"

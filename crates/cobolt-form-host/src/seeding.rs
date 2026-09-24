@@ -162,6 +162,7 @@ fn resolve_connections(form_name: &str, controls: &mut [cobolt_forms::Control]) 
         let prop = match c.control_type {
             cobolt_forms::ControlType::WebSearch => "ApiKey",
             cobolt_forms::ControlType::AgentObject => "AgentAPIKey",
+            cobolt_forms::ControlType::KnowledgeBase => "EmbeddingAPIKey",
             _ => "AuthToken",
         };
         c.set_prop(prop, cobolt_forms::PropValue::String(key));
@@ -797,6 +798,25 @@ mod tests {
     /// A read-before-write returns the DESIGNED value: caption and geometry
     /// are present in the seed entry for the control (R20 / AC9's registry
     /// half).
+    /// Spec 068 — a KnowledgeBase is seeded as its own class with its
+    /// designed settings, so every host that seeds through here — `rcrun
+    /// run-form`, an embedded child form, the compiled binary — hands the
+    /// interpreter the same control (R34). Its key is not in the form.
+    #[test]
+    fn a_knowledge_base_is_seeded_with_its_settings() {
+        let mut kb = Control::new("KB-1", ControlType::KnowledgeBase, 0, 0);
+        kb.set_prop("Collection", PropValue::String("hr".into()));
+        let (form, flat) = form_with(kb);
+        let seed = build_object_seed(&form, &flat, None, None);
+        let (id, kind, props) = &seed[1];
+        assert_eq!((id.as_str(), kind.as_str()), ("KB-1", "KnowledgeBase"));
+        let get = |k: &str| props.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
+        assert_eq!(get("Location"), Some("assets/KB"));
+        assert_eq!(get("Collection"), Some("hr"));
+        assert_eq!(get("Embedder"), Some("Lexical"));
+        assert_eq!(get("EmbeddingAPIKey"), Some(""), "no key without a key store entry");
+    }
+
     #[test]
     fn designed_caption_and_geometry_are_seeded() {
         let mut label = Control::new("Label-1", ControlType::Label, 10, 20);

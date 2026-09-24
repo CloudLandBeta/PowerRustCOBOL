@@ -8336,6 +8336,76 @@ impl PropertiesPanel {
             }
 
             // ── Agent Object ──────────────────────────────────────────────────
+            // Spec 068 — the application Knowledge Base.
+            ControlType::KnowledgeBase if phase == TypeSection::Basic => {
+                section_header(ui, tr.sec_basic);
+                text_prop_row(ui, id, "Location", "Location", ctrl, action, &mut self.text_bufs);
+                text_prop_row(ui, id, "Collection", "Collection", ctrl, action, &mut self.text_bufs);
+                combo_prop_row(
+                    ui, id, "Embedder", "Embedder", ctrl, action,
+                    &["Lexical", "Endpoint", "Builtin"], "Lexical",
+                );
+                let embedder = ctrl
+                    .get_prop("Embedder")
+                    .map(|v| v.as_str().trim().to_ascii_lowercase())
+                    .unwrap_or_default();
+                if embedder == "endpoint" {
+                    // The same Model Providers an AgentObject binds to; the key
+                    // stays in the manager and never reaches the form.
+                    let conns = self.agent_connections.clone();
+                    let cur_id = ctrl
+                        .get_prop(cobolt_forms::connections::CONFIGURATION_PROP)
+                        .map(|v| v.as_str().trim().to_owned())
+                        .unwrap_or_default();
+                    let selected = if cur_id.is_empty() {
+                        LOCAL_CONFIG_LABEL.to_owned()
+                    } else {
+                        conns
+                            .iter()
+                            .find(|c| c.id == cur_id)
+                            .map(|c| c.name.clone())
+                            .unwrap_or_else(|| format!("⚠ {cur_id}"))
+                    };
+                    property_row(ui, "Configuration:", |ui| {
+                        egui::ComboBox::from_id_salt(format!("cb_{id}_KbConfiguration"))
+                            .selected_text(selected)
+                            .width(ui.available_width().min(200.0))
+                            .show_ui(ui, |ui| {
+                                if ui.selectable_label(cur_id.is_empty(), LOCAL_CONFIG_LABEL).clicked() {
+                                    action.set_props.push((
+                                        id.to_owned(),
+                                        cobolt_forms::connections::CONFIGURATION_PROP.into(),
+                                        PropValue::String(String::new()),
+                                    ));
+                                }
+                                for c in &conns {
+                                    if ui.selectable_label(c.id == cur_id, &c.name).clicked() {
+                                        action.set_props.push((
+                                            id.to_owned(),
+                                            cobolt_forms::connections::CONFIGURATION_PROP.into(),
+                                            PropValue::String(c.id.clone()),
+                                        ));
+                                    }
+                                }
+                            });
+                    });
+                    if cur_id.is_empty() {
+                        combo_prop_row(
+                            ui, id, "EmbeddingAPI", "EmbeddingAPI", ctrl, action,
+                            &["Ollama", "OpenAI", "LMStudio", "Custom"], "Ollama",
+                        );
+                        text_prop_row(ui, id, "EmbeddingURL", "EmbeddingURL", ctrl, action, &mut self.text_bufs);
+                    }
+                    text_prop_row(ui, id, "EmbeddingModel", "EmbeddingModel", ctrl, action, &mut self.text_bufs);
+                } else if embedder == "builtin" {
+                    ui.label(RichText::new(tr.kb_builtin_hint).small().color(Color32::GRAY).italics());
+                }
+                int_prop_row(ui, id, "MaximumResults", "MaximumResults", ctrl, action, 1..=50, None, 5);
+                int_prop_row(
+                    ui, id, "WriteWaitMilliseconds", "WriteWait", ctrl, action,
+                    0..=600_000, Some(" ms"), 5000,
+                );
+            }
             ControlType::AgentObject if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 // ── Which model provider this agent talks to ────────────────

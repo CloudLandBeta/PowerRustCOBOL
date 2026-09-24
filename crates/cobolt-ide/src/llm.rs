@@ -2525,7 +2525,7 @@ Design rules
   - Maintain consistent row heights, uniform vertical gaps (e.g. 8px–12px), aligned label columns, consistent input control widths, and grouped action buttons.
   - Use `{ "op": "set_property", "control_id": "<control_id>", "key": "X", "value": "<number>" }` and `{ "op": "set_property", "control_id": "<control_id>", "key": "Y", "value": "<number>" }` for each control requiring repositioning or resizing.
   - Preserve all control IDs, captions, bindings, tab order, and non-visual control configuration.
-- Non-Visual Controls (`IndexedFile`, `SqlDatabase`, `RestClient`, `AgentObject`, `Timer`):
+- Non-Visual Controls (`IndexedFile`, `SqlDatabase`, `RestClient`, `AgentObject`, `KnowledgeBase`, `Timer`):
   - Non-visual controls reside on the form canvas, but due to their nature they are not managed or configured by Form Designer Agent. Leave their schema, properties, data bindings, and status parameters intact.
   - The ONLY exception to this rule is their visual designer geometry (`X`, `Y`, `Width`, `Height`), which Form Designer Agent is authorized to adjust if explicitly requested by the developer for canvas layout purposes.
 - When a task asks you to describe, summarize, compare, or otherwise WRITE FROM a control's existing behavior — a caption explaining what a handler does, a property matching another control's effect — read the `EVENT HANDLERS` / `FORM EVENT HANDLERS` block in your context: the verbatim bound COBOL for every control and form event that already has one. It is the ONLY source of truth for what a control's event actually does; `EVENTS BY TYPE` only lists names a TYPE supports, not what any real control is wired to do. If a control you must describe has no handler listed there, say so in the operation you return — do NOT invent behavior for it, and do NOT write the same value on every control because that value (the developer's example, or the task text itself) was the only thing you had to copy from. A property write is wrong once per control it is wrong on; identical text across controls whose task calls for per-control differentiation is the specific defect this rule exists to stop.
@@ -2582,7 +2582,7 @@ Design rules
   - Maintain consistent row heights, uniform vertical gaps (e.g. 8px–12px), aligned label columns, consistent input control widths, and grouped action buttons.
   - Use `{ "op": "set_property", "control_id": "<control_id>", "key": "X", "value": "<number>" }` and `{ "op": "set_property", "control_id": "<control_id>", "key": "Y", "value": "<number>" }` for each control requiring repositioning or resizing.
   - Preserve all control IDs, captions, bindings, tab order, and non-visual control configuration.
-- Non-Visual Controls (`IndexedFile`, `SqlDatabase`, `RestClient`, `AgentObject`, `Timer`):
+- Non-Visual Controls (`IndexedFile`, `SqlDatabase`, `RestClient`, `AgentObject`, `KnowledgeBase`, `Timer`):
   - Non-visual controls reside on the form canvas, but due to their nature they are not managed or configured by Form Designer Agent. Leave their schema, properties, data bindings, and status parameters intact.
   - The ONLY exception to this rule is their visual designer geometry (`X`, `Y`, `Width`, `Height`), which Form Designer Agent is authorized to adjust if explicitly requested by the developer for canvas layout purposes.
 - Only use property keys explicitly listed under `PROPERTY KEYS BY TYPE` (per control type) or `FORM PROPERTIES` (form level) in the context. Do NOT invent or speculate property names (such as `shadowColorDark`, `shadowColorLight`, `innerShadow`, `hoverBackgroundColor`, `fontStyle`).
@@ -2636,7 +2636,7 @@ Design rules
   - Maintain consistent row heights, uniform vertical gaps (e.g. 8px–12px), aligned label columns, consistent input control widths, and grouped action buttons.
   - Use `{ "op": "set_property", "control_id": "<control_id>", "key": "X", "value": "<number>" }` and `{ "op": "set_property", "control_id": "<control_id>", "key": "Y", "value": "<number>" }` for each control requiring repositioning or resizing.
   - Preserve all control IDs, captions, bindings, tab order, and non-visual control configuration.
-- Non-Visual Controls (`IndexedFile`, `SqlDatabase`, `RestClient`, `AgentObject`, `Timer`):
+- Non-Visual Controls (`IndexedFile`, `SqlDatabase`, `RestClient`, `AgentObject`, `KnowledgeBase`, `Timer`):
   - Non-visual controls reside on the form canvas, but due to their nature they are not managed or configured by Form Designer Agent. Leave their schema, properties, data bindings, and status parameters intact.
   - The ONLY exception to this rule is their visual designer geometry (`X`, `Y`, `Width`, `Height`), which Form Designer Agent is authorized to adjust if explicitly requested by the developer for canvas layout purposes.
 - Only use property keys explicitly listed under `PROPERTY KEYS BY TYPE` (per control type) or `FORM PROPERTIES` (form level) in the context. Do NOT invent or speculate property names (such as `shadowColorDark`, `shadowColorLight`, `innerShadow`, `hoverBackgroundColor`, `fontStyle`).

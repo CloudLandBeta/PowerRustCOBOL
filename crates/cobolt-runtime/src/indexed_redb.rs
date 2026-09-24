@@ -582,7 +582,7 @@ impl RedbIndexedFile {
     fn alt_edge_composite(&self, idx: usize, dir: ReadDir) -> Option<Bytes> {
         let (lo, hi) = prefix_bounds(idx);
         with_alt!(self, mt => {
-            let mut r = match mt.range::<&[u8]>((Included(lo.as_slice()), Excluded(hi.as_slice()))) {
+            let mut r = match mt.range((Included(lo.as_slice()), Excluded(hi.as_slice()))) {
                 Ok(r) => r,
                 Err(_) => return None,
             };
@@ -597,11 +597,11 @@ impl RedbIndexedFile {
         with_alt!(self, mt => {
             match dir {
                 ReadDir::Next => {
-                    let mut r = mt.range::<&[u8]>((Excluded(comp), Excluded(hi.as_slice()))).ok()?;
+                    let mut r = mt.range((Excluded(comp), Excluded(hi.as_slice()))).ok()?;
                     r.next().and_then(|x| x.ok()).map(|(k, _)| k.value().to_vec())
                 }
                 ReadDir::Previous => {
-                    let mut r = mt.range::<&[u8]>((Included(lo.as_slice()), Excluded(comp))).ok()?;
+                    let mut r = mt.range((Included(lo.as_slice()), Excluded(comp))).ok()?;
                     r.next_back().and_then(|x| x.ok()).map(|(k, _)| k.value().to_vec())
                 }
             }
@@ -612,7 +612,7 @@ impl RedbIndexedFile {
     /// here lets a primary-key `READ NEXT` skip a second lookup (one descent).
     fn primary_edge(&self, dir: ReadDir) -> Option<(Bytes, Bytes)> {
         with_primary!(self, t => {
-            let mut r = t.range::<&[u8]>(..).ok()?;
+            let mut r = t.range(..).ok()?;
             let item = match dir { ReadDir::Next => r.next(), ReadDir::Previous => r.next_back() };
             item.and_then(|x| x.ok()).map(|(k, v)| (k.value().to_vec(), v.value().to_vec()))
         }, None)
@@ -622,11 +622,11 @@ impl RedbIndexedFile {
         with_primary!(self, t => {
             match dir {
                 ReadDir::Next => {
-                    let mut r = t.range::<&[u8]>((Excluded(pk), Unbounded)).ok()?;
+                    let mut r = t.range((Excluded(pk), Unbounded)).ok()?;
                     r.next().and_then(|x| x.ok()).map(|(k, v)| (k.value().to_vec(), v.value().to_vec()))
                 }
                 ReadDir::Previous => {
-                    let mut r = t.range::<&[u8]>((Unbounded, Excluded(pk))).ok()?;
+                    let mut r = t.range((Unbounded, Excluded(pk))).ok()?;
                     r.next_back().and_then(|x| x.ok()).map(|(k, v)| (k.value().to_vec(), v.value().to_vec()))
                 }
             }
@@ -641,11 +641,11 @@ impl RedbIndexedFile {
     fn primary_bound(&self, op: StartOp, lo: &[u8], hi: &[u8]) -> Option<Bytes> {
         with_primary!(self, t => {
             let res = match op {
-                StartOp::Eq => t.range::<&[u8]>((Included(lo), Included(hi))).ok()?.next(),
-                StartOp::Ge => t.range::<&[u8]>((Included(lo), Unbounded)).ok()?.next(),
-                StartOp::Gt => t.range::<&[u8]>((Excluded(hi), Unbounded)).ok()?.next(),
-                StartOp::Le => t.range::<&[u8]>((Unbounded, Included(hi))).ok()?.next_back(),
-                StartOp::Lt => t.range::<&[u8]>((Unbounded, Excluded(lo))).ok()?.next_back(),
+                StartOp::Eq => t.range((Included(lo), Included(hi))).ok()?.next(),
+                StartOp::Ge => t.range((Included(lo), Unbounded)).ok()?.next(),
+                StartOp::Gt => t.range((Excluded(hi), Unbounded)).ok()?.next(),
+                StartOp::Le => t.range((Unbounded, Included(hi))).ok()?.next_back(),
+                StartOp::Lt => t.range((Unbounded, Excluded(lo))).ok()?.next_back(),
             };
             res.and_then(|x| x.ok()).map(|(k, _)| k.value().to_vec())
         }, None)
@@ -664,11 +664,11 @@ impl RedbIndexedFile {
         let (lo, hi) = prefix_bounds(idx);
         with_alt!(self, mt => {
             let res = match op {
-                StartOp::Eq => mt.range::<&[u8]>((Included(clo.as_slice()), Included(chi.as_slice()))).ok()?.next(),
-                StartOp::Ge => mt.range::<&[u8]>((Included(clo.as_slice()), Excluded(hi.as_slice()))).ok()?.next(),
-                StartOp::Gt => mt.range::<&[u8]>((Excluded(chi.as_slice()), Excluded(hi.as_slice()))).ok()?.next(),
-                StartOp::Le => mt.range::<&[u8]>((Included(lo.as_slice()), Included(chi.as_slice()))).ok()?.next_back(),
-                StartOp::Lt => mt.range::<&[u8]>((Included(lo.as_slice()), Excluded(clo.as_slice()))).ok()?.next_back(),
+                StartOp::Eq => mt.range((Included(clo.as_slice()), Included(chi.as_slice()))).ok()?.next(),
+                StartOp::Ge => mt.range((Included(clo.as_slice()), Excluded(hi.as_slice()))).ok()?.next(),
+                StartOp::Gt => mt.range((Excluded(chi.as_slice()), Excluded(hi.as_slice()))).ok()?.next(),
+                StartOp::Le => mt.range((Included(lo.as_slice()), Included(chi.as_slice()))).ok()?.next_back(),
+                StartOp::Lt => mt.range((Included(lo.as_slice()), Excluded(clo.as_slice()))).ok()?.next_back(),
             };
             res.and_then(|x| x.ok()).map(|(k, _)| k.value().to_vec())
         }, None)

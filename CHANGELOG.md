@@ -8,6 +8,68 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.189] — 2026-09-24
+
+### Feature — the application Knowledge Base: the `KnowledgeBase` control (spec 068)
+
+A built application can now keep its **own** Knowledge Base: collections of
+its users' documents, each with a searchable index derived from them, under
+`<app>/assets/KB` by default. It is the third Knowledge Base, separate from
+Grace's System and Project KBs, and a built application links nothing of the
+IDE or of `cobolt-agents` for it. Verified with `cargo tree`: no `cobolt-ide`
+or `cobolt-agents` in the runtime, and no candle, tokenizers or onig unless the
+built-in model is asked for.
+
+- **New SDK crate `cobolt-kb`.** It lifts the IDE KB's chunker, hashing
+  embedder and scoring, with the embedder passed in rather than read from a
+  global. `cobolt-agents` is unchanged. The index is redb 4.3 in multi-process
+  mode (`MultiWriter`), so several applications, on one machine or on a LAN
+  share, search and write one collection at once. redb waits indefinitely for
+  another process's writer, so a lock file bounds the wait (`onBusy`).
+  Documents are split by heading, compared by content on `Refresh()`, and moved
+  aside, never deleted, when a schema changes or a collection is removed.
+- **Three embedders.** `Lexical` is built in. `Endpoint` is Ollama or
+  OpenAI-style over the runtime's HTTP, or a Model Provider through
+  `Configuration`. `Builtin` is the multilingual-e5-small model inside the
+  application. It is linked only when the project sets `[rag] embedder =
+  "builtin"`, and fetched once per installation into `<app>/assets/models`.
+  When an embedder cannot be used, search is lexical and says why. Documents
+  are then stored text-only, and a later refresh fills in the vectors.
+- **The control.** It has `Location`, `Collection`, `Embedder`, the embedding
+  connection (the key comes from the key store and never goes in the form),
+  `WriteWaitMilliseconds` and `MaximumResults`. Its methods create and remove
+  collections and add, update, import, delete, list, refresh, reindex, search,
+  fetch the model and cancel. Writes and searches run in the background and
+  report through `onProgress`, `onIndexed`, `onSearchComplete`, `onBusy` and
+  `onError`. **Each event carries its own property values**, applied when it is
+  dispatched, so progress reports never overwrite one another.
+- **`AgentObject::AllowKnowledgeBase(kb [, collection])`.** This gives the model
+  a search tool over a collection, and each passage names its document and
+  section. A search that needs the embedding server runs on a worker, and the
+  agent's tool loop resumes when it returns.
+- **Delivery no longer overwrites users' files.** An existing collection in the
+  delivered `assets/KB` is left alone, `assets/models` only gains missing
+  files, and an index is never copied. The old blanket copy of `assets/` would
+  have replaced users' documents on every rebuild.
+- **redb API.** redb's multi-process mode requires its `experimental-api-5`,
+  and cargo unions features, so `cobolt-runtime` now asks for it itself and
+  pins redb at `=4.3.0`. This keeps one redb API with or without `kb`. Sixteen
+  `range::<&[u8]>` calls in the redb indexed engine dropped their turbofish.
+  File format and locking are unchanged, and the runtime sweep is green.
+- **IDE.** It adds a Toolbox entry, icon and badge, the properties section,
+  autocomplete, the control lists, and one new `Tr` key (`kb_builtin_hint`) in
+  six languages. The System KB tables are updated and `chunked.data` is
+  regenerated (1828 records). The Guide gains *Your users' documents: the
+  KnowledgeBase control*.
+
+Tests: `cobolt-kb` unit tests, a three-process test (two searching while one
+writes, then two writing; 140 documents; integrity check passes), an offline
+semantic test (it finds `vacation.md` for "annual leave"), five
+interpreter-level tests (end to end, endpoint down, busy, agent tool, agent tool
+over an endpoint), seeding, connection binding, credential stripping, delivery,
+and feature flags. The AC4 run on an SMB share between two machines is an
+operator step.
+
 ## [PowerRustCOBOL 1.70.188] — 2026-09-24
 
 ### Spec 068 — tasks
