@@ -8,6 +8,31 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.169] — 2026-09-24
+
+### Spec 071 — PowerChat drafted for review
+
+`specs/071-powerchat/spec.md`: the RAG + transactional chatbot boilerplate
+as an example project, `examples/PowerChat/`. It carries the operator's
+decisions of 2026-09-23/24, which supersede spec 063 where the two differ:
+
+- The chatbot talks about **one topic** at a time (HR, Orders, Legal, or one the
+  end user creates at run time). Each topic has its own prompt, documents,
+  Knowledge Base and registered indexed files.
+- There are **three KBs**: the System KB and the Project KB are Grace's; the
+  **Application KB** belongs to the built app's users, lives in `assets/KB`, and
+  may be shared on a LAN.
+- The KB engine is part of the **runtime**: a built app depends on neither the
+  IDE nor `cobolt-agents`. A shared KB uses redb 4.3's multi-process mode.
+- The full agent mesh, conversations kept in an indexed file, six languages,
+  and a RAG settings form written in COBOL. API keys live in the settings file
+  for now, behind a seam the OS keychain can later replace.
+
+Runtime capabilities PowerChat needs are built first and generically, each
+with its own spec: 068 (application KB), 074 (document import), and two new
+ones, 075 (indexed files registered by path, local or network) and 076 (an
+application-side model list for `AgentObject`). Spec only; no code.
+
 ## [PowerRustCOBOL 1.70.168] — 2026-09-23
 
 ### Fix — the focus ring follows a click too, and pulses 4× slower
