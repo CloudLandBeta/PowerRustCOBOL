@@ -1692,6 +1692,7 @@ dependencies = [
 name = "cobolt-runtime"
 version = "0.2.0"
 dependencies = [
+ "aes-gcm",
  "chrono",
  "cobolt-ast",
  "cobolt-codegen",
@@ -1702,6 +1703,7 @@ dependencies = [
  "cobolt-mcp",
  "cobolt-parser",
  "cobolt-semantic",
+ "getrandom 0.4.2",
  "google_maps",
  "indexmap",
  "libc",
@@ -1714,6 +1716,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "smb2",
  "sysinfo",
  "tempfile",

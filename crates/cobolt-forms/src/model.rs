@@ -3469,7 +3469,7 @@ impl ControlType {
                 "onEnabledChanged",
                 "onLoad",
             ],
-            ControlType::AgentObject => &["onResponse", "onError", "onToolCall"],
+            ControlType::AgentObject => &["onResponse", "onError", "onToolCall", "onModelChanged"],
             ControlType::KnowledgeBase => {
                 &["onProgress", "onIndexed", "onSearchComplete", "onBusy", "onError"]
             }
@@ -5358,6 +5358,9 @@ impl Control {
                 // provider and endpoint replace them — and whose key never
                 // touches this form.
                 props.insert("Configuration".into(), PropValue::String("".into()));
+                // Spec 076 — a model-list entry the program hands over while it
+                // runs; when set it wins over Configuration and the settings below.
+                props.insert("ModelEntry".into(), PropValue::String("".into()));
                 // Network / LLM connection
                 props.insert(
                     "AgentURL".into(),
@@ -5404,6 +5407,8 @@ impl Control {
                 // The endpoint embedder's connection — the same shape as an
                 // AgentObject's, and the key likewise never on the form.
                 props.insert("Configuration".into(), PropValue::String("".into()));
+                // Spec 076 — or a model-list entry, named at run time.
+                props.insert("ModelEntry".into(), PropValue::String("".into()));
                 props.insert(
                     "EmbeddingURL".into(),
                     PropValue::String("http://localhost:11434".into()),
@@ -10764,7 +10769,7 @@ mod tests {
         assert_eq!(ControlType::Timer.supported_events(), &["onTick"]);
         assert_eq!(
             ControlType::AgentObject.supported_events(),
-            &["onResponse", "onError", "onToolCall"]
+            &["onResponse", "onError", "onToolCall", "onModelChanged"]
         );
         // RestClient / SqlDatabase / IndexedFile gain the uniform async lifecycle
         // events onComplete/onError/onCancelled/onTimeout (skipping any the

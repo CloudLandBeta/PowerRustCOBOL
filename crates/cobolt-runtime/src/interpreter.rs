@@ -1532,6 +1532,9 @@ pub struct Interpreter {
     /// Spec 075 — a fixed free-memory figure for the fit test, set only by
     /// tests; `None` asks the operating system.
     free_memory_probe: Option<u64>,
+    /// Spec 076 — each agent's model-list entry and its generation when last
+    /// used, so a change to it raises `onModelChanged` (R16).
+    model_entry_seen: HashMap<String, (String, u64)>,
     /// Spec 066 — each SideMenu's designed rows (its `.menu.yaml`), keyed by
     /// the upper-cased control id, so a program's `AddItem`/`RemoveItem` can
     /// be refused on a designed id and the nesting limit checked. Handed over
@@ -2034,6 +2037,7 @@ impl Interpreter {
             http: crate::http_runtime::HttpClient::new(),
             mcp_tools: crate::mcp_tool::IndexedToolSet::new(),
             free_memory_probe: None,
+            model_entry_seen: HashMap::new(),
             designed_menus: HashMap::new(),
             agent_declared_tools: HashMap::new(),
             tool_loops: HashMap::new(),
@@ -3443,6 +3447,22 @@ impl Interpreter {
     }
 
     fn drain_async_ops(&mut self) {
+        // Spec 076 R16 — an entry an agent used was changed or withdrawn, here
+        // or by another form in the process: tell the program, once.
+        if !self.model_entry_seen.is_empty() {
+            let moved: Vec<(String, String, u64)> = self
+                .model_entry_seen
+                .iter()
+                .filter_map(|(obj, (name, seen))| {
+                    let now = crate::model_list::generation(name);
+                    (now != *seen).then(|| (obj.clone(), name.clone(), now))
+                })
+                .collect();
+            for (obj, name, now) in moved {
+                self.model_entry_seen.insert(obj.clone(), (name, now));
+                self.queue_control_event(&obj, "onModelChanged");
+            }
+        }
         // 1. Apply delivered results.
         let results: Vec<crate::async_op::AsyncOpResult> =
             self.async_result_rx.try_iter().collect();
@@ -3577,7 +3597,9 @@ impl Interpreter {
                     Err(_) => return WaitOutcome::Disconnected,
                 }
             }
-            let has_pending = !self.async_pending.is_empty();
+            // An agent using a model-list entry polls too, so a change made by
+            // another form is noticed while this one is idle (spec 076 R16).
+            let has_pending = !self.async_pending.is_empty() || !self.model_entry_seen.is_empty();
             let debugging = self.debug_event_tx.is_some();
             let rx = match self.event_rx.as_ref() {
                 Some(rx) => rx,
@@ -10979,6 +11001,77 @@ impl Interpreter {
                 self.http.clear_headers();
             }
 
+            // ── Spec 076: the application's model list and key store ──────────
+            //
+            // COBOL-MODEL-SET    USING name api url model [status]
+            // COBOL-MODEL-REMOVE USING name [status]
+            //   Hand a model-list entry to the runtime (or withdraw it). The
+            //   program keeps the list in its own file; the runtime holds it for
+            //   this run only, shared by every form, and writes nothing.
+            // COBOL-KEY-SET      USING name key [status]
+            // COBOL-KEY-REMOVE   USING name [status]
+            // COBOL-KEY-IS-SET   USING name flag
+            //   Store, replace or remove the key for an entry, or ask whether one
+            //   is stored (`Y`/`N`). No CALL ever returns a key.
+            //   `status` receives `OK` or the reason it failed.
+            "COBOL-MODEL-SET" if using.len() >= 4 => {
+                let text = |i: usize, me: &mut Self| -> Result<String, RuntimeError> {
+                    Ok(me.eval_call_arg(&using[i], span)?.as_display_string().trim().to_string())
+                };
+                let name = text(0, self)?;
+                let entry = crate::model_list::ModelEntry {
+                    api: text(1, self)?,
+                    url: text(2, self)?,
+                    model: text(3, self)?,
+                };
+                let status = if name.is_empty() {
+                    "the entry has no name".to_string()
+                } else {
+                    crate::model_list::set(&name, entry);
+                    "OK".to_string()
+                };
+                if let Some(arg) = using.get(4) {
+                    let var = self.expr_to_name(call_arg_expr(arg));
+                    self.env.set_str(&var, &status);
+                }
+            }
+            "COBOL-MODEL-REMOVE" if !using.is_empty() => {
+                let name = self.eval_call_arg(&using[0], span)?.as_display_string();
+                crate::model_list::remove(name.trim());
+                if let Some(arg) = using.get(1) {
+                    let var = self.expr_to_name(call_arg_expr(arg));
+                    self.env.set_str(&var, "OK");
+                }
+            }
+            "COBOL-KEY-SET" | "COBOL-KEY-REMOVE" if !using.is_empty() => {
+                let name = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let (result, status_at) = if prog_name == "COBOL-KEY-SET" {
+                    match using.get(1) {
+                        Some(k) => {
+                            let key = self.eval_call_arg(k, span)?.as_display_string();
+                            (crate::key_store::key_store().set(name.trim(), key.trim()), 2)
+                        }
+                        None => (Err("no key was given".to_string()), 2),
+                    }
+                } else {
+                    (crate::key_store::key_store().remove(name.trim()), 1)
+                };
+                if let Some(arg) = using.get(status_at) {
+                    let var = self.expr_to_name(call_arg_expr(arg));
+                    let status = match &result {
+                        Ok(()) => "OK",
+                        Err(e) => e.as_str(),
+                    };
+                    self.env.set_str(&var, status);
+                }
+            }
+            "COBOL-KEY-IS-SET" if using.len() >= 2 => {
+                let name = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let set = crate::key_store::key_store().is_set(name.trim());
+                let var = self.expr_to_name(call_arg_expr(&using[1]));
+                self.env.set_str(&var, if set { "Y" } else { "N" });
+            }
+
             // ── COBOL-85 nested program CALL ──────────────────────────────────
             _ if self.nested_registry.contains_key(&prog_name) => {
                 // Clone the para_map, para_order, local_items, and USING
@@ -11667,7 +11760,7 @@ impl Interpreter {
     fn agent_ask(&mut self, obj: &str, prompt: &str) {
         use crate::agent_runtime as ag;
 
-        let req = ag::AskRequest {
+        let mut req = ag::AskRequest {
             api: self.obj_get(obj, "AgentAPI"),
             url: self.obj_get(obj, "AgentURL"),
             endpoint: self.obj_get(obj, "AgentEndpoint"),
@@ -11678,6 +11771,46 @@ impl Interpreter {
             temperature: self.obj_get(obj, "Temperature").trim().parse().unwrap_or(70),
             max_tokens: self.obj_get(obj, "MaximumTokens").trim().parse().unwrap_or(1024),
         };
+        // Spec 076 — a model-list entry, named at run time, wins over the
+        // design-time `Configuration` and the agent's own settings (R14). It
+        // brings the API, the endpoint and the key; its model when it names
+        // one; temperature, token limit and timeout stay the agent's (R17).
+        let entry_name = self.obj_get(obj, "ModelEntry").trim().to_string();
+        let key_from_store = !entry_name.is_empty();
+        if key_from_store {
+            let Some((entry, generation)) = crate::model_list::get(&entry_name) else {
+                self.model_entry_seen.remove(obj);
+                self.agent_failed(
+                    obj,
+                    &format!(
+                        "model entry '{entry_name}' does not exist — the program has not \
+                         handed it over with COBOL-MODEL-SET"
+                    ),
+                );
+                return;
+            };
+            let key = crate::key_store::key_store().get(&entry_name);
+            if entry.needs_key() && key.as_deref().map(str::trim).unwrap_or("").is_empty() {
+                self.agent_failed(
+                    obj,
+                    &format!(
+                        "model entry '{entry_name}' has no key stored, and its API ({}) needs \
+                         one — store it with COBOL-KEY-SET",
+                        entry.api
+                    ),
+                );
+                return;
+            }
+            self.model_entry_seen
+                .insert(obj.to_string(), (entry_name.to_ascii_uppercase(), generation));
+            req.api = entry.api;
+            req.url = entry.url;
+            req.endpoint = String::new();
+            if !entry.model.trim().is_empty() {
+                req.model = entry.model;
+            }
+            req.api_key = key.unwrap_or_default();
+        }
         let protocol = ag::protocol_for(&req.api, &req.url);
         let url = ag::endpoint_for(&req, protocol);
         if url.trim().is_empty() {
@@ -11728,11 +11861,21 @@ impl Interpreter {
                 cfg.timeout_ms
             ));
             for (name, value) in &cfg.headers {
-                self.agent_log(format!("[agent {obj}] header: {name}: {value}"));
+                // A key from the key store is never shown, not even here
+                // (spec 076 R7).
+                let secret = name.eq_ignore_ascii_case("authorization")
+                    || name.eq_ignore_ascii_case("x-api-key");
+                if key_from_store && secret {
+                    self.agent_log(format!("[agent {obj}] header: {name}: ****"));
+                } else {
+                    self.agent_log(format!("[agent {obj}] header: {name}: {value}"));
+                }
             }
-            if cfg.headers.iter().any(|(n, _)| {
-                n.eq_ignore_ascii_case("authorization") || n.eq_ignore_ascii_case("x-api-key")
-            }) {
+            if !key_from_store
+                && cfg.headers.iter().any(|(n, _)| {
+                    n.eq_ignore_ascii_case("authorization") || n.eq_ignore_ascii_case("x-api-key")
+                })
+            {
                 self.agent_log(format!(
                     "[agent {obj}] (this log contains the API key — do not paste it into a bug report)"
                 ));

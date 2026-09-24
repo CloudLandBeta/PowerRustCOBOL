@@ -8366,6 +8366,8 @@ impl PropertiesPanel {
                             .map(|c| c.name.clone())
                             .unwrap_or_else(|| format!("⚠ {cur_id}"))
                     };
+                    // Spec 076 — or a model-list entry, named at run time.
+                    text_prop_row(ui, id, "ModelEntry", "ModelEntry", ctrl, action, &mut self.text_bufs);
                     property_row(ui, "Configuration:", |ui| {
                         egui::ComboBox::from_id_salt(format!("cb_{id}_KbConfiguration"))
                             .selected_text(selected)
@@ -8420,6 +8422,9 @@ impl PropertiesPanel {
             }
             ControlType::AgentObject if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
+                // Spec 076 — a model-list entry the program hands over at run
+                // time; when set it wins over the Configuration below.
+                text_prop_row(ui, id, "ModelEntry", "ModelEntry", ctrl, action, &mut self.text_bufs);
                 // ── Which model provider this agent talks to ────────────────
                 //
                 // Reuses the Model Providers Manager's own records (spec 048)

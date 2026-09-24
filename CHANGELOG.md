@@ -8,6 +8,58 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.194] — 2026-09-24
+
+### Feature — the application's model list and key store (spec 076)
+
+A running application's users can now add a model, rotate a key or retire a
+model without a rebuild. The program keeps the list in its own indexed file;
+the runtime keeps only the keys.
+
+- **CALLs:**
+  - `COBOL-MODEL-SET USING name api url model [status]` and
+    `COBOL-MODEL-REMOVE USING name [status]` hand an entry to the runtime or
+    withdraw it. The runtime holds entries for the run only, shared by every
+    form in the process, and writes none to disk.
+  - `COBOL-KEY-SET USING name key [status]`, `COBOL-KEY-REMOVE` and
+    `COBOL-KEY-IS-SET USING name flag` (Y/N) manage keys. **No CALL ever
+    returns a key.**
+- **`ModelEntry`** on `AgentObject` and `KnowledgeBase`:
+  - When set, the entry wins over `Configuration` and the control's own
+    settings. It supplies the API, the endpoint and the key, and its model
+    when it names one. Temperature, tokens and timeout stay the agent's own.
+  - An unknown entry, or an OpenAI/Anthropic entry with no key, fails the
+    `Ask` at once with `onError` and sends nothing.
+  - A `KnowledgeBase` endpoint embedder uses the same resolution.
+- **New event `onModelChanged`** on `AgentObject`. It fires when an entry the
+  agent used is changed or withdrawn, by any form in the process. An agent
+  using an entry polls while idle, so a change made in another form is
+  noticed.
+- **The key store is a seam** (`key_store::KeyStore`, `set_key_store`).
+  - The first store is `settings/model-keys.dat` in the installation folder,
+    shared by the installation's users. It is AES-256-GCM encrypted with a key
+    derived from the canonical folder and the host name, with a random nonce,
+    and written atomically. All RustCrypto, pure Rust.
+  - A missing file is an empty store. An unreadable or undecryptable one is
+    reported and never overwritten.
+  - `MemoryKeyStore` is for tests; an OS keychain can replace the file store
+    later.
+- **Keys are never shown.** The verbose agent log masks the Authorization
+  header when the key came from the store.
+- **Tests:**
+  - `test_model_list.rs`, 3 COBOL programs against scripted servers:
+    - two entries, repointing, a key rotated and removed, `onModelChanged`
+    - an unknown entry failing with nothing sent, and the entry winning over
+      own settings
+    - a KnowledgeBase embedding through an entry
+    - 46 display lines, including the verbose log, searched: no key.
+  - Unit tests: generations; memory store; file store round-trip, no
+    plaintext, a copy in another folder refused, a damaged file reported and
+    left untouched.
+- System KB tables (`ModelEntry`, `onModelChanged`) and `chunked.data`
+  regenerated. The Developer's Guide gains *Models your users choose*, with
+  the plain security note of spec §6.
+
 ## [PowerRustCOBOL 1.70.193] — 2026-09-24
 
 ### Feature — indexed files registered by path: `AgentObject::RegisterFile` (spec 075)

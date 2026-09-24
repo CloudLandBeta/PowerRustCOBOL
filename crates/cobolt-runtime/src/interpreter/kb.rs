@@ -154,14 +154,25 @@ impl Interpreter {
         use crate::kb_runtime::{app_base, resolve_location, EmbedderChoice, KbConfig};
         let get = |p: &str| self.obj_get(obj, p);
         let num = |p: &str, default: u64| get(p).trim().parse::<u64>().unwrap_or(default);
+        // Spec 076 R13 — a model-list entry gives the endpoint embedder its
+        // API, endpoint, model and key.
+        let entry_name = get("ModelEntry").trim().to_string();
+        let from_entry = (!entry_name.is_empty())
+            .then(|| crate::model_list::get(&entry_name))
+            .flatten()
+            .map(|(e, _)| (e, crate::key_store::key_store().get(&entry_name).unwrap_or_default()));
+        let (url, api, model, key) = match from_entry {
+            Some((e, key)) => (e.url, e.api, e.model, key),
+            None => (get("EmbeddingURL"), get("EmbeddingAPI"), get("EmbeddingModel"), get("EmbeddingAPIKey")),
+        };
         KbConfig {
             location: resolve_location(&get("Location")),
             collection: get("Collection").trim().to_string(),
             embedder: EmbedderChoice::from_name(&get("Embedder")),
-            url: get("EmbeddingURL"),
-            api: get("EmbeddingAPI"),
-            model: get("EmbeddingModel"),
-            key: get("EmbeddingAPIKey"),
+            url,
+            api,
+            model,
+            key,
             write_wait: std::time::Duration::from_millis(num("WriteWaitMilliseconds", 5000)),
             max_results: num("MaximumResults", 5) as usize,
             archive_limits: cobolt_kb::convert::Limits {
@@ -190,6 +201,16 @@ impl Interpreter {
             return self.kb_fail(
                 obj,
                 "another Knowledge Base operation is still running on this control".into(),
+            );
+        }
+        let entry_name = self.obj_get(obj, "ModelEntry").trim().to_string();
+        if !entry_name.is_empty() && crate::model_list::get(&entry_name).is_none() {
+            return self.kb_fail(
+                obj,
+                format!(
+                    "model entry '{entry_name}' does not exist — the program has not handed \
+                     it over with COBOL-MODEL-SET"
+                ),
             );
         }
         let cfg = self.kb_config(obj);

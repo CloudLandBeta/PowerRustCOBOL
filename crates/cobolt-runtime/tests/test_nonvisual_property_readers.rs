@@ -151,6 +151,9 @@ fn declared_readers() -> Vec<(ControlType, Vec<(&'static str, Reader)>)> {
                 // Selects one of the machine's configured Model Providers;
                 // resolved into AgentAPI/AgentURL before the form runs.
                 ("Configuration", Resolved),
+                // Spec 076 — a model-list entry named at run time; read by
+                // `agent_ask`, where it wins over everything else.
+                ("ModelEntry", Runtime),
                 ("AgentURL", Generated),
                 ("AgentModel", Generated),
                 ("AgentAPI", Runtime),

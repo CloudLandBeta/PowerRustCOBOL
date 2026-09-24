@@ -1,6 +1,6 @@
 # Spec — Application model list and key store
 
-- **Status:** draft → awaiting operator review
+- **Status:** implemented (1.70.194); AC9 and AC12 partly open, see §6a
 - **Folder:** specs/076-application-model-list/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-09-24
 - **Parents:** `specs/071-powerchat/spec.md` (§4.6 R33–R37),
@@ -140,31 +140,31 @@ or the list changing.
 
 ## 5. Acceptance criteria
 
-- [ ] **AC1** — A program hands the runtime two entries at start-up, an agent
+- [x] **AC1** — A program hands the runtime two entries at start-up, an agent
       pointed at one by name answers through it, and repointing it at the other
       takes effect on the next question with no restart. *(R1–R3, R12)*
-- [ ] **AC2** — After a restart with no entries handed over, no entry exists;
+- [x] **AC2** — After a restart with no entries handed over, no entry exists;
       the runtime wrote none to disk. *(R4)*
-- [ ] **AC3** — A key stored, replaced and removed changes what the next request
+- [x] **AC3** — A key stored, replaced and removed changes what the next request
       sends; a program asking for the key gets only "set" or "not set". *(R5,
       R6)*
-- [ ] **AC4** — With a key stored, a search of every log, error, diagnostic dump
+- [x] **AC4** — With a key stored, a search of every log, error, diagnostic dump
       and captured model request finds no occurrence of it. *(R7)*
-- [ ] **AC5** — A test key store (in memory) replaces the file store with no
+- [x] **AC5** — A test key store (in memory) replaces the file store with no
       change to the program under test, which behaves identically. *(R8)*
-- [ ] **AC6** — The keys file sits in the installation folder, holds no key in
+- [x] **AC6** — The keys file sits in the installation folder, holds no key in
       plain text, and a second user of the installation uses the stored key;
       the same file copied to another installation decrypts nothing. *(R9,
       R10)*
-- [ ] **AC7** — A missing keys file gives an empty store; a corrupt one is
+- [x] **AC7** — A missing keys file gives an empty store; a corrupt one is
       reported, left as it was, and the store starts empty. *(R11)*
-- [ ] **AC8** — A `KnowledgeBase` embeds through a list entry. *(R13)*
+- [x] **AC8** — A `KnowledgeBase` embeds through a list entry. *(R13)*
 - [ ] **AC9** — An agent with a list entry, a `Configuration` and its own
       properties uses the entry; without the entry, the `Configuration` through
       the environment variables; without both, its own properties. *(R14)*
-- [ ] **AC10** — An unknown entry, and an entry missing a required key, each fail
+- [x] **AC10** — An unknown entry, and an entry missing a required key, each fail
       at once with `onError` naming the problem, and no request is sent. *(R15)*
-- [ ] **AC11** — Changing an entry in use raises the notification R16 names.
+- [x] **AC11** — Changing an entry in use raises the notification R16 names.
       *(R16)*
 - [ ] **AC12** — The same program behaves identically under `rcrun run-form`, as
       an embedded child form, and as a compiled binary; `cargo tree` shows
@@ -187,6 +187,34 @@ or the list changing.
   way that risk will be closed.
 - **Interpreter–binary parity.** R18; read the `interpreter-binary-parity`
   skill before planning.
+
+## 6a. Implementation notes (1.70.194)
+
+- **⚠️ R12 vs R17 on the model — resolved one way, for the operator to
+  confirm.** R12 says the entry supplies the model; R17 says the model an
+  agent sets on itself still applies. Implemented as: **the entry's model when
+  it names one, the agent's own otherwise.** Temperature, token limit and
+  timeout are always the agent's.
+- **AC2.** `model_list` has no file-system code; entries live in a process
+  global. Verified by construction, not by a restart test.
+- **AC4.** Tested: the program's display output with the verbose agent log on
+  (46 lines), `LastError`, and every captured request apart from the
+  Authorization header the key belongs in. The IDE's diagnostic dump is not
+  exercised by these tests.
+- **AC6.** "A second user of the installation" is tested as a second store
+  opened on the same folder. The file is shared, and the cipher key depends
+  on the folder and host name, not on the user.
+- **AC9 — partly open.** Entry over own settings is tested end to end.
+  `Configuration` resolves at seed time into the same `AgentAPI`/`AgentURL`/
+  `AgentAPIKey` properties that an entry overrides at `Ask` time, so the entry
+  also wins over it. That order is unchanged code, but it has no end-to-end
+  test here.
+- **AC12 — partly open.** The list and store are process globals in the
+  runtime, used identically by every host (child forms share the process).
+  `cargo tree` shows no `cobolt-ide` or `cobolt-agents`. A full three-host run
+  is an operator step.
+- **Keys file:** `<app>/settings/model-keys.dat`, where `<app>` is the folder
+  every host anchors assets on (`cobolt_forms::assets::current_base`).
 
 ## 7. Open questions
 

@@ -69,8 +69,14 @@ kb-semantic = ["kb", "cobolt-kb/semantic"]
 smb = ["dep:smb2", "dep:tokio"]
 
 [dependencies]
-# Free memory, for the fit test of a registered file (spec 075 R18).
+# Free memory, for the fit test of a registered file (spec 075 R18); the
+# host name, for the key store's cipher key (spec 076 R10).
 sysinfo = { workspace = true }
+# The key store's file (spec 076 R10): AES-256-GCM over a SHA-256-derived key,
+# a random nonce. All RustCrypto, pure Rust — the versions smb2 already uses.
+aes-gcm   = "0.11"
+sha2      = "0.11"
+getrandom = "0.4"
 # Spec 062 — the unique half of a printed report's filename. Already in the
 # lock as a transitive dependency, so naming it here resolves nothing new.
 uuid            = { version = "1", features = ["v4"] }

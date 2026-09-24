@@ -8580,6 +8580,92 @@ property of this agent.
 > `COBOLT_AGENT_PROVIDERS` environment variable, and each key through
 > `COBOLT_CONNECTION_KEY_<PROVIDER>`.
 
+##### Models your users choose: the model list and the key store
+
+A `Configuration` is fixed before your application starts. When the people
+*using* your application should decide which model it talks to — add the
+company's model server, rotate a key, retire a model — give them a settings
+form of your own and hand the choices to the runtime while the program runs.
+
+Two things are kept apart, on purpose:
+
+- **The model list is yours.** Keep it in an indexed file your program owns,
+  and hand each entry to the runtime at start-up — and again whenever the user
+  edits it. The runtime holds it for this run only and writes it nowhere.
+- **The keys are the runtime's.** Your program stores a key once and can never
+  read it back — only ask whether one is set, so your form can show *"a key is
+  set"* without showing it.
+
+```cobol
+       LOAD-MODEL-LIST.
+      *>   At start-up: every entry from the application's own file.
+           PERFORM UNTIL WS-EOF = "Y"
+               READ MODELS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       CALL "COBOL-MODEL-SET" USING MOD-NAME MOD-API
+                                                    MOD-URL MOD-MODEL WS-STATUS
+               END-READ
+           END-PERFORM.
+
+       SETTINGS-FORM--SAVE-KEY.
+      *>   The administrator typed a key: store it, then forget it.
+           CALL "COBOL-KEY-SET" USING MOD-NAME WS-NEW-KEY WS-STATUS
+           MOVE SPACES TO WS-NEW-KEY
+           CALL "COBOL-KEY-IS-SET" USING MOD-NAME WS-KEY-FLAG
+      *>   WS-KEY-FLAG is "Y" or "N" — never the key.
+           .
+
+       ASK-FORM--ONLOAD.
+           MOVE "company-model" TO AGENT-1::ModelEntry.
+```
+
+| CALL | What it does |
+|---|---|
+| `COBOL-MODEL-SET USING name api url model [status]` | Adds or changes an entry. `api` is one the `AgentObject` speaks (`OpenAI`, `Anthropic`, `Ollama`, `LMStudio`, `Custom`); `model` may be blank. |
+| `COBOL-MODEL-REMOVE USING name [status]` | Withdraws an entry. |
+| `COBOL-KEY-SET USING name key [status]` | Stores or replaces the key for an entry. |
+| `COBOL-KEY-REMOVE USING name [status]` | Removes it. |
+| `COBOL-KEY-IS-SET USING name flag` | `Y` or `N`. |
+
+`status` receives `OK`, or why it failed (the key file cannot be written, for
+example).
+
+**Which settings an agent uses.** Set **`ModelEntry`** — in the properties
+pane or at run time — and that entry wins: its API, endpoint and key, and its
+model if it names one. Otherwise `Configuration`, as above; otherwise the
+control's own properties. `Temperature`, `MaximumTokens` and `TimeoutSeconds`
+are always the agent's own. A `KnowledgeBase` has a `ModelEntry` too, for its
+`Endpoint` embedder.
+
+If the entry does not exist, or it is an `OpenAI` or `Anthropic` entry with
+no key stored, `Ask` fails at once with `onError` naming the entry — nothing
+is sent. When an entry an agent has used is changed or withdrawn — by this form
+or any other — that agent raises **`onModelChanged`**, so you can re-read your
+settings or pick another entry. A new key applies from the next request; no
+restart.
+
+> ⚠️ **Where the keys are, and who can use them.** The keys are kept in
+> `settings/model-keys.dat` in the application's folder, **shared by every
+> user of that installation**. They are encrypted with a key derived from the
+> installation folder and the machine's name: the file is unreadable at a
+> glance, and a copy on another machine or in another folder decrypts nothing.
+> It is **not** protected by a secret the user holds — **anyone who can run the
+> application on that machine can use the stored keys** (though never read
+> them through your program). The operating system's keychain will replace this
+> file behind the same CALLs, with no change to your program. Until then,
+> install the application where only the people who should use those keys can
+> run it.
+>
+> **Notes.**
+> - If the key file cannot be read — damaged, or copied from elsewhere — it is
+>   reported and left exactly as it is, and storing a key answers why in
+>   `status` until you move the file aside. Renaming the machine has the same
+>   effect: enter the keys again.
+> - A key is never shown: not in `LastError`, not in the verbose agent log
+>   (which masks it as `****`), not in anything sent to the model.
+> - Deployments that set `COBOLT_AGENT_PROVIDERS` keep working unchanged.
+
 **Combining with an AI Agent.** A common pattern: run a search, then ask an
 `AgentObject` to summarise the results into a multiline TextBox.
 

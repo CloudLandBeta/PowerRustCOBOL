@@ -69,6 +69,10 @@ pub mod mcp_tool;
 pub mod registered_file;
 /// `smb://` addresses for registered files (spec 075).
 pub mod smb_source;
+/// The application's model list, handed over by its program (spec 076).
+pub mod model_list;
+/// The application's key store, behind a seam (spec 076).
+pub mod key_store;
 pub mod viewer_report;
 pub mod ors_bridge;
 /// The numeric-edited PICTURE engine, which now lives in `cobolt-forms` so a
