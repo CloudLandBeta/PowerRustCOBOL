@@ -8,6 +8,29 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.180] — 2026-09-24
+
+### Spec 074 — document import, drafted for review
+
+`specs/074-document-import/spec.md` fills 068's "document in, text out" seam.
+A `KnowledgeBase` will accept:
+
+- Word, PowerPoint and Excel files, plus OpenDocument text and spreadsheets and
+  CSV/TSV (via `markdownify`);
+- PDFs, read page by page with `lopdf` the way the Viewer does;
+- HTML;
+- ZIP and TAR archives, with each document inside indexed and cited by its
+  path.
+
+Structure is kept, so a hit can name its slide, sheet or page. A document that
+can't be read (old binary Office, password protected, scanned PDF, damaged) is
+skipped and reported with the reason. Archives are expanded within size, count
+and depth bounds.
+
+Everything is pure Rust. Verified: `markdownify` and its `calamine` keep `zip`'s
+`bzip2`/`zstd` back-ends off. Open: the HTML converter, the archive bounds, and
+where the converters live. Spec only.
+
 ## [PowerRustCOBOL 1.70.179] — 2026-09-24
 
 ### Spec 068 — open questions settled
