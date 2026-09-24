@@ -8,6 +8,27 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.182] — 2026-09-24
+
+### Spec 075 — registered indexed files, drafted for review
+
+`specs/075-registered-indexed-files/spec.md`: a program gives an `AgentObject`
+an indexed file by its path while running, with no `FD` compiled in. The
+layout comes from the `.cidx`. Paths may be local, the OS's own network form,
+or `smb://` (credentials in the address or guest access, for now; passwords
+are never shown or logged).
+
+- The user's file is `OPEN INPUT` only and never changed: no write-back, no
+  conversion, and no write permission needed.
+- It is held in memory when under the project limit and within free RAM.
+  Otherwise a local DISK-format file is read in place, and anything else is
+  refused with both numbers.
+
+The spec also records two defects found in shipped code, to be fixed
+separately. The DISK engine opens even an `INPUT` file with write access (so a
+read-only file cannot be read) and runs journal recovery. 1.70.173's
+conversion also runs on `OPEN INPUT`. Spec only.
+
 ## [PowerRustCOBOL 1.70.181] — 2026-09-24
 
 ### Spec 074 — open questions settled
