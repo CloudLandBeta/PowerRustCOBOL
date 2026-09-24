@@ -121,6 +121,13 @@ shares no data, file, table or path with the other two KBs.
   conversations, prompt versions, token usage — shall use the default Rust
   indexed-file engine (PRCIDXD1), never the redb engine (operator, 2026-09-24).
   This concerns indexed files only; the KB store (R14) is not an indexed file.
+- **R10b (ubiquitous):** Indexed files PowerChat uses shall be opened with
+  `STORAGE MODE IS MEMORY` (operator, 2026-09-24; 063 R24): the files the model
+  searches, read-only, and PowerChat's own files `WITH PERSISTENCE`, since a
+  MEMORY file without it is discarded at `CLOSE`.
+- **R10c (constraint):** Because a MEMORY file reaches disk only at `CLOSE`,
+  PowerChat shall open each of its own files for the length of one operation
+  and close it again, so that a crash loses at most the operation in flight.
 
 ### 4.3 The application Knowledge Base (runtime — needs spec 068)
 
@@ -266,6 +273,10 @@ Carried from 063 §4.8 unchanged in substance.
 - [ ] **AC4a** — Every indexed file PowerChat creates opens as PRCIDXD1; none is
       a redb container, and nothing in the project selects the redb engine.
       *(R10a)*
+- [ ] **AC4b** — Every indexed file PowerChat opens is declared
+      `STORAGE MODE IS MEMORY`, its own files `WITH PERSISTENCE`; killing the
+      process mid-conversation loses at most the turn being written. *(R10b,
+      R10c)*
 - [ ] **AC5** — `grep` of the COBOL sources finds no topic name used as a
       condition. *(R10)*
 - [ ] **AC6** — A document dropped into a topic's folder becomes answerable
@@ -339,6 +350,16 @@ Carried from 063 §4.8 unchanged in substance.
   real share before AC7 counts as met, and say plainly in the guide which shares
   were verified. The feature is also flagged *experimental* by redb, so its API
   may move between releases.
+- **Q6 — Shared own-files under MEMORY storage.** A MEMORY file is loaded at
+  `OPEN` and written whole at `CLOSE`, so two users writing the same file at
+  the same time lose one another's changes: the last `CLOSE` wins. That matters
+  only for files several users write, which under Q2's proposal is the shared
+  topic list and the topic prompts. Proposal: conversations, usage and settings
+  stay **per user** (never shared); the shared topic list and prompts are
+  written only through a short "open, re-read, change, close" step, and a
+  change made meanwhile by someone else is detected and reported rather than
+  overwritten. The alternative is to use `STORAGE IS DISK` for those two files
+  alone.
 - **Q4 — Network paths that are not mounted.** On macOS and Linux a share must
   be mounted before a path can reach it. Proposal: the application accepts the
   mounted path only, and reports an `smb://` URL as "mount this share first"

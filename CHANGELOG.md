@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.171] — 2026-09-24
+
+### Spec 071 — PowerChat's indexed files are MEMORY storage
+
+New R10b/R10c, AC4b and Q6 (operator, 2026-09-24): every indexed file
+PowerChat uses is opened `STORAGE MODE IS MEMORY`. The files the model searches
+are read-only; PowerChat's own files are `WITH PERSISTENCE` and are open only
+for one operation at a time, so a crash loses at most that operation. Q6
+records what MEMORY storage means for files several users write (the last
+`CLOSE` wins) and proposes how to handle it. Spec only.
+
 ## [PowerRustCOBOL 1.70.170] — 2026-09-24
 
 ### Spec 071 — PowerChat's indexed files use the Rust engine, never redb
