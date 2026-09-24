@@ -8,6 +8,29 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.175] — 2026-09-24
+
+### Spec 071 — open modes settled, open questions answered
+
+The operator's answers of 2026-09-24, folded into `specs/071-powerchat/spec.md`:
+
+- **Indexed files are the primary store**, the user's and PowerChat's, all
+  `STORAGE MODE IS MEMORY` (R10b).
+- **User data is `OPEN INPUT` only (R10c).** That means any content the model
+  reaches through a tool, not just clients, orders and invoices. An `INPUT`
+  open never writes the file back (pinned by 1.70.174 on `fixes`).
+- **PowerChat's own files are `OUTPUT` then `EXTEND`, never `I-O` (R10e):**
+  append-only, so a change is a newer record. Each is open for one operation
+  at a time (R10f).
+- **Registered paths may be `smb://` (R21)**, read whole into RAM through a
+  pure-Rust SMB client.
+- **Resolved:** Q2 (topics and prompts live with the KB; models and keys stay
+  per machine), Q3 (PDF text page by page with `lopdf`, as the Viewer does
+  today), Q4 (`smb://`), Q6 (open modes), Q7 (fixed in 1.70.173).
+- **Partly open:** Q1 (sample topics ship inactive until "Install sample
+  topics"; the operator's sentence about removal was cut off) and Q5 (which
+  store the "redb only in MEMORY" rule governs). Spec only.
+
 ## [PowerRustCOBOL 1.70.172] — 2026-09-24
 
 ### Spec 071 — MEMORY storage falls back to DISK

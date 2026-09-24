@@ -121,13 +121,24 @@ shares no data, file, table or path with the other two KBs.
   conversations, prompt versions, token usage — shall use the default Rust
   indexed-file engine (PRCIDXD1), never the redb engine (operator, 2026-09-24).
   This concerns indexed files only; the KB store (R14) is not an indexed file.
-- **R10b (ubiquitous):** Indexed files PowerChat uses shall be opened with
-  `STORAGE MODE IS MEMORY` (operator, 2026-09-24; 063 R24): the files the model
-  searches, read-only, and PowerChat's own files `WITH PERSISTENCE`, since a
-  MEMORY file without it is discarded at `CLOSE`.
-- **R10c (constraint):** Because a MEMORY file reaches disk only at `CLOSE`,
-  PowerChat shall open each of its own files for the length of one operation
-  and close it again, so that a crash loses at most the operation in flight.
+- **R10b (ubiquitous):** Indexed files are the primary way PowerChat stores
+  information, its own and the user's, and every one of them shall be declared
+  `STORAGE MODE IS MEMORY` (operator, 2026-09-24; 063 R24).
+- **R10c (constraint):** The **user's data** — **any content the model reaches
+  through a tool**, whatever it holds (clients, orders and invoices are only
+  examples; operator, 2026-09-24) — shall be opened `OPEN INPUT` only. Never `I-O`, `OUTPUT` or `EXTEND`; nothing PowerChat does
+  can change it, and an `INPUT` open never writes the file back, `WITH
+  PERSISTENCE` or not (verified 1.70.174).
+- **R10e (constraint):** **PowerChat's own** files — topics, conversations,
+  prompt versions, token usage — shall be created with `OPEN OUTPUT` and
+  added to with `OPEN EXTEND`, declared `WITH PERSISTENCE`, and **never opened
+  `I-O`** (operator, 2026-09-24). They are therefore append-only: a change is a
+  newer record (a promoted prompt version is a new record with a new
+  timestamp; a removed topic is a "removed" record; monthly totals are summed
+  from the usage records when read).
+- **R10f (constraint):** Because a MEMORY file reaches disk only at `CLOSE`,
+  PowerChat shall keep each of its own files open for one operation only, so a
+  crash loses at most the record being added.
 - **R10d (event):** When a file declared `STORAGE MODE IS MEMORY` would not fit
   in the memory available, the runtime shall open it as `STORAGE IS DISK`
   instead, and say so, rather than fail (operator, 2026-09-24). This is a
@@ -170,9 +181,10 @@ shares no data, file, table or path with the other two KBs.
   the user names where the data file and its `.cidx` description are. Nothing
   is copied or attached.
 - **R21 (ubiquitous):** A registered path may be local or on a machine in the
-  LAN, written in the operating system's own convention: a UNC path
-  (`\\server\share\…`) on Windows, the mounted share (`/Volumes/…`) on macOS,
-  the mount point (`/mnt/…`, `/media/…`) on Linux.
+  LAN: an `smb://server/share/…` address on every OS (operator, 2026-09-24:
+  "if possible, use smb://"), or the OS's own convention — a UNC path
+  (`\\server\share\…`) on Windows, a mounted share (`/Volumes/…`) on macOS,
+  a mount point (`/mnt/…`, `/media/…`) on Linux.
 - **R22 (event):** When a registered path cannot be reached, the application
   shall say which file and why, and answer without it rather than fail.
 - **R23 (ubiquitous):** The model shall be able to query a registered file whose
@@ -278,10 +290,11 @@ Carried from 063 §4.8 unchanged in substance.
 - [ ] **AC4a** — Every indexed file PowerChat creates opens as PRCIDXD1; none is
       a redb container, and nothing in the project selects the redb engine.
       *(R10a)*
-- [ ] **AC4b** — Every indexed file PowerChat opens is declared
-      `STORAGE MODE IS MEMORY`, its own files `WITH PERSISTENCE`; killing the
-      process mid-conversation loses at most the turn being written. *(R10b,
-      R10c)*
+- [ ] **AC4b** — Every indexed file PowerChat declares is `STORAGE MODE IS
+      MEMORY`; a search of the COBOL finds no `OPEN I-O` anywhere, and only
+      `OPEN INPUT` on any file a tool reads; the user's files are
+      byte-identical after a session; killing the process mid-conversation
+      loses at most the turn being added. *(R10b, R10c, R10e, R10f)*
 - [ ] **AC4c** — A MEMORY file larger than the memory a test allows opens as DISK,
       is searched and written correctly, and the fallback is reported; the same
       file under the limit still opens in MEMORY. *(R10d)*
@@ -340,46 +353,49 @@ Carried from 063 §4.8 unchanged in substance.
 
 ## 7. Open questions
 
-- **Q1 — Sample content vs "the build ships no KB".** 063 R27 says a build ships
-  neither documents nor KB. HR, Orders and Legal need sample documents and sample
-  indexed files to be a useful demo. Proposal: the samples live in the project's
-  `samples/` folder, and the running application offers **"Install sample
-  topics"**, which copies them into the user's KB location on request. Nothing is
-  pre-populated.
-- **Q2 — Where do per-topic settings live when the KB is shared?** A shared KB
-  implies shared topics. Proposal: the topic list and each topic's prompt live
-  **with the KB** (so every user on the LAN sees the same topics), while the model
-  list and keys stay **per machine** (R34).
-- **Q3 — PDF.** Inherited from 063 Q3, to be settled in 074.
-- **Q5 — Byte-range locks on a network share.** redb's multi-process modes rely
+- **Q1 — ◐ Sample topics (operator, 2026-09-24).** Sample topics are **shipped
+  with the demo but not active** until the user clicks **"Install sample
+  topics"**, and the user can remove them later. Removing a topic's documents
+  updates its KB to match — *to confirm: the operator's sentence ended at "the
+  KB will be…"*.
+- **Q2 — ✅ (operator, 2026-09-24).** The topic list and each topic's prompt live
+  **with the KB**, so every user on the LAN sees the same topics; the model list
+  and keys stay **per machine** (R34).
+- **Q3 — ✅ PDF (operator, 2026-09-24): as PDFs are processed today.** Verified:
+  the Viewer extracts a PDF's text page by page with `lopdf`
+  (`crates/cobolt-forms/src/viewer.rs:2568–2577`; the IDE KB reads no PDFs).
+  074 does the same — page text, one page at a time — with no new PDF crate.
+- **Q5 — ◐ The KB store's engine (operator, 2026-09-24): "use redb only if we
+  can declare STORAGE IS MEMORY; if not, PRCIDX1 with STORAGE IS DISK as the
+  fallback".** *To confirm which store this governs* — the KB store, or indexed
+  files (already settled by R10a) — and note that `PRCIDX1` is the MEMORY
+  container; DISK's is `PRCIDXD1`. Until confirmed, the analysis below stands.
+  **Byte-range locks on a network share.** redb's multi-process modes rely
   on byte-range file locks, which it supports on Linux, macOS and Windows. A KB on
   an SMB or NFS share additionally needs the share to honour them, which redb's
   documentation does not address. 068 must test two machines writing one KB on a
   real share before AC7 counts as met, and say plainly in the guide which shares
   were verified. The feature is also flagged *experimental* by redb, so its API
   may move between releases.
-- **Q6 — Shared own-files under MEMORY storage.** A MEMORY file is loaded at
-  `OPEN` and written whole at `CLOSE`, so two users writing the same file at
-  the same time lose one another's changes: the last `CLOSE` wins. That matters
-  only for files several users write, which under Q2's proposal is the shared
-  topic list and the topic prompts. Proposal: conversations, usage and settings
-  stay **per user** (never shared); the shared topic list and prompts are
-  written only through a short "open, re-read, change, close" step, and a
-  change made meanwhile by someone else is detected and reported rather than
-  overwritten. The alternative is to use `STORAGE IS DISK` for those two files
-  alone.
-- **Q7 — The two storage modes write different containers.** Verified
-  2026-09-24 (`interpreter.rs:1215–1229`): MEMORY is the in-RAM engine with a
-  `PRCIDX1` container, DISK the B+tree engine with `PRCIDXD1`. A file cannot
-  simply switch mode. 075 must decide how the fallback reaches the same data:
-  one engine reading the other's container, or a single container both
-  engines read. It must also decide how "does not fit" is measured before
-  loading anything (the file's size against the memory available, with a
-  margin).
-- **Q4 — Network paths that are not mounted.** On macOS and Linux a share must
-  be mounted before a path can reach it. Proposal: the application accepts the
-  mounted path only, and reports an `smb://` URL as "mount this share first"
-  rather than mounting it itself.
+- **Q6 — ✅ Open modes (operator, 2026-09-24).** User data: `OPEN INPUT`
+  only (R10c). PowerChat's own files: `OUTPUT` to create, `EXTEND` to add,
+  never `I-O` (R10e). **Residual, for /plan:** a MEMORY file is written whole
+  at `CLOSE`, so two users `EXTEND`ing the **shared** topic list or prompts at
+  the same moment would lose one of the two additions (the last `CLOSE` wins).
+  Conversations and usage are per user and unaffected. /plan must either keep
+  the window small and re-read before adding, or detect the race and retry.
+- **Q7 — ✅ Fixed in 1.70.173 (fixes branch).** The two modes did write
+  different containers, and switching lost data: a DISK file opened as MEMORY
+  loaded empty and `WITH PERSISTENCE` saved the empty image over it. Each engine
+  now reads the other's container, a MEMORY file saves a DISK file back as
+  `PRCIDXD1`, and an `INPUT` open never writes (1.70.174). What remains for 075
+  is only how "does not fit in memory" is measured before loading (R10d).
+- **Q4 — ✅ `smb://` where possible (operator, 2026-09-24).** Verified: pure-Rust
+  SMB clients exist (`smb` 0.12.1, MIT). An `smb://` file is read whole into RAM
+  over the network, which fits MEMORY storage and `INPUT` only (R10b, R10c).
+  **Residual for 075:** the DISK fallback (R10d) needs random access to a local
+  file, so a registered `smb://` file too large for memory needs the share
+  mounted; and a share's credentials go through the key-store seam (R34).
 
 ## 8. Prerequisites — built first, generically, each with its own spec
 
@@ -390,7 +406,8 @@ Carried from 063 §4.8 unchanged in substance.
 | 072 | `AgentObject` tool calling, token counts | ✅ shipped 1.70.162 |
 | **068** | Application KB store: `assets/KB`, per topic, shared across processes with redb 4.3 `MultiWriter`; the engine (chunking, embedding, search) as a **runtime** SDK crate with no IDE or `cobolt-agents` dependency; COBOL surface to index and search; lexical fallback | To specify |
 | **074** | Document import: DOCX/PPTX/XLSX via `markdownify`; PDF route | To specify |
-| **075** | Indexed files registered **by path** (local or network), layout from `.cidx`, read-only; and **MEMORY storage that falls back to DISK** when the file does not fit in RAM (R10d) | To specify — new |
+| **075** | Indexed files registered **by path** (local, OS network path, or `smb://`), layout from `.cidx`, `OPEN INPUT` only; and **MEMORY storage that falls back to DISK** when the file does not fit in RAM (R10d) | To specify — new |
+| — | MEMORY ↔ DISK container interchange | ✅ fixed 1.70.173–174 (`fixes`) |
 | **076** | Application model list: `AgentObject` takes a model from a run-time list or its own configuration; key-store seam, settings-file store first | To specify — new |
 | 067 | TreeView drag and drop (only R50) | Specified, not built |
 
