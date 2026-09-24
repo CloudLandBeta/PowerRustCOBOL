@@ -8,6 +8,33 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.187] — 2026-09-24
+
+### Spec 068 — plan approved
+
+`specs/068-application-knowledge-base/plan.md` lays out how the build will go:
+
+- **A new SDK crate, `cobolt-kb`.** It lifts the IDE KB's chunker, hashing
+  embedder and scoring, keeps `cobolt-agents` untouched, and has an opt-in
+  `semantic` feature for the built-in model. Its index is redb 4.3 in
+  `MultiWriter` mode.
+- **A "busy" answer without hanging.** redb waits forever for another
+  process's writer, so a separate lock file with a timeout decides when the KB
+  is busy.
+- **Runtime features `kb` and `kb-semantic`.** rcrun always includes the
+  built-in model, so Run Form matches the built app.
+- **Progress events that keep their own values.** Each one carries its
+  property values to its own handler.
+- **An `AgentObject` tool** reached through `AllowKnowledgeBase`.
+- **A `[rag] embedder` project setting.**
+- **Delivery leaves users' files alone.** It no longer overwrites
+  `assets/KB` or `assets/models`. The existing copy would have destroyed users'
+  documents and indexes.
+
+Operator decisions recorded in it: a mismatched-embedder app saves new
+documents as text only, and the model cache is `<app>/assets/models/`. Plan
+only.
+
 ## [PowerRustCOBOL 1.70.186] — 2026-09-24
 
 ### Spec 076 — open questions settled
