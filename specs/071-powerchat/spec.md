@@ -122,23 +122,26 @@ shares no data, file, table or path with the other two KBs.
   indexed-file engine (PRCIDXD1), never the redb engine (operator, 2026-09-24).
   This concerns indexed files only; the KB store (R14) is not an indexed file.
 - **R10b (ubiquitous):** Indexed files are the primary way PowerChat stores
-  information, its own and the user's, and every one of them shall be declared
-  `STORAGE MODE IS MEMORY` (operator, 2026-09-24; 063 R24).
+  information, its own and the user's. `STORAGE MODE IS MEMORY` is **only for
+  the user's data** (R10c); PowerChat's own files are `STORAGE IS DISK`
+  (operator, 2026-09-24; 063 R24).
 - **R10c (constraint):** The **user's data** — **any content the model reaches
   through a tool**, whatever it holds (clients, orders and invoices are only
-  examples; operator, 2026-09-24) — shall be opened `OPEN INPUT` only. Never `I-O`, `OUTPUT` or `EXTEND`; nothing PowerChat does
-  can change it, and an `INPUT` open never writes the file back, `WITH
-  PERSISTENCE` or not (verified 1.70.174).
+  examples; operator, 2026-09-24) — shall be declared `STORAGE MODE IS MEMORY`
+  and opened `OPEN INPUT` only. Never `I-O`, `OUTPUT` or `EXTEND`; nothing
+  PowerChat does can change it, and an `INPUT` open never writes the file back,
+  `WITH PERSISTENCE` or not (verified 1.70.174).
 - **R10e (ubiquitous):** **PowerChat's own** files — topics, conversations,
-  prompt versions, token usage — shall be opened `OPEN I-O`, declared `WITH
-  PERSISTENCE`, and read, written, rewritten and deleted in place. The one
+  prompt versions, token usage — shall be declared `STORAGE IS DISK` on the
+  Rust engine (R10a), opened `OPEN I-O`, and read, written, rewritten and
+  deleted in place. The one
   exception: when a file does not exist yet, PowerChat shall open it `OPEN
   OUTPUT` that first time, to create it (operator, 2026-09-24).
-- **R10f (constraint):** Because a MEMORY file reaches disk only at `CLOSE`,
-  PowerChat shall keep each of its own files open for one operation only, so a
-  crash loses at most the change in flight.
-- **R10d (event):** When a file declared `STORAGE MODE IS MEMORY` would not fit
-  in the memory available, the runtime shall open it as `STORAGE IS DISK`
+- **R10f (ubiquitous):** PowerChat shall `COMMIT` each change to its own files
+  as it makes it, so that a crash loses at most the change in flight (a DISK
+  file is made durable at each `COMMIT` and `CLOSE`).
+- **R10d (event):** When a user-data file declared `STORAGE MODE IS MEMORY`
+  would not fit in the memory available, the runtime shall open it as `STORAGE IS DISK`
   instead, and say so, rather than fail (operator, 2026-09-24). This is a
   runtime capability for every application, not PowerChat logic (needs spec
   075, §8).
@@ -160,9 +163,12 @@ shares no data, file, table or path with the other two KBs.
   writers across processes).
 - **R15 (ubiquitous):** The KB shall be derived from the topic's documents, so
   that deleting it and restarting rebuilds an equivalent one (063 R6, R8).
-- **R16 (event):** When a document is added to, changed in or removed from a
-  topic's document folder, the application shall bring the KB into agreement
-  with it (063 R7).
+- **R16 (event):** When a document is created in, updated in or deleted from a
+  topic's document folder, the application shall update that topic's KB to
+  match (063 R7; operator, 2026-09-24).
+- **R16a (state):** While the KB is being updated, the application shall show a
+  modal reporting the progress — which document, how many of how many — and
+  close it when the update ends (operator, 2026-09-24; 063 R10).
 - **R17 (ubiquitous):** The application shall accept Markdown, plain text, DOCX,
   PPTX and XLSX documents (spec 074). PDF is accepted once 074 settles its route.
 - **R18 (event):** When semantic embedding is unavailable, the application shall
@@ -288,17 +294,20 @@ Carried from 063 §4.8 unchanged in substance.
 - [ ] **AC4a** — Every indexed file PowerChat creates opens as PRCIDXD1; none is
       a redb container, and nothing in the project selects the redb engine.
       *(R10a)*
-- [ ] **AC4b** — Every indexed file PowerChat declares is `STORAGE MODE IS
-      MEMORY`; a search of the COBOL finds only `OPEN INPUT` on any file a tool
-      reads, and on PowerChat's own files `OPEN I-O`, with `OPEN OUTPUT` only on
-      the path taken when the file does not exist yet; the user's files are
-      byte-identical after a session; killing the process mid-conversation
+- [ ] **AC4b** — A search of the COBOL finds: every file a tool reads declared
+      `STORAGE MODE IS MEMORY` and opened only `OPEN INPUT`; every PowerChat
+      file declared `STORAGE IS DISK` and opened `OPEN I-O`, with `OPEN OUTPUT`
+      only on the path taken when the file does not exist yet. The user's files
+      are byte-identical after a session; killing the process mid-conversation
       loses at most the change in flight. *(R10b, R10c, R10e, R10f)*
-- [ ] **AC4c** — A MEMORY file larger than the memory a test allows opens as DISK,
+- [ ] **AC4c** — A MEMORY user-data file larger than the memory a test allows opens as DISK,
       is searched and written correctly, and the fallback is reported; the same
       file under the limit still opens in MEMORY. *(R10d)*
 - [ ] **AC5** — `grep` of the COBOL sources finds no topic name used as a
       condition. *(R10)*
+- [ ] **AC6b** — Creating, updating and deleting a document each update the KB,
+      and each shows the progress modal, which closes when the update ends.
+      *(R16, R16a)*
 - [ ] **AC6** — A document dropped into a topic's folder becomes answerable
       without a restart; deleting the KB and restarting rebuilds it. *(R15, R16)*
 - [ ] **AC6a** — `cargo tree` for a built PowerChat shows neither `cobolt-ide`
@@ -352,11 +361,10 @@ Carried from 063 §4.8 unchanged in substance.
 
 ## 7. Open questions
 
-- **Q1 — ◐ Sample topics (operator, 2026-09-24).** Sample topics are **shipped
+- **Q1 — ✅ Sample topics (operator, 2026-09-24).** Sample topics are **shipped
   with the demo but not active** until the user clicks **"Install sample
-  topics"**, and the user can remove them later. Removing a topic's documents
-  updates its KB to match — *to confirm: the operator's sentence ended at "the
-  KB will be…"*.
+  topics"**, and the user can remove them later. Any change to a document —
+  create, update, delete — updates the KB, with a progress modal (R16, R16a).
 - **Q2 — ✅ (operator, 2026-09-24).** The topic list and each topic's prompt live
   **with the KB**, so every user on the LAN sees the same topics; the model list
   and keys stay **per machine** (R34).
@@ -364,12 +372,10 @@ Carried from 063 §4.8 unchanged in substance.
   the Viewer extracts a PDF's text page by page with `lopdf`
   (`crates/cobolt-forms/src/viewer.rs:2568–2577`; the IDE KB reads no PDFs).
   074 does the same — page text, one page at a time — with no new PDF crate.
-- **Q5 — ◐ The KB store's engine (operator, 2026-09-24): "use redb only if we
-  can declare STORAGE IS MEMORY; if not, PRCIDX1 with STORAGE IS DISK as the
-  fallback".** *To confirm which store this governs* — the KB store, or indexed
-  files (already settled by R10a) — and note that `PRCIDX1` is the MEMORY
-  container; DISK's is `PRCIDXD1`. Until confirmed, the analysis below stands.
-  **Byte-range locks on a network share.** redb's multi-process modes rely
+- **Q5 — ✅ The KB store is redb with `STORAGE IS DISK` (operator, 2026-09-24).**
+  `STORAGE IS MEMORY` is only for the user's data (R10b, R10c). The KB stays in
+  redb 4.3's multi-process mode on disk (R14). **Still to verify in 068 —
+  byte-range locks on a network share.** redb's multi-process modes rely
   on byte-range file locks, which it supports on Linux, macOS and Windows. A KB on
   an SMB or NFS share additionally needs the share to honour them, which redb's
   documentation does not address. 068 must test two machines writing one KB on a
@@ -379,11 +385,12 @@ Carried from 063 §4.8 unchanged in substance.
 - **Q6 — ✅ Open modes (operator, 2026-09-24).** User data — any content a tool
   reaches: `OPEN INPUT` only (R10c). PowerChat's own files: `OPEN I-O`, and
   `OPEN OUTPUT` only to create one that does not exist yet (R10e).
-  **Residual, for /plan:** a MEMORY file is written whole at `CLOSE`, so two
-  users changing the **shared** topic list or prompts at the same moment would
-  lose one of the two changes (the last `CLOSE` wins). Conversations and usage
-  are per user and unaffected. /plan must either keep the window small and
-  re-read before changing, or detect the race and retry.
+  With PowerChat's own files on `STORAGE IS DISK` (Q5), a change reaches the
+  file as it is made, so "the last `CLOSE` wins" no longer applies to them.
+  **Residual, for /plan:** the shared topic list and prompts can be changed by
+  two users' processes at once, so /plan must confirm how the Rust engine
+  serialises writers across processes (record locking between run units) and
+  test it, rather than assume it.
 - **Q7 — ✅ Fixed in 1.70.173 (fixes branch).** The two modes did write
   different containers, and switching lost data: a DISK file opened as MEMORY
   loaded empty and `WITH PERSISTENCE` saved the empty image over it. Each engine

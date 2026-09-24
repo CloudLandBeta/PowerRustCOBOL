@@ -8,6 +8,25 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.177] — 2026-09-24
+
+### Spec 071 — MEMORY for user data only; the KB updates with a progress modal
+
+The operator's last two answers, and all of spec 071's open questions are now
+settled:
+
+- **Q5.** The KB store is redb with `STORAGE IS DISK`. `STORAGE IS MEMORY` is
+  only for the user's data, meaning any content a tool reaches, opened `INPUT`.
+  PowerChat's own files move to `STORAGE IS DISK` on the Rust engine, opened
+  `I-O` and committed change by change, so a crash loses at most the change in
+  flight (R10b, R10e, R10f). The MEMORY-to-DISK fallback applies to user data
+  only (R10d).
+- **Q1.** Creating, updating or deleting a document updates the topic's KB,
+  and a modal shows the progress (R16, R16a, AC6b).
+- **Q6 residual.** On DISK storage, "the last `CLOSE` wins" no longer applies
+  to PowerChat's files. /plan must still verify how the Rust engine serialises
+  writers from two processes on the shared topic list. Spec only.
+
 ## [PowerRustCOBOL 1.70.176] — 2026-09-24
 
 ### Spec 071 — PowerChat's own files are opened I-O
