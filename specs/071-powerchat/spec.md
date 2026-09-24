@@ -128,6 +128,11 @@ shares no data, file, table or path with the other two KBs.
 - **R10c (constraint):** Because a MEMORY file reaches disk only at `CLOSE`,
   PowerChat shall open each of its own files for the length of one operation
   and close it again, so that a crash loses at most the operation in flight.
+- **R10d (event):** When a file declared `STORAGE MODE IS MEMORY` would not fit
+  in the memory available, the runtime shall open it as `STORAGE IS DISK`
+  instead, and say so, rather than fail (operator, 2026-09-24). This is a
+  runtime capability for every application, not PowerChat logic (needs spec
+  075, §8).
 
 ### 4.3 The application Knowledge Base (runtime — needs spec 068)
 
@@ -277,6 +282,9 @@ Carried from 063 §4.8 unchanged in substance.
       `STORAGE MODE IS MEMORY`, its own files `WITH PERSISTENCE`; killing the
       process mid-conversation loses at most the turn being written. *(R10b,
       R10c)*
+- [ ] **AC4c** — A MEMORY file larger than the memory a test allows opens as DISK,
+      is searched and written correctly, and the fallback is reported; the same
+      file under the limit still opens in MEMORY. *(R10d)*
 - [ ] **AC5** — `grep` of the COBOL sources finds no topic name used as a
       condition. *(R10)*
 - [ ] **AC6** — A document dropped into a topic's folder becomes answerable
@@ -360,6 +368,14 @@ Carried from 063 §4.8 unchanged in substance.
   change made meanwhile by someone else is detected and reported rather than
   overwritten. The alternative is to use `STORAGE IS DISK` for those two files
   alone.
+- **Q7 — The two storage modes write different containers.** Verified
+  2026-09-24 (`interpreter.rs:1215–1229`): MEMORY is the in-RAM engine with a
+  `PRCIDX1` container, DISK the B+tree engine with `PRCIDXD1`. A file cannot
+  simply switch mode. 075 must decide how the fallback reaches the same data:
+  one engine reading the other's container, or a single container both
+  engines read. It must also decide how "does not fit" is measured before
+  loading anything (the file's size against the memory available, with a
+  margin).
 - **Q4 — Network paths that are not mounted.** On macOS and Linux a share must
   be mounted before a path can reach it. Proposal: the application accepts the
   mounted path only, and reports an `smb://` URL as "mount this share first"
@@ -374,7 +390,7 @@ Carried from 063 §4.8 unchanged in substance.
 | 072 | `AgentObject` tool calling, token counts | ✅ shipped 1.70.162 |
 | **068** | Application KB store: `assets/KB`, per topic, shared across processes with redb 4.3 `MultiWriter`; the engine (chunking, embedding, search) as a **runtime** SDK crate with no IDE or `cobolt-agents` dependency; COBOL surface to index and search; lexical fallback | To specify |
 | **074** | Document import: DOCX/PPTX/XLSX via `markdownify`; PDF route | To specify |
-| **075** | Indexed files registered **by path** (local or network), layout from `.cidx`, read-only | To specify — new |
+| **075** | Indexed files registered **by path** (local or network), layout from `.cidx`, read-only; and **MEMORY storage that falls back to DISK** when the file does not fit in RAM (R10d) | To specify — new |
 | **076** | Application model list: `AgentObject` takes a model from a run-time list or its own configuration; key-store seam, settings-file store first | To specify — new |
 | 067 | TreeView drag and drop (only R50) | Specified, not built |
 

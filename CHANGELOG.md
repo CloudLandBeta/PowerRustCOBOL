@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.172] — 2026-09-24
+
+### Spec 071 — MEMORY storage falls back to DISK
+
+New R10d, AC4c and Q7 (operator, 2026-09-24): a file declared `STORAGE MODE
+IS MEMORY` that would not fit in the memory available opens as `STORAGE IS
+DISK` instead, and says so. It is a runtime capability for every application,
+and it joins prerequisite spec 075. Q7 records that the two modes write
+different containers (`PRCIDX1` and `PRCIDXD1`), so 075 must choose how the
+fallback reaches the same data. Spec only.
+
 ## [PowerRustCOBOL 1.70.171] — 2026-09-24
 
 ### Spec 071 — PowerChat's indexed files are MEMORY storage
