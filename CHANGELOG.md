@@ -8,6 +8,24 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.165] — 2026-09-23
+
+### Fix — a SideMenu row's badge can be set in the menu editor
+
+The sidebar has drawn badges for a long time — the "6" counter, the "New"
+pill — and the menu file stores them (`badge`, `badge_style`), but the menu
+editor had no field for either. The only way to get one was to write it into
+the `.menu.yaml` by hand, and the file's integrity hash then refused the
+edited file. `SetItemBadge` reaches only rows a program adds, so a designed row
+could not get a badge at all.
+
+The menu editor now shows **Badge** (text; empty draws none) and **Badge
+style** (Pill, Count, Outline) for each row when it is editing a SideMenu. A
+MenuBar draws no badges, so its editor does not show them. Guide (SideMenu,
+*Badges*) and KB updated. New i18n keys `menu_lbl_badge`,
+`menu_lbl_badge_style`, `menu_badge_pill`, `menu_badge_count`,
+`menu_badge_outline` in all six languages. Test: `menu_badge_tests`.
+
 ## [PowerRustCOBOL 1.70.164] — 2026-09-23
 
 ### Feature — every menu item and toolbar button has a fixed four-letter id

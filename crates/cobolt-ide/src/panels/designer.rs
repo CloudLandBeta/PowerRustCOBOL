@@ -1926,6 +1926,8 @@ pub struct MenuEditorModal {
     label_buf: String,
     accel_buf: String,
     target_buf: String,
+    /// A SideMenu row's badge text ("6", "New"); empty draws none.
+    badge_buf: String,
     /// Icon picker modal state
     icon_picker_open: bool,
     icon_search: String,
@@ -1951,6 +1953,7 @@ impl MenuEditorModal {
             label_buf: String::new(),
             accel_buf: String::new(),
             target_buf: String::new(),
+            badge_buf: String::new(),
             icon_picker_open: false,
             icon_search: String::new(),
             icon_picker_gen: 0,
@@ -2056,6 +2059,7 @@ impl MenuEditorModal {
         if let Some(item) = Self::item_at(&self.def.menu, &self.selected) {
             self.label_buf = item.label.clone();
             self.accel_buf = item.accelerator.clone().unwrap_or_default();
+            self.badge_buf = item.badge.clone().unwrap_or_default();
             self.target_buf = match &item.action {
                 Some(a) => {
                     if let Some(rest) = a.strip_prefix("open-form:") {
@@ -9551,6 +9555,7 @@ impl DesignerPanel {
                                 let cur_enabled = item.enabled;
                                 let cur_preserve = item.preserve_previous_form;
                                 let item_id = item.id.clone();
+                                let cur_badge_style = item.badge_style;
 
                                 if !is_sep {
                                     // Label
@@ -9726,6 +9731,59 @@ impl DesignerPanel {
                                             }
                                         }
                                     });
+
+                                    // Badge — only a SideMenu draws one (the
+                                    // "6" counter, the "New" pill).
+                                    if modal.is_side_menu {
+                                        ui.horizontal(|ui| {
+                                            ui.label(tr.menu_lbl_badge);
+                                            if ui
+                                                .add(
+                                                    egui::TextEdit::singleline(&mut modal.badge_buf)
+                                                        .desired_width(80.0),
+                                                )
+                                                .changed()
+                                            {
+                                                let text = modal.badge_buf.trim().to_string();
+                                                if let Some(it) = MenuEditorModal::item_at_mut(
+                                                    &mut modal.def.menu,
+                                                    &modal.selected,
+                                                ) {
+                                                    it.badge = (!text.is_empty()).then_some(text);
+                                                }
+                                            }
+                                        });
+                                        ui.horizontal(|ui| {
+                                            use cobolt_forms::menu::BadgeStyle;
+                                            ui.label(tr.menu_lbl_badge_style);
+                                            let name = |s: BadgeStyle| match s {
+                                                BadgeStyle::Pill => tr.menu_badge_pill,
+                                                BadgeStyle::Count => tr.menu_badge_count,
+                                                BadgeStyle::Outline => tr.menu_badge_outline,
+                                            };
+                                            let mut style = cur_badge_style;
+                                            egui::ComboBox::from_id_salt("menu_badge_style")
+                                                .selected_text(name(style))
+                                                .width(140.0)
+                                                .show_ui(ui, |ui| {
+                                                    for s in [
+                                                        BadgeStyle::Pill,
+                                                        BadgeStyle::Count,
+                                                        BadgeStyle::Outline,
+                                                    ] {
+                                                        ui.selectable_value(&mut style, s, name(s));
+                                                    }
+                                                });
+                                            if style != cur_badge_style {
+                                                if let Some(it) = MenuEditorModal::item_at_mut(
+                                                    &mut modal.def.menu,
+                                                    &modal.selected,
+                                                ) {
+                                                    it.badge_style = style;
+                                                }
+                                            }
+                                        });
+                                    }
 
                                     // Action type — a SideMenu's menu offers
                                     // the two standalone actions too (051
@@ -21577,5 +21635,27 @@ mod menu_item_id_tests {
         // Idempotent: a second open changes nothing.
         let again = MenuEditorModal::new("MenuBar-1".into(), modal.def.clone()).with_generated_ids();
         assert_eq!(again.def, modal.def);
+    }
+}
+
+#[cfg(test)]
+mod menu_badge_tests {
+    use super::MenuEditorModal;
+    use cobolt_forms::menu::{MenuDefinition, MenuItem};
+
+    /// Selecting a SideMenu row puts its designed badge in the editor's field,
+    /// and a row without one shows an empty field (not the previous row's).
+    #[test]
+    fn selecting_a_row_loads_its_badge() {
+        let inbox = MenuItem { badge: Some("6".into()), ..MenuItem::new_action("inbx", "Inbox") };
+        let plain = MenuItem::new_action("cust", "Customers");
+        let def = MenuDefinition { menu: vec![inbox, plain], hash: String::new() };
+        let mut modal = MenuEditorModal::new("SideMenu-1".into(), def).for_side_menu(true);
+        modal.selected = vec![0];
+        modal.sync_bufs_from_selection();
+        assert_eq!(modal.badge_buf, "6");
+        modal.selected = vec![1];
+        modal.sync_bufs_from_selection();
+        assert_eq!(modal.badge_buf, "");
     }
 }

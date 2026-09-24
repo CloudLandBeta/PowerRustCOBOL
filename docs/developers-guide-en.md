@@ -9811,9 +9811,25 @@ You fill the sidebar in the **same menu editor a `MenuBar` uses**: select the
 SideMenu and press **Edit Menu…** in the property inspector. Everything you
 already know carries over — items, submenus, separators, accelerators, icons,
 the action each item performs — because the menu is stored in a sidecar file
-keyed by the control, not by the kind of control. The one thing a SideMenu adds
-is **Preserve previous form** on items that load a form (see *The navigation
-chain*).
+keyed by the control, not by the kind of control. A SideMenu adds two things:
+**Preserve previous form** on items that load a form (see *The navigation
+chain*), and a **badge**.
+
+**Badges.** A row can carry a short tag at its right edge — an unread count, a
+"New" marker. In the menu editor, type it into the row's **Badge** field
+(leave it empty for none) and pick a **Badge style**:
+
+| Style | Drawn as | Suits |
+|---|---|---|
+| **Pill** (default) | Filled rounded tag in the accent colour | `New`, `Beta` |
+| **Count** | Filled circle | a number: `6` |
+| **Outline** | Accent outline and text, no fill | `Pro`, `outlined` |
+
+The badge shows on every surface — designer, Preview, Run Form and the built
+application. A MenuBar has no badges, so its editor does not offer the fields.
+From COBOL, `SetItemBadge(id, text)` changes the badge only on rows your
+program added (see *Rows your program adds*), never on a designed
+row.
 
 ### Sidebar layout — the two properties that matter
 
