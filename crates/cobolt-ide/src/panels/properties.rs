@@ -8405,6 +8405,18 @@ impl PropertiesPanel {
                     ui, id, "WriteWaitMilliseconds", "WriteWait", ctrl, action,
                     0..=600_000, Some(" ms"), 5000,
                 );
+                int_prop_row(
+                    ui, id, "ArchiveMaximumMegabytes", "ArchiveMaximumMegabytes", ctrl, action,
+                    1..=100_000, Some(" MB"), 500,
+                );
+                int_prop_row(
+                    ui, id, "ArchiveMaximumFiles", "ArchiveMaximumFiles", ctrl, action,
+                    1..=1_000_000, None, 10_000,
+                );
+                int_prop_row(
+                    ui, id, "ArchiveMaximumDepth", "ArchiveMaximumDepth", ctrl, action,
+                    1..=10, None, 3,
+                );
             }
             ControlType::AgentObject if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);

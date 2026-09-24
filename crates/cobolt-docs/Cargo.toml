@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name         = "cobolt-docs"
+description  = "Document import for PowerRustCOBOL applications — Office, OpenDocument, PDF, HTML, tables and archives to Markdown (spec 074)"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+# Every dependency is pure Rust (spec 074 R18): an application that imports
+# documents builds without a C compiler.
+[dependencies]
+# Word, Excel (incl. old .xls), OpenDocument and CSV. Pinned: we call its
+# format modules directly, below its own detection.
+markdownify = "=0.3.8"
+# HTML (spec 074 R23).
+htmd        = "=0.5.5"
+# PDF page text — the same reader and settings as the Viewer in cobolt-forms.
+lopdf       = { version = "0.26", default-features = false, features = ["nom_parser"] }
+# Our own bounded archive walk. No defaults: bzip2 and zstd are C libraries.
+zip         = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
+tar         = { version = "0.4", default-features = false }
+flate2      = { workspace = true }
+quick-xml   = { workspace = true }

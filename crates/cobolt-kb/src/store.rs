@@ -33,7 +33,8 @@ use serde::{Deserialize, Serialize};
 
 /// The index format this build writes. An index recording another version is
 /// moved aside and rebuilt from the documents, never migrated (R13).
-pub const SCHEMA_VERSION: u32 = 1;
+/// 2 (spec 074): a passage records the archive member it came from.
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// The documents folder inside a collection.
 pub const DOCUMENTS_DIR: &str = "documents";
@@ -71,6 +72,9 @@ pub struct Passage {
     pub vector: Vec<f32>,
     /// The embedder that made `vector` (empty when there is none).
     pub stamp: String,
+    /// The document inside an archive it came from (`legal/nda.docx`, or
+    /// `inner.zip › legal/nda.docx`); `None` for a plain document.
+    pub part: Option<String>,
 }
 
 /// What the index knows about one document, to tell whether it changed.

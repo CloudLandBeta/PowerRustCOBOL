@@ -5411,6 +5411,10 @@ impl Control {
                 // same collection before it answers "busy".
                 props.insert("WriteWaitMilliseconds".into(), PropValue::Int(5000));
                 props.insert("MaximumResults".into(), PropValue::Int(5));
+                // Bounds on expanding an archive of documents (spec 074 R15).
+                props.insert("ArchiveMaximumMegabytes".into(), PropValue::Int(500));
+                props.insert("ArchiveMaximumFiles".into(), PropValue::Int(10_000));
+                props.insert("ArchiveMaximumDepth".into(), PropValue::Int(3));
             }
             ControlType::Slider => {
                 props.insert("Minimum".into(), PropValue::Int(0));

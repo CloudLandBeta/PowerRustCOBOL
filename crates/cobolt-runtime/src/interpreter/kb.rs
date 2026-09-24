@@ -164,6 +164,11 @@ impl Interpreter {
             key: get("EmbeddingAPIKey"),
             write_wait: std::time::Duration::from_millis(num("WriteWaitMilliseconds", 5000)),
             max_results: num("MaximumResults", 5) as usize,
+            archive_limits: cobolt_kb::convert::Limits {
+                max_unpacked_bytes: num("ArchiveMaximumMegabytes", 500).saturating_mul(1024 * 1024),
+                max_files: num("ArchiveMaximumFiles", 10_000) as usize,
+                max_depth: num("ArchiveMaximumDepth", 3).min(u64::from(u8::MAX)) as u8,
+            },
             models_dir: app_base().join("assets").join("models"),
         }
     }

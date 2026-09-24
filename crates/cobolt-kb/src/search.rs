@@ -41,7 +41,8 @@ impl Mode {
 /// One passage found.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hit {
-    /// The document, relative to the collection's documents folder.
+    /// The document, relative to the collection's documents folder — and,
+    /// inside an archive, the path within it: `old.zip › legal/nda.docx`.
     pub document: String,
     /// Where in it: `"handbook › Leave"`.
     pub heading: String,
@@ -99,6 +100,10 @@ pub fn search(
         let (document, ordinal) = match key.split_once('\u{1}') {
             Some((d, o)) => (d.to_string(), o.parse::<u32>().unwrap_or(0)),
             None => continue,
+        };
+        let document = match &p.part {
+            Some(part) => format!("{document}{}{part}", crate::convert::PATH_SEPARATOR),
+            None => document,
         };
         let score = match &query_vector {
             // Semantic: the stored vector when it is ours; a passage stored

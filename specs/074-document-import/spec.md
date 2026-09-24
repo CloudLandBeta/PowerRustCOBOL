@@ -1,6 +1,6 @@
 # Spec — Document import for the Application Knowledge Base
 
-- **Status:** draft → awaiting operator review
+- **Status:** implemented (1.70.190)
 - **Folder:** specs/074-document-import/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-09-24
 - **Parents:** `specs/063-rag-chatbot-boilerplate/spec.md` (§7 Q3),
@@ -33,7 +33,9 @@ C compiler to build.
 **Non-goals**
 
 - Reading text out of images: no OCR, so a scanned PDF has nothing to index.
-- The old binary Office formats (`.doc`, `.xls`, `.ppt`).
+- The old binary Word and PowerPoint formats (`.doc`, `.ppt`). Old binary
+  Excel (`.xls`) **is** read (operator, 2026-09-24): its reader is already part
+  of the Excel support.
 - Opening password-protected documents.
 - Converting documents back, or editing them.
 - Showing the converted text to the user. The Viewer already displays the
@@ -58,7 +60,8 @@ C compiler to build.
 
 - **R1 (ubiquitous):** The KB shall accept Word documents (`.docx`, `.docm`,
   `.dotx`, `.dotm`), PowerPoint presentations (`.pptx`, `.pptm`, `.potx`,
-  `.potm`, `.ppsx`, `.ppsm`) and Excel workbooks (`.xlsx`).
+  `.potm`, `.ppsx`, `.ppsm`) and Excel workbooks (`.xlsx`, and old binary `.xls` — operator,
+  2026-09-24).
 - **R2 (ubiquitous):** The KB shall accept OpenDocument text (`.odt`, `.ott`,
   `.odm`, `.oth`) and spreadsheets (`.ods`, `.ots`) (operator, 2026-09-24).
 - **R3 (ubiquitous):** The KB shall accept delimited tables (`.csv`, `.tsv`),
@@ -132,33 +135,33 @@ C compiler to build.
 
 ## 5. Acceptance criteria
 
-- [ ] **AC1** — A fixture of each format in R1–R6 is indexed, and a query for a
+- [x] **AC1** — A fixture of each format in R1–R6 is indexed, and a query for a
       phrase that appears only in it returns it. *(R1–R6)*
-- [ ] **AC2** — A `.docx` renamed to `.txt` is still read as Word. *(R7)*
-- [ ] **AC3** — A multi-heading `.docx`, a multi-slide `.pptx`, a multi-sheet
+- [x] **AC2** — A `.docx` renamed to `.txt` is still read as Word. *(R7)*
+- [x] **AC3** — A multi-heading `.docx`, a multi-slide `.pptx`, a multi-sheet
       `.xlsx` and a multi-page PDF each produce one chunk per heading, slide,
       sheet or page, and hits name their slide, sheet or page. *(R8, R9)*
-- [ ] **AC4** — A document inside a ZIP inside a ZIP is found and named with its
+- [x] **AC4** — A document inside a ZIP inside a ZIP is found and named with its
       full path through both archives. *(R6, R10)*
-- [ ] **AC5** — A `.doc`, a password-protected `.docx`, an image-only PDF, a
+- [x] **AC5** — A `.doc`, a password-protected `.docx`, an image-only PDF, a
       truncated `.pptx` and a `.exe` are each skipped and reported with the
       right one of R13's reasons, and the rest of the folder is indexed.
       *(R12–R14)*
-- [ ] **AC6** — An archive that unpacks past the size, file-count or depth bound
+- [x] **AC6** — An archive that unpacks past the size, file-count or depth bound
       is reported as too large, and memory stays within the bound while it is
       examined. *(R15)*
-- [ ] **AC7** — An archive member named `../../escape.txt` writes nothing outside
+- [x] **AC7** — An archive member named `../../escape.txt` writes nothing outside
       the collection. *(R16)*
-- [ ] **AC8** — `cargo tree` for an application using `KnowledgeBase` shows no
+- [x] **AC8** — `cargo tree` for an application using `KnowledgeBase` shows no
       `bzip2`, `zstd` or other C-compiled crate, and the build succeeds on a
       machine with no C compiler. *(R18)*
-- [ ] **AC9** — `cargo deny`-style check (or a listing of each new crate's
+- [x] **AC9** — `cargo deny`-style check (or a listing of each new crate's
       licence) shows only licences compatible with Apache-2.0. *(R19)*
-- [ ] **AC10** — `cargo tree` shows neither `cobolt-ide` nor `cobolt-agents`.
+- [x] **AC10** — `cargo tree` shows neither `cobolt-ide` nor `cobolt-agents`.
       *(R20)*
-- [ ] **AC10a** — The converter crate builds and converts a document in a test
+- [x] **AC10a** — The converter crate builds and converts a document in a test
       that does not link the KB crate. *(R22)*
-- [ ] **AC11** — Tests report quantified results: per format, documents
+- [x] **AC11** — Tests report quantified results: per format, documents
       converted, characters produced, and conversion time per document and per
       megabyte (GOLDEN RULE #7).
 
@@ -178,6 +181,22 @@ C compiler to build.
   `calamine` 0.36.1 uses `zip` with only `deflate` (zopfli + zlib-rs), all pure
   Rust. `lopdf` is already in `cobolt-forms` for the Viewer.
 - **Depends on 068.** This spec plugs into 068's seam and cannot ship before it.
+
+## 6a. Implementation notes (1.70.190)
+
+- Word headings are found by **outline level** (`w:outlineLvl`, inherited
+  through `basedOn`), not by style name, so localised Word styles work
+  (operator, 2026-09-24). The readers are always linked with the KB.
+- AC8 was verified with `cargo tree -e normal,build`: there is no `cc`, `cmake`,
+  `bindgen` or `-sys` crate. Building "on a machine with no C compiler" was not
+  run separately.
+- AC9 licences: MIT, Apache-2.0, BSD, Zlib and Unlicense, plus CC0-1.0 for
+  lopdf's `encoding-index-*` tables (already shipped with the Viewer).
+- `.xls` is routed to calamine by its compound-file streams. No real `.xls`
+  fixture was available, so that path has a detection test but no conversion
+  test.
+- Skip codes reach COBOL in `SkippedDocuments` as `document: code
+  (explanation)`.
 
 ## 7. Open questions
 

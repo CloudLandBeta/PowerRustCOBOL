@@ -148,6 +148,8 @@ cobolt-lexer      = { path = "../cobolt-lexer" }
 cobolt-parser     = { path = "../cobolt-parser" }
 cobolt-semantic   = { path = "../cobolt-semantic" }
 pretty_assertions = { workspace = true }
+# Archive fixtures for the KnowledgeBase document-import test (spec 074).
+zip               = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
 tempfile          = "3"
 # test_accept_from_mnemonic.rs redirects the test binary's real stdin to
 # /dev/null so a Format 1 ACCEPT cannot block the suite forever — already in

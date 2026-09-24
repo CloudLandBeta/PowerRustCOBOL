@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use redb::{ReadableTable, WriteTransaction};
 
 use crate::chunk::{fnv1a, sections, split_content};
-use crate::convert::{Converters, Skip};
+use crate::convert::{Converters, Skip, PATH_SEPARATOR};
 use crate::embed::Embedder;
 use crate::store::{store_err, Collection, KbError, Passage, Source, META, PASSAGES, SOURCES};
 
@@ -139,7 +139,14 @@ pub fn refresh(
             }
             current += 1;
             match prepare(name, path, bytes, embedder, converters, text_only) {
-                Ok((source, passages, embed_error)) => {
+                Ok((source, passages, embed_error, member_skips)) => {
+                    // Documents inside an archive that could not be read,
+                    // named through it (spec 074 R10).
+                    outcome.skipped.extend(
+                        member_skips
+                            .into_iter()
+                            .map(|(m, s)| (format!("{name}{PATH_SEPARATOR}{m}"), s)),
+                    );
                     if outcome.embedder_error.is_none() {
                         outcome.embedder_error = embed_error;
                     }
@@ -315,7 +322,11 @@ fn walk(dir: &Path) -> Result<BTreeMap<String, PathBuf>, KbError> {
     Ok(out)
 }
 
-/// Convert, section, split and embed one document.
+/// What [`prepare`] makes of one document.
+type Prepared = (Source, Vec<Passage>, Option<String>, Vec<(String, Skip)>);
+
+/// Convert, section, split and embed one document — each document inside it,
+/// when it is an archive.
 fn prepare(
     name: &str,
     path: &Path,
@@ -323,19 +334,23 @@ fn prepare(
     embedder: &dyn Embedder,
     converters: &Converters,
     text_only: bool,
-) -> Result<(Source, Vec<Passage>, Option<String>), Skip> {
-    let text = converters.to_text(path, bytes)?;
+) -> Result<Prepared, Skip> {
+    let converted = converters.convert(path, bytes)?;
     let mut passages: Vec<Passage> = Vec::new();
-    for section in sections(name, &text) {
-        let first = passages.len() as u32;
-        for (i, part) in split_content(&section.content).into_iter().enumerate() {
-            passages.push(Passage {
-                heading: section.heading.clone(),
-                content: part,
-                chain: (i > 0).then_some(first),
-                vector: Vec::new(),
-                stamp: String::new(),
-            });
+    for doc in converted.parts {
+        let section_name = doc.name.as_deref().unwrap_or(name);
+        for section in sections(section_name, &doc.markdown) {
+            let first = passages.len() as u32;
+            for (i, part) in split_content(&section.content).into_iter().enumerate() {
+                passages.push(Passage {
+                    heading: section.heading.clone(),
+                    content: part,
+                    chain: (i > 0).then_some(first),
+                    vector: Vec::new(),
+                    stamp: String::new(),
+                    part: doc.name.clone(),
+                });
+            }
         }
     }
     let mut stamp = String::new();
@@ -360,7 +375,7 @@ fn prepare(
         passages: passages.len() as u32,
         stamp,
     };
-    Ok((source, passages, embed_error))
+    Ok((source, passages, embed_error, converted.skipped))
 }
 
 fn passage_key(name: &str, ordinal: usize) -> String {

@@ -8938,6 +8938,7 @@ searchable index built from them.
 | `Embedder` | `Lexical`, `Endpoint` or `Builtin` — see *How text is matched*. |
 | `MaximumResults` | Hits a `Search` returns when it names no maximum (5). |
 | `WriteWaitMilliseconds` | How long a write waits for another application writing the same collection (5000). |
+| `ArchiveMaximumMegabytes`, `ArchiveMaximumFiles`, `ArchiveMaximumDepth` | Bounds on reading an archive of documents (500 MB, 10,000 files, 3 levels) — see *Which documents it reads*. |
 
 #### Everything happens in the background
 
@@ -8984,9 +8985,59 @@ handler sees them:
 
 A document is split into passages by its headings, so a search returns the
 section that answers — `GetResultHeading` names it as
-`leave › Leave › Carry-over` — and a long section comes back whole. The
-Knowledge Base reads Markdown and plain text; a document it cannot read is
-skipped, and `onIndexed` names it in `SkippedDocuments` with the reason.
+`leave › Leave › Carry-over` — and a long section comes back whole.
+
+#### Which documents it reads
+
+Your users do not convert anything first: they drop in the files they already
+keep, and each is turned into text inside your application.
+
+| Format | Files | What a hit points at |
+|---|---|---|
+| Word | `.docx`, `.docm`, `.dotx`, `.dotm` | The heading it sits under |
+| PowerPoint | `.pptx`, `.pptm`, `.potx`, `.potm`, `.ppsx`, `.ppsm` | `Slide 4: Pricing` |
+| Excel | `.xlsx` and the old binary `.xls` | The sheet (read as a table) |
+| OpenDocument | `.odt` and `.ods` (and their templates) | The heading, or the sheet |
+| Tables | `.csv`, `.tsv` | The table |
+| PDF | `.pdf` | `Page 7` |
+| Web pages | `.html`, `.htm` | The heading; scripts, styles and navigation are left out |
+| Text | `.md`, `.txt` | The Markdown heading |
+| Archives | `.zip`, `.tar`, `.tar.gz` / `.tgz` | Each document inside, by its path |
+
+- **Content decides, not the name.** A Word file someone renamed `.txt` is
+  still read as Word.
+- **Word headings are found by their outline level**, not their style name, so
+  a document written in a Portuguese or Spanish Word — `Título 1` — is split
+  by heading like an English one.
+- **A document inside an archive is named through it**, in search hits and in
+  `SkippedDocuments` alike: `contracts-2025.zip › legal/nda.docx`, and through
+  a ZIP inside a ZIP, `old.zip › 2024.zip › legal/nda.docx`.
+- **Only text is indexed.** Pictures are ignored, and nothing a document
+  contains — macros, scripts, embedded objects — is ever run.
+
+A document it cannot read is **skipped, left in the folder, and never stops the
+others**. `onIndexed` lists each one in `SkippedDocuments` as
+`document: code (explanation)`, separated by `; `. The code is stable, so your
+program can show the reason in the user's language:
+
+| Code | Meaning | What the user can do |
+|---|---|---|
+| `legacy_office` | An old binary Word or PowerPoint file (`.doc`, `.ppt`) | Save it as `.docx` / `.pptx` |
+| `password_protected` | The document is encrypted | Save an unprotected copy |
+| `no_text` | A PDF with no text in it — usually a scan | Run it through OCR first |
+| `damaged` | The file is incomplete or corrupt | Replace it |
+| `unsupported` | Not a document format it reads — a picture, a program | — |
+| `too_large` | An archive past one of its bounds | Unpack it, or raise the bound |
+| `unreadable` | The file could not be opened | Check its permissions |
+
+**Archives are bounded.** An archive is read in memory, never unpacked to
+disk, and the three `ArchiveMaximum…` properties cap it — the total it
+unpacks to, the number of files, and how many archives deep. The caps count
+nested archives too, so a small file built to expand enormously is refused
+as `too_large` rather than filling the machine's memory.
+
+> ⚠️ **Caveat:** the bounds apply to archives. A single very large spreadsheet
+> or PDF is read whole, so keep individual documents to a sensible size.
 
 #### Keeping the index current
 

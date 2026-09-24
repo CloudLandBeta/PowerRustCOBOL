@@ -532,3 +532,90 @@ fn an_agent_search_on_an_endpoint_embedder_resumes_the_tool_loop() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+fn zip_of(members: &[(&str, &[u8])]) -> Vec<u8> {
+    use std::io::Write;
+    let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, data) in members {
+        w.start_file(*name, zip::write::SimpleFileOptions::default()).unwrap();
+        w.write_all(data).unwrap();
+    }
+    w.finish().unwrap().into_inner()
+}
+
+/// Spec 074 through a COBOL program: an imported archive is indexed member by
+/// member, a member that cannot be read is reported by code and path, an
+/// archive past `ArchiveMaximumFiles` is skipped whole as `too_large`, and a
+/// hit names the member through its archive.
+#[test]
+fn an_imported_archive_is_indexed_by_member_within_its_bounds() {
+    let root = temp("archive");
+    let location = root.join("KB");
+    let old_doc = {
+        let mut b = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+        b.extend(std::iter::repeat_n(0u8, 504));
+        b.extend("WordDocument".encode_utf16().flat_map(u16::to_le_bytes));
+        b
+    };
+    let good = root.join("contracts.zip");
+    std::fs::write(
+        &good,
+        zip_of(&[("legal/nda.md", b"# NDA\nThe okapiclause binds both parties."), ("old.doc", &old_doc)]),
+    )
+    .unwrap();
+    let many = root.join("many.zip");
+    std::fs::write(&many, zip_of(&[("a.md", b"a"), ("b.md", b"b"), ("c.md", b"c")])).unwrap();
+
+    let src = format!(
+        r#"{HEADER}
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE KB-1::ImportDocument("{good}") TO WS-OK
+           PERFORM UNTIL COBOL-QUIT = 1
+               CALL "COBOL-WAIT-EVENT" USING COBOL-EVENT-ID COBOL-CONTROL-ID
+               EVALUATE COBOL-EVENT-ID
+                   WHEN "onIndexed"
+                       ADD 1 TO WS-STEP
+                       MOVE KB-1::AddedCount TO WS-A
+                       MOVE KB-1::SkippedDocuments TO WS-TEXT
+                       DISPLAY "INDEXED=" WS-STEP ":" FUNCTION TRIM(WS-A)
+                       DISPLAY "SKIPPED=" WS-TEXT
+                       IF WS-STEP = 1
+                           MOVE KB-1::ImportDocument("{many}") TO WS-OK
+                       ELSE
+                           MOVE KB-1::Search("okapiclause") TO WS-OK
+                       END-IF
+                   WHEN "onSearchComplete"
+                       MOVE KB-1::GetResultDocument(1) TO WS-B
+                       DISPLAY "HIT=" WS-B
+                       MOVE 1 TO COBOL-QUIT
+                   WHEN "onError"
+                       MOVE KB-1::LastError TO WS-TEXT
+                       DISPLAY "ERROR=" WS-TEXT
+                       MOVE 1 TO COBOL-QUIT
+               END-EVALUATE
+           END-PERFORM
+           STOP RUN.
+"#,
+        good = good.display(),
+        many = many.display()
+    );
+    let t = Instant::now();
+    let out = run(&src, props(&location, &[("ArchiveMaximumFiles", "2")]));
+    let took = t.elapsed();
+
+    assert!(line(&out, "ERROR=").is_empty(), "{out:#?}");
+    assert_eq!(line(&out, "INDEXED="), vec!["01:1", "02:0"], "{out:#?}");
+    let skipped = line(&out, "SKIPPED=");
+    assert!(skipped[0].starts_with("contracts.zip › old.doc: legacy_office"), "{skipped:?}");
+    assert!(skipped[1].starts_with("many.zip: too_large"), "{skipped:?}");
+    assert_eq!(line(&out, "HIT="), vec!["contracts.zip › legal/nda.md"]);
+
+    println!("\n  ── 074 archive import through a COBOL program ───────");
+    println!("  contracts.zip: 1 member indexed, old.doc skipped (legacy_office)");
+    println!("  many.zip:      3 files at ArchiveMaximumFiles=2 → skipped (too_large)");
+    println!("  hit:           contracts.zip › legal/nda.md");
+    println!("  time:          {:.1} ms for the whole program", took.as_secs_f64() * 1000.0);
+    println!("  ──────────────────────────────────────────────────────\n");
+    let _ = std::fs::remove_dir_all(&root);
+}

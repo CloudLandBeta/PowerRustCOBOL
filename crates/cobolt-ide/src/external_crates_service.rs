@@ -1494,7 +1494,9 @@ mod flow_tests {
         assert_eq!(closure.classify("egui"), Some(SystemCategory::Direct));
         assert_eq!(closure.classify("eframe"), Some(SystemCategory::Direct));
         assert_eq!(closure.classify("epaint"), Some(SystemCategory::Transitive));
-        assert_eq!(closure.classify("csv"), None);
+        // `csv` rides in with document import (spec 074), so the unrelated
+        // crate is one no platform crate reaches.
+        assert_eq!(closure.classify("polars"), None);
 
         println!("──────────────────────────────────────────────");
         println!("spec 045 live system closure (AC4)");

@@ -8,6 +8,57 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.190] — 2026-09-24
+
+### Feature — document import for the KnowledgeBase control (spec 074)
+
+A `KnowledgeBase` now reads the documents users actually keep, not only
+Markdown and plain text. The conversion runs inside the built application and
+needs no C compiler.
+
+- **New SDK crate `cobolt-docs`.** It converts documents to Markdown and does
+  not need the KB. The KB depends on it, never the reverse. Formats:
+  - Word (`.docx` family)
+  - PowerPoint (`.pptx` family)
+  - Excel (`.xlsx`, and old binary `.xls`)
+  - OpenDocument text and spreadsheets
+  - CSV/TSV
+  - PDF (page text, as the Viewer reads it; no OCR)
+  - HTML (`htmd`, with scripts, styles and navigation dropped)
+  - Markdown and text
+  - ZIP, TAR and gzip archives of any of these
+- **Content decides, not the name.** A `.docx` renamed `.txt` is still read as
+  Word.
+- **Structure is kept.** Word headings are found by outline level, so a
+  Portuguese `Título 1` counts as a heading. Slides are `## Slide N: title`, in
+  presentation order, and empty slides keep their number. Sheets are
+  `## <sheet>` and PDF pages are `## Page N`.
+- **Archives are walked in memory, never unpacked to disk.** One budget
+  covers every nesting level. The limits are the new properties
+  `ArchiveMaximumMegabytes` (500), `ArchiveMaximumFiles` (10,000) and
+  `ArchiveMaximumDepth` (3). A member path cannot leave the archive (`..`,
+  absolute and drive parts are dropped). A document inside an archive is named
+  through it: `contracts.zip › legal/nda.docx`.
+- **Skipped documents are reported with a stable code.** The codes are
+  `legacy_office`, `password_protected`, `no_text`, `damaged`, `unsupported`,
+  `too_large` and `unreadable`. `SkippedDocuments` now reads
+  `document: code (explanation)`. A member that cannot be read is skipped on
+  its own and never stops the rest of its archive. A reader that panics on a
+  hostile file costs that file only.
+- **Index schema 2.** A passage records its archive member, so an existing
+  collection's index is moved aside and rebuilt from its documents once.
+- **Dependencies are all pure Rust.** `cargo tree` shows no `cc`, `-sys`,
+  bzip2 or zstd. Licences are MIT/Apache/BSD/Zlib, plus CC0 for lopdf's
+  encoding tables, which were already shipped.
+- System KB tables and `chunked.data` regenerated. The Developer's Guide
+  KnowledgeBase section gains *Which documents it reads*.
+- Tests:
+  - `cobolt-docs` covers 14 formats with per-format timings, the skip
+    reasons, the size, count and depth bounds, a zip bomb and a gzip bomb, and
+    escaping member paths.
+  - `cobolt-kb` checks that hits name `Page 2` and a member two archives deep.
+  - `cobolt-runtime` imports an archive from a COBOL program.
+
 ## [PowerRustCOBOL 1.70.189] — 2026-09-24
 
 ### Feature — the application Knowledge Base: the `KnowledgeBase` control (spec 068)

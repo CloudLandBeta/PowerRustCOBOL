@@ -57,6 +57,8 @@ pub(crate) struct KbConfig {
     pub key: String,
     pub write_wait: Duration,
     pub max_results: usize,
+    /// Bounds on expanding an archive of documents (spec 074 R15).
+    pub archive_limits: cobolt_kb::convert::Limits,
     /// `<app>/assets/models` — where the built-in model is cached (R23a).
     pub models_dir: PathBuf,
 }
@@ -233,7 +235,7 @@ fn run_inner(
     let mut collection = Collection::open(&cfg.location, cfg.collection.trim())?;
     collection.set_write_wait(cfg.write_wait);
     let embedder = make_embedder(cfg);
-    let conv = Converters::default();
+    let conv = Converters::with_limits(cfg.archive_limits);
     let outcome = match op {
         KbOp::Refresh => refresh::refresh(&collection, &*embedder, &conv, Scope::All, &mut progress, cancel)?,
         KbOp::Reindex => refresh::reindex(&collection, &*embedder, &conv, &mut progress, cancel)?,
@@ -277,7 +279,8 @@ fn indexed(o: Outcome) -> AsyncOutcome {
         skipped: o
             .skipped
             .into_iter()
-            .map(|(doc, skip)| format!("{doc}: {}", skip.message))
+            // The code first, for a program to translate (spec 074 §6).
+            .map(|(doc, skip)| format!("{doc}: {} ({})", skip.code, skip.message))
             .collect(),
         note: match (o.text_only, o.embedder_error) {
             (true, _) => "stored text-only: this collection was indexed with another embedder".into(),

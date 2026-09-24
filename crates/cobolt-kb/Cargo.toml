@@ -14,6 +14,8 @@ license.workspace      = true
 repository.workspace   = true
 
 [dependencies]
+# Document import — every format beyond Markdown and text (spec 074).
+cobolt-docs = { path = "../cobolt-docs" }
 # The index. Pinned exactly: the multi-process mode is an experimental redb
 # feature (spec 068 R9), and an experimental API is allowed to move between
 # releases. `experimental-multiprocess` adds byte-range file locking and no C.
@@ -43,3 +45,6 @@ semantic = ["dep:candle-core", "dep:candle-nn", "dep:candle-transformers", "dep:
 
 [dev-dependencies]
 tempfile = "3.10"
+# Fixture writers for the document-import test (spec 074).
+zip   = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
+lopdf = { version = "0.26", default-features = false, features = ["nom_parser"] }

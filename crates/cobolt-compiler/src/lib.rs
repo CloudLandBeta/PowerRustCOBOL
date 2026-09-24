@@ -2666,9 +2666,11 @@ fn walk_controls(controls: &[cobolt_forms::Control]) -> Vec<&cobolt_forms::Contr
 /// [`sdk_manifest`] names exactly this list as the workspace members — keeping
 /// both beside [`resolve_workspace_root`] is what stops the shipped layout and
 /// the layout we look for from drifting apart.
-pub const SDK_CRATES: [&str; 12] = [
+pub const SDK_CRATES: [&str; 13] = [
     "cobolt-ast",
     "cobolt-codegen",
+    // spec 074 — document import. `cobolt-kb` depends on it.
+    "cobolt-docs",
     "cobolt-form-host",
     "cobolt-forms",
     "cobolt-indexed",
@@ -5195,7 +5197,10 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "UpdatedCount" => ("integer (run-time)", "KnowledgeBase: in `onIndexed`, documents re-indexed because they changed."),
         "RemovedCount" => ("integer (run-time)", "KnowledgeBase: in `onIndexed`, documents removed from the index."),
         "SkippedCount" => ("integer (run-time)", "KnowledgeBase: in `onIndexed`, documents that could not be read."),
-        "SkippedDocuments" => ("text (run-time)", "KnowledgeBase: in `onIndexed`, `document: reason` for each skipped document, separated by `; `."),
+        "SkippedDocuments" => ("text (run-time)", "KnowledgeBase: in `onIndexed`, `document: code (explanation)` for each skipped document, separated by `; `. A document inside an archive is named through it: `old.zip › legal/nda.docx`. Codes: `unsupported`, `legacy_office` (.doc/.ppt), `password_protected`, `no_text` (a PDF with no text layer, e.g. a scan), `damaged`, `too_large` (an archive past its bounds), `unreadable` (the file could not be opened)."),
+        "ArchiveMaximumMegabytes" => ("integer MB (default 500)", "KnowledgeBase: the most an archive (ZIP/TAR, nested ones included) may unpack to; past it the whole archive is skipped as `too_large`."),
+        "ArchiveMaximumFiles" => ("integer (default 10000)", "KnowledgeBase: the most files an archive (nested ones included) may hold; past it the whole archive is skipped as `too_large`."),
+        "ArchiveMaximumDepth" => ("integer (default 3)", "KnowledgeBase: how many archives deep documents are read — 1 reads an archive but none inside it; deeper nesting skips the archive as `too_large`."),
         "ResultCount" => ("integer (run-time)", "KnowledgeBase: in `onSearchComplete`, how many hits the search returned; read each with `GetResult…(n)`."),
         "CollectionCount" => ("integer (run-time)", "KnowledgeBase: collections found by the last `ListCollections`."),
         "DocumentCount" => ("integer (run-time)", "KnowledgeBase: documents found by the last `ListDocuments`."),
@@ -5708,7 +5713,7 @@ fn control_purpose(name: &str) -> &'static str {
         "Shape" => "Decorative rectangle / circle / triangle.",
         "Animator" => "Plays an animated image (GIF / WebP / APNG).",
         "AgentObject" => "Non-visual LLM client (ask a model from COBOL).",
-        "KnowledgeBase" => "Non-visual application Knowledge Base (spec 068): collections of the application's users' documents, each with a searchable index derived from them, kept under `Location` (default `<app>/assets/KB`). NOT the IDE's System or Project Knowledge Base, and a built application links nothing of the IDE for it. Documents are Markdown or plain text (more formats with spec 074); a document that cannot be read is skipped and reported. Every operation that writes or searches runs in the background and reports through events that carry their own property values — `onProgress`, then `onIndexed`, `onSearchComplete`, `onBusy` or `onError`. Several applications, on one machine or on a LAN share, can search and write one collection at once; a writer waits `WriteWaitMilliseconds` for another and then raises `onBusy`. Embedder `Lexical` matches words; `Endpoint` uses an embedding model on a server; `Builtin` runs the semantic model inside the application (project setting `[rag] embedder = \"builtin\"`, fetched once per installation with `FetchModel`). When the configured embedder cannot be used, search falls back to lexical and `SearchModeReason` says why. An AgentObject is given a collection as a tool with `AllowKnowledgeBase`; the model then searches it and cites the document each passage came from.",
+        "KnowledgeBase" => "Non-visual application Knowledge Base (spec 068): collections of the application's users' documents, each with a searchable index derived from them, kept under `Location` (default `<app>/assets/KB`). NOT the IDE's System or Project Knowledge Base, and a built application links nothing of the IDE for it. Documents may be Word (.docx and its macro/template variants), PowerPoint (.pptx family), Excel (.xlsx, and old .xls), OpenDocument text and spreadsheets (.odt, .ods), CSV/TSV tables, PDF (page text, no OCR), HTML, Markdown and plain text, and ZIP/TAR archives of any of these (spec 074). The format is recognised by content before name. Structure is kept, so a hit names its heading, `Slide N`, sheet or `Page N`, and a document inside an archive is named through it (`old.zip › legal/nda.docx`). Archives are read in memory within `ArchiveMaximumMegabytes`/`ArchiveMaximumFiles`/`ArchiveMaximumDepth`; nothing a document contains is executed. A document that cannot be read — old .doc/.ppt, password protected, a scanned PDF, damaged, unsupported — is skipped and reported by name with a code in `SkippedDocuments`, and never stops the rest. Every operation that writes or searches runs in the background and reports through events that carry their own property values — `onProgress`, then `onIndexed`, `onSearchComplete`, `onBusy` or `onError`. Several applications, on one machine or on a LAN share, can search and write one collection at once; a writer waits `WriteWaitMilliseconds` for another and then raises `onBusy`. Embedder `Lexical` matches words; `Endpoint` uses an embedding model on a server; `Builtin` runs the semantic model inside the application (project setting `[rag] embedder = \"builtin\"`, fetched once per installation with `FetchModel`). When the configured embedder cannot be used, search falls back to lexical and `SearchModeReason` says why. An AgentObject is given a collection as a tool with `AllowKnowledgeBase`; the model then searches it and cites the document each passage came from.",
         "RestClient" => "Non-visual HTTP/REST client (async by default).",
         "SqlDatabase" => "Non-visual SQL connection (sqlite / postgres / mysql / mssql).",
         "IndexedFile" => "Non-visual COBOL indexed-file access (driven by generated PERFORM paragraphs).",
