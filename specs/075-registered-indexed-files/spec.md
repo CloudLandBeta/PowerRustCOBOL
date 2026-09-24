@@ -74,6 +74,10 @@ PowerRustCOBOL gets it.
 - **R5 (constraint):** A `.cidx` that describes no purpose, or no fields, shall
   be refused with the reason (065's rule; 071 R25).
 - **R6 (ubiquitous):** A program shall be able to withdraw a registration.
+- **R6a (constraint):** A registration shall last for the life of the program
+  only. The runtime shall not store it; a program that wants it back after a
+  restart registers the file again at start-up, so the runtime never keeps a
+  path — or a password inside one (operator, 2026-09-24).
 
 ### 4.2 Where the file may be
 
@@ -113,8 +117,8 @@ PowerRustCOBOL gets it.
 - **R17 (ubiquitous):** A registered file shall be held in memory
   (`STORAGE MODE IS MEMORY`) when it fits (071 R10b).
 - **R18 (ubiquitous):** A file fits when it is under the project's memory limit
-  (065's setting) **and** the machine has enough free memory to hold it, with a
-  margin (operator, 2026-09-24).
+  (065's setting) **and** its size is at most **half** of the machine's free
+  memory at the moment it is opened (operator, 2026-09-24).
 - **R19 (event):** When a file does not fit, and it is a **local** file in the
   DISK format (`PRCIDXD1`), it shall be read **in place** from disk, and the
   program told that it was (operator, 2026-09-24; 071 R10d).
@@ -204,10 +208,10 @@ and both would break R15 and AC7.
 
 ## 7. Open questions
 
-- **Q1 — The free-memory margin.** Proposal: a file fits only if its size is at
-  most half of the machine's free memory at the moment of opening, as well as
-  under the project limit.
-- **Q2 — Does a registration survive a restart?** Proposal: no — the runtime
-  keeps registrations for the life of the program, and the program (PowerChat's
-  topic file, for instance) re-registers them at start-up. The runtime then
-  never stores a path, or a password inside one.
+All settled with the operator on 2026-09-24:
+
+- **Q1 — ✅ The free-memory margin:** a file fits only if it is at most half of
+  the machine's free memory when opened, as well as under the project limit
+  (R18).
+- **Q2 — ✅ Registrations do not survive a restart:** the program re-registers
+  at start-up, and the runtime stores no path (R6a).

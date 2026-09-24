@@ -8,6 +8,15 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.183] — 2026-09-24
+
+### Spec 075 — open questions settled
+
+A registered file fits in memory only if it is under the project limit and at
+most half of the machine's free memory when opened (R18). Registrations last
+for the life of the program; the runtime stores no path, and the program
+re-registers at start-up (R6a). Spec only.
+
 ## [PowerRustCOBOL 1.70.182] — 2026-09-24
 
 ### Spec 075 — registered indexed files, drafted for review
