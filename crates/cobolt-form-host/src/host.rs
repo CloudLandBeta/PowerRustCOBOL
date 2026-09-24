@@ -2322,6 +2322,26 @@ impl FormBody {
         cobolt_forms::breadcrumb::shell_side_menu_in(&self.controls)
     }
 
+    /// The controls this body PAINTS: the design, except that a rail shown
+    /// collapsed is drawn at its collapsed width, with the content slid over
+    /// the column it gave up — `sidebar::rail_view`, the call the designer
+    /// canvas and the preview already make.
+    ///
+    /// The root form never needed it: it opens as a SHELL, which lays the rail
+    /// out itself. A child window did — it painted the designed rect, so a
+    /// folded rail was a full-width bar of icon-only rows, and the breadcrumb
+    /// strip (placed from the COLLAPSED width by `window_crumb_chrome`) sat
+    /// underneath it (operator, 2026-09-23).
+    fn painted_controls(&self) -> Vec<cobolt_forms::Control> {
+        match self.own_side_menu() {
+            Some(side) => {
+                let collapsed = self.side_menu_collapsed(&side.id);
+                cobolt_forms::sidebar::rail_view(&self.controls, side, collapsed)
+            }
+            None => self.controls.clone(),
+        }
+    }
+
     /// The rail's live Open/Collapsed state, which is what the toggle's arrow
     /// has to show: the designed property only says what it opened as.
     fn side_menu_collapsed(&self, side_id: &str) -> bool {
@@ -2532,7 +2552,7 @@ impl FormBody {
         // focus during render, and the clipboard verbs need to know who HAD it.
         let pre_focus = ctx.memory(|m| m.focused());
         let output = {
-            let controls = self.controls.clone();
+            let controls = self.painted_controls();
             let st = LiveState {
                 state: &self.state,
                 anim: &self.anim,
@@ -5444,6 +5464,53 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             toggle.height(),
             toggle.center().x,
             toggle.center().y
+        );
+    }
+
+    /// A child window whose rail is folded PAINTS it folded: the rail at its
+    /// collapsed width and the content slid left with it — the same picture the
+    /// shell, the designer and the preview give. It used to paint the designed
+    /// rect: a full-width rail of icon-only rows with the breadcrumb under it.
+    #[test]
+    fn a_child_window_paints_a_folded_rail_at_its_collapsed_width() {
+        let mut host = host_with_side_menu();
+        let mut label =
+            cobolt_forms::Control::new("Lbl-1", cobolt_forms::ControlType::Label, 0, 0);
+        label.rect = cobolt_forms::model::Rect::new(260, 40, 200, 30);
+        host.root.controls.push(label);
+        let side = host.root.controls.iter().find(|c| c.id == "SideMenu-1").unwrap().clone();
+        let folded_w = cobolt_forms::sidebar::shown_width(&side, true) as i32;
+
+        let open = host.root.painted_controls();
+        let rect_of = |cs: &[cobolt_forms::Control], id: &str| {
+            cs.iter().find(|c| c.id == id).unwrap().rect
+        };
+        assert_eq!(rect_of(&open, "SideMenu-1").w, 200, "open: the designed width");
+        assert_eq!(rect_of(&open, "Lbl-1").x, 260, "open: content where it was drawn");
+
+        host.root.state.insert(
+            "SideMenu-1".into(),
+            crate::state::CtrlState {
+                props: [("Collapsed".to_string(), "true".to_string())].into(),
+                visible: true,
+                enabled: true,
+            },
+        );
+        let folded = host.root.painted_controls();
+        assert_eq!(rect_of(&folded, "SideMenu-1").w, folded_w, "folded: the collapsed width");
+        assert_eq!(
+            rect_of(&folded, "Lbl-1").x,
+            260 - (200 - folded_w),
+            "folded: content slides left by the width the rail gave up"
+        );
+        assert_eq!(
+            host.root.controls.iter().find(|c| c.id == "SideMenu-1").unwrap().rect.w,
+            200,
+            "the design itself is never edited"
+        );
+        println!(
+            "child window rail — open 200 px, folded {folded_w} px; label x 260 -> {}",
+            260 - (200 - folded_w)
         );
     }
 

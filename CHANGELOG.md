@@ -8,6 +8,24 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.166] — 2026-09-23
+
+### Fix — a folded sidebar in a child window is drawn folded
+
+A form with a SideMenu opens as a shell when it is the root, and the shell
+narrows a folded rail to its `CollapsedWidth`. Opened as a CHILD WINDOW — from
+another form's sidebar, say — the same form is hosted by the plain form body,
+which painted the rail at its designed width. Folded, it was a full-width bar
+of icon-only rows, the content did not move, and the breadcrumb strip (placed
+from the collapsed width) sat underneath the rail, so its title and fold button
+were hidden (PowerDemo3's *SideBar* sample opened from the main menu).
+
+The body now paints through `sidebar::rail_view`, the call the designer and the
+preview already make: folded, the rail is drawn at its collapsed width and the
+content slides left with it; open, the design is painted untouched. The fix is
+in the shared form host, so `rcrun run-form` and built applications both get
+it. Test: `a_child_window_paints_a_folded_rail_at_its_collapsed_width`.
+
 ## [PowerRustCOBOL 1.70.165] — 2026-09-23
 
 ### Fix — a SideMenu row's badge can be set in the menu editor
