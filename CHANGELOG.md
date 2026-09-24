@@ -8,6 +8,27 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.185] — 2026-09-24
+
+### Spec 076 — application model list and key store, drafted for review
+
+`specs/076-application-model-list/spec.md` gives a running application a
+model list its users maintain, through a settings form written in COBOL.
+
+- **The list:** the program keeps it in its own indexed file and hands the
+  entries to the runtime by name. The runtime stores no list.
+- **The keys:** the runtime keeps them behind a key-store seam. For now that
+  is an obscured settings file in the installation folder, shared by the
+  installation's users. The OS keychain can replace it later.
+- **Safety:** keys can be stored, replaced and removed, but never read back,
+  logged or sent to a model.
+- **Using an entry:** an `AgentObject` or a `KnowledgeBase` embedder can name
+  one. The entry wins over the existing `Configuration` and environment
+  variables, which keep working.
+
+Open: the COBOL surface (runtime CALLs plus a `ModelEntry` property is
+proposed) and how "obscured" is done. Spec only. (1.70.184 is on `fixes`.)
+
 ## [PowerRustCOBOL 1.70.183] — 2026-09-24
 
 ### Spec 075 — open questions settled
