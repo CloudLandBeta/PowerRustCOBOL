@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.181] — 2026-09-24
+
+### Spec 074 — open questions settled
+
+HTML is converted with `htmd`, the most downloaded pure-Rust HTML-to-Markdown
+converter (4.58 M downloads, Apache-2.0; `html2text` has more downloads but
+emits plain text, and `html2md` is GPL). The archive bounds are 500 MB, 10,000
+files and 3 levels deep, changeable per KB. The converters are a runtime crate
+of their own, usable without the KB (R22, R23, AC10a). Spec only.
+
 ## [PowerRustCOBOL 1.70.180] — 2026-09-24
 
 ### Spec 074 — document import, drafted for review

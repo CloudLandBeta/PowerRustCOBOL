@@ -123,6 +123,12 @@ C compiler to build.
 - **R21 (ubiquitous):** A converted document shall be handed to the KB through
   068's seam, so that adding a format later means adding a converter and
   nothing in the KB.
+- **R22 (ubiquitous):** The converters shall be a **runtime crate of their own**,
+  usable without the KB — the KB depends on it, never the reverse (operator,
+  2026-09-24).
+- **R23 (ubiquitous):** HTML shall be converted with **`htmd`** — the most
+  downloaded pure-Rust HTML-to-Markdown converter meeting R18 and R19
+  (operator, 2026-09-24).
 
 ## 5. Acceptance criteria
 
@@ -150,6 +156,8 @@ C compiler to build.
       licence) shows only licences compatible with Apache-2.0. *(R19)*
 - [ ] **AC10** — `cargo tree` shows neither `cobolt-ide` nor `cobolt-agents`.
       *(R20)*
+- [ ] **AC10a** — The converter crate builds and converts a document in a test
+      that does not link the KB crate. *(R22)*
 - [ ] **AC11** — Tests report quantified results: per format, documents
       converted, characters produced, and conversion time per document and per
       megabyte (GOLDEN RULE #7).
@@ -173,12 +181,22 @@ C compiler to build.
 
 ## 7. Open questions
 
-- **Q1 — The HTML converter.** `markdownify` does not read HTML. /plan must pick a
-  pure-Rust HTML-to-Markdown crate meeting R18 and R19, or write the small
-  converter R5 needs. Evaluated on the same terms as `markdownify`.
-- **Q2 — The archive bounds.** Proposal: 500 MB unpacked in total, 10,000 files,
-  3 levels of nesting, each changeable per `KnowledgeBase`. The operator may
-  prefer other defaults.
-- **Q3 — The seam's location.** 068 R14 names a seam; /plan decides whether the
-  converters live in the KB crate or a separate runtime crate, so that an
-  application can one day use them without the KB.
+All settled with the operator on 2026-09-24:
+
+- **Q1 — ✅ HTML: the most popular pure-Rust converter meeting the same rules.**
+  Measured on crates.io, 2026-09-24:
+
+  | Crate | Downloads (total / recent) | Licence | Output |
+  |---|---|---|---|
+  | `html2text` | 6.16 M / 1.55 M | MIT | Plain text, not Markdown: headings lost |
+  | **`htmd` 0.5.5** | **4.58 M / 3.28 M** | **Apache-2.0** | **Markdown** |
+  | `html-to-markdown-rs` | 1.37 M / 0.75 M | MIT | Markdown |
+  | `html2md` | 1.04 M / 0.34 M | GPL-3.0+ | Excluded by R19 |
+
+  `html2text` leads in total downloads but emits plain text, which would lose
+  the headings R8 chunks by; among Markdown converters `htmd` leads on both
+  counts. Its dependencies (`html5ever`, `markup5ever_rcdom`, `phf`) are pure
+  Rust. Captured as R23.
+- **Q2 — ✅ Archive bounds:** 500 MB unpacked in total, 10,000 files, 3 levels
+  of nesting, each changeable per `KnowledgeBase` (R15).
+- **Q3 — ✅ A separate runtime crate**, usable without the KB (R22).
