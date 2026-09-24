@@ -1406,6 +1406,12 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
         "ToolCallId",
         "ToolName",
         "ToolArguments",
+        // Spec 075 — the outcome of the last `RegisterFile`.
+        "RegisterResult",
+        "RegisterMessage",
+        "RegisteredName",
+        "RegisterFileBytes",
+        "RegisterLimitBytes",
     ];
     // Spec 068 — what a KnowledgeBase reports: the state of the operation in
     // hand, how search was scored, the last update's counts, and the results.

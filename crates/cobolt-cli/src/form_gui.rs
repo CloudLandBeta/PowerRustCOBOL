@@ -217,6 +217,11 @@ pub fn cmd_run_form(args: &[String]) {
             let catalogue = cobolt_compiler::project_connections(m);
             cobolt_form_host::seeding::publish_connections(catalogue.rest);
             cobolt_form_host::seeding::publish_search_connections(catalogue.search);
+            // `[agents] file_memory_limit_mb` (spec 075), for every
+            // interpreter this process builds, child forms' included.
+            cobolt_runtime::mcp_tool::publish_file_memory_limit(
+                cobolt_compiler::project_file_memory_limit(m),
+            );
         }
         let anchor = manifest
             .and_then(|m| m.parent().map(|p| p.to_path_buf()))

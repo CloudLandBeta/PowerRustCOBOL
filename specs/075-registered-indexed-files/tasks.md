@@ -1,6 +1,6 @@
 # Tasks — Registered indexed files (`AgentObject::RegisterFile`)
 
-- **Status:** ready for `/implement`
+- **Status:** done except T12, the operator's live share run
 - **Plan:** ./plan.md   **Date:** 2026-09-24
 
 Ordered so the workspace stays green after each task. Each commit bumps `z` and adds a
@@ -9,13 +9,13 @@ test ever changes a registered file: every test is wrapped by `assert_untouched`
 
 ## Phase 1 — the memory limit becomes a project setting
 
-- [ ] **T1 — Runtime global** (065 R34)
+- [x] **T1 — Runtime global** (065 R34)
   - Files: `crates/cobolt-runtime/src/mcp_tool.rs`.
   - Do: `publish_file_memory_limit(bytes)` / `file_memory_limit()` (process global, first
     call wins, default `DEFAULT_MEMORY_LIMIT_BYTES`); `IndexedToolSet::default` reads it.
   - Verify: unit test — unpublished → 64 MiB; published value reaches a new tool set.
 
-- [ ] **T2 — Project manifest, three hosts**
+- [x] **T2 — Project manifest, three hosts**
   - Files: `crates/cobolt-compiler/src/lib.rs` (`AgentsConfig`,
     `project_file_memory_limit`, generated `const PROJECT_FILE_MEMORY_LIMIT_MB` + publish
     call in `run_form_app`), `crates/cobolt-cli/src/form_gui.rs`.
@@ -23,7 +23,7 @@ test ever changes a registered file: every test is wrapped by `assert_untouched`
     `publish_connections`; child forms inherit the process value.
   - Verify: compiler tests — manifest parse, generated source carries the const and the call.
 
-- [ ] **T3 — IDE Project Settings**
+- [x] **T3 — IDE Project Settings**
   - Files: `crates/cobolt-ide/src/project_model.rs` (`AgentsSettings`),
     `panels/settings_form.rs` (Runtime section, 1–65536 MB), `i18n.rs`
     (`lbl_runtime_file_memory_limit`, `hint_runtime_file_memory_limit` ×6).
@@ -32,33 +32,33 @@ test ever changes a registered file: every test is wrapped by `assert_untouched`
 
 ## Phase 2 — reading a file by path, safely
 
-- [ ] **T4 — Engine helpers** (R4, R15, R16)
+- [x] **T4 — Engine helpers** (R4, R15, R16)
   - Files: `indexed.rs` (`IndexedFile::inspect_bytes`), `indexed_disk.rs`
     (`input_needs_copy(path)`, `pub(crate) fn schema_equivalent` extracted from
     `schema_matches`).
   - Verify: unit tests — each reads without write access; `schema_matches` behaviour
     unchanged (existing indexed suites green).
 
-- [ ] **T5 — `registered_file.rs`: location, `SmbUrl`, masking** (R7–R9, R11–R13)
+- [x] **T5 — `registered_file.rs`: location, `SmbUrl`, masking** (R7–R9, R11–R13)
   - Do: `Location::{Fs, Smb}`, relative paths via `assets::resolve`; `SmbUrl` parse
     (`domain;user:password@server:port/share/path`, percent-decoding), `Display`/`Debug`
     masked.
   - Verify: table tests of path forms per OS; no formatting of an `SmbUrl` contains the
     password.
 
-- [ ] **T6 — `.cidx` validation and `from_registered_definition`** (R3–R5)
+- [x] **T6 — `.cidx` validation and `from_registered_definition`** (R3–R5)
   - Files: `registered_file.rs`, `mcp_tool.rs` (`FileAccess.alternates`).
   - Do: `validate_definition`, leaf offsets/lengths, record length, declared vs stored
     schema, multi-part key → `KEY-MISMATCH`; R5 purpose / fields / descriptions.
   - Verify: one fixture per refusal code (AC2).
 
-- [ ] **T7 — Fit decision and free memory** (R17–R20)
+- [x] **T7 — Fit decision and free memory** (R17–R20)
   - Do: pure `decide(container, location, size, limit, free)`; `trait FreeMemory` (`sysinfo`
     available memory, added to `cobolt-runtime`), injectable probe.
   - Verify: table tests — every branch, both numbers in each refusal (AC10–AC12 at unit
     level).
 
-- [ ] **T8 — `FileSource` in the tool set** (R2, R14, R15, R19, R21)
+- [x] **T8 — `FileSource` in the tool set** (R2, R14, R15, R19, R21)
   - Files: `mcp_tool.rs`.
   - Do: `Assigned` (unchanged) / `Loaded(Arc<Vec<Bytes>>)` / `InPlace(PathBuf)` (re-check
     `.jrn` before each search; `DiskIndexedFile` `INPUT` with all keys);
@@ -68,7 +68,7 @@ test ever changes a registered file: every test is wrapped by `assert_untouched`
 
 ## Phase 3 — COBOL surface
 
-- [ ] **T9 — `RegisterFile` / `UnregisterFile`** (R1, R2, R6, R6a, R10, R14–R16)
+- [x] **T9 — `RegisterFile` / `UnregisterFile`** (R1, R2, R6, R6a, R10, R14–R16)
   - Files: `interpreter.rs` (`exec_method`, `is_known_method`),
     `interpreter/agent_loop.rs`, `cobolt-forms/src/model.rs` (five run-time properties).
   - Do: order of checks per plan §2; properties written every call; logs carry the masked
@@ -79,7 +79,7 @@ test ever changes a registered file: every test is wrapped by `assert_untouched`
 
 ## Phase 4 — `smb://`
 
-- [ ] **T10 — `smb2` fetch** (R9, R11–R13, R20)
+- [x] **T10 — `smb2` fetch** (R9, R11–R13, R20)
   - Files: `crates/cobolt-runtime/{Cargo.toml,src/smb_source.rs}`,
     `crates/cobolt-form-host/Cargo.toml`, `crates/cobolt-cli/Cargo.toml`.
   - Do: feature `smb` (`smb2 = "=0.26.0"`, tokio); `trait SmbFetch` (`stat`, `read_all`
@@ -91,7 +91,7 @@ test ever changes a registered file: every test is wrapped by `assert_untouched`
     (AC6), oversize refused with both numbers (AC12); `cargo tree -p cobolt-runtime
     --features smb` has no `ring`, `cc` or `-sys` crate.
 
-- [ ] **T11 — Build features and parity** (R22, R23)
+- [x] **T11 — Build features and parity** (R22, R23)
   - Files: `crates/cobolt-compiler/src/runtime_features.rs`.
   - Do: `RuntimeFeatures.smb` from `ControlType::AgentObject`; emitted in the manifest.
   - Verify: manifest carries `"smb"` with an AgentObject and not without; `cargo tree`
@@ -103,10 +103,12 @@ test ever changes a registered file: every test is wrapped by `assert_untouched`
     `COBOLT_TEST_NET_PATH`: credentialed share, guest share, read-only share, OS network
     path. Run by the operator against a Samba container or their share; the result is
     reported, never assumed. A failing guest login is reported as a gap.
+  - **Written, not run:** `live_smb_share` in `test_registered_files.rs`,
+    waiting for the operator.
 
 ## Phase 5 — docs and finalize
 
-- [ ] **T13 — System KB and Developer's Guide**
+- [x] **T13 — System KB and Developer's Guide**
   - Files: `crates/cobolt-compiler/src/lib.rs` doc tables (methods, the five properties,
     refusal codes, the fallback, the project setting), `assets/knowledge/chunked.data`,
     `docs/developers-guide-en.md` (*Registering a file by path*).
@@ -114,7 +116,7 @@ test ever changes a registered file: every test is wrapped by `assert_untouched`
     `prebuilt_chunked_kb_matches_the_published_documentation`; invalidated translations
     deleted (GOLDEN RULE #8).
 
-- [ ] **T14 — Finalize**
+- [x] **T14 — Finalize**
   - Sweeps `--no-fail-fast`: `cobolt-runtime` (± `--features smb`), `cobolt-forms
     --features render`, `cobolt-form-host`, `cobolt-cli`, `cobolt-compiler`, `cobolt-ide
     --bin cobolt-ide`; AC14 numbers reported; spec ACs checked off; CHANGELOG + `z`.

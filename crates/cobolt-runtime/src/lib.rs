@@ -65,6 +65,10 @@ pub(crate) mod kb_runtime;
 pub mod maps_bridge;
 /// Spec 065 — the indexed-file tool served over MCP.
 pub mod mcp_tool;
+/// Indexed files registered by path while a program runs (spec 075).
+pub mod registered_file;
+/// `smb://` addresses for registered files (spec 075).
+pub mod smb_source;
 pub mod viewer_report;
 pub mod ors_bridge;
 /// The numeric-edited PICTURE engine, which now lives in `cobolt-forms` so a

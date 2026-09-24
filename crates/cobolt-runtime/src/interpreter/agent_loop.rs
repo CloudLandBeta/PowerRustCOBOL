@@ -514,6 +514,64 @@ impl Interpreter {
     }
 }
 
+impl Interpreter {
+    /// `RegisterFile(data-path, cidx-path [, name])` — let every agent search
+    /// an indexed file named by its path, with no `FD` (spec 075). The outcome
+    /// is written to `RegisterResult` (`MEMORY`, `DISK` or a refusal code),
+    /// `RegisterMessage`, `RegisteredName`, `RegisterFileBytes` and
+    /// `RegisterLimitBytes` — kept apart from `LastError`, which an `Ask` in
+    /// flight may be about to write. Nothing is kept once the program ends
+    /// (R6a), and no path reaches a model.
+    pub(super) fn agent_register_file(&mut self, obj: &str, data: &str, cidx: &str, name: &str) -> bool {
+        use crate::registered_file as reg;
+        let limit = self.mcp_tools.memory_limit();
+        let fixed;
+        let system = reg::SystemMemory;
+        let free: &dyn reg::FreeMemory = match self.free_memory_probe {
+            Some(bytes) => {
+                fixed = reg::FixedMemory(bytes);
+                &fixed
+            }
+            None => &system,
+        };
+        let fetch = reg::Fetcher { smb: crate::smb_source::fetcher() };
+        let outcome = reg::register(data, cidx, name, limit, free, &fetch);
+        let shown = reg::Location::parse(data).map(|l| l.display()).unwrap_or_default();
+        match outcome {
+            Ok(r) => {
+                let result = match r.fit {
+                    reg::Fit::Memory => "MEMORY",
+                    reg::Fit::InPlace => "DISK",
+                };
+                let message = match r.fit {
+                    reg::Fit::Memory => format!("{} is held in memory ({} bytes)", r.description.name, r.size),
+                    reg::Fit::InPlace => format!(
+                        "{} is {} bytes, over what memory allows, and is read in place from disk",
+                        r.description.name, r.size
+                    ),
+                };
+                tracing::info!(target: "mcp", "registered {shown} as {}: {result}", r.description.name);
+                self.obj_set(obj, "RegisterResult", result.into());
+                self.obj_set(obj, "RegisterMessage", message);
+                self.obj_set(obj, "RegisteredName", r.description.name.clone());
+                self.obj_set(obj, "RegisterFileBytes", r.size.to_string());
+                self.obj_set(obj, "RegisterLimitBytes", r.limit.to_string());
+                self.mcp_tools.register(r.description, r.access, r.source);
+                true
+            }
+            Err(refusal) => {
+                tracing::warn!(target: "mcp", "{shown} not registered: {} {}", refusal.code, refusal.message);
+                self.obj_set(obj, "RegisterResult", refusal.code.into());
+                self.obj_set(obj, "RegisterMessage", refusal.message);
+                self.obj_set(obj, "RegisteredName", String::new());
+                self.obj_set(obj, "RegisterFileBytes", refusal.size.to_string());
+                self.obj_set(obj, "RegisterLimitBytes", refusal.bound.to_string());
+                false
+            }
+        }
+    }
+}
+
 /// The delivered definition whose file is `fd` — searched in the `indexed/`
 /// tree the application anchors on, which is where a build stages every
 /// definition the project declares.

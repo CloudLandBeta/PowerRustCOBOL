@@ -62,6 +62,8 @@ pub struct SettingsDraft {
     pub focus_ring_pulse: bool,
     // ── Runtime ──
     pub fixed_format: bool,
+    /// `[agents] file_memory_limit_mb`, shown with its default filled in.
+    pub file_memory_limit_mb: u64,
     // ── Run-Form inspector ──
     pub insp_dump_enabled: bool,
     pub insp_dump_path: String,
@@ -158,6 +160,10 @@ impl SettingsDraft {
             focus_ring_color: p.forms.focus_ring_color.clone(),
             focus_ring_pulse: p.forms.focus_ring_pulse,
             fixed_format: p.runtime.fixed_format,
+            file_memory_limit_mb: match p.agents.file_memory_limit_mb {
+                0 => cobolt_compiler::DEFAULT_FILE_MEMORY_LIMIT_MB,
+                mb => mb,
+            },
             insp_dump_enabled: p.ide.inspector_dump_enabled,
             insp_dump_path: p.ide.inspector_dump_path.clone(),
             llm_provider: llm.provider.clone(),
@@ -241,6 +247,13 @@ impl SettingsDraft {
         p.forms.focus_ring_color = self.focus_ring_color.clone();
         p.forms.focus_ring_pulse = self.focus_ring_pulse;
         p.runtime.fixed_format = self.fixed_format;
+        // The default is stored as 0, so a project that never changes it keeps
+        // no `[agents]` table.
+        p.agents.file_memory_limit_mb =
+            match self.file_memory_limit_mb {
+                mb if mb == cobolt_compiler::DEFAULT_FILE_MEMORY_LIMIT_MB => 0,
+                mb => mb,
+            };
         p.ide.inspector_dump_enabled = self.insp_dump_enabled;
         p.ide.inspector_dump_path = self.insp_dump_path.clone();
         llm.provider = self.llm_provider.clone();
@@ -2523,6 +2536,34 @@ impl SettingsForm {
                             let right_w = ui.available_width();
                             ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
                                 ui.checkbox(&mut self.draft.fixed_format, "");
+                            });
+                        });
+
+                        // Model file-search memory limit (spec 075)
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new(tr.lbl_runtime_file_memory_limit).truncate())
+                                    .on_hover_text(tr.hint_runtime_file_memory_limit);
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                ui.add(
+                                    egui::DragValue::new(&mut self.draft.file_memory_limit_mb)
+                                        .range(1..=65_536)
+                                        .suffix(" MB"),
+                                )
+                                .on_hover_text(tr.hint_runtime_file_memory_limit);
                             });
                         });
 

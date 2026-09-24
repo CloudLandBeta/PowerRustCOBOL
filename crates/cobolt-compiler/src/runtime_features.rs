@@ -88,6 +88,9 @@ pub struct RuntimeFeatures {
     /// it (`[rag] embedder = "builtin"`): it links candle and tokenizers, and
     /// tokenizers' `onig` compiles C. Never inferred, never in [`Self::all`].
     pub kb_semantic: bool,
+    /// Spec 075 — `smb://` addresses for files an `AgentObject` registers by
+    /// path. Pure Rust (`smb2`); on for any form with an `AgentObject`.
+    pub smb: bool,
 }
 
 impl RuntimeFeatures {
@@ -99,6 +102,7 @@ impl RuntimeFeatures {
             maps: true,
             kb: true,
             kb_semantic: false,
+            smb: true,
         }
     }
 
@@ -110,6 +114,7 @@ impl RuntimeFeatures {
             maps: self.maps || other.maps,
             kb: self.kb || other.kb,
             kb_semantic: self.kb_semantic || other.kb_semantic,
+            smb: self.smb || other.smb,
         }
     }
 
@@ -133,6 +138,9 @@ impl RuntimeFeatures {
             names.push("\"kb-semantic\"");
         } else if self.kb {
             names.push("\"kb\"");
+        }
+        if self.smb {
+            names.push("\"smb\"");
         }
         names.join(", ")
     }
@@ -166,6 +174,9 @@ pub fn scan_forms<'a>(forms: impl IntoIterator<Item = &'a cobolt_forms::Form>) -
             }
             if ctrl.control_type == cobolt_forms::ControlType::KnowledgeBase {
                 found.kb = true;
+            }
+            if ctrl.control_type == cobolt_forms::ControlType::AgentObject {
+                found.smb = true;
             }
         }
     }
@@ -230,6 +241,7 @@ fn scan_rust(source: &str) -> RuntimeFeatures {
         maps: MAPS_RUST_PATHS.iter().any(|p| source.contains(p)),
         kb: source.contains("cobolt_kb"),
         kb_semantic: false,
+        smb: source.contains("smb_source") || source.contains("registered_file"),
     }
 }
 
@@ -412,7 +424,7 @@ mod tests {
         let all = RuntimeFeatures::all();
         assert!(all.sql && all.http && all.maps && all.kb);
         assert!(!all.kb_semantic, "the built-in model is never part of \"everything\"");
-        assert_eq!(all.as_toml_features(), "\"sql\", \"http\", \"maps\", \"kb\"");
+        assert_eq!(all.as_toml_features(), "\"sql\", \"http\", \"maps\", \"kb\", \"smb\"");
     }
 
     /// A Maps control is reached by method call on a control id, which the AST
@@ -435,6 +447,18 @@ mod tests {
         let f = scan_forms([&plain]);
         assert!(!f.maps, "no Maps control, no Maps client");
         assert!(f.http, "…but TLS is linked regardless, by cobolt-forms");
+    }
+
+    /// Spec 075 — an AgentObject can register files by `smb://` address, so
+    /// its form links the SMB client; a form without one does not.
+    #[test]
+    fn an_agent_object_links_smb() {
+        let agent = form_with(cobolt_forms::ControlType::AgentObject);
+        let f = scan_forms([&agent]);
+        assert!(f.smb);
+        assert!(f.as_toml_features().contains("\"smb\""));
+        let plain = form_with(cobolt_forms::ControlType::Button);
+        assert!(!scan_forms([&plain]).smb, "no AgentObject, no SMB client");
     }
 
     /// A WebSearch control rides the same client.
@@ -497,7 +521,7 @@ mod tests {
 
         let full = crate::base_dependency_block(dir, false, RuntimeFeatures::all());
         assert!(
-            full.contains("features = [\"sql\", \"http\", \"maps\", \"kb\"]"),
+            full.contains("features = [\"sql\", \"http\", \"maps\", \"kb\", \"smb\"]"),
             "a program that reaches everything asks for everything:\n{full}"
         );
 

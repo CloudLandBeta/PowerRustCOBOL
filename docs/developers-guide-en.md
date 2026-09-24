@@ -8754,7 +8754,9 @@ What *is* decided at search time is whether to pay that engine's cost:
 | `STORAGE IS MEMORY` | loaded whole | grows with the file |
 | `STORAGE IS DISK` | records on demand | bounded, any size |
 
-So the project carries a **memory limit**, and it applies to the first row only.
+So the project carries a **memory limit** — *Project Settings → Runtime → Model
+file-search memory*, stored in `cobolt.toml` as `[agents] file_memory_limit_mb`,
+64 MB unless you change it — and it applies to the first row only.
 Ask to search a memory-resident file larger than that limit and the tool
 declines, naming both numbers:
 
@@ -8846,6 +8848,99 @@ inside your program and never reaches a handler. `DenyFile("ACTORS-FILE")`
 withdraws it. `AllowFile` answers `0` when it cannot find the `FD` or the
 definition, and the file is simply not offered.
 
+**An indexed file you register by path.** `AllowFile` needs the file's `FD` in
+your program, so it can only offer files you knew about when you built it.
+`RegisterFile` offers one your *users* point at while the application runs —
+the orders file on the finance server, a colleague's customer list — with no
+`FD` and no rebuild:
+
+```cobol
+           MOVE AGENT-1::RegisterFile(
+                "smb://finance/data/orders.dat",
+                "smb://finance/data/orders.cidx") TO WS-OK
+           IF WS-OK = "1"
+               MOVE AGENT-1::RegisterResult TO WS-HOW
+      *>       "MEMORY" or "DISK"
+           ELSE
+               MOVE AGENT-1::RegisterResult  TO WS-CODE
+               MOVE AGENT-1::RegisterMessage TO WS-WHY
+               PERFORM TELL-THE-USER
+           END-IF
+```
+
+The model then sees `search_orders_file` — named after the `.cidx`, or after
+the third argument if you give one — and searches it exactly as it searches a
+file you allowed. `UnregisterFile("ORDERS-FILE")` withdraws it.
+
+*Where the file may be.* Any of these, for the data file and for its `.cidx`:
+
+| Path | Example |
+|---|---|
+| A local path | `C:\Data\orders.dat`, `/home/ana/orders.dat`, or relative to your application |
+| The system's own network path | `\\finance\data\orders.dat` on Windows; the mounted share on macOS (`/Volumes/data/orders.dat`) or Linux (`/mnt/data/orders.dat`) |
+| An `smb://` address, on every system | `smb://finance/data/orders.dat`, read without mounting the share |
+
+An `smb://` address with no user logs in as a guest. For a share that needs a
+login, put it in the address — `smb://CORP;ana:password@finance/data/orders.dat`.
+The password is used to log in and nothing else: it never appears in
+`RegisterMessage`, in a log, or in anything sent to the model, where the
+address shows as `ana:****@`.
+
+> ⚠️ **For now, a password in an `smb://` address lives in your program.** Keep
+> it out of the source — build the address at run time from something the user
+> types, or use a share that allows guests.
+
+*What the `.cidx` must say.* With no `FD`, the record layout comes from the
+`.cidx` — so before the model sees anything, the definition is checked against
+the schema the data file keeps about itself. A record length or a key that
+does not match, a definition that says nothing about what the file is for, or
+fields with no descriptions, and the file is refused, with the reason.
+
+*Read only, always.* A registered file is opened `INPUT`, and nothing is ever
+written to it — not a record, not a header byte. It needs no write
+permission, so a read-only file or a read-only share is fine. If an
+interrupted write left a recovery journal beside the file (`orders.dat.jrn`),
+reading it would mean repairing it first, which is not the assistant's job —
+the file is refused, and both it and the journal are left exactly as they
+were.
+
+*Memory, or disk.* A registered file is held in memory when it is under the
+project's memory limit **and** no more than half of the machine's free memory
+at that moment. A larger one is read in place from disk, a page at a time, if
+it is a local (or OS network path) `STORAGE IS DISK` file. Anything else too
+large — a `STORAGE IS MEMORY` file, or any file on an `smb://` share — is
+refused, and `RegisterFileBytes` / `RegisterLimitBytes` give you both numbers.
+
+| `RegisterResult` | Meaning |
+|---|---|
+| `MEMORY` / `DISK` | Registered — held in memory, or read in place from disk |
+| `NOT-FOUND`, `CIDX-NOT-FOUND` | The data file, or its `.cidx`, is not there |
+| `ACCESS-DENIED` | No permission, or the share refused the login |
+| `UNREACHABLE` | The server did not answer |
+| `BAD-PATH` | The path cannot be understood (a Windows `\\server` path on macOS or Linux, for example — use the mounted path or `smb://`) |
+| `RECORD-LENGTH-MISMATCH`, `KEY-MISMATCH` | The `.cidx` does not describe this file |
+| `NO-PURPOSE`, `NO-FIELDS`, `NO-FIELD-DESCRIPTIONS` | The `.cidx` does not say enough for a model to use the file |
+| `CIDX-INVALID`, `CORRUPT` | The `.cidx`, or the data file, is damaged |
+| `NOT-INDEXED`, `FORMAT-UNSUPPORTED` | Not a PowerRustCOBOL indexed file, or an older format that carries no schema to check |
+| `JOURNAL-PRESENT` | A recovery journal is beside the file |
+| `TOO-LARGE-FOR-LIMIT`, `TOO-LARGE-FOR-FREE-MEMORY` | Too large to hold in memory, and cannot be read in place |
+| `NEEDS-UPGRADE` | Too large to hold in memory, and in an older disk format that cannot be read in place without changing it |
+| `SMB-UNAVAILABLE` | The application was built without `smb://` support |
+
+`RegisterMessage` says the same thing in English; translate the code for your
+users in your own tables.
+
+> **Notes.**
+> - A registration lasts until your program ends. Nothing about it — least of
+>   all a path with a password in it — is saved. Register the files again at
+>   start-up.
+> - "Free memory" is the operating system's own estimate, and each system
+>   counts reclaimable cache differently. Treat it as a guard, not a promise.
+> - `smb://` works over SMB 2 and 3. SMB 1 is not supported.
+
+📷 Screenshot needed — `registerfile-project-settings.png`: *Project Settings →
+Runtime* with the **Model file-search memory** field visible (set it to 64 MB).
+
 **A tool your program answers.** Declare it, describe its arguments, and answer
 it in `onToolCall`:
 
@@ -8878,6 +8973,7 @@ declared, and every value in it is a string.
 | `RemoveTool(name)` | Stops offering a tool. |
 | `SetToolResult(call-id, text)` | The answer, sent when your handler returns. |
 | `AllowFile(fd-name [, cidx-path])` / `DenyFile(fd-name)` | Offers or withdraws an indexed file, for every agent. |
+| `RegisterFile(data-path, cidx-path [, name])` / `UnregisterFile(name)` | Offers or withdraws an indexed file by its path — local, network or `smb://` — with no `FD`. |
 | `ToolProtocol` | `Native` (default) or `Fenced` — see below. |
 | `MaximumToolRounds` | How many rounds of tool calls one `Ask` may take (default 8). |
 | `LastInputTokens`, `LastOutputTokens` | Tokens the provider reported for the last `Ask`, summed over every round. |

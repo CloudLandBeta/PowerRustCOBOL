@@ -1240,13 +1240,31 @@ impl IndexedFile {
     /// `cobfa_indexinfo()` analog for tooling / a future Fujitsu importer.
     /// Returns `None` for legacy/unknown containers (no embedded schema).
     pub fn inspect_path(path: impl AsRef<Path>) -> std::io::Result<Option<IndexedFileInfo>> {
-        let data = std::fs::read(path.as_ref())?;
+        Self::inspect_bytes(&std::fs::read(path.as_ref())?)
+    }
+
+    /// The records of a `PRCIDX1` container already in memory, in primary-key
+    /// order — how a registered file fetched from a share is held (spec 075).
+    /// The CRC is checked; nothing is written anywhere.
+    pub(crate) fn records_from_bytes(
+        data: &[u8],
+        record_len: usize,
+        primary: KeySpec,
+    ) -> std::io::Result<Vec<Bytes>> {
+        let mut f = IndexedFile::new("", record_len, primary, Vec::new());
+        f.load_prcidx(data)?;
+        Ok(f.records.into_values().collect())
+    }
+
+    /// [`inspect_path`](Self::inspect_path) for a container already in
+    /// memory — a file fetched from a share (spec 075). The CRC is checked.
+    pub fn inspect_bytes(data: &[u8]) -> std::io::Result<Option<IndexedFileInfo>> {
         if !(data.len() >= 8 && &data[0..8] == b"PRCIDX1\0") {
             return Ok(None);
         }
         // Reuse the parser with a throwaway engine (single dummy key spec).
         let mut probe = IndexedFile::new(
-            path.as_ref(),
+            "",
             0,
             KeySpec {
                 offset: 0,
@@ -1255,8 +1273,32 @@ impl IndexedFile {
             },
             Vec::new(),
         );
-        probe.load_prcidx(&data).map(Some)
+        probe.load_prcidx(data).map(Some)
     }
+}
+
+/// Whether a declared schema and a stored one describe the same file: record
+/// format, key count, and each key's parts and duplicates. Names, encodings and
+/// ordering are descriptive and ignored — the rule the DISK engine applies at
+/// `OPEN`, shared so a registered file (spec 075) is checked the same way.
+pub(crate) fn schema_equivalent(decl: &IndexedFileInfo, stored: &IndexedFileInfo) -> bool {
+    fn key_eq(a: &KeyDescriptor, b: &KeyDescriptor) -> bool {
+        a.duplicates_allowed == b.duplicates_allowed
+            && a.parts.len() == b.parts.len()
+            && a.parts
+                .iter()
+                .zip(&b.parts)
+                .all(|(x, y)| x.offset == y.offset && x.length == y.length)
+    }
+    decl.record_format == stored.record_format
+        && decl.key_count == stored.key_count
+        && key_eq(&decl.primary, &stored.primary)
+        && decl.alternates.len() == stored.alternates.len()
+        && decl
+            .alternates
+            .iter()
+            .zip(&stored.alternates)
+            .all(|(a, b)| key_eq(a, b))
 }
 
 /// Little-endian byte cursor for parsing the `PRCIDX1` container.
@@ -1617,6 +1659,15 @@ mod tests {
         let info = IndexedFile::inspect_path(&p)
             .unwrap()
             .expect("PRCIDX1 schema");
+        // Spec 075: the same schema from bytes already in memory, and a
+        // damaged container is an error, not a schema.
+        let bytes = std::fs::read(&p).unwrap();
+        assert_eq!(IndexedFile::inspect_bytes(&bytes).unwrap().as_ref(), Some(&info));
+        let mut bad = bytes.clone();
+        let mid = bad.len() / 2;
+        bad[mid] ^= 0xFF;
+        assert!(IndexedFile::inspect_bytes(&bad).is_err(), "CRC mismatch is refused");
+        assert!(IndexedFile::inspect_bytes(b"not a container").unwrap().is_none());
         assert_eq!(info.record_format, RecordFormat::Fixed { length: 15 });
         assert_eq!(info.key_count, 2);
         assert_eq!(info.total_key_length, 15); // 5 + 10

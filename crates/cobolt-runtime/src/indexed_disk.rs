@@ -2609,24 +2609,7 @@ impl DiskIndexedFile {
     }
 
     fn schema_matches(&self, stored: &IndexedFileInfo) -> bool {
-        let decl = self.inspect();
-        fn key_eq(a: &KeyDescriptor, b: &KeyDescriptor) -> bool {
-            a.duplicates_allowed == b.duplicates_allowed
-                && a.parts.len() == b.parts.len()
-                && a.parts
-                    .iter()
-                    .zip(&b.parts)
-                    .all(|(x, y)| x.offset == y.offset && x.length == y.length)
-        }
-        decl.record_format == stored.record_format
-            && decl.key_count == stored.key_count
-            && key_eq(&decl.primary, &stored.primary)
-            && decl.alternates.len() == stored.alternates.len()
-            && decl
-                .alternates
-                .iter()
-                .zip(&stored.alternates)
-                .all(|(a, b)| key_eq(a, b))
+        crate::indexed::schema_equivalent(&self.inspect(), stored)
     }
 
     // ── Header + directory persistence (page 0 / dir chain) ──────────────────
@@ -3064,6 +3047,32 @@ impl DiskIndexedFile {
         probe.strict_metadata = false;
         let info = probe.load_header()?;
         Ok(info)
+    }
+
+    /// Whether `OPEN INPUT` of this file would have to work on a temporary
+    /// copy: a recovery journal beside it, a directory in an older format, or
+    /// an interrupted reclaim. Reads the header only, without write access —
+    /// so a registered file (spec 075) can be refused, or held in memory,
+    /// instead of copied.
+    pub fn input_needs_copy(path: impl AsRef<Path>) -> R<bool> {
+        let mut probe = DiskIndexedFile::new(
+            path.as_ref(),
+            0,
+            KeySpec {
+                offset: 0,
+                len: 0,
+                duplicates: false,
+            },
+            Vec::new(),
+        );
+        if probe.journal_path().exists() {
+            return Ok(true);
+        }
+        let f = OpenOptions::new().read(true).open(path.as_ref())?;
+        probe.file = Some(f);
+        probe.strict_metadata = false;
+        probe.load_header()?;
+        Ok(probe.pending_migration.is_some() || probe.dir_head != 0)
     }
 }
 
@@ -4314,6 +4323,40 @@ mod tests {
         // Declare the alternate WITH DUPLICATES → schema differs.
         let mut g = newfile(p.clone(), true, false);
         assert_eq!(g.open(OpenMode::Input), status::ATTR_MISMATCH);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// Spec 075 T4 — the header probes need no write access and change
+    /// nothing: a read-only file is inspected, reports no copy needed, and a
+    /// recovery journal beside it is noticed; bytes and mtime are unchanged.
+    #[test]
+    #[cfg(unix)]
+    fn header_probes_read_a_read_only_file_and_notice_a_journal() {
+        use std::os::unix::fs::PermissionsExt;
+        let p = tmp("probe-ro");
+        let _ = std::fs::remove_file(&p);
+        let mut f = newfile(p.clone(), true, false);
+        f.open(OpenMode::Output);
+        f.write(&rec("1", "A"));
+        f.close();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o444)).unwrap();
+        let before = (std::fs::read(&p).unwrap(), std::fs::metadata(&p).unwrap().modified().unwrap());
+
+        let stored = DiskIndexedFile::inspect_path(&p).unwrap().expect("schema");
+        assert!(crate::indexed::schema_equivalent(&newfile(p.clone(), true, false).inspect(), &stored));
+        assert!(!crate::indexed::schema_equivalent(&newfile(p.clone(), false, false).inspect(), &stored));
+        assert!(!DiskIndexedFile::input_needs_copy(&p).unwrap(), "a clean file is read in place");
+
+        let mut jrn = p.clone().into_os_string();
+        jrn.push(".jrn");
+        std::fs::write(&jrn, b"pending").unwrap();
+        assert!(DiskIndexedFile::input_needs_copy(&p).unwrap(), "a journal means a copy");
+        assert_eq!(std::fs::read(&jrn).unwrap(), b"pending", "the journal is untouched");
+
+        let after = (std::fs::read(&p).unwrap(), std::fs::metadata(&p).unwrap().modified().unwrap());
+        assert!(before == after, "the file is byte-identical, same mtime");
+        let _ = std::fs::remove_file(&jrn);
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
         let _ = std::fs::remove_file(&p);
     }
 

@@ -869,6 +869,44 @@ struct CoboltProject {
     /// `[rag]` — the application Knowledge Base's build settings (spec 068).
     #[serde(default)]
     rag: RagConfig,
+    /// `[agents]` — run-time settings for the model's tools (spec 075).
+    #[serde(default)]
+    agents: AgentsConfig,
+}
+
+/// `[agents]` in the project manifest (spec 065 R34 / 075).
+#[derive(Debug, Clone, Default, Deserialize)]
+struct AgentsConfig {
+    /// How much memory one model file search may load, in MB. 0 or absent
+    /// means the default, 64.
+    #[serde(default)]
+    file_memory_limit_mb: u64,
+}
+
+/// The default of `[agents] file_memory_limit_mb`.
+pub const DEFAULT_FILE_MEMORY_LIMIT_MB: u64 = 64;
+
+impl AgentsConfig {
+    fn file_memory_limit_mb(&self) -> u64 {
+        match self.file_memory_limit_mb {
+            0 => DEFAULT_FILE_MEMORY_LIMIT_MB,
+            mb => mb,
+        }
+    }
+}
+
+/// The project's memory limit for model file searches, in bytes (`[agents]
+/// file_memory_limit_mb`, spec 075). Public for the same reason as
+/// [`project_connections`]: `rcrun run-form` publishes it from the manifest,
+/// and a built application carries it baked in. A missing or unreadable
+/// manifest gives the default.
+pub fn project_file_memory_limit(manifest_path: &Path) -> u64 {
+    std::fs::read_to_string(manifest_path)
+        .ok()
+        .and_then(|text| toml::from_str::<CoboltProject>(&text).ok())
+        .map(|p| p.agents.file_memory_limit_mb())
+        .unwrap_or(DEFAULT_FILE_MEMORY_LIMIT_MB)
+        .saturating_mul(1024 * 1024)
 }
 
 /// `[rag]` in the project manifest (spec 068).
@@ -1234,6 +1272,7 @@ pub fn build_single_file(
         crates: Vec::new(),
         integrations: ProjectIntegrations::default(),
         rag: RagConfig::default(),
+        agents: AgentsConfig::default(),
     };
     build_core(proj, project_dir, opts, false)
 }
@@ -2046,6 +2085,7 @@ fn build_core(
             agent: Vec::new(),
         }
         .to_json(),
+        proj.agents.file_memory_limit_mb(),
     );
     let main_rs = bake_focus_ring(
         main_rs,
@@ -3030,6 +3070,8 @@ fn generate_main_rs(
     // `cobolt_forms::connections::Catalogue::to_json`). `{}` for a project that
     // defines none, which is every project until one is added.
     connections_json: &str,
+    // `[agents] file_memory_limit_mb` (spec 075), already defaulted.
+    file_memory_limit_mb: u64,
 ) -> String {
     // Build the FORMS constant entries
     let forms_entries: String = form_ids
@@ -3150,8 +3192,11 @@ fn generate_main_rs(
         "/// The project's named connections (`[integrations]` in cobolt.toml),\n\
          /// baked in because a shipped binary has no manifest to read them from.\n\
          /// Carries NO credential: keys arrive through the environment.\n\
-         #[allow(dead_code)]\nconst PROJECT_CONNECTIONS: &str = \"{}\";\n",
-        connections_json.escape_default()
+         #[allow(dead_code)]\nconst PROJECT_CONNECTIONS: &str = \"{}\";\n\
+         /// `[agents] file_memory_limit_mb` — memory one model file search may load.\n\
+         #[allow(dead_code)]\nconst PROJECT_FILE_MEMORY_LIMIT_MB: u64 = {};\n",
+        connections_json.escape_default(),
+        file_memory_limit_mb
     );
 
     let form_runtime_code = if has_forms {
@@ -3331,6 +3376,7 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         cobolt_forms::connections::Catalogue::from_json(PROJECT_CONNECTIONS);
     cobolt_form_host::seeding::publish_connections(project_connections.rest.clone());
     cobolt_form_host::seeding::publish_search_connections(project_connections.search.clone());
+    cobolt_runtime::mcp_tool::publish_file_memory_limit(PROJECT_FILE_MEMORY_LIMIT_MB * 1024 * 1024);
     let (maps_api_key, search_api_key) = cobolt_form_host::seeding::resolve_api_keys();
     let seed = cobolt_form_host::seeding::build_object_seed(
         &first_form,
@@ -5228,6 +5274,11 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "LastToolCallCount" => ("integer (runtime-only, read-only)", "AgentObject (spec 072): how many tool calls the model made during the last `Ask` — indexed-file searches and program-answered tools alike. 0 for a question that used no tools."),
         "ToolCallId" => ("text (runtime-only, read-only)", "AgentObject (spec 072): during `onToolCall`, the id of the call the program is asked to answer. Pass it to `SetToolResult(ToolCallId, text)`."),
         "ToolName" => ("text (runtime-only, read-only)", "AgentObject (spec 072): during `onToolCall`, the name of the tool the model called — one the program declared with `AddTool`."),
+        "RegisterResult" => ("text (runtime-only, read-only)", "AgentObject (spec 075): the outcome of the last `RegisterFile` — `MEMORY` (held in memory), `DISK` (read in place from disk, too large for memory), or the refusal code."),
+        "RegisterMessage" => ("text (runtime-only, read-only)", "AgentObject (spec 075): the last `RegisterFile` outcome in English, naming the file (any smb:// password masked). Translate from `RegisterResult` for the user."),
+        "RegisteredName" => ("text (runtime-only, read-only)", "AgentObject (spec 075): the name the last `RegisterFile` registered the file under — the one to pass to `UnregisterFile`; empty when refused."),
+        "RegisterFileBytes" => ("integer (runtime-only, read-only)", "AgentObject (spec 075): the size of the file the last `RegisterFile` examined, in bytes."),
+        "RegisterLimitBytes" => ("integer (runtime-only, read-only)", "AgentObject (spec 075): the limit the file was compared with — the project limit, or half the free memory when that decided a refusal."),
         "ToolArguments" => ("JSON object text (runtime-only, read-only)", "AgentObject (spec 072): during `onToolCall`, the arguments the model sent, as a JSON object whose keys are the parameter names declared with `AddToolParameter`. Every value is a string."),
 
         // ── RestClient ──
@@ -5954,6 +6005,8 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("SetToolResult(call-id: String, text: String)", "Spec 072: the answer to the tool call `call-id` (use `ToolCallId`), sent back to the model when the `onToolCall` handler returns. A handler that sets nothing sends an empty result; the wait counts against `TimeoutSeconds`."),
             ("AllowFile(fd-name: String, cidx-path: String?) → Boolean (0/1)", "Spec 072: let every AgentObject in the application search an indexed file (read-only). What the file means comes from its `.cidx` definition (`cidx-path`, or found under the delivered `indexed/` folder by file name); how its records are laid out always comes from this program's own `FD`. The model sees one `search_<file>` tool per allowed file, and the search runs inside the program — never through `onToolCall`. `0` when the FD or the definition cannot be found."),
             ("DenyFile(fd-name: String)", "Spec 072: stop offering an indexed file allowed with `AllowFile`."),
+            ("RegisterFile(data-path: String, cidx-path: String, name: String?) → Boolean (0/1)", "Spec 075: let every AgentObject search an indexed file named by its PATH while the program runs — no `FD` needed. The path may be local, the OS's own network path (`\\\\server\\share\\…` on Windows, a mounted share such as `/Volumes/…` or `/mnt/…`), or `smb://[domain;][user[:password]@]server[:port]/share/path` (no mount; no user = guest login). The layout comes from the `.cidx`, checked first against the schema the data file stores about itself (record length and every key). The file is ONLY read: never written, converted or recovered, and it needs no write permission. Held in memory when it is under the project's file-search memory limit (`[agents] file_memory_limit_mb`, default 64) AND at most half of the free memory; otherwise a local STORAGE IS DISK file is read in place from disk, and anything else is refused. The model sees `search_<name>` (name = the `.cidx`'s file name unless given). Result in `RegisterResult` (`MEMORY`, `DISK`, or a code), `RegisterMessage`, `RegisteredName`, `RegisterFileBytes`, `RegisterLimitBytes`. Refusal codes: `NOT-FOUND`, `CIDX-NOT-FOUND`, `ACCESS-DENIED`, `UNREACHABLE`, `BAD-PATH`, `CIDX-INVALID`, `NO-PURPOSE`, `NO-FIELDS`, `NO-FIELD-DESCRIPTIONS`, `NOT-INDEXED`, `FORMAT-UNSUPPORTED`, `RECORD-LENGTH-MISMATCH`, `KEY-MISMATCH`, `CORRUPT`, `JOURNAL-PRESENT`, `NEEDS-UPGRADE`, `TOO-LARGE-FOR-LIMIT`, `TOO-LARGE-FOR-FREE-MEMORY`, `SMB-UNAVAILABLE`. A registration lasts until the program ends; register again at start-up."),
+            ("UnregisterFile(name: String) → Boolean (0/1)", "Spec 075: withdraw a file registered with `RegisterFile`, freeing its records. Never removes a file allowed with `AllowFile` (use `DenyFile`)."),
             ("AllowKnowledgeBase(kb-control: String, collection: String?) → Boolean (0/1)", "Spec 068: let every AgentObject search a KnowledgeBase collection (the control's `Collection` when none is named) as a tool, `kb_<control>_<collection>`. The model sends a query and gets numbered passages, each naming its document and section."),
             ("DenyKnowledgeBase(kb-control: String, collection: String?)", "Spec 068: stop offering a collection (all of the control's collections when none is named)."),
         ],
@@ -6969,6 +7022,7 @@ fn methods_reference_doc() -> String {
                 ("AddTool / AddToolParameter / RemoveTool", "Offer the model tools the program answers in `onToolCall`."),
                 ("SetToolResult(call-id, text)", "Answer a tool call from `onToolCall`."),
                 ("AllowFile(fd-name, cidx-path?) / DenyFile(fd-name)", "Let the model search an indexed file."),
+                ("RegisterFile(data-path, cidx-path, name?) / UnregisterFile(name)", "Let the model search an indexed file by its path (local, network, smb://), read only."),
                 ("AllowKnowledgeBase(kb, collection?) / DenyKnowledgeBase(kb, collection?)", "Let the model search a KnowledgeBase collection."),
             ],
         ),
@@ -7738,7 +7792,7 @@ mod resolve_main_tests {
 
         let src = generate_main_rs(
             "Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[],
-            "neumorphic", "none:600:ease-out", "none:600:ease-out", false, &json,
+            "neumorphic", "none:600:ease-out", "none:600:ease-out", false, &json, 64,
         );
         assert!(
             src.contains("const PROJECT_CONNECTIONS"),
@@ -7764,9 +7818,38 @@ mod resolve_main_tests {
         // A project with none still compiles to a valid, empty catalogue.
         let empty = generate_main_rs(
             "Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[],
-            "neumorphic", "none:600:ease-out", "none:600:ease-out", false, "{}",
+            "neumorphic", "none:600:ease-out", "none:600:ease-out", false, "{}", 64,
         );
         assert!(empty.contains(r#"const PROJECT_CONNECTIONS: &str = "{}";"#));
+    }
+
+    /// Spec 075 T2 — `[agents] file_memory_limit_mb` is read from the
+    /// manifest (0 or absent → 64) and baked into a built application, which
+    /// publishes it before the first form is seeded.
+    #[test]
+    fn the_file_memory_limit_is_read_and_baked_in() {
+        let dir = std::env::temp_dir().join(format!("prc-075-limit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest = dir.join("cobolt.toml");
+        let base = "[project]\nname = \"Demo\"\nversion = \"1.0.0\"\nmain = \"MAIN.cbl\"\n";
+        std::fs::write(&manifest, base).unwrap();
+        assert_eq!(project_file_memory_limit(&manifest), 64 * 1024 * 1024, "absent → 64 MB");
+        std::fs::write(&manifest, format!("{base}[agents]\nfile_memory_limit_mb = 0\n")).unwrap();
+        assert_eq!(project_file_memory_limit(&manifest), 64 * 1024 * 1024, "0 → 64 MB");
+        std::fs::write(&manifest, format!("{base}[agents]\nfile_memory_limit_mb = 300\n")).unwrap();
+        assert_eq!(project_file_memory_limit(&manifest), 300 * 1024 * 1024);
+        assert_eq!(project_file_memory_limit(&dir.join("missing.toml")), 64 * 1024 * 1024);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let src = generate_main_rs(
+            "Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[],
+            "neumorphic", "none:600:ease-out", "none:600:ease-out", false, "{}", 300,
+        );
+        assert!(src.contains("const PROJECT_FILE_MEMORY_LIMIT_MB: u64 = 300;"));
+        assert!(src.contains(
+            "cobolt_runtime::mcp_tool::publish_file_memory_limit(PROJECT_FILE_MEMORY_LIMIT_MB * 1024 * 1024);"
+        ));
+        println!("[agents] file_memory_limit_mb: absent/0 → 64 MB, 300 → 300 MB; baked const + publish call present");
     }
 
     fn proj(main: &str, sources: Vec<&str>, generated: Vec<&str>) -> CoboltProject {
@@ -7787,6 +7870,7 @@ mod resolve_main_tests {
             crates: Vec::new(),
             integrations: ProjectIntegrations::default(),
             rag: RagConfig::default(),
+            agents: AgentsConfig::default(),
         }
     }
 
@@ -7826,7 +7910,7 @@ mod resolve_main_tests {
             "none:600:ease-out",
             "none:600:ease-out",
             false,
-        "[]",
+        "[]", 64,
         );
         assert!(
             src.contains("form_host::designer_form()"),
@@ -7867,7 +7951,7 @@ mod resolve_main_tests {
             "none:600:ease-out",
             "none:600:ease-out",
             false,
-        "[]",
+        "[]", 64,
         );
         for id in ["CRM", "REPORT"] {
             assert!(
@@ -7902,7 +7986,7 @@ mod resolve_main_tests {
             "none:600:ease-out",
             "none:600:ease-out",
             false,
-        "[]",
+        "[]", 64,
         );
         assert!(
             single.contains("static PROGRAMS: &[(&str, &[u8])] = &[];"),
@@ -8129,7 +8213,7 @@ mod resolve_main_tests {
     /// for free by going through the same `FormHost` as Run Form.
     #[test]
     fn elegance_generated_binary_publishes_its_surface_theme() {
-        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[], cobolt_forms::theme::ELEGANCE, "none:600:ease-out", "none:600:ease-out", false, "{}");
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[], cobolt_forms::theme::ELEGANCE, "none:600:ease-out", "none:600:ease-out", false, "{}", 64);
         assert!(src.contains("fn resolve_surface_theme("));
         assert!(src.contains("None => resolve_surface_theme(&first_form),"));
         assert!(src.contains("surface_theme,"));
@@ -8168,7 +8252,7 @@ mod resolve_main_tests {
             "none:600:ease-out",
             "none:600:ease-out",
             false,
-        "[]",
+        "[]", 64,
         );
 
         // The decision itself, taken before the form moves into the config.
@@ -8200,7 +8284,7 @@ mod resolve_main_tests {
             id: "cobalt-steel".into(),
             assets: vec!["background.png".into(), "button/b.png".into()],
         }];
-        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &themes, "neumorphic", "zoom:600:ease-out", "none:600:ease-out", false, "{}");
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &themes, "neumorphic", "zoom:600:ease-out", "none:600:ease-out", false, "{}", 64);
 
         // The regression this guards: the template used to set only the glass
         // style, so an asset-pack form shipped as procedural Liquid Glass.
@@ -8244,7 +8328,7 @@ mod resolve_main_tests {
             "matrix-rain:1500:ease-in-out",
             "fade:400:ease-in",
             true,
-        "[]",
+        "[]", 64,
         );
         // The baked triples parse through the ONE shared parser at run time.
         assert!(src.contains(r#"const PROJECT_FX_ENTRANCE: &str = "matrix-rain:1500:ease-in-out";"#));
@@ -8274,7 +8358,7 @@ mod resolve_main_tests {
         let quiet = generate_main_rs(
             "Demo", "1.2.3", true, &["MAIN"], "MAIN", &[], &[], &[], "",
             "none:600:ease-out", "none:600:ease-out", false,
-        "[]",
+        "[]", 64,
         );
         assert!(quiet.contains(r#"const PROJECT_FX_ENTRANCE: &str = "none:600:ease-out";"#));
         assert!(quiet.contains("const PROJECT_FX_ON_RESTORE: bool = false;"));
@@ -8299,7 +8383,7 @@ mod resolve_main_tests {
         let src = generate_main_rs(
             "Demo", "1.2.3", true, &["MAIN"], "MAIN", &[], &["SIDEMENU-1"], &[], "",
             "none:600:ease-out", "none:600:ease-out", false,
-        "[]",
+        "[]", 64,
         );
         let seed = src.find("interp.seed_objects(seed);").expect("seed site");
         let hand = src.find("interp.set_designed_menu(id, &def);").expect("designed menus");
@@ -8315,7 +8399,7 @@ mod resolve_main_tests {
         let src = generate_main_rs(
             "Demo", "1.2.3", true, &["MAIN"], "MAIN", &[], &[], &[], "",
             "none:600:ease-out", "none:600:ease-out", false,
-        "[]",
+        "[]", 64,
         );
         assert!(src.contains(r#"const PROJECT_FOCUS_RING_COLOR: &str = "";"#));
         assert!(src.contains("const PROJECT_FOCUS_RING_PULSE: bool = false;"));
@@ -8340,7 +8424,7 @@ mod resolve_main_tests {
 
     #[test]
     fn generated_binary_without_themes_still_compiles_to_liquid_glass() {
-        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false, "{}");
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false, "{}", 64);
         assert!(src.contains("static THEMES: &[(&str, &str, &[(&str, &[u8])])] = &[];"));
         assert!(src.contains(r#"const PROJECT_THEME_DEFAULT: &str = "";"#));
         // Resolution still runs — it just finds no pack and yields Liquid Glass.
@@ -8394,7 +8478,7 @@ mod resolve_main_tests {
             "matrix-rain:1500:ease-in-out",
             "fade:400:ease-in",
             true,
-        "[]",
+        "[]", 64,
         );
         let cargo_toml =
         generate_cargo_toml(
@@ -8501,7 +8585,7 @@ mod resolve_main_tests {
         fs::write(dir.join("src/exec_rust_blocks.rs"), &blocks.source).unwrap();
         fs::write(
             dir.join("src/main.rs"),
-            generate_main_rs(bin, "0.1.0", false, &[], "", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false, "{}"),
+            generate_main_rs(bin, "0.1.0", false, &[], "", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false, "{}", 64),
         )
         .unwrap();
         fs::write(
@@ -8681,7 +8765,7 @@ mod resolve_main_tests {
         fs::write(dir.join("src/exec_rust_blocks.rs"), &blocks.source).unwrap();
         fs::write(
             dir.join("src/main.rs"),
-            generate_main_rs(bin, "0.1.0", false, &[], "", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false, "{}"),
+            generate_main_rs(bin, "0.1.0", false, &[], "", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false, "{}", 64),
         )
         .unwrap();
         fs::write(
@@ -8815,7 +8899,7 @@ mod resolve_main_tests {
             "none:600:ease-out",
             "none:600:ease-out",
             false,
-        "[]",
+        "[]", 64,
         );
         assert!(
             src.contains(r#"const MAIN_FORM: &str = "SIGNON";"#),
@@ -8843,7 +8927,7 @@ mod resolve_main_tests {
             "none:600:ease-out",
             "none:600:ease-out",
             false,
-        "[]",
+        "[]", 64,
         );
         assert!(empty.contains("const MAIN_FORM"));
     }

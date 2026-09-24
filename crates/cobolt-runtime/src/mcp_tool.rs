@@ -216,6 +216,38 @@ pub struct ConsultableFile {
     pub description: FileDescription,
     /// How to open and read it — from the compiled program.
     pub access: FileAccess,
+    /// Where its records come from on each search.
+    pub source: FileSource,
+}
+
+/// Where a consultable file's records come from.
+///
+/// # Registered files are the one exception to R30
+///
+/// A file allowed with `AllowFile` takes its layout from the program's `FD`,
+/// and its `.cidx` only for descriptions. A file **registered by path** (spec
+/// 075, 071 R23) has no `FD`, so its layout comes from its `.cidx` — but only
+/// after the record length and every key were checked against the schema the
+/// data file stores about itself (`registered_file::validate`). What is still
+/// trusted from the `.cidx` is the position of each non-key column, and the
+/// worst a wrong one can do is mislabel columns in a search that only reads.
+#[derive(Debug, Clone)]
+pub enum FileSource {
+    /// Opened from `access.path` on every search — `AllowFile`.
+    Assigned,
+    /// A registered file held in memory, its records in key order (075 R17).
+    Loaded(std::sync::Arc<Vec<crate::indexed::Bytes>>),
+    /// A registered `PRCIDXD1` too large for memory, read in place from
+    /// `access.path` with all its keys (075 R19).
+    InPlace {
+        alternates: Vec<crate::indexed::KeySpec>,
+    },
+}
+
+impl FileSource {
+    fn is_registered(&self) -> bool {
+        !matches!(self, FileSource::Assigned)
+    }
 }
 
 /// The tools an application offers, and the gate in front of them.
@@ -235,11 +267,34 @@ pub struct IndexedToolSet {
 }
 
 impl Default for IndexedToolSet {
+    /// Empty, with the project's memory limit (see [`publish_file_memory_limit`]).
     fn default() -> Self {
         Self {
             files: Vec::new(),
-            memory_limit_bytes: DEFAULT_MEMORY_LIMIT_BYTES,
+            memory_limit_bytes: file_memory_limit(),
         }
+    }
+}
+
+/// The project's memory limit for file searches, once a host has published it;
+/// 0 while none has.
+static FILE_MEMORY_LIMIT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Publish the project's memory limit for file searches (`[agents]
+/// file_memory_limit_mb`, spec 065 R34 / 075). Each host calls it once before
+/// any interpreter is built — `rcrun run-form` from the manifest, a built
+/// application from the value baked into it — and every tool set made in the
+/// process afterwards, child forms' included, starts from it. 0 restores the
+/// default.
+pub fn publish_file_memory_limit(bytes: u64) {
+    FILE_MEMORY_LIMIT.store(bytes, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The published memory limit, or [`DEFAULT_MEMORY_LIMIT_BYTES`].
+pub fn file_memory_limit() -> u64 {
+    match FILE_MEMORY_LIMIT.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => DEFAULT_MEMORY_LIMIT_BYTES,
+        bytes => bytes,
     }
 }
 
@@ -259,7 +314,29 @@ impl IndexedToolSet {
         self.files.push(ConsultableFile {
             description,
             access,
+            source: FileSource::Assigned,
         });
+    }
+
+    /// Add a file registered by path (spec 075), replacing any file of the
+    /// same name, however that one was added.
+    pub fn register(&mut self, description: FileDescription, access: FileAccess, source: FileSource) {
+        self.deny(&description.name);
+        self.files.push(ConsultableFile {
+            description,
+            access,
+            source,
+        });
+    }
+
+    /// Withdraw a registered file, freeing its records. A file allowed with
+    /// `AllowFile` is left alone. `true` when one was withdrawn.
+    pub fn unregister(&mut self, name: &str) -> bool {
+        let before = self.files.len();
+        self.files.retain(|f| {
+            !(f.source.is_registered() && f.description.name.eq_ignore_ascii_case(name.trim()))
+        });
+        self.files.len() != before
     }
 
     /// Withdraw a file (spec 072 `DenyFile`), by its COBOL file name.
@@ -338,11 +415,16 @@ impl IndexedToolSet {
         // larger than the project's limit would take the memory rather than be
         // refused. Declining with the numbers is more useful than an
         // out-of-memory kill with none.
+        //
+        // A registered file was measured when it was registered (075 R18);
+        // its records are already in memory, or it is read in place.
         let container = sniff_container(&file.access.path);
         let file_bytes = std::fs::metadata(&file.access.path)
             .map(|m| m.len())
             .unwrap_or(0);
-        if exceeds_memory_limit(container, file_bytes, self.memory_limit_bytes) {
+        if !file.source.is_registered()
+            && exceeds_memory_limit(container, file_bytes, self.memory_limit_bytes)
+        {
             return cobolt_mcp::ToolResult::failed(format!(
                 "{} is held in an in-memory container of {} bytes, over this project's \
                  {}-byte limit, so it was not loaded. Raise the limit, or rebuild the \
@@ -351,7 +433,7 @@ impl IndexedToolSet {
             ));
         }
 
-        match scan(&file.access, &filters, limit) {
+        match scan(file, &filters, limit) {
             Err(e) => cobolt_mcp::ToolResult::failed(format!(
                 "{} could not be searched: {e}",
                 file.description.name
@@ -423,41 +505,78 @@ struct Scan {
 
 /// Walk the file in key order, keeping records that match every filter.
 fn scan(
-    access: &FileAccess,
+    file: &ConsultableFile,
     filters: &[(&ColumnLayout, String)],
     limit: usize,
 ) -> Result<Scan, String> {
     use crate::indexed::{OpenMode, ReadDir};
 
-    let mut engine = open_for_reading(access);
+    let access = &file.access;
+    let mut out = Scan {
+        rows: Vec::new(),
+        truncated: false,
+    };
+    // `false` once the limit is reached.
+    let mut keep = |record: &[u8]| -> bool {
+        if filters.iter().all(|(col, want)| {
+            field_text(record, col)
+                .to_ascii_uppercase()
+                .contains(want.as_str())
+        }) {
+            if out.rows.len() == limit {
+                out.truncated = true;
+                return false;
+            }
+            out.rows.push(render_row(record, &access.columns));
+        }
+        true
+    };
+
+    let mut engine = match &file.source {
+        FileSource::Loaded(records) => {
+            for record in records.iter() {
+                if !keep(record) {
+                    break;
+                }
+            }
+            return Ok(out);
+        }
+        FileSource::InPlace { alternates } => {
+            // A journal that appeared since registration means another program
+            // was interrupted writing the file; reading it now would mean
+            // recovering it, which is not ours to do (075 R16).
+            let mut jrn = access.path.clone().into_os_string();
+            jrn.push(".jrn");
+            if std::path::Path::new(&jrn).exists() {
+                return Err("an interrupted write left a recovery journal beside it;                             it cannot be read without changing it"
+                    .into());
+            }
+            Box::new(crate::indexed_disk::DiskIndexedFile::new(
+                &access.path,
+                access.record_len,
+                access.primary.clone(),
+                alternates.clone(),
+            )) as Box<dyn crate::indexed::IndexedStore>
+        }
+        FileSource::Assigned => open_for_reading(access),
+    };
     // INPUT, never I-O: the engine is given no opportunity to write (R18).
     let st = engine.open(OpenMode::Input);
     if st != crate::indexed::status::OK {
         return Err(format!("OPEN INPUT failed: FILE STATUS {st}"));
     }
-
-    let mut rows = Vec::new();
-    let mut truncated = false;
     loop {
         let (record, st) = engine.read_seq(ReadDir::Next);
         let Some(record) = record else { break };
         if st != crate::indexed::status::OK && st != crate::indexed::status::DUP_ALT_OK {
             break;
         }
-        if filters.iter().all(|(col, want)| {
-            field_text(&record, col)
-                .to_ascii_uppercase()
-                .contains(want.as_str())
-        }) {
-            if rows.len() == limit {
-                truncated = true;
-                break;
-            }
-            rows.push(render_row(&record, &access.columns));
+        if !keep(&record) {
+            break;
         }
     }
     engine.close();
-    Ok(Scan { rows, truncated })
+    Ok(out)
 }
 
 /// Which engine an existing container demands.
@@ -829,6 +948,53 @@ mod tests {
         let mut set = IndexedToolSet::new();
         set.allow(read_description_at(&cidx).unwrap(), access_for(&data));
         set
+    }
+
+    /// Spec 075 T8 — a registered file searches the same way from memory and
+    /// in place; a journal appearing later stops an in-place search; and
+    /// `UnregisterFile` withdraws only registered files.
+    #[test]
+    fn registered_sources_search_like_assigned_ones() {
+        let dir = temp("registered");
+        let rows = [("1", "100000"), ("2", "250000"), ("3", "100000")];
+        let cidx = write_fixture(&dir, "actors.cidx", &fixture("One row per performer", "Unique performer number"));
+        let data = dir.join("actors.idx");
+        build_indexed_fixture(&data, &rows);
+        let desc = read_description_at(&cidx).unwrap();
+        let tool = tool_name(&desc.name);
+        let query = serde_json::json!({ "ACTOR-SALARY": "100000" });
+        let text = |set: &IndexedToolSet| format!("{:?}", set.call(&tool, &query).content);
+
+        let mut assigned = IndexedToolSet::new();
+        assigned.allow(desc.clone(), access_for(&data));
+        let want = text(&assigned);
+        assert!(want.contains("2 record(s)"), "{want}");
+
+        let records = crate::indexed_disk::read_disk_container(
+            &data, 111, &access_for(&data).primary, &[], true,
+        )
+        .unwrap();
+        let mut loaded = IndexedToolSet::new();
+        loaded.register(desc.clone(), access_for(&data), FileSource::Loaded(std::sync::Arc::new(records)));
+        assert_eq!(text(&loaded), want, "from memory");
+
+        let mut in_place = IndexedToolSet::new();
+        in_place.register(desc.clone(), access_for(&data), FileSource::InPlace { alternates: Vec::new() });
+        assert_eq!(text(&in_place), want, "in place");
+
+        let mut jrn = data.clone().into_os_string();
+        jrn.push(".jrn");
+        std::fs::write(&jrn, b"x").unwrap();
+        let refused = in_place.call(&tool, &query);
+        assert_eq!(refused.is_error, Some(true));
+        assert!(format!("{:?}", refused.content).contains("recovery journal"));
+        std::fs::remove_file(&jrn).unwrap();
+
+        assert!(!assigned.unregister(&desc.name), "an AllowFile entry is not a registration");
+        assert_eq!(assigned.tools().len(), 1);
+        assert!(loaded.unregister(&desc.name));
+        assert!(loaded.tools().is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// AC10 — nothing is consultable until it is marked, however good a match

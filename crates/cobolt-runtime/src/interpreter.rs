@@ -1529,6 +1529,9 @@ pub struct Interpreter {
     /// marks a file exposes no data, which is the safe direction for a default
     /// nobody set deliberately.
     mcp_tools: crate::mcp_tool::IndexedToolSet,
+    /// Spec 075 — a fixed free-memory figure for the fit test, set only by
+    /// tests; `None` asks the operating system.
+    free_memory_probe: Option<u64>,
     /// Spec 066 — each SideMenu's designed rows (its `.menu.yaml`), keyed by
     /// the upper-cased control id, so a program's `AddItem`/`RemoveItem` can
     /// be refused on a designed id and the nesting limit checked. Handed over
@@ -2030,6 +2033,7 @@ impl Interpreter {
             db: DbRegistry::new(),
             http: crate::http_runtime::HttpClient::new(),
             mcp_tools: crate::mcp_tool::IndexedToolSet::new(),
+            free_memory_probe: None,
             designed_menus: HashMap::new(),
             agent_declared_tools: HashMap::new(),
             tool_loops: HashMap::new(),
@@ -11653,6 +11657,13 @@ impl Interpreter {
         &mut self.mcp_tools
     }
 
+    /// Spec 075 — make `RegisterFile` see this much free memory instead of
+    /// asking the operating system. For tests (AC11).
+    #[doc(hidden)]
+    pub fn set_free_memory_probe(&mut self, bytes: Option<u64>) {
+        self.free_memory_probe = bytes;
+    }
+
     fn agent_ask(&mut self, obj: &str, prompt: &str) {
         use crate::agent_runtime as ag;
 
@@ -14908,6 +14919,15 @@ impl Interpreter {
                 self.mcp_tools.deny(&arg(0));
                 none
             }
+            // Spec 075 — an indexed file by path, with no FD.
+            "REGISTERFILE" => {
+                let ok = self.agent_register_file(obj, &arg(0), &arg(1), &arg(2));
+                val(if ok { "1" } else { "0" }.into())
+            }
+            "UNREGISTERFILE" => {
+                let ok = self.mcp_tools.unregister(&arg(0));
+                val(if ok { "1" } else { "0" }.into())
+            }
             // Spec 068 — a KnowledgeBase collection as a tool the model uses.
             "ALLOWKNOWLEDGEBASE" => val(self.agent_allow_kb(&arg(0), &arg(1))),
             "DENYKNOWLEDGEBASE" => {
@@ -17837,6 +17857,7 @@ fn is_known_method(name: &str) -> bool {
             | "REMOVENODE" | "EXPANDALL" | "COLLAPSEALL" | "GETSELECTEDNODE" | "SETSELECTEDNODE"
             // Spec 072 — AgentObject tools.
             | "ADDTOOL" | "ADDTOOLPARAMETER" | "REMOVETOOL" | "SETTOOLRESULT" | "ALLOWFILE" | "DENYFILE"
+            | "REGISTERFILE" | "UNREGISTERFILE"
             // Spec 068 — the KnowledgeBase control.
             | "CREATECOLLECTION" | "REMOVECOLLECTION" | "LISTCOLLECTIONS" | "GETCOLLECTION"
             | "LISTDOCUMENTS" | "GETDOCUMENT" | "GETRESULTDOCUMENT" | "GETRESULTHEADING"

@@ -70,6 +70,24 @@ pub struct CoboltProject {
     /// Kept here so saving the project from the IDE never drops it.
     #[serde(default, skip_serializing_if = "RagSettings::is_default")]
     pub rag: RagSettings,
+    /// `[agents]` — run-time settings for the model's tools (spec 075).
+    #[serde(default, skip_serializing_if = "AgentsSettings::is_default")]
+    pub agents: AgentsSettings,
+}
+
+/// `[agents]` in the project manifest (spec 065 R34 / 075).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentsSettings {
+    /// How much memory one model file search may load, in MB; 0 means the
+    /// default (`cobolt_compiler::DEFAULT_FILE_MEMORY_LIMIT_MB`).
+    #[serde(default)]
+    pub file_memory_limit_mb: u64,
+}
+
+impl AgentsSettings {
+    fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
 }
 
 /// Non-secret configuration for the spec 039 Maps/WebSearch controls'
@@ -803,6 +821,7 @@ impl CoboltProject {
             crates: Vec::new(),
             integrations: ProjectIntegrationSettings::default(),
             rag: RagSettings::default(),
+            agents: AgentsSettings::default(),
         }
     }
 
@@ -1704,6 +1723,31 @@ mod tests {
     /// Empty matters: it means "whatever the runtime's default is", so an old
     /// project keeps following the product's default instead of being pinned to
     /// whichever engine happened to be current the day it was last saved.
+    /// Spec 075 T3 — `[agents] file_memory_limit_mb` round-trips, a default
+    /// project writes no `[agents]` table, and one without it loads as 0 (the
+    /// default, 64 MB) — the same value the compiler reads.
+    #[test]
+    fn the_file_memory_limit_round_trips_and_stays_absent_by_default() {
+        let fresh = toml::to_string_pretty(&proj()).unwrap();
+        assert!(!fresh.contains("[agents]"), "a default project keeps no [agents] table");
+        let old: CoboltProject = toml::from_str(&fresh).unwrap();
+        assert_eq!(old.agents.file_memory_limit_mb, 0);
+
+        let mut p = proj();
+        p.agents.file_memory_limit_mb = 300;
+        let text = toml::to_string_pretty(&p).unwrap();
+        assert!(text.contains("[agents]") && text.contains("file_memory_limit_mb = 300"), "{text}");
+        let back: CoboltProject = toml::from_str(&text).unwrap();
+        assert_eq!(back.agents.file_memory_limit_mb, 300);
+
+        let dir = std::env::temp_dir().join(format!("prc-075-ide-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest = dir.join("cobolt.toml");
+        std::fs::write(&manifest, &text).unwrap();
+        assert_eq!(cobolt_compiler::project_file_memory_limit(&manifest), 300 * 1024 * 1024);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn the_indexed_engine_choice_round_trips_and_old_projects_load_empty() {
         let mut p = proj();

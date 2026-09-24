@@ -1,6 +1,6 @@
 # Spec — Registered indexed files
 
-- **Status:** draft → awaiting operator review
+- **Status:** implemented (1.70.193); AC4, AC6, AC8 and AC13 wait on the operator steps noted in §6a
 - **Folder:** specs/075-registered-indexed-files/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-09-24
 - **Parents:** `specs/065-cobolt-mcp/spec.md` (the indexed-file tool),
@@ -138,39 +138,39 @@ PowerRustCOBOL gets it.
 
 ## 5. Acceptance criteria
 
-- [ ] **AC1** — A program with no `FD` for a file registers it by path, and the
+- [x] **AC1** — A program with no `FD` for a file registers it by path, and the
       model answers a question from it. *(R1–R3)*
-- [ ] **AC2** — A `.cidx` whose record length or keys disagree with the file is
+- [x] **AC2** — A `.cidx` whose record length or keys disagree with the file is
       refused before the model sees it; one with no purpose or no field
       descriptions is refused with that reason. *(R4, R5)*
-- [ ] **AC3** — A withdrawn registration is no longer offered to the model.
+- [x] **AC3** — A withdrawn registration is no longer offered to the model.
       *(R6)*
 - [ ] **AC4** — The same file registered by a local path, by the OS's network
       path, and by `smb://` gives the same answers. *(R7–R9)*
-- [ ] **AC5** — A missing file, an unreachable server and a refused login are
+- [x] **AC5** — A missing file, an unreachable server and a refused login are
       each reported by name with the reason, and the model still answers.
       *(R10)*
 - [ ] **AC6** — An `smb://` share is read with credentials in the address, and a
       guest share with none; no log line, report or model request contains the
       password. *(R11–R13)*
-- [ ] **AC7** — After every test in this spec, each registered file is
+- [x] **AC7** — After every test in this spec, each registered file is
       byte-identical to its state before, with the same modification time.
       *(R14, R15, R21)*
 - [ ] **AC8** — A registered file with no write permission, and one on a
       read-only share, are both read. *(R15)*
-- [ ] **AC9** — A file with a recovery journal beside it is refused, and neither
+- [x] **AC9** — A file with a recovery journal beside it is refused, and neither
       it nor the journal changes. *(R16)*
-- [ ] **AC10** — A local `PRCIDXD1` file over the limit is read in place and the
+- [x] **AC10** — A local `PRCIDXD1` file over the limit is read in place and the
       program is told so; the same file under the limit is held in memory.
       *(R17–R19)*
-- [ ] **AC11** — A file under the project limit but larger than a test's free
+- [x] **AC11** — A file under the project limit but larger than a test's free
       memory figure falls back as in AC10. *(R18)*
-- [ ] **AC12** — An `smb://` file and a local `PRCIDX1` file, each too large, are
+- [x] **AC12** — An `smb://` file and a local `PRCIDX1` file, each too large, are
       refused with both numbers. *(R20)*
 - [ ] **AC13** — The same program gives the same results under `rcrun
       run-form`, as an embedded child form, and as a compiled binary; `cargo
       tree` shows neither `cobolt-ide` nor `cobolt-agents`. *(R22, R23)*
-- [ ] **AC14** — Tests report quantified results: files registered, records
+- [x] **AC14** — Tests report quantified results: files registered, records
       searched, open time in memory and from disk, searches per second
       (GOLDEN RULE #7).
 
@@ -206,6 +206,30 @@ PowerRustCOBOL gets it.
 
 Both contradict the operator's rule that an `INPUT` open never changes a file,
 and both would break R15 and AC7.
+
+## 6a. Implementation notes (1.70.193)
+
+- **Still open — operator steps.**
+  - **AC4 / AC6 / AC8 (real shares).** Verified against a stand-in share
+    (the same answer as the local path; the password absent from every
+    message, property and request) and against the real `smb2` client on a
+    closed port (`UNREACHABLE`). A real credentialed share, a guest share, a
+    read-only share and an OS network path are the `#[ignore]` test
+    `live_smb_share` (`COBOLT_TEST_SMB_URL`, `COBOLT_TEST_SMB_GUEST_URL`,
+    `COBOLT_TEST_NET_PATH`), to be run by the operator.
+  - **AC13 (three hosts).** Registration runs entirely inside the
+    interpreter, which all three hosts share. The memory limit is published
+    by `rcrun run-form` and baked into the built binary (tested); child
+    forms inherit it from the process. `cargo tree` shows no `cobolt-ide` or
+    `cobolt-agents`. A full run under all three hosts is not yet done.
+- **Guest login (R12):** `smb2` treats an empty user name, or `Guest`, as a
+  guest session.
+- **Free memory:** `sysinfo`'s "available" figure read 0 bytes on macOS on
+  one call, so the fit test takes the larger of it and total minus used.
+- **Found while planning, for `fixes`:** `AllowFile` searches of a DISK file
+  with alternate keys fail with FS 39 (`open_for_reading` passes no
+  alternates); `indexed_ide::key_specs_from_def` panics on a key with no
+  parts. Registered files avoid both paths.
 
 ## 7. Open questions
 

@@ -8,6 +8,68 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.193] — 2026-09-24
+
+### Feature — indexed files registered by path: `AgentObject::RegisterFile` (spec 075)
+
+A running program can now let the model search an indexed file named by its
+**path**, with no `FD` and no rebuild. The file may be local, on the operating
+system's own network path (UNC on Windows, a mounted share on macOS/Linux), or
+at an `smb://` address read without mounting the share.
+
+- **`RegisterFile(data-path, cidx-path [, name])` / `UnregisterFile(name)`.**
+  The model sees `search_<name>` and searches it as it does an `AllowFile`
+  file. The outcome goes to `RegisterResult` (`MEMORY`, `DISK`, or one of 19
+  refusal codes), `RegisterMessage`, `RegisteredName`, `RegisterFileBytes`
+  and `RegisterLimitBytes`. A registration lasts only as long as the program;
+  nothing is saved.
+- **The `.cidx` is checked against the file.** With no `FD`, the layout comes
+  from the `.cidx`, but only after its record length and every key match the
+  schema the data file stores about itself. A `.cidx` with no purpose, no
+  fields or no field descriptions is refused.
+- **Read only, always.** The file is opened `INPUT` and needs no write
+  permission. A file with a recovery journal beside it is refused, never
+  repaired. An `smb://` file in the DISK format is read through a private
+  temporary copy that is deleted afterwards. Every test checks the user's
+  file is byte-identical with the same modification time.
+- **Memory, or disk.** A file is held in memory when it is under the project
+  limit and at most half of the free memory. Otherwise a local
+  `STORAGE IS DISK` file is read in place, and anything else is refused with
+  both numbers. Free memory is the larger of `sysinfo`'s "available" figure
+  and total minus used: "available" read 0 bytes on macOS on one call.
+- **The memory limit is now a project setting** (spec 065 R34, previously
+  never wired). It is `[agents] file_memory_limit_mb` in `cobolt.toml`,
+  default 64 MB, shown in Project Settings → Runtime in all six languages. It
+  is published by `rcrun run-form` and baked into built applications; child
+  forms inherit it.
+- **`smb://` uses the pure-Rust `smb2` 0.26.0,** pinned exactly. It supports
+  NTLM and Kerberos, and a guest login when the address names no user.
+  - It sits behind a new runtime feature `smb`, which the compiler enables
+    for any form with an `AgentObject`.
+  - It adds no C code (`cargo tree` shows no `ring`, `cc` or `-sys` crate from
+    it).
+  - The password is masked in every message, log line and model request.
+- New engine helpers: `IndexedFile::inspect_bytes`,
+  `DiskIndexedFile::input_needs_copy` (both read-only), and a shared
+  `schema_equivalent`.
+- **Tests:**
+  - `test_registered_files.rs`, 8 tests plus 1 live test skipped by default:
+    - a program with no `FD`, searched by a stand-in model server
+    - four `.cidx` refusals
+    - unregistering a file
+    - a missing file, a read-only file in a read-only folder, and a journal
+    - the fit test
+    - `smb://` through a stand-in share, with the same answer as the local
+      path
+    - the real `smb2` client against a closed port
+    - throughput
+  - Unit tests for path forms, password masking, `.cidx` checks, the fit
+    test, header probes and the tool-set sources.
+- **Operator step:** the live share test (`live_smb_share`,
+  `COBOLT_TEST_SMB_URL` / `_GUEST_URL` / `_NET_PATH`).
+- System KB tables and `chunked.data` regenerated. The Developer's Guide
+  gains *An indexed file you register by path*.
+
 ## [PowerRustCOBOL 1.70.192] — 2026-09-24
 
 ### Spec 075 — tasks

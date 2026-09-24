@@ -16,7 +16,7 @@ repository.workspace   = true
 [features]
 # Everything the interpreter has always had. Nothing in this workspace turns it
 # off — `rcrun`, the IDE and every test keep the full surface.
-default = ["sql", "http", "maps", "kb"]
+default = ["sql", "http", "maps", "kb", "smb"]
 
 # The SQL bridge: `COBOL-OPEN-DB` and its five companions, over SQLite,
 # PostgreSQL and MySQL.
@@ -61,7 +61,16 @@ kb = ["dep:cobolt-kb"]
 # like the built application.
 kb-semantic = ["kb", "cobolt-kb/semantic"]
 
+# `smb://` addresses for files an AgentObject registers by path (spec 075 R9),
+# read without mounting the share. Pure Rust: `smb2` builds its signing and
+# encryption on RustCrypto, with no `ring`, no `-sys` crate and no C. Separable
+# only so an application without an AgentObject does not carry tokio's
+# networking; the compiler turns it on when a form has one.
+smb = ["dep:smb2", "dep:tokio"]
+
 [dependencies]
+# Free memory, for the fit test of a registered file (spec 075 R18).
+sysinfo = { workspace = true }
 # Spec 062 — the unique half of a printed report's filename. Already in the
 # lock as a transitive dependency, so naming it here resolves nothing new.
 uuid            = { version = "1", features = ["v4"] }
@@ -131,6 +140,8 @@ google_maps = { version = "3.10.0", default-features = false, features = [
   "distance_matrix",
 ], optional = true }
 tokio       = { workspace = true, optional = true }
+# Pinned exactly: 0.26.0 is young and moves fast (spec 075 plan, Risks).
+smb2        = { version = "=0.26.0", default-features = false, features = ["tokio"], optional = true }
 # COBOL-85 `ACCEPT … FROM DATE/TIME/DAY/DAY-OF-WEEK` and `FUNCTION CURRENT-DATE`
 # are defined on the **local** clock, and CURRENT-DATE reports the real offset
 # from GMT in its last five characters. Deriving them from UNIX_EPOCH gives UTC,
