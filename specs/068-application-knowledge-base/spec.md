@@ -146,12 +146,17 @@ uses them however it likes.
   (built in, always available), **endpoint** (a model on a server, over HTTP),
   or **semantic built-in** (a model running inside the application).
 - **R22 (optional):** Where the developer enables the built-in semantic
-  embedder for an application, it shall be included in that application's build
-  and run inside it; where they do not, it and its dependencies shall be absent
-  from the build.
+  embedder for an application — a **project setting**, because it changes what
+  the build links (063 R31's `[rag] embedder`; operator, 2026-09-24) — it shall
+  be included in that application's build and run inside it; where they do
+  not, it and its dependencies shall be absent from the build.
 - **R23 (event):** When the built-in semantic model is enabled but not yet on the
   machine, the control shall fetch it only when the application asks, reporting
   progress — never on its own at start-up.
+- **R23a (ubiquitous):** The built-in model (about 470 MB) shall be cached **per
+  application**, inside that application's own folder, and shared by every user
+  of that installation, so it is fetched once per installation (operator,
+  2026-09-24).
 - **R24 (ubiquitous):** The endpoint embedder shall be configured on the control
   directly (URL, API, model, key). When spec 076's model list exists, it shall
   also accept an entry from that list.
@@ -160,6 +165,10 @@ uses them however it likes.
   so** through a property the program can show (063 R34).
 - **R26 (constraint):** One index shall never mix vectors from different
   embedders; changing a collection's embedder re-indexes it (063 R35).
+- **R26a (state):** While an application's embedder differs from the one a
+  shared collection was indexed with, that application shall search the
+  collection lexically and report why, and shall not re-index a collection
+  others depend on (operator, 2026-09-24).
 
 ### 4.6 The COBOL surface — the `KnowledgeBase` control
 
@@ -222,6 +231,12 @@ uses them however it likes.
       control reports that it is lexical. *(R25)*
 - [ ] **AC13** — Switching a collection's embedder re-indexes it; no query ever
       compares vectors from two embedders. *(R26)*
+- [ ] **AC13a** — Two installations share a collection, one on the endpoint
+      embedder and one on built-in: the one that did not index it searches
+      lexically, reports why, and leaves the index as it was. *(R26a)*
+- [ ] **AC13b** — With the built-in embedder, the model is fetched once into the
+      application's folder, and a second user of the same installation uses it
+      without fetching again. *(R23, R23a)*
 - [ ] **AC14** — Progress events arrive in order during indexing, and a
       completion event reports the counts; the form redraws throughout.
       *(R30, R31)*
@@ -255,13 +270,11 @@ uses them however it likes.
 
 ## 7. Open questions
 
-- **Q1 — How is the built-in semantic embedder switched on?** Proposal: a project
-  setting (063 R31's `[rag] embedder`, folded in from 070), because it changes
-  what the build links. The endpoint and lexical embedders need no build switch.
-- **Q2 — Where does the built-in model live on a user's machine?** It is about
-  470 MB. Proposal: a per-user cache outside the application folder, shared by
-  every application on that machine that enables it, so it is fetched once.
-- **Q3 — A shared KB and the built-in embedder.** Two users on one shared
-  collection must use the same embedder (R26). Proposal: the collection records
-  its embedder; an application configured differently searches it lexically and
-  says why, instead of re-indexing a collection others depend on.
+All settled with the operator on 2026-09-24:
+
+- **Q1 — ✅ A project setting** switches the built-in semantic embedder on
+  (R22).
+- **Q2 — ✅ A per-application cache**, inside the application's folder and
+  shared by all its users (R23a).
+- **Q3 — ✅ A mismatched application searches lexically** and says why,
+  instead of re-indexing a shared collection (R26a).

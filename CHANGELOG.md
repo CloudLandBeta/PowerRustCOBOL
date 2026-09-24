@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.179] — 2026-09-24
+
+### Spec 068 — open questions settled
+
+A project setting switches the built-in semantic embedder on (R22). Its model
+is cached per application, inside the app's folder, and shared by every user
+of that installation (R23a). An application whose embedder differs from a
+shared collection's searches it lexically and says why, rather than
+re-indexing it (R26a). New AC13a/AC13b. Spec only.
+
 ## [PowerRustCOBOL 1.70.178] — 2026-09-24
 
 ### Spec 068 — the application Knowledge Base, drafted for review
