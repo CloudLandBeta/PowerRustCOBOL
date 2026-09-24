@@ -3143,6 +3143,29 @@ mod tests {
         let _ = std::fs::remove_file(&p);
     }
 
+    /// Opened `INPUT` as MEMORY, a DISK file is only read: a WRITE is refused,
+    /// and `CLOSE` saves nothing even `WITH PERSISTENCE` — the file keeps every
+    /// byte it had (operator, 2026-09-24: an INPUT open never persists).
+    #[test]
+    fn a_disk_file_opened_input_as_memory_is_never_written() {
+        let p = tmp("disk-input-as-memory");
+        let _ = std::fs::remove_file(&p);
+        let mut d = newfile(p.clone(), true, false);
+        assert_eq!(d.open(OpenMode::Output), status::OK);
+        assert_eq!(d.write(&rec("1", "ALPHA")), status::OK);
+        d.close();
+        let before = std::fs::read(&p).unwrap();
+
+        let mut m = memfile(p.clone(), true);
+        assert_eq!(m.open(OpenMode::Input), status::OK);
+        assert_eq!(m.read_key(b"00001").1, status::OK);
+        assert_eq!(m.write(&rec("2", "BETA")), status::NOT_OPEN_OUTPUT, "INPUT refuses a WRITE");
+        assert_eq!(m.close(), status::OK);
+
+        assert_eq!(std::fs::read(&p).unwrap(), before, "not one byte of the file changed");
+        let _ = std::fs::remove_file(&p);
+    }
+
     /// A `STORAGE IS MEMORY` file opened as `STORAGE IS DISK` is converted, every
     /// record kept, instead of being refused with 39 — and the MEMORY engine can
     /// read it again afterwards.

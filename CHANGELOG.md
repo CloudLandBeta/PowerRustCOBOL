@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.174] — 2026-09-24
+
+### Test — a MEMORY `OPEN INPUT` never writes the file
+
+Pins what 1.70.173 already guaranteed and the operator asked to hold: a DISK
+file opened `STORAGE IS MEMORY WITH PERSISTENCE` and `OPEN INPUT` is only read.
+A `WRITE` is refused with 48, and `CLOSE` leaves the file byte-for-byte
+unchanged (checked by `rcrun`: same SHA, same modification time). Guide
+wording made explicit: only `I-O`/`EXTEND` save a MEMORY file back. Test:
+`a_disk_file_opened_input_as_memory_is_never_written`.
+
 ## [PowerRustCOBOL 1.70.173] — 2026-09-24
 
 ### Fix — a file can move between MEMORY and DISK storage without losing data

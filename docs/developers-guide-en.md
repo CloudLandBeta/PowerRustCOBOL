@@ -7733,8 +7733,10 @@ on-disk formats, and a file can move between them freely — one program may
 declare it `STORAGE IS DISK` and another `STORAGE IS MEMORY`:
 
 - Opened as **MEMORY**, a file written by a DISK program loads with all its
-  records, and `WITH PERSISTENCE` saves it back **in the DISK format**, so the
-  DISK program still reads it, including the records the MEMORY program added.
+  records. Opened `INPUT`, it is only read: nothing is ever written back, `WITH
+  PERSISTENCE` or not. Opened `I-O` or `EXTEND` with `WITH PERSISTENCE`, `CLOSE`
+  saves it back **in the DISK format**, so the DISK program still reads it,
+  including the records the MEMORY program added.
 - Opened as **DISK**, a file written by a MEMORY program is converted to the
   DISK format on `OPEN`, every record kept. From then on it is a DISK-format
   file, which a MEMORY program also reads.
