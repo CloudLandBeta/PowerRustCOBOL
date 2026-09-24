@@ -8,6 +8,23 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.188] — 2026-09-24
+
+### Spec 068 — tasks
+
+`specs/068-application-knowledge-base/tasks.md` breaks the plan into 17
+ordered tasks in four phases:
+
+- **Engine:** the `cobolt-kb` crate, its store, the "busy" bound, refresh,
+  search, the multi-process test and the built-in model.
+- **Runtime:** its features, the `KnowledgeBase` control, interpreter methods
+  and events, the `AgentObject` tool, and seeding for all three hosts.
+- **Build:** `[rag] embedder`, and a delivery that leaves users' KBs alone.
+- **IDE and docs:** the IDE surface, then the System KB and the Guide.
+
+Every acceptance criterion maps to a task. AC4's SMB share run is an operator
+step. Tasks only.
+
 ## [PowerRustCOBOL 1.70.187] — 2026-09-24
 
 ### Spec 068 — plan approved
