@@ -2940,6 +2940,15 @@ fn resolve_tab_traversal(ui: &egui::Ui, targets: &mut Vec<TabTarget>) -> TabStep
                 )
             });
         });
+        // egui read this Tab too, when the frame began — before we consumed
+        // it — and will move the focus to the next widget in DRAWING order:
+        // it drops the focused widget and hands the focus to whichever widget
+        // registers next, wrapping to the first; Shift+Tab queues the previous
+        // one for the next frame. Our pick is applied the frame after this
+        // one, so egui's won whenever TabOrder differed from drawing order,
+        // and the control whose TabOrder was changed was skipped (operator,
+        // 2026-09-23). The form owns Tab: cancel egui's move.
+        ui.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
         let remembered = ui
             .data(|d| d.get_temp::<egui::Id>(tab_memory_id()))
             .and_then(position);
@@ -18100,7 +18109,14 @@ mod tests {
             // counts as a click (egui's max click duration), while clearing the
             // Timer's 10 ms interval.
             input.time = Some(i as f64 * 0.05);
-            input.events = evs;
+            // The held modifiers travel with the key events, as real input
+            // (egui-winit) reports them: a `ModifiersChanged` ahead of the keys,
+            // so a Shift+Tab reads as Shift+Tab to `i.modifiers` as well.
+            let held = evs.iter().find_map(|e| match e {
+                Event::Key { modifiers, .. } => Some(*modifiers),
+                _ => None,
+            });
+            input.events = held.map(Event::ModifiersChanged).into_iter().chain(evs).collect();
 
             let updates = RefCell::new(Vec::<(String, String, String)>::new());
             let events = RefCell::new(Vec::<UiEvent>::new());
@@ -19570,6 +19586,44 @@ mod tests {
             Some("B"),
             "second Tab should advance to the next TextBox by TabOrder"
         );
+    }
+
+    /// A control whose TabOrder no longer matches its drawing position is
+    /// still reached — forwards and backwards. egui's own Tab handling used to
+    /// hand the focus to the next widget in DRAWING order the frame before the
+    /// engine's pick arrived, so the control whose TabOrder was changed was
+    /// skipped (operator, 2026-09-23).
+    #[test]
+    fn engine_tab_reaches_a_control_whose_tab_order_was_changed() {
+        let mk = |id: &str, y: i32, t: u32| {
+            let mut c = ctrlp(id, ControlType::TextBox, 0, y, 160, 24, &[("Text", "")]);
+            c.tab_order = t;
+            c
+        };
+        let text = |map: &Map<String, Map<String, String>>, id: &str| {
+            map.get(id).and_then(|m| m.get("Text")).cloned().unwrap_or_default()
+        };
+        // Drawn A, B, C; B's TabOrder changed from 2 to 5, so Tab goes A, C, B.
+        let controls = [mk("A", 0, 1), mk("B", 40, 5), mk("C", 80, 3)];
+        for (shift, expected) in [(false, ["x", "z", "y"]), (true, ["z", "x", "y"])] {
+            let mut script = vec![(0.0, vec![])];
+            let mut t = 1.0;
+            for ch in ["x", "y", "z"] {
+                script.push((t, vec![tab_key(shift, true)]));
+                script.push((t + 1.0, vec![tab_key(shift, false)]));
+                script.push((t + 2.0, vec![Event::Text(ch.to_owned())]));
+                t += 3.0;
+            }
+            let (_evs, map) = drive(&controls, script);
+            let got = [text(&map, "A"), text(&map, "B"), text(&map, "C")];
+            assert_eq!(
+                got,
+                expected.map(str::to_owned),
+                "{} typed x, y, z after each press into A, B, C",
+                if shift { "Shift+Tab" } else { "Tab" }
+            );
+        }
+        println!("TabOrder A=1 B=5 C=3 — Tab visits A, C, B; Shift+Tab visits B, C, A");
     }
 
     #[test]

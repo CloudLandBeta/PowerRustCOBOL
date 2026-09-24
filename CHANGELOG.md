@@ -8,6 +8,25 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.167] — 2026-09-23
+
+### Fix — Tab reaches a control whose TabOrder was changed
+
+Changing a control's TabOrder so it no longer matched its place in the form
+made Tab skip it: with A, B, C drawn in that order and B's TabOrder raised from
+2 to 5, Tab went A, C, A — never B. egui reads the Tab key itself when a frame
+begins and moves the focus to the next widget in DRAWING order, wrapping to the
+first; the engine's pick, by TabOrder, lands a frame later and lost the race
+whenever the two disagreed. Shift+Tab had the same race.
+
+The engine now cancels egui's own focus move on the frame it handles Tab, so
+TabOrder alone decides. The fix is in the shared renderer — preview, Run Form,
+child windows and built applications alike. The test harness now reports held
+modifiers the way real input does (`ModifiersChanged`), which is what lets a
+test press Shift+Tab at all. Test:
+`engine_tab_reaches_a_control_whose_tab_order_was_changed` (fails without the
+fix with exactly the reported skip).
+
 ## [PowerRustCOBOL 1.70.166] — 2026-09-23
 
 ### Fix — a folded sidebar in a child window is drawn folded
