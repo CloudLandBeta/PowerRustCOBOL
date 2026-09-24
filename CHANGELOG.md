@@ -8,6 +8,15 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.192] — 2026-09-24
+
+### Spec 075 — tasks
+
+`specs/075-registered-indexed-files/tasks.md`: 14 tasks in five phases. The
+phases are: the memory limit as a project setting; safe reading by path; the
+COBOL methods; `smb://` through `smb2`; docs. Every acceptance criterion maps
+to a task. Real-share checks are an operator step. Spec only.
+
 ## [PowerRustCOBOL 1.70.191] — 2026-09-24
 
 ### Spec 075 — plan, drafted for review
