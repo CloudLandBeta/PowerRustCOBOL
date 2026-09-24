@@ -117,6 +117,10 @@ shares no data, file, table or path with the other two KBs.
   indexed file it owns, and survive restarts.
 - **R10 (constraint):** No topic name, file, prompt or behaviour shall be written
   into the COBOL as a special case. HR, Orders and Legal are data.
+- **R10a (constraint):** Every indexed file PowerChat owns — topics,
+  conversations, prompt versions, token usage — shall use the default Rust
+  indexed-file engine (PRCIDXD1), never the redb engine (operator, 2026-09-24).
+  This concerns indexed files only; the KB store (R14) is not an indexed file.
 
 ### 4.3 The application Knowledge Base (runtime — needs spec 068)
 
@@ -259,6 +263,9 @@ Carried from 063 §4.8 unchanged in substance.
       *(R5, R6, R9)*
 - [ ] **AC4** — With topic A selected, a question whose answer is only in topic B's
       documents or files is not answered from them. *(R7)*
+- [ ] **AC4a** — Every indexed file PowerChat creates opens as PRCIDXD1; none is
+      a redb container, and nothing in the project selects the redb engine.
+      *(R10a)*
 - [ ] **AC5** — `grep` of the COBOL sources finds no topic name used as a
       condition. *(R10)*
 - [ ] **AC6** — A document dropped into a topic's folder becomes answerable

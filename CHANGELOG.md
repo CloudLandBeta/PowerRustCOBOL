@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.170] — 2026-09-24
+
+### Spec 071 — PowerChat's indexed files use the Rust engine, never redb
+
+New R10a / AC4a (operator, 2026-09-24): every indexed file PowerChat owns
+(topics, conversations, prompt versions, token usage) uses the default Rust
+engine, PRCIDXD1, and nothing in the project selects the redb engine. The KB
+store's use of redb 4.3 (R14) is unaffected; it is not an indexed file. Spec
+only.
+
 ## [PowerRustCOBOL 1.70.169] — 2026-09-24
 
 ### Spec 071 — PowerChat drafted for review
