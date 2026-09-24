@@ -8,6 +8,58 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.177] — 2026-09-24
+
+### Spec 071 — MEMORY for user data only; the KB updates with a progress modal
+
+The operator's last two answers, and all of spec 071's open questions are now
+settled:
+
+- **Q5.** The KB store is redb with `STORAGE IS DISK`. `STORAGE IS MEMORY` is
+  only for the user's data, meaning any content a tool reaches, opened `INPUT`.
+  PowerChat's own files move to `STORAGE IS DISK` on the Rust engine, opened
+  `I-O` and committed change by change, so a crash loses at most the change in
+  flight (R10b, R10e, R10f). The MEMORY-to-DISK fallback applies to user data
+  only (R10d).
+- **Q1.** Creating, updating or deleting a document updates the topic's KB,
+  and a modal shows the progress (R16, R16a, AC6b).
+- **Q6 residual.** On DISK storage, "the last `CLOSE` wins" no longer applies
+  to PowerChat's files. /plan must still verify how the Rust engine serialises
+  writers from two processes on the shared topic list. Spec only.
+
+## [PowerRustCOBOL 1.70.176] — 2026-09-24
+
+### Spec 071 — PowerChat's own files are opened I-O
+
+Corrects 1.70.175, which misread the operator: PowerChat's own files are
+**not** append-only. They are opened `OPEN I-O` and changed in place; `OPEN
+OUTPUT` is used only the first time, to create a file that does not exist yet
+(R10e, AC4b, Q6; operator, 2026-09-24). User data, meaning any content a tool
+reaches, stays `OPEN INPUT` only. Spec only.
+
+## [PowerRustCOBOL 1.70.175] — 2026-09-24
+
+### Spec 071 — open modes settled, open questions answered
+
+The operator's answers of 2026-09-24, folded into `specs/071-powerchat/spec.md`:
+
+- **Indexed files are the primary store**, the user's and PowerChat's, all
+  `STORAGE MODE IS MEMORY` (R10b).
+- **User data is `OPEN INPUT` only (R10c).** That means any content the model
+  reaches through a tool, not just clients, orders and invoices. An `INPUT`
+  open never writes the file back (pinned by 1.70.174 on `fixes`).
+- **PowerChat's own files are `OUTPUT` then `EXTEND`, never `I-O` (R10e):**
+  append-only, so a change is a newer record. Each is open for one operation
+  at a time (R10f).
+- **Registered paths may be `smb://` (R21)**, read whole into RAM through a
+  pure-Rust SMB client.
+- **Resolved:** Q2 (topics and prompts live with the KB; models and keys stay
+  per machine), Q3 (PDF text page by page with `lopdf`, as the Viewer does
+  today), Q4 (`smb://`), Q6 (open modes), Q7 (fixed in 1.70.173).
+- **Partly open:** Q1 (sample topics ship inactive until "Install sample
+  topics"; the operator's sentence about removal was cut off) and Q5 (which
+  store the "redb only in MEMORY" rule governs). Spec only.
+
 ## [PowerRustCOBOL 1.70.174] — 2026-09-24
 
 ### Test — a MEMORY `OPEN INPUT` never writes the file
@@ -46,6 +98,64 @@ MEMORY` with a DISK fallback (operator, 2026-09-24). Guide (*When data reaches
 disk*) updated. Tests: `a_disk_file_opened_as_memory_keeps_its_records_and_its_format`,
 `a_memory_file_opened_as_disk_is_converted_not_refused`,
 `an_unknown_file_is_refused_as_memory_and_left_untouched`.
+
+## [PowerRustCOBOL 1.70.172] — 2026-09-24
+
+### Spec 071 — MEMORY storage falls back to DISK
+
+New R10d, AC4c and Q7 (operator, 2026-09-24): a file declared `STORAGE MODE
+IS MEMORY` that would not fit in the memory available opens as `STORAGE IS
+DISK` instead, and says so. It is a runtime capability for every application,
+and it joins prerequisite spec 075. Q7 records that the two modes write
+different containers (`PRCIDX1` and `PRCIDXD1`), so 075 must choose how the
+fallback reaches the same data. Spec only.
+
+## [PowerRustCOBOL 1.70.171] — 2026-09-24
+
+### Spec 071 — PowerChat's indexed files are MEMORY storage
+
+New R10b/R10c, AC4b and Q6 (operator, 2026-09-24): every indexed file
+PowerChat uses is opened `STORAGE MODE IS MEMORY`. The files the model searches
+are read-only; PowerChat's own files are `WITH PERSISTENCE` and are open only
+for one operation at a time, so a crash loses at most that operation. Q6
+records what MEMORY storage means for files several users write (the last
+`CLOSE` wins) and proposes how to handle it. Spec only.
+
+## [PowerRustCOBOL 1.70.170] — 2026-09-24
+
+### Spec 071 — PowerChat's indexed files use the Rust engine, never redb
+
+New R10a / AC4a (operator, 2026-09-24): every indexed file PowerChat owns
+(topics, conversations, prompt versions, token usage) uses the default Rust
+engine, PRCIDXD1, and nothing in the project selects the redb engine. The KB
+store's use of redb 4.3 (R14) is unaffected; it is not an indexed file. Spec
+only.
+
+## [PowerRustCOBOL 1.70.169] — 2026-09-24
+
+### Spec 071 — PowerChat drafted for review
+
+`specs/071-powerchat/spec.md`: the RAG + transactional chatbot boilerplate
+as an example project, `examples/PowerChat/`. It carries the operator's
+decisions of 2026-09-23/24, which supersede spec 063 where the two differ:
+
+- The chatbot talks about **one topic** at a time (HR, Orders, Legal, or one the
+  end user creates at run time). Each topic has its own prompt, documents,
+  Knowledge Base and registered indexed files.
+- There are **three KBs**: the System KB and the Project KB are Grace's; the
+  **Application KB** belongs to the built app's users, lives in `assets/KB`, and
+  may be shared on a LAN.
+- The KB engine is part of the **runtime**: a built app depends on neither the
+  IDE nor `cobolt-agents`. A shared KB uses redb 4.3's multi-process mode.
+- The full agent mesh, conversations kept in an indexed file, six languages,
+  and a RAG settings form written in COBOL. API keys live in the settings file
+  for now, behind a seam the OS keychain can later replace.
+
+Runtime capabilities PowerChat needs are built first and generically, each
+with its own spec: 068 (application KB), 074 (document import), and two new
+ones, 075 (indexed files registered by path, local or network) and 076 (an
+application-side model list for `AgentObject`). Spec only; no code.
+
 
 ## [PowerRustCOBOL 1.70.168] — 2026-09-23
 
