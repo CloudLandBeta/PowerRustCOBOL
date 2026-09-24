@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.176] — 2026-09-24
+
+### Spec 071 — PowerChat's own files are opened I-O
+
+Corrects 1.70.175, which misread the operator: PowerChat's own files are
+**not** append-only. They are opened `OPEN I-O` and changed in place; `OPEN
+OUTPUT` is used only the first time, to create a file that does not exist yet
+(R10e, AC4b, Q6; operator, 2026-09-24). User data, meaning any content a tool
+reaches, stays `OPEN INPUT` only. Spec only.
+
 ## [PowerRustCOBOL 1.70.175] — 2026-09-24
 
 ### Spec 071 — open modes settled, open questions answered

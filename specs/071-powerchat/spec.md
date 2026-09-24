@@ -129,16 +129,14 @@ shares no data, file, table or path with the other two KBs.
   examples; operator, 2026-09-24) — shall be opened `OPEN INPUT` only. Never `I-O`, `OUTPUT` or `EXTEND`; nothing PowerChat does
   can change it, and an `INPUT` open never writes the file back, `WITH
   PERSISTENCE` or not (verified 1.70.174).
-- **R10e (constraint):** **PowerChat's own** files — topics, conversations,
-  prompt versions, token usage — shall be created with `OPEN OUTPUT` and
-  added to with `OPEN EXTEND`, declared `WITH PERSISTENCE`, and **never opened
-  `I-O`** (operator, 2026-09-24). They are therefore append-only: a change is a
-  newer record (a promoted prompt version is a new record with a new
-  timestamp; a removed topic is a "removed" record; monthly totals are summed
-  from the usage records when read).
+- **R10e (ubiquitous):** **PowerChat's own** files — topics, conversations,
+  prompt versions, token usage — shall be opened `OPEN I-O`, declared `WITH
+  PERSISTENCE`, and read, written, rewritten and deleted in place. The one
+  exception: when a file does not exist yet, PowerChat shall open it `OPEN
+  OUTPUT` that first time, to create it (operator, 2026-09-24).
 - **R10f (constraint):** Because a MEMORY file reaches disk only at `CLOSE`,
   PowerChat shall keep each of its own files open for one operation only, so a
-  crash loses at most the record being added.
+  crash loses at most the change in flight.
 - **R10d (event):** When a file declared `STORAGE MODE IS MEMORY` would not fit
   in the memory available, the runtime shall open it as `STORAGE IS DISK`
   instead, and say so, rather than fail (operator, 2026-09-24). This is a
@@ -291,10 +289,11 @@ Carried from 063 §4.8 unchanged in substance.
       a redb container, and nothing in the project selects the redb engine.
       *(R10a)*
 - [ ] **AC4b** — Every indexed file PowerChat declares is `STORAGE MODE IS
-      MEMORY`; a search of the COBOL finds no `OPEN I-O` anywhere, and only
-      `OPEN INPUT` on any file a tool reads; the user's files are
+      MEMORY`; a search of the COBOL finds only `OPEN INPUT` on any file a tool
+      reads, and on PowerChat's own files `OPEN I-O`, with `OPEN OUTPUT` only on
+      the path taken when the file does not exist yet; the user's files are
       byte-identical after a session; killing the process mid-conversation
-      loses at most the turn being added. *(R10b, R10c, R10e, R10f)*
+      loses at most the change in flight. *(R10b, R10c, R10e, R10f)*
 - [ ] **AC4c** — A MEMORY file larger than the memory a test allows opens as DISK,
       is searched and written correctly, and the fallback is reported; the same
       file under the limit still opens in MEMORY. *(R10d)*
@@ -377,13 +376,14 @@ Carried from 063 §4.8 unchanged in substance.
   real share before AC7 counts as met, and say plainly in the guide which shares
   were verified. The feature is also flagged *experimental* by redb, so its API
   may move between releases.
-- **Q6 — ✅ Open modes (operator, 2026-09-24).** User data: `OPEN INPUT`
-  only (R10c). PowerChat's own files: `OUTPUT` to create, `EXTEND` to add,
-  never `I-O` (R10e). **Residual, for /plan:** a MEMORY file is written whole
-  at `CLOSE`, so two users `EXTEND`ing the **shared** topic list or prompts at
-  the same moment would lose one of the two additions (the last `CLOSE` wins).
-  Conversations and usage are per user and unaffected. /plan must either keep
-  the window small and re-read before adding, or detect the race and retry.
+- **Q6 — ✅ Open modes (operator, 2026-09-24).** User data — any content a tool
+  reaches: `OPEN INPUT` only (R10c). PowerChat's own files: `OPEN I-O`, and
+  `OPEN OUTPUT` only to create one that does not exist yet (R10e).
+  **Residual, for /plan:** a MEMORY file is written whole at `CLOSE`, so two
+  users changing the **shared** topic list or prompts at the same moment would
+  lose one of the two changes (the last `CLOSE` wins). Conversations and usage
+  are per user and unaffected. /plan must either keep the window small and
+  re-read before changing, or detect the race and retry.
 - **Q7 — ✅ Fixed in 1.70.173 (fixes branch).** The two modes did write
   different containers, and switching lost data: a DISK file opened as MEMORY
   loaded empty and `WITH PERSISTENCE` saved the empty image over it. Each engine
