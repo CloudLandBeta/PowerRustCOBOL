@@ -196,6 +196,31 @@ model list its users maintain, through a settings form written in COBOL.
 Open: the COBOL surface (runtime CALLs plus a `ModelEntry` property is
 proposed) and how "obscured" is done. Spec only. (1.70.184 is on `fixes`.)
 
+## [PowerRustCOBOL 1.70.184] — 2026-09-24
+
+### Fix — `OPEN INPUT` never changes a file, and needs no write permission
+
+Two defects, found while specifying 075, broke the rule that an `INPUT` open
+only reads (operator, 2026-09-24):
+
+- **The DISK engine opened every existing file with write access, even for
+  `INPUT`**, so a read-only file, or one on a read-only share, could not be
+  opened `INPUT` at all. Its `OPEN` also wrote to the file when there was work
+  to finish: replaying a recovery journal a crash left, converting an old
+  (version ≤ 2) container, and finishing an interrupted reclaim.
+- **1.70.173's conversion ran on `OPEN INPUT` too.** A DISK program that only
+  read a MEMORY-format file rewrote it in the DISK format.
+
+Now an `INPUT` open reads the file through a read-only handle. When the open
+would have to write, it copies the file (and its journal) to a temporary file,
+does the work there, reads that, and deletes it at `CLOSE`. The user's file and
+journal are left byte-for-byte as they were, and the next `I-O` open does the
+work on the file itself. `I-O`, `EXTEND` and `OUTPUT` behave as before. Guide
+(*Changing a file's storage mode*) updated. Tests:
+`a_disk_input_open_of_a_memory_file_leaves_it_untouched`,
+`a_read_only_file_opens_input`,
+`a_disk_input_open_after_a_crash_leaves_file_and_journal_untouched`.
+
 ## [PowerRustCOBOL 1.70.183] — 2026-09-24
 
 ### Spec 075 — open questions settled
@@ -294,7 +319,6 @@ Operator decisions of 2026-09-24 it carries:
 Three open questions: how the built-in embedder is switched on, where its
 ~470 MB model is cached, and how a shared collection handles mismatched
 embedders. Spec only.
-
 ## [PowerRustCOBOL 1.70.177] — 2026-09-24
 
 ### Spec 071 — MEMORY for user data only; the KB updates with a progress modal

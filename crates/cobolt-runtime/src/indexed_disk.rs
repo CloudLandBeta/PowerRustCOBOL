@@ -231,6 +231,9 @@ pub struct DiskIndexedFile {
     /// `Some(len)` when the container opened is **version ≤ 2** and still
     /// carries the old directory chain, which [`Self::migrate`] must convert.
     pending_migration: Option<usize>,
+    /// The user's own path, while an `OPEN INPUT` reads a temporary copy of
+    /// it instead (`path` then names the copy). See [`Self::read_from_copy`].
+    input_copy: Option<PathBuf>,
     /// Next **join sequence** for a duplicates-alternate index entry.
     ///
     /// A duplicates alt key is `altvalue || suffix`. The suffix used to be the
@@ -431,6 +434,7 @@ impl DiskIndexedFile {
             dir_height: 0,
             dir_count: 0,
             pending_migration: None,
+            input_copy: None,
             tx_replay: false,
             io_failed: false,
         }
@@ -1574,7 +1578,7 @@ impl DiskIndexedFile {
     /// When the file is a `STORAGE IS MEMORY` container, rewrite it as a
     /// `PRCIDXD1` one with the same records. `None` when it is not one (nothing
     /// to do); otherwise the FILE STATUS of the conversion.
-    fn convert_memory_container(&mut self) -> Option<&'static str> {
+    fn convert_memory_container(&mut self, dest: &Path) -> Option<&'static str> {
         let magic = container_magic(&self.path)?;
         if &magic != b"PRCIDX1\0" && &magic != b"PRCISAM1" {
             return None;
@@ -1593,7 +1597,7 @@ impl DiskIndexedFile {
         let records = mem.records_in_key_order();
         mem.close();
         match write_disk_container(
-            &self.path,
+            dest,
             self.record_len,
             &self.primary,
             &self.alternates,
@@ -1606,7 +1610,60 @@ impl DiskIndexedFile {
         }
     }
 
+    /// A fresh, private path for a temporary copy of this file.
+    fn input_copy_path(&self) -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let name = self
+            .path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        std::env::temp_dir().join(format!(
+            "prcidxd-input-{}-{}-{name}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
+
+    /// From now on, for this `OPEN INPUT` only, read a temporary copy of the
+    /// file — and of its recovery journal, when it has one — so that whatever
+    /// the open must write (a journal replay, a directory migration) lands on
+    /// the copy. The user's file is never touched: an `INPUT` open never
+    /// changes a file (operator, 2026-09-24).
+    fn read_from_copy(&mut self) -> std::io::Result<()> {
+        let copy = self.input_copy_path();
+        std::fs::copy(&self.path, &copy)?;
+        let journal = self.journal_path();
+        if journal.exists() {
+            let mut copy_journal = copy.clone().into_os_string();
+            copy_journal.push(".jrn");
+            std::fs::copy(&journal, PathBuf::from(copy_journal))?;
+        }
+        self.input_copy = Some(std::mem::replace(&mut self.path, copy));
+        Ok(())
+    }
+
+    /// Delete the temporary copy an `OPEN INPUT` read, and point back at the
+    /// user's file.
+    fn drop_input_copy(&mut self) {
+        if let Some(original) = self.input_copy.take() {
+            let _ = std::fs::remove_file(self.journal_path());
+            let copy = std::mem::replace(&mut self.path, original);
+            let _ = std::fs::remove_file(copy);
+        }
+    }
+
     pub fn open(&mut self, mode: OpenMode) -> &'static str {
+        let st = self.open_inner(mode);
+        if st != status::OK {
+            self.file = None;
+            self.drop_input_copy();
+        }
+        st
+    }
+
+    fn open_inner(&mut self, mode: OpenMode) -> &'static str {
         if self.open.is_some() {
             return status::LOGIC_ERROR;
         }
@@ -1664,12 +1721,39 @@ impl DiskIndexedFile {
                     // every record kept, before it is opened. It used to be
                     // refused with 39, so a file could not move from MEMORY to
                     // DISK storage (operator, 2026-09-24).
-                    if let Some(st) = self.convert_memory_container() {
-                        if st != status::OK {
-                            return st;
+                    //
+                    // `OPEN INPUT` converts into a temporary copy instead, and
+                    // reads that: an `INPUT` open never changes the user's file
+                    // (operator, 2026-09-24). So does a leftover recovery
+                    // journal, whose replay would write.
+                    let input = mode == OpenMode::Input && self.input_copy.is_none();
+                    if input {
+                        let copy = self.input_copy_path();
+                        match self.convert_memory_container(&copy) {
+                            Some(st) if st != status::OK => return st,
+                            Some(_) => {
+                                self.input_copy = Some(std::mem::replace(&mut self.path, copy));
+                            }
+                            None if self.journal_path().exists() => {
+                                if self.read_from_copy().is_err() {
+                                    return status::IO_ERROR;
+                                }
+                            }
+                            None => {}
+                        }
+                    } else if mode != OpenMode::Input {
+                        let dest = self.path.clone();
+                        if let Some(st) = self.convert_memory_container(&dest) {
+                            if st != status::OK {
+                                return st;
+                            }
                         }
                     }
-                    let f = match OpenOptions::new().read(true).write(true).open(&self.path) {
+                    // Reading the user's own file for `INPUT` needs no write
+                    // access, so a read-only file — or one on a read-only
+                    // share — opens. A temporary copy is ours to write.
+                    let write = mode != OpenMode::Input || self.input_copy.is_some();
+                    let f = match OpenOptions::new().read(true).write(write).open(&self.path) {
                         Ok(f) => f,
                         Err(_) => return status::IO_ERROR,
                     };
@@ -1686,6 +1770,19 @@ impl DiskIndexedFile {
                             if self.strict_metadata && !self.schema_matches(&stored) {
                                 self.file = None;
                                 return status::ATTR_MISMATCH; // 39
+                            }
+                            // Converting an old directory, or finishing an
+                            // interrupted reclaim, writes. For `OPEN INPUT` of
+                            // the user's own file, do that on a copy instead.
+                            if mode == OpenMode::Input
+                                && self.input_copy.is_none()
+                                && (self.pending_migration.is_some() || self.dir_head != 0)
+                            {
+                                self.file = None;
+                                if self.read_from_copy().is_err() {
+                                    return status::IO_ERROR;
+                                }
+                                return self.open_inner(mode);
                             }
                             // A container older than version 3 is converted
                             // here, before a single verb runs against it, so
@@ -1777,6 +1874,7 @@ impl DiskIndexedFile {
         }
         self.open = None;
         self.file = None;
+        self.drop_input_copy();
         self.cursor = None;
         self.resume_key = None;
         self.current = None;
@@ -3208,6 +3306,94 @@ mod tests {
         let _ = std::fs::remove_file(&p);
     }
 
+    /// `OPEN INPUT` never changes a file. A MEMORY-format file read by a DISK
+    /// program is converted into a temporary copy, not in place: its bytes are
+    /// the same after the read, and the copy is gone (operator, 2026-09-24).
+    #[test]
+    fn a_disk_input_open_of_a_memory_file_leaves_it_untouched() {
+        let p = tmp("disk-input-of-memory");
+        let _ = std::fs::remove_file(&p);
+        let mut m = memfile(p.clone(), true);
+        assert_eq!(m.open(OpenMode::Output), status::OK);
+        assert_eq!(m.write(&rec("4", "FOUR")), status::OK);
+        assert_eq!(m.close(), status::OK);
+        let before = std::fs::read(&p).unwrap();
+
+        let mut d = newfile(p.clone(), true, false);
+        assert_eq!(d.open(OpenMode::Input), status::OK);
+        let (r, st) = d.read_key(b"00004");
+        assert_eq!(st, status::OK, "the record is readable");
+        assert_eq!(&r.unwrap()[5..9], b"FOUR");
+        let copy = d.path.clone();
+        assert_ne!(copy, p, "the read went to a temporary copy");
+        assert_eq!(d.close(), status::OK);
+
+        assert_eq!(std::fs::read(&p).unwrap(), before, "not one byte changed");
+        assert!(!copy.exists(), "the temporary copy is deleted at CLOSE");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A read-only file opens `INPUT`: reading needs no write access.
+    #[test]
+    fn a_read_only_file_opens_input() {
+        let p = tmp("read-only-input");
+        let _ = std::fs::remove_file(&p);
+        let mut d = newfile(p.clone(), true, false);
+        assert_eq!(d.open(OpenMode::Output), status::OK);
+        assert_eq!(d.write(&rec("1", "ALPHA")), status::OK);
+        d.close();
+        let before = std::fs::read(&p).unwrap();
+        let mut perms = std::fs::metadata(&p).unwrap().permissions();
+        perms.set_readonly(true);
+        std::fs::set_permissions(&p, perms.clone()).unwrap();
+
+        let mut r = newfile(p.clone(), true, false);
+        assert_eq!(r.open(OpenMode::Input), status::OK, "INPUT needs no write access");
+        assert_eq!(r.read_key(b"00001").1, status::OK);
+        r.close();
+        assert_eq!(std::fs::read(&p).unwrap(), before);
+
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(false);
+        std::fs::set_permissions(&p, perms).unwrap();
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A crash left a recovery journal. `OPEN INPUT` reads the recovered data
+    /// from a copy, and leaves the file and the journal exactly as they were —
+    /// the next write-mode open is the one that replays it.
+    #[test]
+    fn a_disk_input_open_after_a_crash_leaves_file_and_journal_untouched() {
+        let p = tmp("crash-then-input");
+        let _ = std::fs::remove_file(&p);
+        let mut f = newfile(p.clone(), true, false);
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        for i in 1..=20u32 {
+            assert_eq!(f.write(&rec(&i.to_string(), "BEFORE")), status::OK);
+        }
+        f.close();
+        let settled = read_all(&p, true);
+        let mut g = newfile(p.clone(), true, false);
+        assert_eq!(g.open(OpenMode::Io), status::OK);
+        for i in 21..=30u32 {
+            assert_eq!(g.write(&rec(&i.to_string(), "AFTER")), status::OK);
+        }
+        g.crash_mid_commit(2).unwrap();
+        drop(g);
+        let file_before = std::fs::read(&p).unwrap();
+        let journal_before = std::fs::read(journal_of(&p)).unwrap();
+
+        assert_eq!(read_all(&p, true), settled, "INPUT sees the recovered data");
+        assert_eq!(std::fs::read(&p).unwrap(), file_before, "the file is untouched");
+        assert_eq!(
+            std::fs::read(journal_of(&p)).unwrap(),
+            journal_before,
+            "the journal is untouched, left for a write-mode open"
+        );
+        let _ = std::fs::remove_file(journal_of(&p));
+        let _ = std::fs::remove_file(&p);
+    }
+
     /// A commit interrupted part-way is undone whole, header included.
     #[test]
     fn a_crash_mid_commit_is_undone_completely() {
@@ -3717,7 +3903,9 @@ mod tests {
         }
         f.close();
 
-        assert_eq!(f.open(OpenMode::Input), status::OK);
+        // I-O, not INPUT: the test writes a dead slot into the directory below,
+        // and an INPUT handle is read-only (1.70.184).
+        assert_eq!(f.open(OpenMode::Io), status::OK);
         // Kill the slot behind record 00003, leaving its index entry in place.
         let (_, st) = f.read_key(b"00003");
         assert_eq!(st, status::OK);
@@ -3757,7 +3945,9 @@ mod tests {
         }
         f.close();
 
-        assert_eq!(f.open(OpenMode::Input), status::OK);
+        // I-O, not INPUT: the test writes a dead slot into the directory below,
+        // and an INPUT handle is read-only (1.70.184).
+        assert_eq!(f.open(OpenMode::Io), status::OK);
         let (_, st) = f.read_key(b"00003");
         assert_eq!(st, status::OK);
         let victim = f.current.expect("record 3 is current");
@@ -3797,7 +3987,9 @@ mod tests {
         }
         f.close();
 
-        assert_eq!(f.open(OpenMode::Input), status::OK);
+        // I-O, not INPUT: the test writes a dead slot into the directory below,
+        // and an INPUT handle is read-only (1.70.184).
+        assert_eq!(f.open(OpenMode::Io), status::OK);
         for k in [b"00002", b"00003", b"00004"] {
             let (_, st) = f.read_key(k);
             assert_eq!(st, status::OK);

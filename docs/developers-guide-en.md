@@ -7737,9 +7737,19 @@ declare it `STORAGE IS DISK` and another `STORAGE IS MEMORY`:
   PERSISTENCE` or not. Opened `I-O` or `EXTEND` with `WITH PERSISTENCE`, `CLOSE`
   saves it back **in the DISK format**, so the DISK program still reads it,
   including the records the MEMORY program added.
-- Opened as **DISK**, a file written by a MEMORY program is converted to the
-  DISK format on `OPEN`, every record kept. From then on it is a DISK-format
-  file, which a MEMORY program also reads.
+- Opened as **DISK** `I-O` or `EXTEND`, a file written by a MEMORY program is
+  converted to the DISK format on `OPEN`, every record kept. From then on it is
+  a DISK-format file, which a MEMORY program also reads. Opened `INPUT`, it is
+  converted into a temporary copy that is read instead and deleted at `CLOSE`;
+  the file itself is not changed.
+
+**`OPEN INPUT` never changes a file**, in either storage mode, and needs no
+write permission, so a read-only file, or one on a read-only share, can be
+read. When opening would otherwise have to write to the file (to finish a
+transaction a crash interrupted, to convert an old container, or to convert a
+MEMORY-format file), an `INPUT` open does that work on a temporary copy and
+leaves the file exactly as it was. The next `I-O` open does it on the file
+itself.
 
 A file that is not an indexed file at all is refused on `OPEN` (FILE STATUS
 90); it is never read as an empty file and never overwritten.
