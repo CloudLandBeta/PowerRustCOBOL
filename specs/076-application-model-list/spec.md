@@ -95,18 +95,26 @@ or the list changing.
 - **R9 (ubiquitous):** The first store shall keep keys in a settings file **in
   the application's installation folder, shared by every user of that
   installation** (operator, 2026-09-24).
-- **R10 (constraint):** Keys in that file shall be stored obscured, never as
-  plain text, and the file shall hold nothing but keys.
+- **R10 (constraint):** Keys in that file shall be stored **encrypted with a key
+  derived from the installation**, so the file is unreadable at a glance and
+  useless copied to another machine; it shall hold nothing but keys (operator,
+  2026-09-24).
 - **R11 (event):** When the settings file is missing, the store shall start
   empty; when it is unreadable, the store shall report that and start empty,
   never overwriting the unreadable file.
 
 ### 4.3 Using an entry
 
+- **R11a (ubiquitous):** A program shall manage entries and keys through runtime
+  CALLs — `COBOL-MODEL-SET`, `COBOL-MODEL-REMOVE`, `COBOL-KEY-SET`,
+  `COBOL-KEY-REMOVE`, `COBOL-KEY-IS-SET` — since both are process-wide
+  (operator, 2026-09-24).
 - **R12 (ubiquitous):** An `AgentObject` shall be able to take its API,
-  endpoint, model and key from a list entry, chosen by name at run time.
+  endpoint, model and key from a list entry, chosen by name at run time through
+  its **`ModelEntry`** property.
 - **R13 (ubiquitous):** A `KnowledgeBase`'s endpoint embedder shall be able to
-  take its endpoint, model and key from a list entry the same way (068 R24).
+  take its endpoint, model and key from a list entry the same way, through its
+  own `ModelEntry` property (068 R24).
 - **R14 (ubiquitous):** Where an `AgentObject` uses a list entry, that entry
   wins. Otherwise its design-time `Configuration` resolves through the
   environment variables as today; otherwise its own properties (operator,
@@ -145,8 +153,9 @@ or the list changing.
 - [ ] **AC5** — A test key store (in memory) replaces the file store with no
       change to the program under test, which behaves identically. *(R8)*
 - [ ] **AC6** — The keys file sits in the installation folder, holds no key in
-      plain text, and a second user of the installation uses the stored key.
-      *(R9, R10)*
+      plain text, and a second user of the installation uses the stored key;
+      the same file copied to another installation decrypts nothing. *(R9,
+      R10)*
 - [ ] **AC7** — A missing keys file gives an empty store; a corrupt one is
       reported, left as it was, and the store starts empty. *(R11)*
 - [ ] **AC8** — A `KnowledgeBase` embeds through a list entry. *(R13)*
@@ -181,13 +190,10 @@ or the list changing.
 
 ## 7. Open questions
 
-- **Q1 — The COBOL surface.** Proposal for /plan: the key store and the list are
-  process-wide, so they are runtime CALLs (`COBOL-MODEL-SET`,
-  `COBOL-MODEL-REMOVE`, `COBOL-KEY-SET`, `COBOL-KEY-REMOVE`, `COBOL-KEY-IS-SET`),
-  and choosing an entry is a property on the control that uses it
-  (`AgentObject`'s and `KnowledgeBase`'s `ModelEntry`). Alternatively a
-  non-visual `ModelList` control.
-- **Q2 — "Obscured" (R10).** Proposal: encrypted with a key derived from the
-  installation, so the file is useless copied to another machine and unreadable
-  at a glance; the guide states that anyone who can run the application on that
-  machine can use the keys. The operator may prefer another scheme.
+All settled with the operator on 2026-09-24:
+
+- **Q1 — ✅ The COBOL surface:** runtime CALLs for the list and the keys, and a
+  `ModelEntry` property on `AgentObject` and `KnowledgeBase` (R11a, R12, R13).
+- **Q2 — ✅ "Obscured":** encrypted with a key derived from the installation;
+  the guide states that anyone who can run the application on that machine can
+  use the keys (R10).

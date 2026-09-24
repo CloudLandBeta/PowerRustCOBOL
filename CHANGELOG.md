@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.186] — 2026-09-24
+
+### Spec 076 — open questions settled
+
+The list and the keys are managed through runtime CALLs (`COBOL-MODEL-SET`,
+`COBOL-MODEL-REMOVE`, `COBOL-KEY-SET`, `COBOL-KEY-REMOVE`, `COBOL-KEY-IS-SET`).
+An `AgentObject` or a `KnowledgeBase` picks an entry through its `ModelEntry`
+property. Keys are encrypted with a key derived from the installation, so a
+copied file decrypts nothing elsewhere (R10, R11a, R12, R13, AC6). Spec only.
+
 ## [PowerRustCOBOL 1.70.185] — 2026-09-24
 
 ### Spec 076 — application model list and key store, drafted for review
