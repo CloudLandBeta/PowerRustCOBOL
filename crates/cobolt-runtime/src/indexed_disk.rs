@@ -2500,12 +2500,23 @@ impl DiskIndexedFile {
     /// start a fresh transaction (drops the undo log).
     pub fn commit(&mut self) {
         self.undo.clear();
+        // A file whose OPEN failed stays known to the program, and `COMMIT`
+        // reaches every such file: with nothing open there is nothing to make
+        // durable — persisting would reach for a handle that does not exist.
+        if self.file.is_none() {
+            return;
+        }
         self.persist_and_sync();
     }
 
     /// `ROLLBACK` — undo every `WRITE`/`REWRITE`/`DELETE` since the last
     /// `COMMIT`/`OPEN`, in reverse order, then persist the reverted state.
     pub fn rollback(&mut self) {
+        // Nothing open, nothing to undo (see `commit`).
+        if self.file.is_none() {
+            self.undo.clear();
+            return;
+        }
         let saved_open = self.open;
         self.open = Some(OpenMode::Io); // allow the inverse ops regardless of mode
         self.tx_replay = true;
@@ -4251,6 +4262,19 @@ mod tests {
         }
         g.close();
         let _ = std::fs::remove_file(&p);
+    }
+
+    /// `COMMIT` / `ROLLBACK` reach every file the program knows, including
+    /// one whose OPEN failed — which used to panic ("file open") on the
+    /// missing handle instead of doing nothing.
+    #[test]
+    fn commit_and_rollback_on_a_file_that_never_opened_do_nothing() {
+        let p = tmp("no-such-dir").join("never.idx");
+        let mut f = newfile(p.clone(), false, false);
+        assert_ne!(f.open(OpenMode::Io), status::OK, "the folder does not exist");
+        f.commit();
+        f.rollback();
+        assert!(!p.exists());
     }
 
     #[test]

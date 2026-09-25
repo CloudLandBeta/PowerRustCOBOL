@@ -8,6 +8,41 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.198] — 2026-09-24
+
+### Fixes — three runtime defects found by PowerChat (spec 071)
+
+(1.70.196–1.70.197 are on `features`.)
+
+- **`ACCEPT x FROM ENVIRONMENT "name"` swallowed the rest of the
+  procedure.** The lexer makes `ENVIRONMENT` the division keyword, so the
+  parser never saw it as the environment source. It fell back to `FROM DATE`
+  without consuming `ENVIRONMENT "name"`, and those leftover tokens silently
+  took every following statement with them, while `rcrun check` reported OK.
+  The keyword token is now matched directly.
+  `test_accept_sources::accept_from_environment_by_name_reads_it_and_carries_on`
+  covers it.
+- **`COMMIT` or `ROLLBACK` after an `OPEN` that failed panicked the
+  interpreter** ("file open", `indexed_disk.rs`). The file stays known to the
+  program, and `COMMIT` reaches every such file. The DISK engine now does
+  nothing for a file that never opened. Covered by
+  `test_commit_after_failed_open.rs` (status 90, then both run and the program
+  carries on) and a unit test.
+- **A control property made of digits landed right-justified in `PIC X`.** A
+  property reads as a number when it looks like one, and `MOVE`d into an
+  alphanumeric item it took the numeric-assign path: a SideMenu row id that
+  was a timestamp arrived behind 24 spaces. It now goes in as its text,
+  left-justified, like any numeric sender into an alphanumeric receiver
+  (truncated on the right, as before). A numeric receiver is unchanged.
+  `test_property_text_move.rs` covers `X(40)`, `X(4)`, `9(16)` and a decimal.
+- **Sweep:**
+
+  | Crate | Passed | Failed |
+  |---|---|---|
+  | `cobolt-runtime` | 1041 | 0 |
+  | `cobolt-parser` | 175 | 0 |
+  | `cobolt-form-host` | 150 | 0 |
+  | `cobolt-cli` | 8 | 0 |
 ## [PowerRustCOBOL 1.70.197] — 2026-09-24
 
 ### Feature — PowerChat, Phase 1 (spec 071)
