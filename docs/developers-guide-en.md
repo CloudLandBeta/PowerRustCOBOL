@@ -1157,17 +1157,27 @@ statement catches it like any other; with no `CATCH`, it reaches
 > an unguarded size error there keeps the standard's silence, because COBOL-85
 > leaves the result undefined when the phrase is absent and the CCVS85 suite
 > relies on being allowed to carry on.
-### The example project (Help → Examples)
+### The example projects (Help → Examples)
 
-**Help → Examples** opens **PowerDemo3**, the project that carries one demo form
-per toolbox control — every widget, wired and running, with its COBOL beside it.
-It is the fastest way to see how a control is actually driven.
+**Help → Examples** lists one entry per example project:
 
-The IDE finds the project itself, so you do not need to know where it lives:
+- **Help → Examples → PowerChat** opens a chatbot that supports both RAG
+  (Retrieval Augmented Generation) over your documents and real-time analysis
+  of data in indexed files. It is built 100% in RustCOBOL, and it can easily be
+  adapted and sold as a solution for bringing Generative AI to COBOL
+  applications. See *PowerChat — a chatbot to copy* below.
+- **Help → Examples → PowerDemo3** opens the project that carries one demo form
+  per toolbox control — every widget, wired and running, with its COBOL beside
+  it. It is the fastest way to see how a control is actually driven.
+
+The IDE finds each project itself, so you do not need to know where it lives:
 beside the executable in an installed build, or in the tree the IDE was built
 from when you are running it from source. Point `PRC_EXAMPLES_ROOT` at another
-copy if you keep one elsewhere. The entry is greyed out, with the reason on
-hover, in a build that ships no examples.
+copy if you keep one elsewhere. An entry is greyed out, with the reason on
+hover, when the build does not ship that example. Opening one from a read-only
+installation first copies it to `PowerRustCOBOL Examples` in your Documents
+folder, so that it can be built. A copy you already have is opened as it is and
+never overwritten.
 
 > **Note.** Opening it replaces the project you currently have open, exactly as
 > *File → Open Project* would. Save your work first.

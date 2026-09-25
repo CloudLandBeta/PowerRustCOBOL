@@ -1922,6 +1922,10 @@ pub struct Tr {
     pub items_file_label: &'static str,
     pub items_file_browse: &'static str,
     pub items_file_clear: &'static str,
+    /// Help → Examples → PowerChat: what the example is (hover, and Output on open).
+    pub examples_powerchat_about: &'static str,
+    /// Help → Examples: hover of an example this build does not ship.
+    pub examples_not_installed: &'static str,
 }
 
 // ── Helper for toolbox ────────────────────────────────────────────────────────
@@ -3315,6 +3319,8 @@ const EN: Tr = Tr {
     items_file_label: "Items file",
     items_file_browse: "Load the items from a text file (.txt), one item per line. The file is read each time the form opens, so editing it changes the list.",
     items_file_clear: "Clear the file and the items",
+    examples_powerchat_about: "PowerChat is an example chatbot that supports both RAG (Retrieval Augmented Generation) over your documents and real-time analysis of data in indexed files. It is built 100% in RustCOBOL, and it can easily be adapted and sold as a solution for bringing Generative AI to COBOL applications.",
+    examples_not_installed: "No example project is installed with this build.",
 };
 
 // ── Spanish ───────────────────────────────────────────────────────────────────
@@ -4690,6 +4696,8 @@ const ES: Tr = Tr {
     items_file_label: "Archivo de elementos",
     items_file_browse: "Cargar los elementos de un archivo de texto (.txt), uno por línea. Se lee cada vez que se abre el formulario: al editarlo cambia la lista.",
     items_file_clear: "Borrar el archivo y los elementos",
+    examples_powerchat_about: "PowerChat es un ejemplo de chatbot que admite tanto RAG (Retrieval Augmented Generation) sobre sus documentos como el análisis en tiempo real de datos en archivos indexados. Está hecho 100 % en RustCOBOL y puede modificarse fácilmente para venderse como una solución que lleva la IA generativa a las aplicaciones COBOL.",
+    examples_not_installed: "No hay ningún proyecto de ejemplo instalado con esta versión.",
 };
 
 // ── Portuguese (Brazilian) ────────────────────────────────────────────────────
@@ -6065,6 +6073,8 @@ const PT: Tr = Tr {
     items_file_label: "Arquivo de itens",
     items_file_browse: "Carregar os itens de um arquivo de texto (.txt), um por linha. O arquivo é lido sempre que o formulário abre: editá-lo muda a lista.",
     items_file_clear: "Limpar o arquivo e os itens",
+    examples_powerchat_about: "O PowerChat é um exemplo de chatbot que suporta tanto RAG (Retrieval Augmented Generation) sobre os seus documentos quanto análise em tempo real de dados em arquivos indexados. É feito 100% em RustCOBOL e pode ser facilmente modificado para ser vendido como uma solução para implementar IA Generativa em aplicações COBOL.",
+    examples_not_installed: "Nenhum projeto de exemplo foi instalado com esta versão.",
 };
 
 // ── Japanese ──────────────────────────────────────────────────────────────────
@@ -7439,6 +7449,8 @@ const JA: Tr = Tr {
     items_file_label: "項目ファイル",
     items_file_browse: "テキストファイル (.txt) から項目を 1 行ずつ読み込みます。フォームを開くたびに読むため、ファイルを編集すると一覧が変わります。",
     items_file_clear: "ファイルと項目をクリア",
+    examples_powerchat_about: "PowerChat は、ドキュメントに対する RAG（Retrieval Augmented Generation）と、索引ファイルのデータのリアルタイム分析の両方に対応したチャットボットのサンプルです。100% RustCOBOL で作られており、COBOL アプリケーションに生成 AI を導入するソリューションとして販売できるよう、簡単に改造できます。",
+    examples_not_installed: "このビルドにはサンプルプロジェクトがインストールされていません。",
 };
 
 // ── Chinese (Simplified) ──────────────────────────────────────────────────────
@@ -8821,6 +8833,8 @@ const ZH: Tr = Tr {
     items_file_label: "项目文件",
     items_file_browse: "从文本文件 (.txt) 加载项目，每行一项。每次打开窗体都会读取该文件，编辑文件即可更改列表。",
     items_file_clear: "清除文件和项目",
+    examples_powerchat_about: "PowerChat 是一个聊天机器人示例，既支持基于文档的 RAG（Retrieval Augmented Generation），也支持对索引文件中的数据进行实时分析。它 100% 由 RustCOBOL 编写，可以轻松修改，作为为 COBOL 应用引入生成式 AI 的解决方案出售。",
+    examples_not_installed: "此版本未安装示例项目。",
 };
 
 // ── French ────────────────────────────────────────────────────────────────────
@@ -10196,6 +10210,8 @@ const FR: Tr = Tr {
     items_file_label: "Fichier des éléments",
     items_file_browse: "Charger les éléments depuis un fichier texte (.txt), un par ligne. Le fichier est relu à chaque ouverture du formulaire : le modifier change la liste.",
     items_file_clear: "Effacer le fichier et les éléments",
+    examples_powerchat_about: "PowerChat est un exemple de chatbot qui prend en charge à la fois le RAG (Retrieval Augmented Generation) sur vos documents et l'analyse en temps réel des données de fichiers indexés. Il est écrit à 100 % en RustCOBOL et peut facilement être adapté pour être vendu comme une solution d'IA générative pour les applications COBOL.",
+    examples_not_installed: "Aucun projet d'exemple n'est installé avec cette version.",
 };
 
 // ── i18n behavioral tests ──────────────────────────────────────────────────────

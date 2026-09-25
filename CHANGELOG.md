@@ -8,6 +8,24 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.229] — 2026-09-25
+
+### Feature — Help → Examples lists each example
+
+- **Help → Examples** is now a submenu with one entry per shipped example:
+  **PowerChat** and **PowerDemo3** (it used to open PowerDemo3 only).
+- Hovering **PowerChat** explains it, in the interface language: a chatbot
+  that supports both RAG (Retrieval Augmented Generation) and real-time
+  analysis of data in indexed files, built 100% in RustCOBOL, easy to adapt
+  and sell as a solution for bringing Generative AI to COBOL applications.
+  The same text goes to the Output panel when the example opens.
+- Each example is found, copied to the developer's own folder when the
+  installation is read-only, and never overwritten, as before.
+  `--seed-examples` (used by the Windows installer) now seeds every shipped
+  example.
+- New `Tr` keys `examples_powerchat_about` and `examples_not_installed`, in
+  all six languages.
+
 ## [PowerRustCOBOL 1.70.228] — 2026-09-25
 
 ### Feature — every property explains itself in the Properties pane

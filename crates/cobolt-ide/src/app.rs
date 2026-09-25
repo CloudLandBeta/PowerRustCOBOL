@@ -1687,11 +1687,26 @@ fn data_binding_action_label<'a>(tr: &'a Tr, action: BindingActionGate) -> &'a s
 ///
 /// `None` when no copy is installed; the menu entry is disabled then, rather
 /// than offering to open something that is not there.
-/// The example project's folder name, and its manifest inside that folder.
-const EXAMPLE_PROJECT: &str = "PowerDemo3";
-const EXAMPLE_MANIFEST: &str = "PowerDemo3.project.toml";
-/// Where the examples sit inside an installation, relative to its root.
-const EXAMPLE_REL: &str = "examples/PowerDemo3/PowerDemo3.project.toml";
+/// A shipped example project: its folder name, and its manifest inside it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Example {
+    pub project: &'static str,
+    pub manifest: &'static str,
+}
+
+impl Example {
+    /// Where it sits inside an installation, relative to its root.
+    fn rel(&self) -> String {
+        format!("examples/{}/{}", self.project, self.manifest)
+    }
+}
+
+/// The examples Help → Examples offers, in menu order (operator, 2026-09-25:
+/// one entry per example instead of a single one).
+pub const EXAMPLES: [Example; 2] = [
+    Example { project: "PowerChat", manifest: "PowerChat.project.toml" },
+    Example { project: "PowerDemo3", manifest: "PowerDemo3.project.toml" },
+];
 
 /// The folder the developer's own copies of the shipped examples live in.
 ///
@@ -1715,17 +1730,17 @@ pub fn examples_user_root() -> Option<PathBuf> {
 }
 
 /// The developer's own copy of the example, if they have one.
-fn user_example_manifest() -> Option<PathBuf> {
+fn user_example_manifest(ex: &Example) -> Option<PathBuf> {
     let candidate = examples_user_root()?
-        .join(EXAMPLE_PROJECT)
-        .join(EXAMPLE_MANIFEST);
+        .join(ex.project)
+        .join(ex.manifest);
     candidate.is_file().then_some(candidate)
 }
 
 /// The copy that shipped with this build — read-only on a real installation.
-fn installed_example_manifest() -> Option<PathBuf> {
+fn installed_example_manifest(ex: &Example) -> Option<PathBuf> {
     let has = |root: &Path| -> Option<PathBuf> {
-        let candidate = root.join(EXAMPLE_REL);
+        let candidate = root.join(ex.rel());
         candidate.is_file().then_some(candidate)
     };
 
@@ -1752,21 +1767,21 @@ fn installed_example_manifest() -> Option<PathBuf> {
 /// This runs every frame — it decides whether the menu entry is enabled — so it
 /// only ever *looks*. The copying is [`CoboltApp::do_open_examples`]'s job, once,
 /// when the entry is actually clicked.
-pub fn example_project_manifest() -> Option<PathBuf> {
-    override_example_manifest()
-        .or_else(user_example_manifest)
-        .or_else(installed_example_manifest)
+pub fn example_project_manifest(ex: &Example) -> Option<PathBuf> {
+    override_example_manifest(ex)
+        .or_else(|| user_example_manifest(ex))
+        .or_else(|| installed_example_manifest(ex))
 }
 
 /// `PRC_EXAMPLES_ROOT`, which may name either the examples root or the project
 /// folder itself — both are things a person would reasonably point it at.
-fn override_example_manifest() -> Option<PathBuf> {
+fn override_example_manifest(ex: &Example) -> Option<PathBuf> {
     let root = PathBuf::from(std::env::var_os("PRC_EXAMPLES_ROOT")?);
-    let nested = root.join(EXAMPLE_REL);
+    let nested = root.join(ex.rel());
     if nested.is_file() {
         return Some(nested);
     }
-    let direct = root.join(EXAMPLE_MANIFEST);
+    let direct = root.join(ex.manifest);
     direct.is_file().then_some(direct)
 }
 
@@ -1846,10 +1861,10 @@ fn copy_example_tree(from: &Path, to: &Path) -> std::io::Result<u64> {
 /// **An existing copy is never overwritten** — it is the developer's project
 /// now, GOLDEN RULE *user code is sacred*, and a silent re-seed would discard
 /// whatever they had built in it.
-fn seed_user_example(installed_project_dir: &Path) -> Result<PathBuf, String> {
+fn seed_user_example(installed_project_dir: &Path, ex: &Example) -> Result<PathBuf, String> {
     let root = examples_user_root()
         .ok_or_else(|| "this system reports no Documents or home folder".to_owned())?;
-    seed_user_example_into(&root, installed_project_dir)
+    seed_user_example_into(&root, installed_project_dir, ex)
 }
 
 /// Copy the shipped example into the developer's own folder **without starting
@@ -1869,24 +1884,42 @@ fn seed_user_example(installed_project_dir: &Path) -> Result<PathBuf, String> {
 /// overwritten: [`seed_user_example`] returns it untouched, which is what makes
 /// re-running the installer harmless.
 pub fn seed_examples_headless() -> Result<String, String> {
-    let installed = override_example_manifest()
-        .or_else(installed_example_manifest)
-        .ok_or_else(|| "no example project is installed beside this executable".to_owned())?;
-    let dir = installed
-        .parent()
-        .ok_or_else(|| format!("'{}' has no parent folder", installed.display()))?;
-    let manifest = seed_user_example(dir)?;
-    Ok(manifest
-        .parent()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| manifest.display().to_string()))
+    // Every shipped example, each on its own: one that is missing or fails
+    // does not stop the others from being copied.
+    let mut done = Vec::new();
+    let mut failed = Vec::new();
+    for ex in &EXAMPLES {
+        let Some(installed) = override_example_manifest(ex).or_else(|| installed_example_manifest(ex)) else {
+            continue;
+        };
+        let Some(dir) = installed.parent() else {
+            failed.push(format!("'{}' has no parent folder", installed.display()));
+            continue;
+        };
+        match seed_user_example(dir, ex) {
+            Ok(manifest) => done.push(
+                manifest
+                    .parent()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| manifest.display().to_string()),
+            ),
+            Err(why) => failed.push(format!("{}: {why}", ex.project)),
+        }
+    }
+    if done.is_empty() && failed.is_empty() {
+        return Err("no example project is installed beside this executable".to_owned());
+    }
+    if !failed.is_empty() {
+        return Err(failed.join("; "));
+    }
+    Ok(done.join(", "))
 }
 
 /// [`seed_user_example`] with the destination named, so a test can point it at a
 /// temporary folder instead of the developer's real Documents.
-fn seed_user_example_into(root: &Path, installed_project_dir: &Path) -> Result<PathBuf, String> {
-    let dest = root.join(EXAMPLE_PROJECT);
-    let manifest = dest.join(EXAMPLE_MANIFEST);
+fn seed_user_example_into(root: &Path, installed_project_dir: &Path, ex: &Example) -> Result<PathBuf, String> {
+    let dest = root.join(ex.project);
+    let manifest = dest.join(ex.manifest);
     if manifest.is_file() {
         return Ok(manifest);
     }
@@ -1895,8 +1928,9 @@ fn seed_user_example_into(root: &Path, installed_project_dir: &Path) -> Result<P
         Ok(manifest)
     } else {
         Err(format!(
-            "copied to '{}' but {EXAMPLE_MANIFEST} is not there",
-            dest.display()
+            "copied to '{}' but {} is not there",
+            dest.display(),
+            ex.manifest
         ))
     }
 }
@@ -4227,13 +4261,15 @@ impl CoboltApp {
     /// what opens. Done here rather than in the resolver because the resolver
     /// runs every frame to decide whether the entry is enabled, and this copies
     /// 27 MB.
-    fn do_open_examples(&mut self) {
+    fn do_open_examples(&mut self, ex: &Example) {
         let tr = self.lang.tr();
-        let Some(manifest) = example_project_manifest() else {
+        if ex.project == "PowerChat" {
+            self.output.push_status(tr.examples_powerchat_about.to_owned());
+        }
+        let Some(manifest) = example_project_manifest(ex) else {
             // The entry is disabled without one, so this is only the race where
             // the copy went away between opening the menu and clicking.
-            self.output
-                .push_status("The example project is not installed with this build.".to_owned());
+            self.output.push_status(tr.examples_not_installed.to_owned());
             return;
         };
         let Some(dir) = manifest.parent().map(|p| p.to_owned()) else {
@@ -4246,7 +4282,7 @@ impl CoboltApp {
             self.open_project_at(manifest);
             return;
         }
-        match seed_user_example(&dir) {
+        match seed_user_example(&dir, ex) {
             Ok(copied) => {
                 let where_ = copied
                     .parent()
@@ -14600,19 +14636,31 @@ impl eframe::App for CoboltApp {
                     // IDE. Disabled — with the reason on hover — when this
                     // build ships no copy, so the entry never offers to open
                     // something that is not there.
-                    let examples = example_project_manifest();
-                    let entry = ui.add_enabled(
-                        examples.is_some(),
-                        egui::Button::new(tr.examples_menu_label),
-                    );
-                    let entry = match &examples {
-                        Some(path) => entry.on_hover_text(path.display().to_string()),
-                        None => entry.on_disabled_hover_text(
-                            "No example project is installed with this build.",
-                        ),
-                    };
-                    if entry.clicked() {
-                        self.do_open_examples();
+                    // One entry per example (operator, 2026-09-25).
+                    let mut open: Option<Example> = None;
+                    ui.menu_button(tr.examples_menu_label, |ui| {
+                        for ex in &EXAMPLES {
+                            let found = example_project_manifest(ex);
+                            let entry = ui.add_enabled(found.is_some(), egui::Button::new(ex.project));
+                            let about = match ex.project {
+                                "PowerChat" => Some(tr.examples_powerchat_about),
+                                _ => None,
+                            };
+                            let entry = match (&found, about) {
+                                (Some(path), Some(about)) => {
+                                    entry.on_hover_text(format!("{about}\n\n{}", path.display()))
+                                }
+                                (Some(path), None) => entry.on_hover_text(path.display().to_string()),
+                                (None, _) => entry.on_disabled_hover_text(tr.examples_not_installed),
+                            };
+                            if entry.clicked() {
+                                open = Some(*ex);
+                                ui.close();
+                            }
+                        }
+                    });
+                    if let Some(ex) = open {
+                        self.do_open_examples(&ex);
                         ui.close();
                     }
                     ui.separator();
@@ -21273,8 +21321,12 @@ mod benchmark_progress_tests {
 mod examples_menu_tests {
     use super::{
         copy_example_tree, dir_is_writable, example_project_manifest, examples_user_root,
-        installed_example_manifest, seed_user_example_into, EXAMPLE_MANIFEST,
+        installed_example_manifest, seed_user_example_into, EXAMPLES,
     };
+    const EXAMPLE_MANIFEST: &str = "PowerDemo3.project.toml";
+    fn demo3() -> &'static super::Example {
+        &EXAMPLES[1]
+    }
     use std::path::{Path, PathBuf};
 
     /// A scratch folder that cleans itself up. Deliberately NOT the developer's
@@ -21312,7 +21364,7 @@ mod examples_menu_tests {
     /// the tests run on. A test that passes or fails on that is worthless.
     #[test]
     fn the_example_project_is_found_from_the_build_tree() {
-        let found = installed_example_manifest()
+        let found = installed_example_manifest(demo3())
             .expect("this binary is built from the repo, so the examples are reachable");
         assert!(found.is_file());
         assert!(
@@ -21325,9 +21377,12 @@ mod examples_menu_tests {
     /// The resolver still answers on this machine, whichever copy it picks.
     #[test]
     fn the_menu_resolves_to_a_real_manifest() {
-        let found = example_project_manifest().expect("a manifest is reachable from the repo");
-        assert!(found.is_file(), "{}", found.display());
-        assert!(found.ends_with(EXAMPLE_MANIFEST), "{}", found.display());
+        // Every example on the menu resolves to its own real manifest.
+        for ex in &EXAMPLES {
+            let found = example_project_manifest(ex).expect("a manifest is reachable from the repo");
+            assert!(found.is_file(), "{}", found.display());
+            assert!(found.ends_with(ex.manifest), "{}", found.display());
+        }
     }
 
     /// The developer's copy goes somewhere they own, named for the product, and
@@ -21453,13 +21508,13 @@ mod examples_menu_tests {
         std::fs::create_dir_all(&from).unwrap();
         std::fs::write(from.join(EXAMPLE_MANIFEST), "shipped\n").unwrap();
 
-        let first = seed_user_example_into(&root, &from).expect("first seed");
+        let first = seed_user_example_into(&root, &from, demo3()).expect("first seed");
         assert_eq!(std::fs::read_to_string(&first).unwrap(), "shipped\n");
 
         // The developer edits it.
         std::fs::write(&first, "mine, edited\n").unwrap();
 
-        let second = seed_user_example_into(&root, &from).expect("second seed");
+        let second = seed_user_example_into(&root, &from, demo3()).expect("second seed");
         assert_eq!(second, first, "the same copy is reused");
         assert_eq!(
             std::fs::read_to_string(&second).unwrap(),
