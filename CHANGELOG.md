@@ -8,6 +8,28 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.208] — 2026-09-25
+
+### Feature — PowerChat Phase 2, step 6: documents as a folder tree (spec 071 R49)
+
+- **`documents-form` shows the topic's documents as a tree of folders.** The
+  ListBox is now a TreeView `Trv-Docs`. It shows every folder that holds a
+  document, plus the folders made here, which are recorded in a new
+  `data/folders.idx` so an empty folder still shows.
+- **Selecting a folder, or a document inside one, points the drop zone at that
+  folder**, so a dropped file lands there. The status line names the folder.
+- **New folder** creates a folder inside the selection, or at the top level.
+  A name that is empty or holds `/` or `\`, and a folder that already exists,
+  are refused.
+- **Delete** removes the selected document as before. A folder is deleted only
+  when nothing is under it; documents are never deleted as a side effect.
+- Nine new interface texts, in all six languages.
+- `powerchat_runs` plays the whole folder pass: make `Policies`, index a
+  document inside it, refuse to delete the full folder, delete the document,
+  then the folder.
+- **Not done:** R50, moving a document by dragging it, needs TreeView drag and
+  drop (spec 067), which is not built yet.
+
 ## [PowerRustCOBOL 1.70.207] — 2026-09-25
 
 ### Fix — a refused OPEN left the file open; reference modification on INSPECT and table entries; backslashes in literals

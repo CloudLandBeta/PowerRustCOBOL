@@ -268,6 +268,55 @@ fn powerchat_settings_topics_documents_and_chat() {
     s.quit();
     report.push(format!("documents: leave-policy.md indexed on open ({status}) — {:.0} ms", t.elapsed().as_secs_f64() * 1000.0));
 
+    // ── Documents as a folder tree (R49): make a folder, drop a document into
+    //    it, refuse to delete it while full, then empty and delete it ──
+    let t = Instant::now();
+    let node = |label: &str, index: usize, level: usize| {
+        FormEvent::new("Trv-Docs", "onNodeSelect").with_value(format!("{label}\t{index}\t{level}\t0"))
+    };
+    let mut s = Session::start("documents-form.cfrm");
+    s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Added"));
+    s.type_into("Txt-Folder", "Policies");
+    s.click("Btn-NewFolder");
+    // The tree is rebuilt node by node, so wait for its final shape.
+    s.wait_for("Trv-Docs", "Items", |v| v == "Policies\tfolder\nleave-policy.md");
+    s.wait_for("Lbl-Status", "Caption", |v| v == "Folder created: Policies.");
+    assert!(data.join("folders.idx").is_file(), "the folder is recorded in data/folders.idx");
+
+    s.events.send(node("Policies", 1, 1)).unwrap();
+    let dest = s.wait_for("Drop-Docs", "DestinationFolder", |v| v.trim_end().ends_with("/Policies"));
+    assert_eq!(dest.trim_end(), docs.join("Policies").display().to_string(), "a drop goes into the selected folder");
+    s.wait_for("Lbl-Status", "Caption", |v| v == "New documents go into Policies.");
+
+    // What a drop does: the file lands in the folder, and a refresh indexes it.
+    std::fs::create_dir_all(docs.join("Policies")).unwrap();
+    std::fs::write(docs.join("Policies/travel.md"), "# Travel\nBook trains for trips under four hours.").unwrap();
+    s.click("Btn-Refresh");
+    s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Added 1,"));
+    s.wait_for("Trv-Docs", "Items", |v| v == "Policies\n  travel.md\nleave-policy.md");
+
+    s.click("Btn-Delete");
+    s.wait_for("Lbl-Status", "Caption", |v| v == "The folder is not empty: delete its documents first.");
+    assert!(docs.join("Policies/travel.md").is_file(), "deleting a folder never deletes its documents");
+
+    s.events.send(node("travel.md", 2, 2)).unwrap();
+    s.wait_for("Lbl-Status", "Caption", |v| v == "New documents go into Policies.");
+    s.click("Btn-Delete");
+    s.wait_for("Lbl-Status", "Caption", |v| v.contains("removed 1"));
+    // The emptied folder stays, with its own folder icon, until it is deleted.
+    s.wait_for("Trv-Docs", "Items", |v| v == "Policies\tfolder\nleave-policy.md");
+
+    s.events.send(node("Policies", 1, 1)).unwrap();
+    s.wait_for("Lbl-Status", "Caption", |v| v == "New documents go into Policies.");
+    s.click("Btn-Delete");
+    s.wait_for("Trv-Docs", "Items", |v| v == "leave-policy.md");
+    s.wait_for("Lbl-Status", "Caption", |v| v == "Folder deleted: Policies.");
+    s.quit();
+    report.push(format!(
+        "folders:   Policies made, travel.md indexed inside it, full delete refused, emptied and deleted — {:.0} ms",
+        t.elapsed().as_secs_f64() * 1000.0
+    ));
+
     // ── Chat: one question, grounded in the topic's Knowledge Base ──
     let t = Instant::now();
     let mut s = Session::start("chat-form.cfrm");

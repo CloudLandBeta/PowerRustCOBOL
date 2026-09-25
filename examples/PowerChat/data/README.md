@@ -12,6 +12,7 @@ each one the first time it is needed:
 | `models.idx` | The model list (names, APIs, endpoints, models, tools, rank — never keys) |
 | `topic-files.idx` | The indexed files each topic registers, by path |
 | `prompts.idx` | Every version of each topic's system prompt |
+| `folders.idx` | Each topic's document folders, so an empty one still shows |
 
 Set the `POWERCHAT_DATA` environment variable to keep them somewhere else.
 Keys are not here: they are in the application's key store

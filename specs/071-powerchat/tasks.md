@@ -69,4 +69,18 @@
   flags (PNG, `assets/flags/`) in the SideMenu footer; menu rows moved to run time
   (designed rows cannot be relabelled); every window titled *PowerChat* (a title cannot
   change after the window opens).
-- [ ] **P2-6 — Documents folder tree** (R49, R50)
+- [x] **P2-6 — Documents folder tree** (R49) — `documents-form`'s ListBox is a
+  TreeView built with `AddNode`. Folders are recorded in `folders.idx` (topic + path),
+  so an empty one shows. The tree is the union of those folders and every folder
+  that holds a document, sorted depth-first on a key where `/` sorts below
+  everything. Selecting a folder (or a document in one) points the drop zone at it.
+  **New folder** creates one inside the selection. **Delete** removes a document, or
+  a folder only once nothing is under it. Test: `powerchat_runs` makes, fills,
+  refuses, empties and deletes a folder.
+  - **R50 deferred:** moving a document by dragging it needs TreeView drag and
+    drop (spec 067, not built).
+  - **Found on the way, fixed separately (1.70.207, `fixes`):**
+    - a refused OPEN left the file open (41/48 after a 35);
+    - INSPECT ignored reference modification;
+    - `MOVE … TO T(I)(a:b)` dropped the subscript;
+    - `"\"` was not a valid literal.

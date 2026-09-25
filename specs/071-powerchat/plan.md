@@ -197,3 +197,53 @@ Operator decisions (2026-09-25):
 Planned when each starts, in the order above: registered files (R20–R25),
 prompt versions (R48), sample topics (Q1), languages (R44–R46), documents tree
 (R49, R50).
+
+## Step 6 — the documents folder tree (R49; R50 deferred)
+
+What the runtime already gives, checked 2026-09-25:
+
+- A collection's documents are files under `<KB>/<topic>/documents/`. Both
+  `ListDocuments` and `Refresh` walk subfolders, and `GetDocument` returns
+  `folder/sub/name.ext`.
+- A FileDropZone creates its `DestinationFolder` when files are dropped.
+- The runtime has **no call to create or remove a directory**, and a folder
+  with no files in it is never listed.
+
+Design:
+
+- **Folders live in a new indexed file `folders.idx`**, keyed by
+  `FLD-TOPIC` + `FLD-PATH`. The tree shows the union of:
+  - the folders recorded there;
+  - every folder that holds a document.
+
+  That is how an empty folder exists before its first document arrives, with
+  no directory call.
+- **The ListBox becomes a TreeView `Trv-Docs`.** `PC-LIST-DOCS` does this:
+  1. gathers documents and folders into one table;
+  2. sorts it depth-first — the sort key is the path with `/` turned into
+     `X"01"`, padded with LOW-VALUES, so a folder comes right before its
+     contents;
+  3. adds each entry with `AddNode(depth, last segment, icon)`.
+
+  Node *i* is table row *i*, so `CONTROL-NODE-INDEX` names the entry.
+- **The selection is kept by path, not by index,** and is found again after
+  every rebuild. Selecting a folder, or a document inside one, points
+  `Drop-Docs::DestinationFolder` at that folder: adding a document to a folder
+  is dropping it there.
+- **New folder:** a name in `Txt-Folder`, then `Btn-NewFolder`. The folder is
+  made inside the selected folder, or at the top level. A name that is empty,
+  or holds `/` `\` `.` `..`, is refused, and so is a folder that already
+  exists.
+- **Delete** acts on the selection:
+  - a document is deleted as before;
+  - a folder is deleted only when nothing is under it — documents are never
+    deleted as a side effect of deleting a folder.
+- **Texts:** every new message goes into the form's translation table, in all
+  six languages.
+- **R50 (drag a document between folders) is deferred.** It needs TreeView
+  drag and drop (spec 067), which is specified but not built.
+- **Test:** `powerchat_runs` gains a folder pass:
+  1. create `Policies`, select it, copy a document into it and refresh;
+  2. the tree shows the document under the folder;
+  3. deleting the non-empty folder is refused;
+  4. delete the document, then the folder.

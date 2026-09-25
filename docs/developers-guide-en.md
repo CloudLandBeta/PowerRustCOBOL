@@ -1183,13 +1183,14 @@ to start your own. Everything in it is COBOL in its six forms:
 |---|---|
 | `chat-form` (main) | A SideMenu shell; a `Viewer` as a chat; three `AgentObject`s that elect an orchestrator and split the work (below), grounded in a `KnowledgeBase` with `AllowKnowledgeBase`; conversations as run-time menu rows; token totals from `LastInputTokens` / `LastOutputTokens` |
 | `topics-form` | Topics as data, each with its own Knowledge Base collection (`CreateCollection`); sample topics installed from a plain text list and taken out again |
-| `documents-form` | A `FileDropZone` feeding the collection's folder, `Refresh()`, and a progress panel driven by `onProgress` / `onIndexed` |
+| `documents-form` | The collection's documents as a `TreeView` built with `AddNode`, its folders kept in an indexed file so an empty one still shows; `onNodeSelect` points the `FileDropZone` at the chosen folder; `Refresh()`, and a progress panel driven by `onProgress` / `onIndexed` |
 | `settings-form` | A model list the program keeps in its own indexed file, handed over with `COBOL-MODEL-SET`, and keys stored with `COBOL-KEY-SET` — never shown again |
 | `prompts-form` | Versions of a topic's system prompt, newest first with the active one marked; promoting an older version asks before it changes anything |
 | `files-form` | A topic's own indexed files, registered by path with `RegisterFile`: each one is tried as it is added, so a missing file or a `.cidx` that does not describe it is refused on the spot with its reason; the chat form registers the topic's files when it opens and names any it cannot use |
 
-Its own data — settings, topics, conversations, their turns, the model list —
-is seven `STORAGE MODE IS DISK` indexed files, opened `I-O` (`OUTPUT` the first
+Its own data — settings, topics, conversations, their turns, the model list,
+registered files, prompt versions, document folders — is eight
+`STORAGE MODE IS DISK` indexed files, opened `I-O` (`OUTPUT` the first
 time) and committed as each change is made. Set `POWERCHAT_DATA` to keep them
 somewhere other than `data/`. The project's `README.md` walks through a first
 run.

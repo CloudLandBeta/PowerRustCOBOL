@@ -43,12 +43,12 @@
           05 FILLER PIC X(70) VALUE "文書 - &1".
           05 FILLER PIC X(70) VALUE "文档 - &1".
       *>   PICK-DOC-FIRST
-          05 FILLER PIC X(70) VALUE "Pick a document in the list first.".
-          05 FILLER PIC X(70) VALUE "Escolha um documento na lista primeiro.".
-          05 FILLER PIC X(70) VALUE "Primero elige un documento de la lista.".
-          05 FILLER PIC X(70) VALUE "Choisissez d'abord un document dans la liste.".
-          05 FILLER PIC X(70) VALUE "先に一覧から文書を選んでください。".
-          05 FILLER PIC X(70) VALUE "请先在列表中选择一个文档。".
+          05 FILLER PIC X(70) VALUE "Pick a document or a folder in the tree first.".
+          05 FILLER PIC X(70) VALUE "Escolha um documento ou uma pasta na árvore primeiro.".
+          05 FILLER PIC X(70) VALUE "Primero elige un documento o una carpeta del árbol.".
+          05 FILLER PIC X(70) VALUE "Choisissez d'abord un document ou un dossier.".
+          05 FILLER PIC X(70) VALUE "先に文書かフォルダーを選んでください。".
+          05 FILLER PIC X(70) VALUE "请先在树中选择文档或文件夹。".
       *>   KB-PROGRESS
           05 FILLER PIC X(70) VALUE "Updating the Knowledge Base: &1 of &2 - &3".
           05 FILLER PIC X(70) VALUE "Atualizando a base de conhecimento: &1 de &2 - &3".
@@ -119,8 +119,71 @@
           05 FILLER PIC X(70) VALUE "Mise à jour de la base de connaissances...".
           05 FILLER PIC X(70) VALUE "ナレッジベースを更新中...".
           05 FILLER PIC X(70) VALUE "正在更新知识库...".
+      *>   NEW-FOLDER
+          05 FILLER PIC X(70) VALUE "New folder".
+          05 FILLER PIC X(70) VALUE "Nova pasta".
+          05 FILLER PIC X(70) VALUE "Nueva carpeta".
+          05 FILLER PIC X(70) VALUE "Nouveau dossier".
+          05 FILLER PIC X(70) VALUE "新しいフォルダー".
+          05 FILLER PIC X(70) VALUE "新建文件夹".
+      *>   FOLDER-HINT
+          05 FILLER PIC X(70) VALUE "Folder name".
+          05 FILLER PIC X(70) VALUE "Nome da pasta".
+          05 FILLER PIC X(70) VALUE "Nombre de la carpeta".
+          05 FILLER PIC X(70) VALUE "Nom du dossier".
+          05 FILLER PIC X(70) VALUE "フォルダー名".
+          05 FILLER PIC X(70) VALUE "文件夹名称".
+      *>   FOLDER-CREATED
+          05 FILLER PIC X(70) VALUE "Folder created: &1.".
+          05 FILLER PIC X(70) VALUE "Pasta criada: &1.".
+          05 FILLER PIC X(70) VALUE "Carpeta creada: &1.".
+          05 FILLER PIC X(70) VALUE "Dossier créé : &1.".
+          05 FILLER PIC X(70) VALUE "フォルダーを作成しました: &1".
+          05 FILLER PIC X(70) VALUE "已创建文件夹：&1".
+      *>   FOLDER-EXISTS
+          05 FILLER PIC X(70) VALUE "That folder already exists.".
+          05 FILLER PIC X(70) VALUE "Essa pasta já existe.".
+          05 FILLER PIC X(70) VALUE "Esa carpeta ya existe.".
+          05 FILLER PIC X(70) VALUE "Ce dossier existe déjà.".
+          05 FILLER PIC X(70) VALUE "そのフォルダーは既にあります。".
+          05 FILLER PIC X(70) VALUE "该文件夹已存在。".
+      *>   FOLDER-NAME-BAD
+          05 FILLER PIC X(70) VALUE "Type a folder name, without / or \.".
+          05 FILLER PIC X(70) VALUE "Digite um nome de pasta, sem / nem \.".
+          05 FILLER PIC X(70) VALUE "Escribe un nombre de carpeta, sin / ni \.".
+          05 FILLER PIC X(70) VALUE "Saisissez un nom de dossier, sans / ni \.".
+          05 FILLER PIC X(70) VALUE "フォルダー名を入力（/ と \ は不可）。".
+          05 FILLER PIC X(70) VALUE "请输入文件夹名称（不含 / 或 \）。".
+      *>   FOLDER-NOT-EMPTY
+          05 FILLER PIC X(70) VALUE "The folder is not empty: delete its documents first.".
+          05 FILLER PIC X(70) VALUE "A pasta não está vazia: exclua os documentos dela primeiro.".
+          05 FILLER PIC X(70) VALUE "La carpeta no está vacía: borra primero sus documentos.".
+          05 FILLER PIC X(70) VALUE "Le dossier n'est pas vide : supprimez d'abord ses documents.".
+          05 FILLER PIC X(70) VALUE "空でないフォルダーは削除できません。".
+          05 FILLER PIC X(70) VALUE "文件夹不为空，请先删除其中的文档。".
+      *>   FOLDER-DELETED
+          05 FILLER PIC X(70) VALUE "Folder deleted: &1.".
+          05 FILLER PIC X(70) VALUE "Pasta excluída: &1.".
+          05 FILLER PIC X(70) VALUE "Carpeta eliminada: &1.".
+          05 FILLER PIC X(70) VALUE "Dossier supprimé : &1.".
+          05 FILLER PIC X(70) VALUE "フォルダーを削除しました: &1".
+          05 FILLER PIC X(70) VALUE "已删除文件夹：&1".
+      *>   DROP-INTO
+          05 FILLER PIC X(70) VALUE "New documents go into &1.".
+          05 FILLER PIC X(70) VALUE "Novos documentos vão para &1.".
+          05 FILLER PIC X(70) VALUE "Los documentos nuevos van a &1.".
+          05 FILLER PIC X(70) VALUE "Les nouveaux documents vont dans &1.".
+          05 FILLER PIC X(70) VALUE "新しい文書の保存先: &1".
+          05 FILLER PIC X(70) VALUE "新文档将放入 &1。".
+      *>   TOP-LEVEL
+          05 FILLER PIC X(70) VALUE "the top level".
+          05 FILLER PIC X(70) VALUE "o nível principal".
+          05 FILLER PIC X(70) VALUE "el nivel superior".
+          05 FILLER PIC X(70) VALUE "le niveau supérieur".
+          05 FILLER PIC X(70) VALUE "最上位".
+          05 FILLER PIC X(70) VALUE "顶层".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 13.
+          05 PC-TEXT-ROW     OCCURS 22.
              10 PC-TEXT      PIC X(70) OCCURS 6.
       *>   The texts in the current language, by name.
        01 PC-TEXTS-NOW       GLOBAL.
@@ -137,8 +200,17 @@
           05 T-REFRESH PIC X(70).
           05 T-CLOSE PIC X(70).
           05 T-KB-UPDATING PIC X(70).
+          05 T-NEW-FOLDER PIC X(70).
+          05 T-FOLDER-HINT PIC X(70).
+          05 T-FOLDER-CREATED PIC X(70).
+          05 T-FOLDER-EXISTS PIC X(70).
+          05 T-FOLDER-NAME-BAD PIC X(70).
+          05 T-FOLDER-NOT-EMPTY PIC X(70).
+          05 T-FOLDER-DELETED PIC X(70).
+          05 T-DROP-INTO PIC X(70).
+          05 T-TOP-LEVEL PIC X(70).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(70) OCCURS 13.
+          05 PC-TEXT-NOW     PIC X(70) OCCURS 22.
       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
        01 WS-FMT             GLOBAL PIC X(70).
        01 WS-ARG1            GLOBAL PIC X(300).
@@ -146,6 +218,38 @@
        01 WS-ARG3            GLOBAL PIC X(300).
        01 WS-ARG4            GLOBAL PIC X(300).
        01 WS-FMT-OUT         GLOBAL PIC X(1200).
+       01 WS-FOLDERS-PATH    GLOBAL PIC X(240).
+       01 WS-DOCS-DIR        GLOBAL PIC X(400).
+      *>   The documents tree (R49): one row per node, in the order the nodes
+      *>   are added, so a node event's CONTROL-NODE-INDEX names its row.
+       01 WS-TREE            GLOBAL.
+          05 WS-NODE-N       PIC 9(4) VALUE 0.
+          05 WS-NODE         OCCURS 1000.
+             10 WS-NODE-KIND PIC X.
+             10 WS-NODE-PATH PIC X(260).
+             10 WS-NODE-KEY  PIC X(260).
+       01 WS-NODE-TMP        GLOBAL.
+          05 TMP-KIND        PIC X.
+          05 TMP-PATH        PIC X(260).
+          05 TMP-KEY         PIC X(260).
+       01 WS-KEY-TMP         GLOBAL PIC X(260).
+       01 WS-ONE-KIND        GLOBAL PIC X.
+       01 WS-ONE-PATH        GLOBAL PIC X(260).
+      *>   The selection, by path: node numbers change on every rebuild.
+       01 WS-SEL-KIND        GLOBAL PIC X VALUE SPACE.
+       01 WS-SEL-PATH        GLOBAL PIC X(260) VALUE SPACES.
+       01 WS-SEL-IX          GLOBAL PIC 9(4) VALUE 0.
+       01 WS-FOLDER          GLOBAL PIC X(260) VALUE SPACES.
+       01 WS-NAME            GLOBAL PIC X(260).
+       01 WS-GONE            GLOBAL PIC X(260).
+       01 WS-ICON            GLOBAL PIC X(10).
+       01 WS-J               GLOBAL PIC 9(4).
+       01 WS-K               GLOBAL PIC 9(4).
+       01 WS-K1              GLOBAL PIC 9(4).
+       01 WS-L               GLOBAL PIC 9(4).
+       01 WS-P               GLOBAL PIC 9(4).
+       01 WS-DEPTH           GLOBAL PIC 9(4).
+       01 WS-FOUND           GLOBAL PIC X.
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -207,6 +311,12 @@
                RECORD KEY IS TOP-ID
                FILE STATUS IS WS-FS
                STORAGE MODE IS DISK.
+           SELECT FOLDERS-FILE ASSIGN TO WS-FOLDERS-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS FLD-KEY
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
 ]]></file-control>
   <file-section><![CDATA[       FD  SETTINGS-FILE IS GLOBAL.
        01  SETTINGS-REC.
@@ -220,6 +330,13 @@
            05 TOP-CREATED       PIC X(14).
       *>   "Y" for a topic the sample installer made, so it can be removed.
            05 TOP-SAMPLE        PIC X.
+       FD  FOLDERS-FILE IS GLOBAL.
+      *>   A topic's document folders (R49), so a folder exists before its
+      *>   first document does.
+       01  FOLDER-REC.
+           05 FLD-KEY.
+              10 FLD-TOPIC      PIC X(16).
+              10 FLD-PATH       PIC X(200).
 ]]></file-section>
   <user-procedures>
     <Event name="PC-PATHS" paragraph="PC-PATHS"><![CDATA[       ENVIRONMENT DIVISION.
@@ -237,6 +354,9 @@
            MOVE SPACES TO WS-TOPICS-PATH
            STRING FUNCTION TRIM(WS-DATA-DIR) "/topics.idx"
                DELIMITED BY SIZE INTO WS-TOPICS-PATH
+           MOVE SPACES TO WS-FOLDERS-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/folders.idx"
+               DELIMITED BY SIZE INTO WS-FOLDERS-PATH
 ]]></Event>
     <Event name="PC-SETTING-GET" paragraph="PC-SETTING-GET"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -277,18 +397,190 @@
     <Event name="PC-LIST-DOCS" paragraph="PC-LIST-DOCS"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-      *>   The documents the topic's collection holds, by their path in it.
-           MOVE Lst-Docs::Clear() TO WS-OK
+      *>   The topic's documents and folders as a tree (R49): gathered into
+      *>   WS-TREE, sorted so each folder comes right before what is in it,
+      *>   then added node by node.
+           MOVE 0 TO WS-NODE-N
            MOVE KB-D::ListDocuments() TO WS-DOC-COUNT
            PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-DOC-COUNT
                MOVE KB-D::GetDocument(WS-I) TO WS-DOC
-               MOVE Lst-Docs::AddItem(FUNCTION TRIM(WS-DOC)) TO WS-OK
+               MOVE "D" TO WS-ONE-KIND
+               MOVE FUNCTION TRIM(WS-DOC) TO WS-ONE-PATH
+               CALL "PC-TREE-ADD"
+           END-PERFORM
+      *>   The folders made here, including the empty ones.
+           OPEN INPUT FOLDERS-FILE
+           IF WS-FS = "00"
+               MOVE WS-CUR-TOPIC TO FLD-TOPIC
+               MOVE LOW-VALUES TO FLD-PATH
+               START FOLDERS-FILE KEY IS NOT LESS THAN FLD-KEY
+                   INVALID KEY MOVE "10" TO WS-FS
+               END-START
+               PERFORM UNTIL WS-FS NOT = "00"
+                   READ FOLDERS-FILE NEXT
+                       AT END MOVE "10" TO WS-FS
+                   END-READ
+                   IF WS-FS = "00"
+                       IF FLD-TOPIC NOT = WS-CUR-TOPIC
+                           MOVE "10" TO WS-FS
+                       ELSE
+                           MOVE "F" TO WS-ONE-KIND
+                           MOVE FLD-PATH TO WS-ONE-PATH
+                           CALL "PC-TREE-ADD"
+                       END-IF
+                   END-IF
+               END-PERFORM
+               CLOSE FOLDERS-FILE
+           END-IF
+      *>   Insertion sort on the key; a topic holds tens of entries.
+           PERFORM VARYING WS-J FROM 2 BY 1 UNTIL WS-J > WS-NODE-N
+               MOVE WS-NODE(WS-J) TO WS-NODE-TMP
+               MOVE WS-J TO WS-K
+               MOVE "N" TO WS-FOUND
+               PERFORM UNTIL WS-K < 2 OR WS-FOUND = "Y"
+                   COMPUTE WS-K1 = WS-K - 1
+                   IF WS-NODE-KEY(WS-K1) > TMP-KEY
+                       MOVE WS-NODE(WS-K1) TO WS-NODE(WS-K)
+                       MOVE WS-K1 TO WS-K
+                   ELSE
+                       MOVE "Y" TO WS-FOUND
+                   END-IF
+               END-PERFORM
+               MOVE WS-NODE-TMP TO WS-NODE(WS-K)
+           END-PERFORM
+           MOVE Trv-Docs::Clear() TO WS-OK
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-NODE-N
+               MOVE 0 TO WS-DEPTH
+               INSPECT WS-NODE-PATH(WS-J) TALLYING WS-DEPTH FOR ALL "/"
+               MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-NODE-PATH(WS-J))) TO WS-L
+               MOVE 0 TO WS-P
+               PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
+                   IF WS-NODE-PATH(WS-J)(WS-K:1) = "/"
+                       MOVE WS-K TO WS-P
+                   END-IF
+               END-PERFORM
+               MOVE SPACES TO WS-NAME
+               MOVE WS-NODE-PATH(WS-J)(WS-P + 1:WS-L - WS-P) TO WS-NAME
+      *>       A folder with something under it takes the tree's own
+      *>       open/shut folder icon; an empty one has to be told.
+               MOVE SPACES TO WS-ICON
+               IF WS-NODE-KIND(WS-J) = "F"
+                   MOVE "folder" TO WS-ICON
+                   IF WS-J < WS-NODE-N
+                       COMPUTE WS-K1 = WS-J + 1
+                       MOVE SPACES TO WS-KEY-TMP
+                       STRING FUNCTION TRIM(WS-NODE-PATH(WS-J)) "/"
+                           DELIMITED BY SIZE INTO WS-KEY-TMP
+                       IF WS-NODE-PATH(WS-K1)(1:WS-L + 1) = WS-KEY-TMP(1:WS-L + 1)
+                           MOVE SPACES TO WS-ICON
+                       END-IF
+                   END-IF
+               END-IF
+               IF WS-ICON = SPACES
+                   MOVE Trv-Docs::AddNode(WS-DEPTH, FUNCTION TRIM(WS-NAME)) TO WS-OK
+               ELSE
+                   MOVE Trv-Docs::AddNode(WS-DEPTH, FUNCTION TRIM(WS-NAME),
+                       FUNCTION TRIM(WS-ICON)) TO WS-OK
+               END-IF
            END-PERFORM
            MOVE WS-DOC-COUNT TO WS-N1
            MOVE T-DOC-COUNT TO WS-FMT
            MOVE WS-N1 TO WS-ARG1
            CALL "PC-FMT"
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Count::Caption
+           CALL "PC-SELECT-SYNC"
+]]></Event>
+    <Event name="PC-TREE-ADD" paragraph="PC-TREE-ADD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 LK-KIND            PIC X.
+       01 LK-PATH            PIC X(260).
+       01 LK-L               PIC 9(4).
+       01 LK-P               PIC 9(4).
+       PROCEDURE DIVISION.
+      *>   WS-ONE-PATH (of kind WS-ONE-KIND) and every folder above it go
+      *>   into WS-TREE, each once.
+           MOVE WS-ONE-KIND TO LK-KIND
+           MOVE WS-ONE-PATH TO LK-PATH
+           MOVE FUNCTION LENGTH(FUNCTION TRIM(LK-PATH)) TO LK-L
+           PERFORM VARYING LK-P FROM 2 BY 1 UNTIL LK-P > LK-L
+               IF LK-PATH(LK-P:1) = "/"
+                   MOVE "F" TO WS-ONE-KIND
+                   MOVE SPACES TO WS-ONE-PATH
+                   MOVE LK-PATH(1:LK-P - 1) TO WS-ONE-PATH
+                   CALL "PC-TREE-ONE"
+               END-IF
+           END-PERFORM
+           MOVE LK-KIND TO WS-ONE-KIND
+           MOVE LK-PATH TO WS-ONE-PATH
+           CALL "PC-TREE-ONE"
+]]></Event>
+    <Event name="PC-TREE-ONE" paragraph="PC-TREE-ONE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   One row, unless the path is there already. The sort key is the
+      *>   path with "/" below every other character and LOW-VALUES after it,
+      *>   so a folder sorts right before its own contents.
+           MOVE "N" TO WS-FOUND
+           PERFORM VARYING WS-J FROM 1 BY 1
+                   UNTIL WS-J > WS-NODE-N OR WS-FOUND = "Y"
+               IF WS-NODE-PATH(WS-J) = WS-ONE-PATH
+                   MOVE "Y" TO WS-FOUND
+               END-IF
+           END-PERFORM
+           IF WS-FOUND = "N" AND WS-NODE-N < 1000
+               ADD 1 TO WS-NODE-N
+               MOVE WS-ONE-KIND TO WS-NODE-KIND(WS-NODE-N)
+               MOVE WS-ONE-PATH TO WS-NODE-PATH(WS-NODE-N)
+               MOVE LOW-VALUES TO WS-KEY-TMP
+               MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-ONE-PATH)) TO WS-L
+               MOVE WS-ONE-PATH(1:WS-L) TO WS-KEY-TMP(1:WS-L)
+               INSPECT WS-KEY-TMP(1:WS-L) CONVERTING "/" TO X"01"
+               MOVE WS-KEY-TMP TO WS-NODE-KEY(WS-NODE-N)
+           END-IF
+]]></Event>
+    <Event name="PC-SELECT-SYNC" paragraph="PC-SELECT-SYNC"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Find the selection again after a rebuild, and point the drop zone
+      *>   at the folder it names - a document's own folder - or at the top.
+           MOVE 0 TO WS-SEL-IX
+           IF WS-SEL-PATH NOT = SPACES
+               PERFORM VARYING WS-J FROM 1 BY 1
+                       UNTIL WS-J > WS-NODE-N OR WS-SEL-IX > 0
+                   IF WS-NODE-PATH(WS-J) = WS-SEL-PATH
+                      AND WS-NODE-KIND(WS-J) = WS-SEL-KIND
+                       MOVE WS-J TO WS-SEL-IX
+                   END-IF
+               END-PERFORM
+           END-IF
+           MOVE SPACES TO WS-FOLDER
+           IF WS-SEL-IX = 0
+               MOVE SPACES TO WS-SEL-KIND WS-SEL-PATH
+           ELSE
+               IF WS-SEL-KIND = "F"
+                   MOVE WS-SEL-PATH TO WS-FOLDER
+               ELSE
+                   MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-SEL-PATH)) TO WS-L
+                   MOVE 0 TO WS-P
+                   PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
+                       IF WS-SEL-PATH(WS-K:1) = "/"
+                           MOVE WS-K TO WS-P
+                       END-IF
+                   END-PERFORM
+                   IF WS-P > 1
+                       MOVE WS-SEL-PATH(1:WS-P - 1) TO WS-FOLDER
+                   END-IF
+               END-IF
+           END-IF
+           MOVE SPACES TO WS-LINE
+           IF WS-FOLDER = SPACES
+               MOVE WS-DOCS-DIR TO WS-LINE
+           ELSE
+               STRING FUNCTION TRIM(WS-DOCS-DIR) "/" FUNCTION TRIM(WS-FOLDER)
+                   DELIMITED BY SIZE INTO WS-LINE
+           END-IF
+           MOVE WS-LINE TO Drop-Docs::DestinationFolder
 ]]></Event>
     <Event name="PC-TEXTS" paragraph="PC-TEXTS"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -309,7 +601,7 @@
                WHEN OTHER MOVE "en" TO WS-LANG
                           MOVE 1 TO WS-LANG-IX
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 13
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 22
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
            MOVE FUNCTION TRIM(T-DOCS-TITLE) TO Lbl-Title::Caption
@@ -318,6 +610,8 @@
            MOVE FUNCTION TRIM(T-REFRESH) TO Btn-Refresh::Caption
            MOVE FUNCTION TRIM(T-CLOSE) TO Btn-Close::Caption
            MOVE FUNCTION TRIM(T-KB-UPDATING) TO Lbl-Progress::Caption
+           MOVE FUNCTION TRIM(T-NEW-FOLDER) TO Btn-NewFolder::Caption
+           MOVE FUNCTION TRIM(T-FOLDER-HINT) TO Txt-Folder::HintText
 ]]></Event>
     <Event name="PC-FMT" paragraph="PC-FMT"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -396,10 +690,10 @@
            MOVE WS-CUR-TOPIC TO KB-D::Collection
       *>   Dropped files land in the collection's documents folder; a refresh
       *>   then indexes them. So does anything copied there by other means.
-           MOVE SPACES TO WS-LINE
+      *>   PC-SELECT-SYNC points the zone at the selected folder inside it.
+           MOVE SPACES TO WS-DOCS-DIR
            STRING FUNCTION TRIM(WS-KB-LOCATION) "/" FUNCTION TRIM(WS-CUR-TOPIC)
-                  "/documents" DELIMITED BY SIZE INTO WS-LINE
-           MOVE WS-LINE TO Drop-Docs::DestinationFolder
+                  "/documents" DELIMITED BY SIZE INTO WS-DOCS-DIR
            CALL "PC-LIST-DOCS"
       *>   Pick up whatever changed in the folder since the last run (R16).
            MOVE KB-D::Refresh() TO WS-OK
@@ -431,23 +725,32 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="WordWrap">false</Property>
     <Property name="AutoSize">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lst-Docs" type="ListBox" x="24" y="56" w="456" h="300" tab-order="1" z-order="0" visible="true" enabled="true">
+  <Control id="Trv-Docs" type="TreeView" x="24" y="56" w="456" h="300" tab-order="1" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="ForegroundColor">#000000</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="ShowIcons">true</Property>
+    <Property name="ParentIcon">folder</Property>
+    <Property name="ParentIconOpen">folder-open</Property>
+    <Property name="LeafIcon">doc-text</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
@@ -460,34 +763,75 @@
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">0</Property>
-    <Property name="BorderStyle">Single</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
     <Property name="Bold">false</Property>
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
+    <Property name="Items">Node 1
+  Child 1
+  Child 2
+Node 2</Property>
+    <Property name="AllowEdit">false</Property>
+    <Property name="CheckBoxes">false</Property>
+    <Property name="ShowLines">true</Property>
+    <Property name="ShowRootLines">true</Property>
+    <Property name="Sorted">false</Property>
+    <Property name="HotTracking">false</Property>
+    <Property name="LineColor">#AAAAAA</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconSize">14</Property>
+    <Property name="HighContrastText">true</Property>
+    <Property name="RowHeight">18</Property>
+    <Property name="NodeSpacing">0</Property>
+    <Property name="IndentWidth">16</Property>
+    <Property name="CheckBoxSize">12</Property>
+    <Property name="CheckBoxBorderStyle">Single</Property>
+    <Property name="CheckBoxBorderWidth">1</Property>
+    <Property name="CheckSize">70</Property>
+    <Property name="Tooltip"></Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
-    <Property name="Items"></Property>
-    <Property name="SelectedIndex">-1</Property>
-    <Property name="MultiSelect">false</Property>
-    <Property name="SelectedItems"></Property>
-    <Property name="ShowCheckBoxes">false</Property>
-    <Property name="CheckedItems"></Property>
-    <Property name="Sorted">false</Property>
-    <Property name="ActiveItemColor"></Property>
-    <Property name="SelectedItemsColor"></Property>
-    <Property name="ActiveItemTextColor"></Property>
-    <Property name="BorderColor">#888888</Property>
+    <Property name="CheckedNodes"></Property>
+    <Property name="CollapsedNodes"></Property>
+    <Property name="IconColor"></Property>
+    <Property name="CheckBoxColor"></Property>
+    <Property name="CheckBoxBorderColor"></Property>
+    <Property name="CheckColor"></Property>
+    <Property name="SelectionColor"></Property>
+    <Property name="HotTrackColor"></Property>
+    <Event name="onNodeSelect" paragraph="TRV-DOCS--ONNODESELECT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01 CONTROL-NODE-DATA.
+           05 CONTROL-NODE                 PIC X(256).
+           05 CONTROL-NODE-INDEX           PIC S9(4) COMP-5.
+           05 CONTROL-NODE-LEVEL           PIC S9(4) COMP-5.
+           05 CONTROL-NODE-CHECKED         PIC 9.
+
+       PROCEDURE DIVISION USING CONTROL-NODE-DATA.
+      *>   The node's index is its row in WS-TREE; the selection is kept by
+      *>   path, and new documents dropped go into its folder.
+           IF CONTROL-NODE-INDEX > 0 AND CONTROL-NODE-INDEX NOT > WS-NODE-N
+               MOVE CONTROL-NODE-INDEX TO WS-J
+               MOVE WS-NODE-KIND(WS-J) TO WS-SEL-KIND
+               MOVE WS-NODE-PATH(WS-J) TO WS-SEL-PATH
+           END-IF
+           CALL "PC-SELECT-SYNC"
+           MOVE T-DROP-INTO TO WS-FMT
+           IF WS-FOLDER = SPACES
+               MOVE T-TOP-LEVEL TO WS-ARG1
+           ELSE
+               MOVE WS-FOLDER TO WS-ARG1
+           END-IF
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+]]></Event>
   </Control>
   <Control id="Drop-Docs" type="FileDropZone" x="496" y="56" w="160" h="160" tab-order="2" z-order="0" visible="true" enabled="true">
     <Property name="Hint">Drop documents here, or click to choose</Property>
@@ -513,19 +857,19 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
+    <Property name="MaximumFileSizeKB">0</Property>
+    <Property name="StageOnly">false</Property>
+    <Property name="Tooltip"></Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Property name="AllowedExtensions"></Property>
-    <Property name="MaximumFileSizeKB">0</Property>
     <Property name="DestinationFolder"></Property>
-    <Property name="StageOnly">false</Property>
     <Property name="FileListControl"></Property>
     <Event name="onFilesDropped" paragraph="DROP-DOCS--ONFILESDROPPED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -560,38 +904,71 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="BorderColor">#888888</Property>
     <Property name="BorderWidth">1</Property>
-    <Property name="IconPath"></Property>
     <Property name="IconAlignment">Left</Property>
     <Property name="IconPadding">10</Property>
     <Property name="IconSize">32</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IconPath"></Property>
     <Event name="onClick" paragraph="BTN-DELETE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-           MOVE Lst-Docs::GetSelectedIndex() TO WS-INDEX
-           IF WS-INDEX < 0 OR WS-INDEX >= WS-DOC-COUNT
+           IF WS-SEL-IX = 0
                MOVE FUNCTION TRIM(T-PICK-DOC-FIRST) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
-           ADD 1 TO WS-INDEX
-           MOVE WS-INDEX TO WS-I
-           MOVE KB-D::GetDocument(WS-I) TO WS-DOC
-           MOVE KB-D::DeleteDocument(FUNCTION TRIM(WS-DOC)) TO WS-OK
-           IF WS-OK NOT = "1"
-               MOVE KB-D::LastError TO Lbl-Status::Caption
+           IF WS-SEL-KIND = "D"
+               MOVE KB-D::DeleteDocument(FUNCTION TRIM(WS-SEL-PATH)) TO WS-OK
+               IF WS-OK NOT = "1"
+                   MOVE KB-D::LastError TO Lbl-Status::Caption
+               END-IF
+               EXIT PROGRAM
            END-IF
+      *>   A folder goes only when nothing is under it: deleting a folder
+      *>   never deletes documents as a side effect.
+           MOVE SPACES TO WS-KEY-TMP
+           STRING FUNCTION TRIM(WS-SEL-PATH) "/" DELIMITED BY SIZE
+               INTO WS-KEY-TMP
+           MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-KEY-TMP)) TO WS-L
+           MOVE "N" TO WS-FOUND
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-NODE-N
+               IF WS-NODE-PATH(WS-J)(1:WS-L) = WS-KEY-TMP(1:WS-L)
+                   MOVE "Y" TO WS-FOUND
+               END-IF
+           END-PERFORM
+           IF WS-FOUND = "Y"
+               MOVE FUNCTION TRIM(T-FOLDER-NOT-EMPTY) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           OPEN I-O FOLDERS-FILE
+           IF WS-FS = "00"
+               MOVE WS-CUR-TOPIC TO FLD-TOPIC
+               MOVE WS-SEL-PATH TO FLD-PATH
+               DELETE FOLDERS-FILE
+                   INVALID KEY CONTINUE
+               END-DELETE
+               COMMIT
+               CLOSE FOLDERS-FILE
+           END-IF
+      *>   (Not WS-NAME: PC-LIST-DOCS writes every node's label there.)
+           MOVE WS-SEL-PATH TO WS-GONE
+           MOVE SPACES TO WS-SEL-KIND WS-SEL-PATH
+           CALL "PC-LIST-DOCS"
+           MOVE T-FOLDER-DELETED TO WS-FMT
+           MOVE WS-GONE TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
 ]]></Event>
   </Control>
   <Control id="Btn-Refresh" type="Button" x="496" y="272" w="160" h="36" tab-order="4" z-order="0" visible="true" enabled="true">
@@ -618,23 +995,23 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="BorderColor">#888888</Property>
     <Property name="BorderWidth">1</Property>
-    <Property name="IconPath"></Property>
     <Property name="IconAlignment">Left</Property>
     <Property name="IconPadding">10</Property>
     <Property name="IconSize">32</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IconPath"></Property>
     <Event name="onClick" paragraph="BTN-REFRESH--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -668,19 +1045,19 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="WordWrap">false</Property>
     <Property name="AutoSize">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
   </Control>
   <Control id="Lbl-Status" type="Label" x="24" y="392" w="456" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
@@ -706,21 +1083,166 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="WordWrap">false</Property>
     <Property name="AutoSize">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Btn-Close" type="Button" x="496" y="412" w="160" h="36" tab-order="5" z-order="0" visible="true" enabled="true">
+  <Control id="Txt-Folder" type="TextBox" x="496" y="316" w="160" h="28" tab-order="5" z-order="0" visible="true" enabled="true">
+    <Property name="HintText">Folder name</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="AutoEnter">false</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Fixed3D</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderColor">#AAAAAA</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Text"></Property>
+    <Property name="Picture"></Property>
+    <Property name="PasswordCharacter"></Property>
+  </Control>
+  <Control id="Btn-NewFolder" type="Button" x="496" y="352" w="160" h="36" tab-order="6" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">New folder</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IconPath"></Property>
+    <Event name="onClick" paragraph="BTN-NEWFOLDER--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A folder inside the selected one (or a document's folder), else at
+      *>   the top. Recorded in FOLDERS-FILE, so it shows while still empty.
+           MOVE Txt-Folder::Text TO WS-NAME
+           MOVE 0 TO WS-K
+           INSPECT WS-NAME TALLYING WS-K FOR ALL "/"
+           INSPECT WS-NAME TALLYING WS-K FOR ALL "\"
+           IF WS-NAME = SPACES OR WS-K > 0
+              OR FUNCTION TRIM(WS-NAME) = "."
+              OR FUNCTION TRIM(WS-NAME) = ".."
+               MOVE FUNCTION TRIM(T-FOLDER-NAME-BAD) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           MOVE SPACES TO WS-ONE-PATH
+           IF WS-FOLDER = SPACES
+               MOVE FUNCTION TRIM(WS-NAME) TO WS-ONE-PATH
+           ELSE
+               STRING FUNCTION TRIM(WS-FOLDER) "/" FUNCTION TRIM(WS-NAME)
+                   DELIMITED BY SIZE INTO WS-ONE-PATH
+           END-IF
+           MOVE "N" TO WS-FOUND
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-NODE-N
+               IF WS-NODE-PATH(WS-J) = WS-ONE-PATH
+                   MOVE "Y" TO WS-FOUND
+               END-IF
+           END-PERFORM
+           IF WS-FOUND = "Y"
+               MOVE FUNCTION TRIM(T-FOLDER-EXISTS) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           OPEN I-O FOLDERS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT FOLDERS-FILE
+               CLOSE FOLDERS-FILE
+               OPEN I-O FOLDERS-FILE
+           END-IF
+           MOVE WS-CUR-TOPIC TO FLD-TOPIC
+           MOVE WS-ONE-PATH TO FLD-PATH
+           WRITE FOLDER-REC
+               INVALID KEY CONTINUE
+           END-WRITE
+           COMMIT
+           CLOSE FOLDERS-FILE
+      *>   The new folder becomes the selection, so a drop goes into it.
+           MOVE "F" TO WS-SEL-KIND
+           MOVE WS-ONE-PATH TO WS-SEL-PATH
+           MOVE SPACES TO Txt-Folder::Text
+           CALL "PC-LIST-DOCS"
+           MOVE T-FOLDER-CREATED TO WS-FMT
+           MOVE WS-SEL-PATH TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+]]></Event>
+  </Control>
+  <Control id="Btn-Close" type="Button" x="496" y="412" w="160" h="36" tab-order="7" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Close</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
@@ -744,23 +1266,23 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="IsDefault">false</Property>
     <Property name="BorderColor">#888888</Property>
     <Property name="BorderWidth">1</Property>
-    <Property name="IconPath"></Property>
     <Property name="IconAlignment">Left</Property>
     <Property name="IconPadding">10</Property>
     <Property name="IconSize">32</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IconPath"></Property>
     <Event name="onClick" paragraph="BTN-CLOSE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -792,18 +1314,18 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="BorderColor">#888888</Property>
     <Property name="HScroll">false</Property>
     <Property name="VScroll">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
     <Property name="mcp_tool"></Property>
   </Control>
   <Control id="Lbl-Progress" type="Label" x="120" y="176" w="440" h="40" tab-order="0" z-order="11" visible="false" enabled="true">
@@ -830,19 +1352,19 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="WordWrap">false</Property>
     <Property name="AutoSize">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
   </Control>
   <Control id="Prg-Index" type="ProgressBar" x="120" y="224" w="440" h="20" tab-order="0" z-order="11" visible="false" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
@@ -867,15 +1389,12 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="Minimum">0</Property>
     <Property name="Maximum">100</Property>
     <Property name="Value">0</Property>
@@ -886,6 +1405,9 @@
     <Property name="ShowValue">false</Property>
     <Property name="BorderColor">#8C8CA0</Property>
     <Property name="BorderWidth">1</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
   </Control>
   <Control id="KB-D" type="KnowledgeBase" x="680" y="16" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
@@ -908,29 +1430,29 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="Location">assets/KB</Property>
-    <Property name="Collection"></Property>
     <Property name="Embedder">Lexical</Property>
-    <Property name="Configuration"></Property>
-    <Property name="ModelEntry"></Property>
     <Property name="EmbeddingURL">http://localhost:11434</Property>
     <Property name="EmbeddingAPI">Ollama</Property>
     <Property name="EmbeddingModel">nomic-embed-text</Property>
-    <Property name="EmbeddingAPIKey"></Property>
     <Property name="WriteWaitMilliseconds">5000</Property>
     <Property name="MaximumResults">5</Property>
     <Property name="ArchiveMaximumMegabytes">500</Property>
     <Property name="ArchiveMaximumFiles">10000</Property>
     <Property name="ArchiveMaximumDepth">3</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Collection"></Property>
+    <Property name="Configuration"></Property>
+    <Property name="ModelEntry"></Property>
+    <Property name="EmbeddingAPIKey"></Property>
     <Event name="onProgress" paragraph="KB-D--ONPROGRESS"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
