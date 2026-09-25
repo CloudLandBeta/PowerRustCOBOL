@@ -84,3 +84,27 @@
     - INSPECT ignored reference modification;
     - `MOVE … TO T(I)(a:b)` dropped the subscript;
     - `"\"` was not a valid literal.
+
+# Phase 3 — the operator's review (2026-09-25)
+
+- [x] **P3-1 — First run** — with no agent assigned a model, the menu is shut
+  but for RAG settings and Chat (the way home), and the chat shows a welcome
+  screen: the name at 84 pt (6 × the form's 14), a robot (`assets/robot.svg`,
+  chibi, the PowerRustCOBOL emblem on its chest) and four steps. Nothing is
+  forced open any more.
+- [x] **P3-2 — Everything embedded** — the five forms are `FormFormat` Embedded
+  and open in the ContentPane from their menu rows (`open-form:`); their Close
+  buttons are gone; each refreshes itself on `onActivate`, and so does the chat.
+- [x] **P3-3 — The menu is designed** (`SideMenu-1.menu.yaml`), so the
+  designer and the preview show it. Relabelled with `SetItemLabel` and held shut
+  with `SetItemEnabled`, which reach designed rows since 1.70.210.
+- [x] **P3-4 — RAG settings** — the Knowledge Base folder has a **…** button
+  (`COBOL-FOLDER-DIALOG`, 1.70.211); agents are chosen in a ComboBox; the
+  provider, model list and connection test are the IDE's (1.70.212); **Export…**
+  / **Import…** write and read `rag-settings.xml` (no keys); every field has a
+  tooltip; the status line is captioned **Status** on every form.
+- **Found on the way, not fixed here:**
+  - `SetSelectedIndex` on a ComboBox does not move its `Value`.
+    PowerChat sets `Value` itself wherever it picks an item.
+  - `ME::Close()` on an embedded form takes it off the pane without telling the
+    shell. That is why the embedded forms have no Close button.

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="DOCUMENTS-FORM" title="PowerChat" width="680" height="472" background="F2F4F5FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
+<Form name="DOCUMENTS-FORM" title="PowerChat" width="680" height="472" background="36383EFF" background-gradient-enabled="true" background-gradient-start="#4E4E4EFF" background-gradient-end="#000000FF" background-gradient-direction="South" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Dark" modal-overlay-style="Greyed" form-format="Embedded">
   <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -105,13 +105,6 @@
           05 FILLER PIC X(70) VALUE "Actualiser".
           05 FILLER PIC X(70) VALUE "更新".
           05 FILLER PIC X(70) VALUE "刷新".
-      *>   CLOSE
-          05 FILLER PIC X(70) VALUE "Close".
-          05 FILLER PIC X(70) VALUE "Fechar".
-          05 FILLER PIC X(70) VALUE "Cerrar".
-          05 FILLER PIC X(70) VALUE "Fermer".
-          05 FILLER PIC X(70) VALUE "閉じる".
-          05 FILLER PIC X(70) VALUE "关闭".
       *>   KB-UPDATING
           05 FILLER PIC X(70) VALUE "Updating the Knowledge Base...".
           05 FILLER PIC X(70) VALUE "Atualizando a base de conhecimento...".
@@ -182,6 +175,13 @@
           05 FILLER PIC X(70) VALUE "le niveau supérieur".
           05 FILLER PIC X(70) VALUE "最上位".
           05 FILLER PIC X(70) VALUE "顶层".
+      *>   STATUS
+          05 FILLER PIC X(70) VALUE "Status".
+          05 FILLER PIC X(70) VALUE "Status".
+          05 FILLER PIC X(70) VALUE "Estado".
+          05 FILLER PIC X(70) VALUE "État".
+          05 FILLER PIC X(70) VALUE "ステータス".
+          05 FILLER PIC X(70) VALUE "状态".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
           05 PC-TEXT-ROW     OCCURS 22.
              10 PC-TEXT      PIC X(70) OCCURS 6.
@@ -198,7 +198,6 @@
           05 T-DROP-HINT PIC X(70).
           05 T-DELETE PIC X(70).
           05 T-REFRESH PIC X(70).
-          05 T-CLOSE PIC X(70).
           05 T-KB-UPDATING PIC X(70).
           05 T-NEW-FOLDER PIC X(70).
           05 T-FOLDER-HINT PIC X(70).
@@ -209,6 +208,7 @@
           05 T-FOLDER-DELETED PIC X(70).
           05 T-DROP-INTO PIC X(70).
           05 T-TOP-LEVEL PIC X(70).
+          05 T-STATUS PIC X(70).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
           05 PC-TEXT-NOW     PIC X(70) OCCURS 22.
       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
@@ -608,10 +608,10 @@
            MOVE FUNCTION TRIM(T-DROP-HINT) TO Drop-Docs::Hint
            MOVE FUNCTION TRIM(T-DELETE) TO Btn-Delete::Caption
            MOVE FUNCTION TRIM(T-REFRESH) TO Btn-Refresh::Caption
-           MOVE FUNCTION TRIM(T-CLOSE) TO Btn-Close::Caption
            MOVE FUNCTION TRIM(T-KB-UPDATING) TO Lbl-Progress::Caption
            MOVE FUNCTION TRIM(T-NEW-FOLDER) TO Btn-NewFolder::Caption
            MOVE FUNCTION TRIM(T-FOLDER-HINT) TO Txt-Folder::HintText
+           MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
 ]]></Event>
     <Event name="PC-FMT" paragraph="PC-FMT"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -651,11 +651,10 @@
                END-EVALUATE
            END-PERFORM
 ]]></Event>
-  </user-procedures>
-  <form-events>
-    <Event name="onLoad" paragraph="DOCUMENTS-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+    <Event name="PC-OPEN" paragraph="PC-OPEN"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
+      *>   What the form shows: run on load, and again when it comes back.
            CALL "PC-PATHS"
            CALL "PC-TEXTS"
            MOVE "CUR-TOPIC" TO WS-SET-NAME
@@ -698,6 +697,19 @@
       *>   Pick up whatever changed in the folder since the last run (R16).
            MOVE KB-D::Refresh() TO WS-OK
 ]]></Event>
+  </user-procedures>
+  <form-events>
+    <Event name="onLoad" paragraph="DOCUMENTS-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-OPEN"
+]]></Event>
+    <Event name="onActivate" paragraph="DOCUMENTS-FORM--ONACTIVATE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Back on the pane: the topic or the language may have changed.
+           CALL "PC-OPEN"
+]]></Event>
     <Event name="onClose" paragraph="DOCUMENTS-FORM--ONCLOSE">
     </Event>
   </form-events>
@@ -705,21 +717,21 @@
     <Property name="Caption">Documents</Property>
     <Property name="FontSize">20</Property>
     <Property name="Bold">true</Property>
-    <Property name="BackgroundColor">#F0F0F0</Property>
-    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">0</Property>
+    <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="FontName">Arial</Property>
     <Property name="Italic">false</Property>
@@ -740,28 +752,28 @@
     <Property name="DataFormat"></Property>
   </Control>
   <Control id="Trv-Docs" type="TreeView" x="24" y="56" w="456" h="300" tab-order="1" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#F0F0F0</Property>
-    <Property name="ForegroundColor">#000000</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">14</Property>
-    <Property name="CornerRadius">0</Property>
-    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
     <Property name="BorderColor">#888888</Property>
     <Property name="ShowIcons">true</Property>
     <Property name="ParentIcon">folder</Property>
     <Property name="ParentIconOpen">folder-open</Property>
     <Property name="LeafIcon">doc-text</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="Bold">false</Property>
     <Property name="Italic">false</Property>
@@ -835,22 +847,22 @@ Node 2</Property>
   </Control>
   <Control id="Drop-Docs" type="FileDropZone" x="496" y="56" w="160" h="160" tab-order="2" z-order="0" visible="true" enabled="true">
     <Property name="Hint">Drop documents here, or click to choose</Property>
-    <Property name="BackgroundColor">#F0F0F0</Property>
-    <Property name="ForegroundColor">#FFFFFF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">0</Property>
-    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">14</Property>
     <Property name="Bold">false</Property>
@@ -882,22 +894,22 @@ Node 2</Property>
   </Control>
   <Control id="Btn-Delete" type="Button" x="496" y="228" w="160" h="36" tab-order="3" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Delete</Property>
-    <Property name="BackgroundColor">#F0F0F0</Property>
-    <Property name="ForegroundColor">#FFFFFF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">3</Property>
-    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">14</Property>
     <Property name="Bold">false</Property>
@@ -973,22 +985,22 @@ Node 2</Property>
   </Control>
   <Control id="Btn-Refresh" type="Button" x="496" y="272" w="160" h="36" tab-order="4" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Refresh</Property>
-    <Property name="BackgroundColor">#F0F0F0</Property>
-    <Property name="ForegroundColor">#FFFFFF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">3</Property>
-    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">14</Property>
     <Property name="Bold">false</Property>
@@ -1022,21 +1034,21 @@ Node 2</Property>
 ]]></Event>
   </Control>
   <Control id="Lbl-Count" type="Label" x="24" y="364" w="456" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#F0F0F0</Property>
-    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">0</Property>
+    <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="Caption">Lbl-Count</Property>
     <Property name="FontName">Arial</Property>
@@ -1060,23 +1072,23 @@ Node 2</Property>
     <Property name="DataFormat"></Property>
   </Control>
   <Control id="Lbl-Status" type="Label" x="24" y="392" w="456" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#F0F0F0</Property>
-    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">0</Property>
+    <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="Caption">Lbl-Status</Property>
+    <Property name="Caption">Status</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">14</Property>
     <Property name="Bold">false</Property>
@@ -1101,24 +1113,24 @@ Node 2</Property>
     <Property name="HintText">Folder name</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">14</Property>
-    <Property name="BackgroundColor">#F0F0F0</Property>
-    <Property name="ForegroundColor">#000000</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="EnterAsTab">true</Property>
     <Property name="AutoEnter">false</Property>
-    <Property name="CornerRadius">0</Property>
-    <Property name="BorderStyle">Fixed3D</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
     <Property name="Bold">false</Property>
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
@@ -1147,22 +1159,22 @@ Node 2</Property>
   </Control>
   <Control id="Btn-NewFolder" type="Button" x="496" y="352" w="160" h="36" tab-order="6" z-order="0" visible="true" enabled="true">
     <Property name="Caption">New folder</Property>
-    <Property name="BackgroundColor">#F0F0F0</Property>
-    <Property name="ForegroundColor">#FFFFFF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">3</Property>
-    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">14</Property>
     <Property name="Bold">false</Property>
@@ -1242,72 +1254,25 @@ Node 2</Property>
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
 ]]></Event>
   </Control>
-  <Control id="Btn-Close" type="Button" x="496" y="412" w="160" h="36" tab-order="7" z-order="0" visible="true" enabled="true">
-    <Property name="Caption">Close</Property>
-    <Property name="BackgroundColor">#F0F0F0</Property>
-    <Property name="ForegroundColor">#FFFFFF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">3</Property>
-    <Property name="BorderStyle">Single</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="IsDefault">false</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="BorderWidth">1</Property>
-    <Property name="IconAlignment">Left</Property>
-    <Property name="IconPadding">10</Property>
-    <Property name="IconSize">32</Property>
-    <Property name="TextAlignment">MiddleCenter</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="IconPath"></Property>
-    <Event name="onClick" paragraph="BTN-CLOSE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       PROCEDURE DIVISION.
-           INVOKE ME::Close()
-]]></Event>
-  </Control>
   <Control id="Pnl-Progress" type="Panel" x="104" y="160" w="472" h="104" tab-order="0" z-order="10" visible="false" enabled="true">
-    <Property name="BackgroundColor">#F0F0F0</Property>
-    <Property name="ForegroundColor">#FFFFFF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="BorderWidth">1</Property>
     <Property name="HideBackground">false</Property>
-    <Property name="CornerRadius">0</Property>
-    <Property name="BorderStyle">Single</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">14</Property>
     <Property name="Bold">false</Property>
@@ -1330,21 +1295,21 @@ Node 2</Property>
   </Control>
   <Control id="Lbl-Progress" type="Label" x="120" y="176" w="440" h="40" tab-order="0" z-order="11" visible="false" enabled="true">
     <Property name="Caption">Updating the Knowledge Base...</Property>
-    <Property name="BackgroundColor">#F0F0F0</Property>
-    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">0</Property>
+    <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">14</Property>
@@ -1367,22 +1332,22 @@ Node 2</Property>
     <Property name="DataFormat"></Property>
   </Control>
   <Control id="Prg-Index" type="ProgressBar" x="120" y="224" w="440" h="20" tab-order="0" z-order="11" visible="false" enabled="true">
-    <Property name="BackgroundColor">#F0F0F0</Property>
-    <Property name="ForegroundColor">#FFFFFF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderStyle">None</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">14</Property>
     <Property name="Bold">false</Property>
@@ -1410,19 +1375,19 @@ Node 2</Property>
     <Property name="DataFormat"></Property>
   </Control>
   <Control id="KB-D" type="KnowledgeBase" x="680" y="16" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#F0F0F0</Property>
-    <Property name="ForegroundColor">#FFFFFF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">14</Property>
@@ -1446,6 +1411,8 @@ Node 2</Property>
     <Property name="ArchiveMaximumMegabytes">500</Property>
     <Property name="ArchiveMaximumFiles">10000</Property>
     <Property name="ArchiveMaximumDepth">3</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
     <Property name="Tooltip"></Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>

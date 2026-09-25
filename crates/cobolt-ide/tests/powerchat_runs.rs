@@ -41,6 +41,17 @@ struct Session {
 
 impl Session {
     fn start(form_file: &str) -> Session {
+        Session::launch(form_file, None)
+    }
+
+    /// Like [`Session::start`], with a stand-in form host that answers the
+    /// program's native file dialogs from `answers`, in order (`None` = the
+    /// operator cancelled).
+    fn start_with_dialogs(form_file: &str, answers: Vec<Option<String>>) -> Session {
+        Session::launch(form_file, Some(answers))
+    }
+
+    fn launch(form_file: &str, dialogs: Option<Vec<Option<String>>>) -> Session {
         let path = project().join("forms").join(form_file);
         let form = cobolt_forms::load_form(&path).unwrap();
         let stem = path.file_stem().unwrap().to_string_lossy().to_string();
@@ -48,6 +59,17 @@ impl Session {
         let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(&src, cobolt_lexer::SourceFormat::Free));
         let program = parsed.program.expect("the committed program parses");
         let seed = cobolt_form_host::seeding::build_object_seed(&form, &form.controls, None, None);
+        // Every host hands the interpreter each SideMenu's designed rows.
+        let menus: Vec<(String, cobolt_forms::menu::MenuDefinition)> = form
+            .controls
+            .iter()
+            .filter(|c| c.control_type == cobolt_forms::ControlType::SideMenu)
+            .filter_map(|c| {
+                cobolt_forms::menu::load_menu(&project().join("forms").join(format!("{}.menu.yaml", c.id)))
+                    .ok()
+                    .map(|d| (c.id.clone(), d))
+            })
+            .collect();
         let (events, event_rx) = mpsc::channel::<FormEvent>();
         let (input, input_rx) = mpsc::channel::<StateUpdate>();
         let (state_tx, state) = mpsc::channel::<StateUpdate>();
@@ -57,6 +79,25 @@ impl Session {
             let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
             interp.set_input_channel(input_rx);
             interp.seed_objects(seed);
+            for (id, def) in &menus {
+                interp.set_designed_menu(id, def);
+            }
+            let mut _closed = None;
+            if let Some(answers) = dialogs {
+                use cobolt_runtime::form_host::{FormRequest, ROOT_HANDLE};
+                let (req_tx, req_rx) = mpsc::channel::<FormRequest>();
+                let (closed_tx, closed_rx) = mpsc::channel::<String>();
+                _closed = Some(closed_tx);
+                interp.set_form_host(req_tx, ROOT_HANDLE, "FORM", closed_rx);
+                thread::spawn(move || {
+                    let mut answers = answers.into_iter();
+                    while let Ok(req) = req_rx.recv() {
+                        if let FormRequest::FileDialog { reply, .. } = req {
+                            let _ = reply.send(answers.next().flatten());
+                        }
+                    }
+                });
+            }
             if let Err(e) = interp.run() {
                 let _ = err_tx.send(format!("RUN ENDED WITH ERROR: {e:?}"));
             }
@@ -101,6 +142,19 @@ impl Session {
                 self.seen.push(u);
             }
         }
+    }
+
+    /// Everything the form sets until it falls quiet, as (control, property)
+    /// → last value, both upper-cased.
+    fn settle(&mut self) -> std::collections::HashMap<(String, String), String> {
+        while let Ok(u) = self.state.recv_timeout(Duration::from_millis(500)) {
+            self.seen.push(u);
+        }
+        let mut out = std::collections::HashMap::new();
+        for u in self.seen.drain(..) {
+            out.insert((u.ctrl_id.to_ascii_uppercase(), u.prop.to_ascii_uppercase()), u.value);
+        }
+        out
     }
 
     fn quit(mut self) {
@@ -204,6 +258,34 @@ fn powerchat_settings_topics_documents_and_chat() {
     let mut report: Vec<String> = Vec::new();
     let total = Instant::now();
 
+    // ── First run: no model yet → the menu is shut but for Chat and RAG
+    //    settings, and the welcome screen is up (operator, 2026-09-25) ──
+    let t = Instant::now();
+    let menu_state = |v: &std::collections::HashMap<(String, String), String>| -> Vec<(String, bool)> {
+        let rows = cobolt_forms::menu::runtime::parse_rows(
+            v.get(&("SIDEMENU-1".to_string(), "RUNTIMEROWS".to_string())).map(String::as_str).unwrap_or(""),
+        );
+        rows.iter().filter(|r| r.overlay).map(|r| (r.item.id.clone(), r.item.enabled)).collect()
+    };
+    let shown = |v: &std::collections::HashMap<(String, String), String>, ctrl: &str| -> String {
+        v.get(&(ctrl.to_string(), "VISIBLE".to_string())).cloned().unwrap_or_default()
+    };
+    let mut s = Session::start("chat-form.cfrm");
+    let v = s.settle();
+    s.quit();
+    let state = menu_state(&v);
+    for id in ["newc", "tpcs", "docs", "fils", "prmt"] {
+        assert!(state.contains(&(id.to_string(), false)), "{id} is shut before a model is set: {state:?}");
+    }
+    assert!(!state.iter().any(|(id, on)| (id == "sett" || id == "chat") && !on), "RAG settings and Chat stay open");
+    assert_eq!(shown(&v, "POWERCHAT"), "true", "the welcome screen is up");
+    assert_eq!(shown(&v, "PIC-ROBOT"), "true");
+    assert_eq!(shown(&v, "VWR-CHAT"), "false", "the chat waits");
+    report.push(format!(
+        "first run: menu shut but for Chat and RAG settings; welcome screen shown — {:.0} ms",
+        t.elapsed().as_secs_f64() * 1000.0
+    ));
+
     // ── RAG settings: the KB folder, one model with its key, used for chat ──
     let t = Instant::now();
     let mut s = Session::start("settings-form.cfrm");
@@ -211,16 +293,16 @@ fn powerchat_settings_topics_documents_and_chat() {
     s.click("Btn-SaveKb");
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("folder saved"));
     s.type_into("Txt-Name", "local-model");
-    s.type_into("Txt-Api", "Ollama");
+    s.pick("Cmb-Provider", 14); // Ollama (Local), the IDE's 15th provider
     s.type_into("Txt-Url", &url);
-    s.type_into("Txt-Model", "llama-test");
+    s.input.send(StateUpdate::new("Cmb-Model", "Value", "llama-test")).unwrap();
     s.type_into("Txt-Key", "sk-POWERCHAT-secret");
     s.input.send(StateUpdate::new("Chk-Tools", "Checked", "1")).unwrap();
     s.type_into("Txt-Rank", "5");
     s.click("Btn-SaveModel");
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("key saved"));
     s.pick("Lst-Models", 0);
-    s.type_into("Txt-Agent", "1");
+    s.pick("Cmb-Agent", 0);
     s.click("Btn-Use");
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("Agent 1 now uses"));
     s.quit();
@@ -234,6 +316,19 @@ fn powerchat_settings_topics_documents_and_chat() {
         );
     }
     report.push(format!("settings:  KB folder, model local-model (key in the key store, not in data/) — {:.0} ms", t.elapsed().as_secs_f64() * 1000.0));
+
+    // ── Configured: the chat opens its menu and puts the welcome away ──
+    let t = Instant::now();
+    let mut s = Session::start("chat-form.cfrm");
+    let v = s.settle();
+    s.quit();
+    let state = menu_state(&v);
+    for id in ["newc", "tpcs", "docs", "fils", "prmt"] {
+        assert!(state.contains(&(id.to_string(), true)), "{id} opens once an agent has a model: {state:?}");
+    }
+    assert_eq!(shown(&v, "POWERCHAT"), "false", "the welcome screen goes");
+    assert_eq!(shown(&v, "VWR-CHAT"), "true", "the chat is back");
+    report.push(format!("configured: menu open, welcome screen gone — {:.0} ms", t.elapsed().as_secs_f64() * 1000.0));
 
     // ── Topics: create one, open it ──
     let t = Instant::now();
@@ -368,16 +463,16 @@ fn powerchat_settings_topics_documents_and_chat() {
     let t = Instant::now();
     let mut s = Session::start("settings-form.cfrm");
     s.type_into("Txt-Name", "planner");
-    s.type_into("Txt-Api", "Ollama");
+    s.pick("Cmb-Provider", 14); // Ollama (Local), the IDE's 15th provider
     s.type_into("Txt-Url", &url);
-    s.type_into("Txt-Model", "planner-model");
+    s.input.send(StateUpdate::new("Cmb-Model", "Value", "planner-model")).unwrap();
     s.input.send(StateUpdate::new("Chk-Tools", "Checked", "0")).unwrap();
     s.type_into("Txt-Rank", "9");
     s.type_into("Txt-Key", "");
     s.click("Btn-SaveModel");
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("Model saved"));
     s.pick("Lst-Models", 1);
-    s.type_into("Txt-Agent", "2");
+    s.pick("Cmb-Agent", 1);
     s.click("Btn-Use");
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("Agent 2 now uses"));
     s.quit();
@@ -603,6 +698,58 @@ fn powerchat_settings_topics_documents_and_chat() {
         "languages: {checked} flags; the chat's button, hint and status and the Topics form follow each at once — {:.0} ms",
         t.elapsed().as_secs_f64() * 1000.0
     ));
+
+    // ── RAG settings, the IDE's way: browse for the KB folder, test the
+    //    connection, export to XML and import it back (keys never travel) ──
+    let t = Instant::now();
+    let xml = root.join("rag-settings.xml");
+    let xml2 = root.join("rag-settings-2.xml");
+    let mut s = Session::start_with_dialogs(
+        "settings-form.cfrm",
+        vec![
+            Some(kb.display().to_string()),
+            Some(xml.display().to_string()),
+            Some(xml2.display().to_string()),
+        ],
+    );
+    s.click("Btn-BrowseKb");
+    let folder = s.wait_for("Txt-KbLocation", "Text", |v| v.trim() == kb.display().to_string());
+    assert_eq!(folder.trim(), kb.display().to_string());
+    s.wait_for("Lbl-Status", "Caption", |v| v.contains("folder saved"));
+    s.pick("Lst-Models", 0);
+    s.click("Btn-Edit");
+    s.wait_for("Txt-Name", "Text", |v| v.trim() == "local-model");
+    s.click("Btn-Test");
+    let tested = s.wait_for("Lbl-Status", "Caption", |v| v.contains("Connection"));
+    assert_eq!(tested.trim(), "llama-test: Connection OK.", "the IDE's test, from the application");
+    s.click("Btn-Export");
+    let exported = s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Settings exported"));
+    let text = std::fs::read_to_string(&xml).unwrap();
+    assert!(text.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"), "{text}");
+    assert!(text.contains("<rag-settings application=\"PowerChat\" version=\"1\">"), "{text}");
+    assert!(text.contains("<model name=\"local-model\" provider=\"ollama\""), "{text}");
+    assert!(text.contains("model=\"llama-test\" tools=\"Y\" rank=\"5\"/>"), "{text}");
+    assert!(text.contains("<agent number=\"1\" model=\"local-model\"/>"), "{text}");
+    assert!(text.contains(&format!("<knowledge-base folder=\"{}\"/>", kb.display())), "{text}");
+    assert!(!text.contains("sk-POWERCHAT-secret"), "a key never goes into the file");
+    // The same file with one more model — hosted, so it needs a key, and
+    // named with an ampersand, so the escaping is exercised both ways.
+    let more = text.replace(
+        "  </models>",
+        "    <model name=\"R&amp;D-cloud\" provider=\"openai\" endpoint=\"https://api.openai.com/v1\" model=\"gpt-4o\" tools=\"Y\" rank=\"7\"/>\n  </models>",
+    );
+    std::fs::write(&xml2, more).unwrap();
+    s.click("Btn-Import");
+    let imported = s.wait_for("Lbl-Status", "Caption", |v| v.contains("imported"));
+    assert!(imported.starts_with("3 models imported."), "{imported}");
+    assert!(imported.contains("Set the API key of: R&D-cloud"), "{imported}");
+    s.quit();
+    report.push(format!(
+        "rag xml:   KB folder browsed; test OK; exported ({} bytes, no key); imported 3 models, R&D-cloud named for its key — {:.0} ms",
+        text.len(),
+        t.elapsed().as_secs_f64() * 1000.0
+    ));
+    let _ = exported;
 
     let sent = requests.lock().unwrap().clone();
 

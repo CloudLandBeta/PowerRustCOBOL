@@ -8,6 +8,54 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.213] — 2026-09-25
+
+### Feature — PowerChat, the operator's review: first run, embedded forms, the IDE's providers
+
+- **First run.** With no agent assigned a model, the menu is shut except RAG
+  settings and Chat (the way home), and the chat shows a welcome screen:
+  - the application's name at 84 pt, six times the form's 14;
+  - a chibi robot in white, grey, blue and black, with the PowerRustCOBOL
+    emblem on its chest (`assets/robot.svg`);
+  - four steps to follow.
+
+  The topics form is no longer forced open. Once one agent has a model, the
+  menu opens and the chat returns.
+- **Every form opens embedded** in the ContentPane from its menu row, never as
+  a window. The five forms are `FormFormat` Embedded and have no Close button.
+  Each refreshes itself on `onActivate`, and so does the chat when the operator
+  comes back to it.
+- **The menu is designed** in `SideMenu-1.menu.yaml`, so the designer and the
+  preview show it. It is relabelled in the current language and held shut
+  through the designed-row overlays of 1.70.210.
+- **RAG settings:**
+  - the Knowledge Base folder has a **…** button that opens the OS folder
+    window (1.70.211);
+  - agents are chosen in a ComboBox;
+  - the provider is chosen from the IDE's seventeen, the endpoint fills itself
+    in, and **Refresh models** lists what the provider offers;
+  - **Test connection** answers OK or what to fix, in the IDE's words
+    (1.70.212);
+  - **Export…** and **Import…** write and read `rag-settings.xml` through the
+    OS save and open windows. Keys are never written, and an import names the
+    models that still need one;
+  - every field explains itself in a tooltip (1.70.209), in all six languages.
+- **The status line reads "Status"** on every form, translated, instead of
+  showing its id.
+- **The forms keep the operator's dark restyle** made in the IDE on
+  2026-09-25. It is committed with them, as it lives in the same files.
+- **Tests:** `powerchat_runs` gains three steps: the first run (menu shut,
+  welcome shown), the configured chat (menu open, welcome gone), and the RAG
+  settings round trip (folder picked, test OK, export without keys, import of
+  3 models with the keyless one named). `powerchat_compiles` now checks the
+  designed menu, its actions, the relabelling, the shut rows and that no form
+  opens as a window.
+- **Found on the way, not fixed here:**
+  - `SetSelectedIndex` on a ComboBox does not move its `Value`, so PowerChat
+    sets `Value` itself;
+  - `ME::Close()` on an embedded form takes it off the pane without telling
+    the shell.
+
 ## [PowerRustCOBOL 1.70.212] — 2026-09-25
 
 ### Feature — the IDE's model providers, in a built application

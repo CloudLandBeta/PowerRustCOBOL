@@ -1,2 +1,43 @@
-menu: []
-hash: e607aa6448c00c4c0f4852df954d1b2d469f9657e5833c139c10f6e1e69d66fa
+menu:
+- id: chat
+  label: Chat
+  type: action
+  icon: chat
+  action: home
+  enabled: true
+- id: newc
+  label: New conversation
+  type: action
+  icon: plus
+  enabled: true
+- id: tpcs
+  label: Topics
+  type: action
+  icon: folder
+  action: open-form:topics-form
+  enabled: true
+- id: docs
+  label: Documents
+  type: action
+  icon: doc-text
+  action: open-form:documents-form
+  enabled: true
+- id: fils
+  label: Data files
+  type: action
+  icon: database
+  action: open-form:files-form
+  enabled: true
+- id: prmt
+  label: Prompt
+  type: action
+  icon: chat-dots
+  action: open-form:prompts-form
+  enabled: true
+- id: sett
+  label: RAG settings
+  type: action
+  icon: gear
+  action: open-form:settings-form
+  enabled: true
+hash: 2efcfab8a356bf7584ab7f241bb3cea31eff915aa3583aeb12861434dbb898d1

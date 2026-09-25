@@ -76,12 +76,40 @@ fn every_powerchat_form_generates_its_committed_program_and_compiles() {
 fn the_menu_hash_and_the_main_form_seal_are_valid() {
     let menu = cobolt_forms::menu::load_menu(&project().join("forms/SideMenu-1.menu.yaml"))
         .expect("the SideMenu's menu loads with a valid hash");
-    // R46: a designed row's label cannot change at run time, so the menu has
-    // none; the chat form adds its rows in the current language.
-    assert!(menu.menu.is_empty(), "the menu's rows are added at run time");
+    // The menu is designed, so the designer and the preview show it; the
+    // chat form relabels each row in the current language (R46) and holds
+    // the rows shut until an agent has a model. Every form row opens its
+    // form EMBEDDED in the ContentPane, by its designed action.
+    let designed: Vec<(&str, Option<&str>)> =
+        menu.menu.iter().map(|i| (i.id.as_str(), i.action.as_deref())).collect();
+    assert_eq!(
+        designed,
+        [
+            ("chat", Some("home")),
+            ("newc", None),
+            ("tpcs", Some("open-form:topics-form")),
+            ("docs", Some("open-form:documents-form")),
+            ("fils", Some("open-form:files-form")),
+            ("prmt", Some("open-form:prompts-form")),
+            ("sett", Some("open-form:settings-form")),
+        ]
+    );
     let chat = std::fs::read_to_string(project().join("generated/chat-form.cbl")).unwrap();
-    for id in ["chat", "newc", "tpcs", "docs", "fils", "prmt", "sett"] {
-        assert!(chat.contains(&format!("SideMenu-1::AddItem(\"{id}\"")), "the chat form adds menu row {id}");
+    for (id, _) in &designed {
+        assert!(chat.contains(&format!("SideMenu-1::SetItemLabel(\"{id}\"")), "the chat form labels menu row {id}");
+    }
+    for id in ["newc", "tpcs", "docs", "fils", "prmt"] {
+        assert!(chat.contains(&format!("SideMenu-1::SetItemEnabled(\"{id}\"")), "row {id} waits for a model");
+    }
+    assert!(!chat.contains("SetItemEnabled(\"sett\"") && !chat.contains("SetItemEnabled(\"chat\""),
+        "RAG settings and the way home are never shut");
+    assert!(!chat.contains("OpenFormSync"), "no form opens in a window of its own");
+    for rel in forms() {
+        let form = cobolt_forms::load_form(&project().join(&rel)).unwrap();
+        if !rel.ends_with("chat-form.cfrm") {
+            assert_eq!(form.form_format, cobolt_forms::model::FormFormat::Embedded, "{rel} opens in the ContentPane");
+            assert!(form.controls.iter().all(|c| c.id != "Btn-Close"), "{rel}: an embedded form has no Close button");
+        }
     }
 
     let manifest: toml::Value =

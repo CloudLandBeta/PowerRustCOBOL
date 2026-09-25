@@ -25,6 +25,7 @@ assets = [
     "assets/flags/fr.png",
     "assets/flags/jp.png",
     "assets/flags/cn.png",
+    "assets/robot.svg",
 ]
 documentation = []
 generated = [
