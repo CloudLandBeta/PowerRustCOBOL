@@ -4599,6 +4599,12 @@ abbreviations). A few you will use constantly:
 > `Caption`; TextBox uses `Text`; other controls use type-specific keys
 > (`Value`, `Items`, …).
 
+> **An empty Caption stays empty.** Clear a button's `Caption` to make it an
+> image-only button (an `IconPath` and nothing else): the image then has the
+> whole face. The emptied Caption is kept when the form is saved and opened
+> again. Before 1.70.221 it was lost on opening, and the button came back
+> labelled with its own id, a label that also crowded the image out.
+
 > **A Label's text can be selected and copied.** At run time a Label's `Caption`
 > is live text, not a picture of text: the operator drags across it to select,
 > and `Cmd`/`Ctrl`+`C` puts the selection on the clipboard. A drag that begins on

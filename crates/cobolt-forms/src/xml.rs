@@ -1248,6 +1248,14 @@ fn parse_control<R: std::io::BufRead>(
     loop {
         match next_owned(reader, buf)? {
             OwnedEvent::PropertyStart(name) => {
+                // An empty `<Property name="X"></Property>` carries no Text
+                // event, so without this the property vanished on load — and
+                // an emptied Caption came back as the control's id. (A legacy
+                // `Opacity` is migrated only from a real value: empty would
+                // read as 0 % opaque and hide the control.)
+                if !name.eq_ignore_ascii_case("Opacity") {
+                    ctrl.properties.insert(name.clone(), PropValue::String(String::new()));
+                }
                 current_prop = Some(name);
             }
             OwnedEvent::Text(text) => {
@@ -2243,6 +2251,31 @@ Actor Caption:string</Property>
     /// pasted form needs (control properties, the bound event's full COBOL
     /// body, form-level WS) survives a string round trip with no filesystem
     /// involved.
+    /// An emptied Caption stays empty through a save and a load. The empty
+    /// element used to be dropped on load, and a Button with no Caption draws
+    /// its id — so an image-only button came back labelled with its name, and
+    /// the label took the room its image needed.
+    #[test]
+    fn an_empty_property_survives_a_round_trip() {
+        let mut form = sample_form();
+        form.controls[0].set_prop("Caption", PropValue::String(String::new()));
+        let xml = form_to_string(&form).expect("form_to_string failed");
+        assert!(xml.contains(r#"<Property name="Caption"></Property>"#), "{xml}");
+        let loaded = load_form_from_str(&xml).expect("load_form_from_str failed");
+        assert_eq!(
+            loaded.controls[0].get_prop("Caption").map(|v| v.to_string()).as_deref(),
+            Some(""),
+            "the empty Caption is kept, not dropped"
+        );
+        // A legacy empty Opacity is not migrated into a 100 % Transparency.
+        let legacy = xml.replace(
+            r#"<Property name="Caption"></Property>"#,
+            r#"<Property name="Caption"></Property><Property name="Opacity"></Property>"#,
+        );
+        let loaded = load_form_from_str(&legacy).expect("loads");
+        assert!(loaded.controls[0].get_prop("Transparency").map_or(true, |v| v.as_i64() != 100));
+    }
+
     #[test]
     fn form_to_string_and_load_form_from_str_round_trip() {
         let form = sample_form();

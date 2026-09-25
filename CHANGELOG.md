@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.221] — 2026-09-25
+
+### Fix — an empty property was lost when a form was opened
+
+- The `.cfrm` reader stored a property only when its element carried text, so
+  `<Property name="Caption"></Property>` vanished on load. A Button with no
+  Caption draws its id: an image-only button came back labelled with its own
+  name, and that label took the room its image needed (PowerChat's flags
+  showed "Flag-en" and no flag). An empty property now loads as empty, on
+  every surface that reads a form: designer, Run Form, compiled application.
+- A legacy empty `Opacity` is still not migrated: it would have read as a
+  100 % `Transparency` and hidden the control.
+- Regression test: `xml::tests::an_empty_property_survives_a_round_trip`.
+
 ## [PowerRustCOBOL 1.70.220] — 2026-09-25
 
 ### Feature — PowerChat's RAG settings, grouped into four dialogs
