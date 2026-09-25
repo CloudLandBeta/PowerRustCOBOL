@@ -670,6 +670,9 @@ pub struct InspectorAction {
     pub open_toolbar_editor: Option<String>,
     /// Set when the data-binding editor creates a new form-level binding.
     pub create_data_binding: Option<DataBindingDef>,
+    /// Set when the data-binding editor removes the binding of this control
+    /// (its selection cleared, then applied) — the target control id.
+    pub remove_data_binding: Option<String>,
     /// `(old_id, new_id)` — set when the user renames the selected control in the
     /// Identity header. The caller renames it throughout the form.
     pub rename_control: Option<(String, String)>,
@@ -5354,6 +5357,7 @@ impl PropertiesPanel {
         let mut open = true;
         let mut close_editor = false;
         let mut apply_binding = false;
+        let mut remove_binding: Option<String> = None;
         egui::Window::new("Edit data binding settings")
             .id(egui::Id::new((
                 "data_binding_settings",
@@ -5456,6 +5460,18 @@ impl PropertiesPanel {
                             )
                             .clicked()
                         {
+                            // A cleared selection applied to a control that
+                            // HAS a saved binding removes that binding. It used
+                            // to fail validation ("a source must be selected"),
+                            // so a saved binding could never be removed.
+                            let has_saved = form.data_bindings.iter().any(|b| {
+                                b.target
+                                    .primary_control_id()
+                                    .eq_ignore_ascii_case(&editor.target_control_id)
+                            });
+                            if editor.selected_source.is_none() && has_saved {
+                                remove_binding = Some(editor.target_control_id.clone());
+                            } else {
                             match editor.validate() {
                                 Ok(()) => apply_binding = true,
                                 Err(err) => {
@@ -5465,6 +5481,7 @@ impl PropertiesPanel {
                                     crate::error_log::record(&err);
                                     editor.validation_error = Some(err);
                                 }
+                            }
                             }
                         }
                         if ui.button(tr.btn_cancel).clicked() {
@@ -5476,7 +5493,10 @@ impl PropertiesPanel {
         if !open {
             close_editor = true;
         }
-        if apply_binding {
+        if let Some(target) = remove_binding {
+            action.remove_data_binding = Some(target);
+            self.binding_editor = None;
+        } else if apply_binding {
             action.create_data_binding = self
                 .binding_editor
                 .as_ref()

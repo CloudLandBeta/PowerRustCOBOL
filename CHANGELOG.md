@@ -8,6 +8,22 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.227] — 2026-09-25
+
+### Fix — a saved data binding could not be removed
+
+- In the binding editor, **Clear selection** only reset the editor. Pressing
+  **Apply** afterwards failed with "A binding source must be selected.", so a
+  binding, once saved, stayed on the form for good. With no source chosen,
+  Apply on a control that has a saved binding now removes that binding. With
+  no saved binding, the message is unchanged.
+- The removal is one undoable step (`Cmd::RemoveDataBinding`: Undo restores
+  the bindings and the controls), in the designer and in the inline
+  Main-Pane inspector alike.
+- Test: `animations_and_data_bindings_are_undoable` now also removes, undoes
+  and redoes a binding.
+- Developer's Guide: how to remove a binding.
+
 ## [PowerRustCOBOL 1.70.226] — 2026-09-25
 
 ### Fix — a DataGrid bound to a COBOL table loads as the form opens

@@ -1222,6 +1222,13 @@ enum Cmd {
         before_bindings: Vec<cobolt_forms::DataBindingDef>,
         before_controls: Vec<Control>,
     },
+    /// Remove the binding whose target is `target_id` (the binding editor's
+    /// cleared selection, applied). Undo restores the bindings and controls.
+    RemoveDataBinding {
+        target_id: String,
+        before_bindings: Vec<cobolt_forms::DataBindingDef>,
+        before_controls: Vec<Control>,
+    },
     /// A MenuBar definition save. The menu lives in a YAML next to the .cfrm,
     /// so execute/reverse rewrite the file (`old: None` means the menu did not
     /// exist — undo removes the file) and queue a paint-cache refresh.
@@ -4090,6 +4097,11 @@ impl DesignerPanel {
                 crate::app::apply_data_binding_to_form(&mut self.form, binding.clone());
                 crate::app::seed_control_array_binding_preview_values(self, binding);
             }
+            Cmd::RemoveDataBinding { target_id, .. } => {
+                self.form
+                    .data_bindings
+                    .retain(|b| !b.target.primary_control_id().eq_ignore_ascii_case(target_id));
+            }
             Cmd::SetMenuDefinition {
                 control_id, new, ..
             } => {
@@ -4223,6 +4235,14 @@ impl DesignerPanel {
                 self.form.user_procedures.insert(idx, proc.clone());
             }
             Cmd::ApplyDataBinding {
+                before_bindings,
+                before_controls,
+                ..
+            } => {
+                self.form.data_bindings = before_bindings.clone();
+                self.form.controls = before_controls.clone();
+            }
+            Cmd::RemoveDataBinding {
                 before_bindings,
                 before_controls,
                 ..
@@ -6104,6 +6124,26 @@ impl DesignerPanel {
         let before_controls = self.form.controls.clone();
         self.apply(Cmd::ApplyDataBinding {
             binding,
+            before_bindings,
+            before_controls,
+        });
+    }
+
+    /// Remove the form-level binding that targets `target_id`, as an undoable
+    /// command. Nothing happens when the control has no binding.
+    pub fn remove_data_binding(&mut self, target_id: &str) {
+        if !self
+            .form
+            .data_bindings
+            .iter()
+            .any(|b| b.target.primary_control_id().eq_ignore_ascii_case(target_id))
+        {
+            return;
+        }
+        let before_bindings = self.form.data_bindings.clone();
+        let before_controls = self.form.controls.clone();
+        self.apply(Cmd::RemoveDataBinding {
+            target_id: target_id.to_owned(),
             before_bindings,
             before_controls,
         });
@@ -18399,6 +18439,18 @@ mod text_align_tests {
         assert!(d.form.data_bindings.is_empty(), "binding undoes");
         d.redo();
         assert_eq!(d.form.data_bindings.len(), 1, "binding redoes");
+
+        // Removing a saved binding: one undoable step too. A saved binding
+        // could not be removed at all before (operator, 2026-09-25).
+        d.remove_data_binding("lb");
+        assert!(d.form.data_bindings.is_empty(), "binding removed (id matched ignoring case)");
+        d.undo();
+        assert_eq!(d.form.data_bindings.len(), 1, "removal undoes");
+        d.redo();
+        assert!(d.form.data_bindings.is_empty(), "removal redoes");
+        d.undo();
+        d.remove_data_binding("NOT-BOUND");
+        assert_eq!(d.form.data_bindings.len(), 1, "a control with no binding: nothing happens");
     }
 
     /// Operator, 2026-07-29: undo/redo of a step that changes COBOL procedure

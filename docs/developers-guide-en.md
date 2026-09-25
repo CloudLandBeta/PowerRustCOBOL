@@ -2339,6 +2339,12 @@ or edit structured rows:
 - **Explicit control arrays** — maps fields to child control properties inside a
   repeating GroupBox or equivalent array contract.
 
+**Removing a binding.** Open the control's binding editor, press **Clear
+selection**, confirm, then press **Apply**. With no source chosen, Apply on a
+control that has a saved binding removes that binding, and **Undo** brings it
+back. Before 1.70.227 this Apply was refused with "A binding source must be
+selected.", so a saved binding could not be removed.
+
 Apart from the three scalar targets above, a standalone scalar control such as
 a single TextBox or Label does **not** expose data-binding information. If a scalar control belongs to an explicit control
 array, it can show only the array-owned mapping context; it cannot choose its own

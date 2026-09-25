@@ -6831,6 +6831,11 @@ impl CoboltApp {
                     pending_creds = std::mem::take(&mut action.set_credentials);
                     creds_form = st.designer.form.name.clone();
                 }
+                if let Some(target) = action.remove_data_binding {
+                    st.designer.remove_data_binding(&target);
+                    st.designer.dirty = true;
+                    changed = true;
+                }
                 if let Some(binding) = action.create_data_binding {
                     let b = binding.clone();
                     apply_data_binding_to_form(&mut st.designer.form, binding);
@@ -18136,6 +18141,10 @@ impl CoboltApp {
             if confirm || cancel {
                 self.designers[idx].1.confirm_pending_history(confirm);
             }
+        }
+        if let Some(target) = inspector_action.remove_data_binding {
+            // Undoable, like applying one.
+            self.designers[idx].1.remove_data_binding(&target);
         }
         if let Some(binding) = inspector_action.create_data_binding {
             // Undoable: the command snapshots the pre-apply bindings and
