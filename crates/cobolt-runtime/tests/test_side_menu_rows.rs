@@ -137,8 +137,8 @@ fn designed_rows_are_refused_and_items_is_never_written() {
            DISPLAY "RELABEL=" WS-OK.
            MOVE MENU-1::SetItemBadge("c1", "3") TO WS-OK.
            MOVE MENU-1::SetItemEnabled("c1", "0") TO WS-OK.
-           MOVE MENU-1::SetItemLabel("home", "X") TO WS-OK.
-           DISPLAY "RENAME-DESIGNED=" WS-OK.
+           MOVE MENU-1::SetItemIcon("home", "X") TO WS-OK.
+           DISPLAY "ICON-DESIGNED=" WS-OK.
            MOVE MENU-1::RemoveItem("docs") TO WS-OK.
            DISPLAY "REMOVE-DESIGNED=" WS-OK.
            MOVE MENU-1::AddItem("home", "Shadow") TO WS-OK.
@@ -158,7 +158,7 @@ fn designed_rows_are_refused_and_items_is_never_written() {
     let joined = out.join("\n");
     for (line, want) in [
         ("RELABEL=1", "a run-time row can be renamed"),
-        ("RENAME-DESIGNED=0", "a designed row cannot"),
+        ("ICON-DESIGNED=0", "a designed row's icon cannot"),
         ("REMOVE-DESIGNED=0", "nor removed"),
         ("SHADOW-DESIGNED=0", "nor replaced by a run-time row"),
         ("HAS-HOME=1", "HasItem answers for designed rows too"),
@@ -173,4 +173,41 @@ fn designed_rows_are_refused_and_items_is_never_written() {
         "a SideMenu has no Items; nothing may write it"
     );
     assert!(final_rows(&ups).is_empty(), "Clear() left no rows behind");
+}
+
+/// A menu designed in the RAD shows in the designer and the preview; the
+/// running program translates its labels and holds rows shut until the
+/// application is set up. `Clear()` removes the program's own rows and leaves
+/// what it set on the designed ones.
+#[test]
+fn a_designed_row_is_relabelled_and_disabled_and_clear_keeps_that() {
+    let (out, ups) = run(
+        r#"
+           MOVE MENU-1::SetItemLabel("home", "Início") TO WS-OK.
+           DISPLAY "LABEL-DESIGNED=" WS-OK.
+           MOVE MENU-1::SetItemEnabled("docs-new", "0") TO WS-OK.
+           DISPLAY "SHUT-NESTED=" WS-OK.
+           MOVE MENU-1::SetItemAction("home", "event") TO WS-OK.
+           DISPLAY "ACTION-DESIGNED=" WS-OK.
+           MOVE MENU-1::AddItem("c1", "Chat") TO WS-OK.
+           INVOKE MENU-1 "Clear".
+           MOVE MENU-1::GetCount() TO WS-I.
+           DISPLAY "AFTER-CLEAR=" WS-I.
+"#,
+    );
+    let joined = out.join("\n");
+    for (line, want) in [
+        ("LABEL-DESIGNED=1", "a designed row takes a label"),
+        ("SHUT-NESTED=1", "and a nested one can be shut"),
+        ("ACTION-DESIGNED=0", "but its action stays the developer's"),
+        ("AFTER-CLEAR=000", "the overlays are not counted as the program's rows"),
+    ] {
+        assert!(joined.contains(line), "{want}: {joined}");
+    }
+    let mut docs = MenuItem::new_action("docs", "Documents");
+    docs.items.push(MenuItem::new_action("docs-new", "New"));
+    let merged = merge_rows(&[MenuItem::new_action("home", "Home"), docs], &final_rows(&ups));
+    assert_eq!(merged.len(), 2, "no row added, and Clear() took c1: {merged:?}");
+    assert_eq!(merged[0].label, "Início", "the label survived Clear()");
+    assert!(!merged[1].items[0].enabled, "so did the shut row");
 }

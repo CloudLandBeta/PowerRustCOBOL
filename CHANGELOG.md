@@ -8,6 +8,35 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.210] — 2026-09-25
+
+### Feature — a SideMenu designed in the RAD can be translated and held shut at run time
+
+- **`SetItemLabel` and `SetItemEnabled` now reach a designed row.** Before,
+  they answered `0` for any row from the menu editor. So an application that
+  had to translate its menu, or keep it shut until it was set up, had to build
+  the whole menu at run time, and the designer and the preview showed none of
+  it.
+- **Everything else about a designed row stays fixed:** its place, id, icon,
+  badge and action. `SetItemIcon`, `SetItemBadge`, `SetItemAction`,
+  `RemoveItem` and a shadowing `AddItem` still answer `0`.
+- **How it travels:** as an overlay row in `RuntimeRows` that `merge_rows`
+  applies to the designed row in place, so the shell's rail and a window's
+  rail show the same menu.
+  - `Clear()` removes only the program's own rows and keeps the overlays.
+  - `GetCount()` counts only the program's own rows.
+  - A `RuntimeRows` value written before overlays existed still reads.
+- **Tests:**
+  - `a_designed_row_takes_a_label_and_an_enabled_flag_and_nothing_else`
+    (`cobolt-forms`)
+  - `a_designed_row_is_relabelled_and_disabled_and_clear_keeps_that`
+    (`cobolt-runtime`)
+  - The designed-row refusal test now checks `SetItemIcon`.
+- **Docs:** Developer's Guide (SideMenu run-time rows) and the System KB's
+  SideMenu description and method table; `chunked.data` regenerated.
+- **Sweep (release):** `cobolt-runtime`, `cobolt-form-host` and
+  `cobolt-forms`: 173 suites, 2321 tests, 0 failed.
+
 ## [PowerRustCOBOL 1.70.209] — 2026-09-25
 
 ### Fix — TextBox, ComboBox and CheckBox show their tooltip

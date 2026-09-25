@@ -16,8 +16,16 @@
 //!
 //! The operations here are pure — `(designed menu, rows) → rows or a refusal` —
 //! so the interpreter can answer a program synchronously ("did that work?")
-//! and they can be tested without one. A program may never remove, rename or
-//! shadow a designed row: those calls are refused, and the menu is unchanged.
+//! and they can be tested without one. A program may never remove or shadow a
+//! designed row, nor change its id, icon, badge or action: those calls are
+//! refused, and the menu is unchanged.
+//!
+//! Two things about a designed row ARE the program's to change: its **label**
+//! (so a menu designed in the RAD can follow the interface language) and
+//! whether it is **enabled** (so a menu can wait until the application is set
+//! up). They travel as an *overlay* row — a [`RuntimeRow`] with
+//! [`RuntimeRow::overlay`] set and the designed row's id — which [`merge_rows`]
+//! applies to that row in place instead of adding one.
 
 use super::{MenuItem, MenuItemType, MAX_DEPTH};
 use serde::{Deserialize, Serialize};
@@ -38,6 +46,10 @@ pub struct RuntimeRow {
     #[serde(default)]
     pub parent: Option<String>,
     pub item: MenuItem,
+    /// This row adjusts the DESIGNED row with the same id — its label and its
+    /// enabled flag — rather than being a row of its own.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub overlay: bool,
 }
 
 /// Why an operation left the menu as it was.
@@ -80,7 +92,13 @@ pub fn rows_json(rows: &[RuntimeRow]) -> String {
 /// that parent's last child; a row whose parent is gone is dropped.
 pub fn merge_rows(designed: &[MenuItem], rows: &[RuntimeRow]) -> Vec<MenuItem> {
     let mut merged = designed.to_vec();
-    for row in rows {
+    for row in rows.iter().filter(|r| r.overlay) {
+        if let Some(d) = find_mut(&mut merged, &row.item.id) {
+            d.label = row.item.label.clone();
+            d.enabled = row.item.enabled;
+        }
+    }
+    for row in rows.iter().filter(|r| !r.overlay) {
         let mut item = row.item.clone();
         item.items.clear();
         match &row.parent {
@@ -222,7 +240,7 @@ pub fn add_item(
             existing.item = item;
             existing.parent = parent;
         }
-        None => rows.push(RuntimeRow { parent, item }),
+        None => rows.push(RuntimeRow { parent, item, overlay: false }),
     }
     Ok(())
 }
@@ -237,7 +255,7 @@ pub fn add_section(designed: &[MenuItem], rows: &mut Vec<RuntimeRow>, title: &st
         .expect("an unbounded range always yields a free id");
     let mut item = MenuItem::new_separator(id.clone());
     item.label = title.trim().to_owned();
-    rows.push(RuntimeRow { parent: None, item });
+    rows.push(RuntimeRow { parent: None, item, overlay: false });
     id
 }
 
@@ -250,9 +268,66 @@ pub fn set_field(
 ) -> Result<(), Refusal> {
     let id = id.trim();
     guard_designed(designed, id)?;
-    let row = row_mut(rows, id).ok_or(Refusal::NoSuchRow)?;
+    let row = rows
+        .iter_mut()
+        .find(|r| !r.overlay && r.item.id == id)
+        .ok_or(Refusal::NoSuchRow)?;
     set(&mut row.item);
     Ok(())
+}
+
+/// Change a row's label — a designed row's too, which is how a menu designed
+/// in the RAD follows the interface language.
+pub fn set_label(
+    designed: &[MenuItem],
+    rows: &mut Vec<RuntimeRow>,
+    id: &str,
+    label: &str,
+) -> Result<(), Refusal> {
+    let label = label.to_owned();
+    set_presentation(designed, rows, id, move |i| i.label = label)
+}
+
+/// Enable or disable a row — a designed row's too, so a menu can stay shut
+/// until the application is set up.
+pub fn set_enabled(
+    designed: &[MenuItem],
+    rows: &mut Vec<RuntimeRow>,
+    id: &str,
+    enabled: bool,
+) -> Result<(), Refusal> {
+    set_presentation(designed, rows, id, move |i| i.enabled = enabled)
+}
+
+/// A run-time row is changed in place; a designed one gets (or updates) its
+/// overlay, which starts as a copy of the designed row so the field not being
+/// set keeps its designed value.
+fn set_presentation(
+    designed: &[MenuItem],
+    rows: &mut Vec<RuntimeRow>,
+    id: &str,
+    set: impl FnOnce(&mut MenuItem),
+) -> Result<(), Refusal> {
+    let id = id.trim();
+    let Some(original) = find(designed, id) else {
+        return set_field(designed, rows, id, set);
+    };
+    let at = match rows.iter().position(|r| r.overlay && r.item.id == id) {
+        Some(at) => at,
+        None => {
+            let mut item = original.clone();
+            item.items.clear();
+            rows.push(RuntimeRow { parent: None, item, overlay: true });
+            rows.len() - 1
+        }
+    };
+    set(&mut rows[at].item);
+    Ok(())
+}
+
+/// The rows the program added, without the overlays on designed rows.
+pub fn own_row_count(rows: &[RuntimeRow]) -> usize {
+    rows.iter().filter(|r| !r.overlay).count()
 }
 
 /// Remove a run-time row and every row under it.
@@ -321,7 +396,7 @@ mod tests {
         check("an unknown parent is refused", add_item(&d, &mut rows, "z", "Z", "", "nowhere", ""), Err(Refusal::NoSuchParent));
         check("an empty id is refused", add_item(&d, &mut rows, " ", "Z", "", "", ""), Err(Refusal::EmptyId));
         check("a row cannot hang under its own child", add_item(&d, &mut rows, "c1", "Chat 1", "", "c1a", ""), Err(Refusal::Cycle));
-        check("a designed row cannot be renamed", set_field(&d, &mut rows, "home", |i| i.label = "X".into()), Err(Refusal::DesignedRow));
+        check("a designed row's icon cannot be changed", set_field(&d, &mut rows, "home", |i| i.icon = Some("X".into())), Err(Refusal::DesignedRow));
         check("a designed row cannot be removed", remove_item(&d, &mut rows, "docs"), Err(Refusal::DesignedRow));
         check("relabel a run-time row", set_field(&d, &mut rows, "c1", |i| i.label = "Renamed".into()), Ok(()));
         check("an unknown row cannot be changed", set_field(&d, &mut rows, "nope", |i| i.enabled = false), Err(Refusal::NoSuchRow));
@@ -360,4 +435,44 @@ mod tests {
             println!("    {case:<42} → {got}");
         }
     }
+
+    /// A menu designed in the RAD shows in the designer and the preview, and
+    /// the running program still translates its labels and holds rows shut
+    /// until the application is set up. Nothing else about a designed row
+    /// moves: its place, id, icon and action are the developer's.
+    #[test]
+    fn a_designed_row_takes_a_label_and_an_enabled_flag_and_nothing_else() {
+        let d = designed();
+        let mut rows = Vec::new();
+        add_item(&d, &mut rows, "c1", "Chat 1", "", "", "").unwrap();
+
+        set_label(&d, &mut rows, "home", "Início").unwrap();
+        set_enabled(&d, &mut rows, "docs-new", false).unwrap();
+        set_enabled(&d, &mut rows, "home", false).unwrap();
+        set_label(&d, &mut rows, "c1", "Conversa 1").unwrap();
+        assert_eq!(set_label(&d, &mut rows, "nope", "X"), Err(Refusal::NoSuchRow));
+        assert_eq!(
+            set_field(&d, &mut rows, "home", |i| i.action = Some("x".into())),
+            Err(Refusal::DesignedRow),
+            "a designed row's action stays the developer's"
+        );
+
+        let merged = merge_rows(&d, &rows);
+        assert_eq!(ids(&merged), ["home", "docs", "docs/docs-new", "c1"], "an overlay adds no row");
+        assert_eq!((merged[0].label.as_str(), merged[0].enabled), ("Início", false), "both fields land, the second keeps the first");
+        assert_eq!(merged[0].icon, d[0].icon);
+        assert!(!merged[1].items[0].enabled, "a nested designed row can be shut too");
+        assert_eq!(merged[1].items[0].label, "New", "its label keeps the designed value");
+        assert_eq!(merged[2].label, "Conversa 1");
+        assert_eq!(own_row_count(&rows), 1, "the overlays are not rows of the program's");
+
+        // A round trip through the property, and an old value with no overlay
+        // field at all, both read back.
+        let back = parse_rows(&rows_json(&rows));
+        assert_eq!(back, rows);
+        let old = parse_rows(r#"[{"parent":null,"item":{"id":"c9","label":"Old","type":"action"}}]"#);
+        assert_eq!(old.len(), 1, "a value written before overlays existed still reads");
+        assert!(!old[0].overlay);
+    }
+
 }

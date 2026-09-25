@@ -10596,18 +10596,31 @@ disappear when the program ends. Nothing is written back to the menu file.
 |---|---|
 | `AddItem(id, label [, icon [, parent-id [, action]]])` | Adds a row, or replaces the row *you* added with that id, in place. `parent-id` hangs it under any row, designed or yours, up to three levels. `action` is what a designed row's action would be; empty means `onMenuItemClick` |
 | `AddSection(title)` | Adds a section title; answers its id |
-| `SetItemLabel` / `SetItemIcon` / `SetItemBadge` / `SetItemEnabled` / `SetItemAction` `(id, value)` | Change one of your rows |
+| `SetItemLabel` / `SetItemIcon` / `SetItemBadge` / `SetItemEnabled` / `SetItemAction` `(id, value)` | Change one of your rows. `SetItemLabel` and `SetItemEnabled` also reach a designed row |
 | `RemoveItem(id)` | Removes one of your rows and everything under it |
-| `Clear()` | Removes all of your rows; the designed menu stays |
+| `Clear()` | Removes all of your rows; the designed menu stays, with any label or state you gave it |
 | `GetCount()` / `HasItem(id)` | How many rows you added; whether an id exists at all |
 
 Every call that changes something answers `1` when it did and `0` when it did
 not, so a program can tell.
 
-> ⚠️ **The designed menu is yours at design time, not at run time.** A program
-> can never rename, remove or replace a row that came from the menu editor —
-> the call answers `0` and the menu is untouched. Give your own rows ids that
-> cannot collide with the designed ones (a prefix such as `CHAT-` is enough).
+> ⚠️ **The designed menu's structure is yours at design time, not at run
+> time.** A program can never remove or replace a row that came from the menu
+> editor, nor change its icon, badge or action — the call answers `0` and the
+> menu is untouched. Give your own rows ids that cannot collide with the
+> designed ones (a prefix such as `CHAT-` is enough).
+>
+> Two things about a designed row *are* the program's: its **label** and
+> whether it is **enabled**. That is what lets you design the whole menu in the
+> menu editor — so it shows in the designer and the preview — and still
+> translate it and keep it shut until the application is set up:
+>
+> ```cobol
+>            MOVE SIDEMENU-1::SetItemLabel("tpcs", T-MENU-TOPICS) TO WS-OK
+>            MOVE SIDEMENU-1::SetItemEnabled("tpcs", "0") TO WS-OK
+> ```
+>
+> A disabled row ignores clicks. `Clear()` leaves these settings in place.
 
 > **Note — actions and where the sidebar lives.** In the application shell a
 > row's action navigates, whether it was designed or added. A SideMenu on a

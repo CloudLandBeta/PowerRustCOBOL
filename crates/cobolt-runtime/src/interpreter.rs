@@ -13024,10 +13024,9 @@ impl Interpreter {
                 return Some(id);
             }
             "REMOVEITEM" => rt::remove_item(&designed, &mut rows, &arg(0)),
-            "SETITEMLABEL" => {
-                let v = arg(1);
-                rt::set_field(&designed, &mut rows, &arg(0), |i| i.label = v)
-            }
+            // A designed row's label and enabled flag are the program's too
+            // (a translated interface; a menu that waits for set-up).
+            "SETITEMLABEL" => rt::set_label(&designed, &mut rows, &arg(0), &arg(1)),
             "SETITEMICON" => {
                 let v = arg(1);
                 rt::set_field(&designed, &mut rows, &arg(0), |i| {
@@ -13040,22 +13039,20 @@ impl Interpreter {
                     i.badge = Some(v).filter(|s| !s.is_empty())
                 })
             }
-            "SETITEMENABLED" => {
-                let v = truthy(&arg(1));
-                rt::set_field(&designed, &mut rows, &arg(0), |i| i.enabled = v)
-            }
+            "SETITEMENABLED" => rt::set_enabled(&designed, &mut rows, &arg(0), truthy(&arg(1))),
             "SETITEMACTION" => {
                 let v = arg(1);
                 rt::set_field(&designed, &mut rows, &arg(0), |i| {
                     i.action = Some(if v.is_empty() { rt::DEFAULT_ACTION.to_owned() } else { v })
                 })
             }
-            // Only the program's rows: the designed menu is the developer's.
+            // Only the program's rows: the designed menu is the developer's,
+            // and so is what the program set on it (its labels, its state).
             "CLEAR" => {
-                rows.clear();
+                rows.retain(|r| r.overlay);
                 Ok(())
             }
-            "GETCOUNT" => return Some(rows.len().to_string()),
+            "GETCOUNT" => return Some(rt::own_row_count(&rows).to_string()),
             "HASITEM" => {
                 return Some(if rt::has_item(&designed, &rows, &arg(0)) { "1" } else { "0" }.into())
             }
