@@ -1,0 +1,1030 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="CHAT-FORM" title="PowerChat" width="1000" height="760" background="F2F4F5FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" main-form="true">
+  <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
+       01 WS-DATA-DIR        GLOBAL PIC X(200).
+       01 WS-SET-NAME        GLOBAL PIC X(20).
+       01 WS-SET-VALUE       GLOBAL PIC X(200).
+       01 WS-NOW             GLOBAL PIC X(21).
+       01 WS-EOF             GLOBAL PIC X.
+       01 WS-OK              GLOBAL PIC X(4).
+       01 WS-SETTINGS-PATH  GLOBAL PIC X(240).
+       01 WS-TOPICS-PATH  GLOBAL PIC X(240).
+       01 WS-CONVS-PATH  GLOBAL PIC X(240).
+       01 WS-TURNS-PATH  GLOBAL PIC X(240).
+       01 WS-MODELS-PATH  GLOBAL PIC X(240).
+       01 WS-CUR-TOPIC       GLOBAL PIC X(16).
+       01 WS-ALLOWED-TOPIC   GLOBAL PIC X(16).
+       01 WS-CUR-CONV        GLOBAL PIC X(16).
+       01 WS-SEQ             GLOBAL PIC 9(5) VALUE 0.
+       01 WS-ITEM            GLOBAL PIC X(40).
+       01 WS-ROW-ID          GLOBAL PIC X(17).
+       01 WS-QUESTION        GLOBAL PIC X(2000).
+       01 WS-REPLY           GLOBAL PIC X(2000).
+       01 WS-ROLE            GLOBAL PIC X.
+       01 WS-TEXT            GLOBAL PIC X(2000).
+       01 WS-MSG             GLOBAL PIC X(2100).
+      *>   The conversation so far, sent with each question (R41). An
+      *>   AgentObject remembers nothing between questions.
+       01 WS-PROMPT          GLOBAL PIC X(12000).
+       01 WS-PTR             GLOBAL PIC 9(5).
+       01 WS-HISTORY-TURNS   GLOBAL PIC 9(3) VALUE 10.
+       01 WS-FIRST-SEQ       GLOBAL PIC 9(5).
+       01 WS-LINE            GLOBAL PIC X(300).
+       01 WS-MONTH           GLOBAL PIC X(6).
+       01 WS-SUM-IN          GLOBAL PIC 9(12).
+       01 WS-SUM-OUT         GLOBAL PIC 9(12).
+       01 WS-SUM-CONVS       GLOBAL PIC 9(6).
+       01 WS-E1              GLOBAL PIC Z(11)9.
+       01 WS-E2              GLOBAL PIC Z(11)9.
+       01 WS-E3              GLOBAL PIC Z(5)9.
+       01 WS-TOKENS          GLOBAL PIC 9(9).
+       01 WS-CONV-COUNT      GLOBAL PIC 9(4).
+       01 WS-CONV-LIST       GLOBAL.
+          05 WS-CONV-ROW     OCCURS 50.
+             10 WS-CL-ID     PIC X(16).
+             10 WS-CL-TITLE  PIC X(60).
+       01 WS-I               GLOBAL PIC 9(4).
+]]></working-storage>
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+  <file-control><![CDATA[           SELECT SETTINGS-FILE ASSIGN TO WS-SETTINGS-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS SET-NAME
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT TOPICS-FILE ASSIGN TO WS-TOPICS-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS TOP-ID
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT CONVS-FILE ASSIGN TO WS-CONVS-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS CNV-ID
+               ALTERNATE RECORD KEY IS CNV-TOPIC WITH DUPLICATES
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT TURNS-FILE ASSIGN TO WS-TURNS-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS TRN-KEY
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT MODELS-FILE ASSIGN TO WS-MODELS-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS MDL-NAME
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+]]></file-control>
+  <file-section><![CDATA[       FD  SETTINGS-FILE IS GLOBAL.
+       01  SETTINGS-REC.
+           05 SET-NAME          PIC X(20).
+           05 SET-VALUE         PIC X(200).
+       FD  TOPICS-FILE IS GLOBAL.
+       01  TOPIC-REC.
+           05 TOP-ID            PIC X(16).
+           05 TOP-NAME          PIC X(40).
+           05 TOP-PROMPT        PIC X(1000).
+           05 TOP-CREATED       PIC X(14).
+       FD  CONVS-FILE IS GLOBAL.
+       01  CONV-REC.
+           05 CNV-ID            PIC X(16).
+           05 CNV-TOPIC         PIC X(16).
+           05 CNV-TITLE         PIC X(60).
+           05 CNV-CREATED       PIC X(14).
+           05 CNV-IN-TOKENS     PIC 9(9).
+           05 CNV-OUT-TOKENS    PIC 9(9).
+           05 CNV-TURNS         PIC 9(5).
+       FD  TURNS-FILE IS GLOBAL.
+       01  TURN-REC.
+           05 TRN-KEY.
+              10 TRN-CONV       PIC X(16).
+              10 TRN-SEQ        PIC 9(5).
+           05 TRN-ROLE          PIC X.
+           05 TRN-TEXT          PIC X(2000).
+       FD  MODELS-FILE IS GLOBAL.
+       01  MODEL-REC.
+           05 MDL-NAME          PIC X(30).
+           05 MDL-API           PIC X(12).
+           05 MDL-URL           PIC X(200).
+           05 MDL-MODEL         PIC X(80).
+]]></file-section>
+  <user-procedures>
+    <Event name="PC-PATHS" paragraph="PC-PATHS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Where PowerChat keeps its own files: POWERCHAT_DATA, else "data".
+           DISPLAY "POWERCHAT_DATA" UPON ENVIRONMENT-NAME
+           ACCEPT WS-DATA-DIR FROM ENVIRONMENT-VALUE
+           IF WS-DATA-DIR = SPACES
+               MOVE "data" TO WS-DATA-DIR
+           END-IF
+           MOVE SPACES TO WS-SETTINGS-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/settings.idx"
+               DELIMITED BY SIZE INTO WS-SETTINGS-PATH
+           MOVE SPACES TO WS-TOPICS-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/topics.idx"
+               DELIMITED BY SIZE INTO WS-TOPICS-PATH
+           MOVE SPACES TO WS-CONVS-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/convs.idx"
+               DELIMITED BY SIZE INTO WS-CONVS-PATH
+           MOVE SPACES TO WS-TURNS-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/turns.idx"
+               DELIMITED BY SIZE INTO WS-TURNS-PATH
+           MOVE SPACES TO WS-MODELS-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/models.idx"
+               DELIMITED BY SIZE INTO WS-MODELS-PATH
+]]></Event>
+    <Event name="PC-SETTING-GET" paragraph="PC-SETTING-GET"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-SET-NAME in, WS-SET-VALUE out (spaces when the setting is unset).
+           MOVE SPACES TO WS-SET-VALUE
+           OPEN I-O SETTINGS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT SETTINGS-FILE
+               CLOSE SETTINGS-FILE
+               OPEN I-O SETTINGS-FILE
+           END-IF
+           MOVE WS-SET-NAME TO SET-NAME
+           READ SETTINGS-FILE
+               INVALID KEY CONTINUE
+               NOT INVALID KEY MOVE SET-VALUE TO WS-SET-VALUE
+           END-READ
+           CLOSE SETTINGS-FILE
+]]></Event>
+    <Event name="PC-SETTING-PUT" paragraph="PC-SETTING-PUT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-SET-NAME, WS-SET-VALUE in. Written and committed at once (R10f).
+           OPEN I-O SETTINGS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT SETTINGS-FILE
+               CLOSE SETTINGS-FILE
+               OPEN I-O SETTINGS-FILE
+           END-IF
+           MOVE WS-SET-NAME TO SET-NAME
+           MOVE WS-SET-VALUE TO SET-VALUE
+           WRITE SETTINGS-REC
+               INVALID KEY REWRITE SETTINGS-REC
+           END-WRITE
+           COMMIT
+           CLOSE SETTINGS-FILE
+]]></Event>
+    <Event name="PC-HAND-MODELS" paragraph="PC-HAND-MODELS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The model list is ours, in MODELS; the runtime holds it for this run
+      *>   only, so it is handed over at start-up and after every edit (076).
+           OPEN I-O MODELS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT MODELS-FILE
+               CLOSE MODELS-FILE
+               OPEN I-O MODELS-FILE
+           END-IF
+           MOVE LOW-VALUES TO MDL-NAME
+           MOVE "N" TO WS-EOF
+           START MODELS-FILE KEY IS >= MDL-NAME
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ MODELS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       CALL "COBOL-MODEL-SET"
+                           USING MDL-NAME MDL-API MDL-URL MDL-MODEL
+               END-READ
+           END-PERFORM
+           CLOSE MODELS-FILE
+           MOVE "MODEL-ENTRY" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           MOVE WS-SET-VALUE TO AGENT-1::ModelEntry
+           MOVE "KB-LOCATION" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           IF WS-SET-VALUE NOT = SPACES
+               MOVE WS-SET-VALUE TO KB-1::Location
+           END-IF
+]]></Event>
+    <Event name="PC-LOAD-TOPIC" paragraph="PC-LOAD-TOPIC"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The selected topic decides everything the agent may use: its system
+      *>   prompt and its Knowledge Base collection, and nothing else (R7).
+           MOVE "CUR-TOPIC" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           MOVE WS-SET-VALUE(1:16) TO WS-CUR-TOPIC
+           IF WS-CUR-TOPIC = SPACES
+               MOVE "No topic - open Topics to create one." TO Lbl-Topic::Caption
+               EXIT PROGRAM
+           END-IF
+           OPEN I-O TOPICS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TOPICS-FILE
+               CLOSE TOPICS-FILE
+               OPEN I-O TOPICS-FILE
+           END-IF
+           MOVE WS-CUR-TOPIC TO TOP-ID
+           READ TOPICS-FILE
+               INVALID KEY
+                   MOVE SPACES TO WS-CUR-TOPIC
+                   MOVE "That topic no longer exists - open Topics." TO Lbl-Topic::Caption
+           END-READ
+           CLOSE TOPICS-FILE
+           IF WS-CUR-TOPIC = SPACES
+               EXIT PROGRAM
+           END-IF
+           MOVE TOP-NAME TO Lbl-Topic::Caption
+           MOVE TOP-PROMPT TO AGENT-1::SystemPrompt
+           MOVE WS-CUR-TOPIC TO KB-1::Collection
+           IF WS-ALLOWED-TOPIC NOT = SPACES AND WS-ALLOWED-TOPIC NOT = WS-CUR-TOPIC
+               MOVE AGENT-1::DenyKnowledgeBase("KB-1", WS-ALLOWED-TOPIC) TO WS-OK
+           END-IF
+           MOVE AGENT-1::AllowKnowledgeBase("KB-1", WS-CUR-TOPIC) TO WS-OK
+           MOVE WS-CUR-TOPIC TO WS-ALLOWED-TOPIC
+]]></Event>
+    <Event name="PC-NEW-CONV" paragraph="PC-NEW-CONV"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE SPACES TO WS-CUR-CONV
+           MOVE 0 TO WS-SEQ
+           MOVE Vwr-Chat::NewConversation() TO WS-OK
+]]></Event>
+    <Event name="PC-LIST-CONVS" paragraph="PC-LIST-CONVS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The topic's conversations as run-time rows, newest first (R39).
+           MOVE 0 TO WS-CONV-COUNT
+           OPEN I-O CONVS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT CONVS-FILE
+               CLOSE CONVS-FILE
+               OPEN I-O CONVS-FILE
+           END-IF
+           MOVE WS-CUR-TOPIC TO CNV-TOPIC
+           MOVE "N" TO WS-EOF
+           START CONVS-FILE KEY IS = CNV-TOPIC
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ CONVS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       IF CNV-TOPIC NOT = WS-CUR-TOPIC
+                           MOVE "Y" TO WS-EOF
+                       ELSE
+                           IF WS-CONV-COUNT < 50
+                               ADD 1 TO WS-CONV-COUNT
+                           ELSE
+                               PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 49
+                                   MOVE WS-CONV-ROW(WS-I + 1) TO WS-CONV-ROW(WS-I)
+                               END-PERFORM
+                           END-IF
+                           MOVE CNV-ID TO WS-CL-ID(WS-CONV-COUNT)
+                           MOVE CNV-TITLE TO WS-CL-TITLE(WS-CONV-COUNT)
+                       END-IF
+               END-READ
+           END-PERFORM
+           CLOSE CONVS-FILE
+           MOVE SideMenu-1::Clear() TO WS-OK
+           IF WS-CONV-COUNT > 0
+               MOVE SideMenu-1::AddSection("Conversations") TO WS-ITEM
+      *>       Row ids are "c" + the conversation id, apart from the menu's own.
+               PERFORM VARYING WS-I FROM WS-CONV-COUNT BY -1 UNTIL WS-I < 1
+                   MOVE SPACES TO WS-ROW-ID
+                   STRING "c" WS-CL-ID(WS-I) DELIMITED BY SIZE INTO WS-ROW-ID
+                   MOVE SideMenu-1::AddItem(WS-ROW-ID,
+                        FUNCTION TRIM(WS-CL-TITLE(WS-I)), "chat") TO WS-OK
+               END-PERFORM
+           END-IF
+]]></Event>
+    <Event name="PC-STATUS" paragraph="PC-STATUS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   This month's input and output tokens and conversations (R42).
+           MOVE FUNCTION CURRENT-DATE TO WS-NOW
+           MOVE WS-NOW(1:6) TO WS-MONTH
+           MOVE 0 TO WS-SUM-IN WS-SUM-OUT WS-SUM-CONVS
+           OPEN I-O CONVS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT CONVS-FILE
+               CLOSE CONVS-FILE
+               OPEN I-O CONVS-FILE
+           END-IF
+           MOVE LOW-VALUES TO CNV-ID
+           MOVE "N" TO WS-EOF
+           START CONVS-FILE KEY IS >= CNV-ID
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ CONVS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       IF CNV-CREATED(1:6) = WS-MONTH
+                           ADD 1 TO WS-SUM-CONVS
+                           ADD CNV-IN-TOKENS TO WS-SUM-IN
+                           ADD CNV-OUT-TOKENS TO WS-SUM-OUT
+                       END-IF
+               END-READ
+           END-PERFORM
+           CLOSE CONVS-FILE
+           MOVE WS-SUM-IN TO WS-E1
+           MOVE WS-SUM-OUT TO WS-E2
+           MOVE WS-SUM-CONVS TO WS-E3
+           MOVE SPACES TO WS-LINE
+           STRING "This month: " FUNCTION TRIM(WS-E3) " conversation(s), "
+                  FUNCTION TRIM(WS-E1) " input and " FUNCTION TRIM(WS-E2)
+                  " output tokens."
+               DELIMITED BY SIZE INTO WS-LINE
+           MOVE WS-LINE TO Lbl-Status::Caption
+]]></Event>
+    <Event name="PC-SAVE-TURN" paragraph="PC-SAVE-TURN"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-ROLE ("U" or "A") and WS-TEXT in: the next turn of the current
+      *>   conversation, written and committed at once (R38, R10f).
+           ADD 1 TO WS-SEQ
+           OPEN I-O TURNS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TURNS-FILE
+               CLOSE TURNS-FILE
+               OPEN I-O TURNS-FILE
+           END-IF
+           MOVE WS-CUR-CONV TO TRN-CONV
+           MOVE WS-SEQ TO TRN-SEQ
+           MOVE WS-ROLE TO TRN-ROLE
+           MOVE WS-TEXT TO TRN-TEXT
+           WRITE TURN-REC
+               INVALID KEY REWRITE TURN-REC
+           END-WRITE
+           COMMIT
+           CLOSE TURNS-FILE
+]]></Event>
+    <Event name="PC-START-CONV" paragraph="PC-START-CONV"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A conversation is created by its first question, titled by it.
+           IF WS-CUR-CONV NOT = SPACES
+               EXIT PROGRAM
+           END-IF
+           MOVE FUNCTION CURRENT-DATE TO WS-NOW
+           MOVE WS-NOW(1:16) TO WS-CUR-CONV
+           MOVE 0 TO WS-SEQ
+           OPEN I-O CONVS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT CONVS-FILE
+               CLOSE CONVS-FILE
+               OPEN I-O CONVS-FILE
+           END-IF
+           MOVE WS-CUR-CONV TO CNV-ID
+           MOVE WS-CUR-TOPIC TO CNV-TOPIC
+           MOVE WS-QUESTION TO CNV-TITLE
+           MOVE WS-NOW(1:14) TO CNV-CREATED
+           MOVE 0 TO CNV-IN-TOKENS CNV-OUT-TOKENS CNV-TURNS
+           WRITE CONV-REC
+               INVALID KEY CONTINUE
+           END-WRITE
+           COMMIT
+           CLOSE CONVS-FILE
+           CALL "PC-LIST-CONVS"
+]]></Event>
+    <Event name="PC-BUILD-PROMPT" paragraph="PC-BUILD-PROMPT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The last WS-HISTORY-TURNS turns of this conversation, oldest first,
+      *>   the current question last. Trimmed by turns, not tokens.
+           MOVE SPACES TO WS-PROMPT
+           MOVE 1 TO WS-PTR
+           IF WS-SEQ > WS-HISTORY-TURNS
+               COMPUTE WS-FIRST-SEQ = WS-SEQ - WS-HISTORY-TURNS + 1
+           ELSE
+               MOVE 1 TO WS-FIRST-SEQ
+           END-IF
+           OPEN I-O TURNS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TURNS-FILE
+               CLOSE TURNS-FILE
+               OPEN I-O TURNS-FILE
+           END-IF
+           MOVE WS-CUR-CONV TO TRN-CONV
+           MOVE WS-FIRST-SEQ TO TRN-SEQ
+           MOVE "N" TO WS-EOF
+           START TURNS-FILE KEY IS >= TRN-KEY
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ TURNS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       IF TRN-CONV NOT = WS-CUR-CONV
+                           MOVE "Y" TO WS-EOF
+                       ELSE
+                           IF TRN-ROLE = "U"
+                               STRING "User: " FUNCTION TRIM(TRN-TEXT) X"0A"
+                                   DELIMITED BY SIZE INTO WS-PROMPT
+                                   WITH POINTER WS-PTR
+                               END-STRING
+                           ELSE
+                               STRING "Assistant: " FUNCTION TRIM(TRN-TEXT) X"0A"
+                                   DELIMITED BY SIZE INTO WS-PROMPT
+                                   WITH POINTER WS-PTR
+                               END-STRING
+                           END-IF
+                       END-IF
+               END-READ
+           END-PERFORM
+           CLOSE TURNS-FILE
+]]></Event>
+    <Event name="PC-OPEN-CONV" paragraph="PC-OPEN-CONV"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-ITEM in: a conversation row from the sidebar ("c" + its id). Its turns go back
+      *>   into the chat, and the next question continues it (R40).
+           MOVE WS-ITEM(2:16) TO WS-CUR-CONV
+           MOVE 0 TO WS-SEQ
+           MOVE Vwr-Chat::NewConversation() TO WS-OK
+           OPEN I-O TURNS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TURNS-FILE
+               CLOSE TURNS-FILE
+               OPEN I-O TURNS-FILE
+           END-IF
+           MOVE WS-CUR-CONV TO TRN-CONV
+           MOVE 0 TO TRN-SEQ
+           MOVE "N" TO WS-EOF
+           START TURNS-FILE KEY IS >= TRN-KEY
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ TURNS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       IF TRN-CONV NOT = WS-CUR-CONV
+                           MOVE "Y" TO WS-EOF
+                       ELSE
+                           MOVE TRN-SEQ TO WS-SEQ
+                           MOVE SPACES TO WS-MSG
+                           IF TRN-ROLE = "U"
+                               STRING "**You:** " FUNCTION TRIM(TRN-TEXT)
+                                   DELIMITED BY SIZE INTO WS-MSG
+                           ELSE
+                               MOVE TRN-TEXT TO WS-MSG
+                           END-IF
+                           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG)) TO WS-OK
+                       END-IF
+               END-READ
+           END-PERFORM
+           CLOSE TURNS-FILE
+]]></Event>
+    <Event name="PC-PICK-TOPIC" paragraph="PC-PICK-TOPIC"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE ME::"OpenFormSync"("TOPICS-FORM")
+           CALL "PC-LOAD-TOPIC"
+           CALL "PC-NEW-CONV"
+           CALL "PC-LIST-CONVS"
+]]></Event>
+  </user-procedures>
+  <form-events>
+    <Event name="onLoad" paragraph="CHAT-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-PATHS"
+           CALL "PC-HAND-MODELS"
+           MOVE SPACES TO WS-ALLOWED-TOPIC
+           CALL "PC-LOAD-TOPIC"
+           IF WS-CUR-TOPIC = SPACES
+      *>       No topic yet: the application opens on the topics (R4).
+               CALL "PC-PICK-TOPIC"
+           ELSE
+               CALL "PC-NEW-CONV"
+               CALL "PC-LIST-CONVS"
+           END-IF
+           CALL "PC-STATUS"
+]]></Event>
+    <Event name="onClose" paragraph="CHAT-FORM--ONCLOSE">
+    </Event>
+  </form-events>
+  <Control id="SideMenu-1" type="SideMenu" x="0" y="0" w="264" h="760" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#E1E6FA</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="HighlightBgColor">#4488FF</Property>
+    <Property name="HighlightFgColor">#FFFFFF</Property>
+    <Property name="SelectedBgColor">#3366CC</Property>
+    <Property name="SelectedFgColor">#FFFFFF</Property>
+    <Property name="FullHeight">true</Property>
+    <Property name="Collapsed">false</Property>
+    <Property name="IconEffect">None</Property>
+    <Property name="IconSize">22</Property>
+    <Property name="IconSizeCollapsed">22</Property>
+    <Property name="CollapsedWidth">48</Property>
+    <Property name="AppTitle"></Property>
+    <Property name="HeaderHeight">120</Property>
+    <Property name="FooterHeight">72</Property>
+    <Property name="BreadcrumbHeight">28</Property>
+    <Property name="BreadcrumbBackgroundColor"></Property>
+    <Property name="BreadcrumbTextAlign">Middle</Property>
+    <Property name="BreadcrumbFontSize">0</Property>
+    <Property name="BreadcrumbIconSize">0</Property>
+    <Property name="HeaderImage"></Property>
+    <Property name="HeaderIcon"></Property>
+    <Event name="onMenuItemClick" paragraph="SIDEMENU-1--ONMENUITEMCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE SideMenu-1::SelectedItemId TO WS-ITEM
+           EVALUATE WS-ITEM
+               WHEN "chat"
+                   CONTINUE
+               WHEN "tpcs"
+                   CALL "PC-PICK-TOPIC"
+               WHEN "docs"
+                   INVOKE ME::"OpenFormSync"("DOCUMENTS-FORM")
+               WHEN "sett"
+                   INVOKE ME::"OpenFormSync"("SETTINGS-FORM")
+                   CALL "PC-HAND-MODELS"
+               WHEN "newc"
+                   CALL "PC-NEW-CONV"
+               WHEN OTHER
+                   IF WS-ITEM(1:1) = "c"
+                       CALL "PC-OPEN-CONV"
+                   END-IF
+           END-EVALUATE
+           CALL "PC-STATUS"
+]]></Event>
+  </Control>
+  <Control id="Lbl-Topic" type="Label" x="288" y="16" w="688" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="FontSize">20</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Caption">Lbl-Topic</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+  </Control>
+  <Control id="Lbl-Status" type="Label" x="288" y="50" w="688" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Caption">Lbl-Status</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+  </Control>
+  <Control id="Vwr-Chat" type="Viewer" x="288" y="80" w="688" h="528" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Format"></Property>
+    <Property name="Layout">Page</Property>
+    <Property name="Fullscreen">false</Property>
+    <Property name="SplitMode">None</Property>
+    <Property name="SplitPercent">50</Property>
+    <Property name="RenderAsHtml">true</Property>
+    <Property name="HistoryList"></Property>
+    <Property name="Progress">0</Property>
+    <Property name="LastError"></Property>
+    <Property name="View1Source"></Property>
+    <Property name="View1Page">1</Property>
+    <Property name="View1Zoom">100</Property>
+    <Property name="View1ViewMode">Full</Property>
+    <Property name="View1CardSize">55</Property>
+    <Property name="View1ShowFilmstrip">false</Property>
+    <Property name="View1ScrollPosition">0</Property>
+    <Property name="View1SearchText"></Property>
+    <Property name="View1SearchCaseSensitive">false</Property>
+    <Property name="View1SearchHighlightEnabled">true</Property>
+    <Property name="View1SearchCurrentMatch">0</Property>
+    <Property name="View1SearchMatchCount">0</Property>
+    <Property name="View1FindOpen">false</Property>
+    <Property name="View2Source"></Property>
+    <Property name="View2Page">1</Property>
+    <Property name="View2Zoom">100</Property>
+    <Property name="View2ViewMode">Full</Property>
+    <Property name="View2CardSize">55</Property>
+    <Property name="View2ShowFilmstrip">false</Property>
+    <Property name="View2ScrollPosition">0</Property>
+    <Property name="View2SearchText"></Property>
+    <Property name="View2SearchCaseSensitive">false</Property>
+    <Property name="View2SearchHighlightEnabled">true</Property>
+    <Property name="View2SearchCurrentMatch">0</Property>
+    <Property name="View2SearchMatchCount">0</Property>
+    <Property name="View2FindOpen">false</Property>
+  </Control>
+  <Control id="Txt-Input" type="TextBox" x="288" y="620" w="568" h="112" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="HintText">Ask about this topic</Property>
+    <Property name="Multiline">true</Property>
+    <Property name="ScrollBars">Vertical</Property>
+    <Property name="MaximumLength">2000</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="AutoEnter">false</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Fixed3D</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Text"></Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="Picture"></Property>
+    <Property name="PasswordCharacter"></Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderColor">#AAAAAA</Property>
+  </Control>
+  <Control id="Btn-Send" type="Button" x="868" y="620" w="108" h="112" tab-order="2" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Send</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="BTN-SEND--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE Txt-Input::Text TO WS-QUESTION
+           IF WS-QUESTION = SPACES
+               EXIT PROGRAM
+           END-IF
+           IF WS-CUR-TOPIC = SPACES
+               MOVE Vwr-Chat::AppendMarkdown("Open a topic first - **Topics** in the menu.") TO WS-OK
+               EXIT PROGRAM
+           END-IF
+           CALL "PC-START-CONV"
+           MOVE "U" TO WS-ROLE
+           MOVE WS-QUESTION TO WS-TEXT
+           CALL "PC-SAVE-TURN"
+           MOVE SPACES TO WS-MSG
+           STRING "**You:** " FUNCTION TRIM(WS-QUESTION) DELIMITED BY SIZE INTO WS-MSG
+           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG)) TO WS-OK
+           MOVE SPACES TO Txt-Input::Text
+           CALL "PC-BUILD-PROMPT"
+           MOVE AGENT-1::Ask(FUNCTION TRIM(WS-PROMPT)) TO WS-OK
+           MOVE "Thinking..." TO Lbl-Status::Caption
+]]></Event>
+  </Control>
+  <Control id="AGENT-1" type="AgentObject" x="1000" y="16" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="TimeoutSeconds">120</Property>
+    <Property name="MaximumTokens">1024</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ToolProtocol">Native</Property>
+    <Property name="MaximumToolRounds">8</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Configuration"></Property>
+    <Property name="ModelEntry"></Property>
+    <Property name="AgentURL">http://localhost:11434</Property>
+    <Property name="AgentModel">llama3.2</Property>
+    <Property name="AgentAPI">Ollama</Property>
+    <Property name="AgentAPIKey"></Property>
+    <Property name="AgentEndpoint"></Property>
+    <Property name="SystemPrompt">You are a helpful assistant.</Property>
+    <Property name="Temperature">70</Property>
+    <Property name="Stream">true</Property>
+    <Property name="TargetControls"></Property>
+    <Property name="ResponseDataItem"></Property>
+    <Property name="Verbose">false</Property>
+    <Event name="onResponse" paragraph="AGENT-1--ONRESPONSE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE AGENT-1::LastReply TO WS-REPLY
+           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-REPLY)) TO WS-OK
+           MOVE Vwr-Chat::JumpToLatest() TO WS-OK
+           MOVE "A" TO WS-ROLE
+           MOVE WS-REPLY TO WS-TEXT
+           CALL "PC-SAVE-TURN"
+      *>   Token counts, per conversation (R42).
+           OPEN I-O CONVS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT CONVS-FILE
+               CLOSE CONVS-FILE
+               OPEN I-O CONVS-FILE
+           END-IF
+           MOVE WS-CUR-CONV TO CNV-ID
+           READ CONVS-FILE
+               INVALID KEY CONTINUE
+               NOT INVALID KEY
+                   MOVE AGENT-1::LastInputTokens TO WS-TOKENS
+                   ADD WS-TOKENS TO CNV-IN-TOKENS
+                   MOVE AGENT-1::LastOutputTokens TO WS-TOKENS
+                   ADD WS-TOKENS TO CNV-OUT-TOKENS
+                   MOVE WS-SEQ TO CNV-TURNS
+                   REWRITE CONV-REC
+                   END-REWRITE
+                   COMMIT
+           END-READ
+           CLOSE CONVS-FILE
+           CALL "PC-STATUS"
+]]></Event>
+    <Event name="onError" paragraph="AGENT-1--ONERROR"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE AGENT-1::LastError TO WS-TEXT
+           MOVE SPACES TO WS-MSG
+           STRING "**The assistant could not answer:** " FUNCTION TRIM(WS-TEXT)
+               DELIMITED BY SIZE INTO WS-MSG
+           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG)) TO WS-OK
+           MOVE "The last question failed." TO Lbl-Status::Caption
+]]></Event>
+    <Event name="onModelChanged" paragraph="AGENT-1--ONMODELCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The model this chat uses was changed in the settings (076).
+           MOVE "The model settings changed; the next question uses them." TO Lbl-Status::Caption
+]]></Event>
+  </Control>
+  <Control id="KB-1" type="KnowledgeBase" x="1000" y="80" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Location">assets/KB</Property>
+    <Property name="Collection"></Property>
+    <Property name="Embedder">Lexical</Property>
+    <Property name="Configuration"></Property>
+    <Property name="ModelEntry"></Property>
+    <Property name="EmbeddingURL">http://localhost:11434</Property>
+    <Property name="EmbeddingAPI">Ollama</Property>
+    <Property name="EmbeddingModel">nomic-embed-text</Property>
+    <Property name="EmbeddingAPIKey"></Property>
+    <Property name="WriteWaitMilliseconds">5000</Property>
+    <Property name="MaximumResults">5</Property>
+    <Property name="ArchiveMaximumMegabytes">500</Property>
+    <Property name="ArchiveMaximumFiles">10000</Property>
+    <Property name="ArchiveMaximumDepth">3</Property>
+  </Control>
+</Form>

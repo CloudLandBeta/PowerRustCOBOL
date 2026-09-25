@@ -1,0 +1,1264 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="SETTINGS-FORM" title="PowerChat - RAG settings" width="680" height="592" background="F2F4F5FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
+  <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
+       01 WS-DATA-DIR        GLOBAL PIC X(200).
+       01 WS-SET-NAME        GLOBAL PIC X(20).
+       01 WS-SET-VALUE       GLOBAL PIC X(200).
+       01 WS-NOW             GLOBAL PIC X(21).
+       01 WS-EOF             GLOBAL PIC X.
+       01 WS-OK              GLOBAL PIC X(4).
+       01 WS-SETTINGS-PATH  GLOBAL PIC X(240).
+       01 WS-MODELS-PATH  GLOBAL PIC X(240).
+       01 WS-MODEL-COUNT     GLOBAL PIC 9(4) VALUE 0.
+       01 WS-MODEL-NAMES     GLOBAL.
+          05 WS-MODEL-NAME   PIC X(30) OCCURS 200.
+       01 WS-INDEX           GLOBAL PIC S9(4).
+       01 WS-ACTIVE          GLOBAL PIC X(30).
+       01 WS-KEY-FLAG        GLOBAL PIC X.
+       01 WS-KEY             GLOBAL PIC X(300).
+       01 WS-STATUS          GLOBAL PIC X(200).
+       01 WS-ROW             GLOBAL PIC X(160).
+]]></working-storage>
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+  <file-control><![CDATA[           SELECT SETTINGS-FILE ASSIGN TO WS-SETTINGS-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS SET-NAME
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT MODELS-FILE ASSIGN TO WS-MODELS-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS MDL-NAME
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+]]></file-control>
+  <file-section><![CDATA[       FD  SETTINGS-FILE IS GLOBAL.
+       01  SETTINGS-REC.
+           05 SET-NAME          PIC X(20).
+           05 SET-VALUE         PIC X(200).
+       FD  MODELS-FILE IS GLOBAL.
+       01  MODEL-REC.
+           05 MDL-NAME          PIC X(30).
+           05 MDL-API           PIC X(12).
+           05 MDL-URL           PIC X(200).
+           05 MDL-MODEL         PIC X(80).
+]]></file-section>
+  <user-procedures>
+    <Event name="PC-PATHS" paragraph="PC-PATHS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Where PowerChat keeps its own files: POWERCHAT_DATA, else "data".
+           DISPLAY "POWERCHAT_DATA" UPON ENVIRONMENT-NAME
+           ACCEPT WS-DATA-DIR FROM ENVIRONMENT-VALUE
+           IF WS-DATA-DIR = SPACES
+               MOVE "data" TO WS-DATA-DIR
+           END-IF
+           MOVE SPACES TO WS-SETTINGS-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/settings.idx"
+               DELIMITED BY SIZE INTO WS-SETTINGS-PATH
+           MOVE SPACES TO WS-MODELS-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/models.idx"
+               DELIMITED BY SIZE INTO WS-MODELS-PATH
+]]></Event>
+    <Event name="PC-SETTING-GET" paragraph="PC-SETTING-GET"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-SET-NAME in, WS-SET-VALUE out (spaces when the setting is unset).
+           MOVE SPACES TO WS-SET-VALUE
+           OPEN I-O SETTINGS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT SETTINGS-FILE
+               CLOSE SETTINGS-FILE
+               OPEN I-O SETTINGS-FILE
+           END-IF
+           MOVE WS-SET-NAME TO SET-NAME
+           READ SETTINGS-FILE
+               INVALID KEY CONTINUE
+               NOT INVALID KEY MOVE SET-VALUE TO WS-SET-VALUE
+           END-READ
+           CLOSE SETTINGS-FILE
+]]></Event>
+    <Event name="PC-SETTING-PUT" paragraph="PC-SETTING-PUT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-SET-NAME, WS-SET-VALUE in. Written and committed at once (R10f).
+           OPEN I-O SETTINGS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT SETTINGS-FILE
+               CLOSE SETTINGS-FILE
+               OPEN I-O SETTINGS-FILE
+           END-IF
+           MOVE WS-SET-NAME TO SET-NAME
+           MOVE WS-SET-VALUE TO SET-VALUE
+           WRITE SETTINGS-REC
+               INVALID KEY REWRITE SETTINGS-REC
+           END-WRITE
+           COMMIT
+           CLOSE SETTINGS-FILE
+]]></Event>
+    <Event name="PC-LOAD-MODELS" paragraph="PC-LOAD-MODELS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The model list, one row each: name, model, and whether a key is
+      *>   stored - never the key itself (spec 071 R37, 076 R6).
+           MOVE Lst-Models::Clear() TO WS-OK
+           MOVE 0 TO WS-MODEL-COUNT
+           MOVE "MODEL-ENTRY" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           MOVE WS-SET-VALUE TO WS-ACTIVE
+           OPEN I-O MODELS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT MODELS-FILE
+               CLOSE MODELS-FILE
+               OPEN I-O MODELS-FILE
+           END-IF
+           MOVE LOW-VALUES TO MDL-NAME
+           MOVE "N" TO WS-EOF
+           START MODELS-FILE KEY IS >= MDL-NAME
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ MODELS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       IF WS-MODEL-COUNT < 200
+                           ADD 1 TO WS-MODEL-COUNT
+                           MOVE MDL-NAME TO WS-MODEL-NAME(WS-MODEL-COUNT)
+                           CALL "COBOL-KEY-IS-SET" USING MDL-NAME WS-KEY-FLAG
+                           MOVE SPACES TO WS-ROW
+                           STRING FUNCTION TRIM(MDL-NAME) " - "
+                                  FUNCTION TRIM(MDL-API) " "
+                                  FUNCTION TRIM(MDL-MODEL)
+                               DELIMITED BY SIZE INTO WS-ROW
+                           IF WS-KEY-FLAG = "Y"
+                               STRING FUNCTION TRIM(WS-ROW) " (key set)"
+                                   DELIMITED BY SIZE INTO WS-ROW
+                           END-IF
+                           IF MDL-NAME = WS-ACTIVE
+                               STRING FUNCTION TRIM(WS-ROW) "  [in use]"
+                                   DELIMITED BY SIZE INTO WS-ROW
+                           END-IF
+                           MOVE Lst-Models::AddItem(FUNCTION TRIM(WS-ROW)) TO WS-OK
+                       END-IF
+               END-READ
+           END-PERFORM
+           CLOSE MODELS-FILE
+]]></Event>
+  </user-procedures>
+  <form-events>
+    <Event name="onLoad" paragraph="SETTINGS-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-PATHS"
+           MOVE "KB-LOCATION" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           IF WS-SET-VALUE = SPACES
+               MOVE "assets/KB" TO WS-SET-VALUE
+           END-IF
+           MOVE WS-SET-VALUE TO Txt-KbLocation::Text
+           CALL "PC-LOAD-MODELS"
+]]></Event>
+    <Event name="onClose" paragraph="SETTINGS-FORM--ONCLOSE">
+    </Event>
+  </form-events>
+  <Control id="Lbl-Title" type="Label" x="24" y="16" w="632" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">RAG settings</Property>
+    <Property name="FontSize">20</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Lbl-KB" type="Label" x="24" y="60" w="632" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Knowledge Base folder (may be a folder on another machine)</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Txt-KbLocation" type="TextBox" x="24" y="86" w="496" h="28" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="AutoEnter">false</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Fixed3D</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderColor">#AAAAAA</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Text"></Property>
+    <Property name="HintText"></Property>
+    <Property name="Picture"></Property>
+    <Property name="PasswordCharacter"></Property>
+  </Control>
+  <Control id="Btn-SaveKb" type="Button" x="528" y="84" w="128" h="32" tab-order="2" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Save folder</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IconPath"></Property>
+    <Event name="onClick" paragraph="BTN-SAVEKB--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE "KB-LOCATION" TO WS-SET-NAME
+           MOVE Txt-KbLocation::Text TO WS-SET-VALUE
+           IF WS-SET-VALUE = SPACES
+               MOVE "assets/KB" TO WS-SET-VALUE
+           END-IF
+           CALL "PC-SETTING-PUT"
+           MOVE "Knowledge Base folder saved." TO Lbl-Status::Caption
+]]></Event>
+  </Control>
+  <Control id="Lbl-Models" type="Label" x="24" y="132" w="632" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Models</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Lst-Models" type="ListBox" x="24" y="158" w="496" h="180" tab-order="3" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="SelectedIndex">-1</Property>
+    <Property name="MultiSelect">false</Property>
+    <Property name="ShowCheckBoxes">false</Property>
+    <Property name="Sorted">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Items"></Property>
+    <Property name="SelectedItems"></Property>
+    <Property name="CheckedItems"></Property>
+    <Property name="ActiveItemColor"></Property>
+    <Property name="SelectedItemsColor"></Property>
+    <Property name="ActiveItemTextColor"></Property>
+  </Control>
+  <Control id="Btn-Use" type="Button" x="528" y="158" w="128" h="32" tab-order="4" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Use for chat</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IconPath"></Property>
+    <Event name="onClick" paragraph="BTN-USE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE Lst-Models::GetSelectedIndex() TO WS-INDEX
+           IF WS-INDEX < 0 OR WS-INDEX >= WS-MODEL-COUNT
+               MOVE "Pick a model in the list first." TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           ADD 1 TO WS-INDEX
+           MOVE "MODEL-ENTRY" TO WS-SET-NAME
+           MOVE WS-MODEL-NAME(WS-INDEX) TO WS-SET-VALUE
+           CALL "PC-SETTING-PUT"
+           MOVE "The chat now uses this model." TO Lbl-Status::Caption
+           CALL "PC-LOAD-MODELS"
+]]></Event>
+  </Control>
+  <Control id="Btn-Edit" type="Button" x="528" y="198" w="128" h="32" tab-order="5" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Edit</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IconPath"></Property>
+    <Event name="onClick" paragraph="BTN-EDIT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE Lst-Models::GetSelectedIndex() TO WS-INDEX
+           IF WS-INDEX < 0 OR WS-INDEX >= WS-MODEL-COUNT
+               MOVE "Pick a model in the list first." TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           ADD 1 TO WS-INDEX
+      *>   Fill the fields from the entry. The key field stays empty: a key is
+      *>   never read back; type a new one only to replace it.
+           OPEN I-O MODELS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT MODELS-FILE
+               CLOSE MODELS-FILE
+               OPEN I-O MODELS-FILE
+           END-IF
+           MOVE WS-MODEL-NAME(WS-INDEX) TO MDL-NAME
+           READ MODELS-FILE
+               INVALID KEY CONTINUE
+               NOT INVALID KEY
+                   MOVE MDL-NAME TO Txt-Name::Text
+                   MOVE MDL-API TO Txt-Api::Text
+                   MOVE MDL-URL TO Txt-Url::Text
+                   MOVE MDL-MODEL TO Txt-Model::Text
+                   MOVE SPACES TO Txt-Key::Text
+           END-READ
+           CLOSE MODELS-FILE
+]]></Event>
+  </Control>
+  <Control id="Btn-Remove" type="Button" x="528" y="238" w="128" h="32" tab-order="6" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Remove</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IconPath"></Property>
+    <Event name="onClick" paragraph="BTN-REMOVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE Lst-Models::GetSelectedIndex() TO WS-INDEX
+           IF WS-INDEX < 0 OR WS-INDEX >= WS-MODEL-COUNT
+               MOVE "Pick a model in the list first." TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           ADD 1 TO WS-INDEX
+           OPEN I-O MODELS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT MODELS-FILE
+               CLOSE MODELS-FILE
+               OPEN I-O MODELS-FILE
+           END-IF
+           MOVE WS-MODEL-NAME(WS-INDEX) TO MDL-NAME
+           DELETE MODELS-FILE
+               INVALID KEY CONTINUE
+           END-DELETE
+           COMMIT
+           CLOSE MODELS-FILE
+           CALL "COBOL-MODEL-REMOVE" USING MDL-NAME
+           CALL "COBOL-KEY-REMOVE" USING MDL-NAME
+           MOVE "Model removed, with its key." TO Lbl-Status::Caption
+           CALL "PC-LOAD-MODELS"
+]]></Event>
+  </Control>
+  <Control id="Lbl-Name" type="Label" x="24" y="352" w="100" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Name</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Txt-Name" type="TextBox" x="128" y="350" w="392" h="28" tab-order="7" z-order="0" visible="true" enabled="true">
+    <Property name="HintText">e.g. company-model</Property>
+    <Property name="MaximumLength">30</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="AutoEnter">false</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Fixed3D</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderColor">#AAAAAA</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Text"></Property>
+    <Property name="Picture"></Property>
+    <Property name="PasswordCharacter"></Property>
+  </Control>
+  <Control id="Lbl-Api" type="Label" x="24" y="386" w="100" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">API</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Txt-Api" type="TextBox" x="128" y="384" w="392" h="28" tab-order="8" z-order="0" visible="true" enabled="true">
+    <Property name="HintText">OpenAI, Anthropic, Ollama, LMStudio or Custom</Property>
+    <Property name="MaximumLength">12</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="AutoEnter">false</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Fixed3D</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderColor">#AAAAAA</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Text"></Property>
+    <Property name="Picture"></Property>
+    <Property name="PasswordCharacter"></Property>
+  </Control>
+  <Control id="Lbl-Url" type="Label" x="24" y="420" w="100" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Endpoint</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Txt-Url" type="TextBox" x="128" y="418" w="392" h="28" tab-order="9" z-order="0" visible="true" enabled="true">
+    <Property name="HintText">e.g. http://localhost:11434/api/chat</Property>
+    <Property name="MaximumLength">200</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="AutoEnter">false</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Fixed3D</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderColor">#AAAAAA</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Text"></Property>
+    <Property name="Picture"></Property>
+    <Property name="PasswordCharacter"></Property>
+  </Control>
+  <Control id="Lbl-Model" type="Label" x="24" y="454" w="100" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Model</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Txt-Model" type="TextBox" x="128" y="452" w="392" h="28" tab-order="10" z-order="0" visible="true" enabled="true">
+    <Property name="HintText">e.g. llama3.1</Property>
+    <Property name="MaximumLength">80</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="AutoEnter">false</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Fixed3D</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderColor">#AAAAAA</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Text"></Property>
+    <Property name="Picture"></Property>
+    <Property name="PasswordCharacter"></Property>
+  </Control>
+  <Control id="Lbl-Key" type="Label" x="24" y="488" w="100" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">API key</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Txt-Key" type="TextBox" x="128" y="486" w="392" h="28" tab-order="11" z-order="0" visible="true" enabled="true">
+    <Property name="HintText">Only to set or replace it - it is never shown again</Property>
+    <Property name="PasswordCharacter">*</Property>
+    <Property name="MaximumLength">300</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="AutoEnter">false</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Fixed3D</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderColor">#AAAAAA</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Text"></Property>
+    <Property name="Picture"></Property>
+  </Control>
+  <Control id="Btn-SaveModel" type="Button" x="528" y="484" w="128" h="32" tab-order="12" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Save model</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IconPath"></Property>
+    <Event name="onClick" paragraph="BTN-SAVEMODEL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Add or change an entry. The key, when typed, goes straight to the
+      *>   key store and the field is cleared: it is never written to a file
+      *>   of ours, never shown again (spec 071 R34, R37).
+           MOVE Txt-Name::Text TO MDL-NAME
+           MOVE Txt-Api::Text TO MDL-API
+           MOVE Txt-Url::Text TO MDL-URL
+           MOVE Txt-Model::Text TO MDL-MODEL
+           IF MDL-NAME = SPACES OR MDL-API = SPACES
+               MOVE "A model needs at least a name and an API." TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           OPEN I-O MODELS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT MODELS-FILE
+               CLOSE MODELS-FILE
+               OPEN I-O MODELS-FILE
+           END-IF
+           WRITE MODEL-REC
+               INVALID KEY REWRITE MODEL-REC
+           END-WRITE
+           COMMIT
+           CLOSE MODELS-FILE
+           CALL "COBOL-MODEL-SET" USING MDL-NAME MDL-API MDL-URL MDL-MODEL
+           MOVE "Model saved." TO WS-STATUS
+           MOVE Txt-Key::Text TO WS-KEY
+           IF WS-KEY NOT = SPACES
+               CALL "COBOL-KEY-SET" USING MDL-NAME WS-KEY WS-STATUS
+               IF WS-STATUS = "OK"
+                   MOVE "Model and key saved." TO WS-STATUS
+               END-IF
+               MOVE SPACES TO WS-KEY
+               MOVE SPACES TO Txt-Key::Text
+           END-IF
+           MOVE WS-STATUS TO Lbl-Status::Caption
+           CALL "PC-LOAD-MODELS"
+]]></Event>
+  </Control>
+  <Control id="Lbl-Status" type="Label" x="24" y="532" w="496" h="40" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Caption">Lbl-Status</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Btn-Close" type="Button" x="528" y="536" w="128" h="36" tab-order="13" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Close</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IconPath"></Property>
+    <Event name="onClick" paragraph="BTN-CLOSE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE SUPER::SetProperty("ResultText", "SAVED")
+           INVOKE ME::Close()
+]]></Event>
+  </Control>
+</Form>

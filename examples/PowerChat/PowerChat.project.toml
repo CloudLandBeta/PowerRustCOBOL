@@ -1,0 +1,34 @@
+[project]
+name = "PowerChat"
+structure = 1
+version = "1.0.0"
+main = "src/main.cbl"
+copyright = ""
+license_model = "MIT"
+destination_folder = "PowerChat"
+debug_compilation = true
+
+[files]
+sources = ["src/main.cbl"]
+forms = [
+    "forms/chat-form.cfrm",
+    "forms/topics-form.cfrm",
+    "forms/documents-form.cfrm",
+    "forms/settings-form.cfrm",
+]
+assets = []
+documentation = []
+generated = [
+    "generated/chat-form.cbl",
+    "generated/topics-form.cbl",
+    "generated/documents-form.cbl",
+    "generated/settings-form.cbl",
+]
+indexed = []
+
+[runtime]
+fixed_format = false
+
+[forms]
+main-form = "CHAT-FORM"
+main-form-seal = "e885ed7b397a7529b341ca8e81d927cd442c32368b5b0ed29032625c6931e941"

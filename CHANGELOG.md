@@ -8,6 +8,44 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.197] — 2026-09-24
+
+### Feature — PowerChat, Phase 1 (spec 071)
+
+`examples/PowerChat/` is a chatbot to copy. It answers about one topic at a
+time, from that topic's own documents, through a model its users choose. It is
+written entirely in COBOL forms.
+
+- **The four forms:**
+  - `chat-form` (main, SideMenu shell): chat in a `Viewer`, one `AgentObject`
+    grounded in the topic's `KnowledgeBase`, conversations kept turn by turn
+    and listed as run-time menu rows (newest first), reopened and continued
+    with their history, and this month's token totals.
+  - `topics-form`: topics are data, each with its own KB collection.
+  - `documents-form`: a `FileDropZone` into the collection's folder,
+    `Refresh()` on open, and a progress panel.
+  - `settings-form`: the KB folder, and a model list kept in the program's own
+    file and handed over with `COBOL-MODEL-SET`. Keys are stored with
+    `COBOL-KEY-SET` and never shown.
+- **Its own data:** five `STORAGE MODE IS DISK` files, opened `I-O` (`OUTPUT`
+  the first time) and committed on each change. `POWERCHAT_DATA` moves them.
+- **`cargo run -p cobolt-ide --example powerchat_regen`** regenerates the
+  forms' programs, the menu hash and the main-form seal without the IDE.
+- **Tests:**
+  - `powerchat_compiles.rs` checks freshness, parsing, semantics, the menu
+    hash, the seal, and that no example file holds a credential.
+  - `powerchat_runs.rs` runs the real generated programs as a user would:
+    settings → topics → documents → chat → reopen, against a scripted model.
+    It completes in about 0.8 s: the KB tool round, then 150 input and 17
+    output tokens counted.
+- Guide: *PowerChat — a chatbot to copy*, with a caveat about method-call
+  statements after a `MOVE`.
+- **Three runtime defects were found while testing and worked around in the
+  example.** They are listed in `specs/071-powerchat/tasks.md`, for `fixes`:
+  - `ACCEPT … FROM ENVIRONMENT "name"` is misparsed.
+  - `COMMIT` after a failed `OPEN` panics.
+  - An all-digit property value moves right-justified into `PIC X`.
+
 ## [PowerRustCOBOL 1.70.196] — 2026-09-24
 
 ### Spec 071 — PowerChat Phase 1 plan and tasks

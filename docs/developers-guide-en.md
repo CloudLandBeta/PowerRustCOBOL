@@ -1171,6 +1171,41 @@ hover, in a build that ships no examples.
 
 > **Note.** Opening it replaces the project you currently have open, exactly as
 > *File → Open Project* would. Save your work first.
+
+#### PowerChat — a chatbot to copy
+
+`examples/PowerChat` is a second, complete application rather than a gallery:
+a chatbot that answers questions about **one topic at a time**, from that
+topic's own documents, through a model the application's users choose. Copy it
+to start your own. Everything in it is COBOL in its four forms:
+
+| Form | What it shows you how to do |
+|---|---|
+| `chat-form` (main) | A SideMenu shell; a `Viewer` as a chat; an `AgentObject` grounded in a `KnowledgeBase` with `AllowKnowledgeBase`; conversations as run-time menu rows; token totals from `LastInputTokens` / `LastOutputTokens` |
+| `topics-form` | Topics as data, each with its own Knowledge Base collection (`CreateCollection`) |
+| `documents-form` | A `FileDropZone` feeding the collection's folder, `Refresh()`, and a progress panel driven by `onProgress` / `onIndexed` |
+| `settings-form` | A model list the program keeps in its own indexed file, handed over with `COBOL-MODEL-SET`, and keys stored with `COBOL-KEY-SET` — never shown again |
+
+Its own data — settings, topics, conversations, their turns, the model list —
+is five `STORAGE MODE IS DISK` indexed files, opened `I-O` (`OUTPUT` the first
+time) and committed as each change is made. Set `POWERCHAT_DATA` to keep them
+somewhere other than `data/`. The project's `README.md` walks through a first
+run.
+
+> **Note.** This is PowerChat's first phase: one agent, in English. Several
+> agents electing an orchestrator, users' own indexed files for the model to
+> query, prompt versions, installable sample topics and the other five
+> languages follow.
+>
+> ⚠️ **Caveat.** A method call written as a statement straight after a `MOVE`
+> is read as one more receiving field of that `MOVE` — `MOVE A TO B` followed
+> by `LIST-1::AddItem(X)` becomes `MOVE A TO B LIST-1::AddItem(X)`, which stops
+> the program. End the `MOVE` with a period where you can, or write the call
+> as `MOVE LIST-1::AddItem(X) TO WS-IGNORED`, as PowerChat does throughout.
+
+📷 Screenshot needed — `powerchat-chat.png`: PowerChat's chat form with a topic
+open, a question and its answer in the conversation, and past conversations
+listed in the menu.
 ### Reading the docs in the IDE (Help → Documentation)
 
 **Help → Documentation** opens a dedicated window that renders this guide and the

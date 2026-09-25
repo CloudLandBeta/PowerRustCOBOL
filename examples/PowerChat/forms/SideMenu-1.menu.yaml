@@ -1,0 +1,27 @@
+menu:
+- id: chat
+  label: Chat
+  type: action
+  icon: chat
+  enabled: true
+- id: newc
+  label: New conversation
+  type: action
+  icon: plus
+  enabled: true
+- id: tpcs
+  label: Topics
+  type: action
+  icon: folder
+  enabled: true
+- id: docs
+  label: Documents
+  type: action
+  icon: doc-text
+  enabled: true
+- id: sett
+  label: RAG settings
+  type: action
+  icon: gear
+  enabled: true
+hash: d01efdc7ad6cb7ea6cd330268f3d58f6cff5907a0969a6a711a2a0dc193f4290
