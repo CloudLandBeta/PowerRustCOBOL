@@ -104,9 +104,19 @@ fn the_menu_hash_and_the_main_form_seal_are_valid() {
     assert!(!chat.contains("SetItemEnabled(\"sett\"") && !chat.contains("SetItemEnabled(\"chat\""),
         "RAG settings and the way home are never shut");
     assert!(!chat.contains("OpenFormSync"), "no form opens in a window of its own");
+    // RAG settings is a summary whose four groups each open a modal dialog
+    // (operator, 2026-09-25): those four are windows, opened by the summary.
+    let settings = std::fs::read_to_string(project().join("generated/settings-form.cbl")).unwrap();
+    let dialogs = ["kb-folder-form", "providers-form", "model-form", "agents-form"];
     for rel in forms() {
         let form = cobolt_forms::load_form(&project().join(&rel)).unwrap();
-        if !rel.ends_with("chat-form.cfrm") {
+        let stem = Path::new(&rel).file_stem().unwrap().to_string_lossy().to_string();
+        if dialogs.contains(&stem.as_str()) {
+            assert_eq!(form.form_format, cobolt_forms::model::FormFormat::Standalone, "{rel} is a modal dialog");
+            assert_eq!((form.width, form.height), (800, 450), "{rel}: every dialog is 800 x 450");
+            let id = cobolt_compiler::main_form_guard::form_id(Path::new(&rel));
+            assert!(settings.contains(&format!("OpenFormSync\"(\"{id}\")")), "RAG settings opens {id}");
+        } else if !rel.ends_with("chat-form.cfrm") {
             assert_eq!(form.form_format, cobolt_forms::model::FormFormat::Embedded, "{rel} opens in the ContentPane");
             assert!(form.controls.iter().all(|c| c.id != "Btn-Close"), "{rel}: an embedded form has no Close button");
         }

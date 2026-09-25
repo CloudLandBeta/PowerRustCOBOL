@@ -1,0 +1,1071 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="MODEL-FORM" title="PowerChat" width="800" height="450" background="36383EFF" background-gradient-enabled="true" background-gradient-start="#4E4E4EFF" background-gradient-end="#000000FF" background-gradient-direction="South" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Dark" modal-overlay-style="Greyed">
+  <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
+       01 WS-DATA-DIR        GLOBAL PIC X(200).
+       01 WS-SET-NAME        GLOBAL PIC X(20).
+       01 WS-SET-VALUE       GLOBAL PIC X(200).
+       01 WS-EOF             GLOBAL PIC X.
+       01 WS-OK              GLOBAL PIC X(4).
+       01 WS-SETTINGS-PATH   GLOBAL PIC X(240).
+       01 WS-MODELS-PATH     GLOBAL PIC X(240).
+      *>   The interface texts (spec 071 R44): one row per text, one column
+      *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
+      *>   only the values are translated.
+       01 WS-LANG            GLOBAL PIC XX VALUE "en".
+       01 WS-LANG-IX         GLOBAL PIC 9 VALUE 1.
+       01 WS-TX-I            GLOBAL PIC 9(4).
+       01 PC-TEXT-DATA       GLOBAL.
+      *>   MODEL-SEL-TITLE
+          05 FILLER PIC X(120) VALUE "Model selection".
+          05 FILLER PIC X(120) VALUE "Seleção de modelo".
+          05 FILLER PIC X(120) VALUE "Selección de modelo".
+          05 FILLER PIC X(120) VALUE "Choix du modèle".
+          05 FILLER PIC X(120) VALUE "モデルの選択".
+          05 FILLER PIC X(120) VALUE "模型选择".
+      *>   CONNECTION
+          05 FILLER PIC X(120) VALUE "Connection".
+          05 FILLER PIC X(120) VALUE "Conexão".
+          05 FILLER PIC X(120) VALUE "Conexión".
+          05 FILLER PIC X(120) VALUE "Connexion".
+          05 FILLER PIC X(120) VALUE "接続".
+          05 FILLER PIC X(120) VALUE "连接".
+      *>   MODEL
+          05 FILLER PIC X(120) VALUE "Model".
+          05 FILLER PIC X(120) VALUE "Modelo".
+          05 FILLER PIC X(120) VALUE "Modelo".
+          05 FILLER PIC X(120) VALUE "Modèle".
+          05 FILLER PIC X(120) VALUE "モデル".
+          05 FILLER PIC X(120) VALUE "模型".
+      *>   RANK
+          05 FILLER PIC X(120) VALUE "Rank".
+          05 FILLER PIC X(120) VALUE "Nível".
+          05 FILLER PIC X(120) VALUE "Nivel".
+          05 FILLER PIC X(120) VALUE "Rang".
+          05 FILLER PIC X(120) VALUE "ランク".
+          05 FILLER PIC X(120) VALUE "等级".
+      *>   CALLS-TOOLS
+          05 FILLER PIC X(120) VALUE "Calls tools".
+          05 FILLER PIC X(120) VALUE "Chama ferramentas".
+          05 FILLER PIC X(120) VALUE "Usa herramientas".
+          05 FILLER PIC X(120) VALUE "Appelle des outils".
+          05 FILLER PIC X(120) VALUE "ツールを呼び出す".
+          05 FILLER PIC X(120) VALUE "可调用工具".
+      *>   SAVE
+          05 FILLER PIC X(120) VALUE "Save".
+          05 FILLER PIC X(120) VALUE "Salvar".
+          05 FILLER PIC X(120) VALUE "Guardar".
+          05 FILLER PIC X(120) VALUE "Enregistrer".
+          05 FILLER PIC X(120) VALUE "保存".
+          05 FILLER PIC X(120) VALUE "保存".
+      *>   CANCEL
+          05 FILLER PIC X(120) VALUE "Cancel".
+          05 FILLER PIC X(120) VALUE "Cancelar".
+          05 FILLER PIC X(120) VALUE "Cancelar".
+          05 FILLER PIC X(120) VALUE "Annuler".
+          05 FILLER PIC X(120) VALUE "キャンセル".
+          05 FILLER PIC X(120) VALUE "取消".
+      *>   STATUS
+          05 FILLER PIC X(120) VALUE "Status".
+          05 FILLER PIC X(120) VALUE "Status".
+          05 FILLER PIC X(120) VALUE "Estado".
+          05 FILLER PIC X(120) VALUE "État".
+          05 FILLER PIC X(120) VALUE "ステータス".
+          05 FILLER PIC X(120) VALUE "状态".
+      *>   LISTING
+          05 FILLER PIC X(120) VALUE "Asking &1 for its models...".
+          05 FILLER PIC X(120) VALUE "Pedindo a lista de modelos a &1...".
+          05 FILLER PIC X(120) VALUE "Pidiendo a &1 sus modelos...".
+          05 FILLER PIC X(120) VALUE "Demande des modèles à &1...".
+          05 FILLER PIC X(120) VALUE "&1 にモデルを問い合わせ中...".
+          05 FILLER PIC X(120) VALUE "正在向 &1 获取模型...".
+      *>   MODELS-AVAILABLE
+          05 FILLER PIC X(120) VALUE "&1 models available.".
+          05 FILLER PIC X(120) VALUE "&1 modelos disponíveis.".
+          05 FILLER PIC X(120) VALUE "&1 modelos disponibles.".
+          05 FILLER PIC X(120) VALUE "&1 modèles disponibles.".
+          05 FILLER PIC X(120) VALUE "利用可能なモデル: &1".
+          05 FILLER PIC X(120) VALUE "可用模型：&1 个".
+      *>   MODEL-SAVED
+          05 FILLER PIC X(120) VALUE "Model saved.".
+          05 FILLER PIC X(120) VALUE "Modelo salvo.".
+          05 FILLER PIC X(120) VALUE "Modelo guardado.".
+          05 FILLER PIC X(120) VALUE "Modèle enregistré.".
+          05 FILLER PIC X(120) VALUE "モデルを保存しました。".
+          05 FILLER PIC X(120) VALUE "模型已保存。".
+      *>   PICK-CONN
+          05 FILLER PIC X(120) VALUE "Pick a saved connection first.".
+          05 FILLER PIC X(120) VALUE "Escolha primeiro uma conexão salva.".
+          05 FILLER PIC X(120) VALUE "Primero elige una conexión guardada.".
+          05 FILLER PIC X(120) VALUE "Choisissez d'abord une connexion enregistrée.".
+          05 FILLER PIC X(120) VALUE "先に保存済みの接続を選んでください。".
+          05 FILLER PIC X(120) VALUE "请先选择一个已保存的连接。".
+      *>   PICK-MODEL
+          05 FILLER PIC X(120) VALUE "Pick a model first.".
+          05 FILLER PIC X(120) VALUE "Escolha um modelo primeiro.".
+          05 FILLER PIC X(120) VALUE "Primero elige un modelo.".
+          05 FILLER PIC X(120) VALUE "Choisissez d'abord un modèle.".
+          05 FILLER PIC X(120) VALUE "先にモデルを選んでください。".
+          05 FILLER PIC X(120) VALUE "请先选择一个模型。".
+      *>   SUM-NEED-PROVIDER
+          05 FILLER PIC X(120) VALUE "Set up a model provider first.".
+          05 FILLER PIC X(120) VALUE "Configure antes um provedor de modelos.".
+          05 FILLER PIC X(120) VALUE "Configura antes un proveedor de modelos.".
+          05 FILLER PIC X(120) VALUE "Configurez d'abord un fournisseur de modèles.".
+          05 FILLER PIC X(120) VALUE "先にモデルプロバイダーを設定してください。".
+          05 FILLER PIC X(120) VALUE "请先配置模型提供商。".
+      *>   TIP-CONN-MODEL
+          05 FILLER PIC X(120) VALUE "The saved connection whose model you choose. Its models are listed on opening.".
+          05 FILLER PIC X(120) VALUE "A conexão salva cujo modelo você escolhe. Os modelos dela são listados ao abrir.".
+          05 FILLER PIC X(120) VALUE "La conexión guardada cuyo modelo eliges. Sus modelos se listan al abrir.".
+          05 FILLER PIC X(120) VALUE "La connexion dont vous choisissez le modèle. Ses modèles sont listés à l'ouverture.".
+          05 FILLER PIC X(120) VALUE "モデルを選ぶ保存済みの接続。開くとモデル一覧を取得します。".
+          05 FILLER PIC X(120) VALUE "要为其选择模型的已保存连接。打开时会列出其模型。".
+      *>   TIP-MODEL-LIST
+          05 FILLER PIC X(120) VALUE "The model to use, from the list the provider offers.".
+          05 FILLER PIC X(120) VALUE "O modelo a usar, da lista que o provedor oferece.".
+          05 FILLER PIC X(120) VALUE "El modelo a usar, de la lista que ofrece el proveedor.".
+          05 FILLER PIC X(120) VALUE "Le modèle à utiliser, parmi ceux que propose le fournisseur.".
+          05 FILLER PIC X(120) VALUE "プロバイダーが提供する一覧から使うモデルを選びます。".
+          05 FILLER PIC X(120) VALUE "从提供商提供的列表中选择要使用的模型。".
+      *>   TIP-RANK
+          05 FILLER PIC X(120) VALUE "How well this model coordinates the other agents, from 1 (poorly) to 9 (best).".
+          05 FILLER PIC X(120) VALUE "Quão bem este modelo coordena os outros agentes, de 1 (mal) a 9 (melhor).".
+          05 FILLER PIC X(120) VALUE "Qué tan bien coordina este modelo a los demás agentes, de 1 (mal) a 9 (mejor).".
+          05 FILLER PIC X(120) VALUE "À quel point ce modèle coordonne les autres agents, de 1 (mal) à 9 (le mieux).".
+          05 FILLER PIC X(120) VALUE "他のエージェントを調整する力。1（低い）から 9（最高）まで。".
+          05 FILLER PIC X(120) VALUE "此模型协调其他代理的能力，从 1（差）到 9（最好）。".
+      *>   TIP-TOOLS
+          05 FILLER PIC X(120) VALUE "Tick when the model can call tools, such as searching the Knowledge Base.".
+          05 FILLER PIC X(120) VALUE "Marque se o modelo sabe chamar ferramentas, como a busca na base de conhecimento.".
+          05 FILLER PIC X(120) VALUE "Márcalo si el modelo puede usar herramientas, como buscar en la base de conocimiento.".
+          05 FILLER PIC X(120) VALUE "Cochez si le modèle sait appeler des outils, comme la recherche dans la base.".
+          05 FILLER PIC X(120) VALUE "ナレッジベース検索などのツールを呼び出せるモデルならチェックします。".
+          05 FILLER PIC X(120) VALUE "如果模型能调用工具（例如搜索知识库），请勾选。".
+       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
+          05 PC-TEXT-ROW     OCCURS 18.
+             10 PC-TEXT      PIC X(120) OCCURS 6.
+      *>   The texts in the current language, by name.
+       01 PC-TEXTS-NOW       GLOBAL.
+          05 T-MODEL-SEL-TITLE PIC X(120).
+          05 T-CONNECTION PIC X(120).
+          05 T-MODEL PIC X(120).
+          05 T-RANK PIC X(120).
+          05 T-CALLS-TOOLS PIC X(120).
+          05 T-SAVE PIC X(120).
+          05 T-CANCEL PIC X(120).
+          05 T-STATUS PIC X(120).
+          05 T-LISTING PIC X(120).
+          05 T-MODELS-AVAILABLE PIC X(120).
+          05 T-MODEL-SAVED PIC X(120).
+          05 T-PICK-CONN PIC X(120).
+          05 T-PICK-MODEL PIC X(120).
+          05 T-SUM-NEED-PROVIDER PIC X(120).
+          05 T-TIP-CONN-MODEL PIC X(120).
+          05 T-TIP-MODEL-LIST PIC X(120).
+          05 T-TIP-RANK PIC X(120).
+          05 T-TIP-TOOLS PIC X(120).
+       01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
+          05 PC-TEXT-NOW     PIC X(120) OCCURS 18.
+      *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
+       01 WS-FMT             GLOBAL PIC X(120).
+       01 WS-ARG1            GLOBAL PIC X(300).
+       01 WS-ARG2            GLOBAL PIC X(300).
+       01 WS-ARG3            GLOBAL PIC X(300).
+       01 WS-ARG4            GLOBAL PIC X(300).
+       01 WS-FMT-OUT         GLOBAL PIC X(1200).
+      *>   The saved connections, in name order.
+       01 WS-CONN-COUNT      GLOBAL PIC 9(4) VALUE 0.
+       01 WS-CONN-NAMES      GLOBAL.
+          05 WS-CONN-NAME    PIC X(30) OCCURS 200.
+       01 WS-INDEX           GLOBAL PIC S9(4).
+       01 WS-P               GLOBAL PIC 9(3).
+      *>   The connection on screen, and what its provider offers.
+       01 WS-PROV-COUNT      GLOBAL PIC 9(3) VALUE 0.
+       01 WS-PROV-IX         GLOBAL PIC S9(3) VALUE 0.
+       01 WS-PROV-ID         GLOBAL PIC X(20).
+       01 WS-PROV-LABEL      GLOBAL PIC X(40).
+       01 WS-PROV-EP         GLOBAL PIC X(200).
+       01 WS-PROV-NEEDS      GLOBAL PIC X.
+       01 WS-XNAME           GLOBAL PIC X(20).
+       01 WS-XVAL            GLOBAL PIC X(300).
+       01 WS-CUR-NAME        GLOBAL PIC X(30).
+       01 WS-CUR-URL         GLOBAL PIC X(200).
+       01 WS-MODEL-ID        GLOBAL PIC X(80).
+       01 WS-KEY             GLOBAL PIC X(300).
+       01 WS-LONG            GLOBAL PIC X(600).
+       01 WS-N               GLOBAL PIC 9(4).
+       01 WS-M               GLOBAL PIC 9(4).
+       01 WS-NE              GLOBAL PIC Z(3)9.
+       01 WS-RANK-TEXT       GLOBAL PIC X.
+       01 WS-TOOLS           GLOBAL PIC X(4).
+]]></working-storage>
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+  <file-control><![CDATA[           SELECT SETTINGS-FILE ASSIGN TO WS-SETTINGS-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS SET-NAME
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT MODELS-FILE ASSIGN TO WS-MODELS-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS MDL-NAME
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+]]></file-control>
+  <file-section><![CDATA[       FD  SETTINGS-FILE IS GLOBAL.
+       01  SETTINGS-REC.
+           05 SET-NAME          PIC X(20).
+           05 SET-VALUE         PIC X(200).
+       FD  MODELS-FILE IS GLOBAL.
+       01  MODEL-REC.
+           05 MDL-NAME          PIC X(30).
+           05 MDL-API           PIC X(12).
+           05 MDL-URL           PIC X(200).
+           05 MDL-MODEL         PIC X(80).
+      *>   The capability table (spec 071 R31, 063 R72): whether the model
+      *>   can call tools, and how well it orchestrates, 1 (poorly) to 9.
+           05 MDL-TOOLS         PIC X.
+           05 MDL-RANK          PIC 9.
+]]></file-section>
+  <user-procedures>
+    <Event name="PC-PATHS" paragraph="PC-PATHS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Where PowerChat keeps its own files: POWERCHAT_DATA, else "data".
+           DISPLAY "POWERCHAT_DATA" UPON ENVIRONMENT-NAME
+           ACCEPT WS-DATA-DIR FROM ENVIRONMENT-VALUE
+           IF WS-DATA-DIR = SPACES
+               MOVE "data" TO WS-DATA-DIR
+           END-IF
+           MOVE SPACES TO WS-SETTINGS-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/settings.idx"
+               DELIMITED BY SIZE INTO WS-SETTINGS-PATH
+           MOVE SPACES TO WS-MODELS-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/models.idx"
+               DELIMITED BY SIZE INTO WS-MODELS-PATH
+]]></Event>
+    <Event name="PC-SETTING-GET" paragraph="PC-SETTING-GET"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-SET-NAME in, WS-SET-VALUE out (spaces when the setting is unset).
+           MOVE SPACES TO WS-SET-VALUE
+           OPEN I-O SETTINGS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT SETTINGS-FILE
+               CLOSE SETTINGS-FILE
+               OPEN I-O SETTINGS-FILE
+           END-IF
+           MOVE WS-SET-NAME TO SET-NAME
+           READ SETTINGS-FILE
+               INVALID KEY CONTINUE
+               NOT INVALID KEY MOVE SET-VALUE TO WS-SET-VALUE
+           END-READ
+           CLOSE SETTINGS-FILE
+]]></Event>
+    <Event name="PC-SETTING-PUT" paragraph="PC-SETTING-PUT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-SET-NAME, WS-SET-VALUE in. Written and committed at once (R10f).
+           OPEN I-O SETTINGS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT SETTINGS-FILE
+               CLOSE SETTINGS-FILE
+               OPEN I-O SETTINGS-FILE
+           END-IF
+           MOVE WS-SET-NAME TO SET-NAME
+           MOVE WS-SET-VALUE TO SET-VALUE
+           WRITE SETTINGS-REC
+               INVALID KEY REWRITE SETTINGS-REC
+           END-WRITE
+           COMMIT
+           CLOSE SETTINGS-FILE
+]]></Event>
+    <Event name="PC-LOAD-CONNS" paragraph="PC-LOAD-CONNS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Every saved connection's name, in key order, into WS-CONN-NAME.
+           MOVE 0 TO WS-CONN-COUNT
+           OPEN I-O MODELS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT MODELS-FILE
+               CLOSE MODELS-FILE
+               OPEN I-O MODELS-FILE
+           END-IF
+           MOVE LOW-VALUES TO MDL-NAME
+           MOVE "N" TO WS-EOF
+           START MODELS-FILE KEY IS >= MDL-NAME
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ MODELS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       IF WS-CONN-COUNT < 200
+                           ADD 1 TO WS-CONN-COUNT
+                           MOVE MDL-NAME TO WS-CONN-NAME(WS-CONN-COUNT)
+                       END-IF
+               END-READ
+           END-PERFORM
+           CLOSE MODELS-FILE
+]]></Event>
+    <Event name="PC-PROVIDER-LABEL" paragraph="PC-PROVIDER-LABEL"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-PROV-ID in (any case - older entries say "Ollama", "OpenAI");
+      *>   out: WS-PROV-IX (1-based, 0 = unknown) and the provider's label,
+      *>   default endpoint and whether it needs a key.
+           MOVE 0 TO WS-PROV-IX
+           MOVE WS-PROV-ID TO WS-XVAL
+           MOVE FUNCTION LOWER-CASE(WS-XVAL) TO WS-XVAL
+           PERFORM VARYING WS-P FROM 1 BY 1
+                   UNTIL WS-P > WS-PROV-COUNT OR WS-PROV-IX > 0
+               CALL "COBOL-PROVIDER-GET" USING WS-P WS-XNAME WS-PROV-LABEL
+                    WS-PROV-EP WS-PROV-NEEDS
+               IF WS-XNAME = WS-XVAL(1:20)
+                   MOVE WS-P TO WS-PROV-IX
+               END-IF
+           END-PERFORM
+           IF WS-PROV-IX = 0
+               MOVE WS-PROV-ID TO WS-PROV-LABEL
+               MOVE SPACES TO WS-PROV-EP
+               MOVE "N" TO WS-PROV-NEEDS
+           ELSE
+               MOVE WS-XNAME TO WS-PROV-ID
+           END-IF
+]]></Event>
+    <Event name="PC-OPEN-CONN" paragraph="PC-OPEN-CONN"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The picked connection: its rank and tools on screen, then connect
+      *>   and list the models its provider offers, the saved one selected.
+      *>   The stored key is used, never read (COBOL-MODEL-LIST's entry).
+           MOVE Cmb-Conn::GetSelectedIndex() TO WS-INDEX
+           ADD 1 TO WS-INDEX
+           IF WS-INDEX < 1 OR WS-INDEX > WS-CONN-COUNT
+               EXIT PROGRAM
+           END-IF
+           OPEN I-O MODELS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT MODELS-FILE
+               CLOSE MODELS-FILE
+               OPEN I-O MODELS-FILE
+           END-IF
+           MOVE WS-CONN-NAME(WS-INDEX) TO MDL-NAME
+           READ MODELS-FILE
+               INVALID KEY MOVE SPACES TO MODEL-REC
+           END-READ
+           CLOSE MODELS-FILE
+           MOVE MDL-NAME TO WS-CUR-NAME
+           MOVE MDL-URL TO WS-CUR-URL
+           MOVE MDL-MODEL TO WS-MODEL-ID
+           MOVE MDL-API TO WS-PROV-ID
+           IF MDL-RANK IS NUMERIC AND MDL-RANK > 0
+               MOVE MDL-RANK TO Txt-Rank::Text
+           ELSE
+               MOVE "5" TO Txt-Rank::Text
+           END-IF
+           IF MDL-TOOLS = "Y"
+               MOVE "true" TO Chk-Tools::Checked
+           ELSE
+               MOVE "false" TO Chk-Tools::Checked
+           END-IF
+           CALL "PC-PROVIDER-LABEL"
+           MOVE T-LISTING TO WS-FMT
+           MOVE WS-PROV-LABEL TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+           MOVE Cmb-Model::Clear() TO WS-OK
+           MOVE SPACES TO WS-KEY
+           CALL "COBOL-MODEL-LIST" USING WS-PROV-ID WS-CUR-URL WS-KEY WS-N
+                WS-LONG WS-CUR-NAME
+           IF WS-LONG NOT = "OK"
+      *>       No list: what went wrong, and the saved model still on offer.
+               MOVE WS-LONG TO Lbl-Status::Caption
+               IF WS-MODEL-ID NOT = SPACES
+                   MOVE Cmb-Model::AddItem(FUNCTION TRIM(WS-MODEL-ID)) TO WS-OK
+                   MOVE Cmb-Model::SetSelectedIndex(0) TO WS-OK
+               END-IF
+               MOVE WS-MODEL-ID TO Cmb-Model::Value
+               EXIT PROGRAM
+           END-IF
+           MOVE -1 TO WS-INDEX
+           PERFORM VARYING WS-M FROM 1 BY 1 UNTIL WS-M > WS-N
+               CALL "COBOL-MODEL-LIST-GET" USING WS-M WS-XVAL
+               MOVE Cmb-Model::AddItem(FUNCTION TRIM(WS-XVAL)) TO WS-OK
+               IF WS-XVAL = WS-MODEL-ID
+                   COMPUTE WS-INDEX = WS-M - 1
+               END-IF
+           END-PERFORM
+      *>   Keep the saved model when the provider still offers it.
+           IF WS-INDEX < 0
+               MOVE 0 TO WS-INDEX
+               MOVE 1 TO WS-M
+               CALL "COBOL-MODEL-LIST-GET" USING WS-M WS-MODEL-ID
+           END-IF
+           MOVE WS-INDEX TO WS-P
+           MOVE Cmb-Model::SetSelectedIndex(WS-P) TO WS-OK
+      *>   SetSelectedIndex does not move Value; the model is set here.
+           MOVE WS-MODEL-ID TO Cmb-Model::Value
+           MOVE T-MODELS-AVAILABLE TO WS-FMT
+           MOVE WS-N TO WS-NE
+           MOVE WS-NE TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+]]></Event>
+    <Event name="PC-TEXTS" paragraph="PC-TEXTS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The language the user picked (LANG), the texts in it, and every
+      *>   designed caption and hint that shows one (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           MOVE WS-SET-VALUE(1:2) TO WS-LANG
+           EVALUATE WS-LANG
+               WHEN "en" MOVE 1 TO WS-LANG-IX
+               WHEN "pt" MOVE 2 TO WS-LANG-IX
+               WHEN "es" MOVE 3 TO WS-LANG-IX
+               WHEN "fr" MOVE 4 TO WS-LANG-IX
+               WHEN "jp" MOVE 5 TO WS-LANG-IX
+               WHEN "cn" MOVE 6 TO WS-LANG-IX
+               WHEN OTHER MOVE "en" TO WS-LANG
+                          MOVE 1 TO WS-LANG-IX
+           END-EVALUATE
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 18
+               MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
+           END-PERFORM
+           MOVE FUNCTION TRIM(T-MODEL-SEL-TITLE) TO Lbl-Title::Caption
+           MOVE FUNCTION TRIM(T-CONNECTION) TO Lbl-Conn::Caption
+           MOVE FUNCTION TRIM(T-MODEL) TO Lbl-Model::Caption
+           MOVE FUNCTION TRIM(T-RANK) TO Lbl-Rank::Caption
+           MOVE FUNCTION TRIM(T-CALLS-TOOLS) TO Chk-Tools::Caption
+           MOVE FUNCTION TRIM(T-SAVE) TO Btn-Save::Caption
+           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel::Caption
+           MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
+           MOVE FUNCTION TRIM(T-TIP-CONN-MODEL) TO Cmb-Conn::Tooltip
+           MOVE FUNCTION TRIM(T-TIP-MODEL-LIST) TO Cmb-Model::Tooltip
+           MOVE FUNCTION TRIM(T-TIP-RANK) TO Txt-Rank::Tooltip
+           MOVE FUNCTION TRIM(T-TIP-TOOLS) TO Chk-Tools::Tooltip
+]]></Event>
+    <Event name="PC-FMT" paragraph="PC-FMT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-PT              PIC 9(4).
+       01 WS-FROM            PIC 9(4).
+       01 WS-CNT             PIC 9(4).
+       01 WS-PART            PIC X(120).
+       01 WS-DELIM           PIC XX.
+       PROCEDURE DIVISION.
+      *>   A message whose words go round numbers and names differently in each
+      *>   language: WS-FMT holds "&1" .. "&4" where WS-ARG1..4 go.
+           MOVE SPACES TO WS-FMT-OUT
+           MOVE 1 TO WS-PT
+           MOVE 1 TO WS-FROM
+           PERFORM UNTIL WS-FROM > FUNCTION LENGTH(WS-FMT)
+               MOVE SPACES TO WS-PART WS-DELIM
+               MOVE 0 TO WS-CNT
+               UNSTRING WS-FMT DELIMITED BY "&1" OR "&2" OR "&3" OR "&4"
+                   INTO WS-PART DELIMITER IN WS-DELIM COUNT IN WS-CNT
+                   WITH POINTER WS-FROM
+               END-UNSTRING
+               IF WS-CNT > 0
+                   STRING WS-PART(1:WS-CNT) DELIMITED BY SIZE
+                       INTO WS-FMT-OUT WITH POINTER WS-PT
+               END-IF
+               EVALUATE WS-DELIM
+                   WHEN "&1" STRING FUNCTION TRIM(WS-ARG1) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&2" STRING FUNCTION TRIM(WS-ARG2) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&3" STRING FUNCTION TRIM(WS-ARG3) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&4" STRING FUNCTION TRIM(WS-ARG4) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN OTHER COMPUTE WS-FROM = FUNCTION LENGTH(WS-FMT) + 1
+               END-EVALUATE
+           END-PERFORM
+]]></Event>
+  </user-procedures>
+  <form-events>
+    <Event name="onLoad" paragraph="MODEL-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-PATHS"
+           CALL "PC-TEXTS"
+           CALL "COBOL-PROVIDER-COUNT" USING WS-PROV-COUNT
+           MOVE SPACES TO WS-CUR-NAME
+           CALL "PC-LOAD-CONNS"
+           MOVE Cmb-Conn::Clear() TO WS-OK
+           IF WS-CONN-COUNT = 0
+               MOVE FUNCTION TRIM(T-SUM-NEED-PROVIDER) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           PERFORM VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-CONN-COUNT
+               MOVE Cmb-Conn::AddItem(FUNCTION TRIM(WS-CONN-NAME(WS-P))) TO WS-OK
+           END-PERFORM
+      *>   Opening connects: the first connection and its models, at once.
+           MOVE Cmb-Conn::SetSelectedIndex(0) TO WS-OK
+           CALL "PC-OPEN-CONN"
+]]></Event>
+    <Event name="onClose" paragraph="MODEL-FORM--ONCLOSE">
+    </Event>
+  </form-events>
+  <Control id="Lbl-Title" type="Label" x="24" y="16" w="752" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="FontSize">20</Property>
+    <Property name="Bold">true</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Caption">Model selection</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Lbl-Conn" type="Label" x="24" y="76" w="160" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Caption">Connection</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Cmb-Conn" type="ComboBox" x="196" y="72" w="580" h="32" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="BorderColor">#AAAAAA</Property>
+    <Property name="DropDownHeight">240</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="SelectedIndex">-1</Property>
+    <Property name="Sorted">false</Property>
+    <Property name="Tooltip">The saved connection whose model you choose. Its models are listed on opening.</Property>
+    <Property name="DropDownStyle">DropDownList</Property>
+    <Property name="Editable">false</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Items"></Property>
+    <Property name="ActiveItemColor"></Property>
+    <Property name="HoverItemColor"></Property>
+    <Event name="onSelectedIndexChanged" paragraph="CMB-CONN--ONSELECTEDINDEXCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-OPEN-CONN"
+]]></Event>
+  </Control>
+  <Control id="Lbl-Model" type="Label" x="24" y="124" w="160" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Caption">Model</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Cmb-Model" type="ComboBox" x="196" y="120" w="580" h="32" tab-order="2" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="BorderColor">#AAAAAA</Property>
+    <Property name="Tooltip">The model to use. Press Refresh models to list what the provider offers.</Property>
+    <Property name="DropDownHeight">240</Property>
+    <Property name="Editable">true</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="SelectedIndex">-1</Property>
+    <Property name="Sorted">false</Property>
+    <Property name="DropDownStyle">DropDown</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Items"></Property>
+    <Property name="ActiveItemColor"></Property>
+    <Property name="HoverItemColor"></Property>
+  </Control>
+  <Control id="Lbl-Rank" type="Label" x="24" y="172" w="160" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Caption">Rank</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Txt-Rank" type="TextBox" x="196" y="168" w="100" h="32" tab-order="3" z-order="0" visible="true" enabled="true">
+    <Property name="HintText">1-9</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="AutoEnter">false</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderColor">#AAAAAA</Property>
+    <Property name="Tooltip">How well this model coordinates the other agents, from 1 (poorly) to 9 (best).</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Text"></Property>
+    <Property name="Picture"></Property>
+    <Property name="PasswordCharacter"></Property>
+  </Control>
+  <Control id="Chk-Tools" type="CheckBox" x="320" y="172" w="456" h="24" tab-order="4" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#8C8CA0</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">100</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Checked">false</Property>
+    <Property name="CheckAlignment">Left</Property>
+    <Property name="CheckColor">#0078D7</Property>
+    <Property name="CheckSize">70</Property>
+    <Property name="CheckBoxBorderStyle">None</Property>
+    <Property name="CheckBoxBorderColor">#8C8CA0</Property>
+    <Property name="CheckBoxBorderWidth">1</Property>
+    <Property name="Caption">Calls tools</Property>
+    <Property name="Tooltip">Tick when the model can call tools, such as searching the Knowledge Base.</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="GroupName"></Property>
+    <Property name="CheckBoxColor"></Property>
+  </Control>
+  <Control id="Lbl-Status" type="Label" x="24" y="224" w="752" h="140" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Caption">Status</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Btn-Cancel" type="Button" x="520" y="390" w="120" h="36" tab-order="5" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Caption">Cancel</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IconPath"></Property>
+    <Event name="onClick" paragraph="BTN-CANCEL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Nothing is written: the dialog closes as it was opened.
+           INVOKE ME::Close()
+]]></Event>
+  </Control>
+  <Control id="Btn-Save" type="Button" x="656" y="390" w="120" h="36" tab-order="6" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Caption">Save</Property>
+    <Property name="IsDefault">true</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IconPath"></Property>
+    <Event name="onClick" paragraph="BTN-SAVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The model, its rank and whether it calls tools, onto the connection.
+           IF WS-CUR-NAME = SPACES
+               MOVE FUNCTION TRIM(T-PICK-CONN) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           MOVE Cmb-Model::Value TO WS-MODEL-ID
+           IF WS-MODEL-ID = SPACES
+               MOVE FUNCTION TRIM(T-PICK-MODEL) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           OPEN I-O MODELS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT MODELS-FILE
+               CLOSE MODELS-FILE
+               OPEN I-O MODELS-FILE
+           END-IF
+           MOVE WS-CUR-NAME TO MDL-NAME
+           READ MODELS-FILE
+               INVALID KEY
+                   CLOSE MODELS-FILE
+                   MOVE FUNCTION TRIM(T-PICK-CONN) TO Lbl-Status::Caption
+                   EXIT PROGRAM
+           END-READ
+           MOVE WS-MODEL-ID TO MDL-MODEL
+           MOVE Chk-Tools::IsChecked() TO WS-TOOLS
+           IF WS-TOOLS(1:1) = "1"
+               MOVE "Y" TO MDL-TOOLS
+           ELSE
+               MOVE "N" TO MDL-TOOLS
+           END-IF
+           MOVE Txt-Rank::Text TO WS-RANK-TEXT
+           IF WS-RANK-TEXT IS NUMERIC AND WS-RANK-TEXT NOT = "0"
+               MOVE WS-RANK-TEXT TO MDL-RANK
+           ELSE
+               MOVE 5 TO MDL-RANK
+           END-IF
+           REWRITE MODEL-REC
+           COMMIT
+           CLOSE MODELS-FILE
+           CALL "COBOL-MODEL-SET" USING MDL-NAME MDL-API MDL-URL MDL-MODEL
+           MOVE FUNCTION TRIM(T-MODEL-SAVED) TO Lbl-Status::Caption
+           INVOKE ME::Close()
+]]></Event>
+  </Control>
+</Form>

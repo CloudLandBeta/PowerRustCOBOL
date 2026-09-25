@@ -103,6 +103,16 @@
   provider, model list and connection test are the IDE's (1.70.212); **Export…**
   / **Import…** write and read `rag-settings.xml` (no keys); every field has a
   tooltip; the status line is captioned **Status** on every form.
+- [x] **P3-5 — RAG settings, grouped** (1.70.220, mockup approved by the
+  operator) — `settings-form` is a summary: four buttons, each with a line
+  saying what its group holds, open **modal dialogs** (`OpenFormSync`, all
+  800 x 450, `FormFormat` Standalone — the one exception to P3-2):
+  `kb-folder-form`, `providers-form` (connection name, provider, endpoint, key;
+  **Test connection** lists the provider's models), `model-form` (connects and
+  lists the models as it opens; model, tools, rank) and `agents-form` (a
+  connection or **(off)** per agent). **Model selection** and **Agents** are
+  disabled until a provider connection exists.
+- [x] **P3-6 — The main window is 1200 x 800** (1.70.219).
 - **Found on the way, not fixed here:**
   - `SetSelectedIndex` on a ComboBox does not move its `Value`.
     PowerChat sets `Value` itself wherever it picks an item.

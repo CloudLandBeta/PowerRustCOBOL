@@ -113,6 +113,13 @@ impl Session {
         self.input.send(StateUpdate::new(ctrl, "SelectedIndex", &index.to_string())).unwrap();
     }
 
+    /// Pick a combo row the way a person does: the selection, then the
+    /// control's own change event.
+    fn choose(&self, ctrl: &str, index: usize) {
+        self.pick(ctrl, index);
+        self.events.send(FormEvent::new(ctrl, "onSelectedIndexChanged")).unwrap();
+    }
+
     fn click(&self, ctrl: &str) {
         self.events.send(FormEvent::click(ctrl)).unwrap();
     }
@@ -200,6 +207,18 @@ fn model_server() -> (String, Arc<Mutex<Vec<String>>>) {
                     Ok(n) => buf.extend_from_slice(&chunk[..n]),
                 }
             }
+            // The model list (a connection test, and the Model selection
+            // dialog opening): answered, and kept out of the chat requests.
+            if head.starts_with("get ") && head.contains("/api/tags") {
+                let reply = r#"{"models":[{"name":"llama-test"},{"name":"planner-model"}]}"#;
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    reply.len(),
+                    reply
+                );
+                let _ = stream.write_all(resp.as_bytes());
+                continue;
+            }
             let body = String::from_utf8_lossy(&buf[head_end..]).into_owned();
             log.lock().unwrap().push(body.clone());
             let v: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
@@ -286,26 +305,66 @@ fn powerchat_settings_topics_documents_and_chat() {
         t.elapsed().as_secs_f64() * 1000.0
     ));
 
-    // ── RAG settings: the KB folder, one model with its key, used for chat ──
+    // ── RAG settings: a summary whose four groups open modal dialogs
+    //    (operator, 2026-09-25). Before any provider, Model selection and
+    //    Agents are off ──
     let t = Instant::now();
+    let get = |v: &std::collections::HashMap<(String, String), String>, ctrl: &str, prop: &str| -> String {
+        v.get(&(ctrl.to_string(), prop.to_string())).cloned().unwrap_or_default()
+    };
     let mut s = Session::start("settings-form.cfrm");
+    let v = s.settle();
+    s.quit();
+    assert_eq!(get(&v, "BTN-MODELSEL", "ENABLED"), "false", "Model selection waits for a provider");
+    assert_eq!(get(&v, "BTN-AGENTS", "ENABLED"), "false", "Agents waits for a provider");
+    assert_eq!(get(&v, "LBL-PROVSUM", "CAPTION"), "No connection yet: start here.");
+    // Knowledge Base folder.
+    let mut s = Session::start("kb-folder-form.cfrm");
+    s.settle();
     s.type_into("Txt-KbLocation", &kb.display().to_string());
-    s.click("Btn-SaveKb");
+    s.click("Btn-Save");
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("folder saved"));
+    s.quit();
+    // Model providers: a new connection, tested there, saved with its key.
+    let mut s = Session::start("providers-form.cfrm");
+    s.settle();
     s.type_into("Txt-Name", "local-model");
     s.pick("Cmb-Provider", 14); // Ollama (Local), the IDE's 15th provider
     s.type_into("Txt-Url", &url);
-    s.input.send(StateUpdate::new("Cmb-Model", "Value", "llama-test")).unwrap();
     s.type_into("Txt-Key", "sk-POWERCHAT-secret");
+    s.click("Btn-Test");
+    let tested = s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Connection OK"));
+    assert_eq!(tested.trim(), "Connection OK: 2 models available.", "the test lists the provider's models");
+    s.click("Btn-Save");
+    s.wait_for("Lbl-Status", "Caption", |v| v.contains("key saved"));
+    s.quit();
+    // Model selection: opening connects and lists the models by itself.
+    let mut s = Session::start("model-form.cfrm");
+    let listed = s.wait_for("Lbl-Status", "Caption", |v| v.contains("models available"));
+    assert_eq!(listed.trim(), "2 models available.", "the dialog lists the models as it opens");
+    s.input.send(StateUpdate::new("Cmb-Model", "Value", "llama-test")).unwrap();
     s.input.send(StateUpdate::new("Chk-Tools", "Checked", "1")).unwrap();
     s.type_into("Txt-Rank", "5");
-    s.click("Btn-SaveModel");
-    s.wait_for("Lbl-Status", "Caption", |v| v.contains("key saved"));
-    s.pick("Lst-Models", 0);
-    s.pick("Cmb-Agent", 0);
-    s.click("Btn-Use");
-    s.wait_for("Lbl-Status", "Caption", |v| v.contains("Agent 1 now uses"));
+    s.click("Btn-Save");
+    s.wait_for("Lbl-Status", "Caption", |v| v.contains("Model saved"));
     s.quit();
+    // Agents: agent 1 on local-model.
+    let mut s = Session::start("agents-form.cfrm");
+    s.settle();
+    s.pick("Cmb-Agent-1", 1);
+    s.click("Btn-Save");
+    s.wait_for("Lbl-Status", "Caption", |v| v.contains("Agents saved"));
+    s.quit();
+    // Back on the summary: the two groups are open, and say what they hold.
+    let mut s = Session::start("settings-form.cfrm");
+    let v = s.settle();
+    s.quit();
+    assert_eq!(get(&v, "BTN-MODELSEL", "ENABLED"), "true", "a provider opens Model selection");
+    assert_eq!(get(&v, "BTN-AGENTS", "ENABLED"), "true", "and Agents");
+    assert_eq!(get(&v, "LBL-PROVSUM", "CAPTION"), "1 connection(s)");
+    assert_eq!(get(&v, "LBL-MODELSUM", "CAPTION"), "1 of 1 connection(s) have a model");
+    assert_eq!(get(&v, "LBL-AGENTSUM", "CAPTION"), "1 of 3 agents on");
+    assert_eq!(get(&v, "LBL-KBSUM", "CAPTION").trim(), kb.display().to_string());
     assert!(cobolt_runtime::key_store::key_store().is_set("local-model"), "the key went to the key store");
     for f in std::fs::read_dir(&data).unwrap().flatten() {
         let bytes = std::fs::read(f.path()).unwrap();
@@ -315,7 +374,10 @@ fn powerchat_settings_topics_documents_and_chat() {
             f.path().display()
         );
     }
-    report.push(format!("settings:  KB folder, model local-model (key in the key store, not in data/) — {:.0} ms", t.elapsed().as_secs_f64() * 1000.0));
+    report.push(format!(
+        "settings:  4 dialogs — KB folder; connection local-model tested (2 models) and saved, key in the key store, not in data/; model listed on opening and saved; agent 1 on it; Model selection and Agents off until then — {:.0} ms",
+        t.elapsed().as_secs_f64() * 1000.0
+    ));
 
     // ── Configured: the chat opens its menu and puts the welcome away ──
     let t = Instant::now();
@@ -461,20 +523,32 @@ fn powerchat_settings_topics_documents_and_chat() {
 
     // ── The mesh: a planner on agent 2 orchestrates, agent 1 does the tool work ──
     let t = Instant::now();
-    let mut s = Session::start("settings-form.cfrm");
+    let mut s = Session::start("providers-form.cfrm");
+    s.settle();
+    s.choose("Cmb-Conn", 0); // (new connection)
+    s.settle();
     s.type_into("Txt-Name", "planner");
     s.pick("Cmb-Provider", 14); // Ollama (Local), the IDE's 15th provider
     s.type_into("Txt-Url", &url);
+    s.type_into("Txt-Key", "");
+    s.click("Btn-Save");
+    s.wait_for("Lbl-Status", "Caption", |v| v.contains("Connection saved"));
+    s.quit();
+    let mut s = Session::start("model-form.cfrm");
+    s.wait_for("Lbl-Status", "Caption", |v| v.contains("models available"));
+    s.choose("Cmb-Conn", 1); // planner, after local-model
+    s.wait_for("Lbl-Status", "Caption", |v| v.contains("models available"));
     s.input.send(StateUpdate::new("Cmb-Model", "Value", "planner-model")).unwrap();
     s.input.send(StateUpdate::new("Chk-Tools", "Checked", "0")).unwrap();
     s.type_into("Txt-Rank", "9");
-    s.type_into("Txt-Key", "");
-    s.click("Btn-SaveModel");
+    s.click("Btn-Save");
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("Model saved"));
-    s.pick("Lst-Models", 1);
-    s.pick("Cmb-Agent", 1);
-    s.click("Btn-Use");
-    s.wait_for("Lbl-Status", "Caption", |v| v.contains("Agent 2 now uses"));
+    s.quit();
+    let mut s = Session::start("agents-form.cfrm");
+    s.settle();
+    s.pick("Cmb-Agent-2", 2); // planner
+    s.click("Btn-Save");
+    s.wait_for("Lbl-Status", "Caption", |v| v.contains("Agents saved"));
     s.quit();
     let before = requests.lock().unwrap().len();
     let mut s = Session::start("chat-form.cfrm");
@@ -699,29 +773,23 @@ fn powerchat_settings_topics_documents_and_chat() {
         t.elapsed().as_secs_f64() * 1000.0
     ));
 
-    // ── RAG settings, the IDE's way: browse for the KB folder, test the
-    //    connection, export to XML and import it back (keys never travel) ──
+    // ── RAG settings, the IDE's way: browse for the KB folder in its
+    //    dialog, export to XML and import it back (keys never travel) ──
     let t = Instant::now();
     let xml = root.join("rag-settings.xml");
     let xml2 = root.join("rag-settings-2.xml");
-    let mut s = Session::start_with_dialogs(
-        "settings-form.cfrm",
-        vec![
-            Some(kb.display().to_string()),
-            Some(xml.display().to_string()),
-            Some(xml2.display().to_string()),
-        ],
-    );
+    let mut s = Session::start_with_dialogs("kb-folder-form.cfrm", vec![Some(kb.display().to_string())]);
+    s.settle();
     s.click("Btn-BrowseKb");
     let folder = s.wait_for("Txt-KbLocation", "Text", |v| v.trim() == kb.display().to_string());
     assert_eq!(folder.trim(), kb.display().to_string());
+    s.click("Btn-Save");
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("folder saved"));
-    s.pick("Lst-Models", 0);
-    s.click("Btn-Edit");
-    s.wait_for("Txt-Name", "Text", |v| v.trim() == "local-model");
-    s.click("Btn-Test");
-    let tested = s.wait_for("Lbl-Status", "Caption", |v| v.contains("Connection"));
-    assert_eq!(tested.trim(), "llama-test: Connection OK.", "the IDE's test, from the application");
+    s.quit();
+    let mut s = Session::start_with_dialogs(
+        "settings-form.cfrm",
+        vec![Some(xml.display().to_string()), Some(xml2.display().to_string())],
+    );
     s.click("Btn-Export");
     let exported = s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Settings exported"));
     let text = std::fs::read_to_string(&xml).unwrap();
@@ -745,7 +813,7 @@ fn powerchat_settings_topics_documents_and_chat() {
     assert!(imported.contains("Set the API key of: R&D-cloud"), "{imported}");
     s.quit();
     report.push(format!(
-        "rag xml:   KB folder browsed; test OK; exported ({} bytes, no key); imported 3 models, R&D-cloud named for its key — {:.0} ms",
+        "rag xml:   KB folder browsed in its dialog; exported ({} bytes, no key); imported 3 models, R&D-cloud named for its key — {:.0} ms",
         text.len(),
         t.elapsed().as_secs_f64() * 1000.0
     ));

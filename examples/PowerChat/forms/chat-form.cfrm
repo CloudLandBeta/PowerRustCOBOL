@@ -278,19 +278,19 @@
           05 FILLER PIC X(120) VALUE "1. 左のメニューで「RAG 設定」を開きます（今はこれだけ使えます）。".
           05 FILLER PIC X(120) VALUE "1. 在左侧菜单中打开“RAG 设置”（目前只有它可用）。".
       *>   STEP-2
-          05 FILLER PIC X(120) VALUE "2. Add a model: choose its provider, press Refresh models, pick one, type its API key, press Test connection.".
-          05 FILLER PIC X(120) VALUE "2. Adicione um modelo: escolha o provedor, Atualizar modelos, escolha um, digite a chave e teste.".
-          05 FILLER PIC X(120) VALUE "2. Añade un modelo: elige el proveedor, Actualizar modelos, elige uno, escribe la clave y pruébalo.".
-          05 FILLER PIC X(120) VALUE "2. Ajoutez un modèle : fournisseur, Actualiser les modèles, un modèle, la clé API, puis Tester.".
-          05 FILLER PIC X(120) VALUE "2. モデルを追加: プロバイダーを選び、モデルを選択、キーを入れてテスト。".
-          05 FILLER PIC X(120) VALUE "2. 添加模型：选择提供商，刷新并选择模型，输入 API 密钥后测试连接。".
+          05 FILLER PIC X(120) VALUE "2. Model providers: add a connection (provider, API key), press Test connection and Save.".
+          05 FILLER PIC X(120) VALUE "2. Provedores de modelos: crie uma conexão (provedor, chave de API), Testar conexão e Salvar.".
+          05 FILLER PIC X(120) VALUE "2. Proveedores de modelos: añade una conexión (proveedor, clave de API), Probar conexión y Guardar.".
+          05 FILLER PIC X(120) VALUE "2. Fournisseurs de modèles : une connexion (fournisseur, clé API), Tester la connexion, Enregistrer.".
+          05 FILLER PIC X(120) VALUE "2. モデルプロバイダー: 接続（プロバイダー・API キー）を追加し、テストして保存。".
+          05 FILLER PIC X(120) VALUE "2. 模型提供商：添加连接（提供商、API 密钥），测试连接后保存。".
       *>   STEP-3
-          05 FILLER PIC X(120) VALUE "3. Save the model, choose an agent and press Assign to agent.".
-          05 FILLER PIC X(120) VALUE "3. Salve o modelo, escolha um agente e clique em Atribuir ao agente.".
-          05 FILLER PIC X(120) VALUE "3. Guarda el modelo, elige un agente y pulsa Asignar al agente.".
-          05 FILLER PIC X(120) VALUE "3. Enregistrez le modèle, choisissez un agent, puis Attribuer à l'agent.".
-          05 FILLER PIC X(120) VALUE "3. モデルを保存し、エージェントを選んで「エージェントに割り当て」。".
-          05 FILLER PIC X(120) VALUE "3. 保存模型，选择一个代理，然后点击“分配给代理”。".
+          05 FILLER PIC X(120) VALUE "3. Model selection: pick the model. Then Agents: give agent 1 that connection.".
+          05 FILLER PIC X(120) VALUE "3. Seleção de modelo: escolha o modelo. Depois Agentes: dê essa conexão ao agente 1.".
+          05 FILLER PIC X(120) VALUE "3. Selección de modelo: elige el modelo. Luego Agentes: asigna esa conexión al agente 1.".
+          05 FILLER PIC X(120) VALUE "3. Choix du modèle : choisissez-le. Puis Agents : donnez cette connexion à l'agent 1.".
+          05 FILLER PIC X(120) VALUE "3. 「モデルの選択」でモデルを選び、「エージェント」で接続を割り当てます。".
+          05 FILLER PIC X(120) VALUE "3. 在“模型选择”中选模型，再在“代理”中把连接分给代理 1。".
       *>   STEP-4
           05 FILLER PIC X(120) VALUE "4. Come back to Chat: the menu opens up. Create a topic, add its documents and ask.".
           05 FILLER PIC X(120) VALUE "4. Volte ao Chat: o menu é liberado. Crie um tópico, adicione documentos e pergunte.".
@@ -1991,7 +1991,7 @@
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="AutoSize">false</Property>
-    <Property name="Caption">2. Add a model: choose its provider, press Refresh models, pick one, type its API key, press Test connection.</Property>
+    <Property name="Caption">2. Model providers: add a connection (provider, API key), press Test connection and Save.</Property>
     <Property name="FontSize">14</Property>
     <Property name="Bold">false</Property>
     <Property name="WordWrap">true</Property>
@@ -2029,7 +2029,7 @@
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="AutoSize">false</Property>
-    <Property name="Caption">3. Save the model, choose an agent and press Assign to agent.</Property>
+    <Property name="Caption">3. Model selection: pick the model. Then Agents: give agent 1 that connection.</Property>
     <Property name="FontSize">14</Property>
     <Property name="Bold">false</Property>
     <Property name="WordWrap">true</Property>

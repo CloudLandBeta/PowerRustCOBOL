@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="SETTINGS-FORM" title="PowerChat" width="720" height="690" background="36383EFF" background-gradient-enabled="true" background-gradient-start="#4E4E4EFF" background-gradient-end="#000000FF" background-gradient-direction="South" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Dark" modal-overlay-style="Greyed" form-format="Embedded">
+<Form name="SETTINGS-FORM" title="PowerChat" width="720" height="620" background="36383EFF" background-gradient-enabled="true" background-gradient-start="#4E4E4EFF" background-gradient-end="#000000FF" background-gradient-direction="South" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Dark" modal-overlay-style="Greyed" form-format="Embedded">
   <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -31,62 +31,6 @@
        01 WS-LANG-IX         GLOBAL PIC 9 VALUE 1.
        01 WS-TX-I            GLOBAL PIC 9(4).
        01 PC-TEXT-DATA       GLOBAL.
-      *>   KB-FOLDER-SAVED
-          05 FILLER PIC X(120) VALUE "Knowledge Base folder saved.".
-          05 FILLER PIC X(120) VALUE "Pasta da base de conhecimento salva.".
-          05 FILLER PIC X(120) VALUE "Carpeta de la base de conocimiento guardada.".
-          05 FILLER PIC X(120) VALUE "Dossier de la base de connaissances enregistré.".
-          05 FILLER PIC X(120) VALUE "ナレッジベースのフォルダーを保存しました。".
-          05 FILLER PIC X(120) VALUE "知识库文件夹已保存。".
-      *>   PICK-MODEL-FIRST
-          05 FILLER PIC X(120) VALUE "Pick a model in the list first.".
-          05 FILLER PIC X(120) VALUE "Escolha um modelo na lista primeiro.".
-          05 FILLER PIC X(120) VALUE "Primero elige un modelo de la lista.".
-          05 FILLER PIC X(120) VALUE "Choisissez d'abord un modèle dans la liste.".
-          05 FILLER PIC X(120) VALUE "先に一覧からモデルを選んでください。".
-          05 FILLER PIC X(120) VALUE "请先在列表中选择一个模型。".
-      *>   AGENT-USES
-          05 FILLER PIC X(120) VALUE "Agent &1 now uses this model.".
-          05 FILLER PIC X(120) VALUE "O agente &1 agora usa este modelo.".
-          05 FILLER PIC X(120) VALUE "El agente &1 ahora usa este modelo.".
-          05 FILLER PIC X(120) VALUE "L'agent &1 utilise désormais ce modèle.".
-          05 FILLER PIC X(120) VALUE "エージェント &1 がこのモデルを使うようになりました。".
-          05 FILLER PIC X(120) VALUE "代理 &1 现在使用此模型。".
-      *>   AGENT-OFF
-          05 FILLER PIC X(120) VALUE "Agent &1 is off.".
-          05 FILLER PIC X(120) VALUE "O agente &1 está desligado.".
-          05 FILLER PIC X(120) VALUE "El agente &1 está apagado.".
-          05 FILLER PIC X(120) VALUE "L'agent &1 est désactivé.".
-          05 FILLER PIC X(120) VALUE "エージェント &1 は停止しています。".
-          05 FILLER PIC X(120) VALUE "代理 &1 已停用。".
-      *>   MODEL-REMOVED
-          05 FILLER PIC X(120) VALUE "Model removed, with its key.".
-          05 FILLER PIC X(120) VALUE "Modelo removido, junto com a chave.".
-          05 FILLER PIC X(120) VALUE "Modelo quitado, junto con su clave.".
-          05 FILLER PIC X(120) VALUE "Modèle retiré, avec sa clé.".
-          05 FILLER PIC X(120) VALUE "モデルをキーとともに削除しました。".
-          05 FILLER PIC X(120) VALUE "模型及其密钥已移除。".
-      *>   MODEL-NEEDS
-          05 FILLER PIC X(120) VALUE "A model needs at least a name and a provider.".
-          05 FILLER PIC X(120) VALUE "Um modelo precisa de pelo menos um nome e um provedor.".
-          05 FILLER PIC X(120) VALUE "Un modelo necesita al menos un nombre y un proveedor.".
-          05 FILLER PIC X(120) VALUE "Un modèle a besoin au moins d'un nom et d'un fournisseur.".
-          05 FILLER PIC X(120) VALUE "モデルには少なくとも名前とプロバイダーが必要です。".
-          05 FILLER PIC X(120) VALUE "模型至少需要名称和提供商。".
-      *>   MODEL-SAVED
-          05 FILLER PIC X(120) VALUE "Model saved.".
-          05 FILLER PIC X(120) VALUE "Modelo salvo.".
-          05 FILLER PIC X(120) VALUE "Modelo guardado.".
-          05 FILLER PIC X(120) VALUE "Modèle enregistré.".
-          05 FILLER PIC X(120) VALUE "モデルを保存しました。".
-          05 FILLER PIC X(120) VALUE "模型已保存。".
-      *>   MODEL-KEY-SAVED
-          05 FILLER PIC X(120) VALUE "Model and key saved.".
-          05 FILLER PIC X(120) VALUE "Modelo e chave salvos.".
-          05 FILLER PIC X(120) VALUE "Modelo y clave guardados.".
-          05 FILLER PIC X(120) VALUE "Modèle et clé enregistrés.".
-          05 FILLER PIC X(120) VALUE "モデルとキーを保存しました。".
-          05 FILLER PIC X(120) VALUE "模型和密钥已保存。".
       *>   ROW-TOOLS
           05 FILLER PIC X(120) VALUE ", tools".
           05 FILLER PIC X(120) VALUE ", ferramentas".
@@ -122,20 +66,6 @@
           05 FILLER PIC X(120) VALUE "Paramètres RAG".
           05 FILLER PIC X(120) VALUE "RAG 設定".
           05 FILLER PIC X(120) VALUE "RAG 设置".
-      *>   KB-FOLDER-LABEL
-          05 FILLER PIC X(120) VALUE "Knowledge Base folder (may be a folder on another machine)".
-          05 FILLER PIC X(120) VALUE "Pasta da base de conhecimento (pode ser uma pasta em outra máquina)".
-          05 FILLER PIC X(120) VALUE "Carpeta de la base de conocimiento (puede estar en otra máquina)".
-          05 FILLER PIC X(120) VALUE "Dossier de la base de connaissances (il peut se trouver sur une autre machine)".
-          05 FILLER PIC X(120) VALUE "ナレッジベースのフォルダー（別のマシン上のフォルダーでも可）".
-          05 FILLER PIC X(120) VALUE "知识库文件夹（可以位于另一台机器上）".
-      *>   SAVE-FOLDER
-          05 FILLER PIC X(120) VALUE "Save folder".
-          05 FILLER PIC X(120) VALUE "Salvar pasta".
-          05 FILLER PIC X(120) VALUE "Guardar carpeta".
-          05 FILLER PIC X(120) VALUE "Enregistrer le dossier".
-          05 FILLER PIC X(120) VALUE "フォルダーを保存".
-          05 FILLER PIC X(120) VALUE "保存文件夹".
       *>   MODELS
           05 FILLER PIC X(120) VALUE "Models".
           05 FILLER PIC X(120) VALUE "Modelos".
@@ -143,188 +73,6 @@
           05 FILLER PIC X(120) VALUE "Modèles".
           05 FILLER PIC X(120) VALUE "モデル".
           05 FILLER PIC X(120) VALUE "模型".
-      *>   AGENT
-          05 FILLER PIC X(120) VALUE "Agent".
-          05 FILLER PIC X(120) VALUE "Agente".
-          05 FILLER PIC X(120) VALUE "Agente".
-          05 FILLER PIC X(120) VALUE "Agent".
-          05 FILLER PIC X(120) VALUE "エージェント".
-          05 FILLER PIC X(120) VALUE "代理".
-      *>   ASSIGN-AGENT
-          05 FILLER PIC X(120) VALUE "Assign to agent".
-          05 FILLER PIC X(120) VALUE "Atribuir ao agente".
-          05 FILLER PIC X(120) VALUE "Asignar al agente".
-          05 FILLER PIC X(120) VALUE "Attribuer à l'agent".
-          05 FILLER PIC X(120) VALUE "エージェントに割り当て".
-          05 FILLER PIC X(120) VALUE "分配给代理".
-      *>   AGENT-OFF-BTN
-          05 FILLER PIC X(120) VALUE "Agent off".
-          05 FILLER PIC X(120) VALUE "Desligar agente".
-          05 FILLER PIC X(120) VALUE "Apagar agente".
-          05 FILLER PIC X(120) VALUE "Désactiver l'agent".
-          05 FILLER PIC X(120) VALUE "エージェントを停止".
-          05 FILLER PIC X(120) VALUE "停用代理".
-      *>   EDIT
-          05 FILLER PIC X(120) VALUE "Edit".
-          05 FILLER PIC X(120) VALUE "Editar".
-          05 FILLER PIC X(120) VALUE "Editar".
-          05 FILLER PIC X(120) VALUE "Modifier".
-          05 FILLER PIC X(120) VALUE "編集".
-          05 FILLER PIC X(120) VALUE "编辑".
-      *>   REMOVE
-          05 FILLER PIC X(120) VALUE "Remove".
-          05 FILLER PIC X(120) VALUE "Remover".
-          05 FILLER PIC X(120) VALUE "Quitar".
-          05 FILLER PIC X(120) VALUE "Retirer".
-          05 FILLER PIC X(120) VALUE "削除".
-          05 FILLER PIC X(120) VALUE "移除".
-      *>   NAME
-          05 FILLER PIC X(120) VALUE "Name".
-          05 FILLER PIC X(120) VALUE "Nome".
-          05 FILLER PIC X(120) VALUE "Nombre".
-          05 FILLER PIC X(120) VALUE "Nom".
-          05 FILLER PIC X(120) VALUE "名前".
-          05 FILLER PIC X(120) VALUE "名称".
-      *>   HINT-MODEL-NAME
-          05 FILLER PIC X(120) VALUE "e.g. company-model".
-          05 FILLER PIC X(120) VALUE "ex.: modelo-da-empresa".
-          05 FILLER PIC X(120) VALUE "p. ej. modelo-empresa".
-          05 FILLER PIC X(120) VALUE "ex. modele-entreprise".
-          05 FILLER PIC X(120) VALUE "例：company-model".
-          05 FILLER PIC X(120) VALUE "例如：company-model".
-      *>   ENDPOINT
-          05 FILLER PIC X(120) VALUE "Endpoint".
-          05 FILLER PIC X(120) VALUE "Endpoint".
-          05 FILLER PIC X(120) VALUE "Endpoint".
-          05 FILLER PIC X(120) VALUE "Point de terminaison".
-          05 FILLER PIC X(120) VALUE "エンドポイント".
-          05 FILLER PIC X(120) VALUE "端点".
-      *>   HINT-ENDPOINT
-          05 FILLER PIC X(120) VALUE "Blank: the provider's own address".
-          05 FILLER PIC X(120) VALUE "Vazio: o endereço padrão do provedor".
-          05 FILLER PIC X(120) VALUE "Vacío: la dirección del proveedor".
-          05 FILLER PIC X(120) VALUE "Vide : l'adresse du fournisseur".
-          05 FILLER PIC X(120) VALUE "空欄: プロバイダーの既定のアドレス".
-          05 FILLER PIC X(120) VALUE "留空：使用提供商的默认地址".
-      *>   MODEL
-          05 FILLER PIC X(120) VALUE "Model".
-          05 FILLER PIC X(120) VALUE "Modelo".
-          05 FILLER PIC X(120) VALUE "Modelo".
-          05 FILLER PIC X(120) VALUE "Modèle".
-          05 FILLER PIC X(120) VALUE "モデル".
-          05 FILLER PIC X(120) VALUE "模型".
-      *>   CALLS-TOOLS
-          05 FILLER PIC X(120) VALUE "Calls tools".
-          05 FILLER PIC X(120) VALUE "Chama ferramentas".
-          05 FILLER PIC X(120) VALUE "Usa herramientas".
-          05 FILLER PIC X(120) VALUE "Appelle des outils".
-          05 FILLER PIC X(120) VALUE "ツールを呼び出す".
-          05 FILLER PIC X(120) VALUE "可调用工具".
-      *>   RANK
-          05 FILLER PIC X(120) VALUE "Rank".
-          05 FILLER PIC X(120) VALUE "Nível".
-          05 FILLER PIC X(120) VALUE "Nivel".
-          05 FILLER PIC X(120) VALUE "Rang".
-          05 FILLER PIC X(120) VALUE "ランク".
-          05 FILLER PIC X(120) VALUE "等级".
-      *>   API-KEY
-          05 FILLER PIC X(120) VALUE "API key".
-          05 FILLER PIC X(120) VALUE "Chave de API".
-          05 FILLER PIC X(120) VALUE "Clave de API".
-          05 FILLER PIC X(120) VALUE "Clé API".
-          05 FILLER PIC X(120) VALUE "API キー".
-          05 FILLER PIC X(120) VALUE "API 密钥".
-      *>   HINT-KEY
-          05 FILLER PIC X(120) VALUE "Only to set or replace it - it is never shown again".
-          05 FILLER PIC X(120) VALUE "Só para definir ou trocar - ela nunca é mostrada de novo".
-          05 FILLER PIC X(120) VALUE "Solo para definirla o cambiarla: nunca se vuelve a mostrar".
-          05 FILLER PIC X(120) VALUE "Uniquement pour la définir ou la remplacer : elle ne sera plus jamais affichée".
-          05 FILLER PIC X(120) VALUE "設定または置き換えるときだけ入力 - 二度と表示されません".
-          05 FILLER PIC X(120) VALUE "仅用于设置或替换——之后不会再显示".
-      *>   SAVE-MODEL
-          05 FILLER PIC X(120) VALUE "Save model".
-          05 FILLER PIC X(120) VALUE "Salvar modelo".
-          05 FILLER PIC X(120) VALUE "Guardar modelo".
-          05 FILLER PIC X(120) VALUE "Enregistrer le modèle".
-          05 FILLER PIC X(120) VALUE "モデルを保存".
-          05 FILLER PIC X(120) VALUE "保存模型".
-      *>   PICK-AGENT
-          05 FILLER PIC X(120) VALUE "Pick an agent in the list first.".
-          05 FILLER PIC X(120) VALUE "Escolha um agente na lista primeiro.".
-          05 FILLER PIC X(120) VALUE "Primero elige un agente de la lista.".
-          05 FILLER PIC X(120) VALUE "Choisissez d'abord un agent dans la liste.".
-          05 FILLER PIC X(120) VALUE "先に一覧からエージェントを選んでください。".
-          05 FILLER PIC X(120) VALUE "请先在列表中选择一个代理。".
-      *>   AGENT-N
-          05 FILLER PIC X(120) VALUE "Agent &1".
-          05 FILLER PIC X(120) VALUE "Agente &1".
-          05 FILLER PIC X(120) VALUE "Agente &1".
-          05 FILLER PIC X(120) VALUE "Agent &1".
-          05 FILLER PIC X(120) VALUE "エージェント &1".
-          05 FILLER PIC X(120) VALUE "代理 &1".
-      *>   PROVIDER
-          05 FILLER PIC X(120) VALUE "Provider".
-          05 FILLER PIC X(120) VALUE "Provedor".
-          05 FILLER PIC X(120) VALUE "Proveedor".
-          05 FILLER PIC X(120) VALUE "Fournisseur".
-          05 FILLER PIC X(120) VALUE "プロバイダー".
-          05 FILLER PIC X(120) VALUE "提供商".
-      *>   PICK-PROVIDER
-          05 FILLER PIC X(120) VALUE "Pick the model's provider first.".
-          05 FILLER PIC X(120) VALUE "Escolha primeiro o provedor do modelo.".
-          05 FILLER PIC X(120) VALUE "Primero elige el proveedor del modelo.".
-          05 FILLER PIC X(120) VALUE "Choisissez d'abord le fournisseur du modèle.".
-          05 FILLER PIC X(120) VALUE "先にモデルのプロバイダーを選んでください。".
-          05 FILLER PIC X(120) VALUE "请先选择模型的提供商。".
-      *>   REFRESH-MODELS
-          05 FILLER PIC X(120) VALUE "Refresh models".
-          05 FILLER PIC X(120) VALUE "Atualizar modelos".
-          05 FILLER PIC X(120) VALUE "Actualizar modelos".
-          05 FILLER PIC X(120) VALUE "Actualiser les modèles".
-          05 FILLER PIC X(120) VALUE "モデルを更新".
-          05 FILLER PIC X(120) VALUE "刷新模型".
-      *>   LISTING
-          05 FILLER PIC X(120) VALUE "Asking &1 for its models...".
-          05 FILLER PIC X(120) VALUE "Pedindo a lista de modelos a &1...".
-          05 FILLER PIC X(120) VALUE "Pidiendo a &1 sus modelos...".
-          05 FILLER PIC X(120) VALUE "Demande des modèles à &1...".
-          05 FILLER PIC X(120) VALUE "&1 にモデルを問い合わせ中...".
-          05 FILLER PIC X(120) VALUE "正在向 &1 获取模型...".
-      *>   MODELS-AVAILABLE
-          05 FILLER PIC X(120) VALUE "&1 models available.".
-          05 FILLER PIC X(120) VALUE "&1 modelos disponíveis.".
-          05 FILLER PIC X(120) VALUE "&1 modelos disponibles.".
-          05 FILLER PIC X(120) VALUE "&1 modèles disponibles.".
-          05 FILLER PIC X(120) VALUE "利用可能なモデル: &1".
-          05 FILLER PIC X(120) VALUE "可用模型：&1 个".
-      *>   TEST-CONN
-          05 FILLER PIC X(120) VALUE "Test connection".
-          05 FILLER PIC X(120) VALUE "Testar conexão".
-          05 FILLER PIC X(120) VALUE "Probar conexión".
-          05 FILLER PIC X(120) VALUE "Tester la connexion".
-          05 FILLER PIC X(120) VALUE "接続をテスト".
-          05 FILLER PIC X(120) VALUE "测试连接".
-      *>   TESTING
-          05 FILLER PIC X(120) VALUE "Testing &1...".
-          05 FILLER PIC X(120) VALUE "Testando &1...".
-          05 FILLER PIC X(120) VALUE "Probando &1...".
-          05 FILLER PIC X(120) VALUE "Test de &1...".
-          05 FILLER PIC X(120) VALUE "&1 をテスト中...".
-          05 FILLER PIC X(120) VALUE "正在测试 &1...".
-      *>   CONN-OK
-          05 FILLER PIC X(120) VALUE "&1: Connection OK.".
-          05 FILLER PIC X(120) VALUE "&1: conexão OK.".
-          05 FILLER PIC X(120) VALUE "&1: conexión correcta.".
-          05 FILLER PIC X(120) VALUE "&1 : connexion OK.".
-          05 FILLER PIC X(120) VALUE "&1: 接続 OK".
-          05 FILLER PIC X(120) VALUE "&1：连接正常。".
-      *>   MODEL-NEEDS-KEY
-          05 FILLER PIC X(120) VALUE "Model saved. It still needs its API key before it can answer.".
-          05 FILLER PIC X(120) VALUE "Modelo salvo. Ainda falta a chave de API para ele responder.".
-          05 FILLER PIC X(120) VALUE "Modelo guardado. Aún necesita su clave de API para responder.".
-          05 FILLER PIC X(120) VALUE "Modèle enregistré. Il lui faut encore sa clé API pour répondre.".
-          05 FILLER PIC X(120) VALUE "モデルを保存しました。応答するには API キーが必要です。".
-          05 FILLER PIC X(120) VALUE "模型已保存。仍需设置 API 密钥才能应答。".
       *>   EXPORT
           05 FILLER PIC X(120) VALUE "Export...".
           05 FILLER PIC X(120) VALUE "Exportar...".
@@ -353,13 +101,6 @@
           05 FILLER PIC X(120) VALUE "Importer les paramètres RAG".
           05 FILLER PIC X(120) VALUE "RAG 設定をインポート".
           05 FILLER PIC X(120) VALUE "导入 RAG 设置".
-      *>   KB-BROWSE-TITLE
-          05 FILLER PIC X(120) VALUE "Choose the Knowledge Base folder".
-          05 FILLER PIC X(120) VALUE "Escolha a pasta da base de conhecimento".
-          05 FILLER PIC X(120) VALUE "Elige la carpeta de la base de conocimiento".
-          05 FILLER PIC X(120) VALUE "Choisissez le dossier de la base de connaissances".
-          05 FILLER PIC X(120) VALUE "ナレッジベースのフォルダーを選択".
-          05 FILLER PIC X(120) VALUE "选择知识库文件夹".
       *>   EXPORTED
           05 FILLER PIC X(120) VALUE "Settings exported to &1 (API keys are never exported).".
           05 FILLER PIC X(120) VALUE "Configurações exportadas para &1 (as chaves de API nunca são exportadas).".
@@ -402,154 +143,101 @@
           05 FILLER PIC X(120) VALUE "État".
           05 FILLER PIC X(120) VALUE "ステータス".
           05 FILLER PIC X(120) VALUE "状态".
-      *>   TIP-KB
-          05 FILLER PIC X(120) VALUE "The folder where each topic keeps its documents and search index. It may be on another machine.".
-          05 FILLER PIC X(120) VALUE "Pasta onde cada tópico guarda seus documentos e o índice de busca. Pode ficar em outra máquina.".
-          05 FILLER PIC X(120) VALUE "Carpeta donde cada tema guarda sus documentos y su índice. Puede estar en otra máquina.".
-          05 FILLER PIC X(120) VALUE "Dossier où chaque sujet garde ses documents et son index. Il peut être sur une autre machine.".
-          05 FILLER PIC X(120) VALUE "各トピックの文書と検索索引を置くフォルダー。別のマシンにあってもかまいません。".
-          05 FILLER PIC X(120) VALUE "每个主题存放文档和搜索索引的文件夹，可以位于另一台机器上。".
-      *>   TIP-BROWSE
-          05 FILLER PIC X(120) VALUE "Choose the folder in a window instead of typing it.".
-          05 FILLER PIC X(120) VALUE "Escolher a pasta numa janela em vez de digitá-la.".
-          05 FILLER PIC X(120) VALUE "Elegir la carpeta en una ventana en lugar de escribirla.".
-          05 FILLER PIC X(120) VALUE "Choisir le dossier dans une fenêtre plutôt que le taper.".
-          05 FILLER PIC X(120) VALUE "入力する代わりにウィンドウでフォルダーを選びます。".
-          05 FILLER PIC X(120) VALUE "在窗口中选择文件夹，而不必手动输入。".
-      *>   TIP-NAME
-          05 FILLER PIC X(120) VALUE "A short name you choose for this model, such as company-model. Agents are assigned by it.".
-          05 FILLER PIC X(120) VALUE "Um nome curto que você escolhe para este modelo, como modelo-da-empresa. Os agentes usam esse nome.".
-          05 FILLER PIC X(120) VALUE "Un nombre corto que eliges para este modelo, como modelo-empresa. Los agentes lo usan.".
-          05 FILLER PIC X(120) VALUE "Un nom court que vous choisissez pour ce modèle, comme modele-entreprise.".
-          05 FILLER PIC X(120) VALUE "このモデルの短い名前（例: company-model）。エージェントはこの名前で割り当てます。".
-          05 FILLER PIC X(120) VALUE "为此模型取的简短名称，例如 company-model。代理按此名称分配。".
-      *>   TIP-PROVIDER
-          05 FILLER PIC X(120) VALUE "Who serves the model: a cloud provider, or Ollama or Llamafile on this machine.".
-          05 FILLER PIC X(120) VALUE "Quem fornece o modelo: um provedor na nuvem, ou Ollama ou Llamafile nesta máquina.".
-          05 FILLER PIC X(120) VALUE "Quién sirve el modelo: un proveedor en la nube, u Ollama o Llamafile en este equipo.".
-          05 FILLER PIC X(120) VALUE "Qui sert le modèle : un fournisseur en ligne, ou Ollama ou Llamafile sur cette machine.".
-          05 FILLER PIC X(120) VALUE "モデルの提供元: クラウドのプロバイダー、またはこのマシンの Ollama / Llamafile。".
-          05 FILLER PIC X(120) VALUE "模型由谁提供：云端提供商，或本机上的 Ollama / Llamafile。".
-      *>   TIP-URL
-          05 FILLER PIC X(120) VALUE "The provider's address. Leave it blank or as filled in, unless your provider gave you another.".
-          05 FILLER PIC X(120) VALUE "O endereço do provedor. Deixe vazio ou como veio, a menos que o provedor indique outro.".
-          05 FILLER PIC X(120) VALUE "La dirección del proveedor. Déjala vacía o como está, salvo que te den otra.".
-          05 FILLER PIC X(120) VALUE "L'adresse du fournisseur. Laissez-la vide ou telle quelle, sauf indication contraire.".
-          05 FILLER PIC X(120) VALUE "プロバイダーのアドレス。指定がなければ空欄か既定のままにします。".
-          05 FILLER PIC X(120) VALUE "提供商的地址。除非提供商另有说明，请留空或保留默认值。".
-      *>   TIP-MODEL
-          05 FILLER PIC X(120) VALUE "The model to use. Press Refresh models to list what the provider offers.".
-          05 FILLER PIC X(120) VALUE "O modelo a usar. Clique em Atualizar modelos para ver o que o provedor oferece.".
-          05 FILLER PIC X(120) VALUE "El modelo a usar. Pulsa Actualizar modelos para ver lo que ofrece el proveedor.".
-          05 FILLER PIC X(120) VALUE "Le modèle à utiliser. Cliquez sur Actualiser les modèles pour voir l'offre.".
-          05 FILLER PIC X(120) VALUE "使用するモデル。「モデルを更新」でプロバイダーの一覧を取得します。".
-          05 FILLER PIC X(120) VALUE "要使用的模型。点击“刷新模型”查看提供商提供的模型。".
-      *>   TIP-KEY
-          05 FILLER PIC X(120) VALUE "The API key from your provider. Typed only to set or replace it; it is never shown again.".
-          05 FILLER PIC X(120) VALUE "A chave de API do seu provedor. Digite só para definir ou trocar; ela nunca é mostrada de novo.".
-          05 FILLER PIC X(120) VALUE "La clave de API de tu proveedor. Escríbela solo para definirla o cambiarla; no se vuelve a mostrar.".
-          05 FILLER PIC X(120) VALUE "La clé API de votre fournisseur, tapée pour la définir ou la remplacer ; jamais réaffichée.".
-          05 FILLER PIC X(120) VALUE "プロバイダーの API キー。設定や置き換えのときだけ入力し、二度と表示されません。".
-          05 FILLER PIC X(120) VALUE "提供商的 API 密钥。仅在设置或替换时输入，之后不会再显示。".
-      *>   TIP-RANK
-          05 FILLER PIC X(120) VALUE "How well this model coordinates the other agents, from 1 (poorly) to 9 (best).".
-          05 FILLER PIC X(120) VALUE "Quão bem este modelo coordena os outros agentes, de 1 (mal) a 9 (melhor).".
-          05 FILLER PIC X(120) VALUE "Qué tan bien coordina este modelo a los demás agentes, de 1 (mal) a 9 (mejor).".
-          05 FILLER PIC X(120) VALUE "À quel point ce modèle coordonne les autres agents, de 1 (mal) à 9 (le mieux).".
-          05 FILLER PIC X(120) VALUE "他のエージェントを調整する力。1（低い）から 9（最高）まで。".
-          05 FILLER PIC X(120) VALUE "此模型协调其他代理的能力，从 1（差）到 9（最好）。".
-      *>   TIP-TOOLS
-          05 FILLER PIC X(120) VALUE "Tick when the model can call tools, such as searching the Knowledge Base.".
-          05 FILLER PIC X(120) VALUE "Marque se o modelo sabe chamar ferramentas, como a busca na base de conhecimento.".
-          05 FILLER PIC X(120) VALUE "Márcalo si el modelo puede usar herramientas, como buscar en la base de conocimiento.".
-          05 FILLER PIC X(120) VALUE "Cochez si le modèle sait appeler des outils, comme la recherche dans la base.".
-          05 FILLER PIC X(120) VALUE "ナレッジベース検索などのツールを呼び出せるモデルならチェックします。".
-          05 FILLER PIC X(120) VALUE "如果模型能调用工具（例如搜索知识库），请勾选。".
-      *>   TIP-AGENT
-          05 FILLER PIC X(120) VALUE "Which of the chat's three agents gets the model selected in the list.".
-          05 FILLER PIC X(120) VALUE "Qual dos três agentes do chat recebe o modelo selecionado na lista.".
-          05 FILLER PIC X(120) VALUE "Cuál de los tres agentes del chat recibe el modelo seleccionado en la lista.".
-          05 FILLER PIC X(120) VALUE "Lequel des trois agents du chat reçoit le modèle choisi dans la liste.".
-          05 FILLER PIC X(120) VALUE "一覧で選んだモデルを、チャットの 3 つのエージェントのどれに割り当てるか。".
-          05 FILLER PIC X(120) VALUE "把列表中选中的模型分配给聊天的三个代理中的哪一个。".
-      *>   TIP-TEST
-          05 FILLER PIC X(120) VALUE "Ask the model one tiny question, to check the address, the key and the model name.".
-          05 FILLER PIC X(120) VALUE "Faz uma pergunta mínima ao modelo, para conferir endereço, chave e nome do modelo.".
-          05 FILLER PIC X(120) VALUE "Hace una pregunta mínima al modelo para comprobar dirección, clave y nombre.".
-          05 FILLER PIC X(120) VALUE "Pose une toute petite question au modèle pour vérifier adresse, clé et nom.".
-          05 FILLER PIC X(120) VALUE "モデルに短い質問を送り、アドレス・キー・モデル名を確かめます。".
-          05 FILLER PIC X(120) VALUE "向模型发送一个很短的问题，检查地址、密钥和模型名称。".
+      *>   KB-FOLDER-TITLE
+          05 FILLER PIC X(120) VALUE "Knowledge Base folder".
+          05 FILLER PIC X(120) VALUE "Pasta da base de conhecimento".
+          05 FILLER PIC X(120) VALUE "Carpeta de la base de conocimiento".
+          05 FILLER PIC X(120) VALUE "Dossier de la base de connaissances".
+          05 FILLER PIC X(120) VALUE "ナレッジベースのフォルダー".
+          05 FILLER PIC X(120) VALUE "知识库文件夹".
+      *>   PROVIDERS-TITLE
+          05 FILLER PIC X(120) VALUE "Model providers".
+          05 FILLER PIC X(120) VALUE "Provedores de modelos".
+          05 FILLER PIC X(120) VALUE "Proveedores de modelos".
+          05 FILLER PIC X(120) VALUE "Fournisseurs de modèles".
+          05 FILLER PIC X(120) VALUE "モデルプロバイダー".
+          05 FILLER PIC X(120) VALUE "模型提供商".
+      *>   MODEL-SEL-TITLE
+          05 FILLER PIC X(120) VALUE "Model selection".
+          05 FILLER PIC X(120) VALUE "Seleção de modelo".
+          05 FILLER PIC X(120) VALUE "Selección de modelo".
+          05 FILLER PIC X(120) VALUE "Choix du modèle".
+          05 FILLER PIC X(120) VALUE "モデルの選択".
+          05 FILLER PIC X(120) VALUE "模型选择".
+      *>   AGENTS-TITLE
+          05 FILLER PIC X(120) VALUE "Agents".
+          05 FILLER PIC X(120) VALUE "Agentes".
+          05 FILLER PIC X(120) VALUE "Agentes".
+          05 FILLER PIC X(120) VALUE "Agents".
+          05 FILLER PIC X(120) VALUE "エージェント".
+          05 FILLER PIC X(120) VALUE "代理".
+      *>   SUM-NO-CONNS
+          05 FILLER PIC X(120) VALUE "No connection yet: start here.".
+          05 FILLER PIC X(120) VALUE "Nenhuma conexão ainda: comece aqui.".
+          05 FILLER PIC X(120) VALUE "Aún no hay conexiones: empieza aquí.".
+          05 FILLER PIC X(120) VALUE "Aucune connexion : commencez ici.".
+          05 FILLER PIC X(120) VALUE "接続はまだありません。ここから始めます。".
+          05 FILLER PIC X(120) VALUE "还没有连接：从这里开始。".
+      *>   SUM-CONNS
+          05 FILLER PIC X(120) VALUE "&1 connection(s)".
+          05 FILLER PIC X(120) VALUE "&1 conexão(ões)".
+          05 FILLER PIC X(120) VALUE "&1 conexión(es)".
+          05 FILLER PIC X(120) VALUE "&1 connexion(s)".
+          05 FILLER PIC X(120) VALUE "接続 &1 件".
+          05 FILLER PIC X(120) VALUE "&1 个连接".
+      *>   SUM-NEED-PROVIDER
+          05 FILLER PIC X(120) VALUE "Set up a model provider first.".
+          05 FILLER PIC X(120) VALUE "Configure antes um provedor de modelos.".
+          05 FILLER PIC X(120) VALUE "Configura antes un proveedor de modelos.".
+          05 FILLER PIC X(120) VALUE "Configurez d'abord un fournisseur de modèles.".
+          05 FILLER PIC X(120) VALUE "先にモデルプロバイダーを設定してください。".
+          05 FILLER PIC X(120) VALUE "请先配置模型提供商。".
+      *>   SUM-MODELS
+          05 FILLER PIC X(120) VALUE "&1 of &2 connection(s) have a model".
+          05 FILLER PIC X(120) VALUE "&1 de &2 conexão(ões) com modelo".
+          05 FILLER PIC X(120) VALUE "&1 de &2 conexión(es) con modelo".
+          05 FILLER PIC X(120) VALUE "&1 connexion(s) sur &2 avec un modèle".
+          05 FILLER PIC X(120) VALUE "モデル設定済み: &1 / &2".
+          05 FILLER PIC X(120) VALUE "已选模型：&1 / &2".
+      *>   SUM-AGENTS
+          05 FILLER PIC X(120) VALUE "&1 of 3 agents on".
+          05 FILLER PIC X(120) VALUE "&1 de 3 agentes ligados".
+          05 FILLER PIC X(120) VALUE "&1 de 3 agentes activos".
+          05 FILLER PIC X(120) VALUE "&1 agent(s) sur 3 actif(s)".
+          05 FILLER PIC X(120) VALUE "稼働中のエージェント: &1 / 3".
+          05 FILLER PIC X(120) VALUE "已启用代理：&1 / 3".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 64.
+          05 PC-TEXT-ROW     OCCURS 25.
              10 PC-TEXT      PIC X(120) OCCURS 6.
       *>   The texts in the current language, by name.
        01 PC-TEXTS-NOW       GLOBAL.
-          05 T-KB-FOLDER-SAVED PIC X(120).
-          05 T-PICK-MODEL-FIRST PIC X(120).
-          05 T-AGENT-USES PIC X(120).
-          05 T-AGENT-OFF PIC X(120).
-          05 T-MODEL-REMOVED PIC X(120).
-          05 T-MODEL-NEEDS PIC X(120).
-          05 T-MODEL-SAVED PIC X(120).
-          05 T-MODEL-KEY-SAVED PIC X(120).
           05 T-ROW-TOOLS PIC X(120).
           05 T-ROW-RANK PIC X(120).
           05 T-ROW-KEY-SET PIC X(120).
           05 T-ROW-AGENT PIC X(120).
           05 T-SETTINGS-TITLE PIC X(120).
-          05 T-KB-FOLDER-LABEL PIC X(120).
-          05 T-SAVE-FOLDER PIC X(120).
           05 T-MODELS PIC X(120).
-          05 T-AGENT PIC X(120).
-          05 T-ASSIGN-AGENT PIC X(120).
-          05 T-AGENT-OFF-BTN PIC X(120).
-          05 T-EDIT PIC X(120).
-          05 T-REMOVE PIC X(120).
-          05 T-NAME PIC X(120).
-          05 T-HINT-MODEL-NAME PIC X(120).
-          05 T-ENDPOINT PIC X(120).
-          05 T-HINT-ENDPOINT PIC X(120).
-          05 T-MODEL PIC X(120).
-          05 T-CALLS-TOOLS PIC X(120).
-          05 T-RANK PIC X(120).
-          05 T-API-KEY PIC X(120).
-          05 T-HINT-KEY PIC X(120).
-          05 T-SAVE-MODEL PIC X(120).
-          05 T-PICK-AGENT PIC X(120).
-          05 T-AGENT-N PIC X(120).
-          05 T-PROVIDER PIC X(120).
-          05 T-PICK-PROVIDER PIC X(120).
-          05 T-REFRESH-MODELS PIC X(120).
-          05 T-LISTING PIC X(120).
-          05 T-MODELS-AVAILABLE PIC X(120).
-          05 T-TEST-CONN PIC X(120).
-          05 T-TESTING PIC X(120).
-          05 T-CONN-OK PIC X(120).
-          05 T-MODEL-NEEDS-KEY PIC X(120).
           05 T-EXPORT PIC X(120).
           05 T-IMPORT PIC X(120).
           05 T-EXPORT-TITLE PIC X(120).
           05 T-IMPORT-TITLE PIC X(120).
-          05 T-KB-BROWSE-TITLE PIC X(120).
           05 T-EXPORTED PIC X(120).
           05 T-IMPORTED PIC X(120).
           05 T-IMPORT-KEYS PIC X(120).
           05 T-NOT-RAG-FILE PIC X(120).
           05 T-FILE-UNWRITABLE PIC X(120).
           05 T-STATUS PIC X(120).
-          05 T-TIP-KB PIC X(120).
-          05 T-TIP-BROWSE PIC X(120).
-          05 T-TIP-NAME PIC X(120).
-          05 T-TIP-PROVIDER PIC X(120).
-          05 T-TIP-URL PIC X(120).
-          05 T-TIP-MODEL PIC X(120).
-          05 T-TIP-KEY PIC X(120).
-          05 T-TIP-RANK PIC X(120).
-          05 T-TIP-TOOLS PIC X(120).
-          05 T-TIP-AGENT PIC X(120).
-          05 T-TIP-TEST PIC X(120).
+          05 T-KB-FOLDER-TITLE PIC X(120).
+          05 T-PROVIDERS-TITLE PIC X(120).
+          05 T-MODEL-SEL-TITLE PIC X(120).
+          05 T-AGENTS-TITLE PIC X(120).
+          05 T-SUM-NO-CONNS PIC X(120).
+          05 T-SUM-CONNS PIC X(120).
+          05 T-SUM-NEED-PROVIDER PIC X(120).
+          05 T-SUM-MODELS PIC X(120).
+          05 T-SUM-AGENTS PIC X(120).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(120) OCCURS 64.
+          05 PC-TEXT-NOW     PIC X(120) OCCURS 25.
       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
        01 WS-FMT             GLOBAL PIC X(120).
        01 WS-ARG1            GLOBAL PIC X(300).
@@ -584,6 +272,10 @@
        01 WS-NE              GLOBAL PIC Z(3)9.
        01 WS-NEED-KEYS       GLOBAL PIC X(400).
        01 WS-AG-IX           GLOBAL PIC S9(4).
+      *>   The summaries under the four buttons.
+       01 WS-WITH-MODEL      GLOBAL PIC 9(4) VALUE 0.
+       01 WS-AGENTS-ON       GLOBAL PIC 9 VALUE 0.
+       01 WS-NE2             GLOBAL PIC Z(3)9.
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -743,6 +435,7 @@
       *>   stored - never the key itself (spec 071 R37, 076 R6).
            MOVE Lst-Models::Clear() TO WS-OK
            MOVE 0 TO WS-MODEL-COUNT
+           MOVE 0 TO WS-WITH-MODEL
            CALL "PC-LOAD-AGENTS"
            OPEN I-O MODELS-FILE
            IF WS-FS = "35"
@@ -762,6 +455,9 @@
                        IF WS-MODEL-COUNT < 200
                            ADD 1 TO WS-MODEL-COUNT
                            MOVE MDL-NAME TO WS-MODEL-NAME(WS-MODEL-COUNT)
+                           IF MDL-MODEL NOT = SPACES
+                               ADD 1 TO WS-WITH-MODEL
+                           END-IF
                            CALL "COBOL-KEY-IS-SET" USING MDL-NAME WS-KEY-FLAG
                            MOVE MDL-API TO WS-PROV-ID
                            CALL "PC-PROVIDER-LABEL"
@@ -812,19 +508,6 @@
            END-PERFORM
            CLOSE MODELS-FILE
 ]]></Event>
-    <Event name="PC-LOAD-PROVIDERS" paragraph="PC-LOAD-PROVIDERS"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       PROCEDURE DIVISION.
-      *>   The IDE's providers, from the runtime (never a copy of our own):
-      *>   the combo's items are their names, in the IDE's order.
-           CALL "COBOL-PROVIDER-COUNT" USING WS-PROV-COUNT
-           MOVE Cmb-Provider::Clear() TO WS-OK
-           PERFORM VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-PROV-COUNT
-               CALL "COBOL-PROVIDER-GET" USING WS-P WS-PROV-ID WS-PROV-LABEL
-                    WS-PROV-EP WS-PROV-NEEDS
-               MOVE Cmb-Provider::AddItem(FUNCTION TRIM(WS-PROV-LABEL)) TO WS-OK
-           END-PERFORM
-]]></Event>
     <Event name="PC-PROVIDER-LABEL" paragraph="PC-PROVIDER-LABEL"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -849,70 +532,6 @@
            ELSE
                MOVE WS-XNAME TO WS-PROV-ID
            END-IF
-]]></Event>
-    <Event name="PC-PICKED-PROVIDER" paragraph="PC-PICKED-PROVIDER"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       PROCEDURE DIVISION.
-      *>   The provider the combo shows: WS-PROV-IX (0 = none) and its fields.
-           MOVE Cmb-Provider::GetSelectedIndex() TO WS-PROV-IX
-           ADD 1 TO WS-PROV-IX
-           IF WS-PROV-IX < 1 OR WS-PROV-IX > WS-PROV-COUNT
-               MOVE 0 TO WS-PROV-IX
-               MOVE SPACES TO WS-PROV-ID WS-PROV-EP
-               EXIT PROGRAM
-           END-IF
-           MOVE WS-PROV-IX TO WS-P
-           CALL "COBOL-PROVIDER-GET" USING WS-P WS-PROV-ID WS-PROV-LABEL
-                WS-PROV-EP WS-PROV-NEEDS
-]]></Event>
-    <Event name="PC-REFRESH-MODELS" paragraph="PC-REFRESH-MODELS"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       PROCEDURE DIVISION.
-      *>   Ask the provider which models it offers (the IDE's Refresh models).
-      *>   A blank key uses the one stored for this entry, never reading it.
-           CALL "PC-PICKED-PROVIDER"
-           IF WS-PROV-IX = 0
-               MOVE FUNCTION TRIM(T-PICK-PROVIDER) TO Lbl-Status::Caption
-               EXIT PROGRAM
-           END-IF
-           MOVE T-LISTING TO WS-FMT
-           MOVE WS-PROV-LABEL TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
-           MOVE Txt-Url::Text TO WS-PATH
-           MOVE Txt-Key::Text TO WS-KEY
-           MOVE Txt-Name::Text TO MDL-NAME
-           MOVE Cmb-Model::Value TO WS-MODEL-ID
-           CALL "COBOL-MODEL-LIST" USING WS-PROV-ID WS-PATH WS-KEY WS-N
-                WS-LONG MDL-NAME
-           MOVE SPACES TO WS-KEY
-           IF WS-LONG NOT = "OK"
-               MOVE WS-LONG TO Lbl-Status::Caption
-               EXIT PROGRAM
-           END-IF
-           MOVE Cmb-Model::Clear() TO WS-OK
-           MOVE -1 TO WS-INDEX
-           PERFORM VARYING WS-M FROM 1 BY 1 UNTIL WS-M > WS-N
-               CALL "COBOL-MODEL-LIST-GET" USING WS-M WS-XVAL
-               MOVE Cmb-Model::AddItem(FUNCTION TRIM(WS-XVAL)) TO WS-OK
-               IF WS-XVAL = WS-MODEL-ID
-                   COMPUTE WS-INDEX = WS-M - 1
-               END-IF
-           END-PERFORM
-      *>   Keep the model that was chosen when the provider still offers it.
-           IF WS-INDEX < 0
-               MOVE 0 TO WS-INDEX
-               MOVE 1 TO WS-M
-               CALL "COBOL-MODEL-LIST-GET" USING WS-M WS-MODEL-ID
-           END-IF
-           MOVE WS-INDEX TO WS-P
-           MOVE Cmb-Model::SetSelectedIndex(WS-P) TO WS-OK
-           MOVE WS-MODEL-ID TO Cmb-Model::Value
-           MOVE T-MODELS-AVAILABLE TO WS-FMT
-           MOVE WS-N TO WS-NE
-           MOVE WS-NE TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
 ]]></Event>
     <Event name="PC-XML-ESC" paragraph="PC-XML-ESC"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -1000,6 +619,51 @@
                CALL "COBOL-APPEND-FILE" USING WS-XML-PATH WS-XLINE WS-LONG
            END-IF
 ]]></Event>
+    <Event name="PC-REFRESH" paragraph="PC-REFRESH"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   What each group holds, under its button. Model selection and Agents
+      *>   wait for a model provider: without a connection they have nothing
+      *>   to choose from (operator, 2026-09-25).
+           MOVE "KB-LOCATION" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           IF WS-SET-VALUE = SPACES
+               MOVE "assets/KB" TO WS-SET-VALUE
+           END-IF
+           MOVE WS-SET-VALUE TO Lbl-KbSum::Caption
+           CALL "PC-LOAD-MODELS"
+           IF WS-MODEL-COUNT = 0
+               MOVE FUNCTION TRIM(T-SUM-NO-CONNS) TO Lbl-ProvSum::Caption
+               MOVE FUNCTION TRIM(T-SUM-NEED-PROVIDER) TO Lbl-ModelSum::Caption
+               MOVE FUNCTION TRIM(T-SUM-NEED-PROVIDER) TO Lbl-AgentSum::Caption
+               MOVE "false" TO Btn-ModelSel::Enabled
+               MOVE "false" TO Btn-Agents::Enabled
+               EXIT PROGRAM
+           END-IF
+           MOVE "true" TO Btn-ModelSel::Enabled
+           MOVE "true" TO Btn-Agents::Enabled
+           MOVE T-SUM-CONNS TO WS-FMT
+           MOVE WS-MODEL-COUNT TO WS-NE
+           MOVE WS-NE TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-ProvSum::Caption
+           MOVE T-SUM-MODELS TO WS-FMT
+           MOVE WS-WITH-MODEL TO WS-NE2
+           MOVE WS-NE2 TO WS-ARG1
+           MOVE WS-NE TO WS-ARG2
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-ModelSum::Caption
+           MOVE 0 TO WS-AGENTS-ON
+           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               IF WS-AGENT-ENTRY(WS-A) NOT = SPACES
+                   ADD 1 TO WS-AGENTS-ON
+               END-IF
+           END-PERFORM
+           MOVE T-SUM-AGENTS TO WS-FMT
+           MOVE WS-AGENTS-ON TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-AgentSum::Caption
+]]></Event>
     <Event name="PC-TEXTS" paragraph="PC-TEXTS"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -1019,59 +683,18 @@
                WHEN OTHER MOVE "en" TO WS-LANG
                           MOVE 1 TO WS-LANG-IX
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 64
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 25
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
            MOVE FUNCTION TRIM(T-SETTINGS-TITLE) TO Lbl-Title::Caption
-           MOVE FUNCTION TRIM(T-KB-FOLDER-LABEL) TO Lbl-KB::Caption
-           MOVE FUNCTION TRIM(T-SAVE-FOLDER) TO Btn-SaveKb::Caption
+           MOVE FUNCTION TRIM(T-KB-FOLDER-TITLE) TO Btn-KbFolder::Caption
+           MOVE FUNCTION TRIM(T-PROVIDERS-TITLE) TO Btn-Providers::Caption
+           MOVE FUNCTION TRIM(T-MODEL-SEL-TITLE) TO Btn-ModelSel::Caption
+           MOVE FUNCTION TRIM(T-AGENTS-TITLE) TO Btn-Agents::Caption
            MOVE FUNCTION TRIM(T-MODELS) TO Lbl-Models::Caption
-           MOVE FUNCTION TRIM(T-AGENT) TO Lbl-Agent::Caption
-           MOVE FUNCTION TRIM(T-ASSIGN-AGENT) TO Btn-Use::Caption
-           MOVE FUNCTION TRIM(T-AGENT-OFF-BTN) TO Btn-ClearAgent::Caption
-           MOVE FUNCTION TRIM(T-EDIT) TO Btn-Edit::Caption
-           MOVE FUNCTION TRIM(T-REMOVE) TO Btn-Remove::Caption
-           MOVE FUNCTION TRIM(T-NAME) TO Lbl-Name::Caption
-           MOVE FUNCTION TRIM(T-HINT-MODEL-NAME) TO Txt-Name::HintText
-           MOVE FUNCTION TRIM(T-PROVIDER) TO Lbl-Api::Caption
-           MOVE FUNCTION TRIM(T-ENDPOINT) TO Lbl-Url::Caption
-           MOVE FUNCTION TRIM(T-HINT-ENDPOINT) TO Txt-Url::HintText
-           MOVE FUNCTION TRIM(T-MODEL) TO Lbl-Model::Caption
-           MOVE FUNCTION TRIM(T-CALLS-TOOLS) TO Chk-Tools::Caption
-           MOVE FUNCTION TRIM(T-RANK) TO Lbl-Rank::Caption
-           MOVE FUNCTION TRIM(T-API-KEY) TO Lbl-Key::Caption
-           MOVE FUNCTION TRIM(T-HINT-KEY) TO Txt-Key::HintText
-           MOVE FUNCTION TRIM(T-SAVE-MODEL) TO Btn-SaveModel::Caption
-           MOVE FUNCTION TRIM(T-REFRESH-MODELS) TO Btn-RefreshModels::Caption
-           MOVE FUNCTION TRIM(T-TEST-CONN) TO Btn-Test::Caption
            MOVE FUNCTION TRIM(T-EXPORT) TO Btn-Export::Caption
            MOVE FUNCTION TRIM(T-IMPORT) TO Btn-Import::Caption
            MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
-           MOVE FUNCTION TRIM(T-TIP-KB) TO Txt-KbLocation::Tooltip
-           MOVE FUNCTION TRIM(T-TIP-BROWSE) TO Btn-BrowseKb::Tooltip
-           MOVE FUNCTION TRIM(T-TIP-NAME) TO Txt-Name::Tooltip
-           MOVE FUNCTION TRIM(T-TIP-PROVIDER) TO Cmb-Provider::Tooltip
-           MOVE FUNCTION TRIM(T-TIP-URL) TO Txt-Url::Tooltip
-           MOVE FUNCTION TRIM(T-TIP-MODEL) TO Cmb-Model::Tooltip
-           MOVE FUNCTION TRIM(T-TIP-KEY) TO Txt-Key::Tooltip
-           MOVE FUNCTION TRIM(T-TIP-RANK) TO Txt-Rank::Tooltip
-           MOVE FUNCTION TRIM(T-TIP-TOOLS) TO Chk-Tools::Tooltip
-           MOVE FUNCTION TRIM(T-TIP-AGENT) TO Cmb-Agent::Tooltip
-           MOVE FUNCTION TRIM(T-TIP-TEST) TO Btn-Test::Tooltip
-      *>   The agent list, in this language; the selection survives.
-           MOVE Cmb-Agent::GetSelectedIndex() TO WS-INDEX
-           MOVE Cmb-Agent::Clear() TO WS-OK
-           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
-               MOVE T-AGENT-N TO WS-FMT
-               MOVE WS-A TO WS-ARG1
-               CALL "PC-FMT"
-               MOVE Cmb-Agent::AddItem(FUNCTION TRIM(WS-FMT-OUT)) TO WS-OK
-           END-PERFORM
-           IF WS-INDEX < 0
-               MOVE 0 TO WS-INDEX
-           END-IF
-           MOVE WS-INDEX TO WS-P
-           MOVE Cmb-Agent::SetSelectedIndex(WS-P) TO WS-OK
 ]]></Event>
     <Event name="PC-FMT" paragraph="PC-FMT"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -1118,21 +741,15 @@
        PROCEDURE DIVISION.
            CALL "PC-PATHS"
            CALL "PC-TEXTS"
-           MOVE "KB-LOCATION" TO WS-SET-NAME
-           CALL "PC-SETTING-GET"
-           IF WS-SET-VALUE = SPACES
-               MOVE "assets/KB" TO WS-SET-VALUE
-           END-IF
-           MOVE WS-SET-VALUE TO Txt-KbLocation::Text
-           CALL "PC-LOAD-PROVIDERS"
-           CALL "PC-LOAD-MODELS"
+           CALL "COBOL-PROVIDER-COUNT" USING WS-PROV-COUNT
+           CALL "PC-REFRESH"
 ]]></Event>
     <Event name="onActivate" paragraph="SETTINGS-FORM--ONACTIVATE"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
       *>   Back on the pane: the language may have changed meanwhile (R46).
            CALL "PC-TEXTS"
-           CALL "PC-LOAD-MODELS"
+           CALL "PC-REFRESH"
 ]]></Event>
     <Event name="onClose" paragraph="SETTINGS-FORM--ONCLOSE">
     </Event>
@@ -1175,9 +792,57 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lbl-KB" type="Label" x="24" y="56" w="672" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#00000000</Property>
+  <Control id="Btn-KbFolder" type="Button" x="24" y="64" w="328" h="44" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Caption">Knowledge Base folder</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">true</Property>
+    <Property name="Cursor">Hand</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IconPath"></Property>
+    <Event name="onClick" paragraph="BTN-KBFOLDER--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The Knowledge Base folder in its own dialog; the summary is read again after.
+           INVOKE ME::"OpenFormSync"("KB-FOLDER-FORM")
+           CALL "PC-REFRESH"
+]]></Event>
+  </Control>
+  <Control id="Lbl-KbSum" type="Label" x="24" y="110" w="328" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#00000000</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000FF</Property>
     <Property name="ShadowLightColor">#4E4E4EFF</Property>
@@ -1193,7 +858,6 @@
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
     <Property name="Bold">false</Property>
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
@@ -1208,12 +872,14 @@
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="WordWrap">false</Property>
     <Property name="AutoSize">false</Property>
-    <Property name="Caption">Knowledge Base folder (may be a folder on another machine)</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="ForegroundColor">#B8BEC8FF</Property>
+    <Property name="Caption">Lbl-KbSum</Property>
     <Property name="Tooltip"></Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Txt-KbLocation" type="TextBox" x="24" y="80" w="448" h="28" tab-order="1" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Providers" type="Button" x="368" y="64" w="328" h="44" tab-order="2" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1228,12 +894,57 @@
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
     <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="EnterAsTab">true</Property>
-    <Property name="AutoEnter">false</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Caption">Model providers</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">true</Property>
+    <Property name="Cursor">Hand</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IconPath"></Property>
+    <Event name="onClick" paragraph="BTN-PROVIDERS--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The connections: provider, address and key in its own dialog; the summary is read again after.
+           INVOKE ME::"OpenFormSync"("PROVIDERS-FORM")
+           CALL "PC-REFRESH"
+]]></Event>
+  </Control>
+  <Control id="Lbl-ProvSum" type="Label" x="368" y="110" w="328" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
     <Property name="Bold">false</Property>
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
@@ -1246,22 +957,16 @@
     <Property name="ZOrder">0</Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
-    <Property name="InnerPadding">3</Property>
-    <Property name="Multiline">false</Property>
-    <Property name="ReadOnly">false</Property>
-    <Property name="ScrollBars">None</Property>
-    <Property name="WordWrap">true</Property>
-    <Property name="BorderColor">#AAAAAA</Property>
-    <Property name="Tooltip">The folder where each topic keeps its documents and search index. It may be on another machine.</Property>
-    <Property name="MaximumLength">0</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="ForegroundColor">#B8BEC8FF</Property>
+    <Property name="Caption">Lbl-ProvSum</Property>
+    <Property name="Tooltip"></Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
-    <Property name="Text"></Property>
-    <Property name="HintText"></Property>
-    <Property name="Picture"></Property>
-    <Property name="PasswordCharacter"></Property>
   </Control>
-  <Control id="Btn-BrowseKb" type="Button" x="480" y="80" w="40" h="28" tab-order="2" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-ModelSel" type="Button" x="24" y="146" w="328" h="44" tab-order="3" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1279,12 +984,9 @@
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
@@ -1297,81 +999,158 @@
     <Property name="IconPadding">10</Property>
     <Property name="IconSize">32</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
-    <Property name="Caption">...</Property>
-    <Property name="Tooltip">Choose the folder in a window instead of typing it.</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="IconPath"></Property>
-    <Event name="onClick" paragraph="BTN-BROWSEKB--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       PROCEDURE DIVISION.
-      *>   The operating system's own folder window (no typing, no typos).
-           MOVE Txt-KbLocation::Text TO WS-PATH
-           CALL "COBOL-FOLDER-DIALOG" USING T-KB-BROWSE-TITLE WS-PATH WS-XML-PATH
-           IF WS-XML-PATH = SPACES
-               EXIT PROGRAM
-           END-IF
-           MOVE WS-XML-PATH TO Txt-KbLocation::Text
-           MOVE "KB-LOCATION" TO WS-SET-NAME
-           MOVE WS-XML-PATH TO WS-SET-VALUE
-           CALL "PC-SETTING-PUT"
-           MOVE FUNCTION TRIM(T-KB-FOLDER-SAVED) TO Lbl-Status::Caption
-]]></Event>
-  </Control>
-  <Control id="Btn-SaveKb" type="Button" x="528" y="78" w="168" h="32" tab-order="3" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#36383EFF</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="IsDefault">false</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="BorderWidth">1</Property>
-    <Property name="IconAlignment">Left</Property>
-    <Property name="IconPadding">10</Property>
-    <Property name="IconSize">32</Property>
-    <Property name="TextAlignment">MiddleCenter</Property>
-    <Property name="Caption">Save folder</Property>
+    <Property name="Caption">Model selection</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">true</Property>
+    <Property name="Cursor">Hand</Property>
     <Property name="Tooltip"></Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Property name="IconPath"></Property>
-    <Event name="onClick" paragraph="BTN-SAVEKB--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+    <Event name="onClick" paragraph="BTN-MODELSEL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-           MOVE "KB-LOCATION" TO WS-SET-NAME
-           MOVE Txt-KbLocation::Text TO WS-SET-VALUE
-           IF WS-SET-VALUE = SPACES
-               MOVE "assets/KB" TO WS-SET-VALUE
+      *>   Each connection's model, rank and tools, in its own dialog. Only
+      *>   once a provider is set up: the button is off until then.
+           IF WS-MODEL-COUNT = 0
+               MOVE FUNCTION TRIM(T-SUM-NEED-PROVIDER) TO Lbl-Status::Caption
+               EXIT PROGRAM
            END-IF
-           CALL "PC-SETTING-PUT"
-           MOVE FUNCTION TRIM(T-KB-FOLDER-SAVED) TO Lbl-Status::Caption
+           INVOKE ME::"OpenFormSync"("MODEL-FORM")
+           CALL "PC-REFRESH"
 ]]></Event>
   </Control>
-  <Control id="Lbl-Models" type="Label" x="24" y="124" w="672" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-ModelSum" type="Label" x="24" y="192" w="328" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="ForegroundColor">#B8BEC8FF</Property>
+    <Property name="Caption">Lbl-ModelSum</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Btn-Agents" type="Button" x="368" y="146" w="328" h="44" tab-order="4" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Caption">Agents</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">true</Property>
+    <Property name="Cursor">Hand</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IconPath"></Property>
+    <Event name="onClick" paragraph="BTN-AGENTS--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Which connection each of the chat's three agents uses, in its own
+      *>   dialog. Only once a provider is set up.
+           IF WS-MODEL-COUNT = 0
+               MOVE FUNCTION TRIM(T-SUM-NEED-PROVIDER) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           INVOKE ME::"OpenFormSync"("AGENTS-FORM")
+           CALL "PC-REFRESH"
+]]></Event>
+  </Control>
+  <Control id="Lbl-AgentSum" type="Label" x="368" y="192" w="328" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="ForegroundColor">#B8BEC8FF</Property>
+    <Property name="Caption">Lbl-AgentSum</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Lbl-Models" type="Label" x="24" y="232" w="672" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Bold">true</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
@@ -1409,7 +1188,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lst-Models" type="ListBox" x="24" y="148" w="496" h="180" tab-order="4" z-order="0" visible="true" enabled="true">
+  <Control id="Lst-Models" type="ListBox" x="24" y="256" w="672" h="200" tab-order="5" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1453,1179 +1232,7 @@
     <Property name="SelectedItemsColor"></Property>
     <Property name="ActiveItemTextColor"></Property>
   </Control>
-  <Control id="Lbl-Agent" type="Label" x="528" y="148" w="168" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#00000000</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Left</Property>
-    <Property name="VerticalAlignment">Middle</Property>
-    <Property name="WordWrap">false</Property>
-    <Property name="AutoSize">false</Property>
-    <Property name="Caption">Agent</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-  </Control>
-  <Control id="Cmb-Agent" type="ComboBox" x="528" y="172" w="168" h="28" tab-order="5" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#36383EFF</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="BorderColor">#AAAAAA</Property>
-    <Property name="Items">Agent 1
-Agent 2
-Agent 3</Property>
-    <Property name="Tooltip">Which of the chat&apos;s three agents gets the model selected in the list.</Property>
-    <Property name="DropDownHeight">240</Property>
-    <Property name="EnterAsTab">true</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="SelectedIndex">-1</Property>
-    <Property name="Sorted">false</Property>
-    <Property name="DropDownStyle">DropDown</Property>
-    <Property name="Editable">true</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="ActiveItemColor"></Property>
-    <Property name="HoverItemColor"></Property>
-  </Control>
-  <Control id="Btn-Use" type="Button" x="528" y="206" w="168" h="28" tab-order="6" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#36383EFF</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="IsDefault">false</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="BorderWidth">1</Property>
-    <Property name="IconAlignment">Left</Property>
-    <Property name="IconPadding">10</Property>
-    <Property name="IconSize">32</Property>
-    <Property name="TextAlignment">MiddleCenter</Property>
-    <Property name="Caption">Assign to agent</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="IconPath"></Property>
-    <Event name="onClick" paragraph="BTN-USE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       PROCEDURE DIVISION.
-           MOVE Lst-Models::GetSelectedIndex() TO WS-INDEX
-           IF WS-INDEX < 0 OR WS-INDEX >= WS-MODEL-COUNT
-               MOVE FUNCTION TRIM(T-PICK-MODEL-FIRST) TO Lbl-Status::Caption
-               EXIT PROGRAM
-           END-IF
-           ADD 1 TO WS-INDEX
-           MOVE Cmb-Agent::GetSelectedIndex() TO WS-AG-IX
-           IF WS-AG-IX < 0 OR WS-AG-IX > 2
-               MOVE FUNCTION TRIM(T-PICK-AGENT) TO Lbl-Status::Caption
-               EXIT PROGRAM
-           END-IF
-           ADD 1 TO WS-AG-IX
-           MOVE WS-AG-IX TO WS-A
-           MOVE WS-A TO WS-AGENT
-           MOVE SPACES TO WS-SET-NAME
-           STRING "AGENT-" WS-AGENT "-ENTRY" DELIMITED BY SIZE INTO WS-SET-NAME
-           MOVE WS-MODEL-NAME(WS-INDEX) TO WS-SET-VALUE
-           CALL "PC-SETTING-PUT"
-           MOVE T-AGENT-USES TO WS-FMT
-           MOVE WS-AGENT TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
-           CALL "PC-LOAD-MODELS"
-]]></Event>
-  </Control>
-  <Control id="Btn-ClearAgent" type="Button" x="528" y="238" w="168" h="28" tab-order="7" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#36383EFF</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="IsDefault">false</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="BorderWidth">1</Property>
-    <Property name="IconAlignment">Left</Property>
-    <Property name="IconPadding">10</Property>
-    <Property name="IconSize">32</Property>
-    <Property name="TextAlignment">MiddleCenter</Property>
-    <Property name="Caption">Agent off</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="IconPath"></Property>
-    <Event name="onClick" paragraph="BTN-CLEARAGENT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       PROCEDURE DIVISION.
-           MOVE Cmb-Agent::GetSelectedIndex() TO WS-AG-IX
-           IF WS-AG-IX < 0 OR WS-AG-IX > 2
-               MOVE FUNCTION TRIM(T-PICK-AGENT) TO Lbl-Status::Caption
-               EXIT PROGRAM
-           END-IF
-           ADD 1 TO WS-AG-IX
-           MOVE WS-AG-IX TO WS-A
-           MOVE WS-A TO WS-AGENT
-           MOVE SPACES TO WS-SET-NAME
-           STRING "AGENT-" WS-AGENT "-ENTRY" DELIMITED BY SIZE INTO WS-SET-NAME
-           MOVE SPACES TO WS-SET-VALUE
-           CALL "PC-SETTING-PUT"
-           MOVE T-AGENT-OFF TO WS-FMT
-           MOVE WS-AGENT TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
-           CALL "PC-LOAD-MODELS"
-]]></Event>
-  </Control>
-  <Control id="Btn-Edit" type="Button" x="528" y="270" w="168" h="28" tab-order="8" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#36383EFF</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="IsDefault">false</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="BorderWidth">1</Property>
-    <Property name="IconAlignment">Left</Property>
-    <Property name="IconPadding">10</Property>
-    <Property name="IconSize">32</Property>
-    <Property name="TextAlignment">MiddleCenter</Property>
-    <Property name="Caption">Edit</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="IconPath"></Property>
-    <Event name="onClick" paragraph="BTN-EDIT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       PROCEDURE DIVISION.
-           MOVE Lst-Models::GetSelectedIndex() TO WS-INDEX
-           IF WS-INDEX < 0 OR WS-INDEX >= WS-MODEL-COUNT
-               MOVE FUNCTION TRIM(T-PICK-MODEL-FIRST) TO Lbl-Status::Caption
-               EXIT PROGRAM
-           END-IF
-           ADD 1 TO WS-INDEX
-      *>   Fill the fields from the entry. The key field stays empty: a key is
-      *>   never read back; type a new one only to replace it.
-           OPEN I-O MODELS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT MODELS-FILE
-               CLOSE MODELS-FILE
-               OPEN I-O MODELS-FILE
-           END-IF
-           MOVE WS-MODEL-NAME(WS-INDEX) TO MDL-NAME
-           READ MODELS-FILE
-               INVALID KEY CONTINUE
-               NOT INVALID KEY
-                   MOVE MDL-NAME TO Txt-Name::Text
-                   MOVE MDL-API TO WS-PROV-ID
-                   CALL "PC-PROVIDER-LABEL"
-                   IF WS-PROV-IX > 0
-                       COMPUTE WS-P = WS-PROV-IX - 1
-                       MOVE Cmb-Provider::SetSelectedIndex(WS-P) TO WS-OK
-                   END-IF
-                   MOVE WS-PROV-EP TO WS-LAST-DEFAULT
-                   MOVE MDL-URL TO Txt-Url::Text
-                   MOVE Cmb-Model::Clear() TO WS-OK
-                   IF MDL-MODEL NOT = SPACES
-                       MOVE Cmb-Model::AddItem(FUNCTION TRIM(MDL-MODEL)) TO WS-OK
-                       MOVE Cmb-Model::SetSelectedIndex(0) TO WS-OK
-                   END-IF
-      *>           SetSelectedIndex does not move Value; the model is set here.
-                   MOVE MDL-MODEL TO Cmb-Model::Value
-                   MOVE MDL-RANK TO Txt-Rank::Text
-                   IF MDL-TOOLS = "Y"
-                       MOVE "true" TO Chk-Tools::Checked
-                   ELSE
-                       MOVE "false" TO Chk-Tools::Checked
-                   END-IF
-                   MOVE SPACES TO Txt-Key::Text
-           END-READ
-           CLOSE MODELS-FILE
-]]></Event>
-  </Control>
-  <Control id="Btn-Remove" type="Button" x="528" y="302" w="168" h="28" tab-order="9" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#36383EFF</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="IsDefault">false</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="BorderWidth">1</Property>
-    <Property name="IconAlignment">Left</Property>
-    <Property name="IconPadding">10</Property>
-    <Property name="IconSize">32</Property>
-    <Property name="TextAlignment">MiddleCenter</Property>
-    <Property name="Caption">Remove</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="IconPath"></Property>
-    <Event name="onClick" paragraph="BTN-REMOVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       PROCEDURE DIVISION.
-           MOVE Lst-Models::GetSelectedIndex() TO WS-INDEX
-           IF WS-INDEX < 0 OR WS-INDEX >= WS-MODEL-COUNT
-               MOVE FUNCTION TRIM(T-PICK-MODEL-FIRST) TO Lbl-Status::Caption
-               EXIT PROGRAM
-           END-IF
-           ADD 1 TO WS-INDEX
-           OPEN I-O MODELS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT MODELS-FILE
-               CLOSE MODELS-FILE
-               OPEN I-O MODELS-FILE
-           END-IF
-           MOVE WS-MODEL-NAME(WS-INDEX) TO MDL-NAME
-           DELETE MODELS-FILE
-               INVALID KEY CONTINUE
-           END-DELETE
-           COMMIT
-           CLOSE MODELS-FILE
-           CALL "COBOL-MODEL-REMOVE" USING MDL-NAME
-           CALL "COBOL-KEY-REMOVE" USING MDL-NAME
-           MOVE FUNCTION TRIM(T-MODEL-REMOVED) TO Lbl-Status::Caption
-           CALL "PC-LOAD-MODELS"
-]]></Event>
-  </Control>
-  <Control id="Lbl-Name" type="Label" x="24" y="348" w="110" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#00000000</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Left</Property>
-    <Property name="VerticalAlignment">Middle</Property>
-    <Property name="WordWrap">false</Property>
-    <Property name="AutoSize">false</Property>
-    <Property name="Caption">Name</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-  </Control>
-  <Control id="Txt-Name" type="TextBox" x="140" y="346" w="380" h="28" tab-order="10" z-order="0" visible="true" enabled="true">
-    <Property name="MaximumLength">30</Property>
-    <Property name="BackgroundColor">#36383EFF</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="EnterAsTab">true</Property>
-    <Property name="AutoEnter">false</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Left</Property>
-    <Property name="VerticalAlignment">Middle</Property>
-    <Property name="InnerPadding">3</Property>
-    <Property name="Multiline">false</Property>
-    <Property name="ReadOnly">false</Property>
-    <Property name="ScrollBars">None</Property>
-    <Property name="WordWrap">true</Property>
-    <Property name="BorderColor">#AAAAAA</Property>
-    <Property name="Tooltip">A short name you choose for this model, such as company-model. Agents are assigned by it.</Property>
-    <Property name="HintText">e.g. company-model</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="Text"></Property>
-    <Property name="Picture"></Property>
-    <Property name="PasswordCharacter"></Property>
-  </Control>
-  <Control id="Lbl-Api" type="Label" x="24" y="382" w="110" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#00000000</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Left</Property>
-    <Property name="VerticalAlignment">Middle</Property>
-    <Property name="WordWrap">false</Property>
-    <Property name="AutoSize">false</Property>
-    <Property name="Caption">Provider</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-  </Control>
-  <Control id="Cmb-Provider" type="ComboBox" x="140" y="380" w="380" h="28" tab-order="11" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#36383EFF</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="BorderColor">#AAAAAA</Property>
-    <Property name="Tooltip">Who serves the model: a cloud provider, or Ollama or Llamafile on this machine.</Property>
-    <Property name="DropDownHeight">240</Property>
-    <Property name="EnterAsTab">true</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="SelectedIndex">-1</Property>
-    <Property name="Sorted">false</Property>
-    <Property name="DropDownStyle">DropDown</Property>
-    <Property name="Editable">true</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="Items"></Property>
-    <Property name="ActiveItemColor"></Property>
-    <Property name="HoverItemColor"></Property>
-    <Event name="onSelectedIndexChanged" paragraph="CMB-PROVIDER--ONSELECTEDINDEXCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       PROCEDURE DIVISION.
-      *>   A new provider brings its own address: fill it in, unless the field
-      *>   holds one the user typed. Then ask it for its models, as the IDE
-      *>   does, when it can answer (no key needed, or one to hand).
-           CALL "PC-PICKED-PROVIDER"
-           IF WS-PROV-IX = 0
-               EXIT PROGRAM
-           END-IF
-           MOVE Txt-Url::Text TO WS-PATH
-           IF WS-PATH = SPACES OR WS-PATH = WS-LAST-DEFAULT
-               MOVE WS-PROV-EP TO Txt-Url::Text
-           END-IF
-           MOVE WS-PROV-EP TO WS-LAST-DEFAULT
-           MOVE Cmb-Model::Clear() TO WS-OK
-           MOVE SPACES TO Cmb-Model::Value
-           MOVE Txt-Name::Text TO MDL-NAME
-           CALL "COBOL-KEY-IS-SET" USING MDL-NAME WS-KEY-FLAG
-           MOVE Txt-Key::Text TO WS-KEY
-           IF WS-PROV-NEEDS = "N" OR WS-KEY NOT = SPACES OR WS-KEY-FLAG = "Y"
-               CALL "PC-REFRESH-MODELS"
-           END-IF
-           MOVE SPACES TO WS-KEY
-]]></Event>
-  </Control>
-  <Control id="Lbl-Url" type="Label" x="24" y="416" w="110" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#00000000</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Left</Property>
-    <Property name="VerticalAlignment">Middle</Property>
-    <Property name="WordWrap">false</Property>
-    <Property name="AutoSize">false</Property>
-    <Property name="Caption">Endpoint</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-  </Control>
-  <Control id="Txt-Url" type="TextBox" x="140" y="414" w="380" h="28" tab-order="12" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#36383EFF</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="EnterAsTab">true</Property>
-    <Property name="AutoEnter">false</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Left</Property>
-    <Property name="VerticalAlignment">Middle</Property>
-    <Property name="InnerPadding">3</Property>
-    <Property name="Multiline">false</Property>
-    <Property name="ReadOnly">false</Property>
-    <Property name="ScrollBars">None</Property>
-    <Property name="WordWrap">true</Property>
-    <Property name="BorderColor">#AAAAAA</Property>
-    <Property name="Tooltip">The provider&apos;s address. Leave it blank or as filled in, unless your provider gave you another.</Property>
-    <Property name="HintText">Blank: the provider&apos;s own address</Property>
-    <Property name="MaximumLength">0</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="Text"></Property>
-    <Property name="Picture"></Property>
-    <Property name="PasswordCharacter"></Property>
-  </Control>
-  <Control id="Lbl-Model" type="Label" x="24" y="450" w="110" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#00000000</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Left</Property>
-    <Property name="VerticalAlignment">Middle</Property>
-    <Property name="WordWrap">false</Property>
-    <Property name="AutoSize">false</Property>
-    <Property name="Caption">Model</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-  </Control>
-  <Control id="Cmb-Model" type="ComboBox" x="140" y="448" w="380" h="28" tab-order="13" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#36383EFF</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="BorderColor">#AAAAAA</Property>
-    <Property name="Tooltip">The model to use. Press Refresh models to list what the provider offers.</Property>
-    <Property name="DropDownHeight">240</Property>
-    <Property name="Editable">true</Property>
-    <Property name="EnterAsTab">true</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="SelectedIndex">-1</Property>
-    <Property name="Sorted">false</Property>
-    <Property name="DropDownStyle">DropDown</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="Items"></Property>
-    <Property name="ActiveItemColor"></Property>
-    <Property name="HoverItemColor"></Property>
-  </Control>
-  <Control id="Lbl-Key" type="Label" x="24" y="484" w="110" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#00000000</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Left</Property>
-    <Property name="VerticalAlignment">Middle</Property>
-    <Property name="WordWrap">false</Property>
-    <Property name="AutoSize">false</Property>
-    <Property name="Caption">API key</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-  </Control>
-  <Control id="Txt-Key" type="TextBox" x="140" y="482" w="380" h="28" tab-order="14" z-order="0" visible="true" enabled="true">
-    <Property name="PasswordCharacter">*</Property>
-    <Property name="BackgroundColor">#36383EFF</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="EnterAsTab">true</Property>
-    <Property name="AutoEnter">false</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Left</Property>
-    <Property name="VerticalAlignment">Middle</Property>
-    <Property name="InnerPadding">3</Property>
-    <Property name="Multiline">false</Property>
-    <Property name="ReadOnly">false</Property>
-    <Property name="ScrollBars">None</Property>
-    <Property name="WordWrap">true</Property>
-    <Property name="BorderColor">#AAAAAA</Property>
-    <Property name="Tooltip">The API key from your provider. Typed only to set or replace it; it is never shown again.</Property>
-    <Property name="HintText">Only to set or replace it - it is never shown again</Property>
-    <Property name="MaximumLength">0</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="Text"></Property>
-    <Property name="Picture"></Property>
-  </Control>
-  <Control id="Lbl-Rank" type="Label" x="528" y="348" w="60" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#00000000</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Left</Property>
-    <Property name="VerticalAlignment">Middle</Property>
-    <Property name="WordWrap">false</Property>
-    <Property name="AutoSize">false</Property>
-    <Property name="Caption">Rank</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-  </Control>
-  <Control id="Txt-Rank" type="TextBox" x="592" y="346" w="104" h="28" tab-order="15" z-order="0" visible="true" enabled="true">
-    <Property name="HintText">1-9</Property>
-    <Property name="BackgroundColor">#36383EFF</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="EnterAsTab">true</Property>
-    <Property name="AutoEnter">false</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Left</Property>
-    <Property name="VerticalAlignment">Middle</Property>
-    <Property name="InnerPadding">3</Property>
-    <Property name="Multiline">false</Property>
-    <Property name="ReadOnly">false</Property>
-    <Property name="ScrollBars">None</Property>
-    <Property name="WordWrap">true</Property>
-    <Property name="BorderColor">#AAAAAA</Property>
-    <Property name="Tooltip">How well this model coordinates the other agents, from 1 (poorly) to 9 (best).</Property>
-    <Property name="MaximumLength">0</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="Text"></Property>
-    <Property name="Picture"></Property>
-    <Property name="PasswordCharacter"></Property>
-  </Control>
-  <Control id="Chk-Tools" type="CheckBox" x="528" y="382" w="168" h="24" tab-order="16" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#36383EFF</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="EnterAsTab">true</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="BorderColor">#8C8CA0</Property>
-    <Property name="BorderWidth">1</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">100</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="Checked">false</Property>
-    <Property name="CheckAlignment">Left</Property>
-    <Property name="CheckColor">#0078D7</Property>
-    <Property name="CheckSize">70</Property>
-    <Property name="CheckBoxBorderStyle">None</Property>
-    <Property name="CheckBoxBorderColor">#8C8CA0</Property>
-    <Property name="CheckBoxBorderWidth">1</Property>
-    <Property name="Caption">Calls tools</Property>
-    <Property name="Tooltip">Tick when the model can call tools, such as searching the Knowledge Base.</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="GroupName"></Property>
-    <Property name="CheckBoxColor"></Property>
-  </Control>
-  <Control id="Btn-RefreshModels" type="Button" x="528" y="446" w="168" h="32" tab-order="17" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#36383EFF</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="IsDefault">false</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="BorderWidth">1</Property>
-    <Property name="IconAlignment">Left</Property>
-    <Property name="IconPadding">10</Property>
-    <Property name="IconSize">32</Property>
-    <Property name="TextAlignment">MiddleCenter</Property>
-    <Property name="Caption">Refresh models</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="IconPath"></Property>
-    <Event name="onClick" paragraph="BTN-REFRESHMODELS--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       PROCEDURE DIVISION.
-           CALL "PC-REFRESH-MODELS"
-]]></Event>
-  </Control>
-  <Control id="Btn-Test" type="Button" x="528" y="412" w="168" h="30" tab-order="18" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#36383EFF</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="IsDefault">false</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="BorderWidth">1</Property>
-    <Property name="IconAlignment">Left</Property>
-    <Property name="IconPadding">10</Property>
-    <Property name="IconSize">32</Property>
-    <Property name="TextAlignment">MiddleCenter</Property>
-    <Property name="Caption">Test connection</Property>
-    <Property name="Tooltip">Ask the model one tiny question, to check the address, the key and the model name.</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="IconPath"></Property>
-    <Event name="onClick" paragraph="BTN-TEST--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       PROCEDURE DIVISION.
-      *>   The IDE's Test button: one tiny question, and either OK or what to
-      *>   fix, in the IDE's own words.
-           CALL "PC-PICKED-PROVIDER"
-           IF WS-PROV-IX = 0
-               MOVE FUNCTION TRIM(T-PICK-PROVIDER) TO Lbl-Status::Caption
-               EXIT PROGRAM
-           END-IF
-           MOVE Cmb-Model::Value TO WS-MODEL-ID
-           MOVE T-TESTING TO WS-FMT
-           MOVE WS-MODEL-ID TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
-           MOVE Txt-Url::Text TO WS-PATH
-           MOVE Txt-Key::Text TO WS-KEY
-           MOVE Txt-Name::Text TO MDL-NAME
-           CALL "COBOL-MODEL-TEST" USING WS-PROV-ID WS-PATH WS-MODEL-ID WS-KEY
-                WS-LONG MDL-NAME
-           MOVE SPACES TO WS-KEY
-           IF WS-LONG = "OK"
-               MOVE T-CONN-OK TO WS-FMT
-               MOVE WS-MODEL-ID TO WS-ARG1
-               CALL "PC-FMT"
-               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
-           ELSE
-               MOVE WS-LONG TO Lbl-Status::Caption
-           END-IF
-]]></Event>
-  </Control>
-  <Control id="Btn-SaveModel" type="Button" x="528" y="482" w="168" h="32" tab-order="19" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#36383EFF</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="IsDefault">false</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="BorderWidth">1</Property>
-    <Property name="IconAlignment">Left</Property>
-    <Property name="IconPadding">10</Property>
-    <Property name="IconSize">32</Property>
-    <Property name="TextAlignment">MiddleCenter</Property>
-    <Property name="Caption">Save model</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="IconPath"></Property>
-    <Event name="onClick" paragraph="BTN-SAVEMODEL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       PROCEDURE DIVISION.
-      *>   Add or change an entry. The key, when typed, goes straight to the
-      *>   key store and the field is cleared: it is never written to a file
-      *>   of ours, never shown again (spec 071 R34, R37).
-           CALL "PC-PICKED-PROVIDER"
-           MOVE Txt-Name::Text TO MDL-NAME
-           MOVE WS-PROV-ID TO MDL-API
-           MOVE Txt-Url::Text TO MDL-URL
-           IF MDL-URL = SPACES
-               MOVE WS-PROV-EP TO MDL-URL
-           END-IF
-           MOVE Cmb-Model::Value TO MDL-MODEL
-           MOVE Chk-Tools::IsChecked() TO WS-TOOLS
-           IF WS-TOOLS(1:1) = "1"
-               MOVE "Y" TO MDL-TOOLS
-           ELSE
-               MOVE "N" TO MDL-TOOLS
-           END-IF
-           MOVE Txt-Rank::Text TO WS-RANK-TEXT
-           IF WS-RANK-TEXT IS NUMERIC AND WS-RANK-TEXT NOT = "0"
-               MOVE WS-RANK-TEXT TO MDL-RANK
-           ELSE
-               MOVE 5 TO MDL-RANK
-           END-IF
-           IF MDL-NAME = SPACES OR WS-PROV-IX = 0
-               MOVE FUNCTION TRIM(T-MODEL-NEEDS) TO Lbl-Status::Caption
-               EXIT PROGRAM
-           END-IF
-           OPEN I-O MODELS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT MODELS-FILE
-               CLOSE MODELS-FILE
-               OPEN I-O MODELS-FILE
-           END-IF
-           WRITE MODEL-REC
-               INVALID KEY REWRITE MODEL-REC
-           END-WRITE
-           COMMIT
-           CLOSE MODELS-FILE
-           CALL "COBOL-MODEL-SET" USING MDL-NAME MDL-API MDL-URL MDL-MODEL
-           MOVE T-MODEL-SAVED TO WS-STATUS
-           MOVE Txt-Key::Text TO WS-KEY
-           IF WS-KEY NOT = SPACES
-               CALL "COBOL-KEY-SET" USING MDL-NAME WS-KEY WS-STATUS
-               IF WS-STATUS = "OK"
-                   MOVE T-MODEL-KEY-SAVED TO WS-STATUS
-               END-IF
-               MOVE SPACES TO WS-KEY
-               MOVE SPACES TO Txt-Key::Text
-           ELSE
-      *>       A provider that needs a key, and none stored yet: say so now,
-      *>       not at the first question.
-               CALL "COBOL-KEY-IS-SET" USING MDL-NAME WS-KEY-FLAG
-               IF WS-PROV-NEEDS = "Y" AND WS-KEY-FLAG NOT = "Y"
-                   MOVE T-MODEL-NEEDS-KEY TO WS-STATUS
-               END-IF
-           END-IF
-           MOVE WS-STATUS TO Lbl-Status::Caption
-           CALL "PC-LOAD-MODELS"
-]]></Event>
-  </Control>
-  <Control id="Btn-Export" type="Button" x="24" y="528" w="150" h="32" tab-order="20" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Export" type="Button" x="24" y="472" w="150" h="32" tab-order="6" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -2759,7 +1366,7 @@ Agent 3</Property>
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
 ]]></Event>
   </Control>
-  <Control id="Btn-Import" type="Button" x="182" y="528" w="150" h="32" tab-order="21" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Import" type="Button" x="182" y="472" w="150" h="32" tab-order="7" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -2841,7 +1448,6 @@ Agent 3</Property>
                                    MOVE "KB-LOCATION" TO WS-SET-NAME
                                    MOVE WS-XVAL TO WS-SET-VALUE
                                    CALL "PC-SETTING-PUT"
-                                   MOVE WS-XVAL TO Txt-KbLocation::Text
                                END-IF
                            WHEN WS-XLINE(1:7) = "<model "
                                MOVE SPACES TO MODEL-REC
@@ -2910,7 +1516,7 @@ Agent 3</Property>
                MOVE FUNCTION TRIM(T-NOT-RAG-FILE) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
-           CALL "PC-LOAD-MODELS"
+           CALL "PC-REFRESH"
            MOVE T-IMPORTED TO WS-FMT
            MOVE WS-IMPORTED TO WS-NE
            MOVE WS-NE TO WS-ARG1
@@ -2928,7 +1534,7 @@ Agent 3</Property>
            MOVE WS-LONG TO Lbl-Status::Caption
 ]]></Event>
   </Control>
-  <Control id="Lbl-Status" type="Label" x="24" y="572" w="672" h="100" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Status" type="Label" x="24" y="516" w="672" h="90" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>

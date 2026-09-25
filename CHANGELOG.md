@@ -8,6 +8,29 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.220] — 2026-09-25
+
+### Feature — PowerChat's RAG settings, grouped into four dialogs
+
+- `settings-form` is now a summary instead of one crowded editor: four
+  buttons — **Knowledge Base folder**, **Model providers**, **Model
+  selection**, **Agents** — each with a line saying what its group holds, then
+  the model list, **Export…** / **Import…** and the status line.
+- Each button opens its group as a modal dialog (`OpenFormSync`, 800 x 450):
+  - `kb-folder-form` — the folder, typed or picked with **…**; saved on
+    **Save** only.
+  - `providers-form` — one connection at a time (a saved one or **(new
+    connection)**): name, provider, endpoint, API key. **Test connection**
+    lives here and asks the provider for its model list, which proves the
+    address and the key before any model is chosen.
+  - `model-form` — opening it connects and lists the connection's models at
+    once; picking another connection lists again. Model, tools and rank.
+  - `agents-form` — a connection or **(off)** for each of the three agents.
+- **Model selection** and **Agents** are disabled until a provider connection
+  exists. The summary re-reads everything when a dialog closes.
+- The welcome screen's steps 2 and 3, the project README, the Developer's
+  Guide and the end-to-end test follow the new flow.
+
 ## [PowerRustCOBOL 1.70.219] — 2026-09-25
 
 ### Feature — PowerChat's main window is 1200 x 800

@@ -17,6 +17,10 @@ forms = [
     "forms/settings-form.cfrm",
     "forms/files-form.cfrm",
     "forms/prompts-form.cfrm",
+    "forms/kb-folder-form.cfrm",
+    "forms/providers-form.cfrm",
+    "forms/model-form.cfrm",
+    "forms/agents-form.cfrm",
 ]
 assets = [
     "assets/flags/en.png",
@@ -37,6 +41,10 @@ generated = [
     "generated/settings-form.cbl",
     "generated/files-form.cbl",
     "generated/prompts-form.cbl",
+    "generated/kb-folder-form.cbl",
+    "generated/providers-form.cbl",
+    "generated/model-form.cbl",
+    "generated/agents-form.cbl",
 ]
 indexed = []
 
@@ -45,4 +53,4 @@ fixed_format = false
 
 [forms]
 main-form = "CHAT-FORM"
-main-form-seal = "cb378d82aa968efb6771a17adf2576b48f14bef6cac1a8b2d4bb1d012b13cb12"
+main-form-seal = "a41d3d967fa10fcfaf1747d5d829dee29f81a640748913f5aa696fc8ca719d62"

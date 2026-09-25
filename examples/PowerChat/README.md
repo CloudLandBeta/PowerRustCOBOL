@@ -19,21 +19,24 @@ says what to do, and the menu stays shut except **RAG settings** (and **Chat**,
 the way back). As soon as one agent has a model, the menu opens. Every screen
 opens inside the window, in the content pane beside the menu.
 
-1. **RAG settings** — choose the **Knowledge Base folder** (type it, or press
-   **…** to pick it). Then add a model, the way the IDE's Model Providers
-   Manager does it:
-   - pick its **provider** from the IDE's seventeen (OpenAI, Anthropic, Groq,
-     Ollama, …) — the endpoint fills itself in;
-   - type the **API key** (it goes to the application's key store and is never
-     shown again) and press **Refresh models** to list what the provider offers;
-   - pick a model, press **Test connection** — `OK`, or what to fix, in the
-     IDE's own words;
-   - say whether it **calls tools** and its orchestration **rank** (1–9), and
-     **Save model**.
+1. **RAG settings** — a summary with four buttons; each opens its group in a
+   dialog, and the summary says what each group holds:
+   - **Knowledge Base folder** — type it, or press **…** to pick it.
+   - **Model providers** — add a connection the way the IDE's Model Providers
+     Manager does it: a name, the **provider** from the IDE's seventeen
+     (OpenAI, Anthropic, Groq, Ollama, …) — the endpoint fills itself in — and
+     the **API key** (it goes to the application's key store and is never
+     shown again). **Test connection** asks the provider for its models: a
+     count, or what to fix, in the IDE's own words.
+   - **Model selection** — opening it connects and lists the provider's
+     models; pick one, say whether it **calls tools** and its orchestration
+     **rank** (1–9).
+   - **Agents** — give each agent (1, 2 or 3) a connection, or leave it off.
+     With one agent it answers alone; with more, they elect an orchestrator
+     that splits each question among the others.
 
-   Then choose an **agent** (1, 2 or 3) and **Assign to agent**. With one agent
-   it answers alone; with more, they elect an orchestrator that splits each
-   question among the others. Every field explains itself in a tooltip.
+   **Model selection** and **Agents** stay disabled until a provider
+   connection exists. Every field explains itself in a tooltip.
    **Export…** writes everything but the keys to a `rag-settings.xml`;
    **Import…** reads one back and names the models that still need a key.
 2. **Topics** — create a topic: a name and what the assistant is for (its
