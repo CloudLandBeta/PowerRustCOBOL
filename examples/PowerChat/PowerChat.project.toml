@@ -15,6 +15,7 @@ forms = [
     "forms/topics-form.cfrm",
     "forms/documents-form.cfrm",
     "forms/settings-form.cfrm",
+    "forms/files-form.cfrm",
 ]
 assets = []
 documentation = []
@@ -23,6 +24,7 @@ generated = [
     "generated/topics-form.cbl",
     "generated/documents-form.cbl",
     "generated/settings-form.cbl",
+    "generated/files-form.cbl",
 ]
 indexed = []
 
@@ -31,4 +33,4 @@ fixed_format = false
 
 [forms]
 main-form = "CHAT-FORM"
-main-form-seal = "e885ed7b397a7529b341ca8e81d927cd442c32368b5b0ed29032625c6931e941"
+main-form-seal = "f24a91039da41158f2e7957def0a7e56ee21f4cc6096de2e2543a5e8113e2a15"

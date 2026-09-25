@@ -19,9 +19,14 @@ menu:
   type: action
   icon: doc-text
   enabled: true
+- id: fils
+  label: Data files
+  type: action
+  icon: database
+  enabled: true
 - id: sett
   label: RAG settings
   type: action
   icon: gear
   enabled: true
-hash: d01efdc7ad6cb7ea6cd330268f3d58f6cff5907a0969a6a711a2a0dc193f4290
+hash: 2a26006c08d940d7b82b374f2c9d34f68e3789b29b79bc5d35dcd6824d5de71c

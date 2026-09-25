@@ -12,6 +12,7 @@
        01 WS-CONVS-PATH  GLOBAL PIC X(240).
        01 WS-TURNS-PATH  GLOBAL PIC X(240).
        01 WS-MODELS-PATH  GLOBAL PIC X(240).
+       01 WS-TFILES-PATH  GLOBAL PIC X(240).
        01 WS-CUR-TOPIC       GLOBAL PIC X(16).
        01 WS-ALLOWED-TOPIC   GLOBAL PIC X(16).
        01 WS-CUR-CONV        GLOBAL PIC X(16).
@@ -79,6 +80,14 @@
        01 WS-T-OUT           GLOBAL PIC 9(9).
        01 WS-RANDOM          GLOBAL PIC 9V9(6).
        01 WS-ROLES-SEEN      GLOBAL PIC X VALUE "N".
+      *>   The topic's registered data files (R20-R25), by the name each was
+      *>   registered under, and what went wrong with any that could not be.
+       01 WS-REG-COUNT       GLOBAL PIC 9(3) VALUE 0.
+       01 WS-REG-NAMES       GLOBAL.
+          05 WS-REG-NAME     PIC X(30) OCCURS 100.
+       01 WS-FILE-NOTE       GLOBAL PIC X(300).
+       01 WS-FAILED          GLOBAL PIC 9(3).
+       01 WS-RESULT          GLOBAL PIC X(30).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -159,6 +168,12 @@
                RECORD KEY IS MDL-NAME
                FILE STATUS IS WS-FS
                STORAGE MODE IS DISK.
+           SELECT TFILES-FILE ASSIGN TO WS-TFILES-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS TF-KEY
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
 ]]></file-control>
   <file-section><![CDATA[       FD  SETTINGS-FILE IS GLOBAL.
        01  SETTINGS-REC.
@@ -196,6 +211,16 @@
       *>   can call tools, and how well it orchestrates, 1 (poorly) to 9.
            05 MDL-TOOLS         PIC X.
            05 MDL-RANK          PIC 9.
+       FD  TFILES-FILE IS GLOBAL.
+      *>   The users' indexed files each topic registers by path (R20-R25):
+      *>   the data file and its .cidx. Nothing is copied or attached.
+       01  TFILE-REC.
+           05 TF-KEY.
+              10 TF-TOPIC       PIC X(16).
+              10 TF-SEQ         PIC 9(3).
+           05 TF-NAME           PIC X(30).
+           05 TF-DATA           PIC X(250).
+           05 TF-CIDX           PIC X(250).
 ]]></file-section>
   <user-procedures>
     <Event name="PC-PATHS" paragraph="PC-PATHS"><![CDATA[       ENVIRONMENT DIVISION.
@@ -222,6 +247,9 @@
            MOVE SPACES TO WS-MODELS-PATH
            STRING FUNCTION TRIM(WS-DATA-DIR) "/models.idx"
                DELIMITED BY SIZE INTO WS-MODELS-PATH
+           MOVE SPACES TO WS-TFILES-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/topic-files.idx"
+               DELIMITED BY SIZE INTO WS-TFILES-PATH
 ]]></Event>
     <Event name="PC-SETTING-GET" paragraph="PC-SETTING-GET"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -477,6 +505,57 @@
            MOVE WS-CUR-TOPIC TO WS-ALLOWED-TOPIC
            MOVE "IDLE" TO WS-STAGE
 ]]></Event>
+    <Event name="PC-REGISTER-FILES" paragraph="PC-REGISTER-FILES"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The topic's data files, registered for the agents to search. A file
+      *>   that cannot be reached or described is named with its reason, and
+      *>   the chat answers without it (R22). Registration is program-wide;
+      *>   only the tool worker is offered them (ToolProtocol, PC-ELECT).
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-REG-COUNT
+               MOVE AGENT-1::UnregisterFile(FUNCTION TRIM(WS-REG-NAME(WS-I))) TO WS-OK
+           END-PERFORM
+           MOVE 0 TO WS-REG-COUNT WS-FAILED
+           MOVE SPACES TO WS-FILE-NOTE
+           IF WS-CUR-TOPIC = SPACES
+               EXIT PROGRAM
+           END-IF
+           OPEN I-O TFILES-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TFILES-FILE
+               CLOSE TFILES-FILE
+               OPEN I-O TFILES-FILE
+           END-IF
+           MOVE WS-CUR-TOPIC TO TF-TOPIC
+           MOVE 0 TO TF-SEQ
+           MOVE "N" TO WS-EOF
+           START TFILES-FILE KEY IS >= TF-KEY
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ TFILES-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       IF TF-TOPIC NOT = WS-CUR-TOPIC
+                           MOVE "Y" TO WS-EOF
+                       ELSE
+                           MOVE AGENT-1::RegisterFile(FUNCTION TRIM(TF-DATA),
+                                FUNCTION TRIM(TF-CIDX)) TO WS-OK
+                           IF WS-OK = "1" AND WS-REG-COUNT < 100
+                               ADD 1 TO WS-REG-COUNT
+                               MOVE AGENT-1::RegisteredName TO WS-REG-NAME(WS-REG-COUNT)
+                           ELSE
+                               ADD 1 TO WS-FAILED
+                               MOVE AGENT-1::RegisterResult TO WS-RESULT
+                               STRING FUNCTION TRIM(WS-FILE-NOTE) " " FUNCTION TRIM(TF-NAME)
+                                      " (" FUNCTION TRIM(WS-RESULT) ")"
+                                   DELIMITED BY SIZE INTO WS-FILE-NOTE
+                           END-IF
+                       END-IF
+               END-READ
+           END-PERFORM
+           CLOSE TFILES-FILE
+]]></Event>
     <Event name="PC-LOAD-TOPIC" paragraph="PC-LOAD-TOPIC"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -508,6 +587,7 @@
            MOVE TOP-NAME TO Lbl-Topic::Caption
            MOVE TOP-PROMPT TO WS-TOPIC-PROMPT
            MOVE WS-CUR-TOPIC TO KB-1::Collection
+           CALL "PC-REGISTER-FILES"
            CALL "PC-ELECT"
 ]]></Event>
     <Event name="PC-ASK" paragraph="PC-ASK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -774,6 +854,11 @@
                   FUNCTION TRIM(WS-E1) " input and " FUNCTION TRIM(WS-E2)
                   " output tokens."
                DELIMITED BY SIZE INTO WS-LINE
+           IF WS-FAILED > 0
+               STRING FUNCTION TRIM(WS-LINE) " Data files not usable: "
+                      FUNCTION TRIM(WS-FILE-NOTE) "."
+                   DELIMITED BY SIZE INTO WS-LINE
+           END-IF
            IF WS-N-AGENTS > 1
                STRING FUNCTION TRIM(WS-LINE) " Orchestrator: agent " WS-ORCH
                       ", tools: agent " WS-WORKER "."
@@ -1012,6 +1097,9 @@
                    CALL "PC-PICK-TOPIC"
                WHEN "docs"
                    INVOKE ME::"OpenFormSync"("DOCUMENTS-FORM")
+               WHEN "fils"
+                   INVOKE ME::"OpenFormSync"("FILES-FORM")
+                   CALL "PC-REGISTER-FILES"
                WHEN "sett"
                    INVOKE ME::"OpenFormSync"("SETTINGS-FORM")
                    CALL "PC-HAND-MODELS"

@@ -77,7 +77,7 @@ fn the_menu_hash_and_the_main_form_seal_are_valid() {
     let menu = cobolt_forms::menu::load_menu(&project().join("forms/SideMenu-1.menu.yaml"))
         .expect("the SideMenu's menu loads with a valid hash");
     let ids: Vec<&str> = menu.menu.iter().map(|m| m.id.as_str()).collect();
-    assert_eq!(ids, ["chat", "newc", "tpcs", "docs", "sett"]);
+    assert_eq!(ids, ["chat", "newc", "tpcs", "docs", "fils", "sett"]);
 
     let manifest: toml::Value =
         toml::from_str(&std::fs::read_to_string(project().join("PowerChat.project.toml")).unwrap()).unwrap();

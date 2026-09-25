@@ -358,6 +358,67 @@ fn powerchat_settings_topics_documents_and_chat() {
         status.trim(),
         t.elapsed().as_secs_f64() * 1000.0
     ));
+    // ── Data files: a user's indexed file, registered by path, searched ──
+    let t = Instant::now();
+    let actors = root.join("actors.idx");
+    let actors_cidx = root.join("actors.cidx");
+    {
+        use cobolt_runtime::indexed::{status, KeySpec, OpenMode};
+        let mut f = cobolt_runtime::indexed_disk::DiskIndexedFile::new(
+            &actors, 111, KeySpec { offset: 0, len: 9, duplicates: false }, Vec::new(),
+        );
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        for (id, salary) in [("1", "100000"), ("2", "250000"), ("3", "100000")] {
+            let mut rec = vec![b' '; 111];
+            rec[0..9].copy_from_slice(format!("{id:>9}").as_bytes());
+            rec[99..110].copy_from_slice(format!("{salary:>11}").as_bytes());
+            assert_eq!(f.write(&rec), status::OK);
+        }
+        f.close();
+    }
+    std::fs::write(&actors_cidx, r#"<?xml version="1.0" encoding="UTF-8"?><IndexedFile name="ACTORS-FILE" finalized="true" version="1.0"><assign-path>actors.idx</assign-path><access-mode>dynamic</access-mode><record-format fixed-length="111"/><storage mode="disk" compression="false" persistence="false"/><comment><![CDATA[One row per performer and their salary]]></comment><keys><primary duplicates="false" ordering="ascending"><part field="ACTOR-ID" offset="0" length="9" encoding="bytes"/></primary></keys><fields><Field level="1" name="ACTORS-RECORD" usage="display"><Field level="5" name="ACTOR-ID" pic="9(9)" usage="display" offset="0" length="9"><comment><![CDATA[The performer number]]></comment></Field><Field level="5" name="ACTOR-SALARY" pic="9(9)V99" usage="display" offset="99" length="11"><comment><![CDATA[Annual salary]]></comment></Field></Field></fields></IndexedFile>"#).unwrap();
+    let actors_before = std::fs::read(&actors).unwrap();
+    let mut s = Session::start("files-form.cfrm");
+    s.type_into("Txt-Data", &root.join("missing.idx").display().to_string());
+    s.type_into("Txt-Cidx", &actors_cidx.display().to_string());
+    s.click("Btn-Add");
+    let refused = s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Not added"));
+    assert!(refused.contains("NOT-FOUND"), "{refused}");
+    s.type_into("Txt-Data", &actors.display().to_string());
+    s.type_into("Txt-Cidx", &actors_cidx.display().to_string());
+    s.click("Btn-Add");
+    let added = s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Added"));
+    assert!(added.contains("ACTORS-FILE"), "{added}");
+    s.quit();
+    let before = requests.lock().unwrap().len();
+    let mut s = Session::start("chat-form.cfrm");
+    s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("This month"));
+    s.type_into("Txt-Input", "Which actors earn 100000?");
+    s.click("Btn-Send");
+    s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("This month: 3"));
+    s.quit();
+    let sent = requests.lock().unwrap()[before..].to_vec();
+    let worker_tools: Vec<String> = sent
+        .iter()
+        .filter_map(|b| serde_json::from_str::<serde_json::Value>(b).ok())
+        .filter(|v| v["model"] == "llama-test")
+        .flat_map(|v| v["tools"].as_array().cloned().unwrap_or_default())
+        .filter_map(|t| t["function"]["name"].as_str().map(String::from))
+        .collect();
+    assert!(worker_tools.iter().any(|n| n == "search_actors_file"), "the worker is offered the file: {worker_tools:?}");
+    assert!(sent.iter().any(|b| b.contains("ACTORS-FILE: 3 record(s)")), "the file was searched and its records went back");
+    assert_eq!(std::fs::read(&actors).unwrap(), actors_before, "the user's file is untouched");
+    // R22: a file that has gone is named, and the chat still opens.
+    std::fs::remove_file(&actors).unwrap();
+    let mut s = Session::start("chat-form.cfrm");
+    let note = s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("This month"));
+    s.quit();
+    assert!(note.contains("Data files not usable: ACTORS-FILE (NOT-FOUND)"), "{note}");
+    report.push(format!(
+        "files:     missing file refused (NOT-FOUND); ACTORS-FILE added, searched by the tool worker (3 records), untouched; gone → named in the status — {:.0} ms",
+        t.elapsed().as_secs_f64() * 1000.0
+    ));
+
     let sent = requests.lock().unwrap().clone();
 
     println!("\n  ── 071 PowerChat, played end to end ─────────────────────");

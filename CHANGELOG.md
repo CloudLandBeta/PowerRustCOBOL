@@ -8,6 +8,29 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.201] — 2026-09-25
+
+### Feature — PowerChat Phase 2, step 2: registered data files (spec 071 R20–R25)
+
+- **New `files-form` ("Data files" in the menu).** Each topic keeps a list of
+  users' indexed files, stored by path with their `.cidx` in a new `TFILES` file
+  of PowerChat's own. Nothing is copied.
+- **A file is tried as it is added.** It is registered on a scratch agent
+  (`ToolProtocol None`) and withdrawn again, so a missing file, an unreachable
+  share or a `.cidx` that doesn't describe the file is refused on the spot with
+  075's code and message. The list shows how each file is read (`MEMORY` or
+  `DISK`).
+- **The chat form registers the topic's files when the topic opens** (and after
+  the Data files form closes), for the tool worker to search. A file it cannot
+  use is named with its code in the status line, and the chat answers without
+  it (R22). The user's file is only ever read.
+- **`powerchat_runs` gains a files step:**
+  - a missing file is refused as NOT-FOUND;
+  - a real DISK file is added and searched by the tool worker (3 records),
+    and is byte-identical afterwards;
+  - deleted, it is named as unusable when the chat opens.
+  The whole run takes 2.0 s over 12 model requests.
+
 ## [PowerRustCOBOL 1.70.200] — 2026-09-25
 
 ### Feature — PowerChat Phase 2, step 1: the agent mesh (spec 071; 063 R51–R71)
