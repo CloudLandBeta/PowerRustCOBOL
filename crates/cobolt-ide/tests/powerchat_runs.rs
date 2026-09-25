@@ -768,8 +768,22 @@ fn powerchat_settings_topics_documents_and_chat() {
         s.quit();
         checked += 1;
     }
+    // A form already on the pane follows a flag too: nothing tells an
+    // occupant, so its Tmr-Lang looks, and re-labels it on the next tick.
+    let mut pane = Session::start("settings-form.cfrm");
+    pane.wait_for("Lbl-Title", "Caption", |v| v == "RAG settings");
+    for (code, send, title) in [("es", "Enviar", "Configuración de RAG"), ("en", "Send", "RAG settings")] {
+        let mut s = Session::start("chat-form.cfrm");
+        s.wait_for("Lbl-Status", "Caption", |v| !v.is_empty());
+        s.click(&format!("Flag-{code}"));
+        s.wait_for("Btn-Send", "Caption", |v| v == send);
+        s.quit();
+        pane.events.send(FormEvent::new("Tmr-Lang", "onTick")).unwrap();
+        pane.wait_for("Lbl-Title", "Caption", |v| v == title);
+    }
+    pane.quit();
     report.push(format!(
-        "languages: {checked} flags; the chat's button, hint and status and the Topics form follow each at once — {:.0} ms",
+        "languages: {checked} flags; the chat's button, hint and status and the Topics form follow each at once; RAG settings, already open, follows on its timer's tick — {:.0} ms",
         t.elapsed().as_secs_f64() * 1000.0
     ));
 

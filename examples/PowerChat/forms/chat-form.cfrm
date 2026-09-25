@@ -2443,7 +2443,7 @@
     <Property name="Cursor">Hand</Property>
     <Property name="Tooltip">English</Property>
     <Property name="IsDefault">false</Property>
-    <Property name="Caption">Flag-en</Property>
+    <Property name="Caption"></Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Event name="onClick" paragraph="FLAG-EN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2494,7 +2494,7 @@
     <Property name="Cursor">Hand</Property>
     <Property name="Tooltip">Português</Property>
     <Property name="IsDefault">false</Property>
-    <Property name="Caption">Flag-pt</Property>
+    <Property name="Caption"></Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Event name="onClick" paragraph="FLAG-PT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2545,7 +2545,7 @@
     <Property name="Cursor">Hand</Property>
     <Property name="Tooltip">Español</Property>
     <Property name="IsDefault">false</Property>
-    <Property name="Caption">Flag-es</Property>
+    <Property name="Caption"></Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Event name="onClick" paragraph="FLAG-ES--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2596,7 +2596,7 @@
     <Property name="Cursor">Hand</Property>
     <Property name="Tooltip">Français</Property>
     <Property name="IsDefault">false</Property>
-    <Property name="Caption">Flag-fr</Property>
+    <Property name="Caption"></Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Event name="onClick" paragraph="FLAG-FR--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2647,7 +2647,7 @@
     <Property name="Cursor">Hand</Property>
     <Property name="Tooltip">日本語</Property>
     <Property name="IsDefault">false</Property>
-    <Property name="Caption">Flag-jp</Property>
+    <Property name="Caption"></Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Event name="onClick" paragraph="FLAG-JP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2698,7 +2698,7 @@
     <Property name="Cursor">Hand</Property>
     <Property name="Tooltip">中文</Property>
     <Property name="IsDefault">false</Property>
-    <Property name="Caption">Flag-cn</Property>
+    <Property name="Caption"></Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Event name="onClick" paragraph="FLAG-CN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.

@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.222] — 2026-09-25
+
+### Fix — PowerChat: the flags show their images, and every form follows the language
+
+- The six flags are image-only buttons again: their Caption is empty (it had
+  been filled with the control id, which took the room the image needed).
+- A language picked while a form is on the pane now reaches that form. The
+  flag relabels the chat, but nothing tells the form in the ContentPane, so
+  each embedded form (Topics, Documents, Data files, Prompt, RAG settings)
+  carries a `Tmr-Lang` timer: once a second it reads `LANG` (read-only) and,
+  when it changed, re-runs the form's `onActivate`, which re-labels it.
+- The saved language was already the default for the next run; checked
+  against the operator's own `data/settings.idx` (`LANG = es`): a fresh chat,
+  RAG settings and Topics all start in Spanish.
+
 ## [PowerRustCOBOL 1.70.221] — 2026-09-25
 
 ### Fix — an empty property was lost when a form was opened

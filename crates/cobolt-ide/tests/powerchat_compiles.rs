@@ -104,6 +104,26 @@ fn the_menu_hash_and_the_main_form_seal_are_valid() {
     assert!(!chat.contains("SetItemEnabled(\"sett\"") && !chat.contains("SetItemEnabled(\"chat\""),
         "RAG settings and the way home are never shut");
     assert!(!chat.contains("OpenFormSync"), "no form opens in a window of its own");
+    // The flags are image buttons: an empty Caption (a missing one shows the
+    // id, which then takes the whole button and leaves the image no room).
+    let chat_form = cobolt_forms::load_form(&project().join("forms/chat-form.cfrm")).unwrap();
+    for code in ["en", "pt", "es", "fr", "jp", "cn"] {
+        let flag = chat_form.controls.iter().find(|c| c.id == format!("Flag-{code}")).expect("a flag");
+        assert_eq!(flag.get_prop("Caption").map(|v| v.to_string()).as_deref(), Some(""), "Flag-{code} has no caption");
+        assert_eq!(
+            flag.get_prop("IconPath").map(|v| v.to_string()),
+            Some(format!("assets/flags/{code}.png")),
+            "Flag-{code} shows its flag"
+        );
+        assert!(project().join(format!("assets/flags/{code}.png")).exists());
+    }
+    // Every form on the pane follows a language picked while it is there.
+    for rel in forms() {
+        let form = cobolt_forms::load_form(&project().join(&rel)).unwrap();
+        if form.form_format == cobolt_forms::model::FormFormat::Embedded {
+            assert!(form.controls.iter().any(|c| c.id == "Tmr-Lang"), "{rel} watches the language");
+        }
+    }
     // RAG settings is a summary whose four groups each open a modal dialog
     // (operator, 2026-09-25): those four are windows, opened by the summary.
     let settings = std::fs::read_to_string(project().join("generated/settings-form.cbl")).unwrap();

@@ -28,6 +28,7 @@
       *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
       *>   only the values are translated.
        01 WS-LANG            GLOBAL PIC XX VALUE "en".
+       01 WS-LANG-NOW        GLOBAL PIC XX VALUE "en".
        01 WS-LANG-IX         GLOBAL PIC 9 VALUE 1.
        01 WS-TX-I            GLOBAL PIC 9(4).
        01 PC-TEXT-DATA       GLOBAL.
@@ -478,6 +479,26 @@
            CALL "PC-FMT"
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Title::Caption
            CALL "PC-LOAD-FILES"
+]]></Event>
+    <Event name="PC-LANG-NOW" paragraph="PC-LANG-NOW"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The language saved now (LANG), into WS-LANG-NOW; "en" when unset.
+           MOVE "en" TO WS-LANG-NOW
+           OPEN INPUT SETTINGS-FILE
+           IF WS-FS NOT = "00"
+               EXIT PROGRAM
+           END-IF
+           MOVE "LANG" TO SET-NAME
+           READ SETTINGS-FILE
+               INVALID KEY CONTINUE
+               NOT INVALID KEY
+                   EVALUATE SET-VALUE(1:2)
+                       WHEN "pt" WHEN "es" WHEN "fr" WHEN "jp" WHEN "cn"
+                           MOVE SET-VALUE(1:2) TO WS-LANG-NOW
+                   END-EVALUATE
+           END-READ
+           CLOSE SETTINGS-FILE
 ]]></Event>
   </user-procedures>
   <form-events>
@@ -1028,5 +1049,48 @@
     <Property name="AgentEndpoint"></Property>
     <Property name="TargetControls"></Property>
     <Property name="ResponseDataItem"></Property>
+  </Control>
+  <Control id="Tmr-Lang" type="Timer" x="680" y="16" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Interval">1000</Property>
+    <Property name="Enabled">true</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Event name="onTick" paragraph="TMR-LANG--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A flag in the chat's menu changes the language while this form is
+      *>   on the pane; nothing tells a pane occupant, so it looks (R46).
+           CALL "PC-LANG-NOW"
+           IF WS-LANG-NOW NOT = WS-LANG
+               CALL "FILES-FORM--ONACTIVATE"
+           END-IF
+]]></Event>
   </Control>
 </Form>

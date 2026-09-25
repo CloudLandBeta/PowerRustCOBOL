@@ -113,6 +113,11 @@
   connection or **(off)** per agent). **Model selection** and **Agents** are
   disabled until a provider connection exists.
 - [x] **P3-6 — The main window is 1200 x 800** (1.70.219).
+- [x] **P3-7 — The language follows everywhere** (1.70.222) — the flags are
+  image-only buttons (an empty Caption, kept on load since 1.70.221); every
+  embedded form carries `Tmr-Lang`, which re-reads `LANG` (read-only) each
+  second and re-runs the form's `onActivate` when it changed, because nothing
+  tells a pane occupant that the chat's flag was pressed.
 - **Found on the way, not fixed here:**
   - `SetSelectedIndex` on a ComboBox does not move its `Value`.
     PowerChat sets `Value` itself wherever it picks an item.
