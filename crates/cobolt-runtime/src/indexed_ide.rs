@@ -112,13 +112,20 @@ pub fn key_specs_from_def(def: &IndexedDefinition) -> (KeySpec, Vec<KeySpec>) {
         .keys
         .alternates
         .iter()
-        .map(|alt| {
-            let p = alt.parts.first().unwrap_or(&def.keys.primary.parts[0]);
-            KeySpec {
+        .map(|alt| match alt.parts.first() {
+            Some(p) => KeySpec {
                 offset: p.offset as usize,
                 len: p.length as usize,
                 duplicates: alt.duplicates_allowed,
-            }
+            },
+            // An alternate with no parts takes the primary's range — which
+            // itself falls back when the primary has none. It used to index
+            // the primary's first part directly and panicked when a
+            // definition had no key parts at all.
+            None => KeySpec {
+                duplicates: alt.duplicates_allowed,
+                ..primary.clone()
+            },
         })
         .collect();
     (primary, alternates)
@@ -315,6 +322,24 @@ mod tests {
         IndexedField, KeyDef, KeyEncodingDef, KeyOrderingDef, KeyPartDef, KeySchema,
     };
     use tempfile::tempdir;
+
+    /// A definition whose keys have no parts at all — a `.cidx` written by
+    /// hand, or cut short — gives fallback key specs instead of panicking.
+    #[test]
+    fn key_specs_survive_keys_with_no_parts() {
+        let mut def = IndexedDefinition::new("T-FILE", "t.idx");
+        def.keys.alternates.push(cobolt_indexed::KeyDef {
+            name: None,
+            parts: Vec::new(),
+            duplicates_allowed: true,
+            ordering: cobolt_indexed::KeyOrderingDef::Ascending,
+        });
+        let (primary, alternates) = key_specs_from_def(&def);
+        assert_eq!((primary.offset, primary.len), (0, 1));
+        assert_eq!(alternates.len(), 1);
+        assert_eq!((alternates[0].offset, alternates[0].len), (0, 1));
+        assert!(alternates[0].duplicates);
+    }
 
     fn test_def() -> IndexedDefinition {
         let mut def = IndexedDefinition::new("T-FILE", "t.idx");

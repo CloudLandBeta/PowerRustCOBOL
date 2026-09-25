@@ -8,6 +8,24 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.199] — 2026-09-24
+
+### Fixes — two defects found while planning spec 075
+
+- **`AllowFile` could not search a DISK file that has alternate keys.** The
+  search tool declares only the primary key, and the paged engine was opened
+  with strict schema checking, so every such file answered FILE STATUS 39
+  before a record was read. The in-memory and redb engines were already
+  opened non-strict for this read-only primary-key scan; the paged one now is
+  too. `mcp_tool::tests::a_disk_file_with_alternate_keys_is_searchable` fails
+  with status 39 without the fix and finds 2 records with it.
+- **A `.cidx` whose keys have no parts crashed `key_specs_from_def`.** An
+  alternate with no parts borrowed the primary's first part directly, and
+  panicked when the primary had none either. It now takes the primary's
+  fallback range. Covered by
+  `indexed_ide::tests::key_specs_survive_keys_with_no_parts`.
+- `cobolt-runtime` sweep: 1043 passed, 0 failed.
+
 ## [PowerRustCOBOL 1.70.198] — 2026-09-24
 
 ### Fixes — three runtime defects found by PowerChat (spec 071)

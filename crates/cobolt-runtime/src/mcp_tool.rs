@@ -668,12 +668,19 @@ fn open_for_reading(access: &FileAccess) -> Box<dyn crate::indexed::IndexedStore
             f.set_strict_metadata(false);
             Box::new(f)
         }
-        Container::PagedDisk => Box::new(crate::indexed_disk::DiskIndexedFile::new(
-            &access.path,
-            access.record_len,
-            access.primary.clone(),
-            Vec::new(),
-        )),
+        Container::PagedDisk => {
+            let mut f = crate::indexed_disk::DiskIndexedFile::new(
+                &access.path,
+                access.record_len,
+                access.primary.clone(),
+                Vec::new(),
+            );
+            // Like the other two: the scan walks the primary key only, so a
+            // file with alternate keys must not be refused for not declaring
+            // them. Strict, it answered FILE STATUS 39 for every such file.
+            f.set_strict_metadata(false);
+            Box::new(f)
+        }
     }
 }
 
@@ -948,6 +955,37 @@ mod tests {
         let mut set = IndexedToolSet::new();
         set.allow(read_description_at(&cidx).unwrap(), access_for(&data));
         set
+    }
+
+    /// A DISK file that has alternate keys is searchable. The tool declares
+    /// only the primary key, and a strict open used to refuse such a file with
+    /// FILE STATUS 39 before a single record was read.
+    #[test]
+    fn a_disk_file_with_alternate_keys_is_searchable() {
+        use crate::indexed::{status, KeySpec, OpenMode};
+        let dir = temp("alternates");
+        let cidx = write_fixture(&dir, "actors.cidx", &fixture("One row per performer", "Unique performer number"));
+        let data = dir.join("actors.idx");
+        let mut f = crate::indexed_disk::DiskIndexedFile::new(
+            &data,
+            111,
+            KeySpec { offset: 0, len: 9, duplicates: false },
+            vec![KeySpec { offset: 99, len: 11, duplicates: true }],
+        );
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        for (id, salary) in [("1", "100000"), ("2", "250000"), ("3", "100000")] {
+            let mut rec = vec![b' '; 111];
+            rec[0..9].copy_from_slice(format!("{id:>9}").as_bytes());
+            rec[99..110].copy_from_slice(format!("{salary:>11}").as_bytes());
+            assert_eq!(f.write(&rec), status::OK);
+        }
+        f.close();
+        let mut set = IndexedToolSet::new();
+        set.allow(read_description_at(&cidx).unwrap(), access_for(&data));
+        let result = set.call("search_actors_file", &serde_json::json!({ "ACTOR-SALARY": "100000" }));
+        assert_ne!(result.is_error, Some(true), "{:?}", result.content);
+        assert!(format!("{:?}", result.content).contains("2 record(s)"), "{:?}", result.content);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Spec 075 T8 — a registered file searches the same way from memory and
