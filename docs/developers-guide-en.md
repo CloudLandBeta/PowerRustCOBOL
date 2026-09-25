@@ -5662,6 +5662,9 @@ extensions. Highlights a working COBOL programmer will rely on:
 > first two *character positions* of `T`, so a `PIC 9(8)` holding `00224845`
 > gives `"00"` — the leading zeros are part of the item. That is what makes the
 > classic unpack (`MOVE T(1:2) TO HH`, `MOVE T(3:2) TO MM`, …) line up.
+> It works on a table entry the same way — `ROW(I)(2:3)` — whether the entry is
+> sent, received (`MOVE "AB" TO ROW(I)(2:2)` changes only those two positions)
+> or inspected (`INSPECT ROW(I)(1:3) CONVERTING …` touches only the first three).
 
 - **Arithmetic:** `ADD/SUBTRACT/MULTIPLY/DIVIDE/COMPUTE` with multiple receivers
   and per-receiver `ROUNDED`; numeric-edited `PICTURE` editing.
@@ -6180,6 +6183,8 @@ a paragraph or section name does not even need that:
 ```
 
 The other delimiter needs no escaping at all, so `"IT'S"` is usually simpler.
+A backslash is an ordinary character, so `"\"` is a one-character literal and
+`'C:\TEMP\'` means exactly what it says.
 
 **`ALL` before a figurative constant is redundant and allowed.** `MOVE ALL ZEROS` is `MOVE ZEROS`. Before a literal, `ALL` *repeats* it to fill the whole
 receiving field:
@@ -6678,6 +6683,11 @@ Only `OPEN OUTPUT` creates a file. `OPEN INPUT`, `OPEN I-O` and `OPEN EXTEND`
 all expect the file to exist, and its absence is `FILE STATUS` **`35`** — which
 is usually what you want, because a missing master file is a problem worth
 stopping for.
+
+A refused `OPEN` leaves the file **closed**, whatever the status. So the
+familiar way to create a keyed file on first use works as written: answer a
+`35` with `OPEN OUTPUT`, `CLOSE`, then `OPEN I-O` again. A `CLOSE` straight
+after a refused `OPEN` answers `42` — the file was never open.
 
 When it is *not* a problem — an optional transaction file, a log that starts
 empty on first run — say so in the `SELECT`:

@@ -223,3 +223,33 @@ fn a_single_operand_and_a_shared_counter_are_unchanged() {
     );
     assert_eq!(out, ["T1=004 T2=002"], "{out:#?}");
 }
+
+/// Reference modification narrows INSPECT to the selected positions — for
+/// TALLYING, REPLACING and CONVERTING alike — and a subscripted base keeps its
+/// subscript. Found 2026-09-25: the region was ignored (the whole item was
+/// converted) and `T(2)(1:3)` addressed an item named plain `T`.
+#[test]
+fn inspect_honours_reference_modification_and_subscripts() {
+    let src = r##"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. INSREF.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 X PIC X(6) VALUE "------".
+       01 N PIC 99 VALUE 0.
+       01 T.
+          05 T-E PIC X(4) OCCURS 3.
+       01 I PIC 9 VALUE 2.
+       PROCEDURE DIVISION.
+       MAIN.
+           INSPECT X(1:3) CONVERTING "-" TO "."
+           INSPECT X(2:4) TALLYING N FOR ALL "-"
+           INSPECT X(5:) REPLACING ALL "-" BY "#"
+           DISPLAY X " " N
+           MOVE ALL "a" TO T
+           INSPECT T-E(I)(2:2) CONVERTING "a" TO "b"
+           DISPLAY T
+           STOP RUN.
+"##;
+    assert_eq!(run_capture(src), vec!["...-## 02", "aaaaabbaaaaa"]);
+}

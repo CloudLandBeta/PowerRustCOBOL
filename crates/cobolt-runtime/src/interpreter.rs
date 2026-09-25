@@ -8130,7 +8130,16 @@ impl Interpreter {
         spec: &InspectSpec,
         span: Span,
     ) -> Result<(), RuntimeError> {
-        let name = self.resolve_lvalue(target);
+        // A reference-modified operand is its BASE item, narrowed below to the
+        // selected positions. It used to go through `resolve_lvalue` whole,
+        // which has no RefMod arm: the region was dropped (`INSPECT X(1:3)
+        // CONVERTING` converted all of X) and so was the base's subscript.
+        let (name, refmod) = match target {
+            Expr::RefMod { base, start, length, span } => {
+                (self.resolve_lvalue(base), Some((&**start, length.as_deref(), *span)))
+            }
+            _ => (self.resolve_lvalue(target), None),
+        };
         // A group owns no store slot — its value is synthesized from its
         // subordinate items — so reading one through `get` yielded the empty
         // string and INSPECT tallied *nothing at all* on any group operand,
@@ -8153,6 +8162,25 @@ impl Interpreter {
         if overpunched {
             s.remove(0);
         }
+        // Only the selected positions are inspected; the characters before and
+        // after them are kept aside and put back unchanged.
+        let mut outside: Option<(String, String)> = None;
+        if let Some((start, length, rspan)) = refmod {
+            let chars: Vec<char> = s.chars().collect();
+            let first = self.eval_expr(start, rspan)?.as_i64().unwrap_or(1).max(1) as usize;
+            let begin = (first - 1).min(chars.len());
+            let len = match length {
+                Some(l) => self.eval_expr(l, rspan)?.as_i64().unwrap_or(0).max(0) as usize,
+                None => chars.len() - begin,
+            };
+            let end = (begin + len).min(chars.len());
+            outside = Some((chars[..begin].iter().collect(), chars[end..].iter().collect()));
+            s = chars[begin..end].iter().collect();
+        }
+        let whole = |s: &str| match &outside {
+            Some((before, after)) => format!("{before}{s}{after}"),
+            None => s.to_owned(),
+        };
 
         match spec {
             InspectSpec::Tallying(tallies) => {
@@ -8374,7 +8402,7 @@ impl Interpreter {
                     }
                 }
                 s = String::from_utf8_lossy(&out).into_owned();
-                self.store_inspect_text(&name, &s, overpunched);
+                self.store_inspect_text(&name, &whole(&s), overpunched);
             }
             InspectSpec::Converting { from, to } => {
                 let from_s = self.eval_expr(from, span)?.as_display_string();
@@ -8382,7 +8410,7 @@ impl Interpreter {
                 for (fc, tc) in from_s.chars().zip(to_s.chars()) {
                     s = s.replace(fc, &tc.to_string());
                 }
-                self.store_inspect_text(&name, &s, overpunched);
+                self.store_inspect_text(&name, &whole(&s), overpunched);
             }
             InspectSpec::ConvertingIn { from, to, region } => {
                 // The same character-for-character conversion, applied only
@@ -8395,7 +8423,7 @@ impl Interpreter {
                     window = window.replace(fc, &tc.to_string());
                 }
                 s.replace_range(lo..hi, &window);
-                self.store_inspect_text(&name, &s, overpunched);
+                self.store_inspect_text(&name, &whole(&s), overpunched);
             }
             InspectSpec::TallyingReplacing(tallies, replaces) => {
                 self.exec_inspect(target, &InspectSpec::Tallying(tallies.clone()), span)?;
@@ -8623,6 +8651,14 @@ impl Interpreter {
         }
     }
 
+    /// Undo what an OPEN recorded before its engine refused the file: the
+    /// open mode and the sharing lock. The file is then exactly as closed as it
+    /// was before the OPEN, so the next OPEN is judged on its own.
+    fn forget_failed_open(&mut self, file: &str) {
+        self.open_modes.remove(file);
+        self.share_locks.remove(file);
+    }
+
     fn exec_open(
         &mut self,
         mode: OpenMode,
@@ -8806,8 +8842,16 @@ impl Interpreter {
                 } else {
                     code
                 };
-                self.open_files
-                    .insert(file.clone(), OpenFile::Indexed(engine));
+                // An unsuccessful OPEN leaves the file CLOSED (COBOL-85): a
+                // missing INPUT file (35) registered as open answered every
+                // later OPEN with 41, so a program could never create the file
+                // it had just found missing, and every WRITE failed 48.
+                if code.starts_with('0') {
+                    self.open_files
+                        .insert(file.clone(), OpenFile::Indexed(engine));
+                } else {
+                    self.forget_failed_open(&file);
+                }
                 self.set_file_status(&file, code);
                 self.fire_declarative(&file, code, false)?;
                 continue;
@@ -8839,8 +8883,12 @@ impl Interpreter {
                 } else {
                     code
                 };
-                self.open_files
-                    .insert(file.clone(), OpenFile::Relative(Box::new(engine)));
+                if code.starts_with('0') {
+                    self.open_files
+                        .insert(file.clone(), OpenFile::Relative(Box::new(engine)));
+                } else {
+                    self.forget_failed_open(&file);
+                }
                 self.set_file_status(&file, code);
                 self.fire_declarative(&file, code, false)?;
                 continue;
@@ -17153,7 +17201,10 @@ impl Interpreter {
         val: &CobolValue,
         span: Span,
     ) -> Result<(), RuntimeError> {
-        let name = self.expr_to_name(base);
+        // `resolve_lvalue`, not `expr_to_name`: the base may be subscripted,
+        // and `expr_to_name` drops the subscript — `MOVE "X" TO T(2)(1:1)` then
+        // wrote to an item named plain `T` and `T(2)` never changed.
+        let name = self.resolve_lvalue(base);
         let mut cur = self
             .env
             .display_string(&name)

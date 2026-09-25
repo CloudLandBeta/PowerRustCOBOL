@@ -620,3 +620,16 @@ fn digits_alone_are_still_a_number() {
     let t = toks("ADD 123 TO X.");
     assert!(t.contains(&Token::IntegerLiteral(123, 3)), "{t:?}");
 }
+
+/// COBOL-85 has no backslash escape, so a backslash is plain content — even
+/// as a literal's last character, where the old `\.` alternative swallowed
+/// the closing delimiter and the literal ran off the end of the line.
+#[test]
+fn a_backslash_is_an_ordinary_character() {
+    let t = toks(r#"INSPECT WS-NAME TALLYING WS-K FOR ALL "\"."#);
+    assert_eq!(t[6], Token::StringLiteral(r"\".to_string()), "{t:?}");
+    let t = toks(r"MOVE 'C:\' TO WS-DIR.");
+    assert_eq!(t[1], Token::StringLiteral(r"C:\".to_string()), "{t:?}");
+    let t = toks(r#"MOVE "a\b\\c" TO WS-X."#);
+    assert_eq!(t[1], Token::StringLiteral(r"a\b\\c".to_string()), "{t:?}");
+}

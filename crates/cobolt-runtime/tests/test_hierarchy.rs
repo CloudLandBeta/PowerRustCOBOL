@@ -332,3 +332,27 @@ fn same_named_sibling_leaves_each_keep_their_own_bytes() {
     let out = run_capture(src);
     assert_eq!(out, vec!["ACALAM", "ACALAM"], "each F keeps its own VALUE");
 }
+
+/// `MOVE … TO T(i)(start:len)` splices into occurrence `i`. The subscript was
+/// dropped, so the characters went to an item named plain `T` and the table
+/// never changed (found 2026-09-25 building a sort key in PowerChat).
+#[test]
+fn a_reference_modified_subscripted_receiver_is_written() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. REFMODSUB.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-T.
+          05 WS-KEY PIC X(6) OCCURS 3.
+       01 WS-I PIC 9 VALUE 2.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE ALL "-" TO WS-T
+           MOVE "ab" TO WS-KEY(WS-I)(2:2)
+           MOVE "z" TO WS-KEY(3)(6:1)
+           DISPLAY WS-T
+           STOP RUN.
+"#;
+    assert_eq!(run_capture(src), vec!["-------ab--------z"]);
+}

@@ -116,16 +116,21 @@ pub enum RawToken {
     // until now the lexer did not, so the two disagreed about the same text.
     // `cobolt-codegen`'s `cobol_lit()` writes the doubled form when it escapes
     // a developer's caption — an escape whose un-escape was missing.
+    //
+    // A backslash is therefore an ordinary character. The body used to accept
+    // `\.` as a pair as well, so `"\"` — one backslash — read its own closing
+    // quote as escaped and ran off the end of the line (found 2026-09-25 by
+    // PowerChat's folder-name check, `INSPECT … FOR ALL "\"`).
 
     // Double-quoted: "Hello, World!"  (doubled "" is an escaped quote)
-    #[regex(r#""([^"\\\n]|\\.|"")*""#, |lex| {
+    #[regex(r#""([^"\n]|"")*""#, |lex| {
         let s = lex.slice();
         s[1..s.len()-1].replace("\"\"", "\"")
     })]
     StringDouble(String),
 
     // Single-quoted: 'Hello'  (doubled '' is an escaped quote)
-    #[regex(r"'([^'\\\n]|\\.|'')*'", |lex| {
+    #[regex(r"'([^'\n]|'')*'", |lex| {
         let s = lex.slice();
         s[1..s.len()-1].replace("''", "'")
     })]

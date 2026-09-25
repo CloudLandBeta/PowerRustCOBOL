@@ -8,6 +8,39 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.207] — 2026-09-25
+
+### Fix — a refused OPEN left the file open; reference modification on INSPECT and table entries; backslashes in literals
+
+These were found while building PowerChat's document folders (spec 071 P2-6).
+Each one is valid COBOL-85 that the runtime got wrong.
+
+- **A refused OPEN leaves the file closed.** For INDEXED and RELATIVE files,
+  `OPEN INPUT` of a file that is not there answered 35 but still registered
+  the file as open. The usual creation idiom (35, then `OPEN OUTPUT`, `CLOSE`,
+  `OPEN I-O`) then got 41 on every OPEN and 48 on every `WRITE`. The engine is
+  now registered only on a `0x` status. A refused OPEN also releases its
+  sharing lock and forgets its open mode, and a `CLOSE` straight after it
+  answers 42.
+- **INSPECT honours reference modification.** `INSPECT X(1:3) CONVERTING …`
+  converted all of X, and TALLYING or REPLACING on `X(2:4)` also saw the whole
+  item. Only the selected positions are inspected now. A subscripted base,
+  `INSPECT T(I)(2:2) …`, keeps its subscript.
+- **`MOVE … TO T(I)(start:len)` writes into occurrence I.** The subscript was
+  dropped, so the characters went to an item named plain `T` and the table
+  never changed.
+- **A backslash is an ordinary character in a literal.** The lexer still
+  accepted `\` + any character as a pair, so `"\"` (one backslash) swallowed
+  its own closing quote and ran off the line. `'C:\'` did the same. COBOL-85
+  has no backslash escape; the doubled delimiter is the only escape.
+- **Tests:**
+  - `an_open_that_fails_leaves_the_file_closed` (`test_indexed`)
+  - `inspect_honours_reference_modification_and_subscripts` (`test_inspect`)
+  - `a_reference_modified_subscripted_receiver_is_written` (`test_hierarchy`)
+  - `a_backslash_is_an_ordinary_character` (`cobolt-lexer` `test_literals`)
+- The Developer's Guide notes each behaviour: `SELECT OPTIONAL` section,
+  literals, reference modification.
+
 ## [PowerRustCOBOL 1.70.206] — 2026-09-25
 
 ### Fix — same-named FILLER-style items, and one-column tables in the binding editor

@@ -2037,3 +2037,38 @@ fn a_rewrite_that_moves_the_key_of_reference_does_not_skip_the_next_record() {
         "the read after the rewrite must not skip a record:\n{joined}"
     );
 }
+
+/// Operator-visible failure, 2026-09-25 (PowerChat's documents form): an
+/// `OPEN INPUT` of a keyed file that is not there answers 35 — and must leave
+/// the file CLOSED, as COBOL-85 says of every unsuccessful OPEN. It stayed
+/// registered as open, so the program's next OPEN (the usual "35 → OPEN
+/// OUTPUT, CLOSE, OPEN I-O" creation idiom) answered 41, and every WRITE 48.
+#[test]
+fn an_open_that_fails_leaves_the_file_closed() {
+    let path = temp_idx("open35");
+    let src = prog_disk(
+        "           OPEN INPUT CUSTOMER-FILE\n\
+         \x20          DISPLAY \"INPUT \" FS\n\
+         \x20          CLOSE CUSTOMER-FILE\n\
+         \x20          DISPLAY \"CLOSE \" FS\n\
+         \x20          OPEN INPUT CUSTOMER-FILE\n\
+         \x20          DISPLAY \"INPUT AGAIN \" FS\n\
+         \x20          OPEN OUTPUT CUSTOMER-FILE\n\
+         \x20          DISPLAY \"OUTPUT \" FS\n\
+         \x20          MOVE 1 TO CUSTOMER-ID\n\
+         \x20          MOVE \"ADA\" TO CUSTOMER-NAME\n\
+         \x20          WRITE CUSTOMER-REC\n\
+         \x20          DISPLAY \"WRITE \" FS\n\
+         \x20          CLOSE CUSTOMER-FILE",
+        &path,
+        false,
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(format!("{}.lck", path.display()));
+    assert_eq!(
+        out,
+        vec!["INPUT 35", "CLOSE 42", "INPUT AGAIN 35", "OUTPUT 00", "WRITE 00"],
+        "a refused OPEN leaves the file closed: CLOSE is 42, the next OPEN is judged afresh"
+    );
+}
