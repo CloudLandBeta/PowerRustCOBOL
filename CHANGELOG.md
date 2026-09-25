@@ -8,6 +8,15 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.217] — 2026-09-25
+
+### Feature — PowerChat's sidebar wears the Titan Voyages logo and icon
+
+- At the operator's request, the SideMenu header now shows the logo
+  `assets/Titan_Voyages_Logo_270x80.png` when open and the icon
+  `assets/Titan_Voyages_Logo_45x45.png` when collapsed. Both are copied from
+  PowerDemo3 and replace the samurai pair set in 1.70.216.
+
 ## [PowerRustCOBOL 1.70.216] — 2026-09-25
 
 ### Feature — PowerChat's sidebar wears the PowerRustCOBOL logo and icon

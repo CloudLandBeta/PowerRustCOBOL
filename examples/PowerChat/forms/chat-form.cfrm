@@ -1505,8 +1505,8 @@
     <Property name="BreadcrumbTextAlign">Middle</Property>
     <Property name="BreadcrumbFontSize">0</Property>
     <Property name="BreadcrumbIconSize">0</Property>
-    <Property name="HeaderImage">assets/logo.png</Property>
-    <Property name="HeaderIcon">assets/icon.png</Property>
+    <Property name="HeaderImage">assets/Titan_Voyages_Logo_270x80.png</Property>
+    <Property name="HeaderIcon">assets/Titan_Voyages_Logo_45x45.png</Property>
     <Property name="Tooltip"></Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
