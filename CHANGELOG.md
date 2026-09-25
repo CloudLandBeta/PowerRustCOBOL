@@ -8,6 +8,48 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.206] — 2026-09-25
+
+### Fix — same-named FILLER-style items, and one-column tables in the binding editor
+
+- **Same-named elementary siblings now each keep their own bytes.** A value
+  table written as `05 F PIC X(002) VALUE "AC".` repeated used to put every
+  `F` in ONE storage slot, so the last `VALUE` won. The table redefining it
+  then read `AMAMAM` instead of `ACALAM`. COBOL-85 accepts that declaration
+  and only rejects a *reference* to such a name, so each item is now stored
+  like a `FILLER`.
+  - The runtime environment renames these items to `FILLER` in its own copy
+    of the DATA DIVISION. The program's source is untouched.
+  - Test: `same_named_sibling_leaves_each_keep_their_own_bytes`
+    (`cobolt-runtime/tests/test_hierarchy.rs`).
+- **The COBOL-table binding editor lists tables whose OCCURS item is
+  elementary**, such as `01 WS-TAB-UFS GLOBAL PIC X(002) REDEFINES WS-UFS
+  OCCURS 27 TIMES` or `05 WS-CODE PIC 9(03) OCCURS 5 TIMES`. These are
+  one-column tables whose column is the item itself. Before this fix they had
+  no subordinate fields and were dropped from the list without a message.
+  - Test: `an_elementary_occurs_item_is_a_one_column_cobol_table`.
+- **Regression checks:** `cobolt-runtime --release` all green. NIST execution
+  matches every protected baseline:
+
+  | Module | Programs clean |
+  |---|---|
+  | NC | 95/95 |
+  | SQ | 85/85 |
+  | IX | 41/41 |
+  | RL | 34/34 |
+  | IF | 45/45 |
+  | IC | 25/25 |
+  | ST | 39/39 |
+  | SM | 16/16 |
+
+  All with 0 failing assertions. `strict` compile is 420/420.
+- Developer's Guide: notes on both behaviours.
+  `docs/cobol85-supported-syntax-en.md` is left for the next minor so its five
+  translations are not deleted for one sentence.
+- **Version note:** 1.70.205 names two changes, the MainForm fix on `fixes`
+  and PowerChat P2-5 on `features`. Both were committed within minutes by
+  different sessions, and both are already pushed.
+
 ## [PowerRustCOBOL 1.70.205] — 2026-09-25
 
 ### Fix — two forms marked main, and a Build that could not recover

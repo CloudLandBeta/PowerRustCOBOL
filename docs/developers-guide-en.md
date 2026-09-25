@@ -2254,7 +2254,10 @@ from one of these source families:
 
 - **Indexed** — a project `.cidx` definition and its record fields.
 - **SQL** — a `SqlDatabase` control, query, and result set.
-- **COBOL table** — an in-memory COBOL table or array item.
+- **COBOL table** — an in-memory COBOL table or array item: a level-01
+  `GLOBAL` item that has, or contains, an `OCCURS`. An elementary `OCCURS` item
+  (`05 UF PIC XX OCCURS 27 TIMES.`) is a one-column table whose column is the
+  item itself.
 - **REST** — a `RestClient` response data item, saved schema, or sample payload.
 - **Agent AI** — a structured `AgentObject` output.
 
@@ -5598,7 +5601,11 @@ extensions. Highlights a working COBOL programmer will rely on:
 > size is the sum of theirs. Reading one gives you the whole record, writing one
 > spreads the bytes across the children by width, and a change to any child shows
 > through the group immediately. `FILLER` counts — it holds its bytes and its
-> `VALUE` like any other item — and the word itself is optional, so `05 PIC X VALUE ":".` is a perfectly good separator:
+> `VALUE` like any other item — and the word itself is optional, so `05 PIC X VALUE ":".` is a perfectly good separator.
+> The same holds for elementary items that share one name under one group — the
+> classic value table written as `05 F PIC XX VALUE "AC".` repeated: each keeps
+> its own bytes and `VALUE`, and only *referring* to that name is an error, since
+> no qualification can tell the copies apart:
 >
 > ```cobol
 >        01 EDITED-TIME.

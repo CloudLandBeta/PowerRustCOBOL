@@ -1863,6 +1863,19 @@ fn cobol_table_meta_from_root(root: &DataDecl) -> Option<CobolTableBindingMeta> 
     let occurs_name = occurs_item.name.as_ref()?.clone();
     let mut fields = Vec::new();
     collect_cobol_table_fields(occurs_item, &mut fields);
+    // An ELEMENTARY item with OCCURS (`05 UF PIC XX OCCURS 27.`, or a whole
+    // `01 … PIC XX OCCURS 27`) is a one-column table: its own entries are the
+    // column. It has no subordinate fields, so without this it was silently
+    // left out of the table list (operator report, 2026-09-25).
+    if fields.is_empty() {
+        if let Some(pic) = &occurs_item.picture {
+            fields.push(CobolTableFieldMeta {
+                name: occurs_name.clone(),
+                picture: pic.template.clone(),
+                data_type: binding_data_type_from_pic(pic.kind, &pic.template),
+            });
+        }
+    }
     if fields.is_empty() {
         return None;
     }
@@ -13398,6 +13411,54 @@ mod tests {
         assert_eq!(editor.rows[4].edit_control, BindingEditControl::Textbox);
         assert_eq!(editor.rows[5].source_field, "REGION-ID");
         assert!(editor.validate().is_ok());
+    }
+
+    /// Operator report, 2026-09-25: a table whose OCCURS item is ELEMENTARY —
+    /// here the UF value table, a level-01 `PIC X(002) REDEFINES … OCCURS` —
+    /// never appeared in the table list, because only subordinate fields were
+    /// collected. It is a one-column table, the column being the item itself.
+    #[test]
+    fn an_elementary_occurs_item_is_a_one_column_cobol_table() {
+        let mut form = Form::new("UfForm", "UfForm", 800, 600);
+        form.user_ws_source = "\
+01  WS-UFS GLOBAL.
+    05  F                PIC X(002) VALUE \"AC\".
+    05  F                PIC X(002) VALUE \"AL\".
+01  WS-TAB-UFS GLOBAL    PIC X(002)
+                         REDEFINES WS-UFS OCCURS 2 TIMES.
+01  WS-CODES GLOBAL.
+    05  WS-CODE          PIC 9(03) OCCURS 5 TIMES.
+"
+        .to_owned();
+        let tables = cobol_table_binding_metadata(&form);
+        let summary: Vec<(String, String, Vec<(String, String)>)> = tables
+            .iter()
+            .map(|t| {
+                (
+                    t.name.clone(),
+                    t.occurs_item.clone(),
+                    t.fields
+                        .iter()
+                        .map(|f| (f.name.clone(), f.picture.clone()))
+                        .collect(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            vec![
+                (
+                    "WS-TAB-UFS".to_owned(),
+                    "WS-TAB-UFS".to_owned(),
+                    vec![("WS-TAB-UFS".to_owned(), "X(2)".to_owned())],
+                ),
+                (
+                    "WS-CODES".to_owned(),
+                    "WS-CODE".to_owned(),
+                    vec![("WS-CODE".to_owned(), "9(3)".to_owned())],
+                ),
+            ]
+        );
     }
 
     #[test]

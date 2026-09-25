@@ -304,3 +304,31 @@ fn reference_modification_reads_a_numeric_at_its_pic_width() {
     let out = run_capture(src);
     assert_eq!(out, vec!["[00]", "[45]", "[00:22:48_45]"]);
 }
+
+/// Operator report, 2026-09-25: a value table built from same-named
+/// elementary siblings (`05 F PIC XX VALUE "AC".` repeated) collapsed into ONE
+/// storage slot, so every entry of the table redefining it read the LAST
+/// value. Such a name can never be referenced unambiguously, so each item is
+/// storage of its own, exactly like FILLER.
+#[test]
+fn same_named_sibling_leaves_each_keep_their_own_bytes() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. DUPS.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-UFS GLOBAL.
+           05  F                PIC X(002) VALUE "AC".
+           05  F                PIC X(002) VALUE "AL".
+           05  F                PIC X(002) VALUE "AM".
+       01  WS-TAB-UFS GLOBAL    PIC X(002)
+                                REDEFINES WS-UFS OCCURS 3 TIMES.
+       PROCEDURE DIVISION.
+       MAIN.
+           DISPLAY WS-UFS
+           DISPLAY WS-TAB-UFS(1) WS-TAB-UFS(2) WS-TAB-UFS(3)
+           STOP RUN.
+"#;
+    let out = run_capture(src);
+    assert_eq!(out, vec!["ACALAM", "ACALAM"], "each F keeps its own VALUE");
+}

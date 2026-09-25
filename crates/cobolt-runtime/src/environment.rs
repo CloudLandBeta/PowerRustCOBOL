@@ -346,6 +346,69 @@ pub struct CondName {
     pub quals: Vec<String>,
 }
 
+/// A copy of `data` in which every elementary item that shares its name with
+/// a sibling is renamed `FILLER`, or `None` when there is none to rename.
+///
+/// COBOL-85 lets a program declare such items — only a *reference* to one is
+/// an error, since no qualification can single it out — so they hold bytes
+/// and VALUEs like any FILLER and must get a slot each.
+fn anonymize_ambiguous_leaves(data: &DataDivision) -> Option<DataDivision> {
+    fn ambiguous(siblings: &[DataDecl], i: usize) -> bool {
+        let c = &siblings[i];
+        if !c.children.is_empty() || c.level == 88 || c.level == 66 {
+            return false;
+        }
+        let Some(name) = c.name.as_deref().filter(|n| !n.eq_ignore_ascii_case("FILLER")) else {
+            return false;
+        };
+        siblings
+            .iter()
+            .enumerate()
+            .any(|(j, s)| j != i && s.level != 88 && s.name.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(name)))
+    }
+    fn any(decl: &DataDecl) -> bool {
+        (0..decl.children.len()).any(|i| ambiguous(&decl.children, i))
+            || decl.children.iter().any(any)
+    }
+    fn rename(decl: &mut DataDecl) {
+        let hits: Vec<usize> = (0..decl.children.len())
+            .filter(|&i| ambiguous(&decl.children, i))
+            .collect();
+        for i in hits {
+            decl.children[i].name = Some("FILLER".to_owned());
+        }
+        decl.children.iter_mut().for_each(rename);
+    }
+    fn decls(d: &DataDivision) -> Vec<&DataDecl> {
+        d.sections
+            .iter()
+            .flat_map(|section| match section {
+                DataSection::WorkingStorage(items)
+                | DataSection::LocalStorage(items)
+                | DataSection::Linkage(items) => items.iter().collect::<Vec<_>>(),
+                DataSection::FileSection(fds) => fds.iter().flat_map(|fd| fd.records.iter()).collect(),
+                DataSection::Screen(_) => Vec::new(),
+            })
+            .collect()
+    }
+    if !decls(data).into_iter().any(any) {
+        return None;
+    }
+    let mut out = data.clone();
+    for section in &mut out.sections {
+        match section {
+            DataSection::WorkingStorage(items)
+            | DataSection::LocalStorage(items)
+            | DataSection::Linkage(items) => items.iter_mut().for_each(rename),
+            DataSection::FileSection(fds) => {
+                fds.iter_mut().flat_map(|fd| fd.records.iter_mut()).for_each(rename)
+            }
+            DataSection::Screen(_) => {}
+        }
+    }
+    Some(out)
+}
+
 /// Tally every named (non-FILLER) leaf in a declaration subtree, so the
 /// environment knows which names are duplicated and need qualified keys.
 fn count_names(decl: &DataDecl, counts: &mut std::collections::HashMap<String, usize>) {
@@ -586,6 +649,13 @@ impl CobolEnvironment {
         env.decimal_comma = decimal_comma;
         env.set_currency(currency);
         let origin = origin.to_owned();
+        // Same-named elementary siblings can never be told apart by any
+        // qualification, so each one is storage without a usable name — which
+        // is exactly a FILLER. Keyed by name they collapsed into ONE slot and
+        // the last VALUE won: `01 T. 05 F PIC XX VALUE "AC". 05 F PIC XX VALUE
+        // "AL".` read back "ALAL" (operator report, 2026-09-25).
+        let anonymized = anonymize_ambiguous_leaves(data);
+        let data = anonymized.as_ref().unwrap_or(data);
         // Pass 1: count every leaf name so we know which need disambiguation.
         let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
         for section in &data.sections {
