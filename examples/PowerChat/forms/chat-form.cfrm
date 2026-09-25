@@ -88,6 +88,211 @@
        01 WS-FILE-NOTE       GLOBAL PIC X(300).
        01 WS-FAILED          GLOBAL PIC 9(3).
        01 WS-RESULT          GLOBAL PIC X(30).
+      *>   The interface texts (spec 071 R44): one row per text, one column
+      *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
+      *>   only the values are translated.
+       01 WS-LANG            GLOBAL PIC XX VALUE "en".
+       01 WS-LANG-IX         GLOBAL PIC 9 VALUE 1.
+       01 WS-TX-I            GLOBAL PIC 9(4).
+       01 PC-TEXT-DATA       GLOBAL.
+      *>   OPEN-TOPIC-MENU
+          05 FILLER PIC X(120) VALUE "Open a topic first - **Topics** in the menu.".
+          05 FILLER PIC X(120) VALUE "Abra um tópico primeiro - **Tópicos** no menu.".
+          05 FILLER PIC X(120) VALUE "Primero abre un tema: **Temas** en el menú.".
+          05 FILLER PIC X(120) VALUE "Ouvrez d'abord un sujet : **Sujets** dans le menu.".
+          05 FILLER PIC X(120) VALUE "先にトピックを開いてください - メニューの **トピック**。".
+          05 FILLER PIC X(120) VALUE "请先打开一个主题——菜单中的 **主题**。".
+      *>   ASSIGN-MODEL-MENU
+          05 FILLER PIC X(120) VALUE "Assign a model to an agent first - **RAG settings** in the menu.".
+          05 FILLER PIC X(120) VALUE "Atribua um modelo a um agente primeiro - **Configurações de RAG** no menu.".
+          05 FILLER PIC X(120) VALUE "Primero asigna un modelo a un agente: **Configuración de RAG** en el menú.".
+          05 FILLER PIC X(120) VALUE "Attribuez d'abord un modèle à un agent : **Paramètres RAG** dans le menu.".
+          05 FILLER PIC X(120) VALUE "先にエージェントにモデルを割り当ててください - メニューの **RAG 設定**。".
+          05 FILLER PIC X(120) VALUE "请先为代理分配模型——菜单中的 **RAG 设置**。".
+      *>   YOU
+          05 FILLER PIC X(120) VALUE "You".
+          05 FILLER PIC X(120) VALUE "Você".
+          05 FILLER PIC X(120) VALUE "Tú".
+          05 FILLER PIC X(120) VALUE "Vous".
+          05 FILLER PIC X(120) VALUE "あなた".
+          05 FILLER PIC X(120) VALUE "你".
+      *>   THINKING
+          05 FILLER PIC X(120) VALUE "Thinking...".
+          05 FILLER PIC X(120) VALUE "Pensando...".
+          05 FILLER PIC X(120) VALUE "Pensando...".
+          05 FILLER PIC X(120) VALUE "Réflexion...".
+          05 FILLER PIC X(120) VALUE "考え中...".
+          05 FILLER PIC X(120) VALUE "思考中...".
+      *>   AGENT-FAILED
+          05 FILLER PIC X(120) VALUE "Agent &1 could not answer:".
+          05 FILLER PIC X(120) VALUE "O agente &1 não conseguiu responder:".
+          05 FILLER PIC X(120) VALUE "El agente &1 no pudo responder:".
+          05 FILLER PIC X(120) VALUE "L'agent &1 n'a pas pu répondre :".
+          05 FILLER PIC X(120) VALUE "エージェント &1 は回答できませんでした：".
+          05 FILLER PIC X(120) VALUE "代理 &1 无法回答：".
+      *>   LAST-FAILED
+          05 FILLER PIC X(120) VALUE "The last question failed.".
+          05 FILLER PIC X(120) VALUE "A última pergunta falhou.".
+          05 FILLER PIC X(120) VALUE "La última pregunta falló.".
+          05 FILLER PIC X(120) VALUE "La dernière question a échoué.".
+          05 FILLER PIC X(120) VALUE "直前の質問は失敗しました。".
+          05 FILLER PIC X(120) VALUE "上一个问题失败了。".
+      *>   NO-MODEL
+          05 FILLER PIC X(120) VALUE "No model is assigned to an agent - open RAG settings.".
+          05 FILLER PIC X(120) VALUE "Nenhum modelo foi atribuído a um agente - abra as Configurações de RAG.".
+          05 FILLER PIC X(120) VALUE "No hay ningún modelo asignado a un agente: abre la Configuración de RAG.".
+          05 FILLER PIC X(120) VALUE "Aucun modèle n'est attribué à un agent : ouvrez les Paramètres RAG.".
+          05 FILLER PIC X(120) VALUE "どのエージェントにもモデルが割り当てられていません。RAG 設定を開いてください。".
+          05 FILLER PIC X(120) VALUE "没有为任何代理分配模型——请打开 RAG 设置。".
+      *>   NO-TOPIC
+          05 FILLER PIC X(120) VALUE "No topic - open Topics to create one.".
+          05 FILLER PIC X(120) VALUE "Nenhum tópico - abra Tópicos para criar um.".
+          05 FILLER PIC X(120) VALUE "Ningún tema: abre Temas para crear uno.".
+          05 FILLER PIC X(120) VALUE "Aucun sujet : ouvrez Sujets pour en créer un.".
+          05 FILLER PIC X(120) VALUE "トピックがありません。「トピック」を開いて作成してください。".
+          05 FILLER PIC X(120) VALUE "没有主题——打开“主题”创建一个。".
+      *>   TOPIC-GONE
+          05 FILLER PIC X(120) VALUE "That topic no longer exists - open Topics.".
+          05 FILLER PIC X(120) VALUE "Esse tópico não existe mais - abra Tópicos.".
+          05 FILLER PIC X(120) VALUE "Ese tema ya no existe: abre Temas.".
+          05 FILLER PIC X(120) VALUE "Ce sujet n'existe plus : ouvrez Sujets.".
+          05 FILLER PIC X(120) VALUE "そのトピックはもう存在しません。「トピック」を開いてください。".
+          05 FILLER PIC X(120) VALUE "该主题已不存在——请打开“主题”。".
+      *>   WORKING
+          05 FILLER PIC X(120) VALUE "Working: &1 task(s) across &2 agent(s)...".
+          05 FILLER PIC X(120) VALUE "Trabalhando: &1 tarefa(s) em &2 agente(s)...".
+          05 FILLER PIC X(120) VALUE "Trabajando: &1 tarea(s) entre &2 agente(s)...".
+          05 FILLER PIC X(120) VALUE "En cours : &1 tâche(s) sur &2 agent(s)...".
+          05 FILLER PIC X(120) VALUE "処理中：&1 件のタスクを &2 体のエージェントで実行中...".
+          05 FILLER PIC X(120) VALUE "处理中：&1 个任务，由 &2 个代理执行...".
+      *>   MENU-CHAT
+          05 FILLER PIC X(120) VALUE "Chat".
+          05 FILLER PIC X(120) VALUE "Chat".
+          05 FILLER PIC X(120) VALUE "Chat".
+          05 FILLER PIC X(120) VALUE "Discussion".
+          05 FILLER PIC X(120) VALUE "チャット".
+          05 FILLER PIC X(120) VALUE "聊天".
+      *>   MENU-NEWC
+          05 FILLER PIC X(120) VALUE "New conversation".
+          05 FILLER PIC X(120) VALUE "Nova conversa".
+          05 FILLER PIC X(120) VALUE "Nueva conversación".
+          05 FILLER PIC X(120) VALUE "Nouvelle conversation".
+          05 FILLER PIC X(120) VALUE "新しい会話".
+          05 FILLER PIC X(120) VALUE "新对话".
+      *>   TOPICS-TITLE
+          05 FILLER PIC X(120) VALUE "Topics".
+          05 FILLER PIC X(120) VALUE "Tópicos".
+          05 FILLER PIC X(120) VALUE "Temas".
+          05 FILLER PIC X(120) VALUE "Sujets".
+          05 FILLER PIC X(120) VALUE "トピック".
+          05 FILLER PIC X(120) VALUE "主题".
+      *>   DOCS-TITLE
+          05 FILLER PIC X(120) VALUE "Documents".
+          05 FILLER PIC X(120) VALUE "Documentos".
+          05 FILLER PIC X(120) VALUE "Documentos".
+          05 FILLER PIC X(120) VALUE "Documents".
+          05 FILLER PIC X(120) VALUE "文書".
+          05 FILLER PIC X(120) VALUE "文档".
+      *>   FILES-TITLE
+          05 FILLER PIC X(120) VALUE "Data files".
+          05 FILLER PIC X(120) VALUE "Arquivos de dados".
+          05 FILLER PIC X(120) VALUE "Archivos de datos".
+          05 FILLER PIC X(120) VALUE "Fichiers de données".
+          05 FILLER PIC X(120) VALUE "データファイル".
+          05 FILLER PIC X(120) VALUE "数据文件".
+      *>   PROMPT-TITLE
+          05 FILLER PIC X(120) VALUE "Prompt".
+          05 FILLER PIC X(120) VALUE "Prompt".
+          05 FILLER PIC X(120) VALUE "Prompt".
+          05 FILLER PIC X(120) VALUE "Prompt".
+          05 FILLER PIC X(120) VALUE "プロンプト".
+          05 FILLER PIC X(120) VALUE "提示词".
+      *>   SETTINGS-TITLE
+          05 FILLER PIC X(120) VALUE "RAG settings".
+          05 FILLER PIC X(120) VALUE "Configurações de RAG".
+          05 FILLER PIC X(120) VALUE "Configuración de RAG".
+          05 FILLER PIC X(120) VALUE "Paramètres RAG".
+          05 FILLER PIC X(120) VALUE "RAG 設定".
+          05 FILLER PIC X(120) VALUE "RAG 设置".
+      *>   CONVERSATIONS
+          05 FILLER PIC X(120) VALUE "Conversations".
+          05 FILLER PIC X(120) VALUE "Conversas".
+          05 FILLER PIC X(120) VALUE "Conversaciones".
+          05 FILLER PIC X(120) VALUE "Conversations".
+          05 FILLER PIC X(120) VALUE "会話".
+          05 FILLER PIC X(120) VALUE "对话".
+      *>   THIS-MONTH
+          05 FILLER PIC X(120) VALUE "This month: &1 conversation(s), &2 input and &3 output tokens.".
+          05 FILLER PIC X(120) VALUE "Este mês: &1 conversa(s), &2 tokens de entrada e &3 de saída.".
+          05 FILLER PIC X(120) VALUE "Este mes: &1 conversación(es), &2 tokens de entrada y &3 de salida.".
+          05 FILLER PIC X(120) VALUE "Ce mois-ci : &1 conversation(s), &2 jetons en entrée et &3 en sortie.".
+          05 FILLER PIC X(120) VALUE "今月：会話 &1 件、入力トークン &2、出力トークン &3。".
+          05 FILLER PIC X(120) VALUE "本月：&1 次对话，输入 &2 个令牌，输出 &3 个令牌。".
+      *>   FILES-UNUSABLE
+          05 FILLER PIC X(120) VALUE "Data files not usable: &1.".
+          05 FILLER PIC X(120) VALUE "Arquivos de dados inutilizáveis: &1.".
+          05 FILLER PIC X(120) VALUE "Archivos de datos no utilizables: &1.".
+          05 FILLER PIC X(120) VALUE "Fichiers de données inutilisables : &1.".
+          05 FILLER PIC X(120) VALUE "使用できないデータファイル：&1。".
+          05 FILLER PIC X(120) VALUE "无法使用的数据文件：&1。".
+      *>   ORCH-LINE
+          05 FILLER PIC X(120) VALUE "Orchestrator: agent &1, tools: agent &2.".
+          05 FILLER PIC X(120) VALUE "Orquestrador: agente &1, ferramentas: agente &2.".
+          05 FILLER PIC X(120) VALUE "Orquestador: agente &1, herramientas: agente &2.".
+          05 FILLER PIC X(120) VALUE "Orchestrateur : agent &1, outils : agent &2.".
+          05 FILLER PIC X(120) VALUE "オーケストレーター：エージェント &1、ツール：エージェント &2。".
+          05 FILLER PIC X(120) VALUE "编排：代理 &1，工具：代理 &2。".
+      *>   HINT-ASK
+          05 FILLER PIC X(120) VALUE "Ask about this topic".
+          05 FILLER PIC X(120) VALUE "Pergunte sobre este tópico".
+          05 FILLER PIC X(120) VALUE "Pregunta sobre este tema".
+          05 FILLER PIC X(120) VALUE "Posez une question sur ce sujet".
+          05 FILLER PIC X(120) VALUE "このトピックについて質問".
+          05 FILLER PIC X(120) VALUE "就此主题提问".
+      *>   SEND
+          05 FILLER PIC X(120) VALUE "Send".
+          05 FILLER PIC X(120) VALUE "Enviar".
+          05 FILLER PIC X(120) VALUE "Enviar".
+          05 FILLER PIC X(120) VALUE "Envoyer".
+          05 FILLER PIC X(120) VALUE "送信".
+          05 FILLER PIC X(120) VALUE "发送".
+       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
+          05 PC-TEXT-ROW     OCCURS 23.
+             10 PC-TEXT      PIC X(120) OCCURS 6.
+      *>   The texts in the current language, by name.
+       01 PC-TEXTS-NOW       GLOBAL.
+          05 T-OPEN-TOPIC-MENU PIC X(120).
+          05 T-ASSIGN-MODEL-MENU PIC X(120).
+          05 T-YOU PIC X(120).
+          05 T-THINKING PIC X(120).
+          05 T-AGENT-FAILED PIC X(120).
+          05 T-LAST-FAILED PIC X(120).
+          05 T-NO-MODEL PIC X(120).
+          05 T-NO-TOPIC PIC X(120).
+          05 T-TOPIC-GONE PIC X(120).
+          05 T-WORKING PIC X(120).
+          05 T-MENU-CHAT PIC X(120).
+          05 T-MENU-NEWC PIC X(120).
+          05 T-TOPICS-TITLE PIC X(120).
+          05 T-DOCS-TITLE PIC X(120).
+          05 T-FILES-TITLE PIC X(120).
+          05 T-PROMPT-TITLE PIC X(120).
+          05 T-SETTINGS-TITLE PIC X(120).
+          05 T-CONVERSATIONS PIC X(120).
+          05 T-THIS-MONTH PIC X(120).
+          05 T-FILES-UNUSABLE PIC X(120).
+          05 T-ORCH-LINE PIC X(120).
+          05 T-HINT-ASK PIC X(120).
+          05 T-SEND PIC X(120).
+       01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
+          05 PC-TEXT-NOW     PIC X(120) OCCURS 23.
+      *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
+       01 WS-FMT             GLOBAL PIC X(120).
+       01 WS-ARG1            GLOBAL PIC X(300).
+       01 WS-ARG2            GLOBAL PIC X(300).
+       01 WS-ARG3            GLOBAL PIC X(300).
+       01 WS-ARG4            GLOBAL PIC X(300).
+       01 WS-FMT-OUT         GLOBAL PIC X(1200).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -395,8 +600,7 @@
            END-PERFORM
            EVALUATE TRUE
                WHEN WS-N-AGENTS = 0
-                   MOVE "No model is assigned to an agent - open RAG settings."
-                       TO Lbl-Status::Caption
+                   MOVE FUNCTION TRIM(T-NO-MODEL) TO Lbl-Status::Caption
                WHEN WS-N-AGENTS = 1
       *>           One agent answers by itself (R52).
                    IF WS-AG-TOOLS(WS-ORCH) = "Y"
@@ -567,7 +771,7 @@
            CALL "PC-SETTING-GET"
            MOVE WS-SET-VALUE(1:16) TO WS-CUR-TOPIC
            IF WS-CUR-TOPIC = SPACES
-               MOVE "No topic - open Topics to create one." TO Lbl-Topic::Caption
+               MOVE FUNCTION TRIM(T-NO-TOPIC) TO Lbl-Topic::Caption
                EXIT PROGRAM
            END-IF
            OPEN I-O TOPICS-FILE
@@ -580,7 +784,7 @@
            READ TOPICS-FILE
                INVALID KEY
                    MOVE SPACES TO WS-CUR-TOPIC
-                   MOVE "That topic no longer exists - open Topics." TO Lbl-Topic::Caption
+                   MOVE FUNCTION TRIM(T-TOPIC-GONE) TO Lbl-Topic::Caption
            END-READ
            CLOSE TOPICS-FILE
            IF WS-CUR-TOPIC = SPACES
@@ -708,10 +912,11 @@
                    CALL "PC-ASK"
                END-IF
            END-PERFORM
-           MOVE SPACES TO WS-LINE
-           STRING "Working: " WS-TASK-COUNT " task(s) across " WS-PENDING " agent(s)..."
-               DELIMITED BY SIZE INTO WS-LINE
-           MOVE WS-LINE TO Lbl-Status::Caption
+           MOVE T-WORKING TO WS-FMT
+           MOVE WS-TASK-COUNT TO WS-ARG1
+           MOVE WS-PENDING TO WS-ARG2
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
 ]]></Event>
     <Event name="PC-COMPOSE" paragraph="PC-COMPOSE"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -807,8 +1012,17 @@
            END-PERFORM
            CLOSE CONVS-FILE
            MOVE SideMenu-1::Clear() TO WS-OK
+      *>   The menu's own rows are added here, not designed, so that their
+      *>   labels follow the language (a designed row's label is fixed).
+           MOVE SideMenu-1::AddItem("chat", FUNCTION TRIM(T-MENU-CHAT), "chat") TO WS-OK
+           MOVE SideMenu-1::AddItem("newc", FUNCTION TRIM(T-MENU-NEWC), "plus") TO WS-OK
+           MOVE SideMenu-1::AddItem("tpcs", FUNCTION TRIM(T-TOPICS-TITLE), "folder") TO WS-OK
+           MOVE SideMenu-1::AddItem("docs", FUNCTION TRIM(T-DOCS-TITLE), "doc-text") TO WS-OK
+           MOVE SideMenu-1::AddItem("fils", FUNCTION TRIM(T-FILES-TITLE), "database") TO WS-OK
+           MOVE SideMenu-1::AddItem("prmt", FUNCTION TRIM(T-PROMPT-TITLE), "chat-dots") TO WS-OK
+           MOVE SideMenu-1::AddItem("sett", FUNCTION TRIM(T-SETTINGS-TITLE), "gear") TO WS-OK
            IF WS-CONV-COUNT > 0
-               MOVE SideMenu-1::AddSection("Conversations") TO WS-ITEM
+               MOVE SideMenu-1::AddSection(FUNCTION TRIM(T-CONVERSATIONS)) TO WS-ITEM
       *>       Row ids are "c" + the conversation id, apart from the menu's own.
                PERFORM VARYING WS-I FROM WS-CONV-COUNT BY -1 UNTIL WS-I < 1
                    MOVE SPACES TO WS-ROW-ID
@@ -851,19 +1065,29 @@
            MOVE WS-SUM-IN TO WS-E1
            MOVE WS-SUM-OUT TO WS-E2
            MOVE WS-SUM-CONVS TO WS-E3
-           MOVE SPACES TO WS-LINE
-           STRING "This month: " FUNCTION TRIM(WS-E3) " conversation(s), "
-                  FUNCTION TRIM(WS-E1) " input and " FUNCTION TRIM(WS-E2)
-                  " output tokens."
-               DELIMITED BY SIZE INTO WS-LINE
+           MOVE T-THIS-MONTH TO WS-FMT
+           MOVE WS-E3 TO WS-ARG1
+           MOVE WS-E1 TO WS-ARG2
+           MOVE WS-E2 TO WS-ARG3
+           CALL "PC-FMT"
+           MOVE WS-FMT-OUT TO WS-LINE
            IF WS-FAILED > 0
-               STRING FUNCTION TRIM(WS-LINE) " Data files not usable: "
-                      FUNCTION TRIM(WS-FILE-NOTE) "."
+               MOVE T-FILES-UNUSABLE TO WS-FMT
+               MOVE WS-FILE-NOTE TO WS-ARG1
+               CALL "PC-FMT"
+               MOVE WS-LINE TO WS-ARG4
+               MOVE SPACES TO WS-LINE
+               STRING FUNCTION TRIM(WS-ARG4) " " FUNCTION TRIM(WS-FMT-OUT)
                    DELIMITED BY SIZE INTO WS-LINE
            END-IF
            IF WS-N-AGENTS > 1
-               STRING FUNCTION TRIM(WS-LINE) " Orchestrator: agent " WS-ORCH
-                      ", tools: agent " WS-WORKER "."
+               MOVE T-ORCH-LINE TO WS-FMT
+               MOVE WS-ORCH TO WS-ARG1
+               MOVE WS-WORKER TO WS-ARG2
+               CALL "PC-FMT"
+               MOVE WS-LINE TO WS-ARG4
+               MOVE SPACES TO WS-LINE
+               STRING FUNCTION TRIM(WS-ARG4) " " FUNCTION TRIM(WS-FMT-OUT)
                    DELIMITED BY SIZE INTO WS-LINE
            END-IF
            MOVE WS-LINE TO Lbl-Status::Caption
@@ -995,7 +1219,7 @@
                            MOVE TRN-SEQ TO WS-SEQ
                            MOVE SPACES TO WS-MSG
                            IF TRN-ROLE = "U"
-                               STRING "**You:** " FUNCTION TRIM(TRN-TEXT)
+                               STRING "**" FUNCTION TRIM(T-YOU) ":** " FUNCTION TRIM(TRN-TEXT)
                                    DELIMITED BY SIZE INTO WS-MSG
                            ELSE
                                MOVE TRN-TEXT TO WS-MSG
@@ -1014,12 +1238,94 @@
            CALL "PC-NEW-CONV"
            CALL "PC-LIST-CONVS"
 ]]></Event>
+    <Event name="PC-RELABEL" paragraph="PC-RELABEL"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Every text on this form in the language just picked: the designed
+      *>   ones, the menu, the status line, the topic heading when it is a
+      *>   message, and the open conversation's labels.
+           CALL "PC-TEXTS"
+           CALL "PC-LIST-CONVS"
+           IF WS-CUR-TOPIC = SPACES
+               CALL "PC-LOAD-TOPIC"
+           END-IF
+           IF WS-CUR-CONV NOT = SPACES
+               MOVE SPACES TO WS-ITEM
+               STRING "c" WS-CUR-CONV DELIMITED BY SIZE INTO WS-ITEM
+               CALL "PC-OPEN-CONV"
+           END-IF
+           CALL "PC-STATUS"
+]]></Event>
+    <Event name="PC-TEXTS" paragraph="PC-TEXTS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The language the user picked (LANG), the texts in it, and every
+      *>   designed caption and hint that shows one. Called on load and again
+      *>   whenever the language changes (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           MOVE WS-SET-VALUE(1:2) TO WS-LANG
+           EVALUATE WS-LANG
+               WHEN "en" MOVE 1 TO WS-LANG-IX
+               WHEN "pt" MOVE 2 TO WS-LANG-IX
+               WHEN "es" MOVE 3 TO WS-LANG-IX
+               WHEN "fr" MOVE 4 TO WS-LANG-IX
+               WHEN "jp" MOVE 5 TO WS-LANG-IX
+               WHEN "cn" MOVE 6 TO WS-LANG-IX
+               WHEN OTHER MOVE "en" TO WS-LANG
+                          MOVE 1 TO WS-LANG-IX
+           END-EVALUATE
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 23
+               MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
+           END-PERFORM
+           MOVE FUNCTION TRIM(T-HINT-ASK) TO Txt-Input::HintText
+           MOVE FUNCTION TRIM(T-SEND) TO Btn-Send::Caption
+]]></Event>
+    <Event name="PC-FMT" paragraph="PC-FMT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-PT              PIC 9(4).
+       01 WS-FROM            PIC 9(4).
+       01 WS-CNT             PIC 9(4).
+       01 WS-PART            PIC X(120).
+       01 WS-DELIM           PIC XX.
+       PROCEDURE DIVISION.
+      *>   A message whose words go round numbers and names differently in each
+      *>   language: WS-FMT holds "&1" .. "&4" where WS-ARG1..4 go.
+           MOVE SPACES TO WS-FMT-OUT
+           MOVE 1 TO WS-PT
+           MOVE 1 TO WS-FROM
+           PERFORM UNTIL WS-FROM > FUNCTION LENGTH(WS-FMT)
+               MOVE SPACES TO WS-PART WS-DELIM
+               MOVE 0 TO WS-CNT
+               UNSTRING WS-FMT DELIMITED BY "&1" OR "&2" OR "&3" OR "&4"
+                   INTO WS-PART DELIMITER IN WS-DELIM COUNT IN WS-CNT
+                   WITH POINTER WS-FROM
+               END-UNSTRING
+               IF WS-CNT > 0
+                   STRING WS-PART(1:WS-CNT) DELIMITED BY SIZE
+                       INTO WS-FMT-OUT WITH POINTER WS-PT
+               END-IF
+               EVALUATE WS-DELIM
+                   WHEN "&1" STRING FUNCTION TRIM(WS-ARG1) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&2" STRING FUNCTION TRIM(WS-ARG2) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&3" STRING FUNCTION TRIM(WS-ARG3) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&4" STRING FUNCTION TRIM(WS-ARG4) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN OTHER COMPUTE WS-FROM = FUNCTION LENGTH(WS-FMT) + 1
+               END-EVALUATE
+           END-PERFORM
+]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="CHAT-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
            CALL "PC-PATHS"
+           CALL "PC-TEXTS"
            CALL "PC-READ-ROLES"
            CALL "PC-HAND-MODELS"
            MOVE SPACES TO WS-ALLOWED-TOPIC
@@ -1360,11 +1666,11 @@
                EXIT PROGRAM
            END-IF
            IF WS-CUR-TOPIC = SPACES
-               MOVE Vwr-Chat::AppendMarkdown("Open a topic first - **Topics** in the menu.") TO WS-OK
+               MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(T-OPEN-TOPIC-MENU)) TO WS-OK
                EXIT PROGRAM
            END-IF
            IF WS-ORCH = 0
-               MOVE Vwr-Chat::AppendMarkdown("Assign a model to an agent first - **RAG settings** in the menu.") TO WS-OK
+               MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(T-ASSIGN-MODEL-MENU)) TO WS-OK
                EXIT PROGRAM
            END-IF
            IF WS-STAGE NOT = "IDLE"
@@ -1375,7 +1681,8 @@
            MOVE WS-QUESTION TO WS-TEXT
            CALL "PC-SAVE-TURN"
            MOVE SPACES TO WS-MSG
-           STRING "**You:** " FUNCTION TRIM(WS-QUESTION) DELIMITED BY SIZE INTO WS-MSG
+           STRING "**" FUNCTION TRIM(T-YOU) ":** " FUNCTION TRIM(WS-QUESTION)
+               DELIMITED BY SIZE INTO WS-MSG
            MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG)) TO WS-OK
            MOVE SPACES TO Txt-Input::Text
            CALL "PC-BUILD-PROMPT"
@@ -1395,7 +1702,7 @@
            END-IF
            MOVE WS-ORCH TO WS-FROM
            CALL "PC-ASK"
-           MOVE "Thinking..." TO Lbl-Status::Caption
+           MOVE FUNCTION TRIM(T-THINKING) TO Lbl-Status::Caption
 ]]></Event>
   </Control>
   <Control id="AGENT-1" type="AgentObject" x="1000" y="16" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -1459,11 +1766,14 @@
        PROCEDURE DIVISION.
            MOVE "IDLE" TO WS-STAGE
            MOVE AGENT-1::LastError TO WS-TEXT
+           MOVE T-AGENT-FAILED TO WS-FMT
+           MOVE "1" TO WS-ARG1
+           CALL "PC-FMT"
            MOVE SPACES TO WS-MSG
-           STRING "**Agent 1 could not answer:** " FUNCTION TRIM(WS-TEXT)
+           STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
                DELIMITED BY SIZE INTO WS-MSG
            MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG)) TO WS-OK
-           MOVE "The last question failed." TO Lbl-Status::Caption
+           MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
 ]]></Event>
     <Event name="onModelChanged" paragraph="AGENT-1--ONMODELCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -1535,11 +1845,14 @@
        PROCEDURE DIVISION.
            MOVE "IDLE" TO WS-STAGE
            MOVE AGENT-2::LastError TO WS-TEXT
+           MOVE T-AGENT-FAILED TO WS-FMT
+           MOVE "2" TO WS-ARG1
+           CALL "PC-FMT"
            MOVE SPACES TO WS-MSG
-           STRING "**Agent 2 could not answer:** " FUNCTION TRIM(WS-TEXT)
+           STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
                DELIMITED BY SIZE INTO WS-MSG
            MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG)) TO WS-OK
-           MOVE "The last question failed." TO Lbl-Status::Caption
+           MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
 ]]></Event>
     <Event name="onModelChanged" paragraph="AGENT-2--ONMODELCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -1611,11 +1924,14 @@
        PROCEDURE DIVISION.
            MOVE "IDLE" TO WS-STAGE
            MOVE AGENT-3::LastError TO WS-TEXT
+           MOVE T-AGENT-FAILED TO WS-FMT
+           MOVE "3" TO WS-ARG1
+           CALL "PC-FMT"
            MOVE SPACES TO WS-MSG
-           STRING "**Agent 3 could not answer:** " FUNCTION TRIM(WS-TEXT)
+           STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
                DELIMITED BY SIZE INTO WS-MSG
            MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG)) TO WS-OK
-           MOVE "The last question failed." TO Lbl-Status::Caption
+           MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
 ]]></Event>
     <Event name="onModelChanged" paragraph="AGENT-3--ONMODELCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -1670,5 +1986,327 @@
     <Property name="ArchiveMaximumMegabytes">500</Property>
     <Property name="ArchiveMaximumFiles">10000</Property>
     <Property name="ArchiveMaximumDepth">3</Property>
+  </Control>
+  <Control id="SideMenu-1-Footer" type="Panel" x="0" y="688" w="264" h="72" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1">
+    <Property name="IsSideMenuFooter">true</Property>
+    <Property name="HideBackground">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="HScroll">false</Property>
+    <Property name="VScroll">false</Property>
+    <Property name="mcp_tool"></Property>
+  </Control>
+  <Control id="Flag-en" type="PictureBox" x="18" y="713" w="32" h="22" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
+    <Property name="ImagePath">assets/flags/en.png</Property>
+    <Property name="SizeMode">Stretch</Property>
+    <Property name="ShowFrame">false</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="ImageAlignment">MiddleCenter</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Event name="onClick" paragraph="FLAG-EN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A flag in the menu's footer: the language changes at once (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           MOVE "en" TO WS-SET-VALUE
+           CALL "PC-SETTING-PUT"
+           CALL "PC-RELABEL"
+]]></Event>
+  </Control>
+  <Control id="Flag-pt" type="PictureBox" x="58" y="713" w="32" h="22" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
+    <Property name="ImagePath">assets/flags/pt.png</Property>
+    <Property name="SizeMode">Stretch</Property>
+    <Property name="ShowFrame">false</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="ImageAlignment">MiddleCenter</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Event name="onClick" paragraph="FLAG-PT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A flag in the menu's footer: the language changes at once (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           MOVE "pt" TO WS-SET-VALUE
+           CALL "PC-SETTING-PUT"
+           CALL "PC-RELABEL"
+]]></Event>
+  </Control>
+  <Control id="Flag-es" type="PictureBox" x="98" y="713" w="32" h="22" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
+    <Property name="ImagePath">assets/flags/es.png</Property>
+    <Property name="SizeMode">Stretch</Property>
+    <Property name="ShowFrame">false</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="ImageAlignment">MiddleCenter</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Event name="onClick" paragraph="FLAG-ES--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A flag in the menu's footer: the language changes at once (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           MOVE "es" TO WS-SET-VALUE
+           CALL "PC-SETTING-PUT"
+           CALL "PC-RELABEL"
+]]></Event>
+  </Control>
+  <Control id="Flag-fr" type="PictureBox" x="138" y="713" w="32" h="22" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
+    <Property name="ImagePath">assets/flags/fr.png</Property>
+    <Property name="SizeMode">Stretch</Property>
+    <Property name="ShowFrame">false</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="ImageAlignment">MiddleCenter</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Event name="onClick" paragraph="FLAG-FR--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A flag in the menu's footer: the language changes at once (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           MOVE "fr" TO WS-SET-VALUE
+           CALL "PC-SETTING-PUT"
+           CALL "PC-RELABEL"
+]]></Event>
+  </Control>
+  <Control id="Flag-jp" type="PictureBox" x="178" y="713" w="32" h="22" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
+    <Property name="ImagePath">assets/flags/jp.png</Property>
+    <Property name="SizeMode">Stretch</Property>
+    <Property name="ShowFrame">false</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="ImageAlignment">MiddleCenter</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Event name="onClick" paragraph="FLAG-JP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A flag in the menu's footer: the language changes at once (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           MOVE "jp" TO WS-SET-VALUE
+           CALL "PC-SETTING-PUT"
+           CALL "PC-RELABEL"
+]]></Event>
+  </Control>
+  <Control id="Flag-cn" type="PictureBox" x="218" y="713" w="32" h="22" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
+    <Property name="ImagePath">assets/flags/cn.png</Property>
+    <Property name="SizeMode">Stretch</Property>
+    <Property name="ShowFrame">false</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="ImageAlignment">MiddleCenter</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Event name="onClick" paragraph="FLAG-CN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A flag in the menu's footer: the language changes at once (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           MOVE "cn" TO WS-SET-VALUE
+           CALL "PC-SETTING-PUT"
+           CALL "PC-RELABEL"
+]]></Event>
   </Control>
 </Form>

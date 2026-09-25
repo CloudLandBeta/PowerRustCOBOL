@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="TOPICS-FORM" title="PowerChat - Topics" width="600" height="644" background="F2F4F5FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
+<Form name="TOPICS-FORM" title="PowerChat" width="600" height="644" background="F2F4F5FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
   <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -50,6 +50,195 @@
           05 WS-SEQ-OF       PIC 9(4) OCCURS 200.
        01 WS-SEQ-COUNT       GLOBAL PIC 9(4).
        01 WS-K               GLOBAL PIC 9(4).
+      *>   The interface texts (spec 071 R44): one row per text, one column
+      *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
+      *>   only the values are translated.
+       01 WS-LANG            GLOBAL PIC XX VALUE "en".
+       01 WS-LANG-IX         GLOBAL PIC 9 VALUE 1.
+       01 WS-TX-I            GLOBAL PIC 9(4).
+       01 PC-TEXT-DATA       GLOBAL.
+      *>   NO-TOPICS
+          05 FILLER PIC X(110) VALUE "No topics yet - give the first one a name and create it.".
+          05 FILLER PIC X(110) VALUE "Ainda não há tópicos - dê um nome ao primeiro e crie-o.".
+          05 FILLER PIC X(110) VALUE "Aún no hay temas: ponle nombre al primero y créalo.".
+          05 FILLER PIC X(110) VALUE "Aucun sujet pour l'instant : donnez un nom au premier et créez-le.".
+          05 FILLER PIC X(110) VALUE "トピックはまだありません。最初のトピックに名前を付けて作成してください。".
+          05 FILLER PIC X(110) VALUE "还没有主题——给第一个主题起个名字并创建它。".
+      *>   PICK-OR-CREATE
+          05 FILLER PIC X(110) VALUE "Pick a topic and press Open, or create a new one.".
+          05 FILLER PIC X(110) VALUE "Escolha um tópico e clique em Abrir, ou crie um novo.".
+          05 FILLER PIC X(110) VALUE "Elige un tema y pulsa Abrir, o crea uno nuevo.".
+          05 FILLER PIC X(110) VALUE "Choisissez un sujet et cliquez sur Ouvrir, ou créez-en un nouveau.".
+          05 FILLER PIC X(110) VALUE "トピックを選んで「開く」を押すか、新しいトピックを作成してください。".
+          05 FILLER PIC X(110) VALUE "选择一个主题并点击“打开”，或创建一个新主题。".
+      *>   PICK-TOPIC-FIRST
+          05 FILLER PIC X(110) VALUE "Pick a topic in the list first.".
+          05 FILLER PIC X(110) VALUE "Escolha um tópico na lista primeiro.".
+          05 FILLER PIC X(110) VALUE "Primero elige un tema de la lista.".
+          05 FILLER PIC X(110) VALUE "Choisissez d'abord un sujet dans la liste.".
+          05 FILLER PIC X(110) VALUE "先に一覧からトピックを選んでください。".
+          05 FILLER PIC X(110) VALUE "请先在列表中选择一个主题。".
+      *>   TOPIC-OPENED
+          05 FILLER PIC X(110) VALUE "Topic opened.".
+          05 FILLER PIC X(110) VALUE "Tópico aberto.".
+          05 FILLER PIC X(110) VALUE "Tema abierto.".
+          05 FILLER PIC X(110) VALUE "Sujet ouvert.".
+          05 FILLER PIC X(110) VALUE "トピックを開きました。".
+          05 FILLER PIC X(110) VALUE "主题已打开。".
+      *>   NAME-FIRST
+          05 FILLER PIC X(110) VALUE "Give the topic a name first.".
+          05 FILLER PIC X(110) VALUE "Dê um nome ao tópico primeiro.".
+          05 FILLER PIC X(110) VALUE "Primero ponle un nombre al tema.".
+          05 FILLER PIC X(110) VALUE "Donnez d'abord un nom au sujet.".
+          05 FILLER PIC X(110) VALUE "先にトピックの名前を入力してください。".
+          05 FILLER PIC X(110) VALUE "请先为主题命名。".
+      *>   SAME-INSTANT
+          05 FILLER PIC X(110) VALUE "A topic was created this same instant - try again.".
+          05 FILLER PIC X(110) VALUE "Um tópico foi criado neste mesmo instante - tente de novo.".
+          05 FILLER PIC X(110) VALUE "Se creó un tema en este mismo instante: inténtalo de nuevo.".
+          05 FILLER PIC X(110) VALUE "Un sujet vient d'être créé au même instant : réessayez.".
+          05 FILLER PIC X(110) VALUE "ちょうど同じ瞬間に別のトピックが作成されました。もう一度お試しください。".
+          05 FILLER PIC X(110) VALUE "同一时刻已创建了一个主题——请重试。".
+      *>   TOPIC-CREATED
+          05 FILLER PIC X(110) VALUE "Topic created.".
+          05 FILLER PIC X(110) VALUE "Tópico criado.".
+          05 FILLER PIC X(110) VALUE "Tema creado.".
+          05 FILLER PIC X(110) VALUE "Sujet créé.".
+          05 FILLER PIC X(110) VALUE "トピックを作成しました。".
+          05 FILLER PIC X(110) VALUE "主题已创建。".
+      *>   SAMPLES-ALREADY
+          05 FILLER PIC X(110) VALUE "The sample topics are already installed.".
+          05 FILLER PIC X(110) VALUE "Os tópicos de exemplo já estão instalados.".
+          05 FILLER PIC X(110) VALUE "Los temas de ejemplo ya están instalados.".
+          05 FILLER PIC X(110) VALUE "Les sujets d'exemple sont déjà installés.".
+          05 FILLER PIC X(110) VALUE "サンプルトピックはすでにインストールされています。".
+          05 FILLER PIC X(110) VALUE "示例主题已经安装。".
+      *>   SAMPLES-NONE
+          05 FILLER PIC X(110) VALUE "No sample topics found (&1).".
+          05 FILLER PIC X(110) VALUE "Nenhum tópico de exemplo encontrado (&1).".
+          05 FILLER PIC X(110) VALUE "No se encontraron temas de ejemplo (&1).".
+          05 FILLER PIC X(110) VALUE "Aucun sujet d'exemple trouvé (&1).".
+          05 FILLER PIC X(110) VALUE "サンプルトピックが見つかりません（&1）。".
+          05 FILLER PIC X(110) VALUE "未找到示例主题（&1）。".
+      *>   SAMPLES-REMOVED
+          05 FILLER PIC X(110) VALUE "Removed &1 sample topic(s).".
+          05 FILLER PIC X(110) VALUE "&1 tópico(s) de exemplo removido(s).".
+          05 FILLER PIC X(110) VALUE "Se quitaron &1 tema(s) de ejemplo.".
+          05 FILLER PIC X(110) VALUE "&1 sujet(s) d'exemple retiré(s).".
+          05 FILLER PIC X(110) VALUE "サンプルトピックを &1 件削除しました。".
+          05 FILLER PIC X(110) VALUE "已移除 &1 个示例主题。".
+      *>   SAMPLES-INSTALLED
+          05 FILLER PIC X(110) VALUE "Sample topics installed: &1 topics, &2 documents.".
+          05 FILLER PIC X(110) VALUE "Tópicos de exemplo instalados: &1 tópicos, &2 documentos.".
+          05 FILLER PIC X(110) VALUE "Temas de ejemplo instalados: &1 temas, &2 documentos.".
+          05 FILLER PIC X(110) VALUE "Sujets d'exemple installés : &1 sujets, &2 documents.".
+          05 FILLER PIC X(110) VALUE "サンプルトピックをインストールしました：トピック &1 件、文書 &2 件。".
+          05 FILLER PIC X(110) VALUE "示例主题已安装：&1 个主题，&2 个文档。".
+      *>   SAMPLES-PROGRESS
+          05 FILLER PIC X(110) VALUE "Installing the sample topics: document &1 of &2...".
+          05 FILLER PIC X(110) VALUE "Instalando os tópicos de exemplo: documento &1 de &2...".
+          05 FILLER PIC X(110) VALUE "Instalando los temas de ejemplo: documento &1 de &2...".
+          05 FILLER PIC X(110) VALUE "Installation des sujets d'exemple : document &1 sur &2...".
+          05 FILLER PIC X(110) VALUE "サンプルトピックをインストール中：文書 &1 / &2...".
+          05 FILLER PIC X(110) VALUE "正在安装示例主题：第 &1 个文档，共 &2 个...".
+      *>   TOPICS-TITLE
+          05 FILLER PIC X(110) VALUE "Topics".
+          05 FILLER PIC X(110) VALUE "Tópicos".
+          05 FILLER PIC X(110) VALUE "Temas".
+          05 FILLER PIC X(110) VALUE "Sujets".
+          05 FILLER PIC X(110) VALUE "トピック".
+          05 FILLER PIC X(110) VALUE "主题".
+      *>   OPEN-TOPIC
+          05 FILLER PIC X(110) VALUE "Open topic".
+          05 FILLER PIC X(110) VALUE "Abrir tópico".
+          05 FILLER PIC X(110) VALUE "Abrir tema".
+          05 FILLER PIC X(110) VALUE "Ouvrir le sujet".
+          05 FILLER PIC X(110) VALUE "トピックを開く".
+          05 FILLER PIC X(110) VALUE "打开主题".
+      *>   NEW-TOPIC
+          05 FILLER PIC X(110) VALUE "New topic".
+          05 FILLER PIC X(110) VALUE "Novo tópico".
+          05 FILLER PIC X(110) VALUE "Nuevo tema".
+          05 FILLER PIC X(110) VALUE "Nouveau sujet".
+          05 FILLER PIC X(110) VALUE "新しいトピック".
+          05 FILLER PIC X(110) VALUE "新主题".
+      *>   HINT-TOPIC-NAME
+          05 FILLER PIC X(110) VALUE "Name, e.g. Human Resources".
+          05 FILLER PIC X(110) VALUE "Nome, por exemplo Recursos Humanos".
+          05 FILLER PIC X(110) VALUE "Nombre, por ejemplo Recursos Humanos".
+          05 FILLER PIC X(110) VALUE "Nom, par exemple Ressources humaines".
+          05 FILLER PIC X(110) VALUE "名前（例：人事）".
+          05 FILLER PIC X(110) VALUE "名称，例如：人力资源".
+      *>   HINT-TOPIC-PROMPT
+          05 FILLER PIC X(110) VALUE "What the assistant is for, how it should answer - the topic's system prompt".
+          05 FILLER PIC X(110) VALUE "Para que serve o assistente e como ele deve responder - o prompt de sistema do tópico".
+          05 FILLER PIC X(110) VALUE "Para qué sirve el asistente y cómo debe responder: el prompt de sistema del tema".
+          05 FILLER PIC X(110) VALUE "À quoi sert l'assistant et comment il doit répondre : le prompt système du sujet".
+          05 FILLER PIC X(110) VALUE "アシスタントの役割と回答の仕方 - トピックのシステムプロンプト".
+          05 FILLER PIC X(110) VALUE "助手的用途以及回答方式——该主题的系统提示词".
+      *>   CREATE-TOPIC
+          05 FILLER PIC X(110) VALUE "Create topic".
+          05 FILLER PIC X(110) VALUE "Criar tópico".
+          05 FILLER PIC X(110) VALUE "Crear tema".
+          05 FILLER PIC X(110) VALUE "Créer le sujet".
+          05 FILLER PIC X(110) VALUE "トピックを作成".
+          05 FILLER PIC X(110) VALUE "创建主题".
+      *>   CLOSE
+          05 FILLER PIC X(110) VALUE "Close".
+          05 FILLER PIC X(110) VALUE "Fechar".
+          05 FILLER PIC X(110) VALUE "Cerrar".
+          05 FILLER PIC X(110) VALUE "Fermer".
+          05 FILLER PIC X(110) VALUE "閉じる".
+          05 FILLER PIC X(110) VALUE "关闭".
+      *>   INSTALL-SAMPLES
+          05 FILLER PIC X(110) VALUE "Install sample topics".
+          05 FILLER PIC X(110) VALUE "Instalar tópicos de exemplo".
+          05 FILLER PIC X(110) VALUE "Instalar temas de ejemplo".
+          05 FILLER PIC X(110) VALUE "Installer les sujets d'exemple".
+          05 FILLER PIC X(110) VALUE "サンプルトピックをインストール".
+          05 FILLER PIC X(110) VALUE "安装示例主题".
+      *>   REMOVE-SAMPLES
+          05 FILLER PIC X(110) VALUE "Remove sample topics".
+          05 FILLER PIC X(110) VALUE "Remover tópicos de exemplo".
+          05 FILLER PIC X(110) VALUE "Quitar temas de ejemplo".
+          05 FILLER PIC X(110) VALUE "Retirer les sujets d'exemple".
+          05 FILLER PIC X(110) VALUE "サンプルトピックを削除".
+          05 FILLER PIC X(110) VALUE "移除示例主题".
+       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
+          05 PC-TEXT-ROW     OCCURS 21.
+             10 PC-TEXT      PIC X(110) OCCURS 6.
+      *>   The texts in the current language, by name.
+       01 PC-TEXTS-NOW       GLOBAL.
+          05 T-NO-TOPICS PIC X(110).
+          05 T-PICK-OR-CREATE PIC X(110).
+          05 T-PICK-TOPIC-FIRST PIC X(110).
+          05 T-TOPIC-OPENED PIC X(110).
+          05 T-NAME-FIRST PIC X(110).
+          05 T-SAME-INSTANT PIC X(110).
+          05 T-TOPIC-CREATED PIC X(110).
+          05 T-SAMPLES-ALREADY PIC X(110).
+          05 T-SAMPLES-NONE PIC X(110).
+          05 T-SAMPLES-REMOVED PIC X(110).
+          05 T-SAMPLES-INSTALLED PIC X(110).
+          05 T-SAMPLES-PROGRESS PIC X(110).
+          05 T-TOPICS-TITLE PIC X(110).
+          05 T-OPEN-TOPIC PIC X(110).
+          05 T-NEW-TOPIC PIC X(110).
+          05 T-HINT-TOPIC-NAME PIC X(110).
+          05 T-HINT-TOPIC-PROMPT PIC X(110).
+          05 T-CREATE-TOPIC PIC X(110).
+          05 T-CLOSE PIC X(110).
+          05 T-INSTALL-SAMPLES PIC X(110).
+          05 T-REMOVE-SAMPLES PIC X(110).
+       01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
+          05 PC-TEXT-NOW     PIC X(110) OCCURS 21.
+      *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
+       01 WS-FMT             GLOBAL PIC X(110).
+       01 WS-ARG1            GLOBAL PIC X(300).
+       01 WS-ARG2            GLOBAL PIC X(300).
+       01 WS-ARG3            GLOBAL PIC X(300).
+       01 WS-ARG4            GLOBAL PIC X(300).
+       01 WS-FMT-OUT         GLOBAL PIC X(1200).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -260,22 +449,22 @@
                MOVE "N" TO WS-INSTALLING
                MOVE WS-MAP-COUNT TO WS-N1
                MOVE WS-Q-COUNT TO WS-N2
-               MOVE SPACES TO WS-LINE
-               STRING "Sample topics installed: " FUNCTION TRIM(WS-N1) " topics, "
-                      FUNCTION TRIM(WS-N2) " documents."
-                   DELIMITED BY SIZE INTO WS-LINE
-               MOVE WS-LINE TO Lbl-Status::Caption
+               MOVE T-SAMPLES-INSTALLED TO WS-FMT
+               MOVE WS-N1 TO WS-ARG1
+               MOVE WS-N2 TO WS-ARG2
+               CALL "PC-FMT"
+               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
                CALL "PC-LOAD-TOPICS"
                EXIT PROGRAM
            END-IF
            MOVE WS-Q-TOPIC(WS-Q-NEXT) TO KB-T::Collection
            MOVE WS-Q-NEXT TO WS-N1
            MOVE WS-Q-COUNT TO WS-N2
-           MOVE SPACES TO WS-LINE
-           STRING "Installing the sample topics: document " FUNCTION TRIM(WS-N1)
-                  " of " FUNCTION TRIM(WS-N2) "..."
-               DELIMITED BY SIZE INTO WS-LINE
-           MOVE WS-LINE TO Lbl-Status::Caption
+           MOVE T-SAMPLES-PROGRESS TO WS-FMT
+           MOVE WS-N1 TO WS-ARG1
+           MOVE WS-N2 TO WS-ARG2
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
            MOVE KB-T::ImportDocument(FUNCTION TRIM(WS-Q-PATH(WS-Q-NEXT))) TO WS-OK
            ADD 1 TO WS-Q-NEXT
 ]]></Event>
@@ -456,12 +645,83 @@
            COMMIT
            CLOSE TFILES-FILE
 ]]></Event>
+    <Event name="PC-TEXTS" paragraph="PC-TEXTS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The language the user picked (LANG), the texts in it, and every
+      *>   designed caption and hint that shows one. Called on load and again
+      *>   whenever the language changes (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           MOVE WS-SET-VALUE(1:2) TO WS-LANG
+           EVALUATE WS-LANG
+               WHEN "en" MOVE 1 TO WS-LANG-IX
+               WHEN "pt" MOVE 2 TO WS-LANG-IX
+               WHEN "es" MOVE 3 TO WS-LANG-IX
+               WHEN "fr" MOVE 4 TO WS-LANG-IX
+               WHEN "jp" MOVE 5 TO WS-LANG-IX
+               WHEN "cn" MOVE 6 TO WS-LANG-IX
+               WHEN OTHER MOVE "en" TO WS-LANG
+                          MOVE 1 TO WS-LANG-IX
+           END-EVALUATE
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 21
+               MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
+           END-PERFORM
+           MOVE FUNCTION TRIM(T-TOPICS-TITLE) TO Lbl-Title::Caption
+           MOVE FUNCTION TRIM(T-OPEN-TOPIC) TO Btn-Open::Caption
+           MOVE FUNCTION TRIM(T-NEW-TOPIC) TO Lbl-New::Caption
+           MOVE FUNCTION TRIM(T-HINT-TOPIC-NAME) TO Txt-Name::HintText
+           MOVE FUNCTION TRIM(T-HINT-TOPIC-PROMPT) TO Txt-Prompt::HintText
+           MOVE FUNCTION TRIM(T-CREATE-TOPIC) TO Btn-Create::Caption
+           MOVE FUNCTION TRIM(T-CLOSE) TO Btn-Close::Caption
+           MOVE FUNCTION TRIM(T-INSTALL-SAMPLES) TO Btn-Install::Caption
+           MOVE FUNCTION TRIM(T-REMOVE-SAMPLES) TO Btn-RemoveSamples::Caption
+]]></Event>
+    <Event name="PC-FMT" paragraph="PC-FMT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-PT              PIC 9(4).
+       01 WS-FROM            PIC 9(4).
+       01 WS-CNT             PIC 9(4).
+       01 WS-PART            PIC X(110).
+       01 WS-DELIM           PIC XX.
+       PROCEDURE DIVISION.
+      *>   A message whose words go round numbers and names differently in each
+      *>   language: WS-FMT holds "&1" .. "&4" where WS-ARG1..4 go.
+           MOVE SPACES TO WS-FMT-OUT
+           MOVE 1 TO WS-PT
+           MOVE 1 TO WS-FROM
+           PERFORM UNTIL WS-FROM > FUNCTION LENGTH(WS-FMT)
+               MOVE SPACES TO WS-PART WS-DELIM
+               MOVE 0 TO WS-CNT
+               UNSTRING WS-FMT DELIMITED BY "&1" OR "&2" OR "&3" OR "&4"
+                   INTO WS-PART DELIMITER IN WS-DELIM COUNT IN WS-CNT
+                   WITH POINTER WS-FROM
+               END-UNSTRING
+               IF WS-CNT > 0
+                   STRING WS-PART(1:WS-CNT) DELIMITED BY SIZE
+                       INTO WS-FMT-OUT WITH POINTER WS-PT
+               END-IF
+               EVALUATE WS-DELIM
+                   WHEN "&1" STRING FUNCTION TRIM(WS-ARG1) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&2" STRING FUNCTION TRIM(WS-ARG2) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&3" STRING FUNCTION TRIM(WS-ARG3) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&4" STRING FUNCTION TRIM(WS-ARG4) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN OTHER COMPUTE WS-FROM = FUNCTION LENGTH(WS-FMT) + 1
+               END-EVALUATE
+           END-PERFORM
+]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="TOPICS-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
            CALL "PC-PATHS"
+           CALL "PC-TEXTS"
            DISPLAY "POWERCHAT_SAMPLES" UPON ENVIRONMENT-NAME
            ACCEPT WS-SAMPLES-DIR FROM ENVIRONMENT-VALUE
            IF WS-SAMPLES-DIR = SPACES
@@ -477,11 +737,9 @@
            END-IF
            CALL "PC-LOAD-TOPICS"
            IF WS-TOPIC-COUNT = 0
-               MOVE "No topics yet - give the first one a name and create it."
-                   TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-NO-TOPICS) TO Lbl-Status::Caption
            ELSE
-               MOVE "Pick a topic and press Open, or create a new one."
-                   TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-PICK-OR-CREATE) TO Lbl-Status::Caption
            END-IF
 ]]></Event>
     <Event name="onClose" paragraph="TOPICS-FORM--ONCLOSE">
@@ -615,14 +873,14 @@
        PROCEDURE DIVISION.
            MOVE Lst-Topics::GetSelectedIndex() TO WS-INDEX
            IF WS-INDEX < 0 OR WS-INDEX >= WS-TOPIC-COUNT
-               MOVE "Pick a topic in the list first." TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-PICK-TOPIC-FIRST) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            ADD 1 TO WS-INDEX
            MOVE "CUR-TOPIC" TO WS-SET-NAME
            MOVE WS-TOPIC-ID(WS-INDEX) TO WS-SET-VALUE
            CALL "PC-SETTING-PUT"
-           MOVE "Topic opened." TO Lbl-Status::Caption
+           MOVE FUNCTION TRIM(T-TOPIC-OPENED) TO Lbl-Status::Caption
            INVOKE SUPER::SetProperty("ResultText", "OPENED")
            INVOKE ME::Close()
 ]]></Event>
@@ -810,7 +1068,7 @@
            MOVE Txt-Name::Text TO WS-NEW-NAME
            MOVE Txt-Prompt::Text TO WS-NEW-PROMPT
            IF WS-NEW-NAME = SPACES
-               MOVE "Give the topic a name first." TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-NAME-FIRST) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            MOVE FUNCTION CURRENT-DATE TO WS-NOW
@@ -828,8 +1086,7 @@
            MOVE "N" TO TOP-SAMPLE
            WRITE TOPIC-REC
                INVALID KEY
-                   MOVE "A topic was created this same instant - try again."
-                       TO Lbl-Status::Caption
+                   MOVE FUNCTION TRIM(T-SAME-INSTANT) TO Lbl-Status::Caption
                    CLOSE TOPICS-FILE
                    EXIT PROGRAM
            END-WRITE
@@ -840,7 +1097,7 @@
            IF WS-OK NOT = "1"
                MOVE KB-T::LastError TO Lbl-Status::Caption
            ELSE
-               MOVE "Topic created." TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-TOPIC-CREATED) TO Lbl-Status::Caption
            END-IF
            MOVE SPACES TO Txt-Name::Text
            MOVE SPACES TO Txt-Prompt::Text
@@ -984,15 +1241,15 @@
       *>   Nothing about any sample is written in this code (R10).
            CALL "PC-HAS-SAMPLES"
            IF WS-OK = "Y"
-               MOVE "The sample topics are already installed." TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-SAMPLES-ALREADY) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            OPEN INPUT SAMPLES-FILE
            IF WS-FS NOT = "00"
-               MOVE SPACES TO WS-LINE
-               STRING "No sample topics found (" FUNCTION TRIM(WS-SAMPLES-LIST) ")."
-                   DELIMITED BY SIZE INTO WS-LINE
-               MOVE WS-LINE TO Lbl-Status::Caption
+               MOVE T-SAMPLES-NONE TO WS-FMT
+               MOVE WS-SAMPLES-LIST TO WS-ARG1
+               CALL "PC-FMT"
+               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            MOVE 0 TO WS-MAP-COUNT WS-Q-COUNT WS-SEQ-N WS-TF-SEQ
@@ -1126,10 +1383,10 @@
                END-IF
            END-PERFORM
            MOVE WS-REMOVED TO WS-N1
-           MOVE SPACES TO WS-LINE
-           STRING "Removed " FUNCTION TRIM(WS-N1) " sample topic(s)."
-               DELIMITED BY SIZE INTO WS-LINE
-           MOVE WS-LINE TO Lbl-Status::Caption
+           MOVE T-SAMPLES-REMOVED TO WS-FMT
+           MOVE WS-N1 TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
            CALL "PC-LOAD-TOPICS"
 ]]></Event>
   </Control>

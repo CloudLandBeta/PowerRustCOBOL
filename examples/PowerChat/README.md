@@ -32,6 +32,9 @@ rcrun run-form examples/PowerChat/forms/chat-form.cfrm
 6. **Chat** — ask. Past conversations are listed in the menu; pick one to
    continue it.
 
+The flags at the foot of the menu switch the interface between English,
+Portuguese, Spanish, French, Japanese and Chinese, at once.
+
 ## What is where
 
 | Form | Does |
@@ -61,4 +64,4 @@ cargo run -p cobolt-ide --example powerchat_regen
 
 ## Coming in Phase 2
 
-The other five languages, and documents as a folder tree.
+Documents as a folder tree.

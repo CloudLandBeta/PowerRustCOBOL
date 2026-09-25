@@ -76,8 +76,13 @@ fn every_powerchat_form_generates_its_committed_program_and_compiles() {
 fn the_menu_hash_and_the_main_form_seal_are_valid() {
     let menu = cobolt_forms::menu::load_menu(&project().join("forms/SideMenu-1.menu.yaml"))
         .expect("the SideMenu's menu loads with a valid hash");
-    let ids: Vec<&str> = menu.menu.iter().map(|m| m.id.as_str()).collect();
-    assert_eq!(ids, ["chat", "newc", "tpcs", "docs", "fils", "prmt", "sett"]);
+    // R46: a designed row's label cannot change at run time, so the menu has
+    // none; the chat form adds its rows in the current language.
+    assert!(menu.menu.is_empty(), "the menu's rows are added at run time");
+    let chat = std::fs::read_to_string(project().join("generated/chat-form.cbl")).unwrap();
+    for id in ["chat", "newc", "tpcs", "docs", "fils", "prmt", "sett"] {
+        assert!(chat.contains(&format!("SideMenu-1::AddItem(\"{id}\"")), "the chat form adds menu row {id}");
+    }
 
     let manifest: toml::Value =
         toml::from_str(&std::fs::read_to_string(project().join("PowerChat.project.toml")).unwrap()).unwrap();
@@ -88,6 +93,61 @@ fn the_menu_hash_and_the_main_form_seal_are_valid() {
     let seal = cobolt_compiler::main_form_guard::seal(manifest["project"]["name"].as_str().unwrap(), "CHAT-FORM", &ids);
     assert_eq!(manifest["forms"]["main-form"].as_str(), Some("CHAT-FORM"));
     assert_eq!(manifest["forms"]["main-form-seal"].as_str(), Some(seal.as_str()));
+}
+
+/// R44-R46 — every text a user sees comes from the form's translation table,
+/// in all six languages: each designed caption and hint is re-applied by
+/// `PC-TEXTS`, and each table row is filled in every language.
+#[test]
+fn every_visible_text_is_translated_into_six_languages() {
+    let t = std::time::Instant::now();
+    let mut rows = Vec::new();
+    for rel in forms() {
+        let path = project().join(&rel);
+        let form = cobolt_forms::load_form(&path).unwrap();
+        let stem = path.file_stem().unwrap().to_string_lossy().to_string();
+        let src = std::fs::read_to_string(project().join("generated").join(format!("{stem}.cbl"))).unwrap();
+        let mut applied = 0;
+        for c in &form.controls {
+            for prop in ["Caption", "HintText", "Hint"] {
+                let text = c.get_prop(prop).map(|v| v.to_string()).unwrap_or_default();
+                // Empty in the design (the loader shows the id): set at run time.
+                // No lowercase letter ("1-3", "API"): the same in every language.
+                if text.trim().is_empty() || text == c.id || !text.chars().any(|ch| ch.is_lowercase()) {
+                    continue;
+                }
+                let needle = format!(" TO {}::{prop}", c.id);
+                assert!(
+                    src.lines().any(|l| l.contains("FUNCTION TRIM(T-") && l.trim_end().ends_with(&needle)),
+                    "{rel}: {}::{prop} ({text:?}) is shown but never translated",
+                    c.id
+                );
+                applied += 1;
+            }
+        }
+        // The table: a comment naming each text, then one FILLER per language.
+        let lines: Vec<&str> = src.lines().collect();
+        let start = lines.iter().position(|l| l.contains("01 PC-TEXT-DATA")).expect("a translation table");
+        let end = lines.iter().position(|l| l.contains("01 PC-TEXT-TABLE REDEFINES")).unwrap();
+        let mut texts = 0;
+        let mut i = start + 1;
+        while i < end {
+            let id = lines[i].trim().trim_start_matches("*>").trim();
+            let values: Vec<String> = lines[i + 1..i + 7]
+                .iter()
+                .map(|l| {
+                    let v = &l[l.find("VALUE \"").expect("a VALUE") + 7..l.rfind('"').unwrap()];
+                    v.replace("\"\"", "\"")
+                })
+                .collect();
+            assert!(values.iter().all(|v| !v.trim().is_empty()), "{rel}: {id} is empty in some language: {values:?}");
+            assert!(values.iter().any(|v| v != &values[0]), "{rel}: {id} is the same in all six languages");
+            texts += 1;
+            i += 7;
+        }
+        rows.push(format!("  {:<28} {:>3} texts x 6 languages, {:>2} designed captions/hints re-applied", rel, texts, applied));
+    }
+    println!("\n  ── 071 PowerChat languages ──────────────────────\n{}\n  {:.0} ms\n", rows.join("\n"), t.elapsed().as_secs_f64() * 1000.0);
 }
 
 /// R3 — no example file carries a key, password or token value.

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="PROMPTS-FORM" title="PowerChat - Prompt" width="680" height="492" background="F2F4F5FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
+<Form name="PROMPTS-FORM" title="PowerChat" width="680" height="492" background="F2F4F5FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
   <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -24,6 +24,155 @@
        01 WS-ROW             GLOBAL PIC X(120).
        01 WS-LINE            GLOBAL PIC X(200).
        01 WS-VNUM            GLOBAL PIC Z(3)9.
+      *>   The interface texts (spec 071 R44): one row per text, one column
+      *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
+      *>   only the values are translated.
+       01 WS-LANG            GLOBAL PIC XX VALUE "en".
+       01 WS-LANG-IX         GLOBAL PIC 9 VALUE 1.
+       01 WS-TX-I            GLOBAL PIC 9(4).
+       01 PC-TEXT-DATA       GLOBAL.
+      *>   OPEN-TOPIC-FIRST
+          05 FILLER PIC X(130) VALUE "Open a topic first.".
+          05 FILLER PIC X(130) VALUE "Abra um tópico primeiro.".
+          05 FILLER PIC X(130) VALUE "Primero abre un tema.".
+          05 FILLER PIC X(130) VALUE "Ouvrez d'abord un sujet.".
+          05 FILLER PIC X(130) VALUE "先にトピックを開いてください。".
+          05 FILLER PIC X(130) VALUE "请先打开一个主题。".
+      *>   PROMPT-OF
+          05 FILLER PIC X(130) VALUE "Prompt - &1".
+          05 FILLER PIC X(130) VALUE "Prompt - &1".
+          05 FILLER PIC X(130) VALUE "Prompt - &1".
+          05 FILLER PIC X(130) VALUE "Prompt - &1".
+          05 FILLER PIC X(130) VALUE "プロンプト - &1".
+          05 FILLER PIC X(130) VALUE "提示词 - &1".
+      *>   PICK-VERSION-FIRST
+          05 FILLER PIC X(130) VALUE "Pick a version in the list first.".
+          05 FILLER PIC X(130) VALUE "Escolha uma versão na lista primeiro.".
+          05 FILLER PIC X(130) VALUE "Primero elige una versión de la lista.".
+          05 FILLER PIC X(130) VALUE "Choisissez d'abord une version dans la liste.".
+          05 FILLER PIC X(130) VALUE "先に一覧からバージョンを選んでください。".
+          05 FILLER PIC X(130) VALUE "请先在列表中选择一个版本。".
+      *>   SHOWING-V
+          05 FILLER PIC X(130) VALUE "Showing v&1.".
+          05 FILLER PIC X(130) VALUE "Mostrando a v&1.".
+          05 FILLER PIC X(130) VALUE "Mostrando la v&1.".
+          05 FILLER PIC X(130) VALUE "Affichage de la v&1.".
+          05 FILLER PIC X(130) VALUE "v&1 を表示しています。".
+          05 FILLER PIC X(130) VALUE "正在显示 v&1。".
+      *>   ALREADY-ACTIVE
+          05 FILLER PIC X(130) VALUE "That version is already the active one.".
+          05 FILLER PIC X(130) VALUE "Essa versão já é a ativa.".
+          05 FILLER PIC X(130) VALUE "Esa versión ya es la activa.".
+          05 FILLER PIC X(130) VALUE "Cette version est déjà la version active.".
+          05 FILLER PIC X(130) VALUE "そのバージョンはすでに有効です。".
+          05 FILLER PIC X(130) VALUE "该版本已经是当前版本。".
+      *>   CONFIRM-ACTIVATE
+          05 FILLER PIC X(130) VALUE "Make v&1 the active prompt? Press Activate again to confirm.".
+          05 FILLER PIC X(130) VALUE "Tornar a v&1 o prompt ativo? Clique em Ativar de novo para confirmar.".
+          05 FILLER PIC X(130) VALUE "¿Hacer de la v&1 el prompt activo? Pulsa Activar otra vez para confirmar.".
+          05 FILLER PIC X(130) VALUE "Faire de la v&1 le prompt actif ? Cliquez de nouveau sur Activer pour confirmer.".
+          05 FILLER PIC X(130) VALUE "v&1 を有効なプロンプトにしますか？確定するにはもう一度「有効にする」を押してください。".
+          05 FILLER PIC X(130) VALUE "将 v&1 设为当前提示词？再次点击“启用”以确认。".
+      *>   NOW-ACTIVE
+          05 FILLER PIC X(130) VALUE "v&1 is the active prompt.".
+          05 FILLER PIC X(130) VALUE "A v&1 é o prompt ativo.".
+          05 FILLER PIC X(130) VALUE "La v&1 es el prompt activo.".
+          05 FILLER PIC X(130) VALUE "La v&1 est le prompt actif.".
+          05 FILLER PIC X(130) VALUE "v&1 が有効なプロンプトになりました。".
+          05 FILLER PIC X(130) VALUE "v&1 现在是当前提示词。".
+      *>   PROMPT-EMPTY
+          05 FILLER PIC X(130) VALUE "The prompt is empty.".
+          05 FILLER PIC X(130) VALUE "O prompt está vazio.".
+          05 FILLER PIC X(130) VALUE "El prompt está vacío.".
+          05 FILLER PIC X(130) VALUE "Le prompt est vide.".
+          05 FILLER PIC X(130) VALUE "プロンプトが空です。".
+          05 FILLER PIC X(130) VALUE "提示词为空。".
+      *>   SAVED-AS
+          05 FILLER PIC X(130) VALUE "Saved as v&1, now active.".
+          05 FILLER PIC X(130) VALUE "Salvo como v&1, agora ativo.".
+          05 FILLER PIC X(130) VALUE "Guardado como v&1, ahora activo.".
+          05 FILLER PIC X(130) VALUE "Enregistré comme v&1, désormais actif.".
+          05 FILLER PIC X(130) VALUE "v&1 として保存し、有効にしました。".
+          05 FILLER PIC X(130) VALUE "已保存为 v&1，现已启用。".
+      *>   ACTIVE-MARK
+          05 FILLER PIC X(130) VALUE "[active]".
+          05 FILLER PIC X(130) VALUE "[ativa]".
+          05 FILLER PIC X(130) VALUE "[activa]".
+          05 FILLER PIC X(130) VALUE "[active]".
+          05 FILLER PIC X(130) VALUE "[有効]".
+          05 FILLER PIC X(130) VALUE "[当前]".
+      *>   PROMPT-TITLE
+          05 FILLER PIC X(130) VALUE "Prompt".
+          05 FILLER PIC X(130) VALUE "Prompt".
+          05 FILLER PIC X(130) VALUE "Prompt".
+          05 FILLER PIC X(130) VALUE "Prompt".
+          05 FILLER PIC X(130) VALUE "プロンプト".
+          05 FILLER PIC X(130) VALUE "提示词".
+      *>   HINT-PROMPT-EDITOR
+          05 FILLER PIC X(130) VALUE "What the assistant is for and how it answers - the topic's system prompt".
+          05 FILLER PIC X(130) VALUE "Para que serve o assistente e como ele responde - o prompt de sistema do tópico".
+          05 FILLER PIC X(130) VALUE "Para qué sirve el asistente y cómo responde: el prompt de sistema del tema".
+          05 FILLER PIC X(130) VALUE "À quoi sert l'assistant et comment il répond : le prompt système du sujet".
+          05 FILLER PIC X(130) VALUE "アシスタントの役割と回答の仕方 - トピックのシステムプロンプト".
+          05 FILLER PIC X(130) VALUE "助手的用途及回答方式——该主题的系统提示词".
+      *>   SHOW-VERSION
+          05 FILLER PIC X(130) VALUE "Show version".
+          05 FILLER PIC X(130) VALUE "Mostrar versão".
+          05 FILLER PIC X(130) VALUE "Ver versión".
+          05 FILLER PIC X(130) VALUE "Afficher la version".
+          05 FILLER PIC X(130) VALUE "バージョンを表示".
+          05 FILLER PIC X(130) VALUE "查看版本".
+      *>   ACTIVATE
+          05 FILLER PIC X(130) VALUE "Activate".
+          05 FILLER PIC X(130) VALUE "Ativar".
+          05 FILLER PIC X(130) VALUE "Activar".
+          05 FILLER PIC X(130) VALUE "Activer".
+          05 FILLER PIC X(130) VALUE "有効にする".
+          05 FILLER PIC X(130) VALUE "启用".
+      *>   SAVE-AS-NEW
+          05 FILLER PIC X(130) VALUE "Save as new".
+          05 FILLER PIC X(130) VALUE "Salvar como nova".
+          05 FILLER PIC X(130) VALUE "Guardar como nueva".
+          05 FILLER PIC X(130) VALUE "Enregistrer comme nouvelle".
+          05 FILLER PIC X(130) VALUE "新規保存".
+          05 FILLER PIC X(130) VALUE "另存为新版本".
+      *>   CLOSE
+          05 FILLER PIC X(130) VALUE "Close".
+          05 FILLER PIC X(130) VALUE "Fechar".
+          05 FILLER PIC X(130) VALUE "Cerrar".
+          05 FILLER PIC X(130) VALUE "Fermer".
+          05 FILLER PIC X(130) VALUE "閉じる".
+          05 FILLER PIC X(130) VALUE "关闭".
+       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
+          05 PC-TEXT-ROW     OCCURS 16.
+             10 PC-TEXT      PIC X(130) OCCURS 6.
+      *>   The texts in the current language, by name.
+       01 PC-TEXTS-NOW       GLOBAL.
+          05 T-OPEN-TOPIC-FIRST PIC X(130).
+          05 T-PROMPT-OF PIC X(130).
+          05 T-PICK-VERSION-FIRST PIC X(130).
+          05 T-SHOWING-V PIC X(130).
+          05 T-ALREADY-ACTIVE PIC X(130).
+          05 T-CONFIRM-ACTIVATE PIC X(130).
+          05 T-NOW-ACTIVE PIC X(130).
+          05 T-PROMPT-EMPTY PIC X(130).
+          05 T-SAVED-AS PIC X(130).
+          05 T-ACTIVE-MARK PIC X(130).
+          05 T-PROMPT-TITLE PIC X(130).
+          05 T-HINT-PROMPT-EDITOR PIC X(130).
+          05 T-SHOW-VERSION PIC X(130).
+          05 T-ACTIVATE PIC X(130).
+          05 T-SAVE-AS-NEW PIC X(130).
+          05 T-CLOSE PIC X(130).
+       01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
+          05 PC-TEXT-NOW     PIC X(130) OCCURS 16.
+      *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
+       01 WS-FMT             GLOBAL PIC X(130).
+       01 WS-ARG1            GLOBAL PIC X(300).
+       01 WS-ARG2            GLOBAL PIC X(300).
+       01 WS-ARG3            GLOBAL PIC X(300).
+       01 WS-ARG4            GLOBAL PIC X(300).
+       01 WS-FMT-OUT         GLOBAL PIC X(1200).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -234,7 +383,7 @@
                                   PRM-CREATED(11:2)
                                DELIMITED BY SIZE INTO WS-ROW
                            IF PRM-ACTIVE = "Y"
-                               STRING FUNCTION TRIM(WS-ROW) "   [active]"
+                               STRING FUNCTION TRIM(WS-ROW) "   " FUNCTION TRIM(T-ACTIVE-MARK)
                                    DELIMITED BY SIZE INTO WS-ROW
                            END-IF
                            MOVE Lst-Versions::AddItem(FUNCTION TRIM(WS-ROW)) TO WS-OK
@@ -290,17 +439,85 @@
            CLOSE TOPICS-FILE
            MOVE WS-PICKED TO WS-ACTIVE-VER
 ]]></Event>
+    <Event name="PC-TEXTS" paragraph="PC-TEXTS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The language the user picked (LANG), the texts in it, and every
+      *>   designed caption and hint that shows one. Called on load and again
+      *>   whenever the language changes (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           MOVE WS-SET-VALUE(1:2) TO WS-LANG
+           EVALUATE WS-LANG
+               WHEN "en" MOVE 1 TO WS-LANG-IX
+               WHEN "pt" MOVE 2 TO WS-LANG-IX
+               WHEN "es" MOVE 3 TO WS-LANG-IX
+               WHEN "fr" MOVE 4 TO WS-LANG-IX
+               WHEN "jp" MOVE 5 TO WS-LANG-IX
+               WHEN "cn" MOVE 6 TO WS-LANG-IX
+               WHEN OTHER MOVE "en" TO WS-LANG
+                          MOVE 1 TO WS-LANG-IX
+           END-EVALUATE
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 16
+               MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
+           END-PERFORM
+           MOVE FUNCTION TRIM(T-PROMPT-TITLE) TO Lbl-Title::Caption
+           MOVE FUNCTION TRIM(T-HINT-PROMPT-EDITOR) TO Txt-Prompt::HintText
+           MOVE FUNCTION TRIM(T-SHOW-VERSION) TO Btn-View::Caption
+           MOVE FUNCTION TRIM(T-ACTIVATE) TO Btn-Activate::Caption
+           MOVE FUNCTION TRIM(T-SAVE-AS-NEW) TO Btn-Save::Caption
+           MOVE FUNCTION TRIM(T-CLOSE) TO Btn-Close::Caption
+]]></Event>
+    <Event name="PC-FMT" paragraph="PC-FMT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-PT              PIC 9(4).
+       01 WS-FROM            PIC 9(4).
+       01 WS-CNT             PIC 9(4).
+       01 WS-PART            PIC X(130).
+       01 WS-DELIM           PIC XX.
+       PROCEDURE DIVISION.
+      *>   A message whose words go round numbers and names differently in each
+      *>   language: WS-FMT holds "&1" .. "&4" where WS-ARG1..4 go.
+           MOVE SPACES TO WS-FMT-OUT
+           MOVE 1 TO WS-PT
+           MOVE 1 TO WS-FROM
+           PERFORM UNTIL WS-FROM > FUNCTION LENGTH(WS-FMT)
+               MOVE SPACES TO WS-PART WS-DELIM
+               MOVE 0 TO WS-CNT
+               UNSTRING WS-FMT DELIMITED BY "&1" OR "&2" OR "&3" OR "&4"
+                   INTO WS-PART DELIMITER IN WS-DELIM COUNT IN WS-CNT
+                   WITH POINTER WS-FROM
+               END-UNSTRING
+               IF WS-CNT > 0
+                   STRING WS-PART(1:WS-CNT) DELIMITED BY SIZE
+                       INTO WS-FMT-OUT WITH POINTER WS-PT
+               END-IF
+               EVALUATE WS-DELIM
+                   WHEN "&1" STRING FUNCTION TRIM(WS-ARG1) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&2" STRING FUNCTION TRIM(WS-ARG2) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&3" STRING FUNCTION TRIM(WS-ARG3) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&4" STRING FUNCTION TRIM(WS-ARG4) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN OTHER COMPUTE WS-FROM = FUNCTION LENGTH(WS-FMT) + 1
+               END-EVALUATE
+           END-PERFORM
+]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="PROMPTS-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
            CALL "PC-PATHS"
+           CALL "PC-TEXTS"
            MOVE "CUR-TOPIC" TO WS-SET-NAME
            CALL "PC-SETTING-GET"
            MOVE WS-SET-VALUE(1:16) TO WS-CUR-TOPIC
            IF WS-CUR-TOPIC = SPACES
-               MOVE "Open a topic first." TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-OPEN-TOPIC-FIRST) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            OPEN I-O TOPICS-FILE
@@ -314,9 +531,10 @@
                INVALID KEY MOVE "?" TO TOP-NAME
            END-READ
            CLOSE TOPICS-FILE
-           MOVE SPACES TO WS-LINE
-           STRING "Prompt - " FUNCTION TRIM(TOP-NAME) DELIMITED BY SIZE INTO WS-LINE
-           MOVE WS-LINE TO Lbl-Title::Caption
+           MOVE T-PROMPT-OF TO WS-FMT
+           MOVE TOP-NAME TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Title::Caption
            MOVE TOP-PROMPT TO Txt-Prompt::Text
            CALL "PC-LOAD-VERSIONS"
 ]]></Event>
@@ -499,7 +717,7 @@
        PROCEDURE DIVISION.
            MOVE Lst-Versions::GetSelectedIndex() TO WS-INDEX
            IF WS-INDEX < 0 OR WS-INDEX >= WS-VER-COUNT
-               MOVE "Pick a version in the list first." TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-PICK-VERSION-FIRST) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            ADD 1 TO WS-INDEX
@@ -517,9 +735,10 @@
                NOT INVALID KEY MOVE PRM-TEXT TO Txt-Prompt::Text
            END-READ
            CLOSE PROMPTS-FILE
-           MOVE SPACES TO WS-LINE
-           STRING "Showing v" FUNCTION TRIM(WS-VNUM) "." DELIMITED BY SIZE INTO WS-LINE
-           MOVE WS-LINE TO Lbl-Status::Caption
+           MOVE T-SHOWING-V TO WS-FMT
+           MOVE WS-VNUM TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
 ]]></Event>
   </Control>
   <Control id="Btn-Activate" type="Button" x="384" y="388" w="128" h="32" tab-order="4" z-order="0" visible="true" enabled="true">
@@ -568,7 +787,7 @@
        PROCEDURE DIVISION.
            MOVE Lst-Versions::GetSelectedIndex() TO WS-INDEX
            IF WS-INDEX < 0 OR WS-INDEX >= WS-VER-COUNT
-               MOVE "Pick a version in the list first." TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-PICK-VERSION-FIRST) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            ADD 1 TO WS-INDEX
@@ -577,22 +796,23 @@
       *>   Promoting another version asks first (R48): the first press asks,
       *>   a second press on the same version confirms.
            IF WS-PICKED = WS-ACTIVE-VER
-               MOVE "That version is already the active one." TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-ALREADY-ACTIVE) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            IF WS-CONFIRM-VER NOT = WS-PICKED
                MOVE WS-PICKED TO WS-CONFIRM-VER
-               MOVE SPACES TO WS-LINE
-               STRING "Make v" FUNCTION TRIM(WS-VNUM) " the active prompt? Press Activate again to confirm."
-                   DELIMITED BY SIZE INTO WS-LINE
-               MOVE WS-LINE TO Lbl-Status::Caption
+               MOVE T-CONFIRM-ACTIVATE TO WS-FMT
+               MOVE WS-VNUM TO WS-ARG1
+               CALL "PC-FMT"
+               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            MOVE 0 TO WS-CONFIRM-VER
            CALL "PC-ACTIVATE"
-           MOVE SPACES TO WS-LINE
-           STRING "v" FUNCTION TRIM(WS-VNUM) " is the active prompt." DELIMITED BY SIZE INTO WS-LINE
-           MOVE WS-LINE TO Lbl-Status::Caption
+           MOVE T-NOW-ACTIVE TO WS-FMT
+           MOVE WS-VNUM TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
            CALL "PC-LOAD-VERSIONS"
 ]]></Event>
   </Control>
@@ -643,7 +863,7 @@
       *>   The editor's text becomes a new version, and the active one.
            MOVE Txt-Prompt::Text TO WS-TEXT
            IF WS-TEXT = SPACES
-               MOVE "The prompt is empty." TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-PROMPT-EMPTY) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            OPEN I-O PROMPTS-FILE
@@ -667,9 +887,10 @@
            MOVE WS-LAST-VER TO WS-PICKED
            CALL "PC-ACTIVATE"
            MOVE WS-LAST-VER TO WS-VNUM
-           MOVE SPACES TO WS-LINE
-           STRING "Saved as v" FUNCTION TRIM(WS-VNUM) ", now active." DELIMITED BY SIZE INTO WS-LINE
-           MOVE WS-LINE TO Lbl-Status::Caption
+           MOVE T-SAVED-AS TO WS-FMT
+           MOVE WS-VNUM TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
            MOVE 0 TO WS-CONFIRM-VER
            CALL "PC-LOAD-VERSIONS"
 ]]></Event>

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="SETTINGS-FORM" title="PowerChat - RAG settings" width="680" height="592" background="F2F4F5FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
+<Form name="SETTINGS-FORM" title="PowerChat" width="680" height="592" background="F2F4F5FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
   <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -24,6 +24,307 @@
           05 WS-AGENT-ENTRY  PIC X(30) OCCURS 3.
        01 WS-RANK-TEXT       GLOBAL PIC X.
        01 WS-TOOLS           GLOBAL PIC X(4).
+      *>   The interface texts (spec 071 R44): one row per text, one column
+      *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
+      *>   only the values are translated.
+       01 WS-LANG            GLOBAL PIC XX VALUE "en".
+       01 WS-LANG-IX         GLOBAL PIC 9 VALUE 1.
+       01 WS-TX-I            GLOBAL PIC 9(4).
+       01 PC-TEXT-DATA       GLOBAL.
+      *>   KB-FOLDER-SAVED
+          05 FILLER PIC X(90) VALUE "Knowledge Base folder saved.".
+          05 FILLER PIC X(90) VALUE "Pasta da base de conhecimento salva.".
+          05 FILLER PIC X(90) VALUE "Carpeta de la base de conocimiento guardada.".
+          05 FILLER PIC X(90) VALUE "Dossier de la base de connaissances enregistré.".
+          05 FILLER PIC X(90) VALUE "ナレッジベースのフォルダーを保存しました。".
+          05 FILLER PIC X(90) VALUE "知识库文件夹已保存。".
+      *>   PICK-MODEL-FIRST
+          05 FILLER PIC X(90) VALUE "Pick a model in the list first.".
+          05 FILLER PIC X(90) VALUE "Escolha um modelo na lista primeiro.".
+          05 FILLER PIC X(90) VALUE "Primero elige un modelo de la lista.".
+          05 FILLER PIC X(90) VALUE "Choisissez d'abord un modèle dans la liste.".
+          05 FILLER PIC X(90) VALUE "先に一覧からモデルを選んでください。".
+          05 FILLER PIC X(90) VALUE "请先在列表中选择一个模型。".
+      *>   TYPE-AGENT
+          05 FILLER PIC X(90) VALUE "Type the agent: 1, 2 or 3.".
+          05 FILLER PIC X(90) VALUE "Digite o agente: 1, 2 ou 3.".
+          05 FILLER PIC X(90) VALUE "Escribe el agente: 1, 2 o 3.".
+          05 FILLER PIC X(90) VALUE "Tapez l'agent : 1, 2 ou 3.".
+          05 FILLER PIC X(90) VALUE "エージェントを入力してください：1、2、3 のいずれか。".
+          05 FILLER PIC X(90) VALUE "请输入代理：1、2 或 3。".
+      *>   AGENT-USES
+          05 FILLER PIC X(90) VALUE "Agent &1 now uses this model.".
+          05 FILLER PIC X(90) VALUE "O agente &1 agora usa este modelo.".
+          05 FILLER PIC X(90) VALUE "El agente &1 ahora usa este modelo.".
+          05 FILLER PIC X(90) VALUE "L'agent &1 utilise désormais ce modèle.".
+          05 FILLER PIC X(90) VALUE "エージェント &1 がこのモデルを使うようになりました。".
+          05 FILLER PIC X(90) VALUE "代理 &1 现在使用此模型。".
+      *>   AGENT-OFF
+          05 FILLER PIC X(90) VALUE "Agent &1 is off.".
+          05 FILLER PIC X(90) VALUE "O agente &1 está desligado.".
+          05 FILLER PIC X(90) VALUE "El agente &1 está apagado.".
+          05 FILLER PIC X(90) VALUE "L'agent &1 est désactivé.".
+          05 FILLER PIC X(90) VALUE "エージェント &1 は停止しています。".
+          05 FILLER PIC X(90) VALUE "代理 &1 已停用。".
+      *>   MODEL-REMOVED
+          05 FILLER PIC X(90) VALUE "Model removed, with its key.".
+          05 FILLER PIC X(90) VALUE "Modelo removido, junto com a chave.".
+          05 FILLER PIC X(90) VALUE "Modelo quitado, junto con su clave.".
+          05 FILLER PIC X(90) VALUE "Modèle retiré, avec sa clé.".
+          05 FILLER PIC X(90) VALUE "モデルをキーとともに削除しました。".
+          05 FILLER PIC X(90) VALUE "模型及其密钥已移除。".
+      *>   MODEL-NEEDS
+          05 FILLER PIC X(90) VALUE "A model needs at least a name and an API.".
+          05 FILLER PIC X(90) VALUE "Um modelo precisa de pelo menos um nome e uma API.".
+          05 FILLER PIC X(90) VALUE "Un modelo necesita al menos un nombre y una API.".
+          05 FILLER PIC X(90) VALUE "Un modèle a besoin au moins d'un nom et d'une API.".
+          05 FILLER PIC X(90) VALUE "モデルには少なくとも名前と API が必要です。".
+          05 FILLER PIC X(90) VALUE "模型至少需要名称和 API。".
+      *>   MODEL-SAVED
+          05 FILLER PIC X(90) VALUE "Model saved.".
+          05 FILLER PIC X(90) VALUE "Modelo salvo.".
+          05 FILLER PIC X(90) VALUE "Modelo guardado.".
+          05 FILLER PIC X(90) VALUE "Modèle enregistré.".
+          05 FILLER PIC X(90) VALUE "モデルを保存しました。".
+          05 FILLER PIC X(90) VALUE "模型已保存。".
+      *>   MODEL-KEY-SAVED
+          05 FILLER PIC X(90) VALUE "Model and key saved.".
+          05 FILLER PIC X(90) VALUE "Modelo e chave salvos.".
+          05 FILLER PIC X(90) VALUE "Modelo y clave guardados.".
+          05 FILLER PIC X(90) VALUE "Modèle et clé enregistrés.".
+          05 FILLER PIC X(90) VALUE "モデルとキーを保存しました。".
+          05 FILLER PIC X(90) VALUE "模型和密钥已保存。".
+      *>   ROW-TOOLS
+          05 FILLER PIC X(90) VALUE ", tools".
+          05 FILLER PIC X(90) VALUE ", ferramentas".
+          05 FILLER PIC X(90) VALUE ", herramientas".
+          05 FILLER PIC X(90) VALUE ", outils".
+          05 FILLER PIC X(90) VALUE "、ツール".
+          05 FILLER PIC X(90) VALUE "，工具".
+      *>   ROW-RANK
+          05 FILLER PIC X(90) VALUE ", rank &1".
+          05 FILLER PIC X(90) VALUE ", nível &1".
+          05 FILLER PIC X(90) VALUE ", nivel &1".
+          05 FILLER PIC X(90) VALUE ", rang &1".
+          05 FILLER PIC X(90) VALUE "、ランク &1".
+          05 FILLER PIC X(90) VALUE "，等级 &1".
+      *>   ROW-KEY-SET
+          05 FILLER PIC X(90) VALUE "(key set)".
+          05 FILLER PIC X(90) VALUE "(chave definida)".
+          05 FILLER PIC X(90) VALUE "(clave definida)".
+          05 FILLER PIC X(90) VALUE "(clé définie)".
+          05 FILLER PIC X(90) VALUE "（キー設定済み）".
+          05 FILLER PIC X(90) VALUE "（已设置密钥）".
+      *>   ROW-AGENT
+          05 FILLER PIC X(90) VALUE "[agent &1]".
+          05 FILLER PIC X(90) VALUE "[agente &1]".
+          05 FILLER PIC X(90) VALUE "[agente &1]".
+          05 FILLER PIC X(90) VALUE "[agent &1]".
+          05 FILLER PIC X(90) VALUE "[エージェント &1]".
+          05 FILLER PIC X(90) VALUE "[代理 &1]".
+      *>   SETTINGS-TITLE
+          05 FILLER PIC X(90) VALUE "RAG settings".
+          05 FILLER PIC X(90) VALUE "Configurações de RAG".
+          05 FILLER PIC X(90) VALUE "Configuración de RAG".
+          05 FILLER PIC X(90) VALUE "Paramètres RAG".
+          05 FILLER PIC X(90) VALUE "RAG 設定".
+          05 FILLER PIC X(90) VALUE "RAG 设置".
+      *>   KB-FOLDER-LABEL
+          05 FILLER PIC X(90) VALUE "Knowledge Base folder (may be a folder on another machine)".
+          05 FILLER PIC X(90) VALUE "Pasta da base de conhecimento (pode ser uma pasta em outra máquina)".
+          05 FILLER PIC X(90) VALUE "Carpeta de la base de conocimiento (puede estar en otra máquina)".
+          05 FILLER PIC X(90) VALUE "Dossier de la base de connaissances (il peut se trouver sur une autre machine)".
+          05 FILLER PIC X(90) VALUE "ナレッジベースのフォルダー（別のマシン上のフォルダーでも可）".
+          05 FILLER PIC X(90) VALUE "知识库文件夹（可以位于另一台机器上）".
+      *>   SAVE-FOLDER
+          05 FILLER PIC X(90) VALUE "Save folder".
+          05 FILLER PIC X(90) VALUE "Salvar pasta".
+          05 FILLER PIC X(90) VALUE "Guardar carpeta".
+          05 FILLER PIC X(90) VALUE "Enregistrer le dossier".
+          05 FILLER PIC X(90) VALUE "フォルダーを保存".
+          05 FILLER PIC X(90) VALUE "保存文件夹".
+      *>   MODELS
+          05 FILLER PIC X(90) VALUE "Models".
+          05 FILLER PIC X(90) VALUE "Modelos".
+          05 FILLER PIC X(90) VALUE "Modelos".
+          05 FILLER PIC X(90) VALUE "Modèles".
+          05 FILLER PIC X(90) VALUE "モデル".
+          05 FILLER PIC X(90) VALUE "模型".
+      *>   AGENT
+          05 FILLER PIC X(90) VALUE "Agent".
+          05 FILLER PIC X(90) VALUE "Agente".
+          05 FILLER PIC X(90) VALUE "Agente".
+          05 FILLER PIC X(90) VALUE "Agent".
+          05 FILLER PIC X(90) VALUE "エージェント".
+          05 FILLER PIC X(90) VALUE "代理".
+      *>   ASSIGN-AGENT
+          05 FILLER PIC X(90) VALUE "Assign to agent".
+          05 FILLER PIC X(90) VALUE "Atribuir ao agente".
+          05 FILLER PIC X(90) VALUE "Asignar al agente".
+          05 FILLER PIC X(90) VALUE "Attribuer à l'agent".
+          05 FILLER PIC X(90) VALUE "エージェントに割り当て".
+          05 FILLER PIC X(90) VALUE "分配给代理".
+      *>   AGENT-OFF-BTN
+          05 FILLER PIC X(90) VALUE "Agent off".
+          05 FILLER PIC X(90) VALUE "Desligar agente".
+          05 FILLER PIC X(90) VALUE "Apagar agente".
+          05 FILLER PIC X(90) VALUE "Désactiver l'agent".
+          05 FILLER PIC X(90) VALUE "エージェントを停止".
+          05 FILLER PIC X(90) VALUE "停用代理".
+      *>   EDIT
+          05 FILLER PIC X(90) VALUE "Edit".
+          05 FILLER PIC X(90) VALUE "Editar".
+          05 FILLER PIC X(90) VALUE "Editar".
+          05 FILLER PIC X(90) VALUE "Modifier".
+          05 FILLER PIC X(90) VALUE "編集".
+          05 FILLER PIC X(90) VALUE "编辑".
+      *>   REMOVE
+          05 FILLER PIC X(90) VALUE "Remove".
+          05 FILLER PIC X(90) VALUE "Remover".
+          05 FILLER PIC X(90) VALUE "Quitar".
+          05 FILLER PIC X(90) VALUE "Retirer".
+          05 FILLER PIC X(90) VALUE "削除".
+          05 FILLER PIC X(90) VALUE "移除".
+      *>   NAME
+          05 FILLER PIC X(90) VALUE "Name".
+          05 FILLER PIC X(90) VALUE "Nome".
+          05 FILLER PIC X(90) VALUE "Nombre".
+          05 FILLER PIC X(90) VALUE "Nom".
+          05 FILLER PIC X(90) VALUE "名前".
+          05 FILLER PIC X(90) VALUE "名称".
+      *>   HINT-MODEL-NAME
+          05 FILLER PIC X(90) VALUE "e.g. company-model".
+          05 FILLER PIC X(90) VALUE "ex.: modelo-da-empresa".
+          05 FILLER PIC X(90) VALUE "p. ej. modelo-empresa".
+          05 FILLER PIC X(90) VALUE "ex. modele-entreprise".
+          05 FILLER PIC X(90) VALUE "例：company-model".
+          05 FILLER PIC X(90) VALUE "例如：company-model".
+      *>   HINT-API
+          05 FILLER PIC X(90) VALUE "OpenAI, Anthropic, Ollama, LMStudio or Custom".
+          05 FILLER PIC X(90) VALUE "OpenAI, Anthropic, Ollama, LMStudio ou Custom".
+          05 FILLER PIC X(90) VALUE "OpenAI, Anthropic, Ollama, LMStudio o Custom".
+          05 FILLER PIC X(90) VALUE "OpenAI, Anthropic, Ollama, LMStudio ou Custom".
+          05 FILLER PIC X(90) VALUE "OpenAI、Anthropic、Ollama、LMStudio、Custom のいずれか".
+          05 FILLER PIC X(90) VALUE "OpenAI、Anthropic、Ollama、LMStudio 或 Custom".
+      *>   ENDPOINT
+          05 FILLER PIC X(90) VALUE "Endpoint".
+          05 FILLER PIC X(90) VALUE "Endpoint".
+          05 FILLER PIC X(90) VALUE "Endpoint".
+          05 FILLER PIC X(90) VALUE "Point de terminaison".
+          05 FILLER PIC X(90) VALUE "エンドポイント".
+          05 FILLER PIC X(90) VALUE "端点".
+      *>   HINT-ENDPOINT
+          05 FILLER PIC X(90) VALUE "e.g. http://localhost:11434/api/chat".
+          05 FILLER PIC X(90) VALUE "ex.: http://localhost:11434/api/chat".
+          05 FILLER PIC X(90) VALUE "p. ej. http://localhost:11434/api/chat".
+          05 FILLER PIC X(90) VALUE "ex. http://localhost:11434/api/chat".
+          05 FILLER PIC X(90) VALUE "例：http://localhost:11434/api/chat".
+          05 FILLER PIC X(90) VALUE "例如：http://localhost:11434/api/chat".
+      *>   MODEL
+          05 FILLER PIC X(90) VALUE "Model".
+          05 FILLER PIC X(90) VALUE "Modelo".
+          05 FILLER PIC X(90) VALUE "Modelo".
+          05 FILLER PIC X(90) VALUE "Modèle".
+          05 FILLER PIC X(90) VALUE "モデル".
+          05 FILLER PIC X(90) VALUE "模型".
+      *>   HINT-MODEL
+          05 FILLER PIC X(90) VALUE "e.g. llama3.1".
+          05 FILLER PIC X(90) VALUE "ex.: llama3.1".
+          05 FILLER PIC X(90) VALUE "p. ej. llama3.1".
+          05 FILLER PIC X(90) VALUE "ex. llama3.1".
+          05 FILLER PIC X(90) VALUE "例：llama3.1".
+          05 FILLER PIC X(90) VALUE "例如：llama3.1".
+      *>   CALLS-TOOLS
+          05 FILLER PIC X(90) VALUE "Calls tools".
+          05 FILLER PIC X(90) VALUE "Chama ferramentas".
+          05 FILLER PIC X(90) VALUE "Usa herramientas".
+          05 FILLER PIC X(90) VALUE "Appelle des outils".
+          05 FILLER PIC X(90) VALUE "ツールを呼び出す".
+          05 FILLER PIC X(90) VALUE "可调用工具".
+      *>   RANK
+          05 FILLER PIC X(90) VALUE "Rank".
+          05 FILLER PIC X(90) VALUE "Nível".
+          05 FILLER PIC X(90) VALUE "Nivel".
+          05 FILLER PIC X(90) VALUE "Rang".
+          05 FILLER PIC X(90) VALUE "ランク".
+          05 FILLER PIC X(90) VALUE "等级".
+      *>   API-KEY
+          05 FILLER PIC X(90) VALUE "API key".
+          05 FILLER PIC X(90) VALUE "Chave de API".
+          05 FILLER PIC X(90) VALUE "Clave de API".
+          05 FILLER PIC X(90) VALUE "Clé API".
+          05 FILLER PIC X(90) VALUE "API キー".
+          05 FILLER PIC X(90) VALUE "API 密钥".
+      *>   HINT-KEY
+          05 FILLER PIC X(90) VALUE "Only to set or replace it - it is never shown again".
+          05 FILLER PIC X(90) VALUE "Só para definir ou trocar - ela nunca é mostrada de novo".
+          05 FILLER PIC X(90) VALUE "Solo para definirla o cambiarla: nunca se vuelve a mostrar".
+          05 FILLER PIC X(90) VALUE "Uniquement pour la définir ou la remplacer : elle ne sera plus jamais affichée".
+          05 FILLER PIC X(90) VALUE "設定または置き換えるときだけ入力 - 二度と表示されません".
+          05 FILLER PIC X(90) VALUE "仅用于设置或替换——之后不会再显示".
+      *>   SAVE-MODEL
+          05 FILLER PIC X(90) VALUE "Save model".
+          05 FILLER PIC X(90) VALUE "Salvar modelo".
+          05 FILLER PIC X(90) VALUE "Guardar modelo".
+          05 FILLER PIC X(90) VALUE "Enregistrer le modèle".
+          05 FILLER PIC X(90) VALUE "モデルを保存".
+          05 FILLER PIC X(90) VALUE "保存模型".
+      *>   CLOSE
+          05 FILLER PIC X(90) VALUE "Close".
+          05 FILLER PIC X(90) VALUE "Fechar".
+          05 FILLER PIC X(90) VALUE "Cerrar".
+          05 FILLER PIC X(90) VALUE "Fermer".
+          05 FILLER PIC X(90) VALUE "閉じる".
+          05 FILLER PIC X(90) VALUE "关闭".
+       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
+          05 PC-TEXT-ROW     OCCURS 35.
+             10 PC-TEXT      PIC X(90) OCCURS 6.
+      *>   The texts in the current language, by name.
+       01 PC-TEXTS-NOW       GLOBAL.
+          05 T-KB-FOLDER-SAVED PIC X(90).
+          05 T-PICK-MODEL-FIRST PIC X(90).
+          05 T-TYPE-AGENT PIC X(90).
+          05 T-AGENT-USES PIC X(90).
+          05 T-AGENT-OFF PIC X(90).
+          05 T-MODEL-REMOVED PIC X(90).
+          05 T-MODEL-NEEDS PIC X(90).
+          05 T-MODEL-SAVED PIC X(90).
+          05 T-MODEL-KEY-SAVED PIC X(90).
+          05 T-ROW-TOOLS PIC X(90).
+          05 T-ROW-RANK PIC X(90).
+          05 T-ROW-KEY-SET PIC X(90).
+          05 T-ROW-AGENT PIC X(90).
+          05 T-SETTINGS-TITLE PIC X(90).
+          05 T-KB-FOLDER-LABEL PIC X(90).
+          05 T-SAVE-FOLDER PIC X(90).
+          05 T-MODELS PIC X(90).
+          05 T-AGENT PIC X(90).
+          05 T-ASSIGN-AGENT PIC X(90).
+          05 T-AGENT-OFF-BTN PIC X(90).
+          05 T-EDIT PIC X(90).
+          05 T-REMOVE PIC X(90).
+          05 T-NAME PIC X(90).
+          05 T-HINT-MODEL-NAME PIC X(90).
+          05 T-HINT-API PIC X(90).
+          05 T-ENDPOINT PIC X(90).
+          05 T-HINT-ENDPOINT PIC X(90).
+          05 T-MODEL PIC X(90).
+          05 T-HINT-MODEL PIC X(90).
+          05 T-CALLS-TOOLS PIC X(90).
+          05 T-RANK PIC X(90).
+          05 T-API-KEY PIC X(90).
+          05 T-HINT-KEY PIC X(90).
+          05 T-SAVE-MODEL PIC X(90).
+          05 T-CLOSE PIC X(90).
+       01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
+          05 PC-TEXT-NOW     PIC X(90) OCCURS 35.
+      *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
+       01 WS-FMT             GLOBAL PIC X(90).
+       01 WS-ARG1            GLOBAL PIC X(300).
+       01 WS-ARG2            GLOBAL PIC X(300).
+       01 WS-ARG3            GLOBAL PIC X(300).
+       01 WS-ARG4            GLOBAL PIC X(300).
+       01 WS-FMT-OUT         GLOBAL PIC X(1200).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -204,20 +505,38 @@
                                   FUNCTION TRIM(MDL-MODEL)
                                DELIMITED BY SIZE INTO WS-ROW
                            IF MDL-TOOLS = "Y"
-                               STRING FUNCTION TRIM(WS-ROW) ", tools"
+                               MOVE T-ROW-TOOLS TO WS-FMT
+                               CALL "PC-FMT"
+                               MOVE WS-ROW TO WS-ARG4
+                               MOVE SPACES TO WS-ROW
+                               STRING FUNCTION TRIM(WS-ARG4) FUNCTION TRIM(WS-FMT-OUT)
                                    DELIMITED BY SIZE INTO WS-ROW
                            END-IF
                            IF MDL-RANK IS NUMERIC AND MDL-RANK > 0
-                               STRING FUNCTION TRIM(WS-ROW) ", rank " MDL-RANK
+                               MOVE T-ROW-RANK TO WS-FMT
+                               MOVE MDL-RANK TO WS-ARG1
+                               CALL "PC-FMT"
+                               MOVE WS-ROW TO WS-ARG4
+                               MOVE SPACES TO WS-ROW
+                               STRING FUNCTION TRIM(WS-ARG4) FUNCTION TRIM(WS-FMT-OUT)
                                    DELIMITED BY SIZE INTO WS-ROW
                            END-IF
                            IF WS-KEY-FLAG = "Y"
-                               STRING FUNCTION TRIM(WS-ROW) " (key set)"
+                               MOVE T-ROW-KEY-SET TO WS-FMT
+                               CALL "PC-FMT"
+                               MOVE WS-ROW TO WS-ARG4
+                               MOVE SPACES TO WS-ROW
+                               STRING FUNCTION TRIM(WS-ARG4) " " FUNCTION TRIM(WS-FMT-OUT)
                                    DELIMITED BY SIZE INTO WS-ROW
                            END-IF
                            PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
                                IF MDL-NAME = WS-AGENT-ENTRY(WS-A)
-                                   STRING FUNCTION TRIM(WS-ROW) "  [agent " WS-A "]"
+                                   MOVE T-ROW-AGENT TO WS-FMT
+                                   MOVE WS-A TO WS-ARG1
+                                   CALL "PC-FMT"
+                                   MOVE WS-ROW TO WS-ARG4
+                                   MOVE SPACES TO WS-ROW
+                                   STRING FUNCTION TRIM(WS-ARG4) "  " FUNCTION TRIM(WS-FMT-OUT)
                                        DELIMITED BY SIZE INTO WS-ROW
                                END-IF
                            END-PERFORM
@@ -227,12 +546,96 @@
            END-PERFORM
            CLOSE MODELS-FILE
 ]]></Event>
+    <Event name="PC-TEXTS" paragraph="PC-TEXTS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The language the user picked (LANG), the texts in it, and every
+      *>   designed caption and hint that shows one. Called on load and again
+      *>   whenever the language changes (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           MOVE WS-SET-VALUE(1:2) TO WS-LANG
+           EVALUATE WS-LANG
+               WHEN "en" MOVE 1 TO WS-LANG-IX
+               WHEN "pt" MOVE 2 TO WS-LANG-IX
+               WHEN "es" MOVE 3 TO WS-LANG-IX
+               WHEN "fr" MOVE 4 TO WS-LANG-IX
+               WHEN "jp" MOVE 5 TO WS-LANG-IX
+               WHEN "cn" MOVE 6 TO WS-LANG-IX
+               WHEN OTHER MOVE "en" TO WS-LANG
+                          MOVE 1 TO WS-LANG-IX
+           END-EVALUATE
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 35
+               MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
+           END-PERFORM
+           MOVE FUNCTION TRIM(T-SETTINGS-TITLE) TO Lbl-Title::Caption
+           MOVE FUNCTION TRIM(T-KB-FOLDER-LABEL) TO Lbl-KB::Caption
+           MOVE FUNCTION TRIM(T-SAVE-FOLDER) TO Btn-SaveKb::Caption
+           MOVE FUNCTION TRIM(T-MODELS) TO Lbl-Models::Caption
+           MOVE FUNCTION TRIM(T-AGENT) TO Lbl-Agent::Caption
+           MOVE FUNCTION TRIM(T-ASSIGN-AGENT) TO Btn-Use::Caption
+           MOVE FUNCTION TRIM(T-AGENT-OFF-BTN) TO Btn-ClearAgent::Caption
+           MOVE FUNCTION TRIM(T-EDIT) TO Btn-Edit::Caption
+           MOVE FUNCTION TRIM(T-REMOVE) TO Btn-Remove::Caption
+           MOVE FUNCTION TRIM(T-NAME) TO Lbl-Name::Caption
+           MOVE FUNCTION TRIM(T-HINT-MODEL-NAME) TO Txt-Name::HintText
+           MOVE FUNCTION TRIM(T-HINT-API) TO Txt-Api::HintText
+           MOVE FUNCTION TRIM(T-ENDPOINT) TO Lbl-Url::Caption
+           MOVE FUNCTION TRIM(T-HINT-ENDPOINT) TO Txt-Url::HintText
+           MOVE FUNCTION TRIM(T-MODEL) TO Lbl-Model::Caption
+           MOVE FUNCTION TRIM(T-HINT-MODEL) TO Txt-Model::HintText
+           MOVE FUNCTION TRIM(T-CALLS-TOOLS) TO Chk-Tools::Caption
+           MOVE FUNCTION TRIM(T-RANK) TO Lbl-Rank::Caption
+           MOVE FUNCTION TRIM(T-API-KEY) TO Lbl-Key::Caption
+           MOVE FUNCTION TRIM(T-HINT-KEY) TO Txt-Key::HintText
+           MOVE FUNCTION TRIM(T-SAVE-MODEL) TO Btn-SaveModel::Caption
+           MOVE FUNCTION TRIM(T-CLOSE) TO Btn-Close::Caption
+]]></Event>
+    <Event name="PC-FMT" paragraph="PC-FMT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-PT              PIC 9(4).
+       01 WS-FROM            PIC 9(4).
+       01 WS-CNT             PIC 9(4).
+       01 WS-PART            PIC X(90).
+       01 WS-DELIM           PIC XX.
+       PROCEDURE DIVISION.
+      *>   A message whose words go round numbers and names differently in each
+      *>   language: WS-FMT holds "&1" .. "&4" where WS-ARG1..4 go.
+           MOVE SPACES TO WS-FMT-OUT
+           MOVE 1 TO WS-PT
+           MOVE 1 TO WS-FROM
+           PERFORM UNTIL WS-FROM > FUNCTION LENGTH(WS-FMT)
+               MOVE SPACES TO WS-PART WS-DELIM
+               MOVE 0 TO WS-CNT
+               UNSTRING WS-FMT DELIMITED BY "&1" OR "&2" OR "&3" OR "&4"
+                   INTO WS-PART DELIMITER IN WS-DELIM COUNT IN WS-CNT
+                   WITH POINTER WS-FROM
+               END-UNSTRING
+               IF WS-CNT > 0
+                   STRING WS-PART(1:WS-CNT) DELIMITED BY SIZE
+                       INTO WS-FMT-OUT WITH POINTER WS-PT
+               END-IF
+               EVALUATE WS-DELIM
+                   WHEN "&1" STRING FUNCTION TRIM(WS-ARG1) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&2" STRING FUNCTION TRIM(WS-ARG2) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&3" STRING FUNCTION TRIM(WS-ARG3) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&4" STRING FUNCTION TRIM(WS-ARG4) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN OTHER COMPUTE WS-FROM = FUNCTION LENGTH(WS-FMT) + 1
+               END-EVALUATE
+           END-PERFORM
+]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="SETTINGS-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
            CALL "PC-PATHS"
+           CALL "PC-TEXTS"
            MOVE "KB-LOCATION" TO WS-SET-NAME
            CALL "PC-SETTING-GET"
            IF WS-SET-VALUE = SPACES
@@ -418,7 +821,7 @@
                MOVE "assets/KB" TO WS-SET-VALUE
            END-IF
            CALL "PC-SETTING-PUT"
-           MOVE "Knowledge Base folder saved." TO Lbl-Status::Caption
+           MOVE FUNCTION TRIM(T-KB-FOLDER-SAVED) TO Lbl-Status::Caption
 ]]></Event>
   </Control>
   <Control id="Lbl-Models" type="Label" x="24" y="132" w="632" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -635,22 +1038,23 @@
        PROCEDURE DIVISION.
            MOVE Lst-Models::GetSelectedIndex() TO WS-INDEX
            IF WS-INDEX < 0 OR WS-INDEX >= WS-MODEL-COUNT
-               MOVE "Pick a model in the list first." TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-PICK-MODEL-FIRST) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            ADD 1 TO WS-INDEX
            MOVE Txt-Agent::Text TO WS-AGENT
            IF WS-AGENT NOT = "1" AND WS-AGENT NOT = "2" AND WS-AGENT NOT = "3"
-               MOVE "Type the agent: 1, 2 or 3." TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-TYPE-AGENT) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            MOVE SPACES TO WS-SET-NAME
            STRING "AGENT-" WS-AGENT "-ENTRY" DELIMITED BY SIZE INTO WS-SET-NAME
            MOVE WS-MODEL-NAME(WS-INDEX) TO WS-SET-VALUE
            CALL "PC-SETTING-PUT"
-           MOVE SPACES TO WS-STATUS
-           STRING "Agent " WS-AGENT " now uses this model." DELIMITED BY SIZE INTO WS-STATUS
-           MOVE WS-STATUS TO Lbl-Status::Caption
+           MOVE T-AGENT-USES TO WS-FMT
+           MOVE WS-AGENT TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
            CALL "PC-LOAD-MODELS"
 ]]></Event>
   </Control>
@@ -700,16 +1104,17 @@
        PROCEDURE DIVISION.
            MOVE Txt-Agent::Text TO WS-AGENT
            IF WS-AGENT NOT = "1" AND WS-AGENT NOT = "2" AND WS-AGENT NOT = "3"
-               MOVE "Type the agent: 1, 2 or 3." TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-TYPE-AGENT) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            MOVE SPACES TO WS-SET-NAME
            STRING "AGENT-" WS-AGENT "-ENTRY" DELIMITED BY SIZE INTO WS-SET-NAME
            MOVE SPACES TO WS-SET-VALUE
            CALL "PC-SETTING-PUT"
-           MOVE SPACES TO WS-STATUS
-           STRING "Agent " WS-AGENT " is off." DELIMITED BY SIZE INTO WS-STATUS
-           MOVE WS-STATUS TO Lbl-Status::Caption
+           MOVE T-AGENT-OFF TO WS-FMT
+           MOVE WS-AGENT TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
            CALL "PC-LOAD-MODELS"
 ]]></Event>
   </Control>
@@ -759,7 +1164,7 @@
        PROCEDURE DIVISION.
            MOVE Lst-Models::GetSelectedIndex() TO WS-INDEX
            IF WS-INDEX < 0 OR WS-INDEX >= WS-MODEL-COUNT
-               MOVE "Pick a model in the list first." TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-PICK-MODEL-FIRST) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            ADD 1 TO WS-INDEX
@@ -836,7 +1241,7 @@
        PROCEDURE DIVISION.
            MOVE Lst-Models::GetSelectedIndex() TO WS-INDEX
            IF WS-INDEX < 0 OR WS-INDEX >= WS-MODEL-COUNT
-               MOVE "Pick a model in the list first." TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-PICK-MODEL-FIRST) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            ADD 1 TO WS-INDEX
@@ -854,7 +1259,7 @@
            CLOSE MODELS-FILE
            CALL "COBOL-MODEL-REMOVE" USING MDL-NAME
            CALL "COBOL-KEY-REMOVE" USING MDL-NAME
-           MOVE "Model removed, with its key." TO Lbl-Status::Caption
+           MOVE FUNCTION TRIM(T-MODEL-REMOVED) TO Lbl-Status::Caption
            CALL "PC-LOAD-MODELS"
 ]]></Event>
   </Control>
@@ -1484,7 +1889,7 @@
                MOVE 5 TO MDL-RANK
            END-IF
            IF MDL-NAME = SPACES OR MDL-API = SPACES
-               MOVE "A model needs at least a name and an API." TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-MODEL-NEEDS) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            OPEN I-O MODELS-FILE
@@ -1499,12 +1904,12 @@
            COMMIT
            CLOSE MODELS-FILE
            CALL "COBOL-MODEL-SET" USING MDL-NAME MDL-API MDL-URL MDL-MODEL
-           MOVE "Model saved." TO WS-STATUS
+           MOVE T-MODEL-SAVED TO WS-STATUS
            MOVE Txt-Key::Text TO WS-KEY
            IF WS-KEY NOT = SPACES
                CALL "COBOL-KEY-SET" USING MDL-NAME WS-KEY WS-STATUS
                IF WS-STATUS = "OK"
-                   MOVE "Model and key saved." TO WS-STATUS
+                   MOVE T-MODEL-KEY-SAVED TO WS-STATUS
                END-IF
                MOVE SPACES TO WS-KEY
                MOVE SPACES TO Txt-Key::Text

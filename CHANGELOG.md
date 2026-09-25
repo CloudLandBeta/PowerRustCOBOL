@@ -8,6 +8,37 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.205] — 2026-09-25
+
+### Feature — PowerChat Phase 2, step 5: six languages (spec 071 R44–R46)
+
+- **Six flags in the SideMenu's footer switch PowerChat's interface at once.**
+  The languages are English, Portuguese (pt-BR), Spanish, French, Japanese
+  and Chinese. The flags are `PictureBox` images (`assets/flags/*.png`, listed
+  as project assets so they ship with a build). The choice is stored as the
+  `LANG` setting, and every other form opens in it.
+- **The texts are COBOL, not the IDE's `Tr`.**
+  - Each form carries a translation table in its WORKING-STORAGE: 124 rows in
+    all, each with six `FILLER`s, overlaid by a `REDEFINES`.
+  - `PC-TEXTS` copies the chosen column into named `T-` items and re-applies
+    every designed caption and hint.
+  - `PC-FMT` fills `&1`..`&4` in a message, so each language puts its numbers
+    and names where its grammar wants them.
+- **The menu's rows are added at run time.** A row designed in the menu file
+  cannot be relabelled, so the menu file is now empty.
+- **Every window is titled "PowerChat".** A window's title cannot change after
+  it opens, so each form's translated heading label carries its name instead.
+- **Tests:**
+  - `powerchat_compiles` checks that every designed caption and hint is
+    re-applied from the table, and that every row is filled, and not
+    identical, across the six languages.
+  - `powerchat_runs` clicks each flag in turn. The chat form's button, hint
+    and status line follow at once, and the Topics form opens in that
+    language. The whole run takes about 4.8 s.
+- Found while writing it, not changed: `LENGTH OF item` (an IBM extension,
+  not COBOL-85) compiles and evaluates to 0 instead of being refused.
+  PowerChat uses `FUNCTION LENGTH`.
+
 ## [PowerRustCOBOL 1.70.204] — 2026-09-25
 
 ### Docs — PowerChat's READMEs are now in the repository

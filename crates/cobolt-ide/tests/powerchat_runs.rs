@@ -516,6 +516,45 @@ fn powerchat_settings_topics_documents_and_chat() {
         t.elapsed().as_secs_f64() * 1000.0
     ));
 
+    // ── Languages: each flag relabels the chat at once; other forms open in it ──
+    let t = Instant::now();
+    // Removing the samples cleared the current topic; open the operator's own.
+    let mut s = Session::start("topics-form.cfrm");
+    s.pick("Lst-Topics", 0);
+    s.click("Btn-Open");
+    s.wait_for("Lbl-Status", "Caption", |v| v.contains("Topic opened"));
+    s.quit();
+    let langs = [
+        ("pt", "Enviar", "Este mês:", "Nova conversa", "Criar tópico"),
+        ("es", "Enviar", "Este mes:", "Nueva conversación", "Crear tema"),
+        ("fr", "Envoyer", "Ce mois-ci :", "Nouvelle conversation", "Créer le sujet"),
+        ("jp", "送信", "今月：", "新しい会話", "トピックを作成"),
+        ("cn", "发送", "本月：", "新对话", "创建主题"),
+        ("en", "Send", "This month:", "New conversation", "Create topic"),
+    ];
+    let mut checked = 0;
+    for (code, send, month, new_conv, create) in langs {
+        let mut s = Session::start("chat-form.cfrm");
+        s.wait_for("Lbl-Status", "Caption", |v| !v.is_empty());
+        s.click(&format!("Flag-{code}"));
+        // In the order PC-RELABEL sets them: the hint, the button, the status.
+        let hint = s.wait_for("Txt-Input", "HintText", |v| code == "en" || v != "Ask about this topic");
+        assert!(!hint.is_empty(), "{code}: the hint");
+        s.wait_for("Btn-Send", "Caption", |v| v == send);
+        s.wait_for("Lbl-Status", "Caption", |v| v.starts_with(month));
+        s.quit();
+        let menu = std::fs::read_to_string(project().join("generated/chat-form.cbl")).unwrap();
+        assert!(menu.contains(&format!("VALUE \"{new_conv}\"")), "{code}: the menu row has its label");
+        let mut s = Session::start("topics-form.cfrm");
+        s.wait_for("Btn-Create", "Caption", |v| v == create);
+        s.quit();
+        checked += 1;
+    }
+    report.push(format!(
+        "languages: {checked} flags; the chat's button, hint and status and the Topics form follow each at once — {:.0} ms",
+        t.elapsed().as_secs_f64() * 1000.0
+    ));
+
     let sent = requests.lock().unwrap().clone();
 
     println!("\n  ── 071 PowerChat, played end to end ─────────────────────");
