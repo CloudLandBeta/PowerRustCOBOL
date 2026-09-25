@@ -8799,7 +8799,7 @@ Two things are kept apart, on purpose:
 
 | CALL | What it does |
 |---|---|
-| `COBOL-MODEL-SET USING name api url model [status]` | Adds or changes an entry. `api` is one the `AgentObject` speaks (`OpenAI`, `Anthropic`, `Ollama`, `LMStudio`, `Custom`); `model` may be blank. |
+| `COBOL-MODEL-SET USING name api url model [status]` | Adds or changes an entry. `api` is a provider id from the list below (`openai`, `anthropic`, `groq`, `ollama`, …), or `LMStudio` / `Custom`; `model` may be blank. |
 | `COBOL-MODEL-REMOVE USING name [status]` | Withdraws an entry. |
 | `COBOL-KEY-SET USING name key [status]` | Stores or replaces the key for an entry. |
 | `COBOL-KEY-REMOVE USING name [status]` | Removes it. |
@@ -8808,6 +8808,48 @@ Two things are kept apart, on purpose:
 `status` receives `OK`, or why it failed (the key file cannot be written, for
 example).
 
+**Offering your users the IDE's providers.** The IDE's Model Providers Manager
+knows seventeen providers — OpenAI, Anthropic, Cohere, Google Gemini,
+Perplexity, Mistral, Groq, OpenRouter, HuggingFace, Together AI, DeepSeek,
+Alibaba, xAI, Voyage AI, Ollama (local and cloud) and Llamafile — each with its
+default endpoint, whether it needs a key, how it lists its models and how its
+connection is tested. A built application has the same list and the same
+rules, without the IDE:
+
+| CALL | What it does |
+|---|---|
+| `COBOL-PROVIDER-COUNT USING count` | How many providers there are (17). |
+| `COBOL-PROVIDER-GET USING index id label endpoint needs-key` | Provider *index* (1-based, the IDE's order): its id (what `COBOL-MODEL-SET` takes as `api`), the name to show, its default endpoint, and `Y`/`N`. |
+| `COBOL-MODEL-LIST USING provider endpoint key count status [entry]` | Asks the provider which models it offers; `count` receives how many, `status` `OK` or the IDE's own message ("Could not list models: …"). A blank endpoint is the provider's default. |
+| `COBOL-MODEL-LIST-GET USING index model` | Model *index* of that list. |
+| `COBOL-MODEL-TEST USING provider endpoint model key status [entry]` | Asks the model one tiny question, as the IDE's **Test** button does. `status` is `OK`, or what to fix. |
+
+With a blank `key` and an `entry` name, the key stored for that entry is used —
+so a settings screen can test a saved model without ever reading its key back.
+
+```cobol
+           CALL "COBOL-MODEL-LIST" USING WS-PROVIDER WS-ENDPOINT WS-KEY
+                WS-COUNT WS-STATUS WS-ENTRY
+           IF WS-STATUS = "OK"
+               PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-COUNT
+                   CALL "COBOL-MODEL-LIST-GET" USING WS-I WS-MODEL
+                   MOVE CMB-MODEL::AddItem(WS-MODEL) TO WS-OK
+               END-PERFORM
+           ELSE
+               MOVE WS-STATUS TO LBL-STATUS::Caption
+           END-IF
+```
+
+The messages are the IDE's. A model the provider has retired is named as
+such; a hosted provider with no key is refused **before** anything is sent
+(an unauthenticated call comes back as 401 and reads like a rejected key); a
+401 comes with what to check, in order — a valid key, an expired or rotated
+one, a model the provider no longer offers.
+
+> **Note.** Both calls wait for the provider, for up to 30 seconds (a list) or
+> 60 (a test). The window keeps painting meanwhile; put "Testing…" in a status
+> label before the call so the operator knows why nothing else happens.
+
 **Which settings an agent uses.** Set **`ModelEntry`** — in the properties
 pane or at run time — and that entry wins: its API, endpoint and key, and its
 model if it names one. Otherwise `Configuration`, as above; otherwise the
@@ -8815,9 +8857,9 @@ control's own properties. `Temperature`, `MaximumTokens` and `TimeoutSeconds`
 are always the agent's own. A `KnowledgeBase` has a `ModelEntry` too, for its
 `Endpoint` embedder.
 
-If the entry does not exist, or it is an `OpenAI` or `Anthropic` entry with
-no key stored, `Ask` fails at once with `onError` naming the entry — nothing
-is sent. When an entry an agent has used is changed or withdrawn — by this form
+If the entry does not exist, or its provider needs a key (every provider but
+local Ollama) and none is stored, `Ask` fails at once with `onError` naming the
+entry — nothing is sent. When an entry an agent has used is changed or withdrawn — by this form
 or any other — that agent raises **`onModelChanged`**, so you can re-read your
 settings or pick another entry. A new key applies from the next request; no
 restart.

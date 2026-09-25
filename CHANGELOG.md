@@ -8,6 +8,51 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.212] — 2026-09-25
+
+### Feature — the IDE's model providers, in a built application
+
+- **New runtime module `providers`**, copied from the IDE, never linked to it.
+  It carries:
+  - the Model Providers Manager's 17 providers, with their default endpoints;
+  - the key rule: every provider but local Ollama needs a key;
+  - endpoint healing;
+  - model listing: each provider's list URL, credential header, parsing, the
+    OpenAI chat-model filter and the retired-model filter;
+  - the connection test: the same one-line question capped at 16 tokens, a
+    keyless hosted request refused before sending, and the 401 help text.
+- **New COBOL calls:**
+  - `COBOL-PROVIDER-COUNT` and `COBOL-PROVIDER-GET` read the list of
+    providers;
+  - `COBOL-MODEL-LIST` and `COBOL-MODEL-LIST-GET` ask a provider for its
+    models;
+  - `COBOL-MODEL-TEST` tests a connection.
+
+  `status` is `OK` or the IDE's own message. With a blank key and an entry
+  name, the entry's stored key is used and never returned.
+- **An AgentObject whose API is a provider id** is addressed the way the IDE
+  addresses it:
+  - Anthropic at `<API root>/messages`;
+  - the OpenAI-wire providers at `<API root>/chat/completions`, where a stored
+    full URL or a bare origin is brought back to the root. Before this, a
+    provider's default endpoint such as `https://api.openai.com/v1` was POSTed
+    to as written;
+  - Ollama keeps its native `/api/chat`, which spec 072's tool calling relies
+    on. Only its default `…/api` endpoint is completed.
+- **A model entry's key rule** now follows the provider list, as in the IDE.
+  The old API names (`OpenAI`, `Anthropic`, `Ollama`, `LMStudio`, `Custom`)
+  keep their old behaviour.
+- **Tests:**
+  - `providers` unit tests: the catalogue, the list URLs and headers, and the
+    chat address for every provider;
+  - `test_providers`: COBOL against a stand-in server that answers like OpenAI
+    and Ollama and refuses a bad key.
+- **Docs:** Developer's Guide ("Offering your users the IDE's providers"); the
+  System KB's `AgentAPI` and model-list text; `chunked.data` regenerated.
+- **Sweeps (release):** `cobolt-runtime` 128 suites, 1055 passed, 0 failed.
+  `cobolt-ide` 1258 passed, 1 failed (the known translation red); PowerChat
+  4/4 and 1/1.
+
 ## [PowerRustCOBOL 1.70.211] — 2026-09-25
 
 ### Feature — native file and folder dialogs from COBOL

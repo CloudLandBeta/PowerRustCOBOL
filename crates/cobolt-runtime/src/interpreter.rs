@@ -1760,6 +1760,9 @@ pub struct Interpreter {
     /// [`locked_files`](Self::locked_files) is the unrelated *intra*-run-unit
     /// rule about reopening a file closed `WITH LOCK`.
     share_locks: HashMap<String, std::fs::File>,
+    /// The models the last `COBOL-MODEL-LIST` fetched, read back one at a
+    /// time with `COBOL-MODEL-LIST-GET`.
+    provider_models: Vec<String>,
     /// `LINAGE-COUNTER` per LINAGE file: lines written into the current page
     /// body, counting from 1. Reset when a new page begins.
     linage_counters: HashMap<String, u32>,
@@ -2092,6 +2095,7 @@ impl Interpreter {
             record_to_file,
             open_files: HashMap::new(),
             share_locks: HashMap::new(),
+            provider_models: Vec::new(),
             locked_files: std::collections::HashSet::new(),
             linage_counters: HashMap::new(),
             report_files: HashMap::new(),
@@ -11129,6 +11133,105 @@ impl Interpreter {
                 self.env.set_str(&var, if set { "Y" } else { "N" });
             }
 
+            // ── Model providers (the IDE's list and rules, spec 048) ───────
+            // COBOL-PROVIDER-COUNT USING count
+            // COBOL-PROVIDER-GET   USING index id label default-endpoint needs-key
+            //   The providers an application can offer, 1-based, in the IDE's
+            //   order; `needs-key` is Y/N.
+            // COBOL-MODEL-LIST     USING provider endpoint key count status [entry]
+            // COBOL-MODEL-LIST-GET USING index model
+            //   Ask the provider which models it offers; read them back one at
+            //   a time. A blank endpoint is the provider's default.
+            // COBOL-MODEL-TEST     USING provider endpoint model key status [entry]
+            //   Ask the model one tiny question; `status` is OK or what to fix.
+            //   With a blank key and an `entry`, the key stored for that entry
+            //   is used (COBOL-KEY-SET) — the key itself is never returned.
+            "COBOL-PROVIDER-COUNT" if !using.is_empty() => {
+                let var = self.expr_to_name(call_arg_expr(&using[0]));
+                self.env.set_i64(&var, crate::providers::PROVIDERS.len() as i64);
+            }
+            "COBOL-PROVIDER-GET" if using.len() >= 2 => {
+                let i = self.eval_call_arg(&using[0], span)?.as_i64().unwrap_or(0);
+                let p = usize::try_from(i - 1).ok().and_then(|i| crate::providers::PROVIDERS.get(i));
+                let fields = match p {
+                    Some(p) => [
+                        p.id.to_string(),
+                        p.label.to_string(),
+                        p.default_endpoint.to_string(),
+                        if crate::providers::requires_key(p.id) { "Y" } else { "N" }.to_string(),
+                    ],
+                    None => Default::default(),
+                };
+                for (arg, value) in using[1..].iter().zip(fields.iter()) {
+                    let var = self.expr_to_name(call_arg_expr(arg));
+                    self.env.set_str(&var, value);
+                }
+            }
+            "COBOL-MODEL-LIST" | "COBOL-MODEL-TEST" if using.len() >= 4 => {
+                let text = |i: usize, me: &mut Self| -> Result<String, RuntimeError> {
+                    Ok(me.eval_call_arg(&using[i], span)?.as_display_string().trim().to_string())
+                };
+                let listing = prog_name == "COBOL-MODEL-LIST";
+                let provider = text(0, self)?;
+                let endpoint = text(1, self)?;
+                // LIST: provider endpoint key count status [entry]
+                // TEST: provider endpoint model key status [entry]
+                let (model, key_at) = if listing { (String::new(), 2) } else { (text(2, self)?, 3) };
+                let mut key = text(key_at, self)?;
+                // `entry` is the sixth argument of both calls.
+                let entry_at = 5;
+                if key.is_empty() {
+                    if let Some(arg) = using.get(entry_at) {
+                        let entry = self.eval_call_arg(arg, span)?.as_display_string();
+                        key = crate::key_store::key_store().get(entry.trim()).unwrap_or_default();
+                    }
+                }
+                let status = if listing {
+                    match crate::providers::list_models(&self.http, &provider, &endpoint, &key) {
+                        Ok(models) => {
+                            self.provider_models = models;
+                            if self.provider_models.is_empty() {
+                                "The provider answered, but offers no models.".to_string()
+                            } else {
+                                "OK".to_string()
+                            }
+                        }
+                        Err(e) => {
+                            self.provider_models.clear();
+                            format!("Could not list models: {e}")
+                        }
+                    }
+                } else {
+                    match crate::providers::test_connection(&self.http, &provider, &endpoint, &model, &key) {
+                        Ok(()) => "OK".to_string(),
+                        Err(e) => e,
+                    }
+                };
+                if listing {
+                    if let Some(arg) = using.get(3) {
+                        let var = self.expr_to_name(call_arg_expr(arg));
+                        self.env.set_i64(&var, self.provider_models.len() as i64);
+                    }
+                    if let Some(arg) = using.get(4) {
+                        let var = self.expr_to_name(call_arg_expr(arg));
+                        self.env.set_str(&var, &status);
+                    }
+                } else if let Some(arg) = using.get(4) {
+                    let var = self.expr_to_name(call_arg_expr(arg));
+                    self.env.set_str(&var, &status);
+                }
+            }
+            "COBOL-MODEL-LIST-GET" if using.len() >= 2 => {
+                let i = self.eval_call_arg(&using[0], span)?.as_i64().unwrap_or(0);
+                let name = usize::try_from(i - 1)
+                    .ok()
+                    .and_then(|i| self.provider_models.get(i))
+                    .cloned()
+                    .unwrap_or_default();
+                let var = self.expr_to_name(call_arg_expr(&using[1]));
+                self.env.set_str(&var, &name);
+            }
+
             // ── Native file dialogs ─────────────────────────────────────────
             // COBOL-OPEN-FILE-DIALOG USING title filter [start-folder] path
             // COBOL-SAVE-FILE-DIALOG USING title filter file-name [start-folder] path
@@ -11930,8 +12033,19 @@ impl Interpreter {
             }
             req.api_key = key.unwrap_or_default();
         }
-        let protocol = ag::protocol_for(&req.api, &req.url);
-        let url = ag::endpoint_for(&req, protocol);
+        // A provider from the catalogue is addressed the way the IDE addresses
+        // it (its API root plus `/messages` or `/chat/completions`); anything
+        // else — `LMStudio`, `Custom`, an explicit `AgentEndpoint` — keeps the
+        // older reading of the URL.
+        let (protocol, url) = match crate::providers::find(&req.api) {
+            Some(p) if req.endpoint.trim().is_empty() && !req.url.trim().is_empty() => {
+                crate::providers::chat_target(p.id, &req.url)
+            }
+            _ => {
+                let protocol = ag::protocol_for(&req.api, &req.url);
+                (protocol, ag::endpoint_for(&req, protocol))
+            }
+        };
         if url.trim().is_empty() {
             self.agent_failed(obj, "AgentURL is not set — there is nowhere to send the prompt");
             return;

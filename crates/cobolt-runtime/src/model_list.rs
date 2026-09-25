@@ -22,17 +22,20 @@ use std::sync::Mutex;
 /// One model a program has handed over (R1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelEntry {
-    /// One of the protocols an `AgentObject` speaks: `OpenAI`, `Anthropic`,
-    /// `Ollama`, `LMStudio`, `Custom`.
+    /// A provider id from [`crate::providers::PROVIDERS`] (`openai`,
+    /// `anthropic`, `groq`, `ollama`, … — the IDE's list), or one of the older
+    /// protocol names an `AgentObject` also speaks: `LMStudio`, `Custom`.
     pub api: String,
     pub url: String,
     pub model: String,
 }
 
 impl ModelEntry {
-    /// Whether this entry's API cannot be used without a key.
+    /// Whether this entry's API cannot be used without a key: a provider from
+    /// the catalogue that needs one — every one but local Ollama, the IDE's
+    /// `provider_requires_key` rule.
     pub fn needs_key(&self) -> bool {
-        matches!(self.api.trim().to_ascii_lowercase().as_str(), "openai" | "anthropic")
+        crate::providers::find(&self.api).is_some() && crate::providers::requires_key(&self.api)
     }
 }
 
