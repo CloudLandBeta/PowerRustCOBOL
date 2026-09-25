@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="CHAT-FORM" title="PowerChat" width="1000" height="760" background="36383EFF" background-gradient-enabled="true" background-gradient-start="#4E4E4EFF" background-gradient-end="#000000FF" background-gradient-direction="South" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Dark" main-form="true">
+<Form name="CHAT-FORM" title="PowerChat" width="1200" height="800" background="36383EFF" background-gradient-enabled="true" background-gradient-start="#4E4E4EFF" background-gradient-end="#000000FF" background-gradient-direction="South" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Dark" main-form="true">
   <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -1460,7 +1460,7 @@
     <Event name="onClose" paragraph="CHAT-FORM--ONCLOSE">
     </Event>
   </form-events>
-  <Control id="SideMenu-1" type="SideMenu" x="0" y="0" w="264" h="760" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="SideMenu-1" type="SideMenu" x="0" y="0" w="264" h="800" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1529,7 +1529,7 @@
            CALL "PC-STATUS"
 ]]></Event>
   </Control>
-  <Control id="Lbl-Topic" type="Label" x="288" y="16" w="688" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Topic" type="Label" x="288" y="16" w="888" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="FontSize">20</Property>
     <Property name="Bold">true</Property>
     <Property name="BackgroundColor">#00000000</Property>
@@ -1567,7 +1567,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lbl-Status" type="Label" x="288" y="50" w="688" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Status" type="Label" x="288" y="50" w="888" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1605,7 +1605,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Vwr-Chat" type="Viewer" x="288" y="80" w="688" h="528" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Vwr-Chat" type="Viewer" x="288" y="80" w="888" h="568" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1673,7 +1673,7 @@
     <Property name="View2Source"></Property>
     <Property name="View2SearchText"></Property>
   </Control>
-  <Control id="Txt-Input" type="TextBox" x="288" y="620" w="568" h="112" tab-order="1" z-order="0" visible="true" enabled="true">
+  <Control id="Txt-Input" type="TextBox" x="288" y="660" w="768" h="112" tab-order="1" z-order="0" visible="true" enabled="true">
     <Property name="HintText">Ask about this topic</Property>
     <Property name="Multiline">true</Property>
     <Property name="ScrollBars">Vertical</Property>
@@ -1721,7 +1721,7 @@
     <Property name="Picture"></Property>
     <Property name="PasswordCharacter"></Property>
   </Control>
-  <Control id="Btn-Send" type="Button" x="868" y="620" w="108" h="112" tab-order="2" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Send" type="Button" x="1068" y="660" w="108" h="112" tab-order="2" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Send</Property>
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
@@ -1809,7 +1809,7 @@
            MOVE FUNCTION TRIM(T-THINKING) TO Lbl-Status::Caption
 ]]></Event>
   </Control>
-  <Control id="PowerChat" type="Label" x="288" y="84" w="688" h="112" tab-order="0" z-order="0" visible="false" enabled="true">
+  <Control id="PowerChat" type="Label" x="288" y="84" w="888" h="112" tab-order="0" z-order="0" visible="false" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1847,7 +1847,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Pic-Robot" type="PictureBox" x="300" y="244" w="250" h="300" tab-order="0" z-order="0" visible="false" enabled="true">
+  <Control id="Pic-Robot" type="PictureBox" x="400" y="264" w="250" h="300" tab-order="0" z-order="0" visible="false" enabled="true">
     <Property name="ShowFrame">false</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowColor">#000000FF</Property>
@@ -1885,7 +1885,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lbl-Welcome" type="Label" x="570" y="244" w="406" h="56" tab-order="0" z-order="0" visible="false" enabled="true">
+  <Control id="Lbl-Welcome" type="Label" x="670" y="264" w="406" h="56" tab-order="0" z-order="0" visible="false" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1923,7 +1923,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lbl-Step-1" type="Label" x="570" y="316" w="406" h="50" tab-order="0" z-order="0" visible="false" enabled="true">
+  <Control id="Lbl-Step-1" type="Label" x="670" y="336" w="406" h="50" tab-order="0" z-order="0" visible="false" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1961,7 +1961,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lbl-Step-2" type="Label" x="570" y="376" w="406" h="70" tab-order="0" z-order="0" visible="false" enabled="true">
+  <Control id="Lbl-Step-2" type="Label" x="670" y="396" w="406" h="70" tab-order="0" z-order="0" visible="false" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1999,7 +1999,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lbl-Step-3" type="Label" x="570" y="456" w="406" h="50" tab-order="0" z-order="0" visible="false" enabled="true">
+  <Control id="Lbl-Step-3" type="Label" x="670" y="476" w="406" h="50" tab-order="0" z-order="0" visible="false" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -2037,7 +2037,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lbl-Step-4" type="Label" x="570" y="516" w="406" h="70" tab-order="0" z-order="0" visible="false" enabled="true">
+  <Control id="Lbl-Step-4" type="Label" x="670" y="536" w="406" h="70" tab-order="0" z-order="0" visible="false" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -2075,7 +2075,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="AGENT-1" type="AgentObject" x="1000" y="16" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="AGENT-1" type="AgentObject" x="1200" y="16" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="TimeoutSeconds">120</Property>
     <Property name="MaximumTokens">1024</Property>
     <Property name="SystemPrompt">You are a careful research assistant. Answer only from what the topic&apos;s documents and data say, and say so when they do not.</Property>
@@ -2156,7 +2156,7 @@
            CALL "PC-STATUS"
 ]]></Event>
   </Control>
-  <Control id="AGENT-2" type="AgentObject" x="1000" y="80" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="AGENT-2" type="AgentObject" x="1200" y="80" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="TimeoutSeconds">120</Property>
     <Property name="MaximumTokens">1024</Property>
     <Property name="SystemPrompt">You are a careful research assistant. Answer only from what the topic&apos;s documents and data say, and say so when they do not.</Property>
@@ -2237,7 +2237,7 @@
            CALL "PC-STATUS"
 ]]></Event>
   </Control>
-  <Control id="AGENT-3" type="AgentObject" x="1000" y="144" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="AGENT-3" type="AgentObject" x="1200" y="144" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="TimeoutSeconds">120</Property>
     <Property name="MaximumTokens">1024</Property>
     <Property name="SystemPrompt">You are a careful research assistant. Answer only from what the topic&apos;s documents and data say, and say so when they do not.</Property>
@@ -2318,7 +2318,7 @@
            CALL "PC-STATUS"
 ]]></Event>
   </Control>
-  <Control id="KB-1" type="KnowledgeBase" x="1000" y="208" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="KB-1" type="KnowledgeBase" x="1200" y="208" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -2365,7 +2365,7 @@
     <Property name="ModelEntry"></Property>
     <Property name="EmbeddingAPIKey"></Property>
   </Control>
-  <Control id="SideMenu-1-Footer" type="Panel" x="0" y="688" w="264" h="72" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1">
+  <Control id="SideMenu-1-Footer" type="Panel" x="0" y="728" w="264" h="72" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1">
     <Property name="IsSideMenuFooter">true</Property>
     <Property name="HideBackground">true</Property>
     <Property name="BorderStyle">None</Property>
@@ -2405,7 +2405,7 @@
     <Property name="DataFormat"></Property>
     <Property name="mcp_tool"></Property>
   </Control>
-  <Control id="Flag-en" type="Button" x="6" y="709" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
+  <Control id="Flag-en" type="Button" x="6" y="749" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -2456,7 +2456,7 @@
            CALL "PC-RELABEL"
 ]]></Event>
   </Control>
-  <Control id="Flag-pt" type="Button" x="48" y="709" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
+  <Control id="Flag-pt" type="Button" x="48" y="749" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -2507,7 +2507,7 @@
            CALL "PC-RELABEL"
 ]]></Event>
   </Control>
-  <Control id="Flag-es" type="Button" x="90" y="709" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
+  <Control id="Flag-es" type="Button" x="90" y="749" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -2558,7 +2558,7 @@
            CALL "PC-RELABEL"
 ]]></Event>
   </Control>
-  <Control id="Flag-fr" type="Button" x="132" y="709" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
+  <Control id="Flag-fr" type="Button" x="132" y="749" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -2609,7 +2609,7 @@
            CALL "PC-RELABEL"
 ]]></Event>
   </Control>
-  <Control id="Flag-jp" type="Button" x="174" y="709" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
+  <Control id="Flag-jp" type="Button" x="174" y="749" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -2660,7 +2660,7 @@
            CALL "PC-RELABEL"
 ]]></Event>
   </Control>
-  <Control id="Flag-cn" type="Button" x="216" y="709" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
+  <Control id="Flag-cn" type="Button" x="216" y="749" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">true</Property>

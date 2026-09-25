@@ -8,6 +8,15 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.219] — 2026-09-25
+
+### Feature — PowerChat's main window is 1200 x 800
+
+- `chat-form` grows from 1000 x 760 to 1200 x 800. The SideMenu runs the full
+  800 px (its footer and the flags move down with it); the chat, the status
+  line, the input and Send widen by 200 px, the chat grows 40 px taller, and
+  the welcome screen's robot, text and steps re-centre in the wider pane.
+
 ## [PowerRustCOBOL 1.70.218] — 2026-09-25
 
 ### Feature — PowerChat's language flags are real buttons
