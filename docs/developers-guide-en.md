@@ -1181,7 +1181,7 @@ to start your own. Everything in it is COBOL in its four forms:
 
 | Form | What it shows you how to do |
 |---|---|
-| `chat-form` (main) | A SideMenu shell; a `Viewer` as a chat; an `AgentObject` grounded in a `KnowledgeBase` with `AllowKnowledgeBase`; conversations as run-time menu rows; token totals from `LastInputTokens` / `LastOutputTokens` |
+| `chat-form` (main) | A SideMenu shell; a `Viewer` as a chat; three `AgentObject`s that elect an orchestrator and split the work (below), grounded in a `KnowledgeBase` with `AllowKnowledgeBase`; conversations as run-time menu rows; token totals from `LastInputTokens` / `LastOutputTokens` |
 | `topics-form` | Topics as data, each with its own Knowledge Base collection (`CreateCollection`) |
 | `documents-form` | A `FileDropZone` feeding the collection's folder, `Refresh()`, and a progress panel driven by `onProgress` / `onIndexed` |
 | `settings-form` | A model list the program keeps in its own indexed file, handed over with `COBOL-MODEL-SET`, and keys stored with `COBOL-KEY-SET` — never shown again |
@@ -1192,10 +1192,29 @@ time) and committed as each change is made. Set `POWERCHAT_DATA` to keep them
 somewhere other than `data/`. The project's `README.md` walks through a first
 run.
 
-> **Note.** This is PowerChat's first phase: one agent, in English. Several
-> agents electing an orchestrator, users' own indexed files for the model to
-> query, prompt versions, installable sample topics and the other five
-> languages follow.
+**Three agents, one answer.** Each of the chat form's three agents is given a
+model from the RAG settings, and each model entry says whether it **calls
+tools** and how well it **orchestrates** (a rank from 1 to 9). With one agent
+assigned, it answers alone. With more, they hold an election once per session,
+and again whenever a model changes (`onModelChanged`):
+
+- the highest rank orchestrates. If every agent runs the same model, one is
+  picked at random.
+- tool work goes to the best tool-capable agent that is not orchestrating. When
+  only one model can call tools, it does the tool work and the next-ranked agent
+  orchestrates.
+- the orchestrator alone gets the topic's system prompt. The others keep the
+  role prompt designed on them, and only the tool worker is offered the
+  Knowledge Base — the rest run with `ToolProtocol = None`.
+
+A question then goes through three stages, all in the form's COBOL. The
+orchestrator splits it into `TASK:` lines, the other agents work on them at
+once, and the orchestrator composes the answer from their results. The
+procedures to read are `PC-ELECT`, `PC-DISPATCH`, `PC-COMPOSE` and
+`PC-ON-REPLY`.
+
+> **Note.** Still to come: users' own indexed files for the model to query,
+> prompt versions, installable sample topics and the other five languages.
 >
 > ⚠️ **Caveat.** A method call written as a statement straight after a `MOVE`
 > is read as one more receiving field of that `MOVE` — `MOVE A TO B` followed
@@ -9095,7 +9114,7 @@ declared, and every value in it is a string.
 | `SetToolResult(call-id, text)` | The answer, sent when your handler returns. |
 | `AllowFile(fd-name [, cidx-path])` / `DenyFile(fd-name)` | Offers or withdraws an indexed file, for every agent. |
 | `RegisterFile(data-path, cidx-path [, name])` / `UnregisterFile(name)` | Offers or withdraws an indexed file by its path — local, network or `smb://` — with no `FD`. |
-| `ToolProtocol` | `Native` (default) or `Fenced` — see below. |
+| `ToolProtocol` | `Native` (default), `Fenced`, or `None` — see below. |
 | `MaximumToolRounds` | How many rounds of tool calls one `Ask` may take (default 8). |
 | `LastInputTokens`, `LastOutputTokens` | Tokens the provider reported for the last `Ask`, summed over every round. |
 | `LastToolCallCount` | How many tools the model called during the last `Ask`. |
@@ -9108,6 +9127,12 @@ the system prompt, and the model calls one by answering with a small fenced
 JSON block. It is slower and relies on the model following instructions, but it
 works with any model that can follow them. The control never guesses which one
 a model needs from its name — you choose.
+
+**`None`.** The files, Knowledge Bases and tools you allow are offered to
+**every** agent in the program. Set `ToolProtocol` to `None` on an agent whose
+model cannot call tools at all, and that agent is offered none of them — its
+requests are plain chat, whatever the others do. PowerChat's election sets it
+on every agent except the one doing the tool work.
 
 > **Notes.**
 > - An agent that offers no tools sends exactly the request it always sent.

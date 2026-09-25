@@ -18,6 +18,12 @@
        01 WS-KEY             GLOBAL PIC X(300).
        01 WS-STATUS          GLOBAL PIC X(200).
        01 WS-ROW             GLOBAL PIC X(160).
+       01 WS-AGENT           GLOBAL PIC X.
+       01 WS-A               GLOBAL PIC 9.
+       01 WS-AGENT-ENTRIES   GLOBAL.
+          05 WS-AGENT-ENTRY  PIC X(30) OCCURS 3.
+       01 WS-RANK-TEXT       GLOBAL PIC X.
+       01 WS-TOOLS           GLOBAL PIC X(4).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -90,6 +96,10 @@
            05 MDL-API           PIC X(12).
            05 MDL-URL           PIC X(200).
            05 MDL-MODEL         PIC X(80).
+      *>   The capability table (spec 071 R31, 063 R72): whether the model
+      *>   can call tools, and how well it orchestrates, 1 (poorly) to 9.
+           05 MDL-TOOLS         PIC X.
+           05 MDL-RANK          PIC 9.
 ]]></file-section>
   <user-procedures>
     <Event name="PC-PATHS" paragraph="PC-PATHS"><![CDATA[       ENVIRONMENT DIVISION.
@@ -144,6 +154,23 @@
            COMMIT
            CLOSE SETTINGS-FILE
 ]]></Event>
+    <Event name="PC-LOAD-AGENTS" paragraph="PC-LOAD-AGENTS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Which model each of the chat's three agents uses. Agent 1 falls
+      *>   back to MODEL-ENTRY, the single setting PowerChat 1 kept.
+           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               MOVE SPACES TO WS-SET-NAME
+               STRING "AGENT-" WS-A "-ENTRY" DELIMITED BY SIZE INTO WS-SET-NAME
+               CALL "PC-SETTING-GET"
+               MOVE WS-SET-VALUE TO WS-AGENT-ENTRY(WS-A)
+           END-PERFORM
+           IF WS-AGENT-ENTRY(1) = SPACES
+               MOVE "MODEL-ENTRY" TO WS-SET-NAME
+               CALL "PC-SETTING-GET"
+               MOVE WS-SET-VALUE TO WS-AGENT-ENTRY(1)
+           END-IF
+]]></Event>
     <Event name="PC-LOAD-MODELS" paragraph="PC-LOAD-MODELS"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -151,9 +178,7 @@
       *>   stored - never the key itself (spec 071 R37, 076 R6).
            MOVE Lst-Models::Clear() TO WS-OK
            MOVE 0 TO WS-MODEL-COUNT
-           MOVE "MODEL-ENTRY" TO WS-SET-NAME
-           CALL "PC-SETTING-GET"
-           MOVE WS-SET-VALUE TO WS-ACTIVE
+           CALL "PC-LOAD-AGENTS"
            OPEN I-O MODELS-FILE
            IF WS-FS = "35"
                OPEN OUTPUT MODELS-FILE
@@ -178,14 +203,24 @@
                                   FUNCTION TRIM(MDL-API) " "
                                   FUNCTION TRIM(MDL-MODEL)
                                DELIMITED BY SIZE INTO WS-ROW
+                           IF MDL-TOOLS = "Y"
+                               STRING FUNCTION TRIM(WS-ROW) ", tools"
+                                   DELIMITED BY SIZE INTO WS-ROW
+                           END-IF
+                           IF MDL-RANK IS NUMERIC AND MDL-RANK > 0
+                               STRING FUNCTION TRIM(WS-ROW) ", rank " MDL-RANK
+                                   DELIMITED BY SIZE INTO WS-ROW
+                           END-IF
                            IF WS-KEY-FLAG = "Y"
                                STRING FUNCTION TRIM(WS-ROW) " (key set)"
                                    DELIMITED BY SIZE INTO WS-ROW
                            END-IF
-                           IF MDL-NAME = WS-ACTIVE
-                               STRING FUNCTION TRIM(WS-ROW) "  [in use]"
-                                   DELIMITED BY SIZE INTO WS-ROW
-                           END-IF
+                           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+                               IF MDL-NAME = WS-AGENT-ENTRY(WS-A)
+                                   STRING FUNCTION TRIM(WS-ROW) "  [agent " WS-A "]"
+                                       DELIMITED BY SIZE INTO WS-ROW
+                               END-IF
+                           END-PERFORM
                            MOVE Lst-Models::AddItem(FUNCTION TRIM(WS-ROW)) TO WS-OK
                        END-IF
                END-READ
@@ -468,8 +503,94 @@
     <Property name="SelectedItemsColor"></Property>
     <Property name="ActiveItemTextColor"></Property>
   </Control>
-  <Control id="Btn-Use" type="Button" x="528" y="158" w="128" h="32" tab-order="4" z-order="0" visible="true" enabled="true">
-    <Property name="Caption">Use for chat</Property>
+  <Control id="Lbl-Agent" type="Label" x="528" y="158" w="56" h="28" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Agent</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Txt-Agent" type="TextBox" x="588" y="156" w="68" h="28" tab-order="4" z-order="0" visible="true" enabled="true">
+    <Property name="HintText">1-3</Property>
+    <Property name="MaximumLength">1</Property>
+    <Property name="Text">1</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="AutoEnter">false</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Fixed3D</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderColor">#AAAAAA</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Picture"></Property>
+    <Property name="PasswordCharacter"></Property>
+  </Control>
+  <Control id="Btn-Use" type="Button" x="528" y="190" w="128" h="28" tab-order="4" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Assign to agent</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -518,14 +639,81 @@
                EXIT PROGRAM
            END-IF
            ADD 1 TO WS-INDEX
-           MOVE "MODEL-ENTRY" TO WS-SET-NAME
+           MOVE Txt-Agent::Text TO WS-AGENT
+           IF WS-AGENT NOT = "1" AND WS-AGENT NOT = "2" AND WS-AGENT NOT = "3"
+               MOVE "Type the agent: 1, 2 or 3." TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           MOVE SPACES TO WS-SET-NAME
+           STRING "AGENT-" WS-AGENT "-ENTRY" DELIMITED BY SIZE INTO WS-SET-NAME
            MOVE WS-MODEL-NAME(WS-INDEX) TO WS-SET-VALUE
            CALL "PC-SETTING-PUT"
-           MOVE "The chat now uses this model." TO Lbl-Status::Caption
+           MOVE SPACES TO WS-STATUS
+           STRING "Agent " WS-AGENT " now uses this model." DELIMITED BY SIZE INTO WS-STATUS
+           MOVE WS-STATUS TO Lbl-Status::Caption
            CALL "PC-LOAD-MODELS"
 ]]></Event>
   </Control>
-  <Control id="Btn-Edit" type="Button" x="528" y="198" w="128" h="32" tab-order="5" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-ClearAgent" type="Button" x="528" y="222" w="128" h="28" tab-order="4" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Agent off</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IconPath"></Property>
+    <Event name="onClick" paragraph="BTN-CLEARAGENT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE Txt-Agent::Text TO WS-AGENT
+           IF WS-AGENT NOT = "1" AND WS-AGENT NOT = "2" AND WS-AGENT NOT = "3"
+               MOVE "Type the agent: 1, 2 or 3." TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           MOVE SPACES TO WS-SET-NAME
+           STRING "AGENT-" WS-AGENT "-ENTRY" DELIMITED BY SIZE INTO WS-SET-NAME
+           MOVE SPACES TO WS-SET-VALUE
+           CALL "PC-SETTING-PUT"
+           MOVE SPACES TO WS-STATUS
+           STRING "Agent " WS-AGENT " is off." DELIMITED BY SIZE INTO WS-STATUS
+           MOVE WS-STATUS TO Lbl-Status::Caption
+           CALL "PC-LOAD-MODELS"
+]]></Event>
+  </Control>
+  <Control id="Btn-Edit" type="Button" x="528" y="266" w="128" h="28" tab-order="5" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Edit</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
@@ -591,12 +779,18 @@
                    MOVE MDL-API TO Txt-Api::Text
                    MOVE MDL-URL TO Txt-Url::Text
                    MOVE MDL-MODEL TO Txt-Model::Text
+                   MOVE MDL-RANK TO Txt-Rank::Text
+                   IF MDL-TOOLS = "Y"
+                       MOVE "true" TO Chk-Tools::Checked
+                   ELSE
+                       MOVE "false" TO Chk-Tools::Checked
+                   END-IF
                    MOVE SPACES TO Txt-Key::Text
            END-READ
            CLOSE MODELS-FILE
 ]]></Event>
   </Control>
-  <Control id="Btn-Remove" type="Button" x="528" y="238" w="128" h="32" tab-order="6" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Remove" type="Button" x="528" y="300" w="128" h="28" tab-order="6" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Remove</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
@@ -1008,6 +1202,138 @@
     <Property name="Picture"></Property>
     <Property name="PasswordCharacter"></Property>
   </Control>
+  <Control id="Chk-Tools" type="CheckBox" x="528" y="452" w="128" h="24" tab-order="10" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Calls tools</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#8C8CA0</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">100</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Checked">false</Property>
+    <Property name="CheckAlignment">Left</Property>
+    <Property name="CheckColor">#0078D7</Property>
+    <Property name="CheckSize">70</Property>
+    <Property name="CheckBoxBorderStyle">None</Property>
+    <Property name="CheckBoxBorderColor">#8C8CA0</Property>
+    <Property name="CheckBoxBorderWidth">1</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="GroupName"></Property>
+    <Property name="CheckBoxColor"></Property>
+  </Control>
+  <Control id="Lbl-Rank" type="Label" x="528" y="418" w="60" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Rank</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Txt-Rank" type="TextBox" x="592" y="416" w="64" h="28" tab-order="10" z-order="0" visible="true" enabled="true">
+    <Property name="HintText">1-9</Property>
+    <Property name="MaximumLength">1</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="AutoEnter">false</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Fixed3D</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderColor">#AAAAAA</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Text"></Property>
+    <Property name="Picture"></Property>
+    <Property name="PasswordCharacter"></Property>
+  </Control>
   <Control id="Lbl-Key" type="Label" x="24" y="488" w="100" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">API key</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
@@ -1145,6 +1471,18 @@
            MOVE Txt-Api::Text TO MDL-API
            MOVE Txt-Url::Text TO MDL-URL
            MOVE Txt-Model::Text TO MDL-MODEL
+           MOVE Chk-Tools::IsChecked() TO WS-TOOLS
+           IF WS-TOOLS(1:1) = "1"
+               MOVE "Y" TO MDL-TOOLS
+           ELSE
+               MOVE "N" TO MDL-TOOLS
+           END-IF
+           MOVE Txt-Rank::Text TO WS-RANK-TEXT
+           IF WS-RANK-TEXT IS NUMERIC AND WS-RANK-TEXT NOT = "0"
+               MOVE WS-RANK-TEXT TO MDL-RANK
+           ELSE
+               MOVE 5 TO MDL-RANK
+           END-IF
            IF MDL-NAME = SPACES OR MDL-API = SPACES
                MOVE "A model needs at least a name and an API." TO Lbl-Status::Caption
                EXIT PROGRAM

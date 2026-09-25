@@ -92,6 +92,13 @@ impl Interpreter {
     /// The tools this agent offers: every consultable indexed file (065, for
     /// every agent — 072 Q2) and the ones the program declared on it.
     pub(super) fn agent_offered_tools(&self, obj: &str) -> Vec<ToolSpec> {
+        // `ToolProtocol = None`: this agent is offered no tool at all, whatever
+        // the program allowed — for a model that cannot call tools (spec 071,
+        // 063 R55/R66). Files and Knowledge Bases are allowed program-wide, so
+        // this is the one per-agent switch.
+        if self.obj_get(obj, "ToolProtocol").trim().eq_ignore_ascii_case("none") {
+            return Vec::new();
+        }
         let mut tools: Vec<ToolSpec> = self
             .mcp_tools
             .tools()

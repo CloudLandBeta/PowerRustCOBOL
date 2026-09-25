@@ -626,3 +626,33 @@ fn cancel_during_a_tool_call_stops_the_loop() {
         elapsed,
     );
 }
+
+/// Spec 071 — `ToolProtocol = None`: a file the program allowed is offered to
+/// every agent, and this switch takes it away from one. The request goes out
+/// as plain chat, with no tools field at all.
+#[test]
+fn tool_protocol_none_offers_this_agent_no_tools() {
+    let dir = temp("none");
+    let data = dir.join("actors.idx");
+    let cidx = dir.join("actors.cidx");
+    build_actors(&data);
+    std::fs::write(&cidx, ACTORS_CIDX).unwrap();
+    let (port, seen) = model_server(Box::new(|_, _| (200, openai_text("A plain answer."))));
+    let url = format!("http://127.0.0.1:{port}/v1/chat/completions");
+    let setup = format!(
+        r#"           MOVE AGT-1::AllowFile("ACTORS-FILE", "{}") TO WS-OK
+           DISPLAY "ALLOW=" WS-OK"#,
+        cidx.display()
+    );
+    let mut props = agent_props("OpenAI", &url);
+    props.push(("ToolProtocol", "None"));
+    let started = Instant::now();
+    let out = run(&program(&actors_fd(&data), &setup, ""), &props);
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(line(&out, "ALLOW="), Some("1"), "the file is allowed: {out:?}");
+    assert_eq!(line(&out, "REPLY="), Some("A plain answer."), "{out:?}");
+    assert_eq!(seen.len(), 1, "one plain round");
+    let first: serde_json::Value = serde_json::from_str(&seen[0]).unwrap();
+    assert!(first["tools"].is_null(), "no tools offered: {}", seen[0]);
+    report("ToolProtocol None", "OpenAI", "AllowFile + ToolProtocol=None", seen.len(), "0", started.elapsed());
+}

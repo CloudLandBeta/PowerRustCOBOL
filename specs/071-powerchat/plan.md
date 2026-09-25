@@ -146,3 +146,54 @@ See `tasks.md`.
 - **Prompt trimming by characters, not tokens.** It is documented as approximate.
 - **One agent in Phase 1.** The mesh (R26–R32) arrives in Phase 2, and the chat form is laid
   out so that more `AgentObject`s can be added without moving anything.
+
+---
+
+# Phase 2
+
+Operator decisions (2026-09-25):
+- **three agents** on the chat form, each assigned a model entry in the RAG
+  settings (or none);
+- **capabilities as fields on each model entry**: "can call tools" and an
+  orchestration rank from 1 to 9 (R72; an entry marked neither is not
+  tool-capable, R73);
+- **order**: mesh → registered files → prompt versions → sample topics →
+  languages → documents tree. Each step is committed and usable.
+
+## Step 1 — the agent mesh (R26–R32, R36; 063 R51–R71)
+
+- **MODELS** gains `MDL-TOOLS` (`Y`/`N`) and `MDL-RANK` (`9`). SETTINGS
+  holds `AGENT-1-ENTRY` … `AGENT-3-ENTRY`; Phase 1's `MODEL-ENTRY` is read as
+  agent 1's.
+- **settings-form:** the two new fields. "Use for chat" becomes "Assign to
+  agent N" (1–3), plus "Clear agent N".
+- **Election (`PC-ELECT`, chat-form),** over the agents that have an entry.
+  It is run once per session and again on `onModelChanged` or after settings
+  change (R70, R71).
+  - One agent: it answers alone (R52).
+  - Otherwise the orchestrator is the highest rank. When every agent uses the
+    same model it is picked at random (R57). When exactly one agent can call
+    tools, that one does the tool work and the next-ranked agent orchestrates
+    (R55, R56).
+  - The tool worker is the best-ranked tool-capable agent that is not the
+    orchestrator.
+  - With no tool-capable agent, the chat runs without tools (R66).
+  - The orchestrator gets the topic's system prompt (R63). The others keep the
+    role prompts designed on them (R64).
+- **A question with several agents** runs in three stages, driven by
+  `onResponse` (R58–R61):
+  1. **PLAN**: the orchestrator is asked to split the question into at most
+     three `TASK:` lines.
+  2. **WORK**: the tasks are sent concurrently, one Ask per worker. Tool-work
+     goes to the tool worker, which holds the KB (and, from step 2, the
+     registered files).
+  3. **COMPOSE**: once every worker has reported, the orchestrator composes
+     the answer from their results.
+  Tokens from every request count toward the conversation.
+- The status line names the orchestrator and the tool worker.
+
+## Steps 2–6
+
+Planned when each starts, in the order above: registered files (R20–R25),
+prompt versions (R48), sample topics (Q1), languages (R44–R46), documents tree
+(R49, R50).

@@ -44,6 +44,41 @@
              10 WS-CL-ID     PIC X(16).
              10 WS-CL-TITLE  PIC X(60).
        01 WS-I               GLOBAL PIC 9(4).
+      *>   The mesh (spec 071 R26-R32; 063 R51-R71): three agents, each with
+      *>   the model-list entry the settings assign it, its capabilities from
+      *>   that entry, and the role prompt designed on it.
+       01 WS-AGENTS          GLOBAL.
+          05 WS-AG           OCCURS 3.
+             10 WS-AG-ENTRY  PIC X(30).
+             10 WS-AG-MODEL  PIC X(80).
+             10 WS-AG-TOOLS  PIC X.
+             10 WS-AG-RANK   PIC 9.
+             10 WS-AG-ROLE   PIC X(1000).
+             10 WS-AG-TASK   PIC X(2000).
+             10 WS-AG-RESULT PIC X(2000).
+             10 WS-AG-WAIT   PIC X.
+       01 WS-N-AGENTS        GLOBAL PIC 9 VALUE 0.
+       01 WS-N-TOOLS         GLOBAL PIC 9 VALUE 0.
+       01 WS-ORCH            GLOBAL PIC 9 VALUE 0.
+       01 WS-WORKER          GLOBAL PIC 9 VALUE 0.
+       01 WS-FROM            GLOBAL PIC 9.
+       01 WS-A               GLOBAL PIC 9.
+       01 WS-B               GLOBAL PIC 9.
+       01 WS-BEST            GLOBAL PIC 9.
+       01 WS-SAME-MODEL      GLOBAL PIC X.
+       01 WS-STAGE           GLOBAL PIC X(8) VALUE "IDLE".
+       01 WS-PENDING         GLOBAL PIC 9 VALUE 0.
+       01 WS-TOPIC-PROMPT    GLOBAL PIC X(1000).
+       01 WS-HISTORY         GLOBAL PIC X(12000).
+       01 WS-TASK-COUNT      GLOBAL PIC 9 VALUE 0.
+       01 WS-TASKS           GLOBAL.
+          05 WS-TASK         PIC X(500) OCCURS 3.
+       01 WS-LINES           GLOBAL.
+          05 WS-L            PIC X(500) OCCURS 6.
+       01 WS-T-IN            GLOBAL PIC 9(9).
+       01 WS-T-OUT           GLOBAL PIC 9(9).
+       01 WS-RANDOM          GLOBAL PIC 9V9(6).
+       01 WS-ROLES-SEEN      GLOBAL PIC X VALUE "N".
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -157,6 +192,10 @@
            05 MDL-API           PIC X(12).
            05 MDL-URL           PIC X(200).
            05 MDL-MODEL         PIC X(80).
+      *>   The capability table (spec 071 R31, 063 R72): whether the model
+      *>   can call tools, and how well it orchestrates, 1 (poorly) to 9.
+           05 MDL-TOOLS         PIC X.
+           05 MDL-RANK          PIC 9.
 ]]></file-section>
   <user-procedures>
     <Event name="PC-PATHS" paragraph="PC-PATHS"><![CDATA[       ENVIRONMENT DIVISION.
@@ -244,20 +283,204 @@
                            USING MDL-NAME MDL-API MDL-URL MDL-MODEL
                END-READ
            END-PERFORM
+      *>   Each agent's entry, and what the entry says the model can do.
+           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               MOVE SPACES TO WS-SET-NAME
+               STRING "AGENT-" WS-A "-ENTRY" DELIMITED BY SIZE INTO WS-SET-NAME
+               CALL "PC-SETTING-GET"
+               IF WS-A = 1 AND WS-SET-VALUE = SPACES
+                   MOVE "MODEL-ENTRY" TO WS-SET-NAME
+                   CALL "PC-SETTING-GET"
+               END-IF
+               MOVE WS-SET-VALUE TO WS-AG-ENTRY(WS-A)
+               MOVE SPACES TO WS-AG-MODEL(WS-A)
+               MOVE "N" TO WS-AG-TOOLS(WS-A)
+               MOVE 0 TO WS-AG-RANK(WS-A)
+               IF WS-AG-ENTRY(WS-A) NOT = SPACES
+                   MOVE WS-AG-ENTRY(WS-A) TO MDL-NAME
+                   READ MODELS-FILE
+                       INVALID KEY MOVE SPACES TO WS-AG-ENTRY(WS-A)
+                       NOT INVALID KEY
+                           MOVE MDL-MODEL TO WS-AG-MODEL(WS-A)
+                           MOVE MDL-TOOLS TO WS-AG-TOOLS(WS-A)
+                           IF MDL-RANK IS NUMERIC
+                               MOVE MDL-RANK TO WS-AG-RANK(WS-A)
+                           END-IF
+                   END-READ
+               END-IF
+               MOVE WS-A TO WS-FROM
+           EVALUATE WS-FROM
+               WHEN 1
+                   MOVE WS-AG-ENTRY(1) TO AGENT-1::ModelEntry
+               WHEN 2
+                   MOVE WS-AG-ENTRY(2) TO AGENT-2::ModelEntry
+               WHEN 3
+                   MOVE WS-AG-ENTRY(3) TO AGENT-3::ModelEntry
+           END-EVALUATE
+           END-PERFORM
            CLOSE MODELS-FILE
-           MOVE "MODEL-ENTRY" TO WS-SET-NAME
-           CALL "PC-SETTING-GET"
-           MOVE WS-SET-VALUE TO AGENT-1::ModelEntry
            MOVE "KB-LOCATION" TO WS-SET-NAME
            CALL "PC-SETTING-GET"
            IF WS-SET-VALUE NOT = SPACES
                MOVE WS-SET-VALUE TO KB-1::Location
            END-IF
 ]]></Event>
+    <Event name="PC-READ-ROLES" paragraph="PC-READ-ROLES"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The role prompt designed on each agent (R64), kept before the
+      *>   election gives the orchestrator the topic's prompt instead (R63).
+           IF WS-ROLES-SEEN = "Y"
+               EXIT PROGRAM
+           END-IF
+           MOVE "Y" TO WS-ROLES-SEEN
+           MOVE AGENT-1::SystemPrompt TO WS-AG-ROLE(1)
+           MOVE AGENT-2::SystemPrompt TO WS-AG-ROLE(2)
+           MOVE AGENT-3::SystemPrompt TO WS-AG-ROLE(3)
+]]></Event>
+    <Event name="PC-ELECT" paragraph="PC-ELECT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Who orchestrates and who does the tool work (063 R52-R57, R66).
+      *>   Run once per session, and again when a model changes (R70, R71).
+           MOVE 0 TO WS-N-AGENTS WS-N-TOOLS WS-ORCH WS-WORKER
+           MOVE "Y" TO WS-SAME-MODEL
+           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               IF WS-AG-ENTRY(WS-A) NOT = SPACES
+                   ADD 1 TO WS-N-AGENTS
+                   IF WS-AG-TOOLS(WS-A) = "Y"
+                       ADD 1 TO WS-N-TOOLS
+                   END-IF
+                   IF WS-ORCH = 0
+                       MOVE WS-A TO WS-ORCH
+                   ELSE
+                       IF WS-AG-MODEL(WS-A) NOT = WS-AG-MODEL(WS-ORCH)
+                           MOVE "N" TO WS-SAME-MODEL
+                       END-IF
+                       IF WS-AG-RANK(WS-A) > WS-AG-RANK(WS-ORCH)
+                           MOVE WS-A TO WS-ORCH
+                       END-IF
+                   END-IF
+               END-IF
+           END-PERFORM
+           EVALUATE TRUE
+               WHEN WS-N-AGENTS = 0
+                   MOVE "No model is assigned to an agent - open RAG settings."
+                       TO Lbl-Status::Caption
+               WHEN WS-N-AGENTS = 1
+      *>           One agent answers by itself (R52).
+                   IF WS-AG-TOOLS(WS-ORCH) = "Y"
+                       MOVE WS-ORCH TO WS-WORKER
+                   END-IF
+               WHEN OTHER
+      *>           Every agent on the same model: any of them, at random (R57).
+                   IF WS-SAME-MODEL = "Y"
+                       MOVE FUNCTION RANDOM TO WS-RANDOM
+                       COMPUTE WS-B = WS-RANDOM * WS-N-AGENTS + 1
+                       MOVE 0 TO WS-A
+                       PERFORM VARYING WS-BEST FROM 1 BY 1 UNTIL WS-BEST > 3
+                           IF WS-AG-ENTRY(WS-BEST) NOT = SPACES
+                               ADD 1 TO WS-A
+                               IF WS-A = WS-B
+                                   MOVE WS-BEST TO WS-ORCH
+                               END-IF
+                           END-IF
+                       END-PERFORM
+                   END-IF
+      *>           The only tool-capable model does the tool work; the next
+      *>           best orchestrates (R55, R56).
+                   IF WS-N-TOOLS = 1 AND WS-AG-TOOLS(WS-ORCH) = "Y"
+                       MOVE WS-ORCH TO WS-WORKER
+                       MOVE 0 TO WS-ORCH
+                       PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+                           IF WS-AG-ENTRY(WS-A) NOT = SPACES AND WS-A NOT = WS-WORKER
+                               IF WS-ORCH = 0
+                                   MOVE WS-A TO WS-ORCH
+                               ELSE
+                                   IF WS-AG-RANK(WS-A) > WS-AG-RANK(WS-ORCH)
+                                       MOVE WS-A TO WS-ORCH
+                                   END-IF
+                               END-IF
+                           END-IF
+                       END-PERFORM
+                   ELSE
+      *>               The best-ranked tool-capable agent that is not orchestrating.
+                       PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+                           IF WS-AG-ENTRY(WS-A) NOT = SPACES AND WS-A NOT = WS-ORCH
+                                   AND WS-AG-TOOLS(WS-A) = "Y"
+                               IF WS-WORKER = 0
+                                   MOVE WS-A TO WS-WORKER
+                               ELSE
+                                   IF WS-AG-RANK(WS-A) > WS-AG-RANK(WS-WORKER)
+                                       MOVE WS-A TO WS-WORKER
+                                   END-IF
+                               END-IF
+                           END-IF
+                       END-PERFORM
+                   END-IF
+           END-EVALUATE
+      *>   Prompts: the topic's to the orchestrator only (R63); the others
+      *>   keep their role prompts (R64). The Knowledge Base goes to the tool
+      *>   worker alone; with none, the chat runs without tools (R66).
+           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               MOVE WS-A TO WS-FROM
+               IF WS-A = WS-ORCH
+                   MOVE WS-TOPIC-PROMPT TO WS-TEXT
+               ELSE
+                   MOVE WS-AG-ROLE(WS-A) TO WS-TEXT
+               END-IF
+           EVALUATE WS-FROM
+               WHEN 1
+                   MOVE WS-TEXT TO AGENT-1::SystemPrompt
+      *>           Tools only for the tool worker; the others get none (R66).
+                   IF 1 = WS-WORKER
+                       MOVE "Native" TO AGENT-1::ToolProtocol
+                   ELSE
+                       MOVE "None" TO AGENT-1::ToolProtocol
+                   END-IF
+                   IF WS-ALLOWED-TOPIC NOT = SPACES
+                       MOVE AGENT-1::DenyKnowledgeBase("KB-1", WS-ALLOWED-TOPIC) TO WS-OK
+                   END-IF
+                   IF 1 = WS-WORKER AND WS-CUR-TOPIC NOT = SPACES
+                       MOVE AGENT-1::AllowKnowledgeBase("KB-1", WS-CUR-TOPIC) TO WS-OK
+                   END-IF
+               WHEN 2
+                   MOVE WS-TEXT TO AGENT-2::SystemPrompt
+      *>           Tools only for the tool worker; the others get none (R66).
+                   IF 2 = WS-WORKER
+                       MOVE "Native" TO AGENT-2::ToolProtocol
+                   ELSE
+                       MOVE "None" TO AGENT-2::ToolProtocol
+                   END-IF
+                   IF WS-ALLOWED-TOPIC NOT = SPACES
+                       MOVE AGENT-2::DenyKnowledgeBase("KB-1", WS-ALLOWED-TOPIC) TO WS-OK
+                   END-IF
+                   IF 2 = WS-WORKER AND WS-CUR-TOPIC NOT = SPACES
+                       MOVE AGENT-2::AllowKnowledgeBase("KB-1", WS-CUR-TOPIC) TO WS-OK
+                   END-IF
+               WHEN 3
+                   MOVE WS-TEXT TO AGENT-3::SystemPrompt
+      *>           Tools only for the tool worker; the others get none (R66).
+                   IF 3 = WS-WORKER
+                       MOVE "Native" TO AGENT-3::ToolProtocol
+                   ELSE
+                       MOVE "None" TO AGENT-3::ToolProtocol
+                   END-IF
+                   IF WS-ALLOWED-TOPIC NOT = SPACES
+                       MOVE AGENT-3::DenyKnowledgeBase("KB-1", WS-ALLOWED-TOPIC) TO WS-OK
+                   END-IF
+                   IF 3 = WS-WORKER AND WS-CUR-TOPIC NOT = SPACES
+                       MOVE AGENT-3::AllowKnowledgeBase("KB-1", WS-CUR-TOPIC) TO WS-OK
+                   END-IF
+           END-EVALUATE
+           END-PERFORM
+           MOVE WS-CUR-TOPIC TO WS-ALLOWED-TOPIC
+           MOVE "IDLE" TO WS-STAGE
+]]></Event>
     <Event name="PC-LOAD-TOPIC" paragraph="PC-LOAD-TOPIC"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-      *>   The selected topic decides everything the agent may use: its system
+      *>   The selected topic decides everything the agents may use: its system
       *>   prompt and its Knowledge Base collection, and nothing else (R7).
            MOVE "CUR-TOPIC" TO WS-SET-NAME
            CALL "PC-SETTING-GET"
@@ -283,13 +506,180 @@
                EXIT PROGRAM
            END-IF
            MOVE TOP-NAME TO Lbl-Topic::Caption
-           MOVE TOP-PROMPT TO AGENT-1::SystemPrompt
+           MOVE TOP-PROMPT TO WS-TOPIC-PROMPT
            MOVE WS-CUR-TOPIC TO KB-1::Collection
-           IF WS-ALLOWED-TOPIC NOT = SPACES AND WS-ALLOWED-TOPIC NOT = WS-CUR-TOPIC
-               MOVE AGENT-1::DenyKnowledgeBase("KB-1", WS-ALLOWED-TOPIC) TO WS-OK
+           CALL "PC-ELECT"
+]]></Event>
+    <Event name="PC-ASK" paragraph="PC-ASK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-FROM (1-3) and WS-PROMPT in: that agent's question goes out.
+           EVALUATE WS-FROM
+               WHEN 1
+                   MOVE AGENT-1::Ask(FUNCTION TRIM(WS-PROMPT)) TO WS-OK
+               WHEN 2
+                   MOVE AGENT-2::Ask(FUNCTION TRIM(WS-PROMPT)) TO WS-OK
+               WHEN 3
+                   MOVE AGENT-3::Ask(FUNCTION TRIM(WS-PROMPT)) TO WS-OK
+           END-EVALUATE
+]]></Event>
+    <Event name="PC-ADD-TOKENS" paragraph="PC-ADD-TOKENS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-T-IN, WS-T-OUT in: one request's tokens, added to the
+      *>   conversation - every agent's requests count (R42).
+           OPEN I-O CONVS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT CONVS-FILE
+               CLOSE CONVS-FILE
+               OPEN I-O CONVS-FILE
            END-IF
-           MOVE AGENT-1::AllowKnowledgeBase("KB-1", WS-CUR-TOPIC) TO WS-OK
-           MOVE WS-CUR-TOPIC TO WS-ALLOWED-TOPIC
+           MOVE WS-CUR-CONV TO CNV-ID
+           READ CONVS-FILE
+               INVALID KEY CONTINUE
+               NOT INVALID KEY
+                   ADD WS-T-IN TO CNV-IN-TOKENS
+                   ADD WS-T-OUT TO CNV-OUT-TOKENS
+                   MOVE WS-SEQ TO CNV-TURNS
+                   REWRITE CONV-REC
+                   END-REWRITE
+                   COMMIT
+           END-READ
+           CLOSE CONVS-FILE
+]]></Event>
+    <Event name="PC-FINISH" paragraph="PC-FINISH"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-REPLY in: the answer the user sees, kept as the next turn.
+           MOVE "IDLE" TO WS-STAGE
+           MOVE WS-REPLY TO WS-MSG
+           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG)) TO WS-OK
+           MOVE Vwr-Chat::JumpToLatest() TO WS-OK
+           MOVE "A" TO WS-ROLE
+           MOVE WS-REPLY TO WS-TEXT
+           CALL "PC-SAVE-TURN"
+           CALL "PC-STATUS"
+]]></Event>
+    <Event name="PC-DISPATCH" paragraph="PC-DISPATCH"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The orchestrator's plan in WS-REPLY: its TASK: lines go to the other
+      *>   agents, all at once (R58, R59). The tool worker takes the first.
+           MOVE 0 TO WS-TASK-COUNT
+           MOVE SPACES TO WS-LINES
+           UNSTRING WS-REPLY DELIMITED BY X"0A"
+               INTO WS-L(1) WS-L(2) WS-L(3) WS-L(4) WS-L(5) WS-L(6)
+           END-UNSTRING
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 6
+               IF WS-TASK-COUNT < 3
+                   MOVE FUNCTION TRIM(WS-L(WS-I)) TO WS-L(WS-I)
+                   IF FUNCTION UPPER-CASE(WS-L(WS-I)(1:5)) = "TASK:"
+                       ADD 1 TO WS-TASK-COUNT
+                       MOVE FUNCTION TRIM(WS-L(WS-I)(6:495))
+                           TO WS-TASK(WS-TASK-COUNT)
+                   END-IF
+               END-IF
+           END-PERFORM
+           IF WS-TASK-COUNT = 0
+               MOVE 1 TO WS-TASK-COUNT
+               MOVE WS-QUESTION TO WS-TASK(1)
+           END-IF
+      *>   Round-robin over the agents that are not orchestrating, the tool
+      *>   worker first.
+           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               MOVE SPACES TO WS-AG-TASK(WS-A) WS-AG-RESULT(WS-A)
+               MOVE "N" TO WS-AG-WAIT(WS-A)
+           END-PERFORM
+           MOVE WS-WORKER TO WS-B
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-TASK-COUNT
+               PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+                   IF WS-B = 0 OR WS-B = WS-ORCH OR WS-AG-ENTRY(WS-B) = SPACES
+                       ADD 1 TO WS-B
+                       IF WS-B > 3
+                           MOVE 1 TO WS-B
+                       END-IF
+                   END-IF
+               END-PERFORM
+               STRING FUNCTION TRIM(WS-AG-TASK(WS-B)) " - " FUNCTION TRIM(WS-TASK(WS-I))
+                   DELIMITED BY SIZE INTO WS-AG-TASK(WS-B)
+               ADD 1 TO WS-B
+               IF WS-B > 3
+                   MOVE 1 TO WS-B
+               END-IF
+           END-PERFORM
+           MOVE 0 TO WS-PENDING
+           MOVE "WORK" TO WS-STAGE
+           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               IF WS-AG-TASK(WS-A) NOT = SPACES
+                   ADD 1 TO WS-PENDING
+                   MOVE "Y" TO WS-AG-WAIT(WS-A)
+               END-IF
+           END-PERFORM
+           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               IF WS-AG-WAIT(WS-A) = "Y"
+                   MOVE SPACES TO WS-PROMPT
+                   STRING "Task" FUNCTION TRIM(WS-AG-TASK(WS-A)) X"0A"
+                          "Answer with the facts that settle it, briefly."
+                          " Search the documents with your tools when you need to."
+                       DELIMITED BY SIZE INTO WS-PROMPT
+                   MOVE WS-A TO WS-FROM
+                   CALL "PC-ASK"
+               END-IF
+           END-PERFORM
+           MOVE SPACES TO WS-LINE
+           STRING "Working: " WS-TASK-COUNT " task(s) across " WS-PENDING " agent(s)..."
+               DELIMITED BY SIZE INTO WS-LINE
+           MOVE WS-LINE TO Lbl-Status::Caption
+]]></Event>
+    <Event name="PC-COMPOSE" paragraph="PC-COMPOSE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Every task has reported (R60): the orchestrator answers from the
+      *>   results. No agent answers the user directly (R61).
+           MOVE SPACES TO WS-PROMPT
+           MOVE 1 TO WS-PTR
+           STRING FUNCTION TRIM(WS-HISTORY) X"0A" X"0A"
+                  "Your assistants reported:" X"0A"
+               DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
+           END-STRING
+           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               IF WS-AG-TASK(WS-A) NOT = SPACES
+                   STRING "- On" FUNCTION TRIM(WS-AG-TASK(WS-A)) ": "
+                          FUNCTION TRIM(WS-AG-RESULT(WS-A)) X"0A"
+                       DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
+                   END-STRING
+               END-IF
+           END-PERFORM
+           STRING X"0A" "Answer the user's last question from these results."
+               DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
+           END-STRING
+           MOVE "COMPOSE" TO WS-STAGE
+           MOVE WS-ORCH TO WS-FROM
+           CALL "PC-ASK"
+]]></Event>
+    <Event name="PC-ON-REPLY" paragraph="PC-ON-REPLY"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-FROM, WS-REPLY, WS-T-IN, WS-T-OUT in: an agent answered.
+           CALL "PC-ADD-TOKENS"
+           EVALUATE WS-STAGE
+               WHEN "SINGLE"
+               WHEN "COMPOSE"
+                   CALL "PC-FINISH"
+               WHEN "PLAN"
+                   CALL "PC-DISPATCH"
+               WHEN "WORK"
+                   IF WS-AG-WAIT(WS-FROM) = "Y"
+                       MOVE "N" TO WS-AG-WAIT(WS-FROM)
+                       MOVE WS-REPLY TO WS-AG-RESULT(WS-FROM)
+                       SUBTRACT 1 FROM WS-PENDING
+                       IF WS-PENDING = 0
+                           CALL "PC-COMPOSE"
+                       END-IF
+                   END-IF
+               WHEN OTHER
+                   CONTINUE
+           END-EVALUATE
 ]]></Event>
     <Event name="PC-NEW-CONV" paragraph="PC-NEW-CONV"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -384,6 +774,11 @@
                   FUNCTION TRIM(WS-E1) " input and " FUNCTION TRIM(WS-E2)
                   " output tokens."
                DELIMITED BY SIZE INTO WS-LINE
+           IF WS-N-AGENTS > 1
+               STRING FUNCTION TRIM(WS-LINE) " Orchestrator: agent " WS-ORCH
+                      ", tools: agent " WS-WORKER "."
+                   DELIMITED BY SIZE INTO WS-LINE
+           END-IF
            MOVE WS-LINE TO Lbl-Status::Caption
 ]]></Event>
     <Event name="PC-SAVE-TURN" paragraph="PC-SAVE-TURN"><![CDATA[       ENVIRONMENT DIVISION.
@@ -538,6 +933,7 @@
        DATA DIVISION.
        PROCEDURE DIVISION.
            CALL "PC-PATHS"
+           CALL "PC-READ-ROLES"
            CALL "PC-HAND-MODELS"
            MOVE SPACES TO WS-ALLOWED-TOPIC
            CALL "PC-LOAD-TOPIC"
@@ -619,6 +1015,7 @@
                WHEN "sett"
                    INVOKE ME::"OpenFormSync"("SETTINGS-FORM")
                    CALL "PC-HAND-MODELS"
+                   CALL "PC-ELECT"
                WHEN "newc"
                    CALL "PC-NEW-CONV"
                WHEN OTHER
@@ -873,6 +1270,13 @@
                MOVE Vwr-Chat::AppendMarkdown("Open a topic first - **Topics** in the menu.") TO WS-OK
                EXIT PROGRAM
            END-IF
+           IF WS-ORCH = 0
+               MOVE Vwr-Chat::AppendMarkdown("Assign a model to an agent first - **RAG settings** in the menu.") TO WS-OK
+               EXIT PROGRAM
+           END-IF
+           IF WS-STAGE NOT = "IDLE"
+               EXIT PROGRAM
+           END-IF
            CALL "PC-START-CONV"
            MOVE "U" TO WS-ROLE
            MOVE WS-QUESTION TO WS-TEXT
@@ -882,13 +1286,29 @@
            MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG)) TO WS-OK
            MOVE SPACES TO Txt-Input::Text
            CALL "PC-BUILD-PROMPT"
-           MOVE AGENT-1::Ask(FUNCTION TRIM(WS-PROMPT)) TO WS-OK
+           MOVE WS-PROMPT TO WS-HISTORY
+           IF WS-N-AGENTS = 1
+      *>       One agent answers by itself (R52).
+               MOVE "SINGLE" TO WS-STAGE
+           ELSE
+      *>       Several: the orchestrator plans first (R58).
+               MOVE "PLAN" TO WS-STAGE
+               STRING X"0A" X"0A"
+                      "Split the user's last question into at most 3 independent"
+                      " tasks for assistants who can search this topic's documents."
+                      " Reply with one line per task, each starting with TASK:"
+                   DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
+               END-STRING
+           END-IF
+           MOVE WS-ORCH TO WS-FROM
+           CALL "PC-ASK"
            MOVE "Thinking..." TO Lbl-Status::Caption
 ]]></Event>
   </Control>
   <Control id="AGENT-1" type="AgentObject" x="1000" y="16" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="TimeoutSeconds">120</Property>
     <Property name="MaximumTokens">1024</Property>
+    <Property name="SystemPrompt">You are a careful research assistant. Answer only from what the topic&apos;s documents and data say, and say so when they do not.</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -927,7 +1347,6 @@
     <Property name="AgentAPI">Ollama</Property>
     <Property name="AgentAPIKey"></Property>
     <Property name="AgentEndpoint"></Property>
-    <Property name="SystemPrompt">You are a helpful assistant.</Property>
     <Property name="Temperature">70</Property>
     <Property name="Stream">true</Property>
     <Property name="TargetControls"></Property>
@@ -936,41 +1355,19 @@
     <Event name="onResponse" paragraph="AGENT-1--ONRESPONSE"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
+           MOVE 1 TO WS-FROM
            MOVE AGENT-1::LastReply TO WS-REPLY
-           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-REPLY)) TO WS-OK
-           MOVE Vwr-Chat::JumpToLatest() TO WS-OK
-           MOVE "A" TO WS-ROLE
-           MOVE WS-REPLY TO WS-TEXT
-           CALL "PC-SAVE-TURN"
-      *>   Token counts, per conversation (R42).
-           OPEN I-O CONVS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT CONVS-FILE
-               CLOSE CONVS-FILE
-               OPEN I-O CONVS-FILE
-           END-IF
-           MOVE WS-CUR-CONV TO CNV-ID
-           READ CONVS-FILE
-               INVALID KEY CONTINUE
-               NOT INVALID KEY
-                   MOVE AGENT-1::LastInputTokens TO WS-TOKENS
-                   ADD WS-TOKENS TO CNV-IN-TOKENS
-                   MOVE AGENT-1::LastOutputTokens TO WS-TOKENS
-                   ADD WS-TOKENS TO CNV-OUT-TOKENS
-                   MOVE WS-SEQ TO CNV-TURNS
-                   REWRITE CONV-REC
-                   END-REWRITE
-                   COMMIT
-           END-READ
-           CLOSE CONVS-FILE
-           CALL "PC-STATUS"
+           MOVE AGENT-1::LastInputTokens TO WS-T-IN
+           MOVE AGENT-1::LastOutputTokens TO WS-T-OUT
+           CALL "PC-ON-REPLY"
 ]]></Event>
     <Event name="onError" paragraph="AGENT-1--ONERROR"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
+           MOVE "IDLE" TO WS-STAGE
            MOVE AGENT-1::LastError TO WS-TEXT
            MOVE SPACES TO WS-MSG
-           STRING "**The assistant could not answer:** " FUNCTION TRIM(WS-TEXT)
+           STRING "**Agent 1 could not answer:** " FUNCTION TRIM(WS-TEXT)
                DELIMITED BY SIZE INTO WS-MSG
            MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG)) TO WS-OK
            MOVE "The last question failed." TO Lbl-Status::Caption
@@ -978,11 +1375,165 @@
     <Event name="onModelChanged" paragraph="AGENT-1--ONMODELCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-      *>   The model this chat uses was changed in the settings (076).
-           MOVE "The model settings changed; the next question uses them." TO Lbl-Status::Caption
+      *>   A model an agent uses changed: a new election (R36; 063 R71).
+           CALL "PC-HAND-MODELS"
+           CALL "PC-ELECT"
+           CALL "PC-STATUS"
 ]]></Event>
   </Control>
-  <Control id="KB-1" type="KnowledgeBase" x="1000" y="80" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="AGENT-2" type="AgentObject" x="1000" y="80" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="TimeoutSeconds">120</Property>
+    <Property name="MaximumTokens">1024</Property>
+    <Property name="SystemPrompt">You are a careful research assistant. Answer only from what the topic&apos;s documents and data say, and say so when they do not.</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ToolProtocol">Native</Property>
+    <Property name="MaximumToolRounds">8</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Configuration"></Property>
+    <Property name="ModelEntry"></Property>
+    <Property name="AgentURL">http://localhost:11434</Property>
+    <Property name="AgentModel">llama3.2</Property>
+    <Property name="AgentAPI">Ollama</Property>
+    <Property name="AgentAPIKey"></Property>
+    <Property name="AgentEndpoint"></Property>
+    <Property name="Temperature">70</Property>
+    <Property name="Stream">true</Property>
+    <Property name="TargetControls"></Property>
+    <Property name="ResponseDataItem"></Property>
+    <Property name="Verbose">false</Property>
+    <Event name="onResponse" paragraph="AGENT-2--ONRESPONSE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE 2 TO WS-FROM
+           MOVE AGENT-2::LastReply TO WS-REPLY
+           MOVE AGENT-2::LastInputTokens TO WS-T-IN
+           MOVE AGENT-2::LastOutputTokens TO WS-T-OUT
+           CALL "PC-ON-REPLY"
+]]></Event>
+    <Event name="onError" paragraph="AGENT-2--ONERROR"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE "IDLE" TO WS-STAGE
+           MOVE AGENT-2::LastError TO WS-TEXT
+           MOVE SPACES TO WS-MSG
+           STRING "**Agent 2 could not answer:** " FUNCTION TRIM(WS-TEXT)
+               DELIMITED BY SIZE INTO WS-MSG
+           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG)) TO WS-OK
+           MOVE "The last question failed." TO Lbl-Status::Caption
+]]></Event>
+    <Event name="onModelChanged" paragraph="AGENT-2--ONMODELCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A model an agent uses changed: a new election (R36; 063 R71).
+           CALL "PC-HAND-MODELS"
+           CALL "PC-ELECT"
+           CALL "PC-STATUS"
+]]></Event>
+  </Control>
+  <Control id="AGENT-3" type="AgentObject" x="1000" y="144" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="TimeoutSeconds">120</Property>
+    <Property name="MaximumTokens">1024</Property>
+    <Property name="SystemPrompt">You are a careful research assistant. Answer only from what the topic&apos;s documents and data say, and say so when they do not.</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ToolProtocol">Native</Property>
+    <Property name="MaximumToolRounds">8</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Configuration"></Property>
+    <Property name="ModelEntry"></Property>
+    <Property name="AgentURL">http://localhost:11434</Property>
+    <Property name="AgentModel">llama3.2</Property>
+    <Property name="AgentAPI">Ollama</Property>
+    <Property name="AgentAPIKey"></Property>
+    <Property name="AgentEndpoint"></Property>
+    <Property name="Temperature">70</Property>
+    <Property name="Stream">true</Property>
+    <Property name="TargetControls"></Property>
+    <Property name="ResponseDataItem"></Property>
+    <Property name="Verbose">false</Property>
+    <Event name="onResponse" paragraph="AGENT-3--ONRESPONSE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE 3 TO WS-FROM
+           MOVE AGENT-3::LastReply TO WS-REPLY
+           MOVE AGENT-3::LastInputTokens TO WS-T-IN
+           MOVE AGENT-3::LastOutputTokens TO WS-T-OUT
+           CALL "PC-ON-REPLY"
+]]></Event>
+    <Event name="onError" paragraph="AGENT-3--ONERROR"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE "IDLE" TO WS-STAGE
+           MOVE AGENT-3::LastError TO WS-TEXT
+           MOVE SPACES TO WS-MSG
+           STRING "**Agent 3 could not answer:** " FUNCTION TRIM(WS-TEXT)
+               DELIMITED BY SIZE INTO WS-MSG
+           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG)) TO WS-OK
+           MOVE "The last question failed." TO Lbl-Status::Caption
+]]></Event>
+    <Event name="onModelChanged" paragraph="AGENT-3--ONMODELCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A model an agent uses changed: a new election (R36; 063 R71).
+           CALL "PC-HAND-MODELS"
+           CALL "PC-ELECT"
+           CALL "PC-STATUS"
+]]></Event>
+  </Control>
+  <Control id="KB-1" type="KnowledgeBase" x="1000" y="208" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>

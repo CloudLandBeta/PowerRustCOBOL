@@ -8,6 +8,40 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.200] — 2026-09-25
+
+### Feature — PowerChat Phase 2, step 1: the agent mesh (spec 071; 063 R51–R71)
+
+- **Three agents on PowerChat's chat form**, each assigned a model entry in the
+  RAG settings. Each entry now records whether the model calls tools and its
+  orchestration rank (1–9), which together make the capability table (R72).
+  Phase 1's single `MODEL-ENTRY` is read as agent 1's.
+- **An election in COBOL (`PC-ELECT`).** It runs once per session and again on
+  `onModelChanged` or after the settings change.
+  - One agent answers alone.
+  - Otherwise the highest rank orchestrates; when every agent runs the same
+    model, the orchestrator is chosen at random.
+  - When only one model calls tools, it does the tool work and the next-ranked
+    agent orchestrates.
+  - Only the orchestrator gets the topic's prompt; the other agents keep their
+    designed role prompts. Only the tool worker is offered tools.
+- **Each question goes through three stages:**
+  1. the orchestrator splits it into up to three `TASK:` lines;
+  2. the other agents work on them at once;
+  3. the orchestrator composes the answer from their results.
+  The tokens of every request count toward the conversation.
+- **Runtime: `ToolProtocol = None`**, a third value alongside `Native` and
+  `Fenced`. It offers that agent no tool at all. Files, Knowledge Bases and
+  declared tools are allowed program-wide, so this is the per-agent switch for
+  a model that cannot call tools (063 R66). Covered by
+  `test_agent_tool_calling::tool_protocol_none_offers_this_agent_no_tools`.
+  System KB and guide updated, `chunked.data` regenerated.
+- **`powerchat_runs` gains a mesh step.** A planner model (rank 9, no tools)
+  on agent 2 orchestrates and agent 1 does the tool work. The test checks four
+  requests (plan, the worker's tool round and answer, compose), the prompts
+  each agent was given, and that the composed answer is the turn kept. The
+  whole run takes 1.47 s.
+
 ## [PowerRustCOBOL 1.70.199] — 2026-09-24
 
 ### Fixes — two defects found while planning spec 075

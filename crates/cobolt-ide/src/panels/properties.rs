@@ -8673,7 +8673,7 @@ impl PropertiesPanel {
                     "Tool protocol:",
                     ctrl,
                     action,
-                    &["Native", "Fenced"],
+                    &["Native", "Fenced", "None"],
                 );
                 int_prop_row(
                     ui,

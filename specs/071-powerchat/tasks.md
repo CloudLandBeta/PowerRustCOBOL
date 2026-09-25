@@ -48,3 +48,14 @@
   statement straight after a `MOVE` is parsed as another receiving field.
   PowerChat writes every call statement as `MOVE X::M(...) TO WS-OK`, and the
   guide now warns about it.
+
+# Phase 2
+
+- [x] **P2-1 — Agent mesh** — MODELS capability fields; three agents; election; PLAN →
+  WORK → COMPOSE; re-election on change. Test: `powerchat_runs` gains a two-agent
+  mesh run against the scripted model (plan, parallel work, composed answer).
+- [ ] **P2-2 — Registered indexed files** (R20–R25)
+- [ ] **P2-3 — Prompt versions** (R48)
+- [ ] **P2-4 — Sample topics installer** (Q1)
+- [ ] **P2-5 — Six languages** (R44–R46)
+- [ ] **P2-6 — Documents folder tree** (R49, R50)

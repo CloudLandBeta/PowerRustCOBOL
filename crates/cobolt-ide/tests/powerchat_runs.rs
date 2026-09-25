@@ -154,7 +154,18 @@ fn model_server() -> (String, Arc<Mutex<Vec<String>>>) {
                 .map(|m| m.iter().any(|x| x["role"] == "tool"))
                 .unwrap_or(false);
             let tool = v["tools"][0]["function"]["name"].as_str().map(String::from);
-            let reply = match (tool, answered_tool) {
+            let planner = v["model"] == "planner-model";
+            let reply = if planner && body.contains("Split the user") {
+                serde_json::json!({
+                    "message": {"role": "assistant", "content": "TASK: annual leave days\nTASK: part-time staff"},
+                    "prompt_eval_count": 40, "eval_count": 9
+                })
+            } else if planner {
+                serde_json::json!({
+                    "message": {"role": "assistant", "content": "Composed: twenty working days, and part-time staff pro rata."},
+                    "prompt_eval_count": 90, "eval_count": 14
+                })
+            } else { match (tool, answered_tool) {
                 (Some(name), false) => serde_json::json!({
                     "message": {"role": "assistant", "content": "",
                                 "tool_calls": [{"function": {"name": name, "arguments": {"query": "annual leave days"}}}]},
@@ -164,7 +175,7 @@ fn model_server() -> (String, Arc<Mutex<Vec<String>>>) {
                     "message": {"role": "assistant", "content": "Employees get twenty working days of annual leave."},
                     "prompt_eval_count": 120, "eval_count": 12
                 }),
-            };
+            } };
             let reply = reply.to_string();
             let resp = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -204,11 +215,14 @@ fn powerchat_settings_topics_documents_and_chat() {
     s.type_into("Txt-Url", &url);
     s.type_into("Txt-Model", "llama-test");
     s.type_into("Txt-Key", "sk-POWERCHAT-secret");
+    s.input.send(StateUpdate::new("Chk-Tools", "Checked", "1")).unwrap();
+    s.type_into("Txt-Rank", "5");
     s.click("Btn-SaveModel");
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("key saved"));
     s.pick("Lst-Models", 0);
+    s.type_into("Txt-Agent", "1");
     s.click("Btn-Use");
-    s.wait_for("Lbl-Status", "Caption", |v| v.contains("now uses"));
+    s.wait_for("Lbl-Status", "Caption", |v| v.contains("Agent 1 now uses"));
     s.quit();
     assert!(cobolt_runtime::key_store::key_store().is_set("local-model"), "the key went to the key store");
     for f in std::fs::read_dir(&data).unwrap().flatten() {
@@ -300,6 +314,51 @@ fn powerchat_settings_topics_documents_and_chat() {
     assert!(continued.contains("User: And for part-time staff?"));
     assert!(status.starts_with("This month: 1 conversation(s)"), "the same conversation continued: {status}");
     report.push(format!("reopen:    conversation {conv_id} reloaded and continued with its history — {:.0} ms", t.elapsed().as_secs_f64() * 1000.0));
+
+    // ── The mesh: a planner on agent 2 orchestrates, agent 1 does the tool work ──
+    let t = Instant::now();
+    let mut s = Session::start("settings-form.cfrm");
+    s.type_into("Txt-Name", "planner");
+    s.type_into("Txt-Api", "Ollama");
+    s.type_into("Txt-Url", &url);
+    s.type_into("Txt-Model", "planner-model");
+    s.input.send(StateUpdate::new("Chk-Tools", "Checked", "0")).unwrap();
+    s.type_into("Txt-Rank", "9");
+    s.type_into("Txt-Key", "");
+    s.click("Btn-SaveModel");
+    s.wait_for("Lbl-Status", "Caption", |v| v.contains("Model saved"));
+    s.pick("Lst-Models", 1);
+    s.type_into("Txt-Agent", "2");
+    s.click("Btn-Use");
+    s.wait_for("Lbl-Status", "Caption", |v| v.contains("Agent 2 now uses"));
+    s.quit();
+    let before = requests.lock().unwrap().len();
+    let mut s = Session::start("chat-form.cfrm");
+    let elected = s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("This month"));
+    assert!(elected.contains("Orchestrator: agent 2, tools: agent 1."), "R55/R56: {elected}");
+    s.type_into("Txt-Input", "How much leave, and what about part-time staff?");
+    s.click("Btn-Send");
+    let status = s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("This month: 2"));
+    s.quit();
+    let sent = requests.lock().unwrap()[before..].to_vec();
+    let body = |i: usize| -> serde_json::Value { serde_json::from_str(&sent[i]).unwrap() };
+    assert_eq!(sent.len(), 4, "plan, the worker's tool round and answer, compose: {sent:#?}");
+    assert_eq!(body(0)["model"], "planner-model");
+    assert!(sent[0].contains("company's HR policies"), "the orchestrator has the topic's prompt (R63)");
+    assert!(body(0)["tools"].is_null(), "the planner calls no tools");
+    assert_eq!(body(1)["model"], "llama-test");
+    assert!(sent[1].contains("careful research assistant"), "the worker keeps its role prompt (R64)");
+    assert!(!sent[1].contains("company's HR policies"));
+    assert!(sent[1].contains("annual leave days") && sent[1].contains("part-time staff"), "both tasks");
+    assert!(sent[3].contains("Your assistants reported") && sent[3].contains("twenty working days"), "R60");
+    let turns = String::from_utf8_lossy(&std::fs::read(data.join("turns.idx")).unwrap()).into_owned();
+    assert!(turns.contains("Composed: twenty working days"), "the composed answer is the turn kept (R61)");
+    report.push(format!(
+        "mesh:      agent 2 orchestrates, agent 1 does tools; plan → 2 tasks → worker (KB) → composed; {} — {:.0} ms",
+        status.trim(),
+        t.elapsed().as_secs_f64() * 1000.0
+    ));
+    let sent = requests.lock().unwrap().clone();
 
     println!("\n  ── 071 PowerChat, played end to end ─────────────────────");
     for r in &report {
