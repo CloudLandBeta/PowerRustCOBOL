@@ -2349,15 +2349,17 @@ source. This keeps one field from silently drifting away from the row contract.
 > binding editor validates the mapping, not whether that pairing does anything
 > once the form runs. What populates today:
 >
-> - **A COBOL table** populates every approved target. A **ComboBox** or
+> - **A COBOL table** populates every approved target. A **DataGrid** gets
+>   one row per occurrence, one column per field. A **ComboBox** or
 >   **ListBox** gets one item per occurrence of the field mapped to its display
 >   text. A **chart** gets one point per occurrence: the category field is the
 >   label, and the first field mapped to a value series is the value. **Knob /
 >   Gauge / Switch**, **Maps** and **control arrays** populate too. All of these
 >   load as the form opens, after `onLoad`, so a table filled by `VALUE` clauses
->   or by your `onLoad` is already on screen. A **DataGrid** waits for you: your
->   code fills the table, then calls `RefreshBinding()`. Call `RefreshBinding()`
->   on any bound control after you change its table.
+>   or by your `onLoad` is already on screen. Call `RefreshBinding()` on any
+>   bound control after you change its table. (Until 1.70.226 a DataGrid bound
+>   to a COBOL table waited for that call even at start-up, so a grid bound to
+>   a table of `VALUE`s opened empty.)
 > - **An Indexed source** populates a **DataGrid**, reading the `.cidx`'s file
 >   directly, in primary-key order, with no `SELECT`/FD needed in your program.
 >   It refreshes itself the moment the binding loads, because there is no fill
@@ -2465,7 +2467,9 @@ background/foreground).
   etc.
 - **Grid fonts** and **Grid line styles**.
 - Honours the control/container `CornerRadius` (content + borders clipped).
-- For table bindings, `RefreshBinding()` repopulates from working-storage.
+- For table bindings, the grid loads as the form opens (after `onLoad`), and
+  `RefreshBinding()` repopulates it from working-storage after your code
+  changes the table.
 
 When binding, advanced metadata (widths, styles, order, filters…) is preserved
 for matching fields; the Data Binding Guardian prevents drift. See the

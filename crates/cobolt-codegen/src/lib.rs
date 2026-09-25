@@ -3832,6 +3832,10 @@ mod tests {
         assert!(src.contains(
             "INVOKE GRID-1 'SetProperty' USING BY CONTENT \"_BindingFields\" BY CONTENT \"ID,NAME,AMOUNT\""
         ));
+        // Loaded as the form opens (POPULATE runs after onLoad), not left
+        // waiting for the program's own RefreshBinding() (operator, 2026-09-25).
+        let populate = &src[src.find("COBOL-DATA-BINDINGS-POPULATE.").expect("a POPULATE paragraph")..];
+        assert!(populate.contains("INVOKE GRID-1 'RefreshBinding'"));
     }
 
     #[test]

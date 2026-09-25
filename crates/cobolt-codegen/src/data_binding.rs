@@ -226,22 +226,16 @@ fn write_binding_refresh_seed(out: &mut String, form: &Form, binding: &DataBindi
         out.push_str(&format!(
             "           INVOKE {control_id} 'RefreshBinding'\n"
         ));
+    } else {
+        // A DataGrid loads as the form opens too: POPULATE runs after
+        // `onLoad`, so a table filled by VALUE clauses or by `onLoad` is on
+        // screen without a call. It used to wait for the program's own
+        // `RefreshBinding()`, and a grid bound to a VALUE'd table stayed
+        // empty (operator, 2026-09-25).
+        out.push_str(&format!("           INVOKE {control_id} 'RefreshBinding'\n"));
     }
 }
 
-/// `IndexedFile` source -> `DataGrid` target: seed `_BindingKind`/`_BindingFields`
-/// (same shape as the `CobolTable` seed above) plus `_BindingIndexedPath` (the
-/// `.cidx` definition path exactly as the Designer saved it — resolved at
-/// runtime the same way a plain `SELECT ... ASSIGN TO` resolves its target:
-/// against the process's own working directory, since the interpreter has no
-/// project-root concept of its own).
-///
-/// Unlike the `CobolTable` `DataGrid` seed, this also invokes `RefreshBinding`
-/// immediately. A `CobolTable` source is a WS table the running program's own
-/// code has to fill first, so codegen cannot know when it is ready and leaves
-/// the first refresh to the developer; an indexed file has no such fill step —
-/// the `.cidx` plus the file already on disk are everything needed to populate
-/// the grid the moment the binding loads.
 /// `CobolTable` source -> `ComboBox` / `ListBox` target: the list's items are
 /// the table's occurrences of the field mapped to the list's display text
 /// (the first field when no mapping names one). Refreshed here, at POPULATE,
@@ -303,6 +297,16 @@ fn write_chart_binding_seed(out: &mut String, control_id: &str, binding: &DataBi
     out.push_str(&format!("           INVOKE {control_id} 'RefreshBinding'\n"));
 }
 
+/// `IndexedFile` source -> `DataGrid` target: seed `_BindingKind`/`_BindingFields`
+/// (same shape as the `CobolTable` seed above) plus `_BindingIndexedPath` (the
+/// `.cidx` definition path exactly as the Designer saved it — resolved at
+/// runtime the same way a plain `SELECT ... ASSIGN TO` resolves its target:
+/// against the process's own working directory, since the interpreter has no
+/// project-root concept of its own).
+///
+/// Like the `CobolTable` seed, this invokes `RefreshBinding` at once: the
+/// `.cidx` plus the file already on disk are everything needed to populate
+/// the grid the moment the binding loads.
 fn write_indexed_file_binding_seed(out: &mut String, control_id: &str, binding: &DataBindingDef) {
     let BindingSourceDescriptor::IndexedFile {
         definition_path,

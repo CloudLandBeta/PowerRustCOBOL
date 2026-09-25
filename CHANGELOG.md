@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.226] — 2026-09-25
+
+### Fix — a DataGrid bound to a COBOL table loads as the form opens
+
+- The generated POPULATE seeded a DataGrid's COBOL-table binding and then
+  waited for the program's own `RefreshBinding()`, so a grid bound to a table
+  of VALUE clauses (or one `onLoad` fills) opened empty. It now refreshes at
+  POPULATE, after `onLoad`, like every other bound control; `RefreshBinding()`
+  still reloads after the program changes the table.
+- `data_binding.rs`: the IndexedFile seed's doc comment is back on its own
+  function (1.70.224 had slipped two functions in between).
+- Guide, System KB (DataGrid `RefreshBinding`) and `chunked.data` updated.
+- Test: `data_binding_codegen_seeds_datagrid_refresh_identity_for_cobol_tables`
+  asserts the refresh in POPULATE.
+
 ## [PowerRustCOBOL 1.70.225] — 2026-09-25
 
 ### Feature — ComboBox and ListBox items from a text file

@@ -5933,7 +5933,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("GetSelectedText() → String", "Text of the current selection."),
             ("CopySelection()", "Copy the selection to the clipboard."),
             ("ExportCSV() → String", "Serialise the grid as CSV."),
-            ("RefreshBinding() → Integer", "Re-hydrate rows from the bound data source; returns the row count."),
+            ("RefreshBinding() → Integer", "Re-hydrate rows from the bound data source; returns the row count. A grid bound to a COBOL table or an indexed file also loads by itself as the form opens (after onLoad); call this after the program changes the table."),
         ],
         "FileDropZone" => vec![(
             "CommitFiles() → String",
