@@ -1106,7 +1106,7 @@ impl BindingEditorState {
             .any(|table| table.name == self.selected_cobol_table)
         {
             return Err(
-                "Selected COBOL table must resolve to a 01-level GLOBAL item with OCCURS."
+                "Selected COBOL table must resolve to an item with OCCURS, at any level, inside a GLOBAL 01."
                     .to_owned(),
             );
         }
@@ -1846,20 +1846,55 @@ fn cobol_table_binding_metadata(form: &Form) -> Vec<CobolTableBindingMeta> {
             _ => None,
         })
         .flat_map(|items| items.iter())
-        .filter_map(cobol_table_meta_from_root)
+        .flat_map(cobol_tables_under_root)
         .collect()
 }
 
-fn cobol_table_meta_from_root(root: &DataDecl) -> Option<CobolTableBindingMeta> {
+/// Every table under a GLOBAL 01: each item carrying OCCURS, at ANY level
+/// (01 through 49), that is not itself inside another OCCURS. Only the 01
+/// itself and its direct children used to be searched, and only the first
+/// OCCURS found there, so a table declared deeper in a group was never
+/// offered (operator, 2026-09-25). The table found by that old rule keeps
+/// the 01's name, so bindings saved against it still resolve; any other
+/// table is named by its own OCCURS item.
+fn cobol_tables_under_root(root: &DataDecl) -> Vec<CobolTableBindingMeta> {
     if root.level != 1 || !root.is_global {
-        return None;
+        return Vec::new();
     }
-    let name = root.name.as_ref()?.clone();
-    let occurs_item = if root.occurs.is_some() {
-        root
-    } else {
-        root.children.iter().find(|child| child.occurs.is_some())?
+    let Some(root_name) = root.name.as_ref() else {
+        return Vec::new();
     };
+    let legacy: Option<&DataDecl> = if root.occurs.is_some() {
+        Some(root)
+    } else {
+        root.children.iter().find(|child| child.occurs.is_some())
+    };
+    let mut found: Vec<&DataDecl> = Vec::new();
+    outermost_occurs(root, &mut found);
+    found
+        .into_iter()
+        .filter_map(|item| {
+            let name = if legacy.is_some_and(|l| std::ptr::eq(l, item)) {
+                root_name.clone()
+            } else {
+                item.name.as_ref()?.clone()
+            };
+            cobol_table_meta(name, item)
+        })
+        .collect()
+}
+
+fn outermost_occurs<'a>(item: &'a DataDecl, found: &mut Vec<&'a DataDecl>) {
+    if item.occurs.is_some() {
+        found.push(item);
+        return;
+    }
+    for child in &item.children {
+        outermost_occurs(child, found);
+    }
+}
+
+fn cobol_table_meta(name: String, occurs_item: &DataDecl) -> Option<CobolTableBindingMeta> {
     let occurs_name = occurs_item.name.as_ref()?.clone();
     let mut fields = Vec::new();
     collect_cobol_table_fields(occurs_item, &mut fields);
@@ -2418,7 +2453,7 @@ fn show_cobol_table_source_section(ui: &mut Ui, editor: &mut BindingEditorState)
     ui.heading("Configure COBOL table binding");
     ui.add_space(10.0);
     ui.label(
-        RichText::new("Table (01-level GLOBAL item with OCCURS)")
+        RichText::new("Table (an item with OCCURS, at any level, inside a GLOBAL 01)")
             .small()
             .color(Color32::GRAY),
     );
@@ -2450,9 +2485,9 @@ fn show_cobol_table_source_section(ui: &mut Ui, editor: &mut BindingEditorState)
     // table with OCCURS is enough to bind to, so we no longer ask the user for it.
     let helper = if editor.selected_cobol_table.trim().is_empty() {
         if editor.cobol_tables.is_empty() {
-            "No eligible 01-level GLOBAL working-storage table with OCCURS was found.".to_owned()
+            "No working-storage item with OCCURS was found inside a GLOBAL 01.".to_owned()
         } else {
-            "Select a 01-level GLOBAL working-storage table with OCCURS. Pagination is not required."
+            "Select a working-storage item with OCCURS (any level, inside a GLOBAL 01). Pagination is not required."
                 .to_owned()
         }
     } else {
@@ -13461,6 +13496,49 @@ mod tests {
         );
     }
 
+    /// A table may be declared at any level under a GLOBAL 01, not only at the
+    /// 01 or its direct child: every outermost OCCURS is offered, named by its
+    /// own item — except the one the old rule found, which keeps the 01's name
+    /// so a binding saved against it still resolves. A table inside another
+    /// table's occurrence is not a table of its own.
+    #[test]
+    fn a_cobol_table_at_any_level_is_offered() {
+        let mut form = Form::new("DeepForm", "DeepForm", 800, 600);
+        form.user_ws_source = "\
+01  G GLOBAL.
+    03  G-INNER.
+        05  V-DATA           PIC X(12).
+        05  V-TAB REDEFINES V-DATA.
+            10  V-ROW OCCURS 3.
+                49  V-NAME   PIC XX.
+                49  V-CODE   PIC XX.
+    03  E-OUTER.
+        05  E-WRAP.
+            07  E-ITEM       PIC XX OCCURS 2.
+01  H GLOBAL.
+    05  H-ROW OCCURS 4.
+        10  H-ID             PIC 9(3).
+        10  H-SUB OCCURS 2.
+            15  H-SUB-VAL    PIC X.
+01  NOT-GLOBAL.
+    05  N-ROW PIC X OCCURS 2.
+"
+        .to_owned();
+        let tables: Vec<(String, String, Vec<String>)> = cobol_table_binding_metadata(&form)
+            .iter()
+            .map(|t| (t.name.clone(), t.occurs_item.clone(), t.fields.iter().map(|f| f.name.clone()).collect()))
+            .collect();
+        assert_eq!(
+            tables,
+            vec![
+                ("V-ROW".to_owned(), "V-ROW".to_owned(), vec!["V-NAME".to_owned(), "V-CODE".to_owned()]),
+                ("E-ITEM".to_owned(), "E-ITEM".to_owned(), vec!["E-ITEM".to_owned()]),
+                // The old rule's table (a direct child of the 01) keeps the 01's name.
+                ("H".to_owned(), "H-ROW".to_owned(), vec!["H-ID".to_owned(), "H-SUB-VAL".to_owned()]),
+            ]
+        );
+    }
+
     #[test]
     fn data_binding_editor_rejects_invalid_cobol_table_settings() {
         let (form, grid) = form_with_cobol_binding_table();
@@ -13477,7 +13555,7 @@ mod tests {
         editor.selected_cobol_table = "WS-NOT-OCCURS".to_owned();
         assert_eq!(
             editor.validate().unwrap_err(),
-            "Selected COBOL table must resolve to a 01-level GLOBAL item with OCCURS."
+            "Selected COBOL table must resolve to an item with OCCURS, at any level, inside a GLOBAL 01."
         );
 
         editor.selected_cobol_table = "WS-CUSTOMER-TABLE".to_owned();

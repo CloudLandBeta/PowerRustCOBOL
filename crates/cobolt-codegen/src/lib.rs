@@ -3787,6 +3787,16 @@ mod tests {
         assert!(src.contains("NAME -> CHART-1.Category"));
         assert!(src.contains("NAME -> NAME.Text"));
         assert!(src.contains("NAME -> COMBO-1.Display"));
+        // A chart bound to a COBOL table is loaded as the form opens: its
+        // category field, then its value field (operator, 2026-09-25).
+        assert!(src.contains(
+            "INVOKE CHART-1 'SetProperty' USING BY CONTENT \"_BindingFields\" BY CONTENT \"NAME,AMOUNT\""
+        ));
+        assert!(src.contains("INVOKE CHART-1 'SetProperty' USING BY CONTENT \"_BindingChart\" BY CONTENT \"1\""));
+        assert!(src.contains("INVOKE CHART-1 'RefreshBinding'"));
+        // A list fed by an AI agent or a REST call is not a COBOL table: it is
+        // not seeded as one.
+        assert!(!src.contains("INVOKE COMBO-1 'SetProperty' USING BY CONTENT \"_BindingList\""));
     }
 
     #[test]
@@ -3869,6 +3879,60 @@ mod tests {
             "INVOKE KNOB-1 'SetProperty' USING BY CONTENT \"_BindingScalarProperty\" BY CONTENT \"Value\""
         ));
         assert!(src.contains("INVOKE KNOB-1 'RefreshBinding'"));
+    }
+
+    /// A ComboBox bound to a COBOL table is loaded when the form opens: the
+    /// generated POPULATE seeds the display field and refreshes the list. It
+    /// used to write two comments and nothing else, so the combo stayed empty
+    /// (operator, 2026-09-25).
+    #[test]
+    fn data_binding_codegen_loads_a_combobox_from_a_cobol_table() {
+        let mut form = Form::new("BIND-FORM", "Bindings", 800, 600);
+        form.add_control(Control::new("ComboBox-1", ControlType::ComboBox, 0, 0));
+        form.data_bindings.push(
+            DataBindingDef::new(
+                "BIND-TABLE-COMBOBOX-1",
+                "TABLE -> ComboBox-1",
+                BindingSourceDescriptor::CobolTable {
+                    table_name: "ITEMS-TABLE".into(),
+                    occurs_item: "ITEMS-TABLE".into(),
+                    fields: vec![cobolt_forms::BindingField::new(
+                        "ITEMS-TABLE",
+                        cobolt_forms::BindingDataType::Text,
+                    )],
+                    key_fields: vec![],
+                    writable: false,
+                },
+                BindingTargetDescriptor::ComboBox {
+                    control_id: "ComboBox-1".into(),
+                },
+            )
+            .with_mappings(vec![
+                cobolt_forms::FieldMapping::new(
+                    "ITEMS-TABLE",
+                    BindingTargetPath::ListDisplayItem {
+                        control_id: "ComboBox-1".into(),
+                    },
+                ),
+                cobolt_forms::FieldMapping::new(
+                    "ITEMS-TABLE",
+                    BindingTargetPath::ListValue {
+                        control_id: "ComboBox-1".into(),
+                    },
+                ),
+            ]),
+        );
+
+        let src = generate(&form);
+
+        assert!(src.contains(
+            "INVOKE ComboBox-1 'SetProperty' USING BY CONTENT \"_BindingFields\" BY CONTENT \"ITEMS-TABLE\""
+        ));
+        assert!(src.contains(
+            "INVOKE ComboBox-1 'SetProperty' USING BY CONTENT \"_BindingList\" BY CONTENT \"1\""
+        ));
+        let populate = &src[src.find("COBOL-DATA-BINDINGS-POPULATE.").expect("a POPULATE paragraph")..];
+        assert!(populate.contains("INVOKE ComboBox-1 'RefreshBinding'"), "loaded as the form opens");
     }
 
     #[test]

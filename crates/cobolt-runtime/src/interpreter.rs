@@ -12368,8 +12368,96 @@ impl Interpreter {
         if is_array {
             return self.refresh_control_array_binding(control_id);
         }
+        // A ComboBox / ListBox: the table becomes the list's Items.
+        if self.obj_get(control_id, "_BindingList") == "1" {
+            return self.refresh_list_binding(control_id);
+        }
+        // A chart: one point per occurrence, category and value.
+        if self.obj_get(control_id, "_BindingChart") == "1" {
+            return self.refresh_chart_binding(control_id);
+        }
         // default to datagrid logic
         self.refresh_datagrid_binding(control_id)
+    }
+
+    /// `CobolTable` source -> `ComboBox` / `ListBox` target: one item per
+    /// occurrence of the display field (the first of `_BindingFields`), read
+    /// the way `table(i)` reads it — so a table that REDEFINES a group of
+    /// VALUE'd items lists those values. Blank occurrences are left out, as a
+    /// grid leaves out blank rows. The editor has offered this binding all
+    /// along; nothing loaded it, and the list stayed empty at run time.
+    fn refresh_list_binding(&mut self, control_id: &str) -> usize {
+        let field = self
+            .obj_get(control_id, "_BindingFields")
+            .split(|ch| matches!(ch, '\n' | '\r' | ',' | ';' | '\t'))
+            .map(str::trim)
+            .find(|f| !f.is_empty())
+            .map(str::to_owned);
+        let Some(field) = field else {
+            return 0;
+        };
+        let name = self.env.resolve_name(&field, &[]);
+        let count = self.env.symbol(&name).and_then(|s| s.dims.last().copied()).unwrap_or(0);
+        let mut items = Vec::new();
+        for i in 1..=count {
+            let key = crate::environment::subscript_key(&name, &[i as i64]);
+            let text = match self.env.group_bytes(&key) {
+                Some(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+                None => self.env.get(&key).map(|v| v.as_display_string()).unwrap_or_default(),
+            };
+            let text = text.trim_end().to_owned();
+            if !text.trim().is_empty() {
+                items.push(text);
+            }
+        }
+        let n = items.len();
+        tracing::debug!(target: "databinding", "RUN-FORM list {} set Items ({} items)", control_id, n);
+        self.obj_set(control_id, "Items", items.join("\n"));
+        n
+    }
+
+    /// `CobolTable` source -> chart target: `_BindingFields` names the
+    /// category field, then the value field. Each occurrence with a category
+    /// becomes one point, replacing the chart's series — the same series
+    /// `AddPoint` / `Clear` work on, so they go on from the loaded data.
+    fn refresh_chart_binding(&mut self, control_id: &str) -> usize {
+        let fields: Vec<String> = self
+            .obj_get(control_id, "_BindingFields")
+            .split(|ch| matches!(ch, '\n' | '\r' | ',' | ';' | '\t'))
+            .map(str::trim)
+            .filter(|f| !f.is_empty())
+            .map(|f| self.env.resolve_name(f, &[]))
+            .collect();
+        let (Some(cat), Some(val)) = (fields.first().cloned(), fields.get(1).cloned()) else {
+            return 0;
+        };
+        let count = [&cat, &val]
+            .iter()
+            .filter_map(|f| self.env.symbol(f))
+            .filter_map(|s| s.dims.last().copied())
+            .max()
+            .unwrap_or(0);
+        let mut points = Vec::new();
+        for i in 1..=count {
+            let ck = crate::environment::subscript_key(&cat, &[i as i64]);
+            let vk = crate::environment::subscript_key(&val, &[i as i64]);
+            let label = self
+                .env
+                .get(&ck)
+                .map(|v| v.as_display_string().trim().to_owned())
+                .unwrap_or_default();
+            if label.is_empty() {
+                continue;
+            }
+            let value = self.env.get(&vk).map(|v| v.as_f64()).unwrap_or(0.0);
+            points.push((label, value));
+        }
+        let n = points.len();
+        // Keyed as COBOL-CHART-* and AddPoint key it.
+        let key = control_id.to_ascii_uppercase();
+        self.chart_data.insert(key.clone(), points);
+        self.push_chart_data(&key);
+        n
     }
 
     /// `IndexedFile` source -> `DataGrid` target (codegen:
@@ -20096,6 +20184,117 @@ MAIN.
         assert_eq!(
             rows,
             "1\tLeonardo DiCaprio\t30000000.00\n2\tJoe Pesci\t12000000.00"
+        );
+    }
+
+    /// A ComboBox bound to a COBOL table lists the table's values: here a
+    /// table that REDEFINES a group of VALUE'd items (operator's form,
+    /// 2026-09-25). The binding was saved and generated, and nothing loaded
+    /// it — the combo stayed empty at run time.
+    #[test]
+    fn combobox_refresh_binding_lists_a_redefined_cobol_table() {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 items is global.
+   03 item1      pic xx value \"01\".
+   03 item2      pic xx value \"02\".
+   03 item3      pic xx value \"03\".
+   03 item4      pic xx value \"04\".
+01 items-table redefines items GLOBAL   pic xx occurs 4.
+01 ws-n pic 9(4).
+PROCEDURE DIVISION.
+MAIN.
+    INVOKE ComboBox-1 'RefreshBinding' RETURNING ws-n
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let mut interp = Interpreter::new(program);
+        interp.seed_objects([(
+            "ComboBox-1".to_owned(),
+            "ComboBox".to_owned(),
+            vec![
+                ("_BindingKind".to_owned(), "CobolTable".to_owned()),
+                ("_BindingFields".to_owned(), "ITEMS-TABLE".to_owned()),
+                ("_BindingList".to_owned(), "1".to_owned()),
+            ],
+        )]);
+        interp.run().expect("runs");
+        assert_eq!(interp.obj_get("ComboBox-1", "Items"), "01\n02\n03\n04");
+        assert_eq!(interp.env.get("WS-N").and_then(|v| v.as_i64()), Some(4), "RefreshBinding returns the item count");
+    }
+
+    /// A COBOL table may sit at any level, 02 through 49, under a 01 group —
+    /// not only at 01 or its direct child. Tables whose OCCURS is at level 10
+    /// (fields at 49) and at level 07 (an elementary OCCURS), both REDEFINES
+    /// of VALUE'd storage, load into a DataGrid, a ComboBox and a ListBox.
+    #[test]
+    fn a_cobol_table_at_any_level_loads_into_grid_combo_and_list() {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 G GLOBAL.
+   03 G-INNER.
+      05 V-DATA.
+         10 FILLER PIC X(4) VALUE \"AA01\".
+         10 FILLER PIC X(4) VALUE \"BB02\".
+         10 FILLER PIC X(4) VALUE \"CC03\".
+      05 V-TAB REDEFINES V-DATA.
+         10 V-ROW OCCURS 3.
+            49 V-NAME PIC XX.
+            49 V-CODE PIC XX.
+   03 E-OUTER.
+      05 E-DATA.
+         07 FILLER PIC XX VALUE \"x1\".
+         07 FILLER PIC XX VALUE \"x2\".
+      05 E-WRAP REDEFINES E-DATA.
+         07 E-ITEM PIC XX OCCURS 2.
+01 WS-N PIC 9(4).
+PROCEDURE DIVISION.
+MAIN.
+    INVOKE GRID-1 'RefreshBinding' RETURNING WS-N
+    INVOKE COMBO-1 'RefreshBinding' RETURNING WS-N
+    INVOKE LIST-1 'RefreshBinding' RETURNING WS-N
+    INVOKE CHART-1 'RefreshBinding' RETURNING WS-N
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let mut interp = Interpreter::new(program);
+        let seed = |class: &str, fields: &str, list: bool| {
+            let mut p = vec![
+                ("_BindingKind".to_owned(), "CobolTable".to_owned()),
+                ("_BindingFields".to_owned(), fields.to_owned()),
+            ];
+            if list {
+                p.push(("_BindingList".to_owned(), "1".to_owned()));
+            }
+            (class.to_owned(), p)
+        };
+        let (g, gp) = seed("DataGrid", "V-NAME\nV-CODE", false);
+        let (c, cp) = seed("ComboBox", "V-CODE", true);
+        let (l, lp) = seed("ListBox", "E-ITEM", true);
+        let (ch, mut chp) = seed("BarChart", "V-NAME,V-CODE", false);
+        chp.push(("_BindingChart".to_owned(), "1".to_owned()));
+        interp.seed_objects([
+            ("GRID-1".to_owned(), g, gp),
+            ("COMBO-1".to_owned(), c, cp),
+            ("LIST-1".to_owned(), l, lp),
+            ("CHART-1".to_owned(), ch, chp),
+        ]);
+        interp.run().expect("runs");
+        assert_eq!(interp.obj_get("GRID-1", "Rows"), "AA\t01\nBB\t02\nCC\t03", "level-10 group OCCURS, level-49 fields");
+        assert_eq!(interp.obj_get("COMBO-1", "Items"), "01\n02\n03");
+        assert_eq!(interp.obj_get("LIST-1", "Items"), "x1\nx2", "level-07 elementary OCCURS");
+        assert_eq!(
+            interp.chart_data.get("CHART-1").cloned().unwrap_or_default(),
+            vec![("AA".to_owned(), 1.0), ("BB".to_owned(), 2.0), ("CC".to_owned(), 3.0)],
+            "a chart: category and value per occurrence"
         );
     }
 

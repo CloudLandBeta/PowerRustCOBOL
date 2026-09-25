@@ -154,6 +154,18 @@ fn write_binding_refresh_seed(out: &mut String, form: &Form, binding: &DataBindi
             write_indexed_file_binding_seed(out, control_id, binding);
             return;
         }
+        BindingTargetDescriptor::ComboBox { control_id } | BindingTargetDescriptor::ListBox { control_id }
+            if matches!(&binding.source, BindingSourceDescriptor::CobolTable { .. }) =>
+        {
+            write_list_binding_seed(out, control_id, binding);
+            return;
+        }
+        BindingTargetDescriptor::Chart { control_id, .. }
+            if matches!(&binding.source, BindingSourceDescriptor::CobolTable { .. }) =>
+        {
+            write_chart_binding_seed(out, control_id, binding);
+            return;
+        }
         _ => {}
     }
     let (control_id, is_array) = match &binding.target {
@@ -230,6 +242,67 @@ fn write_binding_refresh_seed(out: &mut String, form: &Form, binding: &DataBindi
 /// the first refresh to the developer; an indexed file has no such fill step —
 /// the `.cidx` plus the file already on disk are everything needed to populate
 /// the grid the moment the binding loads.
+/// `CobolTable` source -> `ComboBox` / `ListBox` target: the list's items are
+/// the table's occurrences of the field mapped to the list's display text
+/// (the first field when no mapping names one). Refreshed here, at POPULATE,
+/// which runs after `onLoad` — so a table filled by VALUE clauses or by the
+/// form's own `onLoad` is listed when the form opens. `RefreshBinding` lists
+/// it again whenever the program has changed the table.
+fn write_list_binding_seed(out: &mut String, control_id: &str, binding: &DataBindingDef) {
+    let BindingSourceDescriptor::CobolTable { fields, .. } = &binding.source else {
+        return;
+    };
+    let display = binding
+        .mappings
+        .iter()
+        .find(|m| matches!(m.target, BindingTargetPath::ListDisplayItem { .. }))
+        .map(|m| m.source_field.as_str())
+        .or_else(|| fields.first().map(|f| f.name.as_str()));
+    let Some(display) = display else {
+        return;
+    };
+    out.push_str(&format!(
+        "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingKind\" BY CONTENT \"CobolTable\"\n"
+    ));
+    out.push_str(&format!(
+        "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingFields\" BY CONTENT \"{display}\"\n"
+    ));
+    out.push_str(&format!(
+        "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingList\" BY CONTENT \"1\"\n"
+    ));
+    out.push_str(&format!("           INVOKE {control_id} 'RefreshBinding'\n"));
+}
+
+/// `CobolTable` source -> chart target: one point per occurrence — the field
+/// mapped to the chart's category is the label, the first field mapped to a
+/// value series is the value (a chart draws one series). Refreshed at
+/// POPULATE, after `onLoad`, like a list.
+fn write_chart_binding_seed(out: &mut String, control_id: &str, binding: &DataBindingDef) {
+    let category = binding
+        .mappings
+        .iter()
+        .find(|m| matches!(m.target, BindingTargetPath::ChartCategory { .. }))
+        .map(|m| m.source_field.as_str());
+    let value = binding
+        .sorted_mapping_refs()
+        .into_iter()
+        .find(|m| matches!(m.target, BindingTargetPath::ChartValueSeries { .. }))
+        .map(|m| m.source_field.as_str());
+    let (Some(category), Some(value)) = (category, value) else {
+        return;
+    };
+    out.push_str(&format!(
+        "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingKind\" BY CONTENT \"CobolTable\"\n"
+    ));
+    out.push_str(&format!(
+        "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingFields\" BY CONTENT \"{category},{value}\"\n"
+    ));
+    out.push_str(&format!(
+        "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingChart\" BY CONTENT \"1\"\n"
+    ));
+    out.push_str(&format!("           INVOKE {control_id} 'RefreshBinding'\n"));
+}
+
 fn write_indexed_file_binding_seed(out: &mut String, control_id: &str, binding: &DataBindingDef) {
     let BindingSourceDescriptor::IndexedFile {
         definition_path,

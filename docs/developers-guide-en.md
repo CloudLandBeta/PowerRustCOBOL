@@ -2305,10 +2305,22 @@ from one of these source families:
 
 - **Indexed** — a project `.cidx` definition and its record fields.
 - **SQL** — a `SqlDatabase` control, query, and result set.
-- **COBOL table** — an in-memory COBOL table or array item: a level-01
-  `GLOBAL` item that has, or contains, an `OCCURS`. An elementary `OCCURS` item
-  (`05 UF PIC XX OCCURS 27 TIMES.`) is a one-column table whose column is the
-  item itself.
+- **COBOL table** — an in-memory COBOL table: any item with `OCCURS`, at
+  **any level from 01 to 49**, inside a `GLOBAL` 01. Each table is listed under
+  the name of its `OCCURS` item. The exception is a table on the 01 itself or on
+  its direct child, which keeps the 01's name. A table nested inside another
+  table's occurrence is part of that table, not a table of its own. An
+  elementary `OCCURS` item (`05 UF PIC XX OCCURS 27 TIMES.`) is a one-column
+  table whose column is the item itself. The table may `REDEFINES` storage
+  filled by `VALUE` clauses:
+
+  ```cobol
+         01 ITEMS GLOBAL.
+            03 ITEM-1       PIC XX VALUE "01".
+            03 ITEM-2       PIC XX VALUE "02".
+            03 ITEM-3       PIC XX VALUE "03".
+         01 ITEMS-TABLE REDEFINES ITEMS GLOBAL PIC XX OCCURS 3.
+  ```
 - **REST** — a `RestClient` response data item, saved schema, or sample payload.
 - **Agent AI** — a structured `AgentObject` output.
 
@@ -2332,19 +2344,33 @@ a single TextBox or Label does **not** expose data-binding information. If a sca
 array, it can show only the array-owned mapping context; it cannot choose its own
 source. This keeps one field from silently drifting away from the row contract.
 
-> **Which combinations actually populate at run time (1.63.33).** The Designer
-> lets you pair any source family with any approved target — the binding
-> editor validates the mapping, not whether that pairing does anything once
-> the form runs. Today, a **DataGrid** populates from an **Indexed** source
-> (reading the `.cidx`'s file directly, in primary-key order — no `SELECT`/FD
-> needed in your program) and from a **COBOL table** source (your own code
-> fills the table; call `RefreshBinding()` once it has). An Indexed→DataGrid
-> binding refreshes itself the moment the binding loads, with no call needed
-> — there is no fill step to wait for. Every other source×target pairing —
-> SQL, REST, Agent AI against any target; Indexed against a Chart, ComboBox,
-> ListBox, or control array — is configurable and validated, but nothing
-> populates it yet. Build against what is documented here as working, not
-> against what the Designer merely lets you configure.
+> **Which combinations actually populate at run time (1.70.224).** The
+> Designer lets you pair any source family with any approved target. The
+> binding editor validates the mapping, not whether that pairing does anything
+> once the form runs. What populates today:
+>
+> - **A COBOL table** populates every approved target. A **ComboBox** or
+>   **ListBox** gets one item per occurrence of the field mapped to its display
+>   text. A **chart** gets one point per occurrence: the category field is the
+>   label, and the first field mapped to a value series is the value. **Knob /
+>   Gauge / Switch**, **Maps** and **control arrays** populate too. All of these
+>   load as the form opens, after `onLoad`, so a table filled by `VALUE` clauses
+>   or by your `onLoad` is already on screen. A **DataGrid** waits for you: your
+>   code fills the table, then calls `RefreshBinding()`. Call `RefreshBinding()`
+>   on any bound control after you change its table.
+> - **An Indexed source** populates a **DataGrid**, reading the `.cidx`'s file
+>   directly, in primary-key order, with no `SELECT`/FD needed in your program.
+>   It refreshes itself the moment the binding loads, because there is no fill
+>   step to wait for.
+>
+> Every other pairing is configurable and validated, but nothing populates it
+> yet: SQL, REST and Agent AI against any target, and Indexed against a chart,
+> ComboBox, ListBox or control array. Build against what is documented here as
+> working, not against what the Designer merely lets you configure.
+
+> **Before 1.70.224,** a COBOL table bound to a ComboBox, ListBox or chart was
+> saved and generated but never loaded, so the control stayed empty at run
+> time. The Designer also offered only tables on a 01 or its direct child.
 
 **Where an Indexed binding looks for its files.** Two paths are involved, and
 both are stored **relative to your project**: the `.cidx` recorded in the

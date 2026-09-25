@@ -8,6 +8,36 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.224] — 2026-09-25
+
+### Fix — a COBOL table bound to a ComboBox, ListBox or chart never loaded; tables below level 01 were not offered
+
+- **ComboBox / ListBox.** The binding was saved and generated as two comments
+  and nothing else, and the host's seeding left these targets out, so the list
+  stayed empty at run time (operator's form: `ITEMS-TABLE REDEFINES ITEMS`, four
+  VALUE'd items). The generated POPULATE now seeds the field mapped to the
+  list's display text and calls `RefreshBinding`, and the runtime lists one item
+  per occurrence (blanks left out) into `Items`.
+- **Charts.** Same gap. The category field and the first value-series field now
+  load one point per occurrence into the chart's series, the same series
+  `AddPoint` / `Clear` work on.
+- Both load as the form opens: POPULATE runs after `onLoad`, so a table filled
+  by VALUE clauses or by `onLoad` is on screen. `RefreshBinding()` reloads
+  after the program changes the table. A DataGrid still waits for the program's
+  own `RefreshBinding()`, as before.
+- **Any level.** The Designer offered only a table on a GLOBAL 01 or its direct
+  child, and only the first OCCURS it found there. Every outermost OCCURS under
+  a GLOBAL 01, at any level 01 through 49, is now offered, named by its own
+  item. The table the old rule found keeps the 01's name, so saved bindings
+  still resolve. The runtime already read tables at any level; it is now
+  tested at levels 07, 10 and 49 for a DataGrid, ComboBox, ListBox and chart.
+- System KB: `RefreshBinding()` added to the ComboBox, ListBox and chart method
+  tables; `chunked.data` regenerated.
+- Tests: `combobox_refresh_binding_lists_a_redefined_cobol_table`,
+  `a_cobol_table_at_any_level_loads_into_grid_combo_and_list` (runtime),
+  `data_binding_codegen_loads_a_combobox_from_a_cobol_table` plus chart
+  assertions (codegen), `a_cobol_table_at_any_level_is_offered` (IDE).
+
 ## [PowerRustCOBOL 1.70.223] — 2026-09-25
 
 ### Fix — Tab and Shift+Tab did nothing in a form inside a shell

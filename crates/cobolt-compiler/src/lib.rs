@@ -5861,6 +5861,10 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
         ),
         ("Clear()", "Remove all pushed data (chart falls back to its sample preview)."),
         ("Refresh()", "Force a repaint with the current data."),
+        (
+            "RefreshBinding() → Integer",
+            "Bound to a COBOL table: reload the points from it (category field, value field), replacing the series; returns the point count. Also runs by itself as the form opens, after onLoad.",
+        ),
     ];
     match name {
         "Button" => caption_methods,
@@ -5879,7 +5883,15 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             v
         }
         "TextBox" => text_methods,
-        "ListBox" | "ComboBox" | "ToolBar" | "StatusBar" => items_methods,
+        "ListBox" | "ComboBox" => {
+            let mut v = items_methods;
+            v.push((
+                "RefreshBinding() → Integer",
+                "Bound to a COBOL table (any level, inside a GLOBAL 01): reload Items from it, one item per occurrence of the display field, blanks left out; returns the item count. Also runs by itself as the form opens, after onLoad.",
+            ));
+            v
+        }
+        "ToolBar" | "StatusBar" => items_methods,
         "TreeView" => tree_node_methods,
         "ProgressBar" | "Slider" | "NumericUpDown" | "DateTimePicker" | "Knob" => value_methods,
         "Gauge" => vec![
