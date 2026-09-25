@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="FILES-FORM" title="PowerChat - Data files" width="680" height="496" background="F2F4F5FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
+<Form name="FILES-FORM" title="PowerChat" width="680" height="496" background="F2F4F5FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
   <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -24,6 +24,155 @@
        01 WS-ROW             GLOBAL PIC X(400).
        01 WS-LINE            GLOBAL PIC X(400).
        01 WS-DISCARD         GLOBAL PIC X(4).
+      *>   The interface texts (spec 071 R44): one row per text, one column
+      *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
+      *>   only the values are translated.
+       01 WS-LANG            GLOBAL PIC XX VALUE "en".
+       01 WS-LANG-IX         GLOBAL PIC 9 VALUE 1.
+       01 WS-TX-I            GLOBAL PIC 9(4).
+       01 PC-TEXT-DATA       GLOBAL.
+      *>   OPEN-TOPIC-FIRST
+          05 FILLER PIC X(140) VALUE "Open a topic first.".
+          05 FILLER PIC X(140) VALUE "Abra um tópico primeiro.".
+          05 FILLER PIC X(140) VALUE "Primero abre un tema.".
+          05 FILLER PIC X(140) VALUE "Ouvrez d'abord un sujet.".
+          05 FILLER PIC X(140) VALUE "先にトピックを開いてください。".
+          05 FILLER PIC X(140) VALUE "请先打开一个主题。".
+      *>   FILES-OF
+          05 FILLER PIC X(140) VALUE "Data files - &1".
+          05 FILLER PIC X(140) VALUE "Arquivos de dados - &1".
+          05 FILLER PIC X(140) VALUE "Archivos de datos - &1".
+          05 FILLER PIC X(140) VALUE "Fichiers de données - &1".
+          05 FILLER PIC X(140) VALUE "データファイル - &1".
+          05 FILLER PIC X(140) VALUE "数据文件 - &1".
+      *>   PICK-FILE-FIRST
+          05 FILLER PIC X(140) VALUE "Pick a file in the list first.".
+          05 FILLER PIC X(140) VALUE "Escolha um arquivo na lista primeiro.".
+          05 FILLER PIC X(140) VALUE "Primero elige un archivo de la lista.".
+          05 FILLER PIC X(140) VALUE "Choisissez d'abord un fichier dans la liste.".
+          05 FILLER PIC X(140) VALUE "先に一覧からファイルを選んでください。".
+          05 FILLER PIC X(140) VALUE "请先在列表中选择一个文件。".
+      *>   FILE-REMOVED
+          05 FILLER PIC X(140) VALUE "Removed. The file itself is untouched.".
+          05 FILLER PIC X(140) VALUE "Removido. O arquivo em si não foi alterado.".
+          05 FILLER PIC X(140) VALUE "Quitado. El archivo en sí no se ha modificado.".
+          05 FILLER PIC X(140) VALUE "Retiré. Le fichier lui-même n'a pas été modifié.".
+          05 FILLER PIC X(140) VALUE "削除しました。ファイル自体は変更されていません。".
+          05 FILLER PIC X(140) VALUE "已移除。文件本身未被改动。".
+      *>   GIVE-BOTH
+          05 FILLER PIC X(140) VALUE "Give both the data file and its .cidx description.".
+          05 FILLER PIC X(140) VALUE "Informe o arquivo de dados e a descrição .cidx dele.".
+          05 FILLER PIC X(140) VALUE "Indica el archivo de datos y su descripción .cidx.".
+          05 FILLER PIC X(140) VALUE "Indiquez le fichier de données et sa description .cidx.".
+          05 FILLER PIC X(140) VALUE "データファイルとその .cidx 定義の両方を指定してください。".
+          05 FILLER PIC X(140) VALUE "请同时提供数据文件及其 .cidx 描述。".
+      *>   NOT-ADDED
+          05 FILLER PIC X(140) VALUE "Not added - &1: &2".
+          05 FILLER PIC X(140) VALUE "Não adicionado - &1: &2".
+          05 FILLER PIC X(140) VALUE "No se añadió - &1: &2".
+          05 FILLER PIC X(140) VALUE "Non ajouté - &1 : &2".
+          05 FILLER PIC X(140) VALUE "追加されませんでした - &1: &2".
+          05 FILLER PIC X(140) VALUE "未添加 - &1：&2".
+      *>   FILE-ADDED
+          05 FILLER PIC X(140) VALUE "Added &1 - &2".
+          05 FILLER PIC X(140) VALUE "Adicionado &1 - &2".
+          05 FILLER PIC X(140) VALUE "Añadido &1 - &2".
+          05 FILLER PIC X(140) VALUE "Ajouté &1 - &2".
+          05 FILLER PIC X(140) VALUE "&1 を追加しました - &2".
+          05 FILLER PIC X(140) VALUE "已添加 &1 - &2".
+      *>   FILES-TITLE
+          05 FILLER PIC X(140) VALUE "Data files".
+          05 FILLER PIC X(140) VALUE "Arquivos de dados".
+          05 FILLER PIC X(140) VALUE "Archivos de datos".
+          05 FILLER PIC X(140) VALUE "Fichiers de données".
+          05 FILLER PIC X(140) VALUE "データファイル".
+          05 FILLER PIC X(140) VALUE "数据文件".
+      *>   FILES-HELP
+          05 FILLER PIC X(140) VALUE "Indexed files the assistant may search for this topic. They are only ever read.".
+          05 FILLER PIC X(140) VALUE "Arquivos indexados que o assistente pode consultar neste tópico. Eles são apenas lidos, nunca alterados.".
+          05 FILLER PIC X(140) VALUE "Archivos indexados que el asistente puede consultar en este tema. Solo se leen, nunca se modifican.".
+          05 FILLER PIC X(140) VALUE "Fichiers indexés que l'assistant peut consulter pour ce sujet. Ils sont seulement lus, jamais modifiés.".
+          05 FILLER PIC X(140) VALUE "このトピックでアシスタントが検索できる索引ファイルです。読み取るだけで、変更はしません。".
+          05 FILLER PIC X(140) VALUE "助手在此主题中可以搜索的索引文件。它们只会被读取，从不修改。".
+      *>   REMOVE
+          05 FILLER PIC X(140) VALUE "Remove".
+          05 FILLER PIC X(140) VALUE "Remover".
+          05 FILLER PIC X(140) VALUE "Quitar".
+          05 FILLER PIC X(140) VALUE "Retirer".
+          05 FILLER PIC X(140) VALUE "削除".
+          05 FILLER PIC X(140) VALUE "移除".
+      *>   DATA-FILE
+          05 FILLER PIC X(140) VALUE "Data file".
+          05 FILLER PIC X(140) VALUE "Arquivo de dados".
+          05 FILLER PIC X(140) VALUE "Archivo de datos".
+          05 FILLER PIC X(140) VALUE "Fichier de données".
+          05 FILLER PIC X(140) VALUE "データファイル".
+          05 FILLER PIC X(140) VALUE "数据文件".
+      *>   HINT-DATA-PATH
+          05 FILLER PIC X(140) VALUE "A path, a network path, or smb://server/share/file".
+          05 FILLER PIC X(140) VALUE "Um caminho, um caminho de rede ou smb://servidor/compartilhamento/arquivo".
+          05 FILLER PIC X(140) VALUE "Una ruta, una ruta de red o smb://servidor/recurso/archivo".
+          05 FILLER PIC X(140) VALUE "Un chemin, un chemin réseau ou smb://serveur/partage/fichier".
+          05 FILLER PIC X(140) VALUE "パス、ネットワークパス、または smb://サーバー/共有/ファイル".
+          05 FILLER PIC X(140) VALUE "路径、网络路径或 smb://服务器/共享/文件".
+      *>   DESCRIPTION
+          05 FILLER PIC X(140) VALUE "Description".
+          05 FILLER PIC X(140) VALUE "Descrição".
+          05 FILLER PIC X(140) VALUE "Descripción".
+          05 FILLER PIC X(140) VALUE "Description".
+          05 FILLER PIC X(140) VALUE "定義".
+          05 FILLER PIC X(140) VALUE "描述".
+      *>   HINT-CIDX
+          05 FILLER PIC X(140) VALUE "Its .cidx".
+          05 FILLER PIC X(140) VALUE "O .cidx dele".
+          05 FILLER PIC X(140) VALUE "Su .cidx".
+          05 FILLER PIC X(140) VALUE "Son .cidx".
+          05 FILLER PIC X(140) VALUE "その .cidx".
+          05 FILLER PIC X(140) VALUE "对应的 .cidx".
+      *>   ADD-FILE
+          05 FILLER PIC X(140) VALUE "Add file".
+          05 FILLER PIC X(140) VALUE "Adicionar arquivo".
+          05 FILLER PIC X(140) VALUE "Añadir archivo".
+          05 FILLER PIC X(140) VALUE "Ajouter le fichier".
+          05 FILLER PIC X(140) VALUE "ファイルを追加".
+          05 FILLER PIC X(140) VALUE "添加文件".
+      *>   CLOSE
+          05 FILLER PIC X(140) VALUE "Close".
+          05 FILLER PIC X(140) VALUE "Fechar".
+          05 FILLER PIC X(140) VALUE "Cerrar".
+          05 FILLER PIC X(140) VALUE "Fermer".
+          05 FILLER PIC X(140) VALUE "閉じる".
+          05 FILLER PIC X(140) VALUE "关闭".
+       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
+          05 PC-TEXT-ROW     OCCURS 16.
+             10 PC-TEXT      PIC X(140) OCCURS 6.
+      *>   The texts in the current language, by name.
+       01 PC-TEXTS-NOW       GLOBAL.
+          05 T-OPEN-TOPIC-FIRST PIC X(140).
+          05 T-FILES-OF PIC X(140).
+          05 T-PICK-FILE-FIRST PIC X(140).
+          05 T-FILE-REMOVED PIC X(140).
+          05 T-GIVE-BOTH PIC X(140).
+          05 T-NOT-ADDED PIC X(140).
+          05 T-FILE-ADDED PIC X(140).
+          05 T-FILES-TITLE PIC X(140).
+          05 T-FILES-HELP PIC X(140).
+          05 T-REMOVE PIC X(140).
+          05 T-DATA-FILE PIC X(140).
+          05 T-HINT-DATA-PATH PIC X(140).
+          05 T-DESCRIPTION PIC X(140).
+          05 T-HINT-CIDX PIC X(140).
+          05 T-ADD-FILE PIC X(140).
+          05 T-CLOSE PIC X(140).
+       01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
+          05 PC-TEXT-NOW     PIC X(140) OCCURS 16.
+      *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
+       01 WS-FMT             GLOBAL PIC X(140).
+       01 WS-ARG1            GLOBAL PIC X(300).
+       01 WS-ARG2            GLOBAL PIC X(300).
+       01 WS-ARG3            GLOBAL PIC X(300).
+       01 WS-ARG4            GLOBAL PIC X(300).
+       01 WS-FMT-OUT         GLOBAL PIC X(1200).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -230,17 +379,88 @@
            CLOSE TFILES-FILE
            ADD 1 TO WS-NEXT-SEQ
 ]]></Event>
+    <Event name="PC-TEXTS" paragraph="PC-TEXTS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The language the user picked (LANG), the texts in it, and every
+      *>   designed caption and hint that shows one. Called on load and again
+      *>   whenever the language changes (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           MOVE WS-SET-VALUE(1:2) TO WS-LANG
+           EVALUATE WS-LANG
+               WHEN "en" MOVE 1 TO WS-LANG-IX
+               WHEN "pt" MOVE 2 TO WS-LANG-IX
+               WHEN "es" MOVE 3 TO WS-LANG-IX
+               WHEN "fr" MOVE 4 TO WS-LANG-IX
+               WHEN "jp" MOVE 5 TO WS-LANG-IX
+               WHEN "cn" MOVE 6 TO WS-LANG-IX
+               WHEN OTHER MOVE "en" TO WS-LANG
+                          MOVE 1 TO WS-LANG-IX
+           END-EVALUATE
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 16
+               MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
+           END-PERFORM
+           MOVE FUNCTION TRIM(T-FILES-TITLE) TO Lbl-Title::Caption
+           MOVE FUNCTION TRIM(T-FILES-HELP) TO Lbl-Help::Caption
+           MOVE FUNCTION TRIM(T-REMOVE) TO Btn-Remove::Caption
+           MOVE FUNCTION TRIM(T-DATA-FILE) TO Lbl-Data::Caption
+           MOVE FUNCTION TRIM(T-HINT-DATA-PATH) TO Txt-Data::HintText
+           MOVE FUNCTION TRIM(T-DESCRIPTION) TO Lbl-Cidx::Caption
+           MOVE FUNCTION TRIM(T-HINT-CIDX) TO Txt-Cidx::HintText
+           MOVE FUNCTION TRIM(T-ADD-FILE) TO Btn-Add::Caption
+           MOVE FUNCTION TRIM(T-CLOSE) TO Btn-Close::Caption
+]]></Event>
+    <Event name="PC-FMT" paragraph="PC-FMT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-PT              PIC 9(4).
+       01 WS-FROM            PIC 9(4).
+       01 WS-CNT             PIC 9(4).
+       01 WS-PART            PIC X(140).
+       01 WS-DELIM           PIC XX.
+       PROCEDURE DIVISION.
+      *>   A message whose words go round numbers and names differently in each
+      *>   language: WS-FMT holds "&1" .. "&4" where WS-ARG1..4 go.
+           MOVE SPACES TO WS-FMT-OUT
+           MOVE 1 TO WS-PT
+           MOVE 1 TO WS-FROM
+           PERFORM UNTIL WS-FROM > FUNCTION LENGTH(WS-FMT)
+               MOVE SPACES TO WS-PART WS-DELIM
+               MOVE 0 TO WS-CNT
+               UNSTRING WS-FMT DELIMITED BY "&1" OR "&2" OR "&3" OR "&4"
+                   INTO WS-PART DELIMITER IN WS-DELIM COUNT IN WS-CNT
+                   WITH POINTER WS-FROM
+               END-UNSTRING
+               IF WS-CNT > 0
+                   STRING WS-PART(1:WS-CNT) DELIMITED BY SIZE
+                       INTO WS-FMT-OUT WITH POINTER WS-PT
+               END-IF
+               EVALUATE WS-DELIM
+                   WHEN "&1" STRING FUNCTION TRIM(WS-ARG1) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&2" STRING FUNCTION TRIM(WS-ARG2) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&3" STRING FUNCTION TRIM(WS-ARG3) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&4" STRING FUNCTION TRIM(WS-ARG4) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN OTHER COMPUTE WS-FROM = FUNCTION LENGTH(WS-FMT) + 1
+               END-EVALUATE
+           END-PERFORM
+]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="FILES-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
            CALL "PC-PATHS"
+           CALL "PC-TEXTS"
            MOVE "CUR-TOPIC" TO WS-SET-NAME
            CALL "PC-SETTING-GET"
            MOVE WS-SET-VALUE(1:16) TO WS-CUR-TOPIC
            IF WS-CUR-TOPIC = SPACES
-               MOVE "Open a topic first." TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-OPEN-TOPIC-FIRST) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            OPEN I-O TOPICS-FILE
@@ -254,9 +474,10 @@
                INVALID KEY MOVE "?" TO TOP-NAME
            END-READ
            CLOSE TOPICS-FILE
-           MOVE SPACES TO WS-LINE
-           STRING "Data files - " FUNCTION TRIM(TOP-NAME) DELIMITED BY SIZE INTO WS-LINE
-           MOVE WS-LINE TO Lbl-Title::Caption
+           MOVE T-FILES-OF TO WS-FMT
+           MOVE TOP-NAME TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Title::Caption
            CALL "PC-LOAD-FILES"
 ]]></Event>
     <Event name="onClose" paragraph="FILES-FORM--ONCLOSE">
@@ -428,7 +649,7 @@
        PROCEDURE DIVISION.
            MOVE Lst-Files::GetSelectedIndex() TO WS-INDEX
            IF WS-INDEX < 0 OR WS-INDEX >= WS-FILE-COUNT
-               MOVE "Pick a file in the list first." TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-PICK-FILE-FIRST) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            ADD 1 TO WS-INDEX
@@ -445,7 +666,7 @@
            END-DELETE
            COMMIT
            CLOSE TFILES-FILE
-           MOVE "Removed. The file itself is untouched." TO Lbl-Status::Caption
+           MOVE FUNCTION TRIM(T-FILE-REMOVED) TO Lbl-Status::Caption
            CALL "PC-LOAD-FILES"
 ]]></Event>
   </Control>
@@ -670,15 +891,16 @@
            MOVE Txt-Data::Text TO WS-DATA
            MOVE Txt-Cidx::Text TO WS-CIDX
            IF WS-DATA = SPACES OR WS-CIDX = SPACES
-               MOVE "Give both the data file and its .cidx description." TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-GIVE-BOTH) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            CALL "PC-TRY"
            IF WS-OK NOT = "1"
-               MOVE SPACES TO WS-LINE
-               STRING "Not added - " FUNCTION TRIM(WS-RESULT) ": " FUNCTION TRIM(WS-MESSAGE)
-                   DELIMITED BY SIZE INTO WS-LINE
-               MOVE WS-LINE TO Lbl-Status::Caption
+               MOVE T-NOT-ADDED TO WS-FMT
+               MOVE WS-RESULT TO WS-ARG1
+               MOVE WS-MESSAGE TO WS-ARG2
+               CALL "PC-FMT"
+               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            OPEN I-O TFILES-FILE
@@ -697,10 +919,11 @@
            END-WRITE
            COMMIT
            CLOSE TFILES-FILE
-           MOVE SPACES TO WS-LINE
-           STRING "Added " FUNCTION TRIM(WS-NAME) " - " FUNCTION TRIM(WS-MESSAGE)
-               DELIMITED BY SIZE INTO WS-LINE
-           MOVE WS-LINE TO Lbl-Status::Caption
+           MOVE T-FILE-ADDED TO WS-FMT
+           MOVE WS-NAME TO WS-ARG1
+           MOVE WS-MESSAGE TO WS-ARG2
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
            MOVE SPACES TO Txt-Data::Text
            MOVE SPACES TO Txt-Cidx::Text
            CALL "PC-LOAD-FILES"

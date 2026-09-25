@@ -1226,8 +1226,48 @@ aside, never deleted), their registered files and their prompt versions; the
 files in `samples/` are only ever read. Set `POWERCHAT_SAMPLES` to install from
 another folder. Adding a sample is a folder and a few lines of text — no COBOL.
 
-> **Note.** Still to come: the other five languages and documents as a folder
-> tree.
+**Six languages, switched at once.** The six flags in the menu's footer are
+`PictureBox`es with an `onClick`; a click stores the choice and relabels the
+form on the spot, and every other form opens in it. The texts live in COBOL,
+not in the IDE: each form carries a translation table in its own
+WORKING-STORAGE — one row per text, one `FILLER` per language — laid over by a
+`REDEFINES` so a language is just a column number. A procedure copies that
+column into named items (`T-SEND`, `T-TOPIC-CREATED` …), which the handlers
+use wherever they used to write a literal, and moves the designed captions and
+hints back onto their controls:
+
+```cobol
+       01 PC-TEXT-DATA.
+      *>   SEND
+          05 FILLER PIC X(80) VALUE "Send".
+          05 FILLER PIC X(80) VALUE "Enviar".
+          ...
+       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA.
+          05 PC-TEXT-ROW OCCURS 23.
+             10 PC-TEXT PIC X(80) OCCURS 6.
+      ...
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 23
+               MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
+           END-PERFORM
+           MOVE FUNCTION TRIM(T-SEND) TO Btn-Send::Caption
+```
+
+A message with numbers in it is a pattern — `"Removed &1 sample topic(s)."`,
+`"サンプルトピックを &1 件削除しました。"` — and `PC-FMT` puts the values where each
+language wants them, because word order is not the same in all six.
+
+> ⚠️ **Caveats.**
+> - A menu row designed in the menu file keeps its label: `SetItemLabel`
+>   changes only rows added at run time. PowerChat therefore adds all its menu
+>   rows with `AddItem`, so they follow the language.
+> - A window's title is set when the window opens. PowerChat's windows are all
+>   titled *PowerChat*, and each form's heading label carries its name.
+> - `LENGTH OF item` is not COBOL-85 — use `FUNCTION LENGTH(item)`.
+> - Only the interface is translated. The instructions PowerChat sends to the
+>   models stay in English, and the models answer in the language they are
+>   asked in.
+
+> **Note.** Still to come: documents as a folder tree.
 >
 > ⚠️ **Caveat.** A method call written as a statement straight after a `MOVE`
 > is read as one more receiving field of that `MOVE` — `MOVE A TO B` followed

@@ -18,7 +18,14 @@ forms = [
     "forms/files-form.cfrm",
     "forms/prompts-form.cfrm",
 ]
-assets = []
+assets = [
+    "assets/flags/en.png",
+    "assets/flags/pt.png",
+    "assets/flags/es.png",
+    "assets/flags/fr.png",
+    "assets/flags/jp.png",
+    "assets/flags/cn.png",
+]
 documentation = []
 generated = [
     "generated/chat-form.cbl",

@@ -63,5 +63,10 @@
   FILE lines; `topics-form` installs them (documents imported one at a time, chained by
   `onIndexed`) and removes them (topics flagged `TOP-SAMPLE`). The orders file is written by
   `powerchat_regen` when missing.
-- [ ] **P2-5 — Six languages** (R44–R46)
+- [x] **P2-5 — Six languages** (R44–R46) — a translation table per form (FILLER rows,
+  REDEFINES, one column per language) generated from one list; `PC-TEXTS` fills `T-` items
+  and re-applies designed captions/hints; `PC-FMT` places `&1`..`&4`; six `PictureBox`
+  flags (PNG, `assets/flags/`) in the SideMenu footer; menu rows moved to run time
+  (designed rows cannot be relabelled); every window titled *PowerChat* (a title cannot
+  change after the window opens).
 - [ ] **P2-6 — Documents folder tree** (R49, R50)

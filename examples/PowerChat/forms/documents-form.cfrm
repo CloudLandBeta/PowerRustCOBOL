@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="DOCUMENTS-FORM" title="PowerChat - Documents" width="680" height="472" background="F2F4F5FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
+<Form name="DOCUMENTS-FORM" title="PowerChat" width="680" height="472" background="F2F4F5FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
   <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -21,6 +21,131 @@
        01 WS-N3              GLOBAL PIC Z(4)9.
        01 WS-N4              GLOBAL PIC Z(4)9.
        01 WS-SKIPPED         GLOBAL PIC X(400).
+      *>   The interface texts (spec 071 R44): one row per text, one column
+      *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
+      *>   only the values are translated.
+       01 WS-LANG            GLOBAL PIC XX VALUE "en".
+       01 WS-LANG-IX         GLOBAL PIC 9 VALUE 1.
+       01 WS-TX-I            GLOBAL PIC 9(4).
+       01 PC-TEXT-DATA       GLOBAL.
+      *>   OPEN-TOPIC-FIRST
+          05 FILLER PIC X(70) VALUE "Open a topic first.".
+          05 FILLER PIC X(70) VALUE "Abra um tópico primeiro.".
+          05 FILLER PIC X(70) VALUE "Primero abre un tema.".
+          05 FILLER PIC X(70) VALUE "Ouvrez d'abord un sujet.".
+          05 FILLER PIC X(70) VALUE "先にトピックを開いてください。".
+          05 FILLER PIC X(70) VALUE "请先打开一个主题。".
+      *>   DOCS-OF
+          05 FILLER PIC X(70) VALUE "Documents - &1".
+          05 FILLER PIC X(70) VALUE "Documentos - &1".
+          05 FILLER PIC X(70) VALUE "Documentos - &1".
+          05 FILLER PIC X(70) VALUE "Documents - &1".
+          05 FILLER PIC X(70) VALUE "文書 - &1".
+          05 FILLER PIC X(70) VALUE "文档 - &1".
+      *>   PICK-DOC-FIRST
+          05 FILLER PIC X(70) VALUE "Pick a document in the list first.".
+          05 FILLER PIC X(70) VALUE "Escolha um documento na lista primeiro.".
+          05 FILLER PIC X(70) VALUE "Primero elige un documento de la lista.".
+          05 FILLER PIC X(70) VALUE "Choisissez d'abord un document dans la liste.".
+          05 FILLER PIC X(70) VALUE "先に一覧から文書を選んでください。".
+          05 FILLER PIC X(70) VALUE "请先在列表中选择一个文档。".
+      *>   KB-PROGRESS
+          05 FILLER PIC X(70) VALUE "Updating the Knowledge Base: &1 of &2 - &3".
+          05 FILLER PIC X(70) VALUE "Atualizando a base de conhecimento: &1 de &2 - &3".
+          05 FILLER PIC X(70) VALUE "Actualizando la base de conocimiento: &1 de &2 - &3".
+          05 FILLER PIC X(70) VALUE "Mise à jour de la base de connaissances : &1 sur &2 - &3".
+          05 FILLER PIC X(70) VALUE "ナレッジベースを更新中：&1 / &2 - &3".
+          05 FILLER PIC X(70) VALUE "正在更新知识库：第 &1 个，共 &2 个 - &3".
+      *>   KB-COUNTS
+          05 FILLER PIC X(70) VALUE "Added &1, updated &2, removed &3, skipped &4.".
+          05 FILLER PIC X(70) VALUE "Adicionados &1, atualizados &2, removidos &3, ignorados &4.".
+          05 FILLER PIC X(70) VALUE "Añadidos &1, actualizados &2, quitados &3, omitidos &4.".
+          05 FILLER PIC X(70) VALUE "Ajoutés &1, mis à jour &2, retirés &3, ignorés &4.".
+          05 FILLER PIC X(70) VALUE "追加 &1、更新 &2、削除 &3、スキップ &4。".
+          05 FILLER PIC X(70) VALUE "新增 &1，更新 &2，移除 &3，跳过 &4。".
+      *>   KB-SKIPPED
+          05 FILLER PIC X(70) VALUE "Skipped: &1".
+          05 FILLER PIC X(70) VALUE "Ignorados: &1".
+          05 FILLER PIC X(70) VALUE "Omitidos: &1".
+          05 FILLER PIC X(70) VALUE "Ignorés : &1".
+          05 FILLER PIC X(70) VALUE "スキップ：&1".
+          05 FILLER PIC X(70) VALUE "已跳过：&1".
+      *>   DOC-COUNT
+          05 FILLER PIC X(70) VALUE "&1 document(s).".
+          05 FILLER PIC X(70) VALUE "&1 documento(s).".
+          05 FILLER PIC X(70) VALUE "&1 documento(s).".
+          05 FILLER PIC X(70) VALUE "&1 document(s).".
+          05 FILLER PIC X(70) VALUE "文書 &1 件。".
+          05 FILLER PIC X(70) VALUE "共 &1 个文档。".
+      *>   DOCS-TITLE
+          05 FILLER PIC X(70) VALUE "Documents".
+          05 FILLER PIC X(70) VALUE "Documentos".
+          05 FILLER PIC X(70) VALUE "Documentos".
+          05 FILLER PIC X(70) VALUE "Documents".
+          05 FILLER PIC X(70) VALUE "文書".
+          05 FILLER PIC X(70) VALUE "文档".
+      *>   DROP-HINT
+          05 FILLER PIC X(70) VALUE "Drop documents here, or click to choose".
+          05 FILLER PIC X(70) VALUE "Solte documentos aqui ou clique para escolher".
+          05 FILLER PIC X(70) VALUE "Suelta documentos aquí o haz clic para elegir".
+          05 FILLER PIC X(70) VALUE "Déposez des documents ici, ou cliquez pour choisir".
+          05 FILLER PIC X(70) VALUE "ここに文書をドロップするか、クリックして選択".
+          05 FILLER PIC X(70) VALUE "将文档拖放到此处，或点击选择".
+      *>   DELETE
+          05 FILLER PIC X(70) VALUE "Delete".
+          05 FILLER PIC X(70) VALUE "Excluir".
+          05 FILLER PIC X(70) VALUE "Eliminar".
+          05 FILLER PIC X(70) VALUE "Supprimer".
+          05 FILLER PIC X(70) VALUE "削除".
+          05 FILLER PIC X(70) VALUE "删除".
+      *>   REFRESH
+          05 FILLER PIC X(70) VALUE "Refresh".
+          05 FILLER PIC X(70) VALUE "Atualizar".
+          05 FILLER PIC X(70) VALUE "Actualizar".
+          05 FILLER PIC X(70) VALUE "Actualiser".
+          05 FILLER PIC X(70) VALUE "更新".
+          05 FILLER PIC X(70) VALUE "刷新".
+      *>   CLOSE
+          05 FILLER PIC X(70) VALUE "Close".
+          05 FILLER PIC X(70) VALUE "Fechar".
+          05 FILLER PIC X(70) VALUE "Cerrar".
+          05 FILLER PIC X(70) VALUE "Fermer".
+          05 FILLER PIC X(70) VALUE "閉じる".
+          05 FILLER PIC X(70) VALUE "关闭".
+      *>   KB-UPDATING
+          05 FILLER PIC X(70) VALUE "Updating the Knowledge Base...".
+          05 FILLER PIC X(70) VALUE "Atualizando a base de conhecimento...".
+          05 FILLER PIC X(70) VALUE "Actualizando la base de conocimiento...".
+          05 FILLER PIC X(70) VALUE "Mise à jour de la base de connaissances...".
+          05 FILLER PIC X(70) VALUE "ナレッジベースを更新中...".
+          05 FILLER PIC X(70) VALUE "正在更新知识库...".
+       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
+          05 PC-TEXT-ROW     OCCURS 13.
+             10 PC-TEXT      PIC X(70) OCCURS 6.
+      *>   The texts in the current language, by name.
+       01 PC-TEXTS-NOW       GLOBAL.
+          05 T-OPEN-TOPIC-FIRST PIC X(70).
+          05 T-DOCS-OF PIC X(70).
+          05 T-PICK-DOC-FIRST PIC X(70).
+          05 T-KB-PROGRESS PIC X(70).
+          05 T-KB-COUNTS PIC X(70).
+          05 T-KB-SKIPPED PIC X(70).
+          05 T-DOC-COUNT PIC X(70).
+          05 T-DOCS-TITLE PIC X(70).
+          05 T-DROP-HINT PIC X(70).
+          05 T-DELETE PIC X(70).
+          05 T-REFRESH PIC X(70).
+          05 T-CLOSE PIC X(70).
+          05 T-KB-UPDATING PIC X(70).
+       01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
+          05 PC-TEXT-NOW     PIC X(70) OCCURS 13.
+      *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
+       01 WS-FMT             GLOBAL PIC X(70).
+       01 WS-ARG1            GLOBAL PIC X(300).
+       01 WS-ARG2            GLOBAL PIC X(300).
+       01 WS-ARG3            GLOBAL PIC X(300).
+       01 WS-ARG4            GLOBAL PIC X(300).
+       01 WS-FMT-OUT         GLOBAL PIC X(1200).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -160,9 +285,77 @@
                MOVE Lst-Docs::AddItem(FUNCTION TRIM(WS-DOC)) TO WS-OK
            END-PERFORM
            MOVE WS-DOC-COUNT TO WS-N1
-           MOVE SPACES TO WS-LINE
-           STRING FUNCTION TRIM(WS-N1) " document(s)." DELIMITED BY SIZE INTO WS-LINE
-           MOVE WS-LINE TO Lbl-Count::Caption
+           MOVE T-DOC-COUNT TO WS-FMT
+           MOVE WS-N1 TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Count::Caption
+]]></Event>
+    <Event name="PC-TEXTS" paragraph="PC-TEXTS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The language the user picked (LANG), the texts in it, and every
+      *>   designed caption and hint that shows one. Called on load and again
+      *>   whenever the language changes (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           MOVE WS-SET-VALUE(1:2) TO WS-LANG
+           EVALUATE WS-LANG
+               WHEN "en" MOVE 1 TO WS-LANG-IX
+               WHEN "pt" MOVE 2 TO WS-LANG-IX
+               WHEN "es" MOVE 3 TO WS-LANG-IX
+               WHEN "fr" MOVE 4 TO WS-LANG-IX
+               WHEN "jp" MOVE 5 TO WS-LANG-IX
+               WHEN "cn" MOVE 6 TO WS-LANG-IX
+               WHEN OTHER MOVE "en" TO WS-LANG
+                          MOVE 1 TO WS-LANG-IX
+           END-EVALUATE
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 13
+               MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
+           END-PERFORM
+           MOVE FUNCTION TRIM(T-DOCS-TITLE) TO Lbl-Title::Caption
+           MOVE FUNCTION TRIM(T-DROP-HINT) TO Drop-Docs::Hint
+           MOVE FUNCTION TRIM(T-DELETE) TO Btn-Delete::Caption
+           MOVE FUNCTION TRIM(T-REFRESH) TO Btn-Refresh::Caption
+           MOVE FUNCTION TRIM(T-CLOSE) TO Btn-Close::Caption
+           MOVE FUNCTION TRIM(T-KB-UPDATING) TO Lbl-Progress::Caption
+]]></Event>
+    <Event name="PC-FMT" paragraph="PC-FMT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-PT              PIC 9(4).
+       01 WS-FROM            PIC 9(4).
+       01 WS-CNT             PIC 9(4).
+       01 WS-PART            PIC X(70).
+       01 WS-DELIM           PIC XX.
+       PROCEDURE DIVISION.
+      *>   A message whose words go round numbers and names differently in each
+      *>   language: WS-FMT holds "&1" .. "&4" where WS-ARG1..4 go.
+           MOVE SPACES TO WS-FMT-OUT
+           MOVE 1 TO WS-PT
+           MOVE 1 TO WS-FROM
+           PERFORM UNTIL WS-FROM > FUNCTION LENGTH(WS-FMT)
+               MOVE SPACES TO WS-PART WS-DELIM
+               MOVE 0 TO WS-CNT
+               UNSTRING WS-FMT DELIMITED BY "&1" OR "&2" OR "&3" OR "&4"
+                   INTO WS-PART DELIMITER IN WS-DELIM COUNT IN WS-CNT
+                   WITH POINTER WS-FROM
+               END-UNSTRING
+               IF WS-CNT > 0
+                   STRING WS-PART(1:WS-CNT) DELIMITED BY SIZE
+                       INTO WS-FMT-OUT WITH POINTER WS-PT
+               END-IF
+               EVALUATE WS-DELIM
+                   WHEN "&1" STRING FUNCTION TRIM(WS-ARG1) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&2" STRING FUNCTION TRIM(WS-ARG2) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&3" STRING FUNCTION TRIM(WS-ARG3) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&4" STRING FUNCTION TRIM(WS-ARG4) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN OTHER COMPUTE WS-FROM = FUNCTION LENGTH(WS-FMT) + 1
+               END-EVALUATE
+           END-PERFORM
 ]]></Event>
   </user-procedures>
   <form-events>
@@ -170,6 +363,7 @@
        DATA DIVISION.
        PROCEDURE DIVISION.
            CALL "PC-PATHS"
+           CALL "PC-TEXTS"
            MOVE "CUR-TOPIC" TO WS-SET-NAME
            CALL "PC-SETTING-GET"
            MOVE WS-SET-VALUE(1:16) TO WS-CUR-TOPIC
@@ -180,7 +374,7 @@
                MOVE "assets/KB" TO WS-KB-LOCATION
            END-IF
            IF WS-CUR-TOPIC = SPACES
-               MOVE "Open a topic first." TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-OPEN-TOPIC-FIRST) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            OPEN I-O TOPICS-FILE
@@ -194,9 +388,10 @@
                INVALID KEY MOVE "?" TO TOP-NAME
            END-READ
            CLOSE TOPICS-FILE
-           MOVE SPACES TO WS-LINE
-           STRING "Documents - " FUNCTION TRIM(TOP-NAME) DELIMITED BY SIZE INTO WS-LINE
-           MOVE WS-LINE TO Lbl-Title::Caption
+           MOVE T-DOCS-OF TO WS-FMT
+           MOVE TOP-NAME TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Title::Caption
            MOVE WS-KB-LOCATION TO KB-D::Location
            MOVE WS-CUR-TOPIC TO KB-D::Collection
       *>   Dropped files land in the collection's documents folder; a refresh
@@ -387,7 +582,7 @@
        PROCEDURE DIVISION.
            MOVE Lst-Docs::GetSelectedIndex() TO WS-INDEX
            IF WS-INDEX < 0 OR WS-INDEX >= WS-DOC-COUNT
-               MOVE "Pick a document in the list first." TO Lbl-Status::Caption
+               MOVE FUNCTION TRIM(T-PICK-DOC-FIRST) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
            ADD 1 TO WS-INDEX
@@ -744,11 +939,12 @@
            MOVE KB-D::ProgressTotal TO WS-N2
            MOVE KB-D::ProgressTotal TO Prg-Index::Maximum
            MOVE KB-D::ProgressCurrent TO Prg-Index::Value
-           MOVE SPACES TO WS-LINE
-           STRING "Updating the Knowledge Base: " FUNCTION TRIM(WS-N1) " of "
-                  FUNCTION TRIM(WS-N2) " - " FUNCTION TRIM(KB-D::ProgressDocument)
-               DELIMITED BY SIZE INTO WS-LINE
-           MOVE WS-LINE TO Lbl-Progress::Caption
+           MOVE T-KB-PROGRESS TO WS-FMT
+           MOVE WS-N1 TO WS-ARG1
+           MOVE WS-N2 TO WS-ARG2
+           MOVE KB-D::ProgressDocument TO WS-ARG3
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Progress::Caption
            MOVE "true" TO Pnl-Progress::Visible
            MOVE "true" TO Lbl-Progress::Visible
            MOVE "true" TO Prg-Index::Visible
@@ -763,13 +959,21 @@
            MOVE KB-D::UpdatedCount TO WS-N2
            MOVE KB-D::RemovedCount TO WS-N3
            MOVE KB-D::SkippedCount TO WS-N4
-           MOVE SPACES TO WS-LINE
-           STRING "Added " FUNCTION TRIM(WS-N1) ", updated " FUNCTION TRIM(WS-N2)
-                  ", removed " FUNCTION TRIM(WS-N3) ", skipped " FUNCTION TRIM(WS-N4) "."
-               DELIMITED BY SIZE INTO WS-LINE
+           MOVE T-KB-COUNTS TO WS-FMT
+           MOVE WS-N1 TO WS-ARG1
+           MOVE WS-N2 TO WS-ARG2
+           MOVE WS-N3 TO WS-ARG3
+           MOVE WS-N4 TO WS-ARG4
+           CALL "PC-FMT"
+           MOVE WS-FMT-OUT TO WS-LINE
            MOVE KB-D::SkippedDocuments TO WS-SKIPPED
            IF WS-SKIPPED NOT = SPACES
-               STRING FUNCTION TRIM(WS-LINE) " Skipped: " FUNCTION TRIM(WS-SKIPPED)
+               MOVE T-KB-SKIPPED TO WS-FMT
+               MOVE WS-SKIPPED TO WS-ARG1
+               CALL "PC-FMT"
+               MOVE WS-LINE TO WS-ARG2
+               MOVE SPACES TO WS-LINE
+               STRING FUNCTION TRIM(WS-ARG2) " " FUNCTION TRIM(WS-FMT-OUT)
                    DELIMITED BY SIZE INTO WS-LINE
            END-IF
            MOVE WS-LINE TO Lbl-Status::Caption
