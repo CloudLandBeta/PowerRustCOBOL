@@ -2405,10 +2405,7 @@
     <Property name="DataFormat"></Property>
     <Property name="mcp_tool"></Property>
   </Control>
-  <Control id="Flag-en" type="PictureBox" x="18" y="713" w="32" h="22" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
-    <Property name="ImagePath">assets/flags/en.png</Property>
-    <Property name="SizeMode">Stretch</Property>
-    <Property name="ShowFrame">false</Property>
+  <Control id="Flag-en" type="Button" x="6" y="709" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -2431,15 +2428,22 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Hand</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="ImageAlignment">MiddleCenter</Property>
     <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconPath">assets/flags/en.png</Property>
+    <Property name="IconSize">18</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Cursor">Hand</Property>
     <Property name="Tooltip">English</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="Caption">Flag-en</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Event name="onClick" paragraph="FLAG-EN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2452,10 +2456,7 @@
            CALL "PC-RELABEL"
 ]]></Event>
   </Control>
-  <Control id="Flag-pt" type="PictureBox" x="58" y="713" w="32" h="22" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
-    <Property name="ImagePath">assets/flags/pt.png</Property>
-    <Property name="SizeMode">Stretch</Property>
-    <Property name="ShowFrame">false</Property>
+  <Control id="Flag-pt" type="Button" x="48" y="709" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -2478,15 +2479,22 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Hand</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="ImageAlignment">MiddleCenter</Property>
     <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconPath">assets/flags/pt.png</Property>
+    <Property name="IconSize">18</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Cursor">Hand</Property>
     <Property name="Tooltip">Português</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="Caption">Flag-pt</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Event name="onClick" paragraph="FLAG-PT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2499,10 +2507,7 @@
            CALL "PC-RELABEL"
 ]]></Event>
   </Control>
-  <Control id="Flag-es" type="PictureBox" x="98" y="713" w="32" h="22" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
-    <Property name="ImagePath">assets/flags/es.png</Property>
-    <Property name="SizeMode">Stretch</Property>
-    <Property name="ShowFrame">false</Property>
+  <Control id="Flag-es" type="Button" x="90" y="709" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -2525,15 +2530,22 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Hand</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="ImageAlignment">MiddleCenter</Property>
     <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconPath">assets/flags/es.png</Property>
+    <Property name="IconSize">18</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Cursor">Hand</Property>
     <Property name="Tooltip">Español</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="Caption">Flag-es</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Event name="onClick" paragraph="FLAG-ES--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2546,10 +2558,7 @@
            CALL "PC-RELABEL"
 ]]></Event>
   </Control>
-  <Control id="Flag-fr" type="PictureBox" x="138" y="713" w="32" h="22" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
-    <Property name="ImagePath">assets/flags/fr.png</Property>
-    <Property name="SizeMode">Stretch</Property>
-    <Property name="ShowFrame">false</Property>
+  <Control id="Flag-fr" type="Button" x="132" y="709" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -2572,15 +2581,22 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Hand</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="ImageAlignment">MiddleCenter</Property>
     <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconPath">assets/flags/fr.png</Property>
+    <Property name="IconSize">18</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Cursor">Hand</Property>
     <Property name="Tooltip">Français</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="Caption">Flag-fr</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Event name="onClick" paragraph="FLAG-FR--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2593,10 +2609,7 @@
            CALL "PC-RELABEL"
 ]]></Event>
   </Control>
-  <Control id="Flag-jp" type="PictureBox" x="178" y="713" w="32" h="22" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
-    <Property name="ImagePath">assets/flags/jp.png</Property>
-    <Property name="SizeMode">Stretch</Property>
-    <Property name="ShowFrame">false</Property>
+  <Control id="Flag-jp" type="Button" x="174" y="709" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -2619,15 +2632,22 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Hand</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="ImageAlignment">MiddleCenter</Property>
     <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconPath">assets/flags/jp.png</Property>
+    <Property name="IconSize">18</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Cursor">Hand</Property>
     <Property name="Tooltip">日本語</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="Caption">Flag-jp</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Event name="onClick" paragraph="FLAG-JP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2640,10 +2660,7 @@
            CALL "PC-RELABEL"
 ]]></Event>
   </Control>
-  <Control id="Flag-cn" type="PictureBox" x="218" y="713" w="32" h="22" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
-    <Property name="ImagePath">assets/flags/cn.png</Property>
-    <Property name="SizeMode">Stretch</Property>
-    <Property name="ShowFrame">false</Property>
+  <Control id="Flag-cn" type="Button" x="216" y="709" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -2666,15 +2683,22 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Hand</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="ImageAlignment">MiddleCenter</Property>
     <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconPath">assets/flags/cn.png</Property>
+    <Property name="IconSize">18</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Cursor">Hand</Property>
     <Property name="Tooltip">中文</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="Caption">Flag-cn</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Event name="onClick" paragraph="FLAG-CN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.

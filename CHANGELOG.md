@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.218] — 2026-09-25
+
+### Feature — PowerChat's language flags are real buttons
+
+- The six flags in the SideMenu footer are now Buttons: the flag is the
+  button's image, in the chat form's dark button style, with a hand cursor and
+  the language's own name as the tooltip. They keep their ids (`Flag-en` …
+  `Flag-cn`) and their `onClick` handlers.
+- **The "WRITE to 'SETTINGS-FILE' which is not open for output" warning on a
+  flag click** came from running a tree without 1.70.214, which is the fix
+  that makes PowerChat's `data/` path start at the project folder. `main` now
+  carries that fix and this change together.
+
 ## [PowerRustCOBOL 1.70.217] — 2026-09-25
 
 ### Feature — PowerChat's sidebar wears the Titan Voyages logo and icon
