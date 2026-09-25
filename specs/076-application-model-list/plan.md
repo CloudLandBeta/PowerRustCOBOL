@@ -82,9 +82,8 @@ Properties: `ModelEntry` on `AgentObject` and `KnowledgeBase` (designer + run ti
 - `kb_config`: `ModelEntry` set → `EmbeddingAPI`/`URL`/`Model`/`Key` from the entry (R13);
   an unknown entry fails the operation with `onError`.
 
-⚠️ **R12 vs R17 on the model.** R12 says the entry supplies the model; R17 says the model
-an agent sets on itself still applies. Resolved as: the entry's model when it names one,
-the agent's otherwise. Flagged to the operator.
+**R12 vs R17 on the model** — settled by the operator (2026-09-24): the entry's model
+when it names one, the agent's otherwise.
 
 ### 5. IDE, docs
 

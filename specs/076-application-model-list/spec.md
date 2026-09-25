@@ -125,9 +125,10 @@ or the list changing.
 - **R16 (event):** When an entry an agent uses is changed or withdrawn, the
   program shall be told, so it can act — PowerChat re-runs its election
   (071 R36).
-- **R17 (ubiquitous):** The model, temperature, token limit and timeout an
-  `AgentObject` sets on itself shall still apply when it uses an entry, as they
-  do with a `Configuration` today.
+- **R17 (ubiquitous):** The temperature, token limit and timeout an
+  `AgentObject` sets on itself shall still apply when it uses an entry. Its
+  **model** applies only when the entry names none: an entry that names a model
+  wins (operator, 2026-09-24, settling R12 against this requirement).
 
 ### 4.4 Everywhere the same
 
@@ -190,11 +191,9 @@ or the list changing.
 
 ## 6a. Implementation notes (1.70.194)
 
-- **⚠️ R12 vs R17 on the model — resolved one way, for the operator to
-  confirm.** R12 says the entry supplies the model; R17 says the model an
-  agent sets on itself still applies. Implemented as: **the entry's model when
-  it names one, the agent's own otherwise.** Temperature, token limit and
-  timeout are always the agent's.
+- **✅ R12 vs R17 on the model — settled by the operator (2026-09-24).** An
+  agent using an entry takes the entry's model if the entry names one,
+  otherwise its own. R17 now says so.
 - **AC2.** `model_list` has no file-system code; entries live in a process
   global. Verified by construction, not by a restart test.
 - **AC4.** Tested: the program's display output with the verbose agent log on

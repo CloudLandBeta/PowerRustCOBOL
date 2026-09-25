@@ -8,6 +8,15 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.195] — 2026-09-24
+
+### Spec 076 — the model rule, settled
+
+The operator settled the conflict between R12 and R17 of spec 076: an agent
+using a model-list entry takes the entry's model if the entry names one, and
+its own model otherwise. That is what 1.70.194 already does. R17 is reworded
+to match, and the open note is closed. Spec only; no code changed.
+
 ## [PowerRustCOBOL 1.70.194] — 2026-09-24
 
 ### Feature — the application's model list and key store (spec 076)
