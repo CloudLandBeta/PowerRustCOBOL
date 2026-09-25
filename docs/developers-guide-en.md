@@ -1746,6 +1746,12 @@ Two toolbar buttons at the right end of the designer toolbar set it:
 > list over the same form with one row selected and being dragged, showing the
 > insertion line.
 
+**Tab stays in the form you are in.** In an application shell, the form in
+the ContentPane and the controls in the SideMenu's footer are two separate tab
+orders. Tab and Shift+Tab walk the one that holds the focus and never jump
+into the other. Before 1.70.223 the footer took every Tab, so a form in the pane
+could be walked with Enter but not with Tab.
+
 **Who takes part.** Controls that can take the keyboard — Button, TextBox,
 CheckBox, RadioButton, ListBox, ComboBox, DataGrid, DateTimePicker,
 NumericUpDown, TreeView, Slider — and **Label**. At run time only the visible,

@@ -8,6 +8,22 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.223] — 2026-09-25
+
+### Fix — Tab and Shift+Tab did nothing in a form inside a shell
+
+- A shell draws two forms in one frame: the SideMenu footer's controls (its
+  own pass, drawn first) and the form in the ContentPane. Each pass walks its
+  own tab order, and the footer's took every Tab: the focus was in none of its
+  controls, so it started from its own first one. Tab in a pane form therefore
+  jumped to the footer (PowerChat's flags) instead of the next field. Enter
+  (`EnterAsTab`) kept working because it acts only where the focus is.
+- A pass now takes Tab only when the focus is in one of its own controls, or
+  when nothing has the focus and the last Tab did not stop in another form.
+- Regression test: `render::tests::tab_stays_in_the_form_that_holds_the_focus`
+  (a footer pass first, a pane with two fields: Tab and Shift+Tab stay in the
+  pane).
+
 ## [PowerRustCOBOL 1.70.222] — 2026-09-25
 
 ### Fix — PowerChat: the flags show their images, and every form follows the language

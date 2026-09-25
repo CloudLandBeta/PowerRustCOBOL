@@ -2904,7 +2904,24 @@ fn resolve_tab_traversal(ui: &egui::Ui, targets: &mut Vec<TabTarget>) -> TabStep
     // a click into another field has moved them, and Tab goes on from there.
     let focused_idx = ui.ctx().memory(|m| m.focused()).and_then(position);
 
-    let (tab, shift) = ui.input(|i| (i.key_pressed(egui::Key::Tab), i.modifiers.shift));
+    let (mut tab, shift) = ui.input(|i| (i.key_pressed(egui::Key::Tab), i.modifiers.shift));
+    // Tab belongs to the form that holds the focus. A shell draws two forms
+    // in one frame — the SideMenu footer's pass and the ContentPane's — and
+    // the first one to look used to take every Tab, even with the focus in
+    // the other form's field. Leave it alone when the focus is elsewhere, or,
+    // with no focus at all, when the last Tab stopped in another form.
+    if tab && focused_idx.is_none() {
+        let focus_elsewhere = ui.ctx().memory(|m| m.focused()).is_some();
+        let remembered_elsewhere = ui
+            .data(|d| d.get_temp::<egui::Id>(tab_memory_id()))
+            .is_some_and(|id| position(id).is_none());
+        if focus_elsewhere || remembered_elsewhere {
+            tab = false;
+        }
+    }
+    if !tab && ui.input(|i| i.key_pressed(egui::Key::Tab)) {
+        return step;
+    }
     let (from, backwards) = if tab {
         ui.input_mut(|i| {
             let modifiers = egui::Modifiers {
@@ -19590,6 +19607,99 @@ mod tests {
             Some("B"),
             "second Tab should advance to the next TextBox by TabOrder"
         );
+    }
+
+    /// A shell draws two forms in one frame: the SideMenu's footer (its own
+    /// render pass, drawn first) and the form in the ContentPane. Tab belongs
+    /// to the form that holds the focus. The footer pass used to take every
+    /// Tab — the focus was in none of ITS controls, so it started from its own
+    /// first one — and Tab in a pane form jumped to the footer's flags instead
+    /// of the next field, while Enter (acted on only where the focus is)
+    /// worked (operator, 2026-09-25).
+    #[test]
+    fn tab_stays_in_the_form_that_holds_the_focus() {
+        let mut flag_a = ctrlp("FlagA", ControlType::Button, 0, 0, 40, 30, &[("Caption", "A")]);
+        flag_a.tab_order = 1;
+        let mut flag_b = ctrlp("FlagB", ControlType::Button, 50, 0, 40, 30, &[("Caption", "B")]);
+        flag_b.tab_order = 2;
+        let footer = [flag_a, flag_b];
+        let mut p1 = ctrlp("P1", ControlType::TextBox, 0, 0, 160, 24, &[("Text", "")]);
+        p1.tab_order = 1;
+        let mut p2 = ctrlp("P2", ControlType::TextBox, 0, 40, 160, 24, &[("Text", "")]);
+        p2.tab_order = 2;
+        let pane = [p1, p2];
+
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let active = ActiveTabs::new();
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let at = pos2(40.0, 12.0);
+        let frames: Vec<Vec<Event>> = vec![
+            vec![],
+            vec![Event::PointerMoved(at), press(at)],
+            vec![release(at)],
+            vec![Event::Text("A".to_owned())],
+            vec![tab_key(false, true)],
+            vec![tab_key(false, false)],
+            vec![Event::Text("B".to_owned())],
+            vec![tab_key(true, true)],
+            vec![tab_key(true, false)],
+            vec![Event::Text("C".to_owned())],
+        ];
+        for (i, evs) in frames.into_iter().enumerate() {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(1000.0, 800.0)));
+            input.focused = true;
+            input.time = Some(i as f64 * 0.05);
+            let held = evs.iter().find_map(|e| match e {
+                Event::Key { modifiers, .. } => Some(*modifiers),
+                _ => None,
+            });
+            input.events = held.map(Event::ModifiersChanged).into_iter().chain(evs).collect();
+            let updates = RefCell::new(Vec::<(String, String, String)>::new());
+            let st = MapState(&overrides);
+            ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                    // The footer first, in its own id space and its own band.
+                    let band = Rect::from_min_size(pos2(0.0, 600.0), Vec2::new(200.0, 40.0));
+                    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(band));
+                    let finput = RenderInput {
+                        controls: &footer,
+                        state: &st,
+                        form_size: band.size(),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Backdrop::default(),
+                    };
+                    let out = child
+                        .push_id("footer", |ui| render_form_scoped(ui, &finput, None, egui::Id::new("footer-scope")))
+                        .inner;
+                    updates.borrow_mut().extend(out.prop_updates);
+                    // Then the pane.
+                    let pinput = RenderInput {
+                        controls: &pane,
+                        state: &st,
+                        form_size: Vec2::new(400.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Backdrop::default(),
+                    };
+                    let out = render_form(ui, &pinput);
+                    updates.borrow_mut().extend(out.prop_updates);
+                });
+            })
+            .textures_delta
+            .clear();
+            for (id, k, v) in updates.into_inner() {
+                overrides.borrow_mut().entry(id).or_default().insert(k, v);
+            }
+        }
+        let map = overrides.into_inner();
+        let text = |id: &str| map.get(id).and_then(|m| m.get("Text")).cloned().unwrap_or_default();
+        assert_eq!(text("P2"), "B", "Tab moves to the pane's next field, not to the footer");
+        assert_eq!(text("P1"), "AC", "Shift+Tab comes back to the pane's previous field");
     }
 
     /// A control whose TabOrder no longer matches its drawing position is
