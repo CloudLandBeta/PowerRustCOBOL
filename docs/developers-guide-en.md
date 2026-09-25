@@ -4935,6 +4935,13 @@ In words:
   `onClose` (as it closes) are pre-created for every form; the rest you attach as
   needed.
 
+> **A tooltip says what a field is for.** A Button, TextBox, ComboBox or
+> CheckBox shows its `Tooltip` while the pointer rests on it — the place to
+> tell the user, in plain words, what to type or choose. Set it in the designer
+> or from COBOL, which is how a translated interface changes it:
+> `MOVE "The address of the model's server" TO TXT-URL::Tooltip`. A ComboBox
+> hides it while its list is open, so it never covers the items.
+
 > **Every event in the design view fires at run time.** Control events are
 > handled through the same generated event loop in *Run Form* and compiled
 > output, grouped by family:

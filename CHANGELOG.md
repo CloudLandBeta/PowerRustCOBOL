@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.209] — 2026-09-25
+
+### Fix — TextBox, ComboBox and CheckBox show their tooltip
+
+- Every control carries a `Tooltip` property, and the designer lets you type
+  it. At run time, though, only a Button showed it. A TextBox, ComboBox or
+  CheckBox now shows its tooltip while the pointer rests on it.
+  - The ComboBox does not show it while its list is open, so it never covers
+    the items.
+  - The TextBox keeps its text cursor: the tooltip is added on its own,
+    without the `Cursor` handling a Button gets.
+- Test: `an_input_control_shows_its_tooltip_as_a_button_does` (`cobolt-forms`).
+  Without the fix, only the Button case passes.
+- Developer's Guide: a note on tooltips next to the events overview.
+
 ## [PowerRustCOBOL 1.70.208] — 2026-09-25
 
 ### Feature — PowerChat Phase 2, step 6: documents as a folder tree (spec 071 R49)

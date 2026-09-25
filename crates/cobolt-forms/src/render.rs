@@ -5497,16 +5497,23 @@ pub fn cursor_icon_for(value: &str) -> Option<egui::CursorIcon> {
     }
 }
 
-fn decorate_hover_response(resp: egui::Response, ctrl: &Control) -> egui::Response {
+/// The control's `Tooltip`, shown while the pointer rests on it. Every control
+/// carries the property, but only the Button showed it, so a TextBox's
+/// explanation of what to type never appeared (operator, 2026-09-25).
+fn with_tooltip(resp: egui::Response, ctrl: &Control) -> egui::Response {
     let tooltip = ctrl
         .get_prop("Tooltip")
         .map(|v| v.as_str().trim().to_owned())
         .unwrap_or_default();
-    let resp = if tooltip.is_empty() {
+    if tooltip.is_empty() {
         resp
     } else {
         resp.on_hover_text(tooltip)
-    };
+    }
+}
+
+fn decorate_hover_response(resp: egui::Response, ctrl: &Control) -> egui::Response {
+    let resp = with_tooltip(resp, ctrl);
     if let Some(icon) = ctrl
         .get_prop("Cursor")
         .and_then(|v| cursor_icon_for(v.as_str()))
@@ -5888,7 +5895,7 @@ fn render_interactive(
                 .properties
                 .insert("Checked".to_owned(), crate::PropValue::Bool(checked));
             paint::draw_control(&painter, screen.min, &drawn, false, glass, alpha, 1.0, None);
-            let resp = ui.interact(screen, ctrl_id, Sense::click());
+            let resp = with_tooltip(ui.interact(screen, ctrl_id, Sense::click()), ctrl);
             focus_keyboard_events(ui, &resp, id, out, &bound);
             if resp.clicked() && enabled {
                 let now = !checked;
@@ -6285,6 +6292,7 @@ fn render_interactive(
                 })
                 .inner
             };
+            let resp = with_tooltip(resp, ctrl);
             // Per-keystroke validation. egui is immediate-mode, so a keystroke
             // is refused by putting the previous value back and reporting no
             // change — the operator sees the character simply not appear.
@@ -7162,6 +7170,13 @@ fn render_interactive(
                 enabled,
                 Some((item_font.clone(), item_color)),
             );
+            // The header registered itself under `ctrl_id`; its tooltip rides
+            // on that response. Not while open: it would cover the list.
+            if !is_open {
+                if let Some(header) = ui.ctx().read_response(ctrl_id) {
+                    let _ = with_tooltip(header, ctrl);
+                }
+            }
 
             // A press inside hands the combo the keyboard â on press AND on
             // release, because egui settles a click on the way UP and the
