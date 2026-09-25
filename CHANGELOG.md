@@ -8,6 +8,24 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.196] — 2026-09-24
+
+### Spec 071 — PowerChat Phase 1 plan and tasks
+
+`specs/071-powerchat/plan.md` and `tasks.md` cover the vertical slice the
+operator chose. It is a shell with a SideMenu, topics, per-topic documents
+and Knowledge Base (with a refresh progress overlay), a settings form for
+models and keys (through 076), a one-agent chat with conversation history and
+token counts, and a home view with the month's totals. English only.
+
+PowerChat's own five files are `STORAGE MODE IS DISK`, opened `I-O` (or
+`OUTPUT` the first time), and `COMMIT`ed on each change. The generated COBOL,
+the menu hash and the main-form seal come from a Rust regen example, checked
+by a compile test.
+
+Phase 2 is the agent mesh, the registered-files view, prompt versions, the
+sample-topics installer and the other five languages. Spec only.
+
 ## [PowerRustCOBOL 1.70.195] — 2026-09-24
 
 ### Spec 076 — the model rule, settled
