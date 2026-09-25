@@ -8,6 +8,29 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.228] — 2026-09-25
+
+### Feature — every property explains itself in the Properties pane
+
+- Hovering a property's name in the Properties pane shows what the property
+  does, in the interface language (all six). It covers every property of
+  every control type (45 types, 426 names) and every form property: 735
+  explanations in `crates/cobolt-ide/src/prop_help_data.rs`, looked up by
+  control type first because the same name can mean different things (a
+  ComboBox's `Value` is not a Knob's).
+- Each explanation was written from the code that gives the property its
+  effect (painter, renderer, runtime, host, codegen), audited control group
+  by control group. Where a property is stored but not yet acted on, the
+  explanation says so instead of describing what its name suggests.
+- System KB: 49 descriptions that were missing (SideMenu, Snackbar and the
+  Viewer's per-view properties) added to `property_reference`, written from
+  the code; `chunked.data` regenerated.
+- Tests (`prop_help_tests`): every control property and every form property
+  has an explanation in all six languages, none left untranslated, and a
+  type's own entry wins over the general one.
+- The audit also listed the properties whose code is missing or partial;
+  those are fixed separately.
+
 ## [PowerRustCOBOL 1.70.227] — 2026-09-25
 
 ### Fix — a saved data binding could not be removed

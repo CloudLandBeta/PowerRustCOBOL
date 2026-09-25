@@ -169,18 +169,22 @@ pub fn set_language(ctx: &egui::Context, lang: Language) {
 
 /// Retrieve the active Tr table from egui context.
 pub fn current_tr(ctx: &egui::Context) -> Tr {
+    current_language(ctx).tr()
+}
+
+/// The active interface language, as stored by [`set_language`].
+pub fn current_language(ctx: &egui::Context) -> Language {
     let lang_byte = ctx
         .data(|d| d.get_temp::<u8>(egui::Id::new("cobolt-ui-lang")))
         .unwrap_or(0);
-    let lang = match lang_byte {
+    match lang_byte {
         1 => Language::Spanish,
         2 => Language::Portuguese,
         3 => Language::Japanese,
         4 => Language::Chinese,
         5 => Language::French,
         _ => Language::English,
-    };
-    lang.tr()
+    }
 }
 
 // ── Tr — translation table ────────────────────────────────────────────────────

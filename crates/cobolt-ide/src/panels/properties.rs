@@ -3729,6 +3729,9 @@ impl PropertiesPanel {
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
                 ui.data_mut(|d| d.insert_temp(property_split_id(), self.property_split));
+                // What the hover text of each property name explains depends
+                // on the control type (or the form) being inspected.
+                set_help_type(&ctrl.map(|c| format!("{:?}", c.control_type)).unwrap_or_else(|| "Form".to_owned()));
                 if let Some(ctrl) = ctrl {
                     match multi {
                         Some(m) if m.count > 1 => {
@@ -4141,7 +4144,7 @@ impl PropertiesPanel {
         // dragging it with the mouse on the canvas; X/Y above still accept keyboard
         // entry. (Moved here from the removed Layout section.)
         let mut anchored = ctrl.is_anchored();
-        property_row(ui, tr.lbl_anchor, |ui| {
+        property_row_keyed(ui, tr.lbl_anchor, Some("Anchor"), |ui| {
             if ui.checkbox(&mut anchored, "").changed() {
                 action
                     .set_props
@@ -4514,7 +4517,7 @@ impl PropertiesPanel {
             .unwrap_or_else(|| "Arial".into());
         let mut sel = cur.clone();
         let fonts = crate::fonts::system_fonts();
-        property_row(ui, tr.lbl_font, |ui| {
+        property_row_keyed(ui, tr.lbl_font, Some("FontName"), |ui| {
             let sel_fid = crate::fonts::font_id(ui.ctx(), &cur, 14.0);
             egui::ComboBox::from_id_salt(format!("{id}-FontName"))
                 .selected_text(egui::RichText::new(&cur).font(sel_fid))
@@ -4553,7 +4556,7 @@ impl PropertiesPanel {
         }
 
         let mut fs = ctrl.get_prop("FontSize").map(|v| v.as_i64()).unwrap_or(10);
-        property_row(ui, tr.lbl_font_size, |ui| {
+        property_row_keyed(ui, tr.lbl_font_size, Some("FontSize"), |ui| {
             if ui
                 .add(DragValue::new(&mut fs).speed(0.5).range(4..=200))
                 .changed()
@@ -4563,7 +4566,7 @@ impl PropertiesPanel {
                     .push((id.to_owned(), "FontSize".into(), PropValue::Int(fs)));
             }
         });
-        property_row(ui, tr.lbl_style, |ui| {
+        property_row_keyed(ui, tr.lbl_style, Some("Bold"), |ui| {
             let mut bold = ctrl.get_prop("Bold").map(|v| v.as_bool()).unwrap_or(false);
             if ui.checkbox(&mut bold, "B").changed() {
                 action
@@ -4602,7 +4605,7 @@ impl PropertiesPanel {
         });
 
         let mut vis = ctrl.visible;
-        property_row(ui, tr.lbl_visible, |ui| {
+        property_row_keyed(ui, tr.lbl_visible, Some("Visible"), |ui| {
             if ui.checkbox(&mut vis, "").changed() {
                 action
                     .set_props
@@ -4610,7 +4613,7 @@ impl PropertiesPanel {
             }
         });
         let mut ena = ctrl.enabled;
-        property_row(ui, tr.lbl_enabled, |ui| {
+        property_row_keyed(ui, tr.lbl_enabled, Some("Enabled"), |ui| {
             if ui.checkbox(&mut ena, "").changed() {
                 action
                     .set_props
@@ -4618,7 +4621,7 @@ impl PropertiesPanel {
             }
         });
         let mut to = ctrl.tab_order as i64;
-        property_row(ui, tr.lbl_tab_order, |ui| {
+        property_row_keyed(ui, tr.lbl_tab_order, Some("TabOrder"), |ui| {
             if ui
                 .add(DragValue::new(&mut to).speed(1).range(0..=999))
                 .changed()
@@ -4651,7 +4654,7 @@ impl PropertiesPanel {
         // right number even if it reaches here unmigrated.
         {
             let mut v = cobolt_forms::model::transparency_of(ctrl);
-            property_row(ui, tr.lbl_transparency, |ui| {
+            property_row_keyed(ui, tr.lbl_transparency, Some("Transparency"), |ui| {
                 if ui
                     .add(DragValue::new(&mut v).speed(1).range(0..=100).suffix("%"))
                     .changed()
@@ -4768,7 +4771,7 @@ impl PropertiesPanel {
         if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
             *buf = cur;
         }
-        property_row(ui, tr.lbl_tooltip_lbl, |ui| {
+        property_row_keyed(ui, tr.lbl_tooltip_lbl, Some("Tooltip"), |ui| {
             if ui
                 .add(
                     egui::TextEdit::singleline(buf)
@@ -6178,7 +6181,7 @@ impl PropertiesPanel {
                     if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
                         *buf = cur;
                     }
-                    property_row(ui, "PwdChar", |ui| {
+                    property_row_keyed(ui, "PwdChar", Some("PasswordCharacter"), |ui| {
                         if ui
                             .add(egui::TextEdit::singleline(buf).id(wid).desired_width(30.0))
                             .lost_focus()
@@ -7084,7 +7087,7 @@ impl PropertiesPanel {
                     if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
                         *buf = cur;
                     }
-                    property_row(ui, "Tabs (one per line)", |ui| {
+                    property_row_keyed(ui, "Tabs (one per line)", Some("Tabs"), |ui| {
                         let resp = ui.add(
                             egui::TextEdit::multiline(buf)
                                 .id(wid)
@@ -7472,7 +7475,7 @@ impl PropertiesPanel {
                     if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
                         *buf = cur;
                     }
-                    property_row(ui, "Nodes (indent = child)", |ui| {
+                    property_row_keyed(ui, "Nodes (indent = child)", Some("Items"), |ui| {
                         // Capped at twelve lines, and it SCROLLS past that.
                         // `desired_rows` is a floor, not a ceiling, so a real
                         // tree — the operator's had 60-odd nodes — grew the
@@ -8387,7 +8390,7 @@ impl PropertiesPanel {
                 if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
                     *buf = cur;
                 }
-                property_row(ui, "Items (one per line)", |ui| {
+                property_row_keyed(ui, "Items (one per line)", Some("Items"), |ui| {
                     let resp = ui.add(
                         egui::TextEdit::multiline(buf)
                             .id(wid)
@@ -8646,7 +8649,7 @@ impl PropertiesPanel {
                         if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
                             *buf = cur;
                         }
-                        property_row(ui, "API Key:", |ui| {
+                        property_row_keyed(ui, "API Key:", Some("AgentAPIKey"), |ui| {
                             if ui
                                 .add(
                                     egui::TextEdit::singleline(buf)
@@ -8682,7 +8685,7 @@ impl PropertiesPanel {
                     if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
                         *buf = cur;
                     }
-                    property_row(ui, "System prompt:", |ui| {
+                    property_row_keyed(ui, "System prompt:", Some("SystemPrompt"), |ui| {
                         let resp = ui.add(
                             egui::TextEdit::multiline(buf)
                                 .id(wid)
@@ -8922,7 +8925,7 @@ impl PropertiesPanel {
                     if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
                         *buf = cur;
                     }
-                    property_row(ui, "Auth token:", |ui| {
+                    property_row_keyed(ui, "Auth token:", Some("AuthToken"), |ui| {
                         if ui
                             .add(
                                 egui::TextEdit::singleline(buf)
@@ -8968,7 +8971,7 @@ impl PropertiesPanel {
                     if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
                         *buf = cur;
                     }
-                    property_row(ui, "Default headers (Key: Value, one per line):", |ui| {
+                    property_row_keyed(ui, "Default headers (Key: Value, one per line):", Some("DefaultHeaders"), |ui| {
                         let resp = ui.add(
                             egui::TextEdit::multiline(buf)
                                 .id(wid)
@@ -9148,7 +9151,7 @@ impl PropertiesPanel {
                     .get_prop("IndexedFile")
                     .map(|v| v.as_str().to_owned())
                     .unwrap_or_default();
-                property_row(ui, "Indexed file:", |ui| {
+                property_row_keyed(ui, "Indexed file:", Some("IndexedFile"), |ui| {
                     let selected = if current_file.trim().is_empty() {
                         "Select indexed file"
                     } else {
@@ -9402,7 +9405,7 @@ impl PropertiesPanel {
                         if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
                             *buf = cur;
                         }
-                        property_row(ui, "API key:", |ui| {
+                        property_row_keyed(ui, "API key:", Some("ApiKey"), |ui| {
                             if ui
                                 .add(
                                     egui::TextEdit::singleline(buf)
@@ -9696,7 +9699,7 @@ impl PropertiesPanel {
                         ctrl,
                         action,
                     );
-                    property_row(ui, "Base color:", |ui| {
+                    property_row_keyed(ui, "Base color:", Some("MonochromeColor"), |ui| {
                         let (cr, cg, cb) = parse(&cur);
                         let (rect, _) =
                             ui.allocate_exact_size(egui::vec2(20.0, 14.0), egui::Sense::hover());
@@ -9995,19 +9998,19 @@ impl PropertiesPanel {
     fn show_form_geometry(&mut self, ui: &mut Ui, form: &Form, action: &mut InspectorAction, tr: &Tr) {
         section_header(ui, tr.sec_geometry);
         let mut x = form.x;
-        property_row(ui, "X", |ui| {
+        property_row_keyed(ui, "X", Some("X"), |ui| {
             if ui.add(DragValue::new(&mut x).speed(1)).changed() {
                 action.form_props.push(("X".into(), x.to_string()));
             }
         });
         let mut y = form.y;
-        property_row(ui, "Y", |ui| {
+        property_row_keyed(ui, "Y", Some("Y"), |ui| {
             if ui.add(DragValue::new(&mut y).speed(1)).changed() {
                 action.form_props.push(("Y".into(), y.to_string()));
             }
         });
         let mut w = form.width as i64;
-        property_row(ui, tr.lbl_width, |ui| {
+        property_row_keyed(ui, tr.lbl_width, Some("Width"), |ui| {
             if ui
                 .add(DragValue::new(&mut w).speed(1).range(64..=9999))
                 .changed()
@@ -10016,7 +10019,7 @@ impl PropertiesPanel {
             }
         });
         let mut h = form.height as i64;
-        property_row(ui, tr.lbl_height, |ui| {
+        property_row_keyed(ui, tr.lbl_height, Some("Height"), |ui| {
             if ui
                 .add(DragValue::new(&mut h).speed(1).range(64..=9999))
                 .changed()
@@ -10024,7 +10027,7 @@ impl PropertiesPanel {
                 action.form_props.push(("Height".into(), h.to_string()));
             }
         });
-        property_row(ui, tr.lbl_start_position, |ui| {
+        property_row_keyed(ui, tr.lbl_start_position, Some("StartPosition"), |ui| {
             let cur = form.start_position;
             egui::ComboBox::from_id_salt("form_start_position")
                 .selected_text(start_position_label(cur, tr))
@@ -10123,7 +10126,7 @@ impl PropertiesPanel {
 
                 // ── Target device ─────────────────────────────────────────────────────
                 section_header(ui, tr.sec_target);
-                property_row(ui, tr.lbl_target_label, |ui| {
+                property_row_keyed(ui, tr.lbl_target_label, Some("Target"), |ui| {
                     use super::designer::TARGET_PRESETS;
 
                     let cur = form.target.as_str();
@@ -10247,7 +10250,7 @@ impl PropertiesPanel {
 
                 // ── Window (spec 037) ────────────────────────────────────────────────
                 section_header(ui, tr.sec_window);
-                property_row(ui, tr.lbl_main_form, |ui| {
+                property_row_keyed(ui, tr.lbl_main_form, Some("MainForm"), |ui| {
                     let mut main = form.main_form;
                     // R3: the holder's checkbox is read-only — the role moves
                     // by checking MainForm on ANOTHER form, never by leaving
@@ -10270,7 +10273,7 @@ impl PropertiesPanel {
                     if *tb_buf != form.taskbar_icon && !ui.memory(|m| m.has_focus(tb_wid)) {
                         *tb_buf = form.taskbar_icon.clone();
                     }
-                    property_row(ui, tr.lbl_taskbar_icon, |ui| {
+                    property_row_keyed(ui, tr.lbl_taskbar_icon, Some("TaskbarIcon"), |ui| {
                         if ui
                             .add(
                                 egui::TextEdit::singleline(tb_buf)
@@ -10287,7 +10290,7 @@ impl PropertiesPanel {
 
                     // ── 049 R39 — the shell MenuPane's background (Q7: it
                     // lives on the main form, the shell's owner). ─────────────
-                    property_row(ui, tr.lbl_menu_pane_bg, |ui| {
+                    property_row_keyed(ui, tr.lbl_menu_pane_bg, Some("MenuPaneCustom"), |ui| {
                         let mut custom = form.menu_pane_background.is_some();
                         if ui
                             .checkbox(&mut custom, "")
@@ -10300,7 +10303,7 @@ impl PropertiesPanel {
                         }
                     });
                     if let Some(mp) = &form.menu_pane_background {
-                        property_row(ui, tr.lbl_back_color, |ui| {
+                        property_row_keyed(ui, tr.lbl_back_color, Some("MenuPaneColor"), |ui| {
                             let mut color = hex_to_color32(&mp.color);
                             if color_edit_button_closing(ui, &mut color).changed() {
                                 action
@@ -10314,7 +10317,7 @@ impl PropertiesPanel {
                                     .color(Color32::GRAY),
                             );
                         });
-                        property_row(ui, tr.lbl_gradient, |ui| {
+                        property_row_keyed(ui, tr.lbl_gradient, Some("MenuPaneGradientEnabled"), |ui| {
                             let mut enabled = mp.gradient_enabled;
                             if ui.checkbox(&mut enabled, "").changed() {
                                 action.form_props.push((
@@ -10324,7 +10327,7 @@ impl PropertiesPanel {
                             }
                         });
                         if mp.gradient_enabled {
-                            property_row(ui, tr.lbl_gradient_start, |ui| {
+                            property_row_keyed(ui, tr.lbl_gradient_start, Some("MenuPaneGradientStartColor"), |ui| {
                                 let mut color = hex_to_color32(&mp.gradient_start_color);
                                 if color_edit_button_closing(ui, &mut color).changed() {
                                     action.form_props.push((
@@ -10333,7 +10336,7 @@ impl PropertiesPanel {
                                     ));
                                 }
                             });
-                            property_row(ui, tr.lbl_gradient_end, |ui| {
+                            property_row_keyed(ui, tr.lbl_gradient_end, Some("MenuPaneGradientEndColor"), |ui| {
                                 let mut color = hex_to_color32(&mp.gradient_end_color);
                                 if color_edit_button_closing(ui, &mut color).changed() {
                                     action.form_props.push((
@@ -10342,7 +10345,7 @@ impl PropertiesPanel {
                                     ));
                                 }
                             });
-                            property_row(ui, tr.lbl_gradient_direction, |ui| {
+                            property_row_keyed(ui, tr.lbl_gradient_direction, Some("MenuPaneGradientDirection"), |ui| {
                                 let current = mp.gradient_direction.as_str();
                                 egui::ComboBox::from_id_salt("menu-pane-grad-dir")
                                     .selected_text(current)
@@ -10374,7 +10377,7 @@ impl PropertiesPanel {
                                     });
                             });
                         }
-                        property_row(ui, tr.lbl_transparency, |ui| {
+                        property_row_keyed(ui, tr.lbl_transparency, Some("MenuPaneTransparency"), |ui| {
                             let mut trans = mp.transparency as i64;
                             if ui
                                 .add(
@@ -10399,7 +10402,7 @@ impl PropertiesPanel {
                         if *mp_buf != mp.image && !ui.memory(|m| m.has_focus(mp_wid)) {
                             *mp_buf = mp.image.clone();
                         }
-                        property_row(ui, tr.lbl_image_path, |ui| {
+                        property_row_keyed(ui, tr.lbl_image_path, Some("MenuPaneImage"), |ui| {
                             if ui
                                 .add(
                                     egui::TextEdit::singleline(mp_buf)
@@ -10414,7 +10417,7 @@ impl PropertiesPanel {
                                     .push(("MenuPaneImage".into(), mp_buf.clone()));
                             }
                         });
-                        property_row(ui, tr.lbl_img_mode, |ui| {
+                        property_row_keyed(ui, tr.lbl_img_mode, Some("MenuPaneImageMode"), |ui| {
                             let cur_mode = mp.image_mode.as_str();
                             egui::ComboBox::from_id_salt("menu-pane-img-mode")
                                 .selected_text(cur_mode)
@@ -10434,7 +10437,7 @@ impl PropertiesPanel {
 
                 // ── 049 R1/R5 — how the form may be loaded. The main form owns
                 // the window, so its format is pinned to Standalone. ─────────
-                property_row(ui, tr.lbl_form_format, |ui| {
+                property_row_keyed(ui, tr.lbl_form_format, Some("FormFormat"), |ui| {
                     if form.main_form {
                         ui.add_enabled(
                             false,
@@ -10474,7 +10477,7 @@ impl PropertiesPanel {
                     );
                 }
                 ui.add_enabled_ui(win_rows_enabled, |ui| {
-                    property_row(ui, tr.lbl_can_minimize, |ui| {
+                    property_row_keyed(ui, tr.lbl_can_minimize, Some("CanMinimize"), |ui| {
                         let mut v = form.can_minimize;
                         if ui.checkbox(&mut v, "").changed() {
                             action
@@ -10482,7 +10485,7 @@ impl PropertiesPanel {
                                 .push(("CanMinimize".into(), v.to_string()));
                         }
                     });
-                    property_row(ui, tr.lbl_can_maximize, |ui| {
+                    property_row_keyed(ui, tr.lbl_can_maximize, Some("CanMaximize"), |ui| {
                         let mut v = form.can_maximize;
                         if ui.checkbox(&mut v, "").changed() {
                             action
@@ -10490,7 +10493,7 @@ impl PropertiesPanel {
                                 .push(("CanMaximize".into(), v.to_string()));
                         }
                     });
-                    property_row(ui, tr.lbl_window_state, |ui| {
+                    property_row_keyed(ui, tr.lbl_window_state, Some("WindowState"), |ui| {
                         let cur = form.window_state.as_str();
                         egui::ComboBox::from_id_salt("form-window-state")
                             .selected_text(cur)
@@ -10506,7 +10509,7 @@ impl PropertiesPanel {
                                 }
                             });
                     });
-                    property_row(ui, tr.lbl_full_screen, |ui| {
+                    property_row_keyed(ui, tr.lbl_full_screen, Some("FullScreen"), |ui| {
                         let mut v = form.full_screen;
                         if ui.checkbox(&mut v, "").changed() {
                             action
@@ -10514,7 +10517,7 @@ impl PropertiesPanel {
                                 .push(("FullScreen".into(), v.to_string()));
                         }
                     });
-                    property_row(ui, tr.lbl_title_visible, |ui| {
+                    property_row_keyed(ui, tr.lbl_title_visible, Some("TitleVisible"), |ui| {
                         let mut v = form.title_visible;
                         if ui.checkbox(&mut v, "").changed() {
                             action
@@ -10528,7 +10531,7 @@ impl PropertiesPanel {
                 // FormFormat: a ContentPane occupant has no window of its own
                 // but can still open a modal child, and it is exactly that
                 // form's own appearance that must dim underneath it.
-                property_row(ui, tr.lbl_modal_overlay_style, |ui| {
+                property_row_keyed(ui, tr.lbl_modal_overlay_style, Some("ModalOverlayStyle"), |ui| {
                     let cur = form.modal_overlay_style.as_str();
                     // The STORED value (.cfrm attribute, COBOL-visible
                     // me::/super:: property) stays the English enum spelling
@@ -10560,7 +10563,7 @@ impl PropertiesPanel {
                 });
                 // 038 R3 — play the PROJECT's window effects, or open/close
                 // instantly. Forms never choose effects, only this on/off.
-                property_row(ui, tr.lbl_window_effects, |ui| {
+                property_row_keyed(ui, tr.lbl_window_effects, Some("WindowEffects"), |ui| {
                     let mut v = form.window_effects;
                     if ui.checkbox(&mut v, "").changed() {
                         action
@@ -10580,7 +10583,7 @@ impl PropertiesPanel {
                 if *title_buf != form.title && !ui.memory(|m| m.has_focus(title_wid)) {
                     *title_buf = form.title.clone();
                 }
-                property_row(ui, tr.lbl_title, |ui| {
+                property_row_keyed(ui, tr.lbl_title, Some("Title"), |ui| {
                     if ui
                         .add(
                             egui::TextEdit::singleline(title_buf)
@@ -10592,7 +10595,7 @@ impl PropertiesPanel {
                         action.form_props.push(("Title".into(), title_buf.clone()));
                     }
                 });
-                property_row(ui, tr.lbl_back_color, |ui| {
+                property_row_keyed(ui, tr.lbl_back_color, Some("BackgroundColor"), |ui| {
                     let hex = format!("#{}", form.background_color.trim_start_matches('#'));
                     let mut color = hex_to_color32(&hex);
                     if color_edit_button_closing(ui, &mut color).changed() {
@@ -10607,7 +10610,7 @@ impl PropertiesPanel {
                             .color(Color32::GRAY),
                     );
                 });
-                property_row(ui, "Background gradient", |ui| {
+                property_row_keyed(ui, "Background gradient", Some("BackgroundGradientEnabled"), |ui| {
                     let mut enabled = form.background_gradient_enabled;
                     if ui.checkbox(&mut enabled, "").changed() {
                         action
@@ -10616,7 +10619,7 @@ impl PropertiesPanel {
                     }
                 });
                 if form.background_gradient_enabled {
-                    property_row(ui, "Gradient start", |ui| {
+                    property_row_keyed(ui, "Gradient start", Some("BackgroundGradientStartColor"), |ui| {
                         let mut color = hex_to_color32(&form.background_gradient_start_color);
                         if color_edit_button_closing(ui, &mut color).changed() {
                             action.form_props.push((
@@ -10631,7 +10634,7 @@ impl PropertiesPanel {
                                 .color(Color32::GRAY),
                         );
                     });
-                    property_row(ui, "Gradient end", |ui| {
+                    property_row_keyed(ui, "Gradient end", Some("BackgroundGradientEndColor"), |ui| {
                         let mut color = hex_to_color32(&form.background_gradient_end_color);
                         if color_edit_button_closing(ui, &mut color).changed() {
                             action
@@ -10645,7 +10648,7 @@ impl PropertiesPanel {
                                 .color(Color32::GRAY),
                         );
                     });
-                    property_row(ui, "Gradient direction", |ui| {
+                    property_row_keyed(ui, "Gradient direction", Some("BackgroundGradientDirection"), |ui| {
                         let current = form.background_gradient_direction.as_str();
                         egui::ComboBox::from_id_salt("form_background_gradient_direction")
                             .selected_text(current)
@@ -10674,7 +10677,7 @@ impl PropertiesPanel {
                             });
                     });
                 }
-                property_row(ui, tr.lbl_transparency, |ui| {
+                property_row_keyed(ui, tr.lbl_transparency, Some("Transparency"), |ui| {
                     let mut trans = form.transparency as i64;
                     if ui
                         .add(
@@ -10690,7 +10693,7 @@ impl PropertiesPanel {
                             .push(("Transparency".into(), trans.to_string()));
                     }
                 });
-                property_row(ui, tr.lbl_grid_size, |ui| {
+                property_row_keyed(ui, tr.lbl_grid_size, Some("GridSize"), |ui| {
                     let mut gs = form.grid_size as i64;
                     if ui
                         .add(DragValue::new(&mut gs).speed(1).range(4..=64).suffix("px"))
@@ -10699,7 +10702,7 @@ impl PropertiesPanel {
                         action.form_props.push(("GridSize".into(), gs.to_string()));
                     }
                 });
-                property_row(ui, tr.lbl_snap_to_grid, |ui| {
+                property_row_keyed(ui, tr.lbl_snap_to_grid, Some("SnapToGrid"), |ui| {
                     let mut snapping = form.snap_to_grid;
                     if ui.checkbox(&mut snapping, "").changed() {
                         action.form_props.push((
@@ -10726,7 +10729,7 @@ impl PropertiesPanel {
                 let inherited = form.theme.as_deref().unwrap_or("").trim().is_empty()
                     && project_default.is_some();
                 let self_contained = crate::theme_ui::is_self_contained(ui.ctx(), &cur_id);
-                property_row(ui, tr.lbl_theme, |ui| {
+                property_row_keyed(ui, tr.lbl_theme, Some("Theme"), |ui| {
                     let choices = crate::theme_ui::choices(ui.ctx());
                     let cur_name = choices
                         .iter()
@@ -10766,7 +10769,7 @@ impl PropertiesPanel {
                 // change nothing on screen is how the leak stayed invisible: the
                 // developer picked Neumorphic, saw no relief, and had no way to
                 // tell whether the theme was ignoring it or the IDE was broken.
-                property_row(ui, tr.lbl_glass_style, |ui| {
+                property_row_keyed(ui, tr.lbl_glass_style, Some("GlassStyle"), |ui| {
                     let cur = form.glass_style.as_str();
                     let resp = ui
                         .add_enabled_ui(!self_contained, |ui| {
@@ -10811,7 +10814,7 @@ impl PropertiesPanel {
                     if *buf != form.background_image && !ui.memory(|m| m.has_focus(wid)) {
                         *buf = form.background_image.clone();
                     }
-                    property_row(ui, tr.lbl_image_path, |ui| {
+                    property_row_keyed(ui, tr.lbl_image_path, Some("BackgroundImage"), |ui| {
                         let pick_k = format!("form-BgImage-pick:{vp:?}");
                         if ui.button("📂").on_hover_text("Browse for image…").clicked() {
                             crate::file_dialog::open_file(
@@ -10844,7 +10847,7 @@ impl PropertiesPanel {
                         }
                     });
                 }
-                property_row(ui, tr.lbl_img_mode, |ui| {
+                property_row_keyed(ui, tr.lbl_img_mode, Some("BgImageMode"), |ui| {
                     let cur_mode = form.bg_image_mode.as_str();
                     egui::ComboBox::from_id_salt("form_bgimage_mode")
                         .selected_text(cur_mode)
@@ -11154,7 +11157,39 @@ impl PropertiesPanel {
     }
 }
 
+thread_local! {
+    /// The control type (`ComboBox`, …) or `Form` whose properties are being
+    /// drawn — what a property's hover text is looked up against.
+    static HELP_TYPE: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
+
+fn set_help_type(ty: &str) {
+    HELP_TYPE.with(|t| *t.borrow_mut() = ty.to_owned());
+}
+
+/// The explanation of property `key` for the control being inspected, in the
+/// interface language (`crate::prop_help`).
+fn prop_help_text(ui: &Ui, key: &str) -> Option<&'static str> {
+    let ty = HELP_TYPE.with(|t| t.borrow().clone());
+    crate::prop_help::lookup(crate::i18n::current_language(ui.ctx()), &ty, key)
+}
+
+/// A property's name, explained on hover.
+fn help_label(ui: &mut Ui, text: impl Into<egui::WidgetText>, key: &str) -> egui::Response {
+    let r = ui.label(text);
+    match prop_help_text(ui, key) {
+        Some(t) => r.on_hover_text(t),
+        None => r,
+    }
+}
+
 fn property_row(ui: &mut Ui, label: &str, value: impl FnOnce(&mut Ui)) {
+    property_row_keyed(ui, label, None, value)
+}
+
+/// [`property_row`] for property `key` (when the label is not simply the
+/// property's name): hovering the name explains the property.
+fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl FnOnce(&mut Ui)) {
     // Rows sit flush against one another so the only separators are the dashed grid
     // lines. The default inter-widget gap left a darker, unfilled strip below each
     // line that read as a drop shadow — zeroing the vertical spacing removes it.
@@ -11230,7 +11265,13 @@ fn property_row(ui: &mut Ui, label: &str, value: impl FnOnce(&mut Ui)) {
         egui::UiBuilder::new().max_rect(left_rect.shrink2(cell_pad)),
         |ui| {
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                ui.add(egui::Label::new(label).wrap());
+                let r = ui.add(egui::Label::new(label).wrap());
+                let key = key
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| label.replace(' ', "").trim_end_matches(':').to_owned());
+                if let Some(t) = prop_help_text(ui, &key) {
+                    r.on_hover_text(t);
+                }
             });
         },
     );
@@ -11253,7 +11294,7 @@ fn bool_prop_row(
     action: &mut InspectorAction,
 ) {
     let mut value = ctrl.get_prop(key).map(|p| p.as_bool()).unwrap_or(false);
-    property_row(ui, label, |ui| {
+    property_row_keyed(ui, label, Some(key), |ui| {
         if ui.checkbox(&mut value, "").changed() {
             action
                 .set_props
@@ -11274,7 +11315,7 @@ fn int_prop_row(
     fallback: i64,
 ) {
     let mut value = ctrl.get_prop(key).map(|p| p.as_i64()).unwrap_or(fallback);
-    property_row(ui, label, |ui| {
+    property_row_keyed(ui, label, Some(key), |ui| {
         let mut editor = DragValue::new(&mut value).speed(1).range(range);
         if let Some(suffix) = suffix {
             editor = editor.suffix(suffix);
@@ -11301,7 +11342,7 @@ fn combo_prop_row(
         .get_prop(key)
         .map(|v| v.as_str().to_owned())
         .unwrap_or_else(|| fallback.to_owned());
-    property_row(ui, label, |ui| {
+    property_row_keyed(ui, label, Some(key), |ui| {
         egui::ComboBox::from_id_salt(format!("pg_{ctrl_id}_{key}"))
             .selected_text(&current)
             .width(ui.available_width())
@@ -11373,7 +11414,7 @@ fn color_prop_row_default(
         stored
     };
     let mut color = hex_to_color32(&hex);
-    property_row(ui, label, |ui| {
+    property_row_keyed(ui, label, Some(key), |ui| {
         if color_edit_button_closing(ui, &mut color).changed() {
             action.set_props.push((
                 ctrl_id.to_owned(),
@@ -11404,7 +11445,7 @@ fn color_prop_row_inner(
         .map(|v| v.as_str().to_owned())
         .unwrap_or_else(|| fallback.to_owned());
     let mut color = hex_to_color32(&hex);
-    property_row(ui, label, |ui| {
+    property_row_keyed(ui, label, Some(key), |ui| {
         if color_edit_button_closing(ui, &mut color).changed() {
             action.set_props.push((
                 ctrl_id.to_owned(),
@@ -11482,7 +11523,7 @@ fn color_row_labeled(
         .map(|v| v.as_str().to_owned())
         .unwrap_or_else(|| "#F0F0F0".to_owned());
     let mut color = hex_to_color32(&hex);
-    property_row(ui, label, |ui| {
+    property_row_keyed(ui, label, Some(key), |ui| {
         if color_edit_button_closing(ui, &mut color).changed() {
             let new_hex = color32_to_hex(color);
             action
@@ -11528,7 +11569,7 @@ fn color_row_effective(
     } else {
         effective
     };
-    property_row(ui, label, |ui| {
+    property_row_keyed(ui, label, Some(key), |ui| {
         if color_edit_button_closing(ui, &mut color).changed() {
             action.set_props.push((
                 ctrl_id.to_owned(),
@@ -11603,7 +11644,7 @@ fn color_row(ui: &mut Ui, id: &str, key: &str, ctrl: &Control, action: &mut Insp
         .map(|v| v.as_str().to_owned())
         .unwrap_or_else(|| "#F0F0F0".to_owned());
     let mut color = hex_to_color32(&hex);
-    property_row(ui, key, |ui| {
+    property_row_keyed(ui, key, Some(key), |ui| {
         if color_edit_button_closing(ui, &mut color).changed() {
             let new_hex = color32_to_hex(color);
             action
@@ -11691,7 +11732,7 @@ fn text_row_hint(
         buf.text = cur.to_owned();
         buf.base = cur.to_owned();
     }
-    property_row(ui, label, |ui| {
+    property_row_keyed(ui, label, Some(prop_key), |ui| {
         let resp = ui.add(
             egui::TextEdit::singleline(&mut buf.text)
                 .id(widget_id)
@@ -11773,7 +11814,7 @@ fn folder_row_hint(
     let vp = ui.ctx().viewport_id();
     let pick_key = format!("dirpick:{ctrl_id}:{prop_key}:{vp:?}");
     let mut commit: Option<String> = None;
-    property_row(ui, label, |ui| {
+    property_row_keyed(ui, label, Some(prop_key), |ui| {
         // Buttons first, then the field takes what is left. That is the order
         // `image_browse_row` already uses in this panel, and it needs no width
         // arithmetic — nothing here can be squeezed out of the cell.
@@ -11852,7 +11893,7 @@ fn datagrid_color_modal_row(
     action: &mut InspectorAction,
     fallback: &str,
 ) {
-    ui.label(label);
+    help_label(ui, label, key);
     // An EMPTY value means "unset — the form theme decides", which is not the
     // same as absent and must not fall through to `hex_to_color32`'s generic
     // grey: the swatch would claim #F0F0F0 for a field the renderer actually
@@ -11889,7 +11930,7 @@ fn datagrid_text_modal_row(
     action: &mut InspectorAction,
     fallback: &str,
 ) {
-    ui.label(label);
+    help_label(ui, label, key);
     let mut value = ctrl
         .get_prop(key)
         .map(|v| v.as_str().to_owned())
@@ -11914,7 +11955,7 @@ fn datagrid_int_modal_row(
     range: std::ops::RangeInclusive<i64>,
     fallback: i64,
 ) {
-    ui.label(label);
+    help_label(ui, label, key);
     let mut value = ctrl.get_prop(key).map(|v| v.as_i64()).unwrap_or(fallback);
     if ui
         .add(DragValue::new(&mut value).speed(1).range(range))
@@ -11936,7 +11977,7 @@ fn datagrid_advanced_int_modal_row(
     range: std::ops::RangeInclusive<i64>,
     fallback: i64,
 ) {
-    ui.label(label);
+    help_label(ui, label, key);
     let advanced = DataGridAdvanced::from_control(ctrl);
     let mut value = match key {
         "RowHeight" => advanced.row_height as i64,
@@ -12010,7 +12051,7 @@ fn bool_row(
     ctrl: &Control,
     action: &mut InspectorAction,
 ) {
-    ui.label(label);
+    help_label(ui, label, key);
     let mut v = ctrl.get_prop(key).map(|p| p.as_bool()).unwrap_or(false);
     if ui.checkbox(&mut v, "").changed() {
         action
@@ -12055,7 +12096,7 @@ fn text_prop_row(
     if *buf != cur && !focused {
         *buf = cur;
     }
-    property_row(ui, label, |ui| {
+    property_row_keyed(ui, label, Some(key), |ui| {
         let resp = ui.add(
             egui::TextEdit::singleline(buf).id(wid).desired_width(ui.available_width()),
         );
@@ -12074,7 +12115,7 @@ fn bool_row_inline(
     action: &mut InspectorAction,
 ) {
     let mut v = ctrl.get_prop(key).map(|p| p.as_bool()).unwrap_or(false);
-    property_row(ui, label, |ui| {
+    property_row_keyed(ui, label, Some(key), |ui| {
         if ui.checkbox(&mut v, "").changed() {
             action
                 .set_props
@@ -12101,7 +12142,7 @@ fn int_row_inline(
         .map(|p| p.as_i64())
         .or_else(|| Control::default_prop(ctrl.control_type.clone(), key).map(|p| p.as_i64()))
         .unwrap_or(0);
-    property_row(ui, label, |ui| {
+    property_row_keyed(ui, label, Some(key), |ui| {
         if ui
             .add(DragValue::new(&mut v).speed(1).range(range))
             .changed()
@@ -12126,7 +12167,7 @@ fn combo_row_labeled(
         .get_prop(key)
         .map(|v| v.as_str().to_owned())
         .unwrap_or_else(|| opts[0].to_owned());
-    ui.label(label);
+    help_label(ui, label, key);
     egui::ComboBox::from_id_salt(format!("cb_{ctrl_id}_{key}"))
         .selected_text(&cur)
         .width(140.0)
@@ -12162,7 +12203,7 @@ fn combo_row_inline_labeled(
         .get_prop(key)
         .map(|v| v.as_str().to_owned())
         .unwrap_or_else(|| fallback.to_owned());
-    property_row(ui, label, |ui| {
+    property_row_keyed(ui, label, Some(key), |ui| {
         egui::ComboBox::from_id_salt(format!("cbi_{ctrl_id}_{key}"))
             .selected_text(&cur)
             .width(ui.available_width())
@@ -12193,7 +12234,7 @@ fn combo_row_inline(
         .get_prop(key)
         .map(|v| v.as_str().to_owned())
         .unwrap_or_else(|| opts[0].to_owned());
-    property_row(ui, key, |ui| {
+    property_row_keyed(ui, key, Some(key), |ui| {
         egui::ComboBox::from_id_salt(format!("cbi_{ctrl_id}_{key}"))
             .selected_text(&cur)
             .width(ui.available_width())
@@ -12245,7 +12286,7 @@ fn child_prop_row(
     action: &mut InspectorAction,
 ) {
     let label = format!("{ctrl_id}.{key}");
-    property_row(ui, &label, |ui| match value {
+    property_row_keyed(ui, &label, Some(key), |ui| match value {
         PropValue::Bool(current) => {
             let mut v = *current;
             if ui.checkbox(&mut v, "").changed() {
@@ -12346,7 +12387,7 @@ fn image_browse_row(
     }
     let pick_key = format!("imgpick:{ctrl_id}:{key}:{vp:?}");
     ui.horizontal(|ui| {
-        ui.label(key);
+        help_label(ui, key, key);
         // Open the native picker asynchronously — a synchronous dialog nests the
         // OS event loop and aborts winit 0.30.
         if ui.button("📂").on_hover_text("Browse for image…").clicked() {
@@ -12410,7 +12451,7 @@ fn items_file_row(
     }
     let pick_key = format!("itemsfile:{ctrl_id}:{vp:?}");
     ui.horizontal(|ui| {
-        ui.label(tr.items_file_label);
+        help_label(ui, tr.items_file_label, key);
         // Asynchronous, like every picker here: a synchronous dialog nests the
         // OS event loop and aborts winit 0.30.
         if ui.button("📂").on_hover_text(tr.items_file_browse).clicked() {

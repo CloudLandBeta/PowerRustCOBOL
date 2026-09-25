@@ -1568,6 +1568,11 @@ flowchart LR
   brightens as you hover it. It is a **drawer**: the
   vertically-centered **◀** tab hides it (leaving a thin **▶** tab to slide it
   back), and it reopens at the width you last set.
+  **Hover a property's name** to read what it does, in the interface
+  language. Each explanation was written from the code that gives the
+  property its effect, so it tells you what the control really does with the
+  value. Where a property is stored but not yet acted on, the explanation says
+  so.
 
 Designer toolbar essentials: **Save & Generate**, **Generate only**, **Preview**
 (a non-interactive render), **Run Form** (live, interactive), grid toggle, **Theme**
