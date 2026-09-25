@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="TOPICS-FORM" title="PowerChat - Topics" width="600" height="600" background="F2F4F5FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
+<Form name="TOPICS-FORM" title="PowerChat - Topics" width="600" height="644" background="F2F4F5FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
   <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -9,6 +9,8 @@
        01 WS-OK              GLOBAL PIC X(4).
        01 WS-SETTINGS-PATH  GLOBAL PIC X(240).
        01 WS-TOPICS-PATH  GLOBAL PIC X(240).
+       01 WS-TFILES-PATH  GLOBAL PIC X(240).
+       01 WS-PROMPTS-PATH  GLOBAL PIC X(240).
        01 WS-TOPIC-COUNT     GLOBAL PIC 9(4) VALUE 0.
        01 WS-TOPIC-IDS       GLOBAL.
           05 WS-TOPIC-ID     PIC X(16) OCCURS 500.
@@ -16,6 +18,38 @@
        01 WS-NEW-NAME        GLOBAL PIC X(40).
        01 WS-NEW-PROMPT      GLOBAL PIC X(1000).
        01 WS-NEW-ID          GLOBAL PIC X(16).
+      *>   The sample topics (spec 071 Q1): shipped in samples/, installed and
+      *>   removed from here. POWERCHAT_SAMPLES moves the folder.
+       01 WS-SAMPLES-DIR     GLOBAL PIC X(200).
+       01 WS-SAMPLES-LIST    GLOBAL PIC X(240).
+       01 WS-KIND            GLOBAL PIC X(8).
+       01 WS-FOLDER          GLOBAL PIC X(30).
+       01 WS-F3              GLOBAL PIC X(1000).
+       01 WS-F4              GLOBAL PIC X(1000).
+       01 WS-SEQ-N           GLOBAL PIC 9 VALUE 0.
+       01 WS-TF-SEQ          GLOBAL PIC 9(3) VALUE 0.
+       01 WS-MAP-COUNT       GLOBAL PIC 99 VALUE 0.
+       01 WS-MAP             GLOBAL.
+          05 WS-MAP-ROW      OCCURS 10.
+             10 WS-MAP-FOLDER PIC X(30).
+             10 WS-MAP-ID    PIC X(16).
+       01 WS-Q-COUNT         GLOBAL PIC 99 VALUE 0.
+       01 WS-Q-NEXT          GLOBAL PIC 99 VALUE 0.
+       01 WS-QUEUE           GLOBAL.
+          05 WS-Q            OCCURS 60.
+             10 WS-Q-TOPIC   PIC X(16).
+             10 WS-Q-PATH    PIC X(300).
+       01 WS-J               GLOBAL PIC 99.
+       01 WS-TOPIC-ID-OF     GLOBAL PIC X(16).
+       01 WS-INSTALLING      GLOBAL PIC X VALUE "N".
+       01 WS-N1              GLOBAL PIC Z9.
+       01 WS-N2              GLOBAL PIC Z9.
+       01 WS-LINE            GLOBAL PIC X(300).
+       01 WS-REMOVED         GLOBAL PIC 99 VALUE 0.
+       01 WS-SEQS            GLOBAL.
+          05 WS-SEQ-OF       PIC 9(4) OCCURS 200.
+       01 WS-SEQ-COUNT       GLOBAL PIC 9(4).
+       01 WS-K               GLOBAL PIC 9(4).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -77,6 +111,21 @@
                RECORD KEY IS TOP-ID
                FILE STATUS IS WS-FS
                STORAGE MODE IS DISK.
+           SELECT TFILES-FILE ASSIGN TO WS-TFILES-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS TF-KEY
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT PROMPTS-FILE ASSIGN TO WS-PROMPTS-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS PRM-KEY
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT SAMPLES-FILE ASSIGN TO WS-SAMPLES-LIST
+               ORGANIZATION IS LINE SEQUENTIAL
+               FILE STATUS IS WS-FS.
 ]]></file-control>
   <file-section><![CDATA[       FD  SETTINGS-FILE IS GLOBAL.
        01  SETTINGS-REC.
@@ -88,6 +137,30 @@
            05 TOP-NAME          PIC X(40).
            05 TOP-PROMPT        PIC X(1000).
            05 TOP-CREATED       PIC X(14).
+      *>   "Y" for a topic the sample installer made, so it can be removed.
+           05 TOP-SAMPLE        PIC X.
+       FD  TFILES-FILE IS GLOBAL.
+      *>   The users' indexed files each topic registers by path (R20-R25):
+      *>   the data file and its .cidx. Nothing is copied or attached.
+       01  TFILE-REC.
+           05 TF-KEY.
+              10 TF-TOPIC       PIC X(16).
+              10 TF-SEQ         PIC 9(3).
+           05 TF-NAME           PIC X(30).
+           05 TF-DATA           PIC X(250).
+           05 TF-CIDX           PIC X(250).
+       FD  PROMPTS-FILE IS GLOBAL.
+      *>   Every version of each topic's system prompt (R48). The active one's
+      *>   text is also the topic's TOP-PROMPT, which is what the chat reads.
+       01  PROMPT-REC.
+           05 PRM-KEY.
+              10 PRM-TOPIC      PIC X(16).
+              10 PRM-VERSION    PIC 9(4).
+           05 PRM-CREATED       PIC X(14).
+           05 PRM-ACTIVE        PIC X.
+           05 PRM-TEXT          PIC X(1000).
+       FD  SAMPLES-FILE IS GLOBAL.
+       01  SAMPLE-LINE          PIC X(1400).
 ]]></file-section>
   <user-procedures>
     <Event name="PC-PATHS" paragraph="PC-PATHS"><![CDATA[       ENVIRONMENT DIVISION.
@@ -105,6 +178,12 @@
            MOVE SPACES TO WS-TOPICS-PATH
            STRING FUNCTION TRIM(WS-DATA-DIR) "/topics.idx"
                DELIMITED BY SIZE INTO WS-TOPICS-PATH
+           MOVE SPACES TO WS-TFILES-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/topic-files.idx"
+               DELIMITED BY SIZE INTO WS-TFILES-PATH
+           MOVE SPACES TO WS-PROMPTS-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/prompts.idx"
+               DELIMITED BY SIZE INTO WS-PROMPTS-PATH
 ]]></Event>
     <Event name="PC-SETTING-GET" paragraph="PC-SETTING-GET"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -172,12 +251,225 @@
            END-PERFORM
            CLOSE TOPICS-FILE
 ]]></Event>
+    <Event name="PC-NEXT-IMPORT" paragraph="PC-NEXT-IMPORT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   One sample document at a time: a Knowledge Base import runs in the
+      *>   background and reports through onIndexed, which calls back here.
+           IF WS-Q-NEXT > WS-Q-COUNT
+               MOVE "N" TO WS-INSTALLING
+               MOVE WS-MAP-COUNT TO WS-N1
+               MOVE WS-Q-COUNT TO WS-N2
+               MOVE SPACES TO WS-LINE
+               STRING "Sample topics installed: " FUNCTION TRIM(WS-N1) " topics, "
+                      FUNCTION TRIM(WS-N2) " documents."
+                   DELIMITED BY SIZE INTO WS-LINE
+               MOVE WS-LINE TO Lbl-Status::Caption
+               CALL "PC-LOAD-TOPICS"
+               EXIT PROGRAM
+           END-IF
+           MOVE WS-Q-TOPIC(WS-Q-NEXT) TO KB-T::Collection
+           MOVE WS-Q-NEXT TO WS-N1
+           MOVE WS-Q-COUNT TO WS-N2
+           MOVE SPACES TO WS-LINE
+           STRING "Installing the sample topics: document " FUNCTION TRIM(WS-N1)
+                  " of " FUNCTION TRIM(WS-N2) "..."
+               DELIMITED BY SIZE INTO WS-LINE
+           MOVE WS-LINE TO Lbl-Status::Caption
+           MOVE KB-T::ImportDocument(FUNCTION TRIM(WS-Q-PATH(WS-Q-NEXT))) TO WS-OK
+           ADD 1 TO WS-Q-NEXT
+]]></Event>
+    <Event name="PC-TOPIC-OF" paragraph="PC-TOPIC-OF"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-FOLDER in: the id the installer gave that sample folder's topic.
+           MOVE SPACES TO WS-TOPIC-ID-OF
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-MAP-COUNT
+               IF WS-MAP-FOLDER(WS-J) = WS-FOLDER
+                   MOVE WS-MAP-ID(WS-J) TO WS-TOPIC-ID-OF
+               END-IF
+           END-PERFORM
+]]></Event>
+    <Event name="PC-HAS-SAMPLES" paragraph="PC-HAS-SAMPLES"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-OK out: "Y" when sample topics are installed.
+           MOVE "N" TO WS-OK
+           OPEN I-O TOPICS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TOPICS-FILE
+               CLOSE TOPICS-FILE
+               OPEN I-O TOPICS-FILE
+           END-IF
+           MOVE LOW-VALUES TO TOP-ID
+           MOVE "N" TO WS-EOF
+           START TOPICS-FILE KEY IS >= TOP-ID
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ TOPICS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       IF TOP-SAMPLE = "Y"
+                           MOVE "Y" TO WS-OK
+                       END-IF
+               END-READ
+           END-PERFORM
+           CLOSE TOPICS-FILE
+]]></Event>
+    <Event name="PC-DROP-TOPIC-ROWS" paragraph="PC-DROP-TOPIC-ROWS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-TOPIC-ID-OF in: its registered files and prompt versions go.
+           MOVE 0 TO WS-SEQ-COUNT
+           OPEN I-O TFILES-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TFILES-FILE
+               CLOSE TFILES-FILE
+               OPEN I-O TFILES-FILE
+           END-IF
+           MOVE WS-TOPIC-ID-OF TO TF-TOPIC
+           MOVE 0 TO TF-SEQ
+           MOVE "N" TO WS-EOF
+           START TFILES-FILE KEY IS >= TF-KEY
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ TFILES-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       IF TF-TOPIC NOT = WS-TOPIC-ID-OF
+                           MOVE "Y" TO WS-EOF
+                       ELSE
+                           IF WS-SEQ-COUNT < 200
+                               ADD 1 TO WS-SEQ-COUNT
+                               MOVE TF-SEQ TO WS-SEQ-OF(WS-SEQ-COUNT)
+                           END-IF
+                       END-IF
+               END-READ
+           END-PERFORM
+           PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-SEQ-COUNT
+               MOVE WS-TOPIC-ID-OF TO TF-TOPIC
+               MOVE WS-SEQ-OF(WS-K) TO TF-SEQ
+               DELETE TFILES-FILE
+                   INVALID KEY CONTINUE
+               END-DELETE
+           END-PERFORM
+           COMMIT
+           CLOSE TFILES-FILE
+           MOVE 0 TO WS-SEQ-COUNT
+           OPEN I-O PROMPTS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT PROMPTS-FILE
+               CLOSE PROMPTS-FILE
+               OPEN I-O PROMPTS-FILE
+           END-IF
+           MOVE WS-TOPIC-ID-OF TO PRM-TOPIC
+           MOVE 0 TO PRM-VERSION
+           MOVE "N" TO WS-EOF
+           START PROMPTS-FILE KEY IS >= PRM-KEY
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ PROMPTS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       IF PRM-TOPIC NOT = WS-TOPIC-ID-OF
+                           MOVE "Y" TO WS-EOF
+                       ELSE
+                           IF WS-SEQ-COUNT < 200
+                               ADD 1 TO WS-SEQ-COUNT
+                               MOVE PRM-VERSION TO WS-SEQ-OF(WS-SEQ-COUNT)
+                           END-IF
+                       END-IF
+               END-READ
+           END-PERFORM
+           PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-SEQ-COUNT
+               MOVE WS-TOPIC-ID-OF TO PRM-TOPIC
+               MOVE WS-SEQ-OF(WS-K) TO PRM-VERSION
+               DELETE PROMPTS-FILE
+                   INVALID KEY CONTINUE
+               END-DELETE
+           END-PERFORM
+           COMMIT
+           CLOSE PROMPTS-FILE
+]]></Event>
+    <Event name="PC-ADD-SAMPLE-TOPIC" paragraph="PC-ADD-SAMPLE-TOPIC"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A TOPIC line: the topic, marked as a sample, and its collection.
+           IF WS-MAP-COUNT >= 10
+               EXIT PROGRAM
+           END-IF
+           ADD 1 TO WS-SEQ-N WS-MAP-COUNT
+           MOVE SPACES TO WS-NEW-ID
+           STRING WS-NOW(1:15) WS-SEQ-N DELIMITED BY SIZE INTO WS-NEW-ID
+           MOVE WS-FOLDER TO WS-MAP-FOLDER(WS-MAP-COUNT)
+           MOVE WS-NEW-ID TO WS-MAP-ID(WS-MAP-COUNT)
+           OPEN I-O TOPICS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TOPICS-FILE
+               CLOSE TOPICS-FILE
+               OPEN I-O TOPICS-FILE
+           END-IF
+           MOVE WS-NEW-ID TO TOP-ID
+           MOVE WS-F3 TO TOP-NAME
+           MOVE WS-F4 TO TOP-PROMPT
+           MOVE WS-NOW(1:14) TO TOP-CREATED
+           MOVE "Y" TO TOP-SAMPLE
+           WRITE TOPIC-REC
+               INVALID KEY CONTINUE
+           END-WRITE
+           COMMIT
+           CLOSE TOPICS-FILE
+           MOVE KB-T::CreateCollection(WS-NEW-ID) TO WS-OK
+]]></Event>
+    <Event name="PC-ADD-SAMPLE-FILE" paragraph="PC-ADD-SAMPLE-FILE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A FILE line: the data file and its .cidx, registered by path for the
+      *>   topic. They stay in samples/ and are only ever read.
+           CALL "PC-TOPIC-OF"
+           IF WS-TOPIC-ID-OF = SPACES
+               EXIT PROGRAM
+           END-IF
+           ADD 1 TO WS-TF-SEQ
+           OPEN I-O TFILES-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TFILES-FILE
+               CLOSE TFILES-FILE
+               OPEN I-O TFILES-FILE
+           END-IF
+           MOVE WS-TOPIC-ID-OF TO TF-TOPIC
+           MOVE WS-TF-SEQ TO TF-SEQ
+           MOVE WS-F3 TO TF-NAME
+           MOVE SPACES TO TF-DATA TF-CIDX
+           STRING FUNCTION TRIM(WS-SAMPLES-DIR) "/"
+                  FUNCTION TRIM(WS-FOLDER) "/" FUNCTION TRIM(WS-F3)
+               DELIMITED BY SIZE INTO TF-DATA
+           STRING FUNCTION TRIM(WS-SAMPLES-DIR) "/"
+                  FUNCTION TRIM(WS-FOLDER) "/" FUNCTION TRIM(WS-F4)
+               DELIMITED BY SIZE INTO TF-CIDX
+           WRITE TFILE-REC
+               INVALID KEY REWRITE TFILE-REC
+           END-WRITE
+           COMMIT
+           CLOSE TFILES-FILE
+]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="TOPICS-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
            CALL "PC-PATHS"
+           DISPLAY "POWERCHAT_SAMPLES" UPON ENVIRONMENT-NAME
+           ACCEPT WS-SAMPLES-DIR FROM ENVIRONMENT-VALUE
+           IF WS-SAMPLES-DIR = SPACES
+               MOVE "samples" TO WS-SAMPLES-DIR
+           END-IF
+           MOVE SPACES TO WS-SAMPLES-LIST
+           STRING FUNCTION TRIM(WS-SAMPLES-DIR) "/samples.txt"
+               DELIMITED BY SIZE INTO WS-SAMPLES-LIST
            MOVE "KB-LOCATION" TO WS-SET-NAME
            CALL "PC-SETTING-GET"
            IF WS-SET-VALUE NOT = SPACES
@@ -533,6 +825,7 @@
            MOVE WS-NEW-NAME TO TOP-NAME
            MOVE WS-NEW-PROMPT TO TOP-PROMPT
            MOVE WS-NOW(1:14) TO TOP-CREATED
+           MOVE "N" TO TOP-SAMPLE
            WRITE TOPIC-REC
                INVALID KEY
                    MOVE "A topic was created this same instant - try again."
@@ -642,6 +935,204 @@
            INVOKE ME::Close()
 ]]></Event>
   </Control>
+  <Control id="Btn-Install" type="Button" x="24" y="596" w="196" h="32" tab-order="7" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Install sample topics</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="BTN-INSTALL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Every topic in samples/samples.txt: its topic, its Knowledge Base
+      *>   with the listed documents, and its data files registered by path.
+      *>   Nothing about any sample is written in this code (R10).
+           CALL "PC-HAS-SAMPLES"
+           IF WS-OK = "Y"
+               MOVE "The sample topics are already installed." TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           OPEN INPUT SAMPLES-FILE
+           IF WS-FS NOT = "00"
+               MOVE SPACES TO WS-LINE
+               STRING "No sample topics found (" FUNCTION TRIM(WS-SAMPLES-LIST) ")."
+                   DELIMITED BY SIZE INTO WS-LINE
+               MOVE WS-LINE TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           MOVE 0 TO WS-MAP-COUNT WS-Q-COUNT WS-SEQ-N WS-TF-SEQ
+           MOVE FUNCTION CURRENT-DATE TO WS-NOW
+           MOVE "N" TO WS-EOF
+           PERFORM UNTIL WS-EOF = "Y"
+               READ SAMPLES-FILE
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       MOVE SPACES TO WS-KIND WS-FOLDER WS-F3 WS-F4
+                       UNSTRING SAMPLE-LINE DELIMITED BY "|"
+                           INTO WS-KIND WS-FOLDER WS-F3 WS-F4
+                       END-UNSTRING
+                       EVALUATE WS-KIND
+                           WHEN "TOPIC"
+                               CALL "PC-ADD-SAMPLE-TOPIC"
+                           WHEN "DOC"
+                               CALL "PC-TOPIC-OF"
+                               IF WS-TOPIC-ID-OF NOT = SPACES AND WS-Q-COUNT < 60
+                                   ADD 1 TO WS-Q-COUNT
+                                   MOVE WS-TOPIC-ID-OF TO WS-Q-TOPIC(WS-Q-COUNT)
+                                   MOVE SPACES TO WS-Q-PATH(WS-Q-COUNT)
+                                   STRING FUNCTION TRIM(WS-SAMPLES-DIR) "/"
+                                          FUNCTION TRIM(WS-FOLDER) "/documents/"
+                                          FUNCTION TRIM(WS-F3)
+                                       DELIMITED BY SIZE INTO WS-Q-PATH(WS-Q-COUNT)
+                               END-IF
+                           WHEN "FILE"
+                               CALL "PC-ADD-SAMPLE-FILE"
+                           WHEN OTHER
+                               CONTINUE
+                       END-EVALUATE
+               END-READ
+           END-PERFORM
+           CLOSE SAMPLES-FILE
+           CALL "PC-LOAD-TOPICS"
+           MOVE "Y" TO WS-INSTALLING
+           MOVE 1 TO WS-Q-NEXT
+           CALL "PC-NEXT-IMPORT"
+]]></Event>
+  </Control>
+  <Control id="Btn-RemoveSamples" type="Button" x="228" y="596" w="196" h="32" tab-order="8" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Remove sample topics</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Event name="onClick" paragraph="BTN-REMOVESAMPLES--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Every sample topic, with its Knowledge Base (moved aside, never
+      *>   deleted), its registered files and its prompt versions. The files
+      *>   in samples/ stay where they are.
+           MOVE 0 TO WS-REMOVED WS-MAP-COUNT
+           OPEN I-O TOPICS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TOPICS-FILE
+               CLOSE TOPICS-FILE
+               OPEN I-O TOPICS-FILE
+           END-IF
+           MOVE LOW-VALUES TO TOP-ID
+           MOVE "N" TO WS-EOF
+           START TOPICS-FILE KEY IS >= TOP-ID
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ TOPICS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       IF TOP-SAMPLE = "Y" AND WS-MAP-COUNT < 10
+                           ADD 1 TO WS-MAP-COUNT
+                           MOVE TOP-ID TO WS-MAP-ID(WS-MAP-COUNT)
+                       END-IF
+               END-READ
+           END-PERFORM
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-MAP-COUNT
+               MOVE WS-MAP-ID(WS-J) TO TOP-ID
+               DELETE TOPICS-FILE
+                   INVALID KEY CONTINUE
+                   NOT INVALID KEY ADD 1 TO WS-REMOVED
+               END-DELETE
+           END-PERFORM
+           COMMIT
+           CLOSE TOPICS-FILE
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-MAP-COUNT
+               MOVE KB-T::RemoveCollection(WS-MAP-ID(WS-J)) TO WS-OK
+               MOVE WS-MAP-ID(WS-J) TO WS-TOPIC-ID-OF
+               CALL "PC-DROP-TOPIC-ROWS"
+           END-PERFORM
+           MOVE "CUR-TOPIC" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-MAP-COUNT
+               IF WS-SET-VALUE(1:16) = WS-MAP-ID(WS-J)
+                   MOVE SPACES TO WS-SET-VALUE
+                   CALL "PC-SETTING-PUT"
+               END-IF
+           END-PERFORM
+           MOVE WS-REMOVED TO WS-N1
+           MOVE SPACES TO WS-LINE
+           STRING "Removed " FUNCTION TRIM(WS-N1) " sample topic(s)."
+               DELIMITED BY SIZE INTO WS-LINE
+           MOVE WS-LINE TO Lbl-Status::Caption
+           CALL "PC-LOAD-TOPICS"
+]]></Event>
+  </Control>
   <Control id="KB-T" type="KnowledgeBase" x="600" y="16" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
@@ -686,5 +1177,28 @@
     <Property name="ArchiveMaximumMegabytes">500</Property>
     <Property name="ArchiveMaximumFiles">10000</Property>
     <Property name="ArchiveMaximumDepth">3</Property>
+    <Event name="onIndexed" paragraph="KB-T--ONINDEXED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           IF WS-INSTALLING = "Y"
+               CALL "PC-NEXT-IMPORT"
+           END-IF
+]]></Event>
+    <Event name="onError" paragraph="KB-T--ONERROR"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE KB-T::LastError TO Lbl-Status::Caption
+           IF WS-INSTALLING = "Y"
+               CALL "PC-NEXT-IMPORT"
+           END-IF
+]]></Event>
+    <Event name="onBusy" paragraph="KB-T--ONBUSY"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE KB-T::LastError TO Lbl-Status::Caption
+           IF WS-INSTALLING = "Y"
+               CALL "PC-NEXT-IMPORT"
+           END-IF
+]]></Event>
   </Control>
 </Form>

@@ -1177,19 +1177,19 @@ hover, in a build that ships no examples.
 `examples/PowerChat` is a second, complete application rather than a gallery:
 a chatbot that answers questions about **one topic at a time**, from that
 topic's own documents, through a model the application's users choose. Copy it
-to start your own. Everything in it is COBOL in its four forms:
+to start your own. Everything in it is COBOL in its six forms:
 
 | Form | What it shows you how to do |
 |---|---|
 | `chat-form` (main) | A SideMenu shell; a `Viewer` as a chat; three `AgentObject`s that elect an orchestrator and split the work (below), grounded in a `KnowledgeBase` with `AllowKnowledgeBase`; conversations as run-time menu rows; token totals from `LastInputTokens` / `LastOutputTokens` |
-| `topics-form` | Topics as data, each with its own Knowledge Base collection (`CreateCollection`) |
+| `topics-form` | Topics as data, each with its own Knowledge Base collection (`CreateCollection`); sample topics installed from a plain text list and taken out again |
 | `documents-form` | A `FileDropZone` feeding the collection's folder, `Refresh()`, and a progress panel driven by `onProgress` / `onIndexed` |
 | `settings-form` | A model list the program keeps in its own indexed file, handed over with `COBOL-MODEL-SET`, and keys stored with `COBOL-KEY-SET` — never shown again |
 | `prompts-form` | Versions of a topic's system prompt, newest first with the active one marked; promoting an older version asks before it changes anything |
 | `files-form` | A topic's own indexed files, registered by path with `RegisterFile`: each one is tried as it is added, so a missing file or a `.cidx` that does not describe it is refused on the spot with its reason; the chat form registers the topic's files when it opens and names any it cannot use |
 
 Its own data — settings, topics, conversations, their turns, the model list —
-is five `STORAGE MODE IS DISK` indexed files, opened `I-O` (`OUTPUT` the first
+is seven `STORAGE MODE IS DISK` indexed files, opened `I-O` (`OUTPUT` the first
 time) and committed as each change is made. Set `POWERCHAT_DATA` to keep them
 somewhere other than `data/`. The project's `README.md` walks through a first
 run.
@@ -1215,8 +1215,19 @@ once, and the orchestrator composes the answer from their results. The
 procedures to read are `PC-ELECT`, `PC-DISPATCH`, `PC-COMPOSE` and
 `PC-ON-REPLY`.
 
-> **Note.** Still to come: installable sample topics, the other five languages
-> and documents as a folder tree.
+**Sample topics.** *Install sample topics* on the Topics form reads
+`samples/samples.txt` — a line per topic, document and data file — and builds
+three example topics from it: Human Resources and Legal answer from their
+policy documents, and Orders also searches a small orders file registered by
+path. The documents are imported one after another, each import started from
+the previous one's `onIndexed`. *Remove sample topics* takes out exactly the
+topics it made (each is flagged in its record), their collections (moved
+aside, never deleted), their registered files and their prompt versions; the
+files in `samples/` are only ever read. Set `POWERCHAT_SAMPLES` to install from
+another folder. Adding a sample is a folder and a few lines of text — no COBOL.
+
+> **Note.** Still to come: the other five languages and documents as a folder
+> tree.
 >
 > ⚠️ **Caveat.** A method call written as a statement straight after a `MOVE`
 > is read as one more receiving field of that `MOVE` — `MOVE A TO B` followed

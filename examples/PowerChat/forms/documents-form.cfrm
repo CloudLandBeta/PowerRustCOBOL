@@ -93,6 +93,8 @@
            05 TOP-NAME          PIC X(40).
            05 TOP-PROMPT        PIC X(1000).
            05 TOP-CREATED       PIC X(14).
+      *>   "Y" for a topic the sample installer made, so it can be removed.
+           05 TOP-SAMPLE        PIC X.
 ]]></file-section>
   <user-procedures>
     <Event name="PC-PATHS" paragraph="PC-PATHS"><![CDATA[       ENVIRONMENT DIVISION.

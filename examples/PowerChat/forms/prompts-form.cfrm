@@ -102,6 +102,8 @@
            05 TOP-NAME          PIC X(40).
            05 TOP-PROMPT        PIC X(1000).
            05 TOP-CREATED       PIC X(14).
+      *>   "Y" for a topic the sample installer made, so it can be removed.
+           05 TOP-SAMPLE        PIC X.
        FD  PROMPTS-FILE IS GLOBAL.
       *>   Every version of each topic's system prompt (R48). The active one's
       *>   text is also the topic's TOP-PROMPT, which is what the chat reads.

@@ -442,6 +442,80 @@ fn powerchat_settings_topics_documents_and_chat() {
         t.elapsed().as_secs_f64() * 1000.0
     ));
 
+    // ── Sample topics: installed from samples/, the orders file searched, removed ──
+    // A copy of the shipped folder, so the run reads what ships and can prove
+    // it leaves every file as it found it.
+    let t = Instant::now();
+    let samples = root.join("samples");
+    fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for e in std::fs::read_dir(from).unwrap().flatten() {
+            let target = to.join(e.file_name());
+            if e.path().is_dir() {
+                copy_tree(&e.path(), &target);
+            } else {
+                std::fs::copy(e.path(), target).unwrap();
+            }
+        }
+    }
+    copy_tree(&project().join("samples"), &samples);
+    let orders = samples.join("Orders").join("orders.idx");
+    let orders_before = std::fs::read(&orders).unwrap();
+    std::env::set_var("POWERCHAT_SAMPLES", &samples);
+    let kb_before = std::fs::read_dir(&kb).unwrap().count();
+    let mut s = Session::start("topics-form.cfrm");
+    s.click("Btn-Install");
+    let installed = s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Sample topics installed"));
+    assert!(installed.contains("3 topics, 7 documents"), "{installed}");
+    s.click("Btn-Install");
+    s.wait_for("Lbl-Status", "Caption", |v| v.contains("already installed"));
+    s.pick("Lst-Topics", 2);
+    s.click("Btn-Open");
+    s.wait_for("Lbl-Status", "Caption", |v| v.contains("Topic opened"));
+    s.quit();
+    assert_eq!(std::fs::read_dir(&kb).unwrap().count(), kb_before + 3, "one collection per sample topic");
+    let before = requests.lock().unwrap().len();
+    let mut s = Session::start("chat-form.cfrm");
+    s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("This month"));
+    s.type_into("Txt-Input", "Which orders has Northwind Studio placed?");
+    s.click("Btn-Send");
+    s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("This month: 4"));
+    s.quit();
+    let sent = requests.lock().unwrap()[before..].to_vec();
+    assert!(sent.iter().any(|b| b.contains("You answer questions about customer orders")), "the sample topic's prompt");
+    assert!(sent.iter().any(|b| b.contains("search_orders_file")), "the worker is offered the orders file");
+    assert!(sent.iter().any(|b| b.contains("ORDERS-FILE: 12 record(s)")), "the orders file was searched");
+    assert_eq!(std::fs::read(&orders).unwrap(), orders_before, "the sample file is untouched");
+    let mut s = Session::start("topics-form.cfrm");
+    s.click("Btn-RemoveSamples");
+    let removed = s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Removed"));
+    assert_eq!(removed.trim(), "Removed 3 sample topic(s).");
+    s.quit();
+    // A deleted record's bytes may stay in the file, so read it as the program does.
+    let records = |file: &str, len: usize, key: usize| -> Vec<String> {
+        use cobolt_runtime::indexed::{IndexedStore, KeySpec, OpenMode, ReadDir};
+        let mut f = cobolt_runtime::indexed_disk::DiskIndexedFile::new(
+            data.join(file), len, KeySpec { offset: 0, len: key, duplicates: false }, Vec::new(),
+        );
+        assert_eq!(f.open(OpenMode::Input), "00", "{file}");
+        let mut out = Vec::new();
+        while let (Some(r), "00") = f.read_seq(ReadDir::Next) {
+            out.push(String::from_utf8_lossy(&r).into_owned());
+        }
+        f.close();
+        out
+    };
+    let topics = records("topics.idx", 1071, 16);
+    assert!(topics.iter().all(|r| !r.contains("(sample)")), "the sample topics went");
+    assert!(topics.iter().any(|r| r.contains("Human Resources")), "the operator's topic stayed");
+    assert!(records("topic-files.idx", 549, 19).iter().all(|r| !r.contains("orders.idx")), "their files went");
+    assert_eq!(std::fs::read(&orders).unwrap(), orders_before);
+    report.push(format!(
+        "samples:   {} ORDERS-FILE searched (12 records), untouched; removed — {:.0} ms",
+        installed.trim(),
+        t.elapsed().as_secs_f64() * 1000.0
+    ));
+
     let sent = requests.lock().unwrap().clone();
 
     println!("\n  ── 071 PowerChat, played end to end ─────────────────────");

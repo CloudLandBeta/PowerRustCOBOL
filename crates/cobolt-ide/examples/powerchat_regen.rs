@@ -80,6 +80,8 @@ fn main() {
         }
     }
 
+    sample_orders(&dir.join("samples/Orders/orders.idx"));
+
     let main_id = main_id.expect("one form carries main-form=\"true\"");
     let seal = cobolt_compiler::main_form_guard::seal(&project_name, &main_id, &form_ids);
     let mut out = String::new();
@@ -95,4 +97,44 @@ fn main() {
     }
     std::fs::write(&manifest_path, out).unwrap();
     println!("  main form {main_id}, seal {}…", &seal[..12]);
+}
+
+/// The Orders sample's data file (spec 071 Q1): a `STORAGE IS DISK` indexed
+/// file laid out as `samples/Orders/orders.cidx` describes it. Written only
+/// when missing, so a committed file is never churned. Every row is invented.
+fn sample_orders(path: &Path) {
+    use cobolt_runtime::indexed::{status, KeySpec, OpenMode};
+    if path.exists() {
+        return;
+    }
+    const ORDERS: [(u32, &str, &str, u32, u32, &str, &str); 12] = [
+        (100101, "ACME Retail", "Oak desk", 2, 51800, "DELIVERED", "20260803"),
+        (100102, "Blue Harbor Cafe", "Espresso cups (box of 12)", 5, 14250, "DELIVERED", "20260805"),
+        (100103, "Northwind Studio", "Standing desk frame", 1, 38900, "SHIPPED", "20260910"),
+        (100104, "ACME Retail", "Office chair", 6, 107400, "SHIPPED", "20260912"),
+        (100105, "Greenfield School", "Whiteboard 180 cm", 3, 44700, "NEW", "20260920"),
+        (100106, "Blue Harbor Cafe", "Bar stools", 8, 63200, "RETURNED", "20260716"),
+        (100107, "Kite & Co", "Desk lamp", 10, 29900, "DELIVERED", "20260722"),
+        (100108, "Northwind Studio", "Monitor arm", 4, 23600, "NEW", "20260921"),
+        (100109, "Greenfield School", "Classroom chairs", 30, 179700, "SHIPPED", "20260915"),
+        (100110, "Kite & Co", "Filing cabinet", 2, 31800, "CANCELLED", "20260901"),
+        (100111, "ACME Retail", "Bookshelf", 3, 38700, "NEW", "20260923"),
+        (100112, "Riverside Clinic", "Reception sofa", 1, 124900, "DELIVERED", "20260811"),
+    ];
+    let mut f = cobolt_runtime::indexed_disk::DiskIndexedFile::new(
+        path,
+        97,
+        KeySpec { offset: 0, len: 6, duplicates: false },
+        Vec::new(),
+    );
+    assert_eq!(f.open(OpenMode::Output), status::OK, "{}", path.display());
+    for (id, customer, product, qty, cents, st, date) in ORDERS {
+        let rec = format!(
+            "{id:06}{customer:<30}{product:<30}{qty:04}{cents:09}{st:<10}{date:<8}"
+        );
+        assert_eq!(rec.len(), 97);
+        assert_eq!(f.write(rec.as_bytes()), status::OK);
+    }
+    f.close();
+    println!("  sample {} written (12 orders)", path.display());
 }

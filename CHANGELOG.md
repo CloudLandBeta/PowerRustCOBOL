@@ -8,6 +8,37 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.203] — 2026-09-25
+
+### Feature — PowerChat Phase 2, step 4: sample topics (spec 071 Q1)
+
+- **New `samples/` folder in `examples/PowerChat`.** It holds three invented
+  topics: Human Resources, Orders and Legal. Seven policy documents come with
+  them, plus a 12-order indexed file (`orders.idx`) and its `orders.cidx`.
+  `samples.txt` lists them with one `TOPIC` / `DOC` / `FILE` line each, so
+  adding a sample needs no COBOL.
+- **"Install sample topics" on `topics-form`:**
+  - creates each topic, flagged in its record (`TOP-SAMPLE`), with its
+    Knowledge Base collection;
+  - registers its data files by path;
+  - imports its documents one at a time, each import started from the
+    previous one's `onIndexed`;
+  - pressing it again once installed does nothing.
+- **"Remove sample topics"** takes out exactly those topics. It also removes
+  their collections (moved aside), their registered files and their prompt
+  versions. It clears the current topic if that topic was a sample. The files
+  in `samples/` are only ever read.
+- `POWERCHAT_SAMPLES` points the installer at another folder.
+  `powerchat_regen` writes `orders.idx` when it is missing.
+- **`powerchat_runs` checks, from a copy of the shipped folder:**
+  - the install reports "3 topics, 7 documents" and a second press is refused;
+  - the Orders topic's question reaches the tool worker, which searches
+    `ORDERS-FILE` (12 records);
+  - the file is byte-identical afterwards;
+  - the removal leaves only the operator's own topic, read back through the
+    indexed engine.
+  - The whole run takes about 3.0 s over 16 model requests.
+
 ## [PowerRustCOBOL 1.70.202] — 2026-09-25
 
 ### Feature — PowerChat Phase 2, step 3: prompt versions (spec 071 R48)

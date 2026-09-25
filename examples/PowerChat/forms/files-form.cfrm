@@ -102,6 +102,8 @@
            05 TOP-NAME          PIC X(40).
            05 TOP-PROMPT        PIC X(1000).
            05 TOP-CREATED       PIC X(14).
+      *>   "Y" for a topic the sample installer made, so it can be removed.
+           05 TOP-SAMPLE        PIC X.
        FD  TFILES-FILE IS GLOBAL.
       *>   The users' indexed files each topic registers by path (R20-R25):
       *>   the data file and its .cidx. Nothing is copied or attached.

@@ -59,6 +59,9 @@
   active one's text kept in `TOP-PROMPT`; two-press confirmation (no message box in
   the runtime). **Not done:** 063 R45's user-dragged grip on the editor — it is a
   fixed-size multi-line TextBox.
-- [ ] **P2-4 — Sample topics installer** (Q1)
+- [x] **P2-4 — Sample topics installer** (Q1) — `samples/samples.txt` lists TOPIC / DOC /
+  FILE lines; `topics-form` installs them (documents imported one at a time, chained by
+  `onIndexed`) and removes them (topics flagged `TOP-SAMPLE`). The orders file is written by
+  `powerchat_regen` when missing.
 - [ ] **P2-5 — Six languages** (R44–R46)
 - [ ] **P2-6 — Documents folder tree** (R49, R50)

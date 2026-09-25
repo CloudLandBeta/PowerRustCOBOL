@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<IndexedFile name="ORDERS-FILE" finalized="true" version="1.0">
+  <assign-path>orders.idx</assign-path>
+  <access-mode>dynamic</access-mode>
+  <record-format fixed-length="97"/>
+  <storage mode="disk" compression="false" persistence="false"/>
+  <comment><![CDATA[Customer orders: one row per order, with its customer, product, quantity, amount, status and date]]></comment>
+  <keys>
+    <primary duplicates="false" ordering="ascending"><part field="ORD-ID" offset="0" length="6" encoding="bytes"/></primary>
+  </keys>
+  <fields>
+    <Field level="1" name="ORDER-RECORD" usage="display">
+      <Field level="5" name="ORD-ID" pic="9(6)" usage="display" offset="0" length="6"><comment><![CDATA[Order number]]></comment></Field>
+      <Field level="5" name="ORD-CUSTOMER" pic="X(30)" usage="display" offset="6" length="30"><comment><![CDATA[Customer name]]></comment></Field>
+      <Field level="5" name="ORD-PRODUCT" pic="X(30)" usage="display" offset="36" length="30"><comment><![CDATA[Product ordered]]></comment></Field>
+      <Field level="5" name="ORD-QTY" pic="9(4)" usage="display" offset="66" length="4"><comment><![CDATA[Quantity ordered]]></comment></Field>
+      <Field level="5" name="ORD-AMOUNT" pic="9(7)V99" usage="display" offset="70" length="9"><comment><![CDATA[Order amount, in cents (last two digits)]]></comment></Field>
+      <Field level="5" name="ORD-STATUS" pic="X(10)" usage="display" offset="79" length="10"><comment><![CDATA[NEW, SHIPPED, DELIVERED, RETURNED or CANCELLED]]></comment></Field>
+      <Field level="5" name="ORD-DATE" pic="X(8)" usage="display" offset="89" length="8"><comment><![CDATA[Date ordered, YYYYMMDD]]></comment></Field>
+    </Field>
+  </fields>
+</IndexedFile>
