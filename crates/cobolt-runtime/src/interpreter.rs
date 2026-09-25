@@ -13182,6 +13182,10 @@ impl Interpreter {
 
     /// `true` when the object was seeded as one of the six chart control types,
     /// so chart-specific method arms only fire on actual charts.
+    fn is_list_object(&self, obj: &str) -> bool {
+        matches!(self.objects.get(obj).map(|o| o.class.as_str()), Some("ComboBox" | "ListBox"))
+    }
+
     fn is_chart_object(&self, obj: &str) -> bool {
         matches!(
             self.objects.get(obj).map(|o| o.class.as_str()),
@@ -14621,7 +14625,32 @@ impl Interpreter {
                 }
                 self.obj_set(obj, "Text", String::new());
                 self.obj_set(obj, "Items", String::new());
+                // A ComboBox / ListBox also lets go of its selection: an item
+                // that no longer exists cannot stay selected.
+                if self.is_list_object(obj) {
+                    self.obj_set(obj, "SelectedIndex", "-1".to_owned());
+                    self.obj_set(obj, "Value", String::new());
+                }
                 none
+            }
+            // ComboBox / ListBox: replace the items with a text file's lines
+            // (one item per line, blank lines left out) and clear the
+            // selection. A relative path is resolved like an ItemsFile: from
+            // the project folder under Run Form, beside the executable in a
+            // built application. Returns the item count, or -1 when the file
+            // cannot be read — the items are then left as they were.
+            "LOADFROMFILE" => {
+                let path = cobolt_forms::assets::resolve(arg(0).trim());
+                match cobolt_forms::items_file::read_items(&path) {
+                    Some(items) => {
+                        let n = if items.is_empty() { 0 } else { items.lines().count() };
+                        self.obj_set(obj, "Items", items);
+                        self.obj_set(obj, "SelectedIndex", "-1".to_owned());
+                        self.obj_set(obj, "Value", String::new());
+                        val(n.to_string())
+                    }
+                    None => val("-1".to_owned()),
+                }
             }
             // 055 — declare one notification button, `key=value` separated by
             // commas. `Buttons` is one line per button and a COBOL literal
@@ -18319,6 +18348,7 @@ fn is_known_method(name: &str) -> bool {
         // Items / list / combo
             | "ADDITEM" | "REMOVEITEM" | "GETSELECTED" | "GETSELECTEDINDEX"
             | "GETINDEX" | "SETSELECTEDINDEX" | "SETINDEX" | "GETCOUNT"
+            | "LOADFROMFILE"
         // DataGrid
             | "GETROWCOUNT" | "GETCELLVALUE" | "SETCELLVALUE" | "ADDROW"
             | "DELETEROW" | "CLEARROWS" | "SORT" | "SETFILTER" | "CLEARFILTERS"
@@ -20296,6 +20326,54 @@ MAIN.
             vec![("AA".to_owned(), 1.0), ("BB".to_owned(), 2.0), ("CC".to_owned(), 3.0)],
             "a chart: category and value per occurrence"
         );
+    }
+
+    /// `ComboBox::LoadFromFile(path)` replaces the items with a text file's
+    /// lines and returns their count; an unreadable file answers -1 and leaves
+    /// the items alone; `Clear()` empties the list and its selection.
+    #[test]
+    fn a_combo_and_a_list_load_their_items_from_a_text_file_and_clear() {
+        // Absolute paths: the relative case is `assets::resolve`'s own, and
+        // setting the process-wide base here would race other tests.
+        let dir = std::env::temp_dir().join(format!("prc-loadfromfile-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("ufs.txt");
+        std::fs::write(&file, "AC\r\nAL\n\nAM\n").unwrap();
+        let (f, gone) = (file.display().to_string(), dir.join("missing.txt").display().to_string());
+        let source = format!(
+            "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-N PIC S9(4).
+01 WS-M PIC S9(4).
+01 WS-GONE PIC S9(4).
+PROCEDURE DIVISION.
+MAIN.
+    MOVE CMB-1::LoadFromFile(\"{f}\") TO WS-N
+    INVOKE LST-1 'LoadFromFile' USING \"{f}\" RETURNING WS-M
+    MOVE LST-1::LoadFromFile(\"{gone}\") TO WS-GONE
+    INVOKE LST-1 'Clear'
+    STOP RUN.
+"
+        );
+        let parsed = parse(tokenize(&source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let mut interp = Interpreter::new(program);
+        interp.seed_objects([
+            ("CMB-1".to_owned(), "ComboBox".to_owned(), vec![("SelectedIndex".to_owned(), "2".to_owned())]),
+            ("LST-1".to_owned(), "ListBox".to_owned(), vec![("SelectedIndex".to_owned(), "1".to_owned())]),
+        ]);
+        interp.run().expect("runs");
+        assert_eq!(interp.obj_get("CMB-1", "Items"), "AC\nAL\nAM", "one item per line, blanks left out");
+        assert_eq!(interp.obj_get("CMB-1", "SelectedIndex"), "-1", "the old selection is dropped");
+        assert_eq!(interp.env.get("WS-N").and_then(|v| v.as_i64()), Some(3));
+        assert_eq!(interp.env.get("WS-M").and_then(|v| v.as_i64()), Some(3), "INVOKE form too");
+        assert_eq!(interp.env.get("WS-GONE").and_then(|v| v.as_i64()), Some(-1), "unreadable file");
+        assert_eq!(interp.obj_get("LST-1", "Items"), "", "Clear() empties the list");
+        assert_eq!(interp.obj_get("LST-1", "SelectedIndex"), "-1", "and its selection");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -2953,6 +2953,46 @@ Both accept a runtime write, so a highlight can answer the data:
 > five lines and scrolls past that, so a fifty-item list no longer pushes the
 > rest of the inspector off the pane.
 
+#### ComboBox and ListBox — items from a text file
+
+A list whose entries live in a plain text file, such as the states of a
+country or a set of product codes, does not have to be typed into `Items` or
+built with `AddItem` in a loop. Name the file and the list reads it.
+
+**In the Designer.** Under the list's `Items`, the **Items file** row has a
+📂 button: pick a `.txt` and its path is stored in the `ItemsFile` property
+(relative to the project when the file is inside it). ✕ clears the path **and**
+the items. The Preview shows the file's items straight away.
+
+**At run time.** The file is read **each time the form opens**, one item per
+line, with blank lines left out. It is read under Run Form, in an embedded
+form and in a built application alike, so editing the text file changes the
+list without touching the form. If the file cannot be read, the designed
+`Items` are shown instead.
+
+> ⚠️ **Keep the file where the application can find it.** A built
+> application resolves the path next to its executable, and a build copies the
+> project's `assets/` folder into `dist/`. A text file kept in `assets/`
+> therefore travels with the application; one kept elsewhere does not.
+
+**From COBOL.** Two methods do the same at any moment:
+
+```cobol
+      *>   Replace the items with the file's lines; the selection is cleared.
+      *>   Returns how many items were loaded, or -1 if the file could not
+      *>   be read (the items are then left as they were).
+           MOVE ComboBox-1::LoadFromFile("assets/states.txt") TO WS-COUNT
+           IF WS-COUNT < 0
+               MOVE "The list of states is missing." TO Lbl-Status::Caption
+           END-IF
+
+      *>   Empty the list and its selection.
+           INVOKE ComboBox-1 "Clear"
+```
+
+A relative path in `LoadFromFile` is resolved the same way as `ItemsFile`.
+`WS-COUNT` should be signed (`PIC S9(4)`) so it can hold the `-1`.
+
 #### ComboBox — the gestures, the face, and the colours of an open dropdown
 
 **How the operator moves through a dropdown.** The same three gestures a
@@ -5266,7 +5306,7 @@ control's methods after you type `::`, each with a one-line description.
 | Text box                    | `SetText`, `GetText`, `AppendText`, `Clear`                                                                                                                     |
 | Check box / radio           | `IsChecked`, `SetChecked`, `Toggle`, `Select`                                                                                                                   |
 | Progress / slider / numeric | `SetValue`, `GetValue`, `Increment`, `Decrement`, `Reset`                                                                                                       |
-| List / combo                | `AddItem`, `RemoveItem`, `GetCount`, `GetSelected`, `SetIndex`                                                                                                  |
+| List / combo                | `AddItem`, `RemoveItem`, `GetCount`, `GetSelected`, `SetIndex`, `LoadFromFile`, `Clear`, `RefreshBinding`                                                         |
 | Timer                       | `Start`, `Stop`, `SetInterval`, `IsEnabled`                                                                                                                     |
 | REST Client                 | `get`, `post`, `put`, `delete`, `call`, `setHeader`, `clearHeaders`                                                                                             |
 | SQL Database                | `open`, `execute`, `query`, `fetch`, `fetchAll`, `close`                                                                                                        |

@@ -8,6 +8,33 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.225] — 2026-09-25
+
+### Feature — ComboBox and ListBox items from a text file
+
+- **`ItemsFile`** (new property, ComboBox and ListBox): a `.txt` the list reads
+  its items from each time the form opens, one item per line. Blank lines,
+  CRLF endings and a UTF-8 BOM are handled. Editing the file changes the list
+  without touching the form; an unreadable file leaves the designed `Items`.
+  It is read by `rcrun run-form`, by embedded forms and by the compiled
+  application, and resolved like every asset path (project folder, or beside
+  the executable). The IDE's Preview shows the file's items and re-reads the
+  file only when it changes.
+- **Inspector**, under `Items`: **Items file** with 📂 (pick a `.txt`) and ✕
+  (clear the path and the items). The texts are new `Tr` keys in all six
+  languages.
+- **`LoadFromFile(path) → Integer`**: replaces the items with the file's
+  lines, clears the selection, and returns the count, or -1 when the file
+  cannot be read.
+- **`Clear()`** on a ComboBox / ListBox now also clears the selection
+  (SelectedIndex -1, Value empty).
+- System KB: `ItemsFile`, `LoadFromFile` and `Clear` documented;
+  `chunked.data` regenerated. Developer's Guide: new section "ComboBox and
+  ListBox — items from a text file".
+- Tests: `items_file::tests::a_text_file_becomes_the_items_of_a_combo_and_a_list`
+  (forms), `a_combo_and_a_list_load_their_items_from_a_text_file_and_clear`
+  (runtime, both call syntaxes).
+
 ## [PowerRustCOBOL 1.70.224] — 2026-09-25
 
 ### Fix — a COBOL table bound to a ComboBox, ListBox or chart never loaded; tables below level 01 were not offered

@@ -3321,7 +3321,8 @@ fn run_form_app(program: cobolt_ast::program::Program) {
                 std::process::exit(4);
             };
             let xml = std::str::from_utf8(bytes).expect("form XML is valid UTF-8");
-            let form = load_form_from_str(xml).expect("parse embedded form");
+            let mut form = load_form_from_str(xml).expect("parse embedded form");
+            cobolt_forms::items_file::apply(&mut form.controls);
             // …and ITS program. Running the main form's code behind another
             // form's face is worse than refusing: every handler would be wrong.
             let prog = load_program_by_id(&want).unwrap_or(program);
@@ -3344,10 +3345,10 @@ fn run_form_app(program: cobolt_ast::program::Program) {
                     std::process::exit(3);
                 }
                 let xml = std::str::from_utf8(bytes).expect("form XML is valid UTF-8");
-                (
-                    load_form_from_str(xml).expect("parse embedded form"),
-                    program,
-                )
+                let mut form = load_form_from_str(xml).expect("parse embedded form");
+                // A ComboBox / ListBox with an ItemsFile reads its items as it opens.
+                cobolt_forms::items_file::apply(&mut form.controls);
+                (form, program)
             } else {
                 run_headless(program);
                 return;
@@ -3554,7 +3555,8 @@ fn run_form_app(program: cobolt_ast::program::Program) {
             .find(|(fid, _)| *fid == want)
             .ok_or_else(|| format!("no form named '{}' in this application", id.trim()))?;
         let xml = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
-        let child = cobolt_forms::load_form_from_str(xml).map_err(|e| e.to_string())?;
+        let mut child = cobolt_forms::load_form_from_str(xml).map_err(|e| e.to_string())?;
+        cobolt_forms::items_file::apply(&mut child.controls);
         let program = load_program_by_id(&want).ok_or_else(|| {
             format!(
                 "form '{}' has no embedded program — its generated code was missing \
@@ -5043,6 +5045,10 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             "newline-separated entries (TreeView: two-space indentation nests children)",
             "The list content, one item per line.",
         ),
+        "ItemsFile" => (
+            "project-relative or absolute path of a .txt, or empty",
+            "ComboBox / ListBox: a text file the list reads its items from each time the form opens — one item per line, blank lines left out — so editing the file changes the list without touching the form. When the file cannot be read, the designed Items stay. Keep it in the project's assets/ folder so a built application carries it. In the inspector, 📂 picks the file and ✕ clears the path and the items. From COBOL, LoadFromFile(path) does the same at any time.",
+        ),
         "SelectedIndex" => ("0-based index; -1 = no selection", "Currently selected item."),
         "MultiSelect" => (
             BOOL_DOMAIN,
@@ -5823,7 +5829,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
         ("GetSelectedIndex() → Integer", "Read the 0-based selected index (-1 = none)."),
         ("SetSelectedIndex(index: Integer)", "Select by 0-based index."),
         ("GetCount() → Integer", "Number of items."),
-        ("Clear()", "Remove all items."),
+        ("Clear()", "Remove all items (a ComboBox / ListBox also clears its selection: SelectedIndex -1, Value empty)."),
     ];
     // TreeView nodes. Every call takes the node's 1-based INDEX — the same number the
     // node event hands the handler in `CONTROL-NODE-INDEX`. The traversal calls
@@ -5885,6 +5891,10 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
         "TextBox" => text_methods,
         "ListBox" | "ComboBox" => {
             let mut v = items_methods;
+            v.push((
+                "LoadFromFile(path: String) → Integer",
+                "Replace the items with a text file's lines (one item per line, blank lines left out) and clear the selection; returns the item count, or -1 when the file cannot be read (the items are then left as they were). A relative path is resolved from the project folder under Run Form and beside the executable in a built application. Example: `MOVE ComboBox-1::LoadFromFile(\"assets/states.txt\") TO WS-COUNT`.",
+            ));
             v.push((
                 "RefreshBinding() → Integer",
                 "Bound to a COBOL table (any level, inside a GLOBAL 01): reload Items from it, one item per occurrence of the display field, blanks left out; returns the item count. Also runs by itself as the form opens, after onLoad.",

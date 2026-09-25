@@ -4813,6 +4813,8 @@ impl Control {
             }
             ControlType::ListBox => {
                 props.insert("Items".into(), PropValue::String("".into()));
+                // A text file the list reads its items from as the form opens.
+                props.insert(crate::items_file::ITEMS_FILE.into(), PropValue::String("".into()));
                 props.insert("SelectedIndex".into(), PropValue::Int(-1));
                 props.insert("MultiSelect".into(), PropValue::Bool(false));
                 // The two selections a list carries: `Value`/`SelectedIndex` is
@@ -4848,6 +4850,8 @@ impl Control {
             }
             ControlType::ComboBox => {
                 props.insert("Items".into(), PropValue::String("".into()));
+                // A text file the list reads its items from as the form opens.
+                props.insert(crate::items_file::ITEMS_FILE.into(), PropValue::String("".into()));
                 props.insert("SelectedIndex".into(), PropValue::Int(-1));
                 props.insert("Sorted".into(), PropValue::Bool(false));
                 // The two highlights the OPEN dropdown draws, on the same

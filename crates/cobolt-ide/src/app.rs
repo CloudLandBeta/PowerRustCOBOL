@@ -15790,7 +15790,10 @@ impl CoboltApp {
         // Keep the main editor's intellisense in sync with current form (for RefreshBinding etc on array groupboxes)
         self.editor.known_controls =
             crate::panels::editor::build_known_controls(&self.designers[idx].1.form);
-        let controls = self.designers[idx].1.form.controls.clone();
+        let mut controls = self.designers[idx].1.form.controls.clone();
+        // A ComboBox / ListBox with an ItemsFile shows the file's items here,
+        // as it will at run time (read again only when the file changes).
+        cobolt_forms::items_file::apply_cached(&mut controls);
         let values_snap = self.designers[idx].1.preview_state.clone();
         // A rail shown collapsed is DRAWN at the collapsed width — the same
         // rule the designer canvas and the running shell follow. Without it the

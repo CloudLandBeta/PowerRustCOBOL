@@ -272,13 +272,15 @@ pub fn cmd_run_form(args: &[String]) {
     cobolt_forms::render::set_focus_ring(parse_focus_ring_args(args));
 
     // ── Load the form layout ──────────────────────────────────────────────────
-    let form = match cobolt_forms::load_form(&cfrm_path) {
+    let mut form = match cobolt_forms::load_form(&cfrm_path) {
         Ok(f) => f,
         Err(e) => {
             eprintln!("run-form: cannot load {}: {e}", cfrm_path.display());
             process::exit(1);
         }
     };
+    // A ComboBox / ListBox with an ItemsFile reads its items now, as it opens.
+    cobolt_forms::items_file::apply(&mut form.controls);
 
     if let Some(project) = diagnostics_dump_project.as_deref() {
         write_diagnostics_dump(project, &form);
@@ -570,8 +572,9 @@ pub fn cmd_run_form(args: &[String]) {
             )
         })?;
         let xml = std::fs::read_to_string(&cfrm).map_err(|e| format!("{}: {e}", cfrm.display()))?;
-        let child_form = cobolt_forms::load_form_from_str(&xml)
+        let mut child_form = cobolt_forms::load_form_from_str(&xml)
             .map_err(|e| format!("{}: {e}", cfrm.display()))?;
+        cobolt_forms::items_file::apply(&mut child_form.controls);
         // Where the form's program actually is — the project's `generated/`
         // folder, a relocated entry, or beside the `.cfrm` for a loose form.
         // Resolved by the SAME function the compiled application uses, so Run

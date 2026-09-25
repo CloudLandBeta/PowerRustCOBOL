@@ -1914,6 +1914,10 @@ pub struct Tr {
     pub walkthrough_skip: &'static str,
     /// `{n}` — the current step; `{total}` — how many there are.
     pub walkthrough_progress: &'static str,
+    /// Inspector — ComboBox / ListBox: the ItemsFile row (label, 📂 hover, ✕ hover).
+    pub items_file_label: &'static str,
+    pub items_file_browse: &'static str,
+    pub items_file_clear: &'static str,
 }
 
 // ── Helper for toolbox ────────────────────────────────────────────────────────
@@ -3304,6 +3308,9 @@ const EN: Tr = Tr {
     walkthrough_back: "◀ Back",
     walkthrough_skip: "Skip",
     walkthrough_progress: "Step {n} of {total}",
+    items_file_label: "Items file",
+    items_file_browse: "Load the items from a text file (.txt), one item per line. The file is read each time the form opens, so editing it changes the list.",
+    items_file_clear: "Clear the file and the items",
 };
 
 // ── Spanish ───────────────────────────────────────────────────────────────────
@@ -4676,6 +4683,9 @@ const ES: Tr = Tr {
     walkthrough_back: "◀ Atrás",
     walkthrough_skip: "Omitir",
     walkthrough_progress: "Paso {n} de {total}",
+    items_file_label: "Archivo de elementos",
+    items_file_browse: "Cargar los elementos de un archivo de texto (.txt), uno por línea. Se lee cada vez que se abre el formulario: al editarlo cambia la lista.",
+    items_file_clear: "Borrar el archivo y los elementos",
 };
 
 // ── Portuguese (Brazilian) ────────────────────────────────────────────────────
@@ -6048,6 +6058,9 @@ const PT: Tr = Tr {
     walkthrough_back: "◀ Voltar",
     walkthrough_skip: "Pular",
     walkthrough_progress: "Passo {n} de {total}",
+    items_file_label: "Arquivo de itens",
+    items_file_browse: "Carregar os itens de um arquivo de texto (.txt), um por linha. O arquivo é lido sempre que o formulário abre: editá-lo muda a lista.",
+    items_file_clear: "Limpar o arquivo e os itens",
 };
 
 // ── Japanese ──────────────────────────────────────────────────────────────────
@@ -7419,6 +7432,9 @@ const JA: Tr = Tr {
     walkthrough_back: "◀ 戻る",
     walkthrough_skip: "スキップ",
     walkthrough_progress: "ステップ {n} / {total}",
+    items_file_label: "項目ファイル",
+    items_file_browse: "テキストファイル (.txt) から項目を 1 行ずつ読み込みます。フォームを開くたびに読むため、ファイルを編集すると一覧が変わります。",
+    items_file_clear: "ファイルと項目をクリア",
 };
 
 // ── Chinese (Simplified) ──────────────────────────────────────────────────────
@@ -8798,6 +8814,9 @@ const ZH: Tr = Tr {
     walkthrough_back: "◀ 上一步",
     walkthrough_skip: "跳过",
     walkthrough_progress: "第 {n} 步，共 {total} 步",
+    items_file_label: "项目文件",
+    items_file_browse: "从文本文件 (.txt) 加载项目，每行一项。每次打开窗体都会读取该文件，编辑文件即可更改列表。",
+    items_file_clear: "清除文件和项目",
 };
 
 // ── French ────────────────────────────────────────────────────────────────────
@@ -10170,6 +10189,9 @@ const FR: Tr = Tr {
     walkthrough_back: "◀ Retour",
     walkthrough_skip: "Passer",
     walkthrough_progress: "Étape {n} sur {total}",
+    items_file_label: "Fichier des éléments",
+    items_file_browse: "Charger les éléments depuis un fichier texte (.txt), un par ligne. Le fichier est relu à chaque ouverture du formulaire : le modifier change la liste.",
+    items_file_clear: "Effacer le fichier et les éléments",
 };
 
 // ── i18n behavioral tests ──────────────────────────────────────────────────────

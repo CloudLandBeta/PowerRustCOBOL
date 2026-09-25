@@ -29,6 +29,7 @@ pub mod datagrid;
 pub mod dropzone;
 pub mod diagnostics;
 pub mod icons;
+pub mod items_file;
 pub mod menu;
 pub mod connections;
 pub mod model;

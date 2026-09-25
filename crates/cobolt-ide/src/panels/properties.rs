@@ -6354,6 +6354,7 @@ impl PropertiesPanel {
             ControlType::ListBox if phase == TypeSection::Rest => {
                 section_header(ui, "ListBox");
                 items_multiline(ui, id, ctrl, action, &mut self.text_bufs);
+                items_file_row(ui, id, ctrl, action, &mut self.text_bufs, tr);
                 bool_row_inline(ui, id, "MultiSelect", "Multi-select", ctrl, action);
                 bool_row_inline(ui, id, "ShowCheckBoxes", "Tick boxes", ctrl, action);
                 bool_row_inline(ui, id, "Sorted", "Sorted", ctrl, action);
@@ -6427,6 +6428,7 @@ impl PropertiesPanel {
             ControlType::ComboBox if phase == TypeSection::Rest => {
                 section_header(ui, "ComboBox");
                 items_multiline(ui, id, ctrl, action, &mut self.text_bufs);
+                items_file_row(ui, id, ctrl, action, &mut self.text_bufs, tr);
                 bool_row_inline(ui, id, "Sorted", "Sorted", ctrl, action);
                 bool_row_inline(ui, id, "Editable", "Editable", ctrl, action);
                 combo_row_inline(
@@ -12362,6 +12364,66 @@ fn image_browse_row(
                 key.to_owned(),
                 PropValue::String(buf.clone()),
             ));
+        }
+    });
+}
+
+/// ComboBox / ListBox: the text file its items are read from as the form
+/// opens (`ItemsFile`). 📂 picks a `.txt`; ✕ clears the path AND the items,
+/// so nothing designed is left behind to show in its place.
+fn items_file_row(
+    ui: &mut Ui,
+    ctrl_id: &str,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+    bufs: &mut std::collections::HashMap<String, String>,
+    tr: &crate::i18n::Tr,
+) {
+    let key = cobolt_forms::items_file::ITEMS_FILE;
+    let cur = ctrl.get_prop(key).map(|v| v.as_str().to_owned()).unwrap_or_default();
+    let vp = ui.ctx().viewport_id();
+    let buf_key = format!("{ctrl_id}-{key}:{vp:?}");
+    let wid = egui::Id::new(&buf_key);
+    let buf = bufs.entry(buf_key).or_insert(cur.clone());
+    if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
+        *buf = cur.clone();
+    }
+    let pick_key = format!("itemsfile:{ctrl_id}:{vp:?}");
+    ui.horizontal(|ui| {
+        ui.label(tr.items_file_label);
+        // Asynchronous, like every picker here: a synchronous dialog nests the
+        // OS event loop and aborts winit 0.30.
+        if ui.button("📂").on_hover_text(tr.items_file_browse).clicked() {
+            crate::file_dialog::open_file(ui.ctx(), &pick_key, "Text", &["txt"]);
+        }
+        if crate::file_dialog::is_open(&pick_key) {
+            ui.ctx().request_repaint();
+        }
+        if let Some(Some(p)) = crate::file_dialog::take(&pick_key) {
+            let path_str = store_asset_path(&p);
+            *buf = path_str.clone();
+            action.set_props.push((ctrl_id.to_owned(), key.to_owned(), PropValue::String(path_str)));
+        }
+        if ui
+            .add_enabled(!cur.is_empty(), egui::Button::new("✕"))
+            .on_hover_text(tr.items_file_clear)
+            .clicked()
+        {
+            buf.clear();
+            action.set_props.push((ctrl_id.to_owned(), key.to_owned(), PropValue::String(String::new())));
+            action.set_props.push((ctrl_id.to_owned(), "Items".to_owned(), PropValue::String(String::new())));
+        }
+        if ui
+            .add(
+                egui::TextEdit::singleline(buf)
+                    .id(wid)
+                    .hint_text("(none)")
+                    .desired_width(f32::INFINITY),
+            )
+            .on_hover_text(tr.items_file_browse)
+            .lost_focus()
+        {
+            action.set_props.push((ctrl_id.to_owned(), key.to_owned(), PropValue::String(buf.clone())));
         }
     });
 }
