@@ -2362,6 +2362,18 @@ fn merge_screen(
 }
 
 fn parse_accept_source(p: &mut Parser) -> AcceptSource {
+    // `ENVIRONMENT "name"`. The lexer turns ENVIRONMENT into the division
+    // keyword, never an identifier, so it has to be matched as that token —
+    // reached through `ident_upper` it fell through to the DATE fallback,
+    // left `ENVIRONMENT "name"` unconsumed, and silently took the rest of the
+    // procedure with it.
+    if matches!(p.peek(), Token::Environment) {
+        p.advance();
+        if let Some((s, _)) = p.eat_string() {
+            return AcceptSource::Environment(s);
+        }
+        return AcceptSource::Environment("<missing>".into());
+    }
     if let Some(name) = ident_upper(p) {
         let src = match name.as_str() {
             "DATE" => Some(AcceptSource::Date),

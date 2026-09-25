@@ -5896,6 +5896,15 @@ impl Interpreter {
             Expr::Literal(lit @ (Literal::Integer(_) | Literal::IntegerDigits(..)), _) => {
                 lit.integer_digits()
             }
+            // A control property reads as a number when its text looks like
+            // one, so arithmetic on it works — and moved into `PIC X` it then
+            // took the numeric-assign path and landed right-justified: a
+            // SideMenu row id made of digits arrived behind 24 spaces (found by
+            // PowerChat, spec 071). Into an alphanumeric receiver it goes as
+            // its text, left-justified, like every numeric sender above.
+            Expr::Member { .. } if matches!(val, CobolValue::Numeric(_)) => {
+                Some(val.as_display_string().trim().to_string())
+            }
             _ => None,
         };
         // The sender's **bytes**, for a group receiver. `val` above arrived

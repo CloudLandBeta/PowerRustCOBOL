@@ -81,3 +81,30 @@ fn environment_value_and_escape_key() {
     let out = run_with_args(src, &[]);
     assert_eq!(out, vec!["the-value", "00"]);
 }
+
+/// `ACCEPT x FROM ENVIRONMENT "name"` reads the variable — and the statements
+/// after it still run. `ENVIRONMENT` lexes as the division keyword, and the
+/// parser used to miss it, fall back to `FROM DATE`, and let the leftover
+/// tokens swallow the rest of the procedure without a diagnostic.
+#[test]
+fn accept_from_environment_by_name_reads_it_and_carries_on() {
+    std::env::set_var("PRC_ACCEPT_ENV_BY_NAME", "/data/powerchat");
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. ACCENV.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-DIR  PIC X(40) VALUE SPACES.
+       01 WS-NONE PIC X(10) VALUE "unchanged".
+       PROCEDURE DIVISION.
+       MAIN.
+           ACCEPT WS-DIR FROM ENVIRONMENT "PRC_ACCEPT_ENV_BY_NAME"
+           DISPLAY "[" FUNCTION TRIM(WS-DIR) "]"
+           ACCEPT WS-NONE FROM ENVIRONMENT "PRC_ACCEPT_ENV_NOT_SET"
+           DISPLAY "[" FUNCTION TRIM(WS-NONE) "]"
+           DISPLAY "after"
+           STOP RUN.
+"#;
+    let out = run_with_args(src, &[]);
+    assert_eq!(out, ["[/data/powerchat]", "[]", "after"], "{out:?}");
+}
