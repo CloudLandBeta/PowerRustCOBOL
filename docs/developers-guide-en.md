@@ -5344,6 +5344,8 @@ Other built-in services available via `CALL` (covered in their sections):
 - **HTTP:** `COBOL-HTTP-GET/POST/PUT/DELETE`, `COBOL-HTTP-SET-HEADER`,
   `COBOL-HTTP-CLEAR-HEADERS`.
 - **Text files:** `COBOL-WRITE-FILE`, `COBOL-APPEND-FILE`.
+- **Asking for a file or a folder:** `COBOL-OPEN-FILE-DIALOG`,
+  `COBOL-SAVE-FILE-DIALOG`, `COBOL-FOLDER-DIALOG`.
 - **Lifecycle:** `COBOL-INIT-FORM`, `COBOL-QUIT`.
 
 > **Note.** Property names passed to `GET`/`SET` are exactly the names shown in
@@ -7194,6 +7196,44 @@ A header line and then the rows is the whole pattern:
 > two convenient for a handful of lines and wrong for a hundred thousand of
 > them. For bulk output declare an ordinary `LINE SEQUENTIAL` file and `WRITE`
 > to it, which holds the file open across the run.
+
+### Asking the operator for a file or a folder
+
+A path the operator has to type is a path the operator will mistype. Three
+built-in calls open the operating system's own dialog instead, and the program
+**waits** on the call until the operator has chosen:
+
+```cobol
+           CALL "COBOL-OPEN-FILE-DIALOG" USING "Import settings"
+                "XML files|xml" WS-PATH.
+           CALL "COBOL-SAVE-FILE-DIALOG" USING "Export settings"
+                "XML files|xml" "rag-settings.xml" WS-PATH.
+           CALL "COBOL-FOLDER-DIALOG"    USING "Knowledge Base folder"
+                WS-KB-FOLDER WS-PATH.
+           IF WS-PATH = SPACES
+               DISPLAY "Nothing chosen."
+           END-IF.
+```
+
+| Call | Arguments, in order |
+|---|---|
+| `COBOL-OPEN-FILE-DIALOG` | title · filter · *start folder* · **path** |
+| `COBOL-SAVE-FILE-DIALOG` | title · filter · suggested file name · *start folder* · **path** |
+| `COBOL-FOLDER-DIALOG` | title · *start folder* · **path** |
+
+- **path** is always the **last** argument. It receives the file or folder
+  chosen, or **SPACES** when the operator cancels.
+- The *start folder* is optional; leave it out and the dialog opens where the
+  operating system chooses.
+- A **filter** is written `"Description|ext1,ext2"` — `"XML files|xml"`,
+  `"Documents|pdf,docx,md"` — or as the extensions alone, `"xml"`. An empty
+  filter shows every file.
+- The save dialog asks before overwriting an existing file; the program then
+  writes it as it would any other path (`COBOL-WRITE-FILE`, or an `FD`).
+
+> **Note.** The dialog belongs to the running form's window, so it works in Run
+> Form and in a built application. A console program has no window to show one
+> in: there the calls return SPACES at once rather than wait for nothing.
 
 ### Rust inside COBOL — `EXEC RUST`
 

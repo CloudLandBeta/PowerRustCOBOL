@@ -123,6 +123,33 @@ pub enum FormRequest {
         handle: String,
         props: Vec<(String, String)>,
     },
+    /// `CALL "COBOL-OPEN-FILE-DIALOG"` / `"COBOL-SAVE-FILE-DIALOG"` /
+    /// `"COBOL-FOLDER-DIALOG"` — a native dialog the GUI host opens for the
+    /// calling program, which waits for the answer. The host takes this
+    /// request itself; it never reaches the supervisor's bookkeeping.
+    FileDialog {
+        kind: FileDialogKind,
+        title: String,
+        /// `(description, extensions)`; empty = any file.
+        filters: Vec<(String, Vec<String>)>,
+        /// Folder the dialog opens in; `None` = the platform's choice.
+        directory: Option<String>,
+        /// Suggested file name (save dialogs).
+        file_name: Option<String>,
+        /// The chosen path, or `None` when the user cancelled.
+        reply: Sender<Option<String>>,
+    },
+}
+
+/// Which native dialog a [`FormRequest::FileDialog`] asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileDialogKind {
+    /// Pick an existing file.
+    Open,
+    /// Name a file to write.
+    Save,
+    /// Pick a folder.
+    Folder,
 }
 
 /// One window-affecting decision for the GUI host to execute.
@@ -385,6 +412,13 @@ impl FormSupervisor {
             FormRequest::CloseSelf { caller } => self.try_close(&caller),
             FormRequest::PublishFormProps { handle, props } => {
                 self.note_form_props(&handle, props);
+                Vec::new()
+            }
+            // A GUI host opens the dialog before the supervisor sees the
+            // request. One that does not (a test double) answers "cancelled",
+            // so the waiting program is never left hanging.
+            FormRequest::FileDialog { reply, .. } => {
+                let _ = reply.send(None);
                 Vec::new()
             }
         }

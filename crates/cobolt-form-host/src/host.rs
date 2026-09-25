@@ -4332,6 +4332,20 @@ impl FormHost {
             reqs.push(r);
         }
         for req in reqs {
+            // A native file dialog a program is waiting on: opened here, by
+            // the one drain every host shares, and answered straight back.
+            if let cobolt_runtime::form_host::FormRequest::FileDialog {
+                kind,
+                title,
+                filters,
+                directory,
+                file_name,
+                reply,
+            } = req
+            {
+                crate::file_dialog::answer_program(kind, title, filters, directory, file_name, reply);
+                continue;
+            }
             let acts = self.supervisor.handle_request(req);
             self.apply_host_actions(ctx, acts);
         }

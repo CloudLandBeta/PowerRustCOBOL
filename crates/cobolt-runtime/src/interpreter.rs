@@ -11129,6 +11129,68 @@ impl Interpreter {
                 self.env.set_str(&var, if set { "Y" } else { "N" });
             }
 
+            // ── Native file dialogs ─────────────────────────────────────────
+            // COBOL-OPEN-FILE-DIALOG USING title filter [start-folder] path
+            // COBOL-SAVE-FILE-DIALOG USING title filter file-name [start-folder] path
+            // COBOL-FOLDER-DIALOG    USING title [start-folder] path
+            //   The program waits while the operator chooses. `path` — always
+            //   the LAST argument — receives the chosen path, or SPACES when
+            //   the operator cancels or there is no window to show a dialog
+            //   in (a console run). `filter` is "Description|ext1,ext2"; empty
+            //   means any file.
+            "COBOL-OPEN-FILE-DIALOG" | "COBOL-SAVE-FILE-DIALOG" | "COBOL-FOLDER-DIALOG"
+                if using.len() >= 2 =>
+            {
+                use crate::form_host::{FileDialogKind, FormRequest};
+                let text = |i: usize, me: &mut Self| -> Result<String, RuntimeError> {
+                    Ok(me.eval_call_arg(&using[i], span)?.as_display_string().trim().to_string())
+                };
+                let last = using.len() - 1;
+                let (kind, fixed) = match prog_name.as_str() {
+                    "COBOL-OPEN-FILE-DIALOG" => (FileDialogKind::Open, 2),
+                    "COBOL-SAVE-FILE-DIALOG" => (FileDialogKind::Save, 3),
+                    _ => (FileDialogKind::Folder, 1),
+                };
+                let title = text(0, self)?;
+                let filters = if kind == FileDialogKind::Folder || last < 2 {
+                    Vec::new()
+                } else {
+                    dialog_filters(&text(1, self)?)
+                };
+                let file_name = if kind == FileDialogKind::Save && last >= 3 {
+                    Some(text(2, self)?).filter(|s| !s.is_empty())
+                } else {
+                    None
+                };
+                // The optional start folder sits just before `path`.
+                let directory = if last > fixed {
+                    Some(text(fixed, self)?).filter(|s| !s.is_empty())
+                } else {
+                    None
+                };
+                let chosen = match self.form_host_tx.clone() {
+                    Some(tx) => {
+                        let (rtx, rrx) = mpsc::channel();
+                        let sent = tx.send(FormRequest::FileDialog {
+                            kind,
+                            title,
+                            filters,
+                            directory,
+                            file_name,
+                            reply: rtx,
+                        });
+                        if sent.is_ok() {
+                            rrx.recv().ok().flatten()
+                        } else {
+                            None
+                        }
+                    }
+                    None => None,
+                };
+                let var = self.expr_to_name(call_arg_expr(&using[last]));
+                self.env.set_str(&var, chosen.as_deref().unwrap_or(""));
+            }
+
             // ── COBOL-85 nested program CALL ──────────────────────────────────
             _ if self.nested_registry.contains_key(&prog_name) => {
                 // Clone the para_map, para_order, local_items, and USING
@@ -21769,4 +21831,23 @@ mod cross_run_unit_lock_tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+/// A dialog filter written as `"Description|ext1,ext2"` — or just the
+/// extensions, `"xml"` — as `(description, extensions)`. Empty is no filter.
+fn dialog_filters(spec: &str) -> Vec<(String, Vec<String>)> {
+    let spec = spec.trim();
+    if spec.is_empty() {
+        return Vec::new();
+    }
+    let (name, exts) = spec.split_once('|').unwrap_or((spec, spec));
+    let exts: Vec<String> = exts
+        .split([',', ';', ' '])
+        .map(|e| e.trim().trim_start_matches("*.").trim_start_matches('.').to_string())
+        .filter(|e| !e.is_empty())
+        .collect();
+    if exts.is_empty() {
+        return Vec::new();
+    }
+    vec![(name.trim().to_string(), exts)]
 }

@@ -8,6 +8,34 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.211] — 2026-09-25
+
+### Feature — native file and folder dialogs from COBOL
+
+- **Three new calls:** `CALL "COBOL-OPEN-FILE-DIALOG"`,
+  `"COBOL-SAVE-FILE-DIALOG"` and `"COBOL-FOLDER-DIALOG"`.
+  - Each opens the operating system's own dialog, and the program waits until
+    the operator chooses.
+  - The last argument receives the chosen path, or SPACES on cancel.
+  - Arguments: a title; a filter written `"Description|ext1,ext2"`; for a
+    save, a suggested file name; and an optional start folder.
+  - Before this, only a FileDropZone click, a DataGrid's CSV button or a
+    Viewer's `SaveAs` could open a dialog, and a program could not ask for a
+    folder at all.
+- **How it runs:** the request travels as `FormRequest::FileDialog`. The form
+  host takes it at the one drain every host shares, so the calls work in Run
+  Form, in embedded forms and in a built application. The dialog runs on a
+  worker thread with `rfd`, the same way the existing dialogs do, so the OS
+  event loop is never nested.
+- **Without a window** (a console run), or with a host that does not show
+  dialogs, the calls return SPACES at once instead of waiting.
+- Test: `test_file_dialog_calls` (`cobolt-runtime`), against a stand-in host
+  that records what was asked. It covers four dialogs (one cancelled) and the
+  no-window case.
+- Developer's Guide: new section "Asking the operator for a file or a folder".
+- **Sweep (release):** `cobolt-runtime` and `cobolt-form-host`: 130 suites,
+  1201 tests, 0 failed.
+
 ## [PowerRustCOBOL 1.70.210] — 2026-09-25
 
 ### Feature — a SideMenu designed in the RAD can be translated and held shut at run time

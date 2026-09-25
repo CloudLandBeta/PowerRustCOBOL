@@ -137,3 +137,41 @@ pub fn take(key: &str) -> Option<Option<PathBuf>> {
     map.remove(key);
     result
 }
+
+/// Open the native dialog a COBOL program asked for (`COBOL-OPEN-FILE-DIALOG`,
+/// `-SAVE-FILE-DIALOG`, `-FOLDER-DIALOG`) and send the chosen path — or `None`
+/// on cancel — to the program, which is waiting on `reply`. Runs on a worker
+/// thread for the same reason [`begin`] does: a synchronous dialog from inside
+/// the frame would nest the OS event loop.
+pub fn answer_program(
+    kind: cobolt_runtime::form_host::FileDialogKind,
+    title: String,
+    filters: Vec<(String, Vec<String>)>,
+    directory: Option<String>,
+    file_name: Option<String>,
+    reply: std::sync::mpsc::Sender<Option<String>>,
+) {
+    use cobolt_runtime::form_host::FileDialogKind;
+    std::thread::spawn(move || {
+        let mut dlg = rfd::AsyncFileDialog::new();
+        if !title.is_empty() {
+            dlg = dlg.set_title(&title);
+        }
+        for (name, exts) in &filters {
+            let refs: Vec<&str> = exts.iter().map(|s| s.as_str()).collect();
+            dlg = dlg.add_filter(name, &refs);
+        }
+        if let Some(dir) = &directory {
+            dlg = dlg.set_directory(dir);
+        }
+        if let Some(name) = &file_name {
+            dlg = dlg.set_file_name(name);
+        }
+        let handle = match kind {
+            FileDialogKind::Open => pollster::block_on(dlg.pick_file()),
+            FileDialogKind::Save => pollster::block_on(dlg.save_file()),
+            FileDialogKind::Folder => pollster::block_on(dlg.pick_folder()),
+        };
+        let _ = reply.send(handle.map(|h| h.path().to_string_lossy().into_owned()));
+    });
+}
