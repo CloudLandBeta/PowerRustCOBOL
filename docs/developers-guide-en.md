@@ -5305,9 +5305,14 @@ Every project has exactly **one main form** — the form the application shows
 first and the app's single identity in the OS taskbar/dock. The first form you
 create takes the role automatically; move it by checking **Main form** in
 another form's Window properties (the current holder's checkbox is read-only,
-so a project can never end up without one). The Forms tree marks the main form
-with a **crown**. If a project ever loads with zero or several forms marked,
-the first form in the project list wins and the status line says so.
+so a project can never end up without one). The move is recorded in both form
+files the moment you check the box — even when the other form is open in a
+designer with unsaved changes, and even if you later close it without saving —
+so undo is the way to take it back. The Forms tree marks the main form
+with a **crown**. If a project is ever opened, run or built with zero or
+several forms marked (a `.cfrm` edited by hand, say), the first form in the
+project list wins and the status line says so; re-check **Main form** on the
+form you meant if that is not the one.
 
 #### Only the main form starts an application
 

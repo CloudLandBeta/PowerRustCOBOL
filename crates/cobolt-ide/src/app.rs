@@ -4569,6 +4569,10 @@ impl CoboltApp {
                 .push_status("Open or create a project first (File → New/Open Project).");
             return;
         };
+        // 037 R3 — heal a project with more than one (or no) main form before
+        // compiling, as Run already does; otherwise the compiler refuses it and
+        // the developer has no checkbox left to clear the extra mark with.
+        self.apply_main_form_invariant();
 
         // Refuse to compile while any form has a syntax/semantic error: mark the
         // offending forms red in the tree, list the problems in the Output panel,
@@ -13219,10 +13223,13 @@ impl CoboltApp {
 
     /// 037 R2 — settle MainForm flag transitions emitted by the designers'
     /// undo stacks. A claim demotes the previous holder (open designers in
-    /// memory + dirty, closed forms directly on disk — an open designer's
-    /// unsaved edits are never committed as a side effect); an un-claim
-    /// (undo) restores the recorded previous holder. Both directions are one
-    /// user action; the status line names the forms involved.
+    /// memory + dirty); an un-claim (undo) restores the recorded previous
+    /// holder. Either way the flag is ALSO written to every affected FILE at
+    /// once — only the flag, re-read from disk, so an open designer's unsaved
+    /// edits are never committed as a side effect. The files are what Build
+    /// and `rcrun` read, and a flag left only in memory used to leave two
+    /// forms marked main on disk once a designer closed without saving. Both
+    /// directions are one user action; the status line names the forms.
     fn drain_main_form_changes(&mut self) {
         let mut events: Vec<(std::path::PathBuf, bool)> = Vec::new();
         for (path, d) in &mut self.designers {
@@ -13251,8 +13258,6 @@ impl CoboltApp {
             .map(|p| p.files.forms.clone())
             .unwrap_or_default();
         let tr = self.lang.tr();
-        let open_paths: Vec<std::path::PathBuf> =
-            self.designers.iter().map(|(p, _)| p.clone()).collect();
         for (path, claim) in events {
             if claim {
                 let Some(rel) = relative_to(&path, &dir) else {
@@ -13280,13 +13285,13 @@ impl CoboltApp {
                         }
                     }
                 }
-                // … and closed forms directly on disk.
-                match crate::main_form::clear_other_holders_on_disk(
-                    &dir,
-                    &forms,
-                    &rel,
-                    &open_paths,
-                ) {
+                // … and every holder's FILE, open or closed. Only the flag is
+                // rewritten (the file is re-read from disk), so an open
+                // designer's unsaved edits are still not committed — but
+                // closing that designer without saving can no longer leave its
+                // file claiming main beside the new holder (two mains on disk,
+                // and a Build that refuses the project).
+                match crate::main_form::clear_other_holders_on_disk(&dir, &forms, &rel, &[]) {
                     Ok(cleared) => {
                         // Refresh the tree's cached copy of every demoted
                         // form, so its crown falls off even after the
@@ -13300,6 +13305,12 @@ impl CoboltApp {
                     }
                     Err(e) => self.output.push_status(format!("Main form change: {e}")),
                 }
+                // … and the claim itself, so the files hold exactly one main
+                // even before the claiming designer is saved.
+                match crate::main_form::restore_holder_on_disk(&dir, &rel, &[]) {
+                    Ok(_) => self.project.refresh_form(&path),
+                    Err(e) => self.output.push_status(format!("Main form change: {e}")),
+                }
                 self.output.push_status(
                     tr.status_main_form_now
                         .replacen("{}", &rel, 1)
@@ -13310,25 +13321,31 @@ impl CoboltApp {
                 match self.main_form_prev.pop().flatten() {
                     Some(prev_rel) => {
                         let prev_abs = dir.join(&prev_rel);
-                        let mut in_memory = false;
                         for (p, d) in &mut self.designers {
                             if *p == prev_abs {
                                 d.form.main_form = true;
                                 d.dirty = true;
-                                in_memory = true;
                             }
                         }
-                        if !in_memory {
-                            if let Err(e) = crate::main_form::restore_holder_on_disk(
-                                &dir,
-                                &prev_rel,
-                                &open_paths,
-                            ) {
-                                self.output
-                                    .push_status(format!("Main form restore: {e}"));
-                            } else {
-                                self.project.refresh_form(&prev_abs);
+                        // On disk too: re-crown the previous holder and clear
+                        // the form whose claim was undone.
+                        match crate::main_form::restore_holder_on_disk(&dir, &prev_rel, &[]) {
+                            Ok(_) => self.project.refresh_form(&prev_abs),
+                            Err(e) => self
+                                .output
+                                .push_status(format!("Main form restore: {e}")),
+                        }
+                        match crate::main_form::clear_other_holders_on_disk(
+                            &dir, &forms, &prev_rel, &[],
+                        ) {
+                            Ok(cleared) => {
+                                for c in &cleared {
+                                    self.project.refresh_form(&dir.join(c));
+                                }
                             }
+                            Err(e) => self
+                                .output
+                                .push_status(format!("Main form restore: {e}")),
                         }
                         self.output.push_status(
                             tr.status_main_form_restored.replacen("{}", &prev_rel, 1),

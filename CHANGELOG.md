@@ -8,6 +8,27 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.205] — 2026-09-25
+
+### Fix — two forms marked main, and a Build that could not recover
+
+- **Moving Main form to another form could leave both marked.** When the old
+  main form was open in a designer, it was unmarked only in that designer's
+  memory. Closing it without saving left its file still marked, beside the new
+  one. Both checkboxes are read-only on a main form, so the only way out was to
+  delete a form. Checking **Main form** now writes the change to both form
+  files at once, whether the forms are open or not. Undo does the same in
+  reverse. Only the flag is written; a designer's other unsaved edits stay
+  unsaved.
+- **Build now repairs the mark before compiling, as Run already did.** A
+  project with zero or several forms marked as main keeps the first form in
+  the project list and says so in the status line. Before this, the compiler
+  stopped with "N forms are marked as the main form".
+- Regression test: `a_claim_leaves_exactly_one_main_on_disk_even_with_the_old_holder_open`
+  (`crates/cobolt-ide/src/main_form.rs`). The Developer's Guide section
+  "Multi-form applications and the main form" is updated.
+- Numbered 1.70.205 because `features` already carries 1.70.204.
+
 ## [PowerRustCOBOL 1.70.203] — 2026-09-25
 
 ### Feature — PowerChat Phase 2, step 4: sample topics (spec 071 Q1)

@@ -219,6 +219,40 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Operator report, 2026-09-25: moving MainForm to a new form while the
+    /// old holder was open in a designer left BOTH marked on disk (the old one
+    /// was demoted only in memory, then closed without saving), so Build
+    /// refused the project and neither checkbox could be cleared. The claim
+    /// and its undo now settle every file, open or not — this replays the
+    /// sequence the IDE runs and asks the compiler's own guard for a verdict.
+    #[test]
+    fn a_claim_leaves_exactly_one_main_on_disk_even_with_the_old_holder_open() {
+        use cobolt_compiler::main_form_guard::read_designation;
+        let (dir, rels) = project_with(&[("old", true), ("new", false)]);
+
+        // Claim "new" (both forms open; nothing saved afterwards).
+        clear_other_holders_on_disk(&dir, &rels, "forms/new.cfrm", &[]).expect("clear");
+        restore_holder_on_disk(&dir, "forms/new.cfrm", &[]).expect("claim");
+        assert_eq!(holder_flags(&dir, &rels), [false, true]);
+        let d = read_designation(&dir, &rels).expect("one main").expect("forms");
+        assert_eq!(d.main_form_id, "NEW");
+
+        // Undo the claim: "old" is crowned again, "new" cleared.
+        restore_holder_on_disk(&dir, "forms/old.cfrm", &[]).expect("restore");
+        clear_other_holders_on_disk(&dir, &rels, "forms/old.cfrm", &[]).expect("clear");
+        assert_eq!(holder_flags(&dir, &rels), [true, false]);
+
+        // A project already carrying two marks heals before Build compiles.
+        let (dir2, rels2) = project_with(&[("first", true), ("second", true)]);
+        assert!(read_designation(&dir2, &rels2).is_err(), "two marks are refused");
+        normalize_main_form(&dir2, &rels2).expect("heal");
+        let d = read_designation(&dir2, &rels2).expect("healed").expect("forms");
+        assert_eq!(d.main_form_id, "FIRST");
+        println!("claim/undo: one main on disk each time; two marks heal to FIRST");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&dir2);
+    }
+
     #[test]
     fn normalize_main_form_zero_marked_assigns_first_in_list() {
         let (dir, rels) = project_with(&[("alpha", false), ("beta", false), ("gamma", false)]);
