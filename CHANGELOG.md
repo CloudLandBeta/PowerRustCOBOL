@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.204] — 2026-09-25
+
+### Docs — PowerChat's READMEs are now in the repository
+
+- `examples/PowerChat/README.md` (first run, the forms, regenerating),
+  `data/README.md` (the application's own files) and `samples/README.md`
+  (the `samples.txt` format) were written with Phase 1 and step 4. A global
+  gitignore rule had kept every `README.md` out of git, so none of them was
+  committed until now.
+
 ## [PowerRustCOBOL 1.70.203] — 2026-09-25
 
 ### Feature — PowerChat Phase 2, step 4: sample topics (spec 071 Q1)
