@@ -419,6 +419,29 @@ fn powerchat_settings_topics_documents_and_chat() {
         t.elapsed().as_secs_f64() * 1000.0
     ));
 
+    // ── Prompt versions: v1 from the topic, v2 saved and active, v1 promoted back ──
+    let t = Instant::now();
+    let topics_text = || String::from_utf8_lossy(&std::fs::read(data.join("topics.idx")).unwrap()).into_owned();
+    let mut s = Session::start("prompts-form.cfrm");
+    s.wait_for("Lst-Versions", "Items", |v| v.contains("v1") && v.contains("[active]"));
+    s.type_into("Txt-Prompt", "You answer HR questions in two sentences at most.");
+    s.click("Btn-Save");
+    s.wait_for("Lbl-Status", "Caption", |v| v.contains("Saved as v2, now active"));
+    assert!(topics_text().contains("two sentences at most"), "v2 is the topic's prompt now");
+    s.pick("Lst-Versions", 1);
+    s.click("Btn-Activate");
+    s.wait_for("Lbl-Status", "Caption", |v| v.contains("Press Activate again to confirm"));
+    assert!(topics_text().contains("two sentences at most"), "nothing changes before the confirmation");
+    s.click("Btn-Activate");
+    s.wait_for("Lbl-Status", "Caption", |v| v.contains("v1 is the active prompt"));
+    s.quit();
+    let topics = topics_text();
+    assert!(topics.contains("company's HR policies") && !topics.contains("two sentences at most"), "v1 is back");
+    report.push(format!(
+        "prompts:   v1 from the topic; v2 saved and active; v1 promoted back after a confirmation — {:.0} ms",
+        t.elapsed().as_secs_f64() * 1000.0
+    ));
+
     let sent = requests.lock().unwrap().clone();
 
     println!("\n  ── 071 PowerChat, played end to end ─────────────────────");

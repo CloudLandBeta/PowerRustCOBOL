@@ -8,6 +8,28 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.202] — 2026-09-25
+
+### Feature — PowerChat Phase 2, step 3: prompt versions (spec 071 R48)
+
+- **New `prompts-form` ("Prompt" in the menu).** It shows every version of the
+  topic's system prompt, newest first, with the active one marked. The versions
+  are kept in a new `PROMPTS` file. A topic's first visit makes version 1 from
+  its current prompt.
+- **"Save as new" stores the editor's text as the next version and makes it
+  active.** The active version's text is written to the topic's prompt, which
+  the chat's orchestrator receives the next time the topic loads.
+- **"Activate" on an older version asks first.** The first press says what
+  will change; a second press on the same version confirms. The runtime has no
+  message box, so the confirmation is two presses.
+- **Not done:** 063 R45's user-dragged grip on the prompt editor. It is a
+  fixed-size multi-line TextBox for now.
+- **`powerchat_runs`**:
+  - checks that v1 is created, that v2 is saved and active (the topic's
+    prompt changes), that nothing changes on the first Activate press, and
+    that v1 is active again after the second;
+  - the whole run takes 2.0 s.
+
 ## [PowerRustCOBOL 1.70.201] — 2026-09-25
 
 ### Feature — PowerChat Phase 2, step 2: registered data files (spec 071 R20–R25)

@@ -24,9 +24,14 @@ menu:
   type: action
   icon: database
   enabled: true
+- id: prmt
+  label: Prompt
+  type: action
+  icon: chat-dots
+  enabled: true
 - id: sett
   label: RAG settings
   type: action
   icon: gear
   enabled: true
-hash: 2a26006c08d940d7b82b374f2c9d34f68e3789b29b79bc5d35dcd6824d5de71c
+hash: da9d55aa7ea2dad02abc70d1edeca9f54e52b28d3f66bb216c17bc51ca6a6734

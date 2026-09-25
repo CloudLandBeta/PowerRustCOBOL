@@ -55,7 +55,10 @@
   WORK → COMPOSE; re-election on change. Test: `powerchat_runs` gains a two-agent
   mesh run against the scripted model (plan, parallel work, composed answer).
 - [x] **P2-2 — Registered indexed files** (R20–R25)
-- [ ] **P2-3 — Prompt versions** (R48)
+- [x] **P2-3 — Prompt versions** (R48) — `prompts-form`; versions in `PROMPTS`, the
+  active one's text kept in `TOP-PROMPT`; two-press confirmation (no message box in
+  the runtime). **Not done:** 063 R45's user-dragged grip on the editor — it is a
+  fixed-size multi-line TextBox.
 - [ ] **P2-4 — Sample topics installer** (Q1)
 - [ ] **P2-5 — Six languages** (R44–R46)
 - [ ] **P2-6 — Documents folder tree** (R49, R50)

@@ -1100,6 +1100,9 @@
                WHEN "fils"
                    INVOKE ME::"OpenFormSync"("FILES-FORM")
                    CALL "PC-REGISTER-FILES"
+               WHEN "prmt"
+                   INVOKE ME::"OpenFormSync"("PROMPTS-FORM")
+                   CALL "PC-LOAD-TOPIC"
                WHEN "sett"
                    INVOKE ME::"OpenFormSync"("SETTINGS-FORM")
                    CALL "PC-HAND-MODELS"
