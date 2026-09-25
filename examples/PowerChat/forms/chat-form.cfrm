@@ -2431,7 +2431,7 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
+    <Property name="Cursor">Hand</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
@@ -2439,7 +2439,7 @@
     <Property name="ZOrder">0</Property>
     <Property name="ImageAlignment">MiddleCenter</Property>
     <Property name="BorderColor">#888888</Property>
-    <Property name="Tooltip"></Property>
+    <Property name="Tooltip">English</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Event name="onClick" paragraph="FLAG-EN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2478,7 +2478,7 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
+    <Property name="Cursor">Hand</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
@@ -2486,7 +2486,7 @@
     <Property name="ZOrder">0</Property>
     <Property name="ImageAlignment">MiddleCenter</Property>
     <Property name="BorderColor">#888888</Property>
-    <Property name="Tooltip"></Property>
+    <Property name="Tooltip">Português</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Event name="onClick" paragraph="FLAG-PT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2525,7 +2525,7 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
+    <Property name="Cursor">Hand</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
@@ -2533,7 +2533,7 @@
     <Property name="ZOrder">0</Property>
     <Property name="ImageAlignment">MiddleCenter</Property>
     <Property name="BorderColor">#888888</Property>
-    <Property name="Tooltip"></Property>
+    <Property name="Tooltip">Español</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Event name="onClick" paragraph="FLAG-ES--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2572,7 +2572,7 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
+    <Property name="Cursor">Hand</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
@@ -2580,7 +2580,7 @@
     <Property name="ZOrder">0</Property>
     <Property name="ImageAlignment">MiddleCenter</Property>
     <Property name="BorderColor">#888888</Property>
-    <Property name="Tooltip"></Property>
+    <Property name="Tooltip">Français</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Event name="onClick" paragraph="FLAG-FR--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2619,7 +2619,7 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
+    <Property name="Cursor">Hand</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
@@ -2627,7 +2627,7 @@
     <Property name="ZOrder">0</Property>
     <Property name="ImageAlignment">MiddleCenter</Property>
     <Property name="BorderColor">#888888</Property>
-    <Property name="Tooltip"></Property>
+    <Property name="Tooltip">日本語</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Event name="onClick" paragraph="FLAG-JP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2666,7 +2666,7 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
+    <Property name="Cursor">Hand</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
@@ -2674,7 +2674,7 @@
     <Property name="ZOrder">0</Property>
     <Property name="ImageAlignment">MiddleCenter</Property>
     <Property name="BorderColor">#888888</Property>
-    <Property name="Tooltip"></Property>
+    <Property name="Tooltip">中文</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Event name="onClick" paragraph="FLAG-CN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.

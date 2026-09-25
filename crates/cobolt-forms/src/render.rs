@@ -5824,6 +5824,18 @@ fn render_interactive(
             hover_delay_s,
         );
         control_geometry_events(ui, screen, ctrl_id, id, out, &bound);
+        // The control's `Cursor`, while the pointer is over it — on EVERY
+        // visual control, not just the Button: a clickable picture (a flag
+        // that switches the language) looked inert because its `Hand` was
+        // never shown (operator, 2026-09-25). `Default` asks for nothing, so a
+        // TextBox keeps its own text cursor.
+        if enabled {
+            if let Some(icon) = ctrl.get_prop("Cursor").and_then(|v| cursor_icon_for(v.as_str())) {
+                if ui.rect_contains_pointer(screen) {
+                    ui.ctx().set_cursor_icon(icon);
+                }
+            }
+        }
     }
 
     // THIS control's Neumorphic shadow settings, published before any arm below

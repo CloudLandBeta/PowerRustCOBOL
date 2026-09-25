@@ -4914,6 +4914,118 @@ mod shell_event_tests {
         );
     }
 
+    /// **A picture in the rail's footer answers a click in the shell.**
+    ///
+    /// PowerChat's language flags are PictureBoxes in the SideMenu footer,
+    /// each with an `onClick` handler. In the running application a click on
+    /// one did nothing and the pointer showed no sign of a button (operator,
+    /// 2026-09-25). Measured on the shell path, as the application runs.
+    #[test]
+    fn a_picture_in_the_rail_footer_answers_a_click_in_the_shell() {
+        let mut form = cobolt_forms::Form::new("CHAT-FORM", "Chat", 1000, 760);
+        form.main_form = true;
+        let mut rail =
+            cobolt_forms::Control::new("SideMenu-1", cobolt_forms::ControlType::SideMenu, 0, 0);
+        rail.rect = cobolt_forms::model::Rect::new(0, 0, 264, 760);
+        let footer_id = cobolt_forms::model::side_menu_footer_id(&rail.id);
+        let mut footer =
+            cobolt_forms::Control::new(&footer_id, cobolt_forms::ControlType::Panel, 0, 688);
+        footer.rect = cobolt_forms::model::Rect::new(0, 688, 264, 72);
+        footer.parent = Some(rail.id.clone());
+        footer.set_prop(cobolt_forms::model::SIDE_MENU_FOOTER_PROP, true);
+        let mut flag =
+            cobolt_forms::Control::new("Flag-pt", cobolt_forms::ControlType::PictureBox, 58, 713);
+        flag.rect = cobolt_forms::model::Rect::new(58, 713, 32, 22);
+        flag.parent = Some(footer_id.clone());
+        flag.ensure_event("onClick");
+        // A picture that acts as a button says so with the pointer.
+        flag.set_prop("Cursor", "Hand");
+        let flat = vec![rail.clone(), footer, flag];
+
+        let (ev_tx, ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let (mut host, _f) = crate::FormHost::new(FormHostConfig {
+            form,
+            flat,
+            state: HashMap::new(),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx,
+            form_source: None,
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Pane,
+        });
+        let ctx = egui::Context::default();
+        let mut shell = Shell::default();
+        shell.side_ctrl = Some(rail);
+        let size = Vec2::new(1000.0, 760.0);
+        let run = |ctx: &egui::Context, shell: &mut Shell, host: &mut crate::FormHost, input: egui::RawInput| {
+            let mut full = ctx.run_ui(input, |root_ui| {
+                let _ = shell.show_with_host(root_ui, |_ui| {}, host);
+            });
+            full.textures_delta.clear();
+            full.platform_output.cursor_icon
+        };
+        run(&ctx, &mut shell, &mut host, raw(size));
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        for _ in 0..2 {
+            run(&ctx, &mut shell, &mut host, raw(size));
+        }
+        while ev_rx.try_recv().is_ok() {}
+        let band = shell.last_footer_rect.expect("the rail laid out its footer band");
+        let at = band.min + Vec2::new(58.0 + 16.0, (713.0 - 688.0) + 11.0);
+
+        let mut hover = raw(size);
+        hover.events = vec![egui::Event::PointerMoved(at)];
+        let cursor = run(&ctx, &mut shell, &mut host, hover);
+        let mut down = raw(size);
+        down.events = vec![egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Default::default(),
+        }];
+        run(&ctx, &mut shell, &mut host, down);
+        let mut up = raw(size);
+        up.events = vec![egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        }];
+        run(&ctx, &mut shell, &mut host, up);
+        for _ in 0..3 {
+            run(&ctx, &mut shell, &mut host, raw(size));
+        }
+        let evs: Vec<(String, String)> = ev_rx.try_iter().map(|e| (e.ctrl_id, e.event_id)).collect();
+        println!("band {band:?} click at {at:?} cursor {cursor:?} events {evs:?}");
+        assert_eq!(cursor, egui::CursorIcon::PointingHand, "a Hand cursor shows over the flag");
+        assert!(
+            evs.iter().any(|(c, e)| c == "Flag-pt" && e.eq_ignore_ascii_case("onClick")),
+            "a click on the footer flag must reach its handler; got {evs:?}"
+        );
+    }
+
     /// **The shell's chrome belongs to the MAIN form, whatever the pane
     /// holds.**
     ///

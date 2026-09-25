@@ -8448,12 +8448,23 @@ impl Interpreter {
     /// Resolve a SELECT … ASSIGN target to a filesystem path. If the assign
     /// value names a data item, that item's current (trimmed) value is used;
     /// otherwise the assign string itself is the path.
+    ///
+    /// A **relative** path starts at the application's folder when there is
+    /// one — the project folder under Run Form, the executable's in a built
+    /// application ([`cobolt_forms::assets::current_base`]) — exactly as the
+    /// Knowledge Base, the images and the key store already do. It used to
+    /// start at the process's working directory, which is wherever the IDE or
+    /// the application happened to be launched from: PowerChat's `data/…`
+    /// files could not be created, so nothing it wrote was ever kept — its
+    /// language flags "did nothing" (operator, 2026-09-25). With no anchor (a
+    /// console `rcrun run`, the tests) the working directory still applies.
     fn resolve_assign_path(&self, assign: &str) -> String {
         let key = assign.trim().to_ascii_uppercase();
-        if let Some(v) = self.env.get_string(&key) {
-            return v.trim_end().to_string();
-        }
-        assign.trim().to_string()
+        let path = match self.env.get_string(&key) {
+            Some(v) => v.trim_end().to_string(),
+            None => assign.trim().to_string(),
+        };
+        anchor_relative_path(&path)
     }
 
     /// Set a file's FILE STATUS data item (if declared) to a 2-character code.
@@ -21964,4 +21975,18 @@ fn dialog_filters(spec: &str) -> Vec<(String, Vec<String>)> {
         return Vec::new();
     }
     vec![(name.trim().to_string(), exts)]
+}
+
+
+/// `path` joined to the application's folder when it is relative and a
+/// folder is anchored; otherwise `path` unchanged.
+fn anchor_relative_path(path: &str) -> String {
+    let p = std::path::Path::new(path.trim());
+    if path.trim().is_empty() || p.is_absolute() {
+        return path.to_string();
+    }
+    match cobolt_forms::assets::current_base() {
+        Some(base) => base.join(p).to_string_lossy().into_owned(),
+        None => path.to_string(),
+    }
 }

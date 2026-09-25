@@ -8,6 +8,41 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.214] — 2026-09-25
+
+### Fix — PowerChat's language flags did nothing; a relative ASSIGN path started at the launch folder
+
+- **A relative `ASSIGN` path now starts at the application's folder** when one
+  is anchored:
+  - under Run Form it is the project folder;
+  - in a built application it is the folder holding `assets/`.
+
+  This is the anchor the Knowledge Base, the images and the Indexed bindings
+  already use. Before, the path started at the process's working directory,
+  which is wherever the IDE or the application was launched from.
+- **This was the whole flags bug.** PowerChat keeps its settings in
+  `data/settings.idx`. With the IDE started from another folder, that file
+  could never be created. So a flag's click did run its handler, but the
+  language it saved was never kept, and the relabel read English back. Every
+  other PowerChat setting was lost the same way.
+- An absolute path is unchanged. `rcrun run`, the tests and the NIST runs have
+  no anchor, so they still use the working directory.
+- **The control's `Cursor` now shows on every visual control**, not only on a
+  Button. `Default` asks for nothing, so a TextBox keeps its text cursor.
+- **PowerChat's flags** now show a hand cursor, and their tooltip names the
+  language in that language.
+- **Tests:**
+  - `a_relative_assign_starts_at_the_application_folder` (`cobolt-runtime`,
+    its own binary because the anchor is process-wide): a line-sequential file
+    and an indexed file land in the anchored `data/`, and an absolute path is
+    left as written;
+  - `a_picture_in_the_rail_footer_answers_a_click_in_the_shell`
+    (`cobolt-form-host`): a footer flag's click reaches its handler through the
+    real shell, with a hand cursor.
+- **Developer's Guide:** new "Where a relative ASSIGN path starts". It
+  includes the measured cost of a missing folder: `OPEN OUTPUT` answers 30
+  for a sequential file and 90 for an indexed one.
+
 ## [PowerRustCOBOL 1.70.213] — 2026-09-25
 
 ### Feature — PowerChat, the operator's review: first run, embedded forms, the IDE's providers

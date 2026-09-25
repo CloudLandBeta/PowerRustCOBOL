@@ -6687,6 +6687,25 @@ fresh `OPEN`, or a successful `START`, establishes a record again.
 > `01 CUST-STATUS. 03 CS-1 PIC X. 03 CS-2 PIC X.` — as well as an ordinary
 > `PIC XX`. Both receive the code.
 
+### Where a relative `ASSIGN` path starts
+
+`SELECT SETTINGS-FILE ASSIGN TO "data/settings.idx"` — or the same path held in
+a data item — names a file **relative to the application's folder**: the
+project folder under **Run Form**, and the folder holding `assets/` in a built
+application (`bin/` during development, the hand-over folder in `dist/`). It is
+the same anchor your images, your Knowledge Base and your Indexed bindings
+already use, so a relative path means the same file in every place the program
+runs, whoever launched it and from wherever.
+
+An absolute path is used exactly as written. A console program run with
+`rcrun run` has no application folder, so there a relative path starts at the
+current directory, as it always has.
+
+> ⚠️ **The folder has to exist.** `OPEN OUTPUT` creates a file, not the folders
+> above it: ship an empty `data/` folder with the project (a `README.md` in it
+> is enough to keep it in version control), or the first `OPEN OUTPUT` fails —
+> `30` for a sequential file, `90` for an indexed one.
+
 ### Opening a file that may not be there: `SELECT OPTIONAL`
 
 Only `OPEN OUTPUT` creates a file. `OPEN INPUT`, `OPEN I-O` and `OPEN EXTEND`
