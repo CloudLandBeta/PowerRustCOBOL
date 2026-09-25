@@ -8,6 +8,15 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.215] — 2026-09-25
+
+### Fix — PowerChat's welcome title covered the status line
+
+- On the welcome screen, the 84-point "PowerChat" started at y=40, over the
+  status line at y=50. The title and everything below it (the robot, the
+  welcome text and the four steps) now start 44 to 54 px lower, clear of the
+  status line.
+
 ## [PowerRustCOBOL 1.70.214] — 2026-09-25
 
 ### Fix — PowerChat's language flags did nothing; a relative ASSIGN path started at the launch folder

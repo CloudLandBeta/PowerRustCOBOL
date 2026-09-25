@@ -1809,7 +1809,7 @@
            MOVE FUNCTION TRIM(T-THINKING) TO Lbl-Status::Caption
 ]]></Event>
   </Control>
-  <Control id="PowerChat" type="Label" x="288" y="40" w="688" h="112" tab-order="0" z-order="0" visible="false" enabled="true">
+  <Control id="PowerChat" type="Label" x="288" y="84" w="688" h="112" tab-order="0" z-order="0" visible="false" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1847,7 +1847,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Pic-Robot" type="PictureBox" x="300" y="190" w="250" h="300" tab-order="0" z-order="0" visible="false" enabled="true">
+  <Control id="Pic-Robot" type="PictureBox" x="300" y="244" w="250" h="300" tab-order="0" z-order="0" visible="false" enabled="true">
     <Property name="ShowFrame">false</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowColor">#000000FF</Property>
@@ -1885,7 +1885,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lbl-Welcome" type="Label" x="570" y="190" w="406" h="56" tab-order="0" z-order="0" visible="false" enabled="true">
+  <Control id="Lbl-Welcome" type="Label" x="570" y="244" w="406" h="56" tab-order="0" z-order="0" visible="false" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1923,7 +1923,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lbl-Step-1" type="Label" x="570" y="262" w="406" h="50" tab-order="0" z-order="0" visible="false" enabled="true">
+  <Control id="Lbl-Step-1" type="Label" x="570" y="316" w="406" h="50" tab-order="0" z-order="0" visible="false" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1961,7 +1961,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lbl-Step-2" type="Label" x="570" y="322" w="406" h="70" tab-order="0" z-order="0" visible="false" enabled="true">
+  <Control id="Lbl-Step-2" type="Label" x="570" y="376" w="406" h="70" tab-order="0" z-order="0" visible="false" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1999,7 +1999,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lbl-Step-3" type="Label" x="570" y="402" w="406" h="50" tab-order="0" z-order="0" visible="false" enabled="true">
+  <Control id="Lbl-Step-3" type="Label" x="570" y="456" w="406" h="50" tab-order="0" z-order="0" visible="false" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -2037,7 +2037,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lbl-Step-4" type="Label" x="570" y="462" w="406" h="70" tab-order="0" z-order="0" visible="false" enabled="true">
+  <Control id="Lbl-Step-4" type="Label" x="570" y="516" w="406" h="70" tab-order="0" z-order="0" visible="false" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
