@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.216] — 2026-09-25
+
+### Feature — PowerChat's sidebar wears the PowerRustCOBOL logo and icon
+
+- The SideMenu header used to show an empty frame. It now shows the
+  PowerRustCOBOL logo, the samurai banner from `PowerDemo3/assets/logo.png`,
+  while the rail is open, and its icon (`icon.png`) while it is collapsed.
+- Both files are copied into `examples/PowerChat/assets/` and listed in the
+  project's assets, so a built PowerChat carries them.
+- Numbered 1.70.216 because `fixes` already carries 1.70.214 and 1.70.215.
+
 ## [PowerRustCOBOL 1.70.213] — 2026-09-25
 
 ### Feature — PowerChat, the operator's review: first run, embedded forms, the IDE's providers
