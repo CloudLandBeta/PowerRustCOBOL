@@ -5185,7 +5185,8 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "Editable" => (BOOL_DOMAIN, "Whether the combo's text field takes typing (the `DropDown` and `Simple` styles; a `DropDownList` never does). Typed text becomes `Value` even when it names no item — `SelectedIndex` is then -1 — and raises `onChange` and `onTextChanged`; while the list is open, typing moves its highlight to the first item that begins with the text. Off, a `DropDown` combo is pick-only. The arrow keys always walk the list."),
 
         // ── TreeView ──
-        "AllowEdit" => ("retired", "**Retired.** It promised in-place node label editing, which no surface ever had. It is no longer seeded or shown; a value saved in an older form is kept and ignored. To rename a node at run time, write the new `Items` from COBOL."),
+        "AllowEdit" => (BOOL_DOMAIN, "TreeView (default false): the operator may rename a node in place — a double-click on its label, or F2 on the selected node, opens the label in a text box; Enter or clicking away keeps it, Escape drops it, and an empty label is refused. A kept rename rewrites that node's line in `Items` (its indentation and icon/colour fields kept), follows it in `SelectedNode`, `CheckedNodes` and `CollapsedNodes`, writes the old label to `PreviousNodeText`, and fires `onNodeRenamed` with the node — the new label in `CONTROL-NODE`. Storing the new name is the handler's job; to refuse it, write `Items` back. A tab or line break typed into the label becomes a space."),
+        "PreviousNodeText" => ("text (runtime-only, read-only)", "TreeView: in `onNodeRenamed`, the label the node had before the operator renamed it; the new one is `CONTROL-NODE`."),
         "CheckBoxes" => (BOOL_DOMAIN, "Draws a tick box on every node. A click ON THE BOX ticks it (a click anywhere else on the row selects the node) and the ticked nodes land in `CheckedNodes`, one per line, with `onNodeCheck` carrying the node."),
         "CheckedNodes" => ("newline-separated node labels", "Which boxes are ticked, one node per line — the `CheckBoxes` companion, read and written exactly like `SelectedNode`. Writing it from COBOL ticks those nodes."),
         "CollapsedNodes" => ("newline-separated node labels", "Which nodes are FOLDED SHUT, one per line — so EMPTY means the whole tree is open, which is what a tree shows untouched. A node with children draws a disclosure arrow; clicking it folds or unfolds and fires `onNodeCollapse`/`onNodeExpand` with that node. Writing this from COBOL folds a tree to any shape without touching `Items`."),
@@ -5848,6 +5849,7 @@ fn event_reference(name: &str) -> &'static str {
         "onFrameChanged" => "animation advanced a frame",
         "onLooped" => "animation restarted a loop",
         "onCellClick" => "a cell was clicked",
+        "onNodeRenamed" => "TreeView with `AllowEdit`: the operator renamed a node in place — `CONTROL-NODE` holds the new label, `PreviousNodeText` the old one; `Items` already carries it",
         "onCellEdited" => "DataGrid with `AllowCellEditing`: the operator changed a cell — `EditedRow`, `EditedColumn`, `EditedValue`, `PreviousValue` say which and how; the new text is already in `Rows`",
         "onCellDoubleClick" => "a cell was double-clicked",
         "onRowSelect" => "a row became selected",

@@ -1468,6 +1468,9 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
     // `AllowCellEditing` — the cell an edit changed, written before
     // `onCellEdited` (row and column numbered from 1).
     const DATA_GRID: &[&str] = &["EditedRow", "EditedColumn", "EditedValue", "PreviousValue"];
+    // `AllowEdit` — a renamed node's old label, written before `onNodeRenamed`
+    // (the new one is the node payload's `CONTROL-NODE`).
+    const TREE_VIEW: &[&str] = &["PreviousNodeText"];
     match ControlType::from_str(type_name) {
         ControlType::MenuBar => MENU_BAR,
         ControlType::SideMenu => SIDE_MENU,
@@ -1475,6 +1478,7 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
         ControlType::AgentObject => AGENT,
         ControlType::SqlDatabase => SQL,
         ControlType::DataGrid => DATA_GRID,
+        ControlType::TreeView => TREE_VIEW,
         ControlType::KnowledgeBase => KNOWLEDGE_BASE,
         ControlType::RestClient | ControlType::WebSearch => ASYNC,
         ControlType::Snackbar => SNACKBAR,
@@ -1537,6 +1541,7 @@ pub fn is_node_event(event: &str) -> bool {
             | "onNodeCheck"
             | "onNodeCollapse"
             | "onNodeExpand"
+            | "onNodeRenamed"
     )
 }
 
@@ -3372,6 +3377,8 @@ impl ControlType {
                 "onNodeCheck",
                 "onNodeCollapse",
                 "onNodeExpand",
+                // `AllowEdit` — the operator renamed a node in place.
+                "onNodeRenamed",
                 "onClick",
                 "onDblClick",
                 "onDoubleClick",
@@ -5268,8 +5275,9 @@ impl Control {
                     "Items".into(),
                     PropValue::String("Node 1\n  Child 1\n  Child 2\nNode 2".into()),
                 );
-                // `AllowEdit` is retired: no surface ever edited a node label in
-                // place (property audit, 2026-09-25).
+                // In-place rename: a double-click on a label, or F2. Seeded
+                // false, as it always was, so no existing tree starts renaming.
+                props.insert("AllowEdit".into(), PropValue::Bool(false));
                 props.insert("CheckBoxes".into(), PropValue::Bool(false));
                 props.insert("ShowLines".into(), PropValue::Bool(true));
                 props.insert("ShowRootLines".into(), PropValue::Bool(true));

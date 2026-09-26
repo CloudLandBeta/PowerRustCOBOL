@@ -5830,6 +5830,16 @@ fn datagrid_confined_fill_rects(screen: Rect, radius: f32, r: Rect) -> Vec<Rect>
 /// the column is declared numeric or every value in it reads as a number,
 /// otherwise as text, ignoring case. A value that is not a number sorts after
 /// the numbers.
+/// A TreeView node being renamed in place (`AllowEdit`).
+#[derive(Clone, Debug, Default)]
+struct TreeRename {
+    /// The node's line in `Items` — `TreeRow::index`.
+    index: usize,
+    original: String,
+    text: String,
+    fresh: bool,
+}
+
 /// A DataGrid cell open for editing (`AllowCellEditing`).
 #[derive(Clone, Debug, Default)]
 struct DataGridEdit {
@@ -11077,6 +11087,12 @@ fn render_interactive(
             // specifically). Registering it FIRST makes each row interact
             // AFTER it instead, so the row is what wins its own rect.
             let tree_focus = ui.interact(screen, ctrl_id.with("tv-focus"), Sense::click());
+            // `AllowEdit`: a double-click on a node's label, or F2 on the
+            // selected node, renames it in place. Off by default.
+            let allow_rename = enabled && prop_bool(ctrl, "AllowEdit", false);
+            let rename_id = ctrl_id.with("tv-rename");
+            let mut renaming: Option<TreeRename> =
+                if allow_rename { ui.data(|d| d.get_temp(rename_id)) } else { None };
             for row in &rows {
                 // `click_and_drag`, so a DRAG anywhere on the tree scrolls it
                 // while a click still selects — egui already tells the two
@@ -11156,6 +11172,20 @@ fn render_interactive(
                     }
                 }
                 if resp.double_clicked() && enabled {
+                    let at = ui.ctx().pointer_interact_pos();
+                    let on_label = at.is_some_and(|p| {
+                        p.x >= row.label_x - 2.0
+                            && !row.expander.is_some_and(|r| r.expand(2.0).contains(p))
+                            && !row.check.is_some_and(|r| r.expand(2.0).contains(p))
+                    });
+                    if allow_rename && on_label {
+                        renaming = Some(TreeRename {
+                            index: row.index,
+                            original: row.text.clone(),
+                            text: row.text.clone(),
+                            fresh: true,
+                        });
+                    }
                     out.events
                         .push(UiEvent::with_value(id, "onNodeDblClick", &node_payload(row, &checked_after)));
                     out.events
@@ -11170,6 +11200,20 @@ fn render_interactive(
             // clash), so this reuses the `Response` already in hand.
             if tree_focus.clicked() {
                 tree_focus.request_focus();
+            }
+            if allow_rename
+                && renaming.is_none()
+                && tree_focus.has_focus()
+                && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F2))
+            {
+                if let Some(row) = rows.iter().find(|r| !selected.is_empty() && r.text == selected) {
+                    renaming = Some(TreeRename {
+                        index: row.index,
+                        original: row.text.clone(),
+                        text: row.text.clone(),
+                        fresh: true,
+                    });
+                }
             }
             if enabled && tree_focus.has_focus() {
                 // Stepping through every row the tree SHOWS, not through the
@@ -11239,6 +11283,74 @@ fn render_interactive(
                     alpha,
                 },
             );
+            // The node being renamed, over its painted label. A node scrolled
+            // or folded out of sight keeps its edit until it shows again.
+            if let Some(mut edit) = renaming {
+                if let Some(row) = rows.iter().find(|r| r.index == edit.index) {
+                    let rect = Rect::from_min_max(pos2(row.label_x - 2.0, row.rect.min.y), row.rect.max)
+                        .intersect(screen);
+                    let font = sv(ctrl, "FontSize").parse::<f32>().unwrap_or(12.0).clamp(6.0, 72.0);
+                    let resp = ui.put(
+                        rect,
+                        egui::TextEdit::singleline(&mut edit.text)
+                            .id(ctrl_id.with("tv-rename-text"))
+                            .font(egui::FontId::proportional(font))
+                            .margin(vec2(2.0, 0.0)),
+                    );
+                    if edit.fresh {
+                        resp.request_focus();
+                        edit.fresh = false;
+                    }
+                    let (enter, escape) = ui.input(|i| {
+                        (i.key_pressed(egui::Key::Enter), i.key_pressed(egui::Key::Escape))
+                    });
+                    if escape {
+                        ui.data_mut(|d| d.remove::<TreeRename>(rename_id));
+                    } else if resp.lost_focus() || enter {
+                        ui.data_mut(|d| d.remove::<TreeRename>(rename_id));
+                        let new_text = edit.text.trim();
+                        let renamed = (new_text != edit.original)
+                            .then(|| crate::treenodes::rename_node(&sv(ctrl, "Items"), edit.index, new_text))
+                            .flatten();
+                        if let Some(items) = renamed {
+                            let new_text = crate::treenodes::node_at(&items, edit.index)
+                                .map(|n| n.text)
+                                .unwrap_or_else(|| new_text.to_owned());
+                            out.prop_updates.push((id.to_owned(), "Items".to_owned(), items));
+                            // The node lists name nodes by their label: follow it.
+                            let relabel = |list: &[String]| -> Option<String> {
+                                list.iter().any(|t| *t == edit.original).then(|| {
+                                    list.iter()
+                                        .map(|t| if *t == edit.original { new_text.clone() } else { t.clone() })
+                                        .collect::<Vec<_>>()
+                                        .join("\n")
+                                })
+                            };
+                            if selected == edit.original {
+                                out.prop_updates.push((id.to_owned(), "SelectedNode".to_owned(), new_text.clone()));
+                            }
+                            if let Some(v) = relabel(&checked_after) {
+                                out.prop_updates.push((id.to_owned(), "CheckedNodes".to_owned(), v));
+                            }
+                            if let Some(v) = relabel(&collapsed_after) {
+                                out.prop_updates.push((id.to_owned(), "CollapsedNodes".to_owned(), v));
+                            }
+                            out.prop_updates.push((id.to_owned(), "PreviousNodeText".to_owned(), edit.original.clone()));
+                            let mut moved = row.clone();
+                            moved.text = new_text;
+                            out.events.push(UiEvent::with_value(
+                                id,
+                                "onNodeRenamed",
+                                &node_payload(&moved, &checked_after),
+                            ));
+                        }
+                    } else {
+                        ui.data_mut(|d| d.insert_temp(rename_id, edit));
+                    }
+                } else {
+                    ui.data_mut(|d| d.insert_temp(rename_id, edit));
+                }
+            }
         }
         CT::Splitter => {
             // A Splitter is a PANEL split in two. Its two panes are real Panel
@@ -19363,6 +19475,57 @@ mod tests {
             ],
         );
         (overrides, events)
+    }
+
+    /// `AllowEdit`: a double-click on a node's label renames it in place —
+    /// `Items` keeps the node's indentation and fields, `SelectedNode` and
+    /// `CheckedNodes` follow the new label, `PreviousNodeText` keeps the old
+    /// one, and `onNodeRenamed` carries the node. Off, nothing is renamed.
+    #[test]
+    fn a_tree_node_is_renamed_in_place_when_editing_is_allowed() {
+        let rename = |allow: bool| {
+            let mut c = checkable_tree("Trv-1", "Brazil\n  Rio de Janeiro\tfolder");
+            c.set_prop("AllowEdit", crate::PropValue::Bool(allow));
+            c.set_prop("SelectedNode", crate::PropValue::String("Rio de Janeiro".into()));
+            c.set_prop("CheckedNodes", crate::PropValue::String("Rio de Janeiro".into()));
+            let rows = crate::treeview::layout_at(&c, Rect::from_min_size(pos2(20.0, 20.0), Vec2::new(260.0, 160.0)), 0.0);
+            let rio = rows.iter().find(|r| r.text == "Rio de Janeiro").expect("laid out");
+            let at = pos2(rio.label_x + 20.0, rio.rect.center().y);
+            drive(
+                std::slice::from_ref(&c),
+                vec![
+                    (0.0, vec![Event::PointerMoved(at)]),
+                    (0.05, vec![press(at)]),
+                    (0.10, vec![release(at)]),
+                    (0.15, vec![press(at)]),
+                    (0.20, vec![release(at)]),
+                    (0.25, vec![]),
+                    (0.30, vec![Event::Key {
+                        key: egui::Key::A,
+                        physical_key: None,
+                        pressed: true,
+                        repeat: false,
+                        modifiers: egui::Modifiers::COMMAND,
+                    }]),
+                    (0.35, vec![Event::Text("Niterói".to_owned())]),
+                    (0.40, vec![key_ev(egui::Key::Enter)]),
+                    (0.45, vec![]),
+                ],
+            )
+        };
+        let (events, props) = rename(true);
+        let tv = props.get("Trv-1").expect("the rename reported");
+        assert_eq!(tv.get("Items").map(String::as_str), Some("Brazil\n  Niterói\tfolder"));
+        assert_eq!(tv.get("SelectedNode").map(String::as_str), Some("Niterói"));
+        assert_eq!(tv.get("CheckedNodes").map(String::as_str), Some("Niterói"));
+        assert_eq!(tv.get("PreviousNodeText").map(String::as_str), Some("Rio de Janeiro"));
+        let ev = events.iter().find(|e| e.event == "onNodeRenamed").expect("onNodeRenamed fires");
+        assert!(ev.value.as_deref().unwrap_or("").contains("Niterói"), "carries the new label: {ev:?}");
+
+        let (events, props) = rename(false);
+        assert!(props.get("Trv-1").and_then(|p| p.get("Items")).is_none(), "off by default");
+        assert!(!events.iter().any(|e| e.event == "onNodeRenamed"));
+        println!("\n  TreeView AllowEdit -- double-click, type, Enter: Items/SelectedNode/CheckedNodes follow, PreviousNodeText kept, onNodeRenamed fires; off renames nothing\n");
     }
 
     /// A click anywhere on a row that is NOT the tick box or the disclosure

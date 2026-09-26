@@ -7517,6 +7517,7 @@ impl PropertiesPanel {
                         }
                     });
                 }
+                bool_row_inline(ui, id, "AllowEdit", "Allow rename", ctrl, action);
                 bool_row_inline(ui, id, "CheckBoxes", "Checkboxes", ctrl, action);
                 bool_row_inline(ui, id, "ShowLines", "Show lines", ctrl, action);
                 bool_row_inline(ui, id, "ShowRootLines", "Root lines", ctrl, action);

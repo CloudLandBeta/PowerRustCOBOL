@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.245] — 2026-09-26
+
+### Feature — rename a TreeView node in place
+
+- **`AllowEdit`** is back and real (seeded false, as it always was): a
+  double-click on a node's label, or F2 on the selected node, opens it in a text
+  box; Enter or clicking away keeps it, Escape drops it, an empty label is
+  refused. The node's line in `Items` is rewritten with its indentation and
+  icon/colour fields kept (`treenodes::rename_node`); `SelectedNode`,
+  `CheckedNodes` and `CollapsedNodes` follow the new label; the run-time
+  `PreviousNodeText` keeps the old one; and the new node event
+  **`onNodeRenamed`** carries the node (`CONTROL-NODE-DATA`).
+- Tests: the line rewrite, and a driven double-click / type / Enter, plus the
+  switch off. KB, hover help, the "Allow rename" checkbox and Guide updated.
+
 ## [PowerRustCOBOL 1.70.244] — 2026-09-26
 
 ### Feature — edit a DataGrid cell in place

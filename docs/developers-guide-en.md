@@ -3076,10 +3076,22 @@ designer canvas, the preview, Run Form and the compiled binary.
 > letting a big icon paint over its neighbours; **Gap between nodes**
 > (`NodeSpacing`) adds space on top of that.
 >
-> ⚠️ **Renaming a node in place is not offered.** The old **AllowEdit** property
-> promised it and nothing ever read it, so it is retired: new trees do not carry
-> it and the Properties pane no longer shows it (an older form keeps its value,
-> which is ignored). To change a tree's text while the form runs, write `Items`.
+> **Renaming a node in place — Allow rename (`AllowEdit`).** Off by default.
+> Turn it on and the operator double-clicks a node's label, or presses F2 on
+> the selected node, and the label opens as a text box: Enter or clicking away
+> keeps the new name, Escape drops it, and an empty name is refused. The kept
+> name is written into `Items` — the node's indentation, icon and colours stay
+> as they were — `SelectedNode`, `CheckedNodes` and `CollapsedNodes` follow it,
+> and **`onNodeRenamed`** fires with the node (the new label in `CONTROL-NODE`)
+> and the old label in `PreviousNodeText`. Storing the new name is your
+> handler's job; to refuse it, write `Items` back.
+>
+> ```cobol
+>        TRV-1--ONNODERENAMED.
+>            MOVE TRV-1::PreviousNodeText TO WS-OLD-NAME
+>            MOVE CONTROL-NODE            TO WS-NEW-NAME
+>            PERFORM RENAME-DEPARTMENT.
+> ```
 
 **So are the highlights.** The colour behind a highlighted row is a property
 like any other, and there are two of them because a list highlights two
@@ -5406,7 +5418,8 @@ and the closing `GOBACK` / `END PROGRAM` (shown greyed-out around the editor).
   ```
 
   A **TreeView node event** — `onNodeClick`, `onNodeSelect`, `onNodeDblClick`,
-  `onNodeCheck`, `onNodeCollapse`, `onNodeExpand` — receives the node itself,
+  `onNodeCheck`, `onNodeCollapse`, `onNodeExpand`, `onNodeRenamed` — receives
+  the node itself,
   as one group so a handler that only wants the text still reads
   `CONTROL-NODE` on its own:
 

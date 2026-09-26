@@ -247,9 +247,58 @@ pub fn index_of(items: &str, text: &str) -> Option<usize> {
         .map(|n| n.index)
 }
 
+/// `Items` with the node on line `index` relabelled `text`, keeping its
+/// indentation and its icon/colour fields. `None` when no node is written on
+/// that line, or when `text` is empty. A tab or line break in `text` would
+/// start a field or a node of its own, so each becomes a space.
+pub fn rename_node(items: &str, index: usize, text: &str) -> Option<String> {
+    let text: String = text
+        .chars()
+        .map(|c| if matches!(c, '\t' | '\n' | '\r') { ' ' } else { c })
+        .collect();
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let mut lines: Vec<&str> = items.lines().collect();
+    let line = *lines.get(index)?;
+    let lead_tabs = line.chars().take_while(|c| *c == '\t').count();
+    let body = &line[lead_tabs..];
+    let indent_len = body.len() - body.trim_start().len();
+    let rest = body.trim_start();
+    let (label, fields) = match rest.find('\t') {
+        Some(at) => (&rest[..at], &rest[at..]),
+        None => (rest, ""),
+    };
+    if label.trim().is_empty() {
+        return None;
+    }
+    let renamed = format!("{}{}{}{}", &line[..lead_tabs], &body[..indent_len], text, fields);
+    lines[index] = &renamed;
+    let mut out = lines.join("\n");
+    if items.ends_with('\n') {
+        out.push('\n');
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A rename changes the label alone: indentation, icon and colour fields
+    /// and every other line stay as written.
+    #[test]
+    fn a_rename_keeps_the_indent_and_the_fields() {
+        let items = "Root\n  Child\tfolder\t#FF0000\n\tTabbed\n";
+        assert_eq!(
+            rename_node(items, 1, "Kid").as_deref(),
+            Some("Root\n  Kid\tfolder\t#FF0000\n\tTabbed\n")
+        );
+        assert_eq!(rename_node(items, 2, "  A\tB ").as_deref(), Some("Root\n  Child\tfolder\t#FF0000\n\tA B\n"));
+        assert_eq!(rename_node(items, 0, "   "), None, "an empty label is refused");
+        assert_eq!(rename_node(items, 9, "x"), None);
+    }
 
     /// A small tree with two roots, one of them a parent of two children, one
     /// of which is itself a parent — enough for every link to have both a

@@ -5282,12 +5282,12 @@ pub static PROP_HELP: &[PropHelp] = &[
         "Les groupes et boutons de la barre (cadres, apparence, icônes, info-bulles, actions), édités dans le Toolbar Editor. Vide, Items sert de groupe simple.",
     ] },
     PropHelp { ty: "TreeView", prop: "AllowEdit", text: [
-        "Retired: no surface ever let a node be renamed in place. Kept only from older forms and ignored; to change labels at run time, write Items from COBOL.",
-        "Retirada: ninguna superficie permitió renombrar un nodo en su sitio. Solo se conserva de formularios antiguos y se ignora; para cambiar etiquetas en ejecución, escriba Items desde COBOL.",
-        "Aposentada: nenhuma superfície permitiu renomear um nó no local. Mantida só em formulários antigos e ignorada; para mudar rótulos em execução, grave Items pelo COBOL.",
-        "廃止：ノード名をその場で変更できる画面はありませんでした。古いフォームから引き継がれるだけで無視されます。実行時にラベルを変えるには COBOL から Items を書き込みます。",
-        "已停用：从来没有界面支持就地重命名节点。仅保留于旧窗体中且被忽略；运行时要更改标签，请由 COBOL 写入 Items。",
-        "Retirée : aucune surface n'a jamais permis de renommer un nœud sur place. Conservée depuis d'anciens formulaires et ignorée ; pour changer les libellés, écrivez Items en COBOL.",
+        "Lets the operator rename a node in place: double-click its label or press F2, Enter to keep, Escape to cancel. Items is rewritten and onNodeRenamed fires. Default false.",
+        "Permite al operador renombrar un nodo en su sitio: doble clic en la etiqueta o F2, Enter para guardar, Esc para cancelar. Items se reescribe y se dispara onNodeRenamed. Predeterminado falso.",
+        "Permite ao operador renomear um nó no lugar: clique duplo no rótulo ou F2, Enter para manter, Esc para cancelar. Items é reescrito e onNodeRenamed dispara. Padrão falso.",
+        "オペレーターがノードをその場で名前変更できます。ラベルをダブルクリックするか F2、Enter で確定、Esc で取り消し。Items が書き換えられ onNodeRenamed が発生します。既定は false。",
+        "允许操作员就地重命名节点：双击标签或按 F2，Enter 保留，Esc 取消。Items 会被改写并触发 onNodeRenamed。默认 false。",
+        "Permet à l'opérateur de renommer un nœud sur place : double-clic sur le libellé ou F2, Entrée pour garder, Échap pour annuler. Items est réécrit et onNodeRenamed se déclenche. Faux par défaut.",
     ] },
     PropHelp { ty: "TreeView", prop: "BorderWidth", text: [
         "Thickness, in pixels, of the tree's frame border, drawn in BorderStyle and BorderColor. Default 1.",
