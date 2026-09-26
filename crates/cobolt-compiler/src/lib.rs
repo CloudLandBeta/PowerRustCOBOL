@@ -6066,12 +6066,12 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
         ],
         "DataGrid" => vec![
             ("GetRowCount() → Integer", "Number of data rows."),
-            ("GetCellValue(row: Integer, column: Integer) → String", "Read one cell (0-based indices)."),
-            ("SetCellValue(row: Integer, column: Integer, value: String)", "Write one cell."),
+            ("GetCellValue(row: Integer, column: Integer) → String", "Read one cell. Rows and columns are numbered from 1, as COBOL numbers a table: `GetCellValue(1, 1)` is the first row's first cell, and the column is the DATA column (its position in `Columns`). 0 is also read as the first — so a program counting from 0 gets the right cell at 0 only, and from 1 on the one BEFORE the one it meant."),
+            ("SetCellValue(row: Integer, column: Integer, value: String)", "Write one cell; row and column numbered from 1, as in `GetCellValue`."),
             ("AddRow(cells: String)", "Append a row; cells separated by TAB."),
-            ("DeleteRow(row: Integer)", "Remove one row."),
+            ("DeleteRow(row: Integer)", "Remove one row, numbered from 1."),
             ("ClearRows()", "Remove all rows."),
-            ("Sort(column: Integer)", "Sort by a column."),
+            ("Sort(column: Integer)", "Sort `Rows` itself by a column, numbered from 1."),
             ("SetFilter(column: String, value: String)", "Filter a column."),
             ("ClearFilters()", "Drop all column filters."),
             ("FreezeColumns(count: Integer)", "Freeze the first N columns."),
@@ -7160,7 +7160,7 @@ fn methods_reference_doc() -> String {
         ),
         (
             "DataGrid",
-            "Rows/cells are addressed with 0-based indexes; `AddRow` cells are TAB-separated.",
+            "Rows and columns are numbered from 1 (`GetCellValue(1, 1)` is the first cell) in `GetCellValue`, `SetCellValue`, `DeleteRow`, `Sort` and `SetRowHeight(row, …)`; `AddRow` cells are TAB-separated.",
             &[
                 ("GetRowCount() → Integer", "Data-row count."),
                 ("GetCellValue(row, column) → String", "Read one cell."),

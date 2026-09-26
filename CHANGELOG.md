@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.247] — 2026-09-26
+
+### Fix — the KB said DataGrid rows and columns count from 0
+
+- `GetCellValue`, `SetCellValue`, `DeleteRow`, `Sort` and `SetRowHeight(row, …)`
+  number rows and columns from 1 (`GetCellValue(1, 1)` is the first cell); the
+  KB said "0-based", so code written from it read the cell BEFORE the one it
+  meant from index 1 on (0 happens to be read as the first too). Only the
+  System KB was wrong — the Guide never said 0-based. `chunked.data`
+  regenerated.
+
 ## [PowerRustCOBOL 1.70.246] — 2026-09-26
 
 ### Feature — charts with several series, stacked or side by side
