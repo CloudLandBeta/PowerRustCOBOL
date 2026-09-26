@@ -1080,6 +1080,15 @@ fn write_procedure_division(out: &mut String, form: &Form, map: &mut SourceMap) 
     {
         out.push_str(&format!("           PERFORM {}-OPEN\n", cobol_word(&ctrl.id)));
     }
+    // `AutoConnect`: a SqlDatabase connects as the form starts, before any
+    // handler can query it, and closes as it ends. It was read by nothing
+    // (property audit, 2026-09-26).
+    for ctrl in all_controls
+        .iter()
+        .filter(|c| c.control_type == ControlType::SqlDatabase && prop_bool(c, "AutoConnect", false))
+    {
+        out.push_str(&format!("           PERFORM {}-CONNECT\n", cobol_word(&ctrl.id)));
+    }
 
     // The one-shot lifecycle hooks, in the order `FORM_EVENT_GROUPS` declares
     // them: onCreate, then onInitialize, then onLoad.
@@ -1121,6 +1130,12 @@ fn write_procedure_division(out: &mut String, form: &Form, map: &mut SourceMap) 
     {
         out.push_str(&format!("           PERFORM {}-CLOSE\n", cobol_word(&ctrl.id)));
     }
+    for ctrl in all_controls
+        .iter()
+        .filter(|c| c.control_type == ControlType::SqlDatabase && prop_bool(c, "AutoConnect", false))
+    {
+        out.push_str(&format!("           PERFORM {}-CLOSE\n", cobol_word(&ctrl.id)));
+    }
 
     out.push_str("           STOP RUN.\n");
     out.push('\n');
@@ -1142,7 +1157,7 @@ fn write_procedure_division(out: &mut String, form: &Form, map: &mut SourceMap) 
     write_web_search_stubs(out, &all_controls);
     close_region(out, "WEB-SEARCH");
     write_sql_stubs(out, &all_controls);
-    write_indexed_file_stubs(out, &all_controls);
+    write_indexed_file_stubs(out, &all_controls, &form.user_ws_source);
     write_agent_stubs(out, &all_controls);
     write_animation_stubs(out, form, &all_controls);
     write_chart_stubs(out, &all_controls);
@@ -1740,6 +1755,11 @@ fn write_sql_stubs(out: &mut String, all_controls: &[&Control]) {
         out.push_str(&format!("           IF WS-SQL-ERROR NOT = SPACES\n"));
         out.push_str(&format!("               PERFORM {error_para}\n"));
         out.push_str(&format!("           ELSE\n"));
+        // `ConnectionDataItem`: the program's own item receives the handle
+        // too (it is the program's to declare, like every *DataItem).
+        if let Some(item) = prop_string(ctrl, "ConnectionDataItem").filter(|s| !s.trim().is_empty()) {
+            out.push_str(&format!("               MOVE {pfx}-HANDLE TO {}\n", item.trim()));
+        }
         out.push_str(&format!("               PERFORM {connect_ok}\n"));
         out.push_str(&format!("           END-IF.\n"));
         out.push('\n');
@@ -1854,7 +1874,7 @@ fn write_sql_stubs(out: &mut String, all_controls: &[&Control]) {
 
 // ── IndexedFile control stub generator ───────────────────────────────────────
 
-fn write_indexed_file_stubs(out: &mut String, all_controls: &[&Control]) {
+fn write_indexed_file_stubs(out: &mut String, all_controls: &[&Control], user_ws: &str) {
     for ctrl in all_controls
         .iter()
         .filter(|c| c.control_type == ControlType::IndexedFile)
@@ -1875,7 +1895,24 @@ fn write_indexed_file_stubs(out: &mut String, all_controls: &[&Control]) {
             .filter(|s| !s.trim().is_empty())
             .unwrap_or_else(|| format!("WS-{}-STATUS", cobol_word(id)));
         let open_mode = prop_string(ctrl, "OpenMode").unwrap_or_else(|| "INPUT".into());
-        let operator = prop_string(ctrl, "OperatorName").unwrap_or_default();
+        let operator = prop_string(ctrl, "OperatorName")
+            .map(|op| operator_operand(&op, user_ws))
+            .unwrap_or_default();
+        // The engine's own FILE STATUS after every verb — see
+        // `COBOL-FILE-STATUS`. The facade used to MOVE '00' after OPEN
+        // whatever happened and '23' after any refused write, so a missing
+        // file (35) or a duplicate key (22) reached the program as something
+        // else (property audit, 2026-09-26).
+        // END-CALL closes it explicitly: inside `INVALID KEY … NOT INVALID
+        // KEY`, an open CALL would take the `NOT` as the start of its own
+        // `NOT ON EXCEPTION` phrase.
+        let status_call = format!("CALL \"COBOL-FILE-STATUS\" USING \"{file}\" {status_item} END-CALL");
+        // `CurrentRecordDataItem`: every READ also lands the record there.
+        let into = prop_string(ctrl, "CurrentRecordDataItem")
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
+            .map(|s| format!(" INTO {s}"))
+            .unwrap_or_default();
         let cobol_open_mode = if open_mode.eq_ignore_ascii_case("I-O") {
             "I-O"
         } else {
@@ -1894,8 +1931,11 @@ fn write_indexed_file_stubs(out: &mut String, all_controls: &[&Control]) {
                 "               OPEN {cobol_open_mode} {file} REGISTERED USER {operator}\n"
             ));
         }
-        out.push_str(&format!("               MOVE '00' TO {status_item}\n"));
-        out.push_str(&format!("               MOVE 1 TO WS-{id}-IS-OPEN\n"));
+        out.push_str(&format!("               {status_call}\n"));
+        // Open only when the OPEN succeeded (a status beginning with 0).
+        out.push_str(&format!("               IF {status_item}(1:1) = '0'\n"));
+        out.push_str(&format!("                   MOVE 1 TO WS-{id}-IS-OPEN\n"));
+        out.push_str("               END-IF\n");
         out.push_str(&format!("               MOVE 0 TO WS-{id}-AT-END\n"));
         out.push_str(&format!("               MOVE 0 TO WS-{id}-HAS-RECORD\n"));
         out.push_str("           END-IF.\n\n");
@@ -1908,12 +1948,12 @@ fn write_indexed_file_stubs(out: &mut String, all_controls: &[&Control]) {
             "           START {file} KEY IS GREATER THAN OR EQUAL TO {key}\n"
         ));
         out.push_str(&format!("               INVALID KEY\n"));
-        out.push_str(&format!("                   MOVE '23' TO {status_item}\n"));
+        out.push_str(&format!("                   {status_call}\n"));
         out.push_str(&format!(
             "                   MOVE 0 TO WS-{id}-HAS-RECORD\n"
         ));
         out.push_str("               NOT INVALID KEY\n");
-        out.push_str(&format!("                   MOVE '00' TO {status_item}\n"));
+        out.push_str(&format!("                   {status_call}\n"));
         out.push_str(&format!("                   MOVE 0 TO WS-{id}-AT-END\n"));
         out.push_str("           END-START.\n\n");
 
@@ -1943,15 +1983,15 @@ fn write_indexed_file_stubs(out: &mut String, all_controls: &[&Control]) {
                 out.push_str("               INVALID KEY CONTINUE\n");
                 out.push_str("           END-START\n");
             }
-            out.push_str(&format!("           READ {file} {direction}\n"));
+            out.push_str(&format!("           READ {file} {direction}{into}\n"));
             out.push_str("               AT END\n");
-            out.push_str(&format!("                   MOVE '10' TO {status_item}\n"));
+            out.push_str(&format!("                   {status_call}\n"));
             out.push_str(&format!("                   MOVE 1 TO WS-{id}-AT-END\n"));
             out.push_str(&format!(
                 "                   MOVE 0 TO WS-{id}-HAS-RECORD\n"
             ));
             out.push_str("               NOT AT END\n");
-            out.push_str(&format!("                   MOVE '00' TO {status_item}\n"));
+            out.push_str(&format!("                   {status_call}\n"));
             out.push_str(&format!("                   MOVE 0 TO WS-{id}-AT-END\n"));
             out.push_str(&format!(
                 "                   MOVE 1 TO WS-{id}-HAS-RECORD\n"
@@ -1963,14 +2003,14 @@ fn write_indexed_file_stubs(out: &mut String, all_controls: &[&Control]) {
         out.push_str(&format!(
             "      *>  Direct keyed read. Set {key} before calling this paragraph.\n"
         ));
-        out.push_str(&format!("           READ {file}\n"));
+        out.push_str(&format!("           READ {file}{into}\n"));
         out.push_str("               INVALID KEY\n");
-        out.push_str(&format!("                   MOVE '23' TO {status_item}\n"));
+        out.push_str(&format!("                   {status_call}\n"));
         out.push_str(&format!(
             "                   MOVE 0 TO WS-{id}-HAS-RECORD\n"
         ));
         out.push_str("               NOT INVALID KEY\n");
-        out.push_str(&format!("                   MOVE '00' TO {status_item}\n"));
+        out.push_str(&format!("                   {status_call}\n"));
         out.push_str(&format!(
             "                   MOVE 1 TO WS-{id}-HAS-RECORD\n"
         ));
@@ -1991,9 +2031,9 @@ fn write_indexed_file_stubs(out: &mut String, all_controls: &[&Control]) {
                 out.push_str(&format!("           {verb} {record}\n"));
             }
             out.push_str("               INVALID KEY\n");
-            out.push_str(&format!("                   MOVE '23' TO {status_item}\n"));
+            out.push_str(&format!("                   {status_call}\n"));
             out.push_str("               NOT INVALID KEY\n");
-            out.push_str(&format!("                   MOVE '00' TO {status_item}\n"));
+            out.push_str(&format!("                   {status_call}\n"));
             out.push_str(&format!("           END-{verb}.\n\n"));
         }
 
@@ -2003,13 +2043,13 @@ fn write_indexed_file_stubs(out: &mut String, all_controls: &[&Control]) {
         ));
         out.push_str(&format!("           CLOSE {file}\n"));
         out.push_str(&format!("           OPEN I-O {file}\n"));
-        out.push_str(&format!("           MOVE '00' TO {status_item}.\n\n"));
+        out.push_str(&format!("           {status_call}.\n\n"));
 
         out.push_str(&format!("       {id}-ROLLBACK.\n"));
         out.push_str("      *>  Transaction rollback is storage-engine dependent; reopen to discard pending cursor state.\n");
         out.push_str(&format!("           CLOSE {file}\n"));
         out.push_str(&format!("           OPEN {cobol_open_mode} {file}\n"));
-        out.push_str(&format!("           MOVE '00' TO {status_item}.\n\n"));
+        out.push_str(&format!("           {status_call}.\n\n"));
 
         out.push_str(&format!("       {id}-CLOSE.\n"));
         out.push_str("      *>  No-op when already closed. I-O close commits automatically.\n");
@@ -2019,7 +2059,7 @@ fn write_indexed_file_stubs(out: &mut String, all_controls: &[&Control]) {
         }
         out.push_str(&format!("               CLOSE {file}\n"));
         out.push_str(&format!("               MOVE 0 TO WS-{id}-IS-OPEN\n"));
-        out.push_str(&format!("               MOVE '00' TO {status_item}\n"));
+        out.push_str(&format!("               {status_call}\n"));
         out.push_str("           END-IF.\n\n");
     }
 }
@@ -2806,6 +2846,31 @@ fn picture_value_clause(pic: &str, seed: Option<&str>) -> String {
     }
 }
 
+/// The operand an IndexedFile's `OperatorName` becomes after `REGISTERED
+/// USER`: a data-name when the form's WORKING-STORAGE declares an item of
+/// that name, the text as a quoted literal otherwise (already-quoted text is
+/// kept). It was inserted verbatim, so a plain name such as `alice` compiled
+/// as a reference to an item nobody declared.
+fn operator_operand(op: &str, user_ws: &str) -> String {
+    let t = op.trim();
+    if t.is_empty() || t.starts_with('"') || t.starts_with('\'') {
+        return t.to_owned();
+    }
+    let is_word = t.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        && t.chars().any(|c| c.is_ascii_alphabetic());
+    let declared = is_word
+        && user_ws.lines().any(|line| {
+            let code = line.split("*>").next().unwrap_or("");
+            code.split(|c: char| c.is_whitespace() || c == '.')
+                .any(|w| w.eq_ignore_ascii_case(t))
+        });
+    if declared {
+        t.to_ascii_uppercase()
+    } else {
+        format!("'{}'", cobol_lit(t))
+    }
+}
+
 fn indexed_control_file_name(ctrl: &Control) -> String {
     let selected = prop_string(ctrl, "IndexedFile").unwrap_or_default();
     let stem = selected
@@ -3269,6 +3334,92 @@ mod tests {
         assert!(src.contains("CustomerFile-WRITE."));
         assert!(src.contains("WRITE CUSTOMER-REC"));
         assert!(src.contains("CustomerFile-COMMIT."));
+    }
+
+    /// Property audit, 2026-09-26: the facade reports the engine's real
+    /// FILE STATUS, reads INTO CurrentRecordDataItem, quotes a plain
+    /// OperatorName, and still declares WS-<id>-LOAD-STRATEGY for a form that
+    /// carries the retired LoadStrategy — so code reading it keeps compiling.
+    #[test]
+    fn the_indexed_facade_reports_real_status_and_honours_its_items() {
+        let mut form = Form::new("CUSTOMER-FORM", "Customers", 800, 600);
+        let mut idx = Control::new("CustomerFile", ControlType::IndexedFile, 0, 0);
+        idx.set_prop("IndexedFile", PropValue::String("indexed/customers.cidx".into()));
+        idx.set_prop("OpenMode", PropValue::String("I-O".into()));
+        idx.set_prop("RecordName", PropValue::String("CUSTOMER-REC".into()));
+        idx.set_prop("KeyName", PropValue::String("CUSTOMER-ID".into()));
+        idx.set_prop("StatusDataItem", PropValue::String("WS-FS".into()));
+        idx.set_prop("CurrentRecordDataItem", PropValue::String("WS-CUSTOMER".into()));
+        idx.set_prop("OperatorName", PropValue::String("alice".into()));
+        idx.set_prop("LoadStrategy", PropValue::String("Memory".into()));
+        form.controls.push(idx);
+        let src = generate(&form);
+        assert!(src.contains("CALL \"COBOL-FILE-STATUS\" USING \"CUSTOMERS\" WS-FS"), "{src}");
+        assert!(!src.contains("MOVE '23' TO WS-FS") && !src.contains("MOVE '00' TO WS-FS"));
+        assert!(src.contains("READ CUSTOMERS NEXT INTO WS-CUSTOMER"));
+        assert!(src.contains("REGISTERED USER 'alice'"));
+        assert!(src.contains("WS-CustomerFile-LOAD-STRATEGY"), "the retired LoadStrategy still declares its item");
+
+        // …and the whole facade must PARSE and CHECK clean with a real SELECT
+        // and FD. The first cut did not: a CALL inside `INVALID KEY` took the
+        // following `NOT INVALID KEY` as its own `NOT ON EXCEPTION`.
+        {
+            use cobolt_lexer::{tokenize, SourceFormat};
+            let mut full = form.clone();
+            full.cobol_structure.file_control = "           SELECT CUSTOMERS ASSIGN TO \"c.dat\"\n               ORGANIZATION IS INDEXED ACCESS MODE IS DYNAMIC\n               RECORD KEY IS CUSTOMER-ID.".into();
+            full.cobol_structure.file_section = "       FD  CUSTOMERS.\n       01  CUSTOMER-REC.\n           05 CUSTOMER-ID   PIC 9(5).\n           05 CUSTOMER-NAME PIC X(20).".into();
+            full.user_ws_source = "       01 WS-FS       PIC XX.\n       01 WS-CUSTOMER PIC X(25).".into();
+            let source = generate(&full);
+            let parsed = cobolt_parser::parse(tokenize(&source, SourceFormat::Free));
+            let parse_errors: Vec<String> = parsed.diagnostics.iter().map(|d| d.message.clone()).collect();
+            assert!(parse_errors.is_empty(), "the facade must parse clean: {parse_errors:?}");
+            let semantic = cobolt_semantic::analyze(&parsed.program.expect("a program"));
+            let errors: Vec<String> = semantic
+                .diagnostics
+                .iter()
+                .filter(|d| matches!(d.severity, cobolt_semantic::Severity::Error))
+                .map(|d| d.message.clone())
+                .collect();
+            assert!(errors.is_empty(), "and check clean: {errors:?}");
+        }
+
+        // A declared item stays a data-name.
+        let mut form2 = form.clone();
+        form2.user_ws_source = "       01 WS-USER PIC X(20).".into();
+        form2.controls[0].set_prop("OperatorName", PropValue::String("WS-USER".into()));
+        assert!(generate(&form2).contains("REGISTERED USER WS-USER"));
+    }
+
+    /// AutoConnect connects as the form starts and closes as it ends;
+    /// ConnectionDataItem receives the handle.
+    #[test]
+    fn a_sql_database_auto_connects_and_hands_over_its_handle() {
+        let mut form = Form::new("DB-FORM", "Db", 800, 600);
+        let mut db = Control::new("DB-1", ControlType::SqlDatabase, 0, 0);
+        db.set_prop("AutoConnect", PropValue::Bool(true));
+        db.set_prop("ConnectionDataItem", PropValue::String("WS-CONN".into()));
+        form.controls.push(db);
+        let src = generate(&form);
+        let start = src.find("PERFORM DB-1-CONNECT").expect("connects on start");
+        let lp = src.find("PERFORM COBOL-EVENT-LOOP").expect("event loop");
+        assert!(start < lp, "before the event loop");
+        assert!(src[lp..].contains("PERFORM DB-1-CLOSE"), "closes as it ends");
+        assert!(src.contains("MOVE WS-DB-1-HANDLE TO WS-CONN"));
+
+        use cobolt_lexer::{tokenize, SourceFormat};
+        let mut full = form.clone();
+        full.user_ws_source = "       01 WS-CONN PIC 9(9).".into();
+        let parsed = cobolt_parser::parse(tokenize(&generate(&full), SourceFormat::Free));
+        let parse_errors: Vec<String> = parsed.diagnostics.iter().map(|d| d.message.clone()).collect();
+        assert!(parse_errors.is_empty(), "parses clean: {parse_errors:?}");
+        let semantic = cobolt_semantic::analyze(&parsed.program.expect("a program"));
+        let errors: Vec<String> = semantic
+            .diagnostics
+            .iter()
+            .filter(|d| matches!(d.severity, cobolt_semantic::Severity::Error))
+            .map(|d| d.message.clone())
+            .collect();
+        assert!(errors.is_empty(), "and checks clean: {errors:?}");
     }
 
     #[test]

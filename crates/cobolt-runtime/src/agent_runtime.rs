@@ -88,6 +88,18 @@ pub fn protocol_for(api: &str, url: &str) -> Protocol {
 /// developer spelled out is never rewritten.
 pub fn endpoint_for(req: &AskRequest, protocol: Protocol) -> String {
     let override_url = req.endpoint.trim();
+    // A bare PATH (`/v1/chat`) is joined onto `AgentURL`'s origin: it was sent
+    // verbatim as the whole URL, which no server can answer (property audit,
+    // 2026-09-26). A full URL is still used as it stands.
+    if let Some(path) = override_url.strip_prefix('/') {
+        let base = req.url.trim();
+        let (scheme, rest) = base.split_once("://").unwrap_or(("", base));
+        let origin = rest.split('/').next().unwrap_or("");
+        if !origin.is_empty() {
+            let scheme = if scheme.is_empty() { "https" } else { scheme };
+            return format!("{scheme}://{origin}/{path}");
+        }
+    }
     if !override_url.is_empty() {
         return override_url.to_owned();
     }
@@ -252,4 +264,23 @@ fn clip(text: &str) -> String {
     }
     let head: String = flat.chars().take(199).collect();
     format!("{head}…")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A path in `AgentEndpoint` joins `AgentURL`'s origin; a full URL stands
+    /// (property audit, 2026-09-26).
+    #[test]
+    fn an_endpoint_path_joins_the_agent_url_origin() {
+        let req = AskRequest {
+            url: "http://localhost:11434/api".into(),
+            endpoint: "/v1/chat/completions".into(),
+            ..Default::default()
+        };
+        assert_eq!(endpoint_for(&req, Protocol::OpenAiChat), "http://localhost:11434/v1/chat/completions");
+        let full = AskRequest { endpoint: "https://example.org/x".into(), ..req };
+        assert_eq!(endpoint_for(&full, Protocol::OpenAiChat), "https://example.org/x");
+    }
 }

@@ -1604,6 +1604,9 @@ pub struct Interpreter {
     /// from `BubbleField` or a third AddPoint argument. Sent beside the
     /// points as `__ChartSizes` so the points' own wire format is untouched.
     chart_sizes: HashMap<String, Vec<f64>>,
+    /// The last FILE STATUS code of every file, by upper-cased name, whether
+    /// or not its SELECT declares a status item. Read by `COBOL-FILE-STATUS`.
+    last_file_status: HashMap<String, String>,
 
     // ── Async I/O operations (spec 032) ───────────────────────────────────────
     /// Cloned into each background worker thread; the worker posts its
@@ -2065,6 +2068,7 @@ impl Interpreter {
             event_pending: None,
             chart_data: HashMap::new(),
             chart_sizes: HashMap::new(),
+            last_file_status: HashMap::new(),
             async_result_tx,
             async_result_rx,
             async_pending: HashMap::new(),
@@ -3167,6 +3171,44 @@ impl Interpreter {
     /// One blocking `RestClient` call (`Mode = Sync`), under the control's own
     /// address, credentials and policy. `TimeoutSeconds` is documented as the
     /// request timeout, so it bounds this call as well as an async one.
+    /// A RestClient verb's result, where the program can reach it:
+    /// `ResponseBody` / `StatusCode`, and the WORKING-STORAGE items named by
+    /// `ResponseDataItem` / `StatusDataItem` when the program declares them.
+    /// Only the generated `<id>-SYNC-ITEMS` paragraph ever filled those items,
+    /// from the `COBOL-HTTP-*` calls — the ::Get/Post/Call verbs and every
+    /// async completion left them untouched (property audit, 2026-09-26).
+    fn rest_record(&mut self, obj: &str, body: &str, status: u16) {
+        self.obj_set(obj, "ResponseBody", body.to_owned());
+        self.obj_set(obj, "StatusCode", status.to_string());
+        let item = self.obj_get(obj, "ResponseDataItem");
+        let item = item.trim();
+        if !item.is_empty() && self.env.contains(item) {
+            self.env.set_str(item, body);
+        }
+        let item = self.obj_get(obj, "StatusDataItem");
+        let item = item.trim();
+        if !item.is_empty() && self.env.contains(item) {
+            self.env.set(item, CobolValue::from_i64(i64::from(status)));
+        }
+    }
+
+    /// The body a RestClient sends: the verb's own argument, or — when that is
+    /// empty — the value of the item named by `RequestDataItem`, which was
+    /// read by nothing.
+    fn rest_body(&self, obj: &str, given: String) -> String {
+        if !given.trim().is_empty() {
+            return given;
+        }
+        let item = self.obj_get(obj, "RequestDataItem");
+        let item = item.trim();
+        if !item.is_empty() && self.env.contains(item) {
+            if let Some(v) = self.env.get(item) {
+                return v.as_display_string().trim_end().to_owned();
+            }
+        }
+        given
+    }
+
     fn rest_send_sync(
         &self,
         obj: &str,
@@ -3516,8 +3558,7 @@ impl Interpreter {
                         self.log_block("search", &r.ctrl_id, "status", &status.to_string());
                         self.log_block("search", &r.ctrl_id, "response", &body);
                     }
-                    self.obj_set(&r.ctrl_id, "ResponseBody", body);
-                    self.obj_set(&r.ctrl_id, "StatusCode", status.to_string());
+                    self.rest_record(&r.ctrl_id, &body, status);
                     self.obj_set(&r.ctrl_id, "Busy", "0".into());
                     let spelled = self
                         .control_ids
@@ -3546,7 +3587,14 @@ impl Interpreter {
                         self.log_block("search", &r.ctrl_id, "transport error", &message);
                     }
                     self.obj_set(&r.ctrl_id, "LastError", message);
+                    // No response: status 0, also into StatusDataItem; the
+                    // response item keeps what it held.
                     self.obj_set(&r.ctrl_id, "StatusCode", "0".into());
+                    let item = self.obj_get(&r.ctrl_id, "StatusDataItem");
+                    let item = item.trim();
+                    if !item.is_empty() && self.env.contains(item) {
+                        self.env.set(item, CobolValue::from_i64(0));
+                    }
                     self.obj_set(&r.ctrl_id, "Busy", "0".into());
                     self.async_dispatch_queue
                         .push_back((self.control_ids.get(&r.ctrl_id.to_ascii_uppercase()).cloned().unwrap_or(r.ctrl_id), "onError".to_string()));
@@ -8490,6 +8538,13 @@ impl Interpreter {
     /// call their status items `EXTERNAL-FILE-FS` and `LINKAGE-FS`; before this
     /// looked at the running program, every operation wrote the outer one.
     fn set_file_status(&mut self, file: &str, code: &str) {
+        // Every file's last status, declared FILE STATUS or not — what
+        // `COBOL-FILE-STATUS` hands the IndexedFile facade, so its
+        // `StatusDataItem` reports the engine's real code (22, 35, 39 …)
+        // rather than the two literals it used to MOVE (property audit,
+        // 2026-09-26).
+        self.last_file_status
+            .insert(file.trim().to_ascii_uppercase(), code.to_owned());
         // Every file verb records its status through here, so one hook feeds
         // the File I/O channel for OPEN, CLOSE, READ, WRITE, REWRITE, DELETE
         // and START rather than seven that can each be forgotten.
@@ -10879,6 +10934,27 @@ impl Interpreter {
                 let id = id.trim().to_ascii_uppercase();
                 self.add_chart_point(&id, label.trim().to_owned(), value, size);
                 self.push_chart_data(&id);
+            }
+            // COBOL-FILE-STATUS file-name status-item
+            //   Copies the named file's last FILE STATUS into `status-item`
+            //   ("00" before any operation). The IndexedFile facade calls it
+            //   after every verb, so the control's `StatusDataItem` holds the
+            //   engine's own code without the shared SELECT copybook having to
+            //   declare a FILE STATUS clause.
+            "COBOL-FILE-STATUS" if using.len() >= 2 => {
+                let file = self.eval_call_arg(&using[0], span)?.as_display_string();
+                let code = self
+                    .last_file_status
+                    .get(&file.trim().to_ascii_uppercase())
+                    .cloned()
+                    .unwrap_or_else(|| "00".to_owned());
+                let n = self.expr_to_name(call_arg_expr(&using[1]));
+                let n = self.env.resolve_name(&n, &[]);
+                if self.env.is_group(&n) {
+                    self.env.set_group(&n, &code);
+                } else {
+                    self.env.set_str(&n, &code);
+                }
             }
             // COBOL-CHART-CLEAR chart-id
             "COBOL-CHART-CLEAR" if !using.is_empty() => {
@@ -15619,30 +15695,31 @@ impl Interpreter {
                     self.spawn_rest_op(obj, "GET", url, String::new(), cfg)
                 } else {
                     let (b, st) = self.rest_send_sync(obj, "GET", &arg(0), None);
-                    self.obj_set(obj, "ResponseBody", b.clone());
-                    self.obj_set(obj, "StatusCode", st.to_string());
+                    self.rest_record(obj, &b, st);
                     val(b)
                 }
             }
             "POST" => {
                 if self.rest_is_async(obj) {
                     let (url, cfg) = (self.rest_url(obj, &arg(0)), self.rest_config(obj));
-                    self.spawn_rest_op(obj, "POST", url, arg(1), cfg)
+                    let body = self.rest_body(obj, arg(1));
+                    self.spawn_rest_op(obj, "POST", url, body, cfg)
                 } else {
-                    let (b, st) = self.rest_send_sync(obj, "POST", &arg(0), Some(&arg(1)));
-                    self.obj_set(obj, "ResponseBody", b.clone());
-                    self.obj_set(obj, "StatusCode", st.to_string());
+                    let body = self.rest_body(obj, arg(1));
+                    let (b, st) = self.rest_send_sync(obj, "POST", &arg(0), Some(&body));
+                    self.rest_record(obj, &b, st);
                     val(b)
                 }
             }
             "PUT" => {
                 if self.rest_is_async(obj) {
                     let (url, cfg) = (self.rest_url(obj, &arg(0)), self.rest_config(obj));
-                    self.spawn_rest_op(obj, "PUT", url, arg(1), cfg)
+                    let body = self.rest_body(obj, arg(1));
+                    self.spawn_rest_op(obj, "PUT", url, body, cfg)
                 } else {
-                    let (b, st) = self.rest_send_sync(obj, "PUT", &arg(0), Some(&arg(1)));
-                    self.obj_set(obj, "ResponseBody", b.clone());
-                    self.obj_set(obj, "StatusCode", st.to_string());
+                    let body = self.rest_body(obj, arg(1));
+                    let (b, st) = self.rest_send_sync(obj, "PUT", &arg(0), Some(&body));
+                    self.rest_record(obj, &b, st);
                     val(b)
                 }
             }
@@ -15652,8 +15729,7 @@ impl Interpreter {
                     self.spawn_rest_op(obj, "DELETE", url, String::new(), cfg)
                 } else {
                     let (b, st) = self.rest_send_sync(obj, "DELETE", &arg(0), None);
-                    self.obj_set(obj, "ResponseBody", b.clone());
-                    self.obj_set(obj, "StatusCode", st.to_string());
+                    self.rest_record(obj, &b, st);
                     val(b)
                 }
             }
@@ -15755,8 +15831,7 @@ impl Interpreter {
                         self.log_block("search", obj, "status", &st.to_string());
                         self.log_block("search", obj, "response", &b);
                     }
-                    self.obj_set(obj, "ResponseBody", b.clone());
-                    self.obj_set(obj, "StatusCode", st.to_string());
+                    self.rest_record(obj, &b, st);
                     val(b)
                 }
             }
@@ -15896,15 +15971,14 @@ impl Interpreter {
                 }
                 let has_body = matches!(verb.as_str(), "POST" | "PUT" | "PATCH");
                 if self.rest_is_async(obj) {
-                    let body = if has_body { arg(2) } else { String::new() };
+                    let body = if has_body { self.rest_body(obj, arg(2)) } else { String::new() };
                     let (url, cfg) = (self.rest_url(obj, &arg(1)), self.rest_config(obj));
                     self.spawn_rest_op(obj, &verb, url, body, cfg)
                 } else {
-                    let body = arg(2);
+                    let body = if has_body { self.rest_body(obj, arg(2)) } else { arg(2) };
                     let (b, st) =
                         self.rest_send_sync(obj, &verb, &arg(1), has_body.then_some(body.as_str()));
-                    self.obj_set(obj, "ResponseBody", b.clone());
-                    self.obj_set(obj, "StatusCode", st.to_string());
+                    self.rest_record(obj, &b, st);
                     val(b)
                 }
             }
@@ -15927,9 +16001,22 @@ impl Interpreter {
                 none
             }
             // ── SQL database ──
-            "OPEN" => match self.db.open(&arg(0)) {
+            // With no argument, the control's own `ConnectionString` — the
+            // property the designer sets, which only the generated CONNECT
+            // paragraph ever read (property audit, 2026-09-26).
+            "OPEN" => match self.db.open(&{
+                let given = arg(0);
+                if given.trim().is_empty() { self.obj_get(obj, "ConnectionString").trim().to_owned() } else { given }
+            }) {
                 Ok(h) => {
                     self.obj_set(obj, "_Handle", h.to_string());
+                    // `ConnectionDataItem`, when the program declares it,
+                    // receives the handle for the COBOL-EXEC-SQL CALL surface.
+                    let item = self.obj_get(obj, "ConnectionDataItem");
+                    let item = item.trim();
+                    if !item.is_empty() && self.env.contains(item) {
+                        self.env.set(item, CobolValue::from_i64(i64::from(h)));
+                    }
                     self.obj_set(obj, "StatusCode", "0".into());
                     // spec 021: connection lifecycle events (dispatched by the
                     // event loop on the next COBOL-WAIT-EVENT).
@@ -15989,10 +16076,18 @@ impl Interpreter {
             // data needed the CALL surface and a column INDEX.
             "FETCH" => {
                 let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
-                match self.db.take_row(h) {
+                let row = self.db.take_row(h).map(|r| r.join("\t"));
+                // `ResultSetDataItem`, when declared, receives the same row —
+                // and spaces once the rows run out. It was read by nothing.
+                let item = self.obj_get(obj, "ResultSetDataItem");
+                let item = item.trim();
+                if !item.is_empty() && self.env.contains(item) {
+                    self.env.set_str(item, row.as_deref().unwrap_or(""));
+                }
+                match row {
                     Some(row) => {
                         self.queue_control_event(obj, "onRowFetched");
-                        val(row.join("\t"))
+                        val(row)
                     }
                     None => val(String::new()),
                 }
@@ -20483,6 +20578,161 @@ MAIN.
             vec![("AA".to_owned(), 1.0), ("BB".to_owned(), 2.0), ("CC".to_owned(), 3.0)],
             "a chart: category and value per occurrence"
         );
+    }
+
+    /// Property audit, 2026-09-26 (group 7): the non-visual data items.
+    /// A RestClient's result reaches ResponseDataItem / StatusDataItem and its
+    /// body comes from RequestDataItem; a SqlDatabase opens its own
+    /// ConnectionString, hands the handle to ConnectionDataItem and each row
+    /// to ResultSetDataItem; COBOL-FILE-STATUS copies a file's real status.
+    #[test]
+    fn non_visual_data_items_are_filled() {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-REQ  PIC X(20) VALUE '{\"a\":1}'.
+01 WS-RESP PIC X(40).
+01 WS-STAT PIC 9(4).
+01 WS-CONN PIC 9(9).
+01 WS-ROW  PIC X(40).
+01 WS-FS   PIC XX.
+PROCEDURE DIVISION.
+MAIN.
+    CALL 'COBOL-FILE-STATUS' USING 'CUSTOMERS' WS-FS
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let mut interp = Interpreter::new(parsed.program.expect("parses"));
+        interp.seed_objects([
+            (
+                "RC-1".to_owned(),
+                "RestClient".to_owned(),
+                vec![
+                    ("RequestDataItem".to_owned(), "WS-REQ".to_owned()),
+                    ("ResponseDataItem".to_owned(), "WS-RESP".to_owned()),
+                    ("StatusDataItem".to_owned(), "WS-STAT".to_owned()),
+                ],
+            ),
+            (
+                "DB-1".to_owned(),
+                "SqlDatabase".to_owned(),
+                vec![
+                    ("ConnectionString".to_owned(), ":memory:".to_owned()),
+                    ("ConnectionDataItem".to_owned(), "WS-CONN".to_owned()),
+                    ("ResultSetDataItem".to_owned(), "WS-ROW".to_owned()),
+                ],
+            ),
+        ]);
+        interp.last_file_status.insert("CUSTOMERS".into(), "35".into());
+        interp.run().expect("runs");
+        assert_eq!(interp.env.get_string("WS-FS").as_deref(), Some("35"), "the engine's own status");
+
+        assert_eq!(interp.rest_body("RC-1", String::new()), "{\"a\":1}", "the body from RequestDataItem");
+        assert_eq!(interp.rest_body("RC-1", "given".into()), "given", "an argument wins");
+        interp.rest_record("RC-1", "hello", 201);
+        assert_eq!(interp.env.get_string("WS-RESP").map(|s| s.trim().to_owned()).as_deref(), Some("hello"));
+        assert_eq!(interp.env.get("WS-STAT").map(|v| v.as_f64()), Some(201.0));
+
+        let h = interp.exec_method("DB-1", "Open", &[]).as_display_string();
+        assert_ne!(h.trim(), "0", "Open() with no argument uses ConnectionString: {}", interp.obj_get("DB-1", "LastError"));
+        assert_eq!(interp.env.get("WS-CONN").map(|v| v.as_f64().to_string()), Some(h.trim().to_owned()));
+        let s = |x: &str| CobolValue::from_str(x, x.len());
+        interp.exec_method("DB-1", "Execute", &[s("CREATE TABLE t(a TEXT)")]);
+        interp.exec_method("DB-1", "Execute", &[s("INSERT INTO t VALUES('row-one')")]);
+        interp.exec_method("DB-1", "Query", &[s("SELECT a FROM t")]);
+        interp.exec_method("DB-1", "Fetch", &[]);
+        assert_eq!(interp.env.get_string("WS-ROW").map(|s| s.trim().to_owned()).as_deref(), Some("row-one"));
+        interp.exec_method("DB-1", "Fetch", &[]);
+        assert_eq!(interp.env.get_string("WS-ROW").map(|s| s.trim().to_owned()).as_deref(), Some(""), "spaces once the rows run out");
+    }
+
+    /// Every property the property audit retired stays a harmless no-op for
+    /// code already written against it: a program that writes and reads each
+    /// one — on controls that no longer carry it — compiles and runs, and gets
+    /// back what it wrote (operator, 2026-09-26: "if you retire anything it
+    /// would not break existing code").
+    #[test]
+    fn retired_properties_still_read_and_write_as_no_ops() {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-BACK PIC X(40).
+PROCEDURE DIVISION.
+MAIN.
+    MOVE 'V-ReadOnly' TO DG-1::ReadOnly
+    MOVE DG-1::ReadOnly TO WS-BACK
+    DISPLAY WS-BACK
+    MOVE 'V-RowHeightOverrides' TO DG-1::RowHeightOverrides
+    MOVE DG-1::RowHeightOverrides TO WS-BACK
+    DISPLAY WS-BACK
+    MOVE 'V-AllowEdit' TO TV-1::AllowEdit
+    MOVE TV-1::AllowEdit TO WS-BACK
+    DISPLAY WS-BACK
+    MOVE 'V-Stacked' TO CH-1::Stacked
+    MOVE CH-1::Stacked TO WS-BACK
+    DISPLAY WS-BACK
+    MOVE 'V-Stream' TO AG-1::Stream
+    MOVE AG-1::Stream TO WS-BACK
+    DISPLAY WS-BACK
+    MOVE 'V-TargetControls' TO AG-1::TargetControls
+    MOVE AG-1::TargetControls TO WS-BACK
+    DISPLAY WS-BACK
+    MOVE 'V-MaximumConnections' TO DB-1::MaximumConnections
+    MOVE DB-1::MaximumConnections TO WS-BACK
+    DISPLAY WS-BACK
+    MOVE 'V-Mode' TO DB-1::Mode
+    MOVE DB-1::Mode TO WS-BACK
+    DISPLAY WS-BACK
+    MOVE 'V-Busy' TO DB-1::Busy
+    MOVE DB-1::Busy TO WS-BACK
+    DISPLAY WS-BACK
+    MOVE 'V-TimeoutMs' TO DB-1::TimeoutMs
+    MOVE DB-1::TimeoutMs TO WS-BACK
+    DISPLAY WS-BACK
+    MOVE 'V-LoadStrategy' TO IX-1::LoadStrategy
+    MOVE IX-1::LoadStrategy TO WS-BACK
+    DISPLAY WS-BACK
+    MOVE 'V-Mode' TO IX-1::Mode
+    MOVE IX-1::Mode TO WS-BACK
+    DISPLAY WS-BACK
+    MOVE 'V-Busy' TO IX-1::Busy
+    MOVE IX-1::Busy TO WS-BACK
+    DISPLAY WS-BACK
+    MOVE 'V-TimeoutMs' TO IX-1::TimeoutMs
+    MOVE IX-1::TimeoutMs TO WS-BACK
+    DISPLAY WS-BACK
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        assert!(parsed.diagnostics.iter().all(|d| !d.is_error()), "{:?}", parsed.diagnostics);
+        let mut interp = Interpreter::new(parsed.program.expect("parses"));
+        interp.seed_objects([
+            ("DG-1".to_owned(), "DataGrid".to_owned(), vec![]),
+            ("TV-1".to_owned(), "TreeView".to_owned(), vec![]),
+            ("CH-1".to_owned(), "BarChart".to_owned(), vec![]),
+            ("AG-1".to_owned(), "AgentObject".to_owned(), vec![]),
+            ("DB-1".to_owned(), "SqlDatabase".to_owned(), vec![]),
+            ("IX-1".to_owned(), "IndexedFile".to_owned(), vec![]),
+        ]);
+        interp.run().expect("runs");
+        assert_eq!(interp.obj_get("DG-1", "ReadOnly"), "V-ReadOnly", "DG-1::ReadOnly keeps what was written");
+        assert_eq!(interp.obj_get("DG-1", "RowHeightOverrides"), "V-RowHeightOverrides", "DG-1::RowHeightOverrides keeps what was written");
+        assert_eq!(interp.obj_get("TV-1", "AllowEdit"), "V-AllowEdit", "TV-1::AllowEdit keeps what was written");
+        assert_eq!(interp.obj_get("CH-1", "Stacked"), "V-Stacked", "CH-1::Stacked keeps what was written");
+        assert_eq!(interp.obj_get("AG-1", "Stream"), "V-Stream", "AG-1::Stream keeps what was written");
+        assert_eq!(interp.obj_get("AG-1", "TargetControls"), "V-TargetControls", "AG-1::TargetControls keeps what was written");
+        assert_eq!(interp.obj_get("DB-1", "MaximumConnections"), "V-MaximumConnections", "DB-1::MaximumConnections keeps what was written");
+        assert_eq!(interp.obj_get("DB-1", "Mode"), "V-Mode", "DB-1::Mode keeps what was written");
+        assert_eq!(interp.obj_get("DB-1", "Busy"), "V-Busy", "DB-1::Busy keeps what was written");
+        assert_eq!(interp.obj_get("DB-1", "TimeoutMs"), "V-TimeoutMs", "DB-1::TimeoutMs keeps what was written");
+        assert_eq!(interp.obj_get("IX-1", "LoadStrategy"), "V-LoadStrategy", "IX-1::LoadStrategy keeps what was written");
+        assert_eq!(interp.obj_get("IX-1", "Mode"), "V-Mode", "IX-1::Mode keeps what was written");
+        assert_eq!(interp.obj_get("IX-1", "Busy"), "V-Busy", "IX-1::Busy keeps what was written");
+        assert_eq!(interp.obj_get("IX-1", "TimeoutMs"), "V-TimeoutMs", "IX-1::TimeoutMs keeps what was written");
     }
 
     /// SET-TABLE reads the sub-fields a chart names in `LabelField`,

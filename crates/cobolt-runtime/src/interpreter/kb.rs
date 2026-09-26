@@ -161,8 +161,14 @@ impl Interpreter {
             .then(|| crate::model_list::get(&entry_name))
             .flatten()
             .map(|(e, _)| (e, crate::key_store::key_store().get(&entry_name).unwrap_or_default()));
+        // An entry that names no model leaves the control's own
+        // `EmbeddingModel` in charge — it used to hand the embedder an empty
+        // model (property audit, 2026-09-26).
         let (url, api, model, key) = match from_entry {
-            Some((e, key)) => (e.url, e.api, e.model, key),
+            Some((e, key)) => {
+                let model = if e.model.trim().is_empty() { get("EmbeddingModel") } else { e.model };
+                (e.url, e.api, model, key)
+            }
             None => (get("EmbeddingURL"), get("EmbeddingAPI"), get("EmbeddingModel"), get("EmbeddingAPIKey")),
         };
         KbConfig {
@@ -204,14 +210,30 @@ impl Interpreter {
             );
         }
         let entry_name = self.obj_get(obj, "ModelEntry").trim().to_string();
-        if !entry_name.is_empty() && crate::model_list::get(&entry_name).is_none() {
-            return self.kb_fail(
-                obj,
-                format!(
-                    "model entry '{entry_name}' does not exist — the program has not handed \
-                     it over with COBOL-MODEL-SET"
-                ),
-            );
+        if !entry_name.is_empty() {
+            let Some((entry, _)) = crate::model_list::get(&entry_name) else {
+                return self.kb_fail(
+                    obj,
+                    format!(
+                        "model entry '{entry_name}' does not exist — the program has not handed \
+                         it over with COBOL-MODEL-SET"
+                    ),
+                );
+            };
+            // The same early answer an AgentObject gives: an entry whose API
+            // needs a key, with none stored, fails here and now rather than
+            // as an authentication error from the provider much later.
+            let key = crate::key_store::key_store().get(&entry_name);
+            if entry.needs_key() && key.as_deref().map(str::trim).unwrap_or("").is_empty() {
+                return self.kb_fail(
+                    obj,
+                    format!(
+                        "model entry '{entry_name}' has no key stored, and its API ({}) needs \
+                         one — store it with COBOL-KEY-SET",
+                        entry.api
+                    ),
+                );
+            }
         }
         let cfg = self.kb_config(obj);
         let generation = self

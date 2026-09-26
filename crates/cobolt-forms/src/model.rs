@@ -5408,10 +5408,12 @@ impl Control {
                 );
                 props.insert("Temperature".into(), PropValue::Int(70)); // stored as int 0-100 (0.0-1.0)
                 props.insert("MaximumTokens".into(), PropValue::Int(1024));
-                props.insert("Stream".into(), PropValue::Bool(true));
+                // `Stream` is retired: every request asks for a whole reply
+                // (property audit, 2026-09-26).
                 props.insert("TimeoutSeconds".into(), PropValue::Int(30));
                 // Target controls — comma-sep list of IDs this agent is allowed to modify
-                props.insert("TargetControls".into(), PropValue::String("".into()));
+                // `TargetControls` is retired: an agent never writes a control
+                // itself — its tools are the program's, answered by handlers.
                 props.insert("ResponseDataItem".into(), PropValue::String("".into()));
                 // Debugging switch, off by default: with it on the runtime
                 // narrates every Ask into the program's output — the prompt,
@@ -5721,22 +5723,21 @@ impl Control {
                     PropValue::String("sqlite::memory:".into()),
                 );
                 props.insert("AutoConnect".into(), PropValue::Bool(false));
-                props.insert("MaximumConnections".into(), PropValue::Int(5));
+                // `MaximumConnections` is retired: there is no connection pool.
                 // COBOL object data items generated in WORKING-STORAGE
                 props.insert("ConnectionDataItem".into(), PropValue::String("".into())); // e.g. conn1
                 props.insert("ResultSetDataItem".into(), PropValue::String("".into()));
                 // e.g. resultset1
-                // COBOL paragraphs
-                // Async I/O (spec 032): Sync by default (fast local ops, max
-                // speed); opt into Async per control. Busy/TimeoutMs mirror REST.
-                props.insert("Mode".into(), PropValue::String("Sync".into())); // Sync | Async
-                props.insert("Busy".into(), PropValue::Bool(false));
-                props.insert("TimeoutMs".into(), PropValue::Int(0));
+                // `Mode` / `Busy` / `TimeoutMs` are retired here: spec 032 planned
+                // async SQL, and no SQL verb ever ran anything but synchronously
+                // (property audit, 2026-09-26).
             }
             ControlType::IndexedFile => {
                 props.insert("IndexedFile".into(), PropValue::String("".into()));
                 props.insert("OpenMode".into(), PropValue::String("INPUT".into()));
-                props.insert("LoadStrategy".into(), PropValue::String("Disk".into()));
+                // `LoadStrategy` is retired: the indexed file's definition (.cidx)
+                // owns its storage, for every program on that file. Codegen still
+                // emits WS-<id>-LOAD-STRATEGY, so code that reads it compiles.
                 props.insert("AutoOpen".into(), PropValue::Bool(false));
                 props.insert("RecordName".into(), PropValue::String("".into()));
                 props.insert("KeyName".into(), PropValue::String("".into()));
@@ -5744,10 +5745,8 @@ impl Control {
                 props.insert("StatusDataItem".into(), PropValue::String("".into()));
                 props.insert("CurrentRecordDataItem".into(), PropValue::String("".into()));
                 props.insert("OperatorName".into(), PropValue::String("".into()));
-                // Async I/O (spec 032): Sync by default; opt into Async per control.
-                props.insert("Mode".into(), PropValue::String("Sync".into())); // Sync | Async
-                props.insert("Busy".into(), PropValue::Bool(false));
-                props.insert("TimeoutMs".into(), PropValue::Int(0));
+                // `Mode` / `Busy` / `TimeoutMs` are retired here: the facade is
+                // plain synchronous COBOL (property audit, 2026-09-26).
             }
 
             // ── Snackbar (spec 055) ───────────────────────────────────────────
@@ -10884,13 +10883,23 @@ mod tests {
 
             // `ct` is consumed here (ControlType is not Copy), so this comes last.
             let c = Control::new("X", ct, 0, 0);
-            assert_eq!(
-                c.properties.get("Mode"),
-                Some(&PropValue::String(default_mode.into())),
-                "default Mode for {default_mode}"
-            );
-            assert!(matches!(c.properties.get("Busy"), Some(PropValue::Bool(false))));
-            assert!(matches!(c.properties.get("TimeoutMs"), Some(PropValue::Int(_))));
+            if default_mode == "Async" {
+                assert_eq!(
+                    c.properties.get("Mode"),
+                    Some(&PropValue::String(default_mode.into())),
+                    "default Mode for {default_mode}"
+                );
+                assert!(matches!(c.properties.get("Busy"), Some(PropValue::Bool(false))));
+                assert!(matches!(c.properties.get("TimeoutMs"), Some(PropValue::Int(_))));
+            } else {
+                // SqlDatabase / IndexedFile: their verbs only ever ran
+                // synchronously, so Mode/Busy/TimeoutMs are retired there
+                // (property audit, 2026-09-26). The lifecycle events above
+                // stay, so a handler already bound to one still compiles.
+                for retired in ["Mode", "Busy", "TimeoutMs"] {
+                    assert!(c.properties.get(retired).is_none(), "{retired} is retired on this control");
+                }
+            }
         }
     }
 

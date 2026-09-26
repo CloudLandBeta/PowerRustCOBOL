@@ -8,6 +8,39 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.236] — 2026-09-26
+
+### Fix — non-visual control properties that did nothing or half of it (audit group 7 of 8)
+
+The findings on AgentObject, RestClient, SqlDatabase, IndexedFile and
+KnowledgeBase.
+
+- **RestClient** — `ResponseDataItem` / `StatusDataItem` are filled by every
+  verb, Sync or Async (only the generated SYNC-ITEMS paragraph ever did);
+  `RequestDataItem` is the body when a verb is given none.
+- **SqlDatabase** — `Open()` with no argument opens `ConnectionString`;
+  `AutoConnect` connects before any handler and closes at the end;
+  `ConnectionDataItem` receives the handle (generated CONNECT and `Open()`);
+  `ResultSetDataItem` receives each fetched row; `Driver` no longer offers
+  `mssql`, which had no backend.
+- **IndexedFile** — `StatusDataItem` receives the engine's real FILE STATUS
+  through the new built-in `CALL "COBOL-FILE-STATUS" USING file item` (the
+  runtime now records every file's last status); the facade's literal
+  `00`/`10`/`23` are gone and "open" is set only when OPEN succeeded;
+  `CurrentRecordDataItem` → `READ … INTO`; `OperatorName` is a literal unless
+  it names a declared item.
+- **AgentObject** — an `AgentEndpoint` path joins `AgentURL`'s host.
+- **KnowledgeBase** — a `ModelEntry` with no model keeps `EmbeddingModel`, and
+  one needing a key it lacks fails at once.
+- **Retired** (unseeded, hidden, KB "retired"): AgentObject `Stream` and
+  `TargetControls`; SqlDatabase `MaximumConnections`; `Mode`/`Busy`/`TimeoutMs`
+  on SqlDatabase and IndexedFile; IndexedFile `LoadStrategy` (its
+  `WS-<id>-LOAD-STRATEGY` item is still generated). A new test proves every
+  property retired by this audit still reads and writes as a no-op from COBOL
+  (operator, 2026-09-26).
+- **KB**, `chunked.data`, hover help (six languages), the Guide, and the
+  non-visual property-readers table updated.
+
 ## [PowerRustCOBOL 1.70.235] — 2026-09-26
 
 ### Fix — chart and media properties that did nothing or half of it (audit group 6 of 8)

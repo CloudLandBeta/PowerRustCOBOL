@@ -2143,8 +2143,7 @@ An **IndexedFile** control is the designer-side face of an indexed file. The
 record and its keys are described once in the project's indexed-file
 definition (a `.cidx`), which is what the `SELECT` and `FD` are generated
 from; the control then points at that definition and gives the form the
-plumbing to drive it — `OpenMode`, `LoadStrategy`, `AutoOpen` and a status
-data item — see
+plumbing to drive it — `OpenMode`, `AutoOpen` and a status data item — see
 [Indexed files](#14-indexed-files--a-first-class-resource).
 
 > **Note.** A `Custom` control type exists as an extension point for
@@ -8672,14 +8671,14 @@ response arrives later as an event on the same control:
 - `onCancelled` — you called `Cancel()` while a request was in flight.
 - `onTimeout` — the request exceeded `TimeoutMs` without completing.
 
-The control surface, on `RestClient`, `WebSearch`, `SqlDatabase` and
-`IndexedFile` alike:
+The control surface, on `RestClient` and `WebSearch`:
 
-- **`Mode`** (`Async` / `Sync`) — the two controls that reach the network,
-  `RestClient` and `WebSearch`, default to `Async`; `SqlDatabase` and
-  `IndexedFile` default to `Sync` (their operations are local and fast, and
-  today they always execute synchronously — the property and events exist on
-  them for forward compatibility).
+- **`Mode`** (`Async` / `Sync`) — both default to `Async`. (`SqlDatabase` and
+  `IndexedFile` once carried `Mode`, `Busy` and `TimeoutMs` too, for an
+  asynchronous path that was planned and never built: their operations have
+  always run synchronously. The three are retired there — new controls do not
+  carry them, and a form or program that still sets or reads them keeps
+  working; the values are simply ignored, and `IsBusy()` answers 0.)
 - **`Busy`** (read-only) — `1` while an operation is in flight. A second call
   while `Busy` is ignored; poll `Busy` or wait for the lifecycle event.
 - **`TimeoutMs`** — per-control timeout in milliseconds; `0` falls back to the
@@ -8694,6 +8693,53 @@ The control surface, on `RestClient`, `WebSearch`, `SqlDatabase` and
 > control's `Mode` to `Sync` to keep the original same-statement result, or
 > move the read into an `onComplete` handler. The `COBOL-HTTP-*` CALL surface
 > is unchanged and always synchronous.
+
+### Data items: where a result lands in WORKING-STORAGE
+
+Several non-visual controls can hand their results straight to an item your
+program declares, so a handler reads a plain COBOL field instead of a property:
+
+
+| Control       | Property                | What lands there                                                                                                     |
+| ------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `RestClient`  | `ResponseDataItem`      | Every response body, from `::Get` / `Post` / `Put` / `Delete` / `Call`, `Sync` or `Async` (declared for you, `PIC X(32767)`). |
+| `RestClient`  | `StatusDataItem`        | Every HTTP status; `0` when no response came (declared for you, `PIC 9(4)`).                                          |
+| `RestClient`  | `RequestDataItem`       | *Read*, not written: its value is the body when `Post` / `Put` / `Call` is given none.                                |
+| `SqlDatabase` | `ConnectionDataItem`    | The connection handle, from the generated `<id>-CONNECT` and from `Open()`.                                          |
+| `SqlDatabase` | `ResultSetDataItem`     | Each row `Fetch()` returns, tab-separated; spaces once the rows run out.                                             |
+| `IndexedFile` | `StatusDataItem`        | The engine's own FILE STATUS after every generated operation — `00`, `10`, `22`, `23`, `35`, `39` …                  |
+| `IndexedFile` | `CurrentRecordDataItem` | Every record the generated paragraphs read (`READ … INTO`).                                                         |
+
+Except where the table says "declared for you", the item is yours to declare —
+the same rule as every other `…DataItem`.
+
+```cobol
+       01  WS-ORDER-JSON   PIC X(200).
+      *> RestClient-1 has RequestDataItem = WS-ORDER-JSON
+           MOVE '{"sku":"A-1","qty":2}' TO WS-ORDER-JSON
+           RestClient-1::Post("orders")
+```
+
+A `SqlDatabase` with **`AutoConnect`** connects as the form starts — before any
+handler runs — and closes as it ends, and `Open()` called with no argument
+opens the control's own `ConnectionString`. An `IndexedFile`'s
+**`OperatorName`** (recorded by `OPEN … REGISTERED USER`) is sent as a literal,
+unless it names an item your form declares.
+
+> ⚠️ **Caveat.** Before 1.70.236 an `IndexedFile`'s `StatusDataItem` held only
+> the facade's guesses — `00` after every `OPEN`, `23` after any refused write —
+> so a missing file or a duplicate key reached your program as something else.
+> It now holds the real code; a test written against the old `23` for a
+> duplicate key must look for `22`.
+
+> **Retired, and harmless.** `LoadStrategy` (the `.cidx` definition owns
+> storage — a form that has it still gets its `WS-<id>-LOAD-STRATEGY` item),
+> `MaximumConnections` (there is no pool), and the AgentObject's `Stream`
+> (replies were never streamed) and `TargetControls` (an agent never writes a
+> control itself). None is offered any more; code that sets or reads one still
+> compiles and runs, and the value is ignored. An AgentObject's
+> `AgentEndpoint` may now be a path — `/v1/chat/completions` — joined onto
+> `AgentURL`'s host.
 
 ### Maps (location & directions)
 

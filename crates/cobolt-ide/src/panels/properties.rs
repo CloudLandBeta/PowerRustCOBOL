@@ -8734,7 +8734,6 @@ impl PropertiesPanel {
                     None,
                     30,
                 );
-                bool_row_inline(ui, id, "Stream", "Streaming mode", ctrl, action);
                 // The debugging switch. An Ask that yields nothing looks exactly
                 // like an Ask that never ran, and this is what tells them apart.
                 bool_row_inline(ui, id, "Verbose", "Verbose log", ctrl, action);
@@ -8761,22 +8760,6 @@ impl PropertiesPanel {
                 );
 
                 section_header(ui, tr.sec_cobol_integration);
-                {
-                    let cur = ctrl
-                        .get_prop("TargetControls")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_default();
-                    text_row_hint(
-                        ui,
-                        &mut self.hints,
-                        id,
-                        "TargetControls",
-                        &cur,
-                        "Target controls:",
-                        "TXT-1,LBL-2 (comma-sep IDs)",
-                        action,
-                    );
-                }
                 {
                     let cur = ctrl
                         .get_prop("ResponseDataItem")
@@ -9063,7 +9046,9 @@ impl PropertiesPanel {
                     "Driver:",
                     ctrl,
                     action,
-                    &["sqlite", "postgres", "mysql", "mssql"],
+                    // No SQL Server backend exists: `mssql` was offered and led
+                    // nowhere.
+                    &["sqlite", "postgres", "mysql"],
                     "sqlite",
                 );
                 {
@@ -9083,17 +9068,6 @@ impl PropertiesPanel {
                     );
                 }
                 bool_row_inline(ui, id, "AutoConnect", "Auto-connect:", ctrl, action);
-                int_prop_row(
-                    ui,
-                    id,
-                    "MaximumConnections",
-                    "Max connections:",
-                    ctrl,
-                    action,
-                    1..=100,
-                    None,
-                    5,
-                );
 
                 section_header(ui, tr.sec_cobol_integration);
                 {
@@ -9128,19 +9102,6 @@ impl PropertiesPanel {
                         action,
                     );
                 }
-                // ── Async I/O (spec 032) — Sync by default; opt into Async ──
-                section_header(ui, tr.sec_async);
-                combo_row_labeled(ui, id, "Mode", "Mode:", ctrl, action, &["Sync", "Async"]);
-                int_row_inline(
-                    ui,
-                    id,
-                    "TimeoutMs",
-                    "Timeout (ms):",
-                    ctrl,
-                    action,
-                    0..=600_000,
-                );
-                busy_row_readonly(ui, ctrl);
                 ui.add_space(4.0);
             }
 
@@ -9192,16 +9153,6 @@ impl PropertiesPanel {
                     &["INPUT", "I-O"],
                     "INPUT",
                 );
-                combo_prop_row(
-                    ui,
-                    id,
-                    "LoadStrategy",
-                    "Load strategy:",
-                    ctrl,
-                    action,
-                    &["Disk", "Memory"],
-                    "Disk",
-                );
                 bool_row_inline(ui, id, "AutoOpen", "Open with form:", ctrl, action);
 
                 section_header(ui, tr.sec_cobol_integration);
@@ -9223,19 +9174,6 @@ impl PropertiesPanel {
                         .unwrap_or_default();
                     text_row_hint(ui, &mut self.hints, id, key, &cur, label, hint, action);
                 }
-                // ── Async I/O (spec 032) — Sync by default; opt into Async ──
-                section_header(ui, tr.sec_async);
-                combo_row_labeled(ui, id, "Mode", "Mode:", ctrl, action, &["Sync", "Async"]);
-                int_row_inline(
-                    ui,
-                    id,
-                    "TimeoutMs",
-                    "Timeout (ms):",
-                    ctrl,
-                    action,
-                    0..=600_000,
-                );
-                busy_row_readonly(ui, ctrl);
                 ui.add_space(4.0);
             }
 

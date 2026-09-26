@@ -101,22 +101,12 @@ fn declared_readers() -> Vec<(ControlType, Vec<(&'static str, Reader)>)> {
             vec![
                 ("Driver", Generated),
                 ("ConnectionString", Generated),
-                ("AutoConnect", Unread(
-                    "nothing opens the connection when the form loads; a handler \
-                     must call Open() explicitly",
-                )),
-                ("MaximumConnections", Unread(
-                    "there is no connection pool; every Open() is its own connection",
-                )),
-                ("ConnectionDataItem", Unread(
-                    "the generator names the handle itself; this override is not consulted",
-                )),
-                ("ResultSetDataItem", Unread(
-                    "the generator names the result set itself; this override is not consulted",
-                )),
-                ("Mode", Runtime),
-                ("Busy", Runtime),
-                ("TimeoutMs", Runtime),
+                // Read by the generated main paragraph (connect on start).
+                ("AutoConnect", Generated),
+                // Receives the handle: the generated CONNECT and ::Open().
+                ("ConnectionDataItem", Runtime),
+                // Receives each row from ::Fetch().
+                ("ResultSetDataItem", Runtime),
             ],
         ),
         (
@@ -162,14 +152,7 @@ fn declared_readers() -> Vec<(ControlType, Vec<(&'static str, Reader)>)> {
                 ("SystemPrompt", Runtime),
                 ("Temperature", Runtime),
                 ("MaximumTokens", Runtime),
-                ("Stream", Unread(
-                    "responses are not streamed: the request always asks for a whole \
-                     reply, because parsing the first chunk as the answer would truncate it",
-                )),
                 ("TimeoutSeconds", Runtime),
-                ("TargetControls", Unread(
-                    "the write allow-list is not enforced against this property",
-                )),
                 ("ResponseDataItem", Generated),
                 ("Verbose", Runtime),
                 // Spec 072 — how tools are offered, and how many rounds.
@@ -182,19 +165,13 @@ fn declared_readers() -> Vec<(ControlType, Vec<(&'static str, Reader)>)> {
             vec![
                 ("IndexedFile", Generated),
                 ("OpenMode", Generated),
-                ("LoadStrategy", Generated),
                 ("AutoOpen", Generated),
                 ("RecordName", Generated),
                 ("KeyName", Generated),
                 ("CurrentKeyDataItem", Generated),
                 ("StatusDataItem", Generated),
-                ("CurrentRecordDataItem", Unread(
-                    "the generator names the record item itself; this override is not consulted",
-                )),
+                ("CurrentRecordDataItem", Generated),
                 ("OperatorName", Generated),
-                ("Mode", Runtime),
-                ("Busy", Runtime),
-                ("TimeoutMs", Runtime),
             ],
         ),
     ]
