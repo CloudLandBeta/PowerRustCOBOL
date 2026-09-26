@@ -6297,6 +6297,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("Clear()", "Remove every row the program added. The designed menu stays exactly as designed."),
             ("GetCount() → Integer", "How many rows the program has added (sections included)."),
             ("HasItem(id: String) → 1/0", "Whether a row with this id exists — designed or added."),
+            ("ActivateItem(id: String) → 1/0", "Do what a click on that row does — open its form in the ContentPane (`open-form:`), go `home`, raise `onMenuClick` — from code, e.g. to show a welcome form on first run. Shell only (a main form whose SideMenu is its menu pane). `0` for an unknown id; a disabled row does nothing."),
             (
                 "OpenStandAloneFormSync(formId: String, windowState: String, x: Integer, y: Integer, width: Integer, height: Integer, modal: Boolean)",
                 "Open `formId` in its OWN window, parented to the SHELL (whatever form invokes it), and BLOCK the calling handler until the child closes — Sync is implicitly modal, and the whole shell face waits with it. The space form requires every parameter; the comma form `SideMenu-1::\"OpenStandAloneFormSync\"(\"REPORT\")` defaults the rest from the target's RAD design. The target's FormFormat must be Standalone or Both (build-checked for literal ids). RETURNING is NULL by the time the call resumes (the child is closed).",

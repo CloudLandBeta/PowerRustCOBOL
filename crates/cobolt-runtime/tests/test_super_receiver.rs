@@ -661,3 +661,36 @@ fn a_called_procedure_runs_while_the_form_waits() {
     assert!(at("NO-SUCH-PROC").is_some(), "an unknown name is reported: {out:?}");
     println!("a called procedure ran inside COBOL-WAIT-EVENT; the loop saw only onClick");
 }
+
+/// A value a form sets on ITSELF with `ME::"SetProperty"` is readable by a form
+/// it opens through `super::"GetProperty"` — how a caller hands a question to
+/// a confirmation dialog.
+#[test]
+fn a_value_the_opener_sets_on_itself_reaches_the_child() {
+    let (req_tx, host) = spawn_host();
+    let parent_src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. MAIN-FORM.
+       PROCEDURE DIVISION.
+           INVOKE ME::"SetProperty"("ConfirmText", "Delete topic X?").
+           STOP RUN.
+"#;
+    let (_, run) = run_form(parent_src, req_tx.clone(), ROOT_HANDLE, "MAIN-FORM", None, vec![]);
+    run.expect("parent");
+    let child_src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CONFIRM-FORM.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-Q PIC X(40).
+       PROCEDURE DIVISION.
+           INVOKE super::"GetProperty"("ConfirmText") RETURNING WS-Q.
+           DISPLAY "Q=" WS-Q.
+           STOP RUN.
+"#;
+    let (display, run) = run_form(child_src, req_tx.clone(), "W1", "CONFIRM-FORM", Some(ROOT_HANDLE), vec![]);
+    run.expect("child");
+    drop(req_tx);
+    let _ = host.join();
+    assert!(display.iter().any(|l| l.contains("Q=Delete topic X?")), "{display:?}");
+}

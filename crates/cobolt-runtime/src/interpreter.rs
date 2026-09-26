@@ -1609,6 +1609,9 @@ pub struct Interpreter {
     /// arguments on a bar, line or area chart. Written into `__ChartData`
     /// after the first value (`label<TAB>v1<TAB>v2…`).
     chart_more: HashMap<String, Vec<Vec<f64>>>,
+    /// How many `SideMenu::ActivateItem` requests this run has made — the
+    /// token's sequence number.
+    menu_activations: u64,
     /// The last FILE STATUS code of every file, by upper-cased name, whether
     /// or not its SELECT declares a status item. Read by `COBOL-FILE-STATUS`.
     last_file_status: HashMap<String, String>,
@@ -2074,6 +2077,7 @@ impl Interpreter {
             chart_data: HashMap::new(),
             chart_sizes: HashMap::new(),
             chart_more: HashMap::new(),
+            menu_activations: 0,
             last_file_status: HashMap::new(),
             async_result_tx,
             async_result_rx,
@@ -13759,6 +13763,21 @@ impl Interpreter {
             .unwrap_or_default();
         let mut rows = rt::parse_rows(&self.obj_get(obj, rt::RUNTIME_ROWS_PROP));
         let truthy = |s: &str| matches!(s.trim().to_ascii_uppercase().as_str(), "1" | "TRUE" | "YES" | "ON");
+        // `ActivateItem(id)` — do what a click on that row does (open its
+        // form, go home, raise onMenuClick), from code: how a program sends
+        // the operator somewhere, e.g. to a welcome form on first run. The
+        // request is a token the shell watches; the counter makes a second
+        // activation of the same row a new request.
+        if m == "ACTIVATEITEM" {
+            let id = arg(0).trim().to_owned();
+            if id.is_empty() || !rt::has_item(&designed, &rows, &id) {
+                return Some("0".into());
+            }
+            self.menu_activations += 1;
+            let token = format!("{id}#{}", self.menu_activations);
+            self.obj_set(obj, cobolt_forms::menu::runtime::ACTIVATE_ITEM_PROP, token);
+            return Some("1".into());
+        }
         let outcome: Result<(), rt::Refusal> = match m {
             // AddItem(id, label [, icon [, parent-id [, action]]])
             "ADDITEM" => rt::add_item(&designed, &mut rows, &arg(0), &arg(1), &arg(2), &arg(3), &arg(4)),
@@ -18934,6 +18953,7 @@ fn is_known_method(name: &str) -> bool {
             // controls.)
             // Spec 066 — SideMenu rows added at run time.
             | "ADDSECTION" | "SETITEMLABEL" | "SETITEMICON" | "SETITEMBADGE" | "SETITEMENABLED"
+            | "ACTIVATEITEM"
             | "SETITEMACTION" | "HASITEM"
             | "NODECOUNT" | "NODEINDEXOF" | "NODETEXT" | "NODENAME" | "NODEPATH"
             | "NODELEVEL" | "NODEICON" | "NODECOLOR" | "NODECOLOUR"

@@ -33,6 +33,12 @@ use serde::{Deserialize, Serialize};
 /// The run-time-only SideMenu property that carries [`RuntimeRow`]s as JSON.
 pub const RUNTIME_ROWS_PROP: &str = "RuntimeRows";
 
+/// `ActivateItem(id)`'s request: `<id>#<sequence>`, written on the SideMenu and
+/// watched by the shell, which performs that row's action as a click would. A
+/// new sequence number is a new request, so activating the same row twice
+/// acts twice.
+pub const ACTIVATE_ITEM_PROP: &str = "ActivateItemRequest";
+
 /// The action a row gets when the program names none: it raises
 /// `onMenuItemClick`. Named rather than left empty so an iconed row shows on
 /// the collapsed rail exactly as a designed one does.

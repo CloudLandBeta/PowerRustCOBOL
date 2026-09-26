@@ -11290,6 +11290,18 @@ disappear when the program ends. Nothing is written back to the menu file.
 | `RemoveItem(id)` | Removes one of your rows and everything under it |
 | `Clear()` | Removes all of your rows; the designed menu stays, with any label or state you gave it |
 | `GetCount()` / `HasItem(id)` | How many rows you added; whether an id exists at all |
+| `ActivateItem(id)` | Does what a click on that row does — opens its form in the ContentPane, goes home, or raises `onMenuClick` — from code. Any row, designed or yours; a disabled row does nothing. How a program sends the operator somewhere by itself: a welcome form on first run, a form a finished task leads to |
+
+```cobol
+      *> first run: nothing is configured yet, so show the welcome form
+           IF WS-CONFIGURED NOT = "Y"
+               MOVE SIDEMENU-1::ActivateItem("welc") TO WS-OK
+           END-IF
+```
+
+> **Note.** `ActivateItem` works in a **shell** — a main form whose SideMenu
+> is its menu pane — because it is the shell that opens forms in the
+> ContentPane.
 
 Every call that changes something answers `1` when it did and `0` when it did
 not, so a program can tell.

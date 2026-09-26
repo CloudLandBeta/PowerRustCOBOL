@@ -8,6 +8,22 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.259] — 2026-09-26
+
+### Feature — `SideMenu::ActivateItem(id)`: navigate from code
+
+- Does what a click on that row does — opens its form in the ContentPane, goes
+  home, raises `onMenuClick` — from COBOL, so a program can send the operator
+  somewhere by itself (a welcome form on first run). Any row, designed or the
+  program's own; a disabled row does nothing; an unknown id answers 0. Shell
+  only. The runtime writes a sequenced request on the SideMenu
+  (`ActivateItemRequest`), and the shell queues that row's click
+  (`Shell::activate_item`).
+- Tests: the request and its sequence (`test_side_menu_rows`), the queued click
+  (`activate_item_queues_the_rows_own_click`), and — for the confirmation
+  dialogs PowerChat is about to use — a value a form sets on itself reaching the
+  form it opens (`test_super_receiver`). KB and Guide updated.
+
 ## [PowerRustCOBOL 1.70.258] — 2026-09-26
 
 ### Fix — a DataGrid click could not say which cell it was

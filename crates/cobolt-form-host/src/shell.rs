@@ -465,6 +465,9 @@ pub struct Shell {
     /// copied from the host each frame by `show_with_host`. Empty without a
     /// host (the shell alone has no program to add rows).
     live_rows: String,
+    /// The last `ActivateItem` request acted on (`<id>#<n>`), so each is
+    /// performed once.
+    last_activation: String,
     live_selected: String,
     /// The MAIN form's own resolved backdrop colour. The rail paints ON this,
     /// never straight onto the window: a SideMenu's `BackgroundColor` is
@@ -529,6 +532,7 @@ impl Default for Shell {
             icon_effect: "None".to_owned(),
             side_ctrl: None,
             live_rows: String::new(),
+            last_activation: String::new(),
             live_selected: String::new(),
             form_backdrop: None,
             breadcrumb: Vec::new(),
@@ -646,6 +650,48 @@ impl Shell {
     }
 
     /// Drain the clicks the MenuPane collected this frame.
+    /// Queue a menu row's action as if it had been clicked — the root menu
+    /// (its designed rows and the program's own), then the contextual one.
+    /// An unknown or disabled row does nothing.
+    pub fn activate_item(&mut self, id: &str) {
+        use cobolt_forms::menu::MenuItem;
+        fn find<'a>(items: &'a [MenuItem], id: &str) -> Option<&'a MenuItem> {
+            items.iter().find_map(|i| {
+                if i.id.eq_ignore_ascii_case(id) {
+                    Some(i)
+                } else {
+                    find(&i.items, id)
+                }
+            })
+        }
+        let root: Vec<MenuItem> = self
+            .root_menu
+            .as_ref()
+            .map(|r| {
+                cobolt_forms::menu::runtime::merge_rows(
+                    &r.def.menu,
+                    &cobolt_forms::menu::runtime::parse_rows(&self.live_rows),
+                )
+            })
+            .unwrap_or_default();
+        let (slot, item) = match find(&root, id) {
+            Some(i) => (MenuSlot::Root, i.clone()),
+            None => match self.contextual_menu.as_ref().and_then(|c| find(&c.def.menu, id)) {
+                Some(i) => (MenuSlot::Contextual, i.clone()),
+                None => return,
+            },
+        };
+        if !item.enabled {
+            return;
+        }
+        self.pending_clicks.push(MenuClick {
+            slot,
+            item_id: item.id,
+            action: item.action,
+            preserve_previous_form: item.preserve_previous_form,
+        });
+    }
+
     pub fn take_menu_clicks(&mut self) -> Vec<MenuClick> {
         std::mem::take(&mut self.pending_clicks)
     }
@@ -1121,6 +1167,16 @@ impl Shell {
                 .control_prop(&side, cobolt_forms::menu::runtime::RUNTIME_ROWS_PROP)
                 .unwrap_or_default();
             self.live_selected = host.control_prop(&side, "SelectedItemId").unwrap_or_default();
+            // `ActivateItem(id)`: the program asked for a row's action, as
+            // if the operator had clicked it.
+            let request = host
+                .control_prop(&side, cobolt_forms::menu::runtime::ACTIVATE_ITEM_PROP)
+                .unwrap_or_default();
+            if !request.is_empty() && request != self.last_activation {
+                self.last_activation = request.clone();
+                let id = request.rsplit_once('#').map(|(id, _)| id).unwrap_or(&request);
+                self.activate_item(id);
+            }
         }
         let mut menu_scroll = Vec2::ZERO;
         // See `show` — panel order is what makes FullHeight true or false.
@@ -4216,6 +4272,35 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             clicked.contains(&("chat-7".to_owned(), Some("open-form:CHAT".to_owned()))),
             "{clicked:?}"
         );
+    }
+
+    /// `SideMenu::ActivateItem(id)` queues that row's click, exactly as the
+    /// operator's would be — found among the designed rows; a disabled or
+    /// unknown row queues nothing.
+    #[test]
+    fn activate_item_queues_the_rows_own_click() {
+        use cobolt_forms::menu::{MenuDefinition, MenuItem};
+        let mut off = MenuItem::new_action("off", "OFF");
+        off.action = Some("open-form:OFF".into());
+        off.enabled = false;
+        let def = MenuDefinition {
+            menu: vec![
+                MenuItem { action: Some("home".into()), ..MenuItem::new_action("chat", "Chat") },
+                MenuItem { action: Some("open-form:WELCOME-FORM".into()), ..MenuItem::new_action("welc", "Welcome") },
+                off,
+            ],
+            hash: String::new(),
+        };
+        let mut shell = Shell::default();
+        shell.mount_root_menu("CHAT-FORM", def);
+        shell.activate_item("WELC");
+        shell.activate_item("off");
+        shell.activate_item("nope");
+        let clicks = shell.take_menu_clicks();
+        assert_eq!(clicks.len(), 1, "{clicks:?}");
+        assert_eq!(clicks[0].item_id, "welc");
+        assert_eq!(clicks[0].action.as_deref(), Some("open-form:WELCOME-FORM"));
+        assert_eq!(clicks[0].slot, MenuSlot::Root);
     }
 
     #[test]

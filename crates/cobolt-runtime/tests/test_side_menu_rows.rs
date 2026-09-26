@@ -211,3 +211,24 @@ fn a_designed_row_is_relabelled_and_disabled_and_clear_keeps_that() {
     assert_eq!(merged[0].label, "Início", "the label survived Clear()");
     assert!(!merged[1].items[0].enabled, "so did the shut row");
 }
+
+/// `ActivateItem(id)` asks the shell to act on a row as a click would: a
+/// known row answers 1 and writes a fresh request each time (so the same row
+/// can be activated twice); an unknown one answers 0 and writes nothing.
+#[test]
+fn activate_item_writes_a_fresh_request_per_call() {
+    let (display, ups) = run(r#"
+           MOVE MENU-1::ActivateItem("docs-new") TO WS-OK
+           DISPLAY "A=" WS-OK
+           MOVE MENU-1::ActivateItem("docs-new") TO WS-OK
+           MOVE MENU-1::ActivateItem("nope") TO WS-OK
+           DISPLAY "B=" WS-OK"#);
+    assert!(display.iter().any(|l| l.trim() == "A=1"), "{display:?}");
+    assert!(display.iter().any(|l| l.trim() == "B=0"), "{display:?}");
+    let requests: Vec<&str> = ups
+        .iter()
+        .filter(|u| u.prop == cobolt_forms::menu::runtime::ACTIVATE_ITEM_PROP)
+        .map(|u| u.value.as_str())
+        .collect();
+    assert_eq!(requests, ["docs-new#1", "docs-new#2"]);
+}
