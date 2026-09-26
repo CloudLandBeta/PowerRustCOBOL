@@ -8,6 +8,28 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.242] — 2026-09-26
+
+### Feature — an asynchronous SqlDatabase
+
+- **`Mode = Async`** on a SqlDatabase (default stays `Sync`, the value every
+  older form was seeded with): `Query` / `Execute` run on a background worker,
+  return 0 at once and set `Busy`; the result raises the same
+  `onQueryComplete` (count in the new run-time **`ResultCount`**) or
+  `onQueryError` a synchronous call raises, or `onTimeout` after `TimeoutMs`,
+  or `onCancelled` after `Cancel()`. `Mode`, `Busy` and `TimeoutMs` are back on
+  the control and in its property pane.
+- The connection is LENT to the worker (`DbRegistry::lend` / `give_back`), so
+  no two threads ever touch it: a second statement meanwhile is ignored, a
+  `COBOL-EXEC-SQL` on the handle answers "busy", a timed-out or cancelled
+  statement still brings its connection home, and a handle closed meanwhile
+  is dropped on return.
+- **IndexedFile stays synchronous**, and its `Mode`/`Busy`/`TimeoutMs` stay
+  retired: its facade is plain COBOL, where a READ fills the record before the
+  next statement.
+- Also: `PartialReply` / `ReplyPiece` (1.70.241) listed as AgentObject run-time
+  properties in the KB. Tests, KB, hover help and Guide updated.
+
 ## [PowerRustCOBOL 1.70.241] — 2026-09-26
 
 ### Feature — an AgentObject can show its reply while it arrives

@@ -1422,6 +1422,10 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
         "Result",
         "LastError",
         "Busy",
+        // `StreamReply` — the reply so far, and what is new, before each
+        // `onPartialReply`.
+        "PartialReply",
+        "ReplyPiece",
         "LastInputTokens",
         "LastOutputTokens",
         "LastToolCallCount",
@@ -1459,11 +1463,14 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
     const SIDE_MENU: &[&str] = &[crate::menu::runtime::RUNTIME_ROWS_PROP, "SelectedItemId"];
     // The item a click or an accelerator chose, written before `onMenuClick`.
     const MENU_BAR: &[&str] = &["SelectedItemId"];
+    // Spec 032 — an asynchronous statement's count, and the failure text.
+    const SQL: &[&str] = &["ResultCount", "LastError", "StatusCode"];
     match ControlType::from_str(type_name) {
         ControlType::MenuBar => MENU_BAR,
         ControlType::SideMenu => SIDE_MENU,
         ControlType::Maps => MAPS,
         ControlType::AgentObject => AGENT,
+        ControlType::SqlDatabase => SQL,
         ControlType::KnowledgeBase => KNOWLEDGE_BASE,
         ControlType::RestClient | ControlType::WebSearch => ASYNC,
         ControlType::Snackbar => SNACKBAR,
@@ -5737,9 +5744,12 @@ impl Control {
                 props.insert("ConnectionDataItem".into(), PropValue::String("".into())); // e.g. conn1
                 props.insert("ResultSetDataItem".into(), PropValue::String("".into()));
                 // e.g. resultset1
-                // `Mode` / `Busy` / `TimeoutMs` are retired here: spec 032 planned
-                // async SQL, and no SQL verb ever ran anything but synchronously
-                // (property audit, 2026-09-26).
+                // Async I/O (spec 032): Sync by default — the historical
+                // behaviour, and what every older form was seeded with — opt
+                // into Async per control: Query / Execute then run on a worker.
+                props.insert("Mode".into(), PropValue::String("Sync".into())); // Sync | Async
+                props.insert("Busy".into(), PropValue::Bool(false));
+                props.insert("TimeoutMs".into(), PropValue::Int(0));
             }
             ControlType::IndexedFile => {
                 props.insert("IndexedFile".into(), PropValue::String("".into()));
@@ -10930,8 +10940,9 @@ mod tests {
             }
 
             // `ct` is consumed here (ControlType is not Copy), so this comes last.
+            let is_indexed = ct == ControlType::IndexedFile;
             let c = Control::new("X", ct, 0, 0);
-            if default_mode == "Async" {
+            if !is_indexed {
                 assert_eq!(
                     c.properties.get("Mode"),
                     Some(&PropValue::String(default_mode.into())),
@@ -10940,10 +10951,11 @@ mod tests {
                 assert!(matches!(c.properties.get("Busy"), Some(PropValue::Bool(false))));
                 assert!(matches!(c.properties.get("TimeoutMs"), Some(PropValue::Int(_))));
             } else {
-                // SqlDatabase / IndexedFile: their verbs only ever ran
-                // synchronously, so Mode/Busy/TimeoutMs are retired there
-                // (property audit, 2026-09-26). The lifecycle events above
-                // stay, so a handler already bound to one still compiles.
+                // IndexedFile: its facade is plain synchronous COBOL, so
+                // Mode/Busy/TimeoutMs are retired there (property audit,
+                // 2026-09-26). The lifecycle events above stay, so a handler
+                // already bound to one still compiles. (SqlDatabase got its
+                // Async mode back on 2026-09-26.)
                 for retired in ["Mode", "Busy", "TimeoutMs"] {
                     assert!(c.properties.get(retired).is_none(), "{retired} is retired on this control");
                 }

@@ -107,6 +107,10 @@ fn declared_readers() -> Vec<(ControlType, Vec<(&'static str, Reader)>)> {
                 ("ConnectionDataItem", Runtime),
                 // Receives each row from ::Fetch().
                 ("ResultSetDataItem", Runtime),
+                // Spec 032 — read by ::Query / ::Execute (`spawn_sql_op`).
+                ("Mode", Runtime),
+                ("Busy", Runtime),
+                ("TimeoutMs", Runtime),
             ],
         ),
         (

@@ -150,6 +150,12 @@ pub struct DbConn {
 }
 
 impl DbConn {
+    /// Run one statement — what [`DbRegistry::exec`] does, for a connection a
+    /// worker holds. The count is the affected rows, or the rows of a result.
+    pub fn run(&mut self, sql: &str) -> Result<usize, String> {
+        self.exec(sql)
+    }
+
     /// Open a new connection, dispatching on the connection-string scheme.
     #[cfg(feature = "sql")]
     fn open(conn_str: &str) -> Result<Self, String> {
@@ -463,6 +469,32 @@ impl DbConn {
 pub struct DbRegistry {
     connections: HashMap<u32, DbConn>,
     next_handle: u32,
+    /// Handles whose connection is out on a background worker (spec 032,
+    /// `Mode = Async`). Closing one drops the connection when it comes back.
+    lent: std::collections::HashSet<u32>,
+}
+
+/// A connection travelling to or from a background worker. Shared and
+/// optional so the outcome that carries it stays `Clone` + `Debug`; the
+/// receiver `take`s it exactly once.
+#[derive(Clone)]
+pub struct LentConnection(pub std::sync::Arc<std::sync::Mutex<Option<DbConn>>>);
+
+impl LentConnection {
+    pub fn new(conn: DbConn) -> Self {
+        Self(std::sync::Arc::new(std::sync::Mutex::new(Some(conn))))
+    }
+
+    /// The connection, once; `None` after the first call.
+    pub fn take(&self) -> Option<DbConn> {
+        self.0.lock().ok().and_then(|mut c| c.take())
+    }
+}
+
+impl std::fmt::Debug for LentConnection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("LentConnection")
+    }
 }
 
 impl DbRegistry {
@@ -470,6 +502,7 @@ impl DbRegistry {
         Self {
             connections: HashMap::new(),
             next_handle: 1,
+            lent: Default::default(),
         }
     }
 
@@ -488,6 +521,9 @@ impl DbRegistry {
     ///
     /// Returns `Ok(row_count_or_affected_rows)` or `Err(message)`.
     pub fn exec(&mut self, handle: u32, sql: &str) -> Result<usize, String> {
+        if self.lent.contains(&handle) {
+            return Err(self.busy_message(handle));
+        }
         self.connections
             .get_mut(&handle)
             .ok_or_else(|| format!("No open connection with handle {handle}"))?
@@ -547,9 +583,41 @@ impl DbRegistry {
             .unwrap_or(true)
     }
 
-    /// Close a connection and release it from the registry.
+    /// Close a connection and release it from the registry. A connection out
+    /// on a worker is dropped when it comes back.
     pub fn close(&mut self, handle: u32) {
         self.connections.remove(&handle);
+        self.lent.remove(&handle);
+    }
+
+    /// Hand the connection to a background worker (spec 032). Until it is
+    /// given back, every other use of the handle reports it busy.
+    pub fn lend(&mut self, handle: u32) -> Result<DbConn, String> {
+        if self.lent.contains(&handle) {
+            return Err(self.busy_message(handle));
+        }
+        let conn = self
+            .connections
+            .remove(&handle)
+            .ok_or_else(|| format!("No open connection with handle {handle}"))?;
+        self.lent.insert(handle);
+        Ok(conn)
+    }
+
+    /// A lent connection is back — whether its statement finished, failed,
+    /// timed out or was cancelled. Kept only if the handle was not closed
+    /// meanwhile.
+    pub fn give_back(&mut self, handle: u32, conn: DbConn) {
+        if self.lent.remove(&handle) {
+            self.connections.insert(handle, conn);
+        }
+    }
+
+    fn busy_message(&self, handle: u32) -> String {
+        format!(
+            "connection {handle} is busy with an asynchronous statement — wait for its \
+             onQueryComplete (or onQueryError / onTimeout)"
+        )
     }
 
     /// Close all connections (called when the interpreter finishes).

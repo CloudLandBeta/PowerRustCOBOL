@@ -9105,6 +9105,21 @@ impl PropertiesPanel {
                         action,
                     );
                 }
+                // ── Async I/O (spec 032) — Sync by default; opt into Async ──
+                // Query / Execute run on a worker and report through the same
+                // onQueryComplete / onQueryError a synchronous call raises.
+                section_header(ui, tr.sec_async);
+                combo_row_labeled(ui, id, "Mode", "Mode:", ctrl, action, &["Sync", "Async"]);
+                int_row_inline(
+                    ui,
+                    id,
+                    "TimeoutMs",
+                    "Timeout (ms):",
+                    ctrl,
+                    action,
+                    0..=600_000,
+                );
+                busy_row_readonly(ui, ctrl);
                 ui.add_space(4.0);
             }
 

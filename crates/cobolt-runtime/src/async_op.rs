@@ -42,6 +42,15 @@ pub enum AsyncOutcome {
     /// flight; the worker throttles these, and the finished stream arrives as
     /// an ordinary [`Self::AgentReply`].
     AgentPartial { text: String },
+    /// An asynchronous `SqlDatabase` `Query` / `Execute` finished (spec 032).
+    /// Carries the connection back: it is returned to the registry even when
+    /// the result itself is stale (timed out, cancelled), or it would leak.
+    SqlDone {
+        handle: u32,
+        conn: crate::db_runtime::LentConnection,
+        query: bool,
+        result: Result<usize, String>,
+    },
     /// Spec 068 — a KnowledgeBase operation moved on. Not final: the operation
     /// is still pending. Throttled by the worker.
     KbProgress {

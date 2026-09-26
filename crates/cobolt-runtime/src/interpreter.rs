@@ -3518,6 +3518,14 @@ impl Interpreter {
         let results: Vec<crate::async_op::AsyncOpResult> =
             self.async_result_rx.try_iter().collect();
         for r in results {
+            // A lent SQL connection goes home FIRST, whatever became of its
+            // statement — a stale result is dropped below, the connection
+            // must not be.
+            if let crate::async_op::AsyncOutcome::SqlDone { handle, conn, .. } = &r.outcome {
+                if let Some(c) = conn.take() {
+                    self.db.give_back(*handle, c);
+                }
+            }
             let live = self
                 .async_generations
                 .get(&r.ctrl_id)
@@ -3552,6 +3560,9 @@ impl Interpreter {
                 }
                 crate::async_op::AsyncOutcome::AgentPartial { text } => {
                     self.agent_partial(&r.ctrl_id, text);
+                }
+                crate::async_op::AsyncOutcome::SqlDone { handle, query, result, .. } => {
+                    self.sql_delivered(&r.ctrl_id, handle, query, result);
                 }
                 crate::async_op::AsyncOutcome::HttpSuccess { body, status } => {
                     if self.agent_is_verbose(&r.ctrl_id) {
@@ -12087,6 +12098,87 @@ impl Interpreter {
         self.free_memory_probe = bytes;
     }
 
+    /// `Mode = Async` on a SqlDatabase (spec 032). Sync — anything else —
+    /// is the historical in-statement behaviour.
+    fn sql_is_async(&mut self, obj: &str) -> bool {
+        self.obj_get(obj, "Mode").trim().eq_ignore_ascii_case("async")
+    }
+
+    /// Run one `Query` / `Execute` on a background worker (spec 032).
+    ///
+    /// The connection is LENT to the worker, so it is never touched by two
+    /// threads, and comes back with the result. The statement returns 0 at
+    /// once; the count arrives as `ResultCount` with `onQueryComplete` — or
+    /// `LastError` with `onQueryError`, or `onTimeout` after `TimeoutMs`.
+    /// A second statement while one is in flight is ignored (R6).
+    fn spawn_sql_op(&mut self, obj: &str, handle: u32, sql: String, query: bool) {
+        if self.async_pending.contains_key(obj) {
+            return;
+        }
+        let conn = match self.db.lend(handle) {
+            Ok(c) => c,
+            Err(e) => {
+                self.obj_set(obj, "LastError", e);
+                self.obj_set(obj, "StatusCode", "1".into());
+                self.queue_control_event(obj, "onQueryError");
+                return;
+            }
+        };
+        let generation = {
+            let gen = self
+                .async_generations
+                .entry(obj.to_string())
+                .or_insert_with(|| Arc::new(AtomicU64::new(0)));
+            gen.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+        };
+        let timeout_ms = self.obj_get(obj, "TimeoutMs").trim().parse::<u64>().unwrap_or(0);
+        self.obj_set(obj, "Busy", "1".to_owned());
+        self.async_pending.insert(
+            obj.to_string(),
+            crate::async_op::PendingOp {
+                generation,
+                started_at: std::time::Instant::now(),
+                timeout_ms,
+            },
+        );
+        let tx = self.async_result_tx.clone();
+        let ctrl_id = obj.to_string();
+        std::thread::spawn(move || {
+            let mut conn = conn;
+            let result = conn.run(&sql);
+            let _ = tx.send(crate::async_op::AsyncOpResult {
+                ctrl_id,
+                generation,
+                outcome: crate::async_op::AsyncOutcome::SqlDone {
+                    handle,
+                    conn: crate::db_runtime::LentConnection::new(conn),
+                    query,
+                    result,
+                },
+            });
+        });
+    }
+
+    /// An asynchronous statement finished: the same outputs and events a
+    /// synchronous one produces, with the count in `ResultCount`.
+    fn sql_delivered(&mut self, obj: &str, handle: u32, query: bool, result: Result<usize, String>) {
+        self.obj_set(obj, "Busy", "0".to_owned());
+        match result {
+            Ok(n) => {
+                let count = if query { self.db.row_count(handle) } else { n };
+                self.obj_set(obj, "ResultCount", count.to_string());
+                self.obj_set(obj, "StatusCode", "0".into());
+                self.queue_control_event(obj, "onQueryComplete");
+            }
+            Err(e) => {
+                self.obj_set(obj, "ResultCount", "0".into());
+                self.obj_set(obj, "LastError", e);
+                self.obj_set(obj, "StatusCode", "1".into());
+                self.queue_control_event(obj, "onQueryError");
+            }
+        }
+    }
+
     fn agent_ask(&mut self, obj: &str, prompt: &str) {
         use crate::agent_runtime as ag;
 
@@ -16093,6 +16185,11 @@ impl Interpreter {
                     val("0".to_string())
                 }
             },
+            "EXECUTE" | "EXEC" | "QUERY" if self.sql_is_async(obj) => {
+                let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
+                self.spawn_sql_op(obj, h, arg(0), m.as_str() == "QUERY");
+                val("0".to_string())
+            }
             "EXECUTE" | "EXEC" => {
                 let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
                 match self.db.exec(h, &arg(0)) {
@@ -20709,6 +20806,82 @@ MAIN.
         assert_eq!(interp.env.get_string("WS-ROW").map(|s| s.trim().to_owned()).as_deref(), Some("row-one"));
         interp.exec_method("DB-1", "Fetch", &[]);
         assert_eq!(interp.env.get_string("WS-ROW").map(|s| s.trim().to_owned()).as_deref(), Some(""), "spaces once the rows run out");
+    }
+
+    /// `Mode = Async` on a SqlDatabase (spec 032): `Query` / `Execute` return
+    /// 0 at once with `Busy` set, the connection is out on a worker — a second
+    /// statement meanwhile is refused, not raced — and the result arrives with
+    /// `ResultCount` and the SAME `onQueryComplete` a synchronous call raises;
+    /// the rows are then fetched as usual. A failure is `onQueryError`.
+    #[test]
+    fn an_async_sql_statement_reports_through_the_usual_events() {
+        let mut interp = Interpreter::new(
+            parse(tokenize("IDENTIFICATION DIVISION.\nPROGRAM-ID. T.\nPROCEDURE DIVISION.\n    STOP RUN.\n", SourceFormat::Free))
+                .program
+                .expect("parses"),
+        );
+        interp.seed_objects([(
+            "DB-1".to_owned(),
+            "SqlDatabase".to_owned(),
+            vec![("ConnectionString".to_owned(), ":memory:".to_owned())],
+        )]);
+        interp.set_control_ids(["DB-1"]);
+        let s = |x: &str| CobolValue::from_str(x, x.len());
+        interp.exec_method("DB-1", "Open", &[]);
+        interp.exec_method("DB-1", "Execute", &[s("CREATE TABLE t(a TEXT)")]);
+        interp.async_dispatch_queue.clear();
+        interp.obj_set("DB-1", "Mode", "Async".into());
+
+        let wait = |interp: &mut Interpreter| -> Vec<String> {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while interp.async_pending.contains_key("DB-1") && std::time::Instant::now() < deadline {
+                interp.drain_async_ops();
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            interp.async_dispatch_queue.drain(..).map(|(_, e)| e).collect()
+        };
+
+        let ret = interp.exec_method("DB-1", "Execute", &[s("INSERT INTO t VALUES('x'),('y'),('z')")]);
+        assert_eq!(ret.as_display_string().trim(), "0", "returns at once");
+        assert_eq!(interp.obj_get("DB-1", "Busy"), "true");
+        // The connection is on the worker: a statement meanwhile is ignored.
+        interp.exec_method("DB-1", "Execute", &[s("DELETE FROM t")]);
+        assert_eq!(wait(&mut interp), ["onQueryComplete"]);
+        assert_eq!(interp.obj_get("DB-1", "Busy"), "false");
+        assert_eq!(interp.obj_get("DB-1", "ResultCount"), "3", "three rows inserted");
+
+        interp.exec_method("DB-1", "Query", &[s("SELECT a FROM t ORDER BY a")]);
+        assert_eq!(wait(&mut interp), ["onQueryComplete"]);
+        assert_eq!(interp.obj_get("DB-1", "ResultCount"), "3", "and none deleted");
+        assert_eq!(interp.exec_method("DB-1", "Fetch", &[]).as_display_string().trim(), "x");
+        interp.async_dispatch_queue.clear(); // Fetch's own onRowFetched
+
+        interp.exec_method("DB-1", "Query", &[s("SELECT nope FROM missing")]);
+        assert_eq!(wait(&mut interp), ["onQueryError"]);
+        assert!(!interp.obj_get("DB-1", "LastError").is_empty());
+
+        // Synchronous again: the connection came home and works in-statement.
+        interp.obj_set("DB-1", "Mode", "Sync".into());
+        let n = interp.exec_method("DB-1", "Query", &[s("SELECT a FROM t")]);
+        assert_eq!(n.as_display_string().trim(), "3");
+    }
+
+    /// A statement that outlives `TimeoutMs` raises `onTimeout` — and the
+    /// connection still comes home when the worker finishes.
+    #[test]
+    fn a_timed_out_async_statement_still_returns_its_connection() {
+        let mut db = crate::db_runtime::DbRegistry::new();
+        let h = db.open(":memory:").unwrap();
+        let conn = db.lend(h).unwrap();
+        assert!(db.exec(h, "SELECT 1").unwrap_err().contains("busy"));
+        assert!(db.lend(h).is_err(), "lent once");
+        db.give_back(h, conn);
+        assert_eq!(db.exec(h, "SELECT 1"), Ok(1));
+        // Closed while lent: dropped on return, never revived.
+        let conn = db.lend(h).unwrap();
+        db.close(h);
+        db.give_back(h, conn);
+        assert!(db.exec(h, "SELECT 1").is_err());
     }
 
     /// Every property the property audit retired stays a harmless no-op for

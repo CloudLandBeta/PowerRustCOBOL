@@ -8731,12 +8731,13 @@ response arrives later as an event on the same control:
 
 The control surface, on `RestClient` and `WebSearch`:
 
-- **`Mode`** (`Async` / `Sync`) — both default to `Async`. (`SqlDatabase` and
-  `IndexedFile` once carried `Mode`, `Busy` and `TimeoutMs` too, for an
-  asynchronous path that was planned and never built: their operations have
-  always run synchronously. The three are retired there — new controls do not
-  carry them, and a form or program that still sets or reads them keeps
-  working; the values are simply ignored, and `IsBusy()` answers 0.)
+- **`Mode`** (`Async` / `Sync`) — both default to `Async`. (`IndexedFile` once
+  carried `Mode`, `Busy` and `TimeoutMs` too, for an asynchronous path that
+  was planned and never built: its facade is plain COBOL, where a `READ` fills
+  the record before the next statement. The three are retired there — new
+  controls do not carry them, and a form or program that still sets or reads
+  them keeps working; the values are simply ignored, and `IsBusy()` answers
+  0. `SqlDatabase` has a real `Mode` — see below.)
 - **`Busy`** (read-only) — `1` while an operation is in flight. A second call
   while `Busy` is ignored; poll `Busy` or wait for the lifecycle event.
 - **`TimeoutMs`** — per-control timeout in milliseconds; `0` falls back to the
@@ -8751,6 +8752,51 @@ The control surface, on `RestClient` and `WebSearch`:
 > control's `Mode` to `Sync` to keep the original same-statement result, or
 > move the read into an `onComplete` handler. The `COBOL-HTTP-*` CALL surface
 > is unchanged and always synchronous.
+
+#### An asynchronous SqlDatabase
+
+A `SqlDatabase` is **synchronous by default** — `Query` and `Execute` finish
+inside the statement and return their count, as they always have. A report
+query that takes seconds freezes nothing but your own handler, yet the form
+cannot answer a click meanwhile. Set the control's **`Mode`** to `Async` and
+`Query` / `Execute` run on a background worker instead: they return `0` at
+once, `Busy` turns on, and the result arrives as the **same events a
+synchronous call raises** — so a handler you already wrote keeps working:
+
+- `onQueryComplete` — the count is in **`ResultCount`** (result rows for a
+  `Query`, affected rows for an `Execute`); `Fetch()` reads the rows as usual.
+- `onQueryError` — `LastError` says why.
+- `onTimeout` — the statement ran longer than **`TimeoutMs`** (`0`, the
+  default, means no limit). `onCancelled` — you called `Cancel()`.
+
+```cobol
+       REFRESH-BUTTON--ONCLICK.
+           MOVE "Loading…" TO Status-Label::Caption.
+           SqlDatabase-1::Query("SELECT NAME, CITY FROM CUSTOMERS").
+
+       SQLDATABASE-1--ONQUERYCOMPLETE.
+           MOVE SqlDatabase-1::ResultCount TO WS-ROWS
+           PERFORM UNTIL 1 = 2
+               MOVE SqlDatabase-1::Fetch() TO WS-ROW
+               IF WS-ROW = SPACES
+                   EXIT PERFORM
+               END-IF
+               CustomerList::AddItem(WS-ROW)
+           END-PERFORM
+           MOVE SPACES TO Status-Label::Caption.
+```
+
+> **Notes.** One statement at a time per control: while `Busy` is on, a
+> second `Query` or `Execute` is ignored, and a `COBOL-EXEC-SQL` CALL on the
+> same connection answers that it is busy — the connection is out on the
+> worker, so it is never used by two things at once. `Open`, `Fetch` and
+> `Close` stay synchronous. A timed-out or cancelled statement is not
+> interrupted in the database: it finishes on its worker, its result is
+> discarded, and the connection is usable again the moment it does.
+>
+> ⚠️ **Caveat.** Do not read `ResultCount` or `Fetch()` on the statement after
+> an asynchronous `Query` — nothing has arrived yet. Their home is the
+> `onQueryComplete` handler.
 
 ### Data items: where a result lands in WORKING-STORAGE
 
@@ -9359,7 +9405,7 @@ still ends the way it always did — `onResponse`, once, with the whole text in
 ```cobol
        SEND-BUTTON--ONCLICK.
            INVOKE VWR-1::AppendMarkdown("**Assistant:**")
-               RETURNING WS-MESSAGE-ID
+               RETURNING WS-MESSAGE-ID.
            Agent1::Ask(Prompt-Box::Text).
 
        AGENT1--ONPARTIALREPLY.

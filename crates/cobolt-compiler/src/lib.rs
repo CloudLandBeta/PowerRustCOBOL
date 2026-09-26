@@ -4908,11 +4908,27 @@ pub fn property_reference_for(control: &str, name: &str) -> Option<(&'static str
             BOOL_DOMAIN,
             "Draws the progress as a PERCENTAGE of the range (e.g. `45%`), centred on the bar — not the raw Value.",
         )),
-        ("SqlDatabase", "Mode") | ("IndexedFile", "Mode") | ("SqlDatabase", "TimeoutMs") | ("IndexedFile", "TimeoutMs") => Some((
-            "retired",
-            "**Retired** on this control: spec 032 planned asynchronous operation, and every verb here has only ever run synchronously. No longer seeded or shown; a value in an older form, or a COBOL read or write of it, is kept and ignored.",
+        ("SqlDatabase", "Mode") => Some((
+            "one of: `Sync` | `Async` (default Sync)",
+            "`Sync` (the default, and the historical behaviour): `Query` / `Execute` run in the statement and return their count. `Async`: they run on a background worker and return 0 at once; `Busy` is true until the result arrives, which raises the SAME `onQueryComplete` (count in `ResultCount`) or `onQueryError` (`LastError`) a synchronous call raises — or `onTimeout` after `TimeoutMs`, or `onCancelled` after `Cancel()`. Then `Fetch()` reads the rows as usual. While a statement is in flight its connection is on the worker: a second `Query`/`Execute` on the control is ignored, and a CALL on the same handle answers that the connection is busy. `Open`, `Fetch` and `Close` stay synchronous.",
         )),
-        ("SqlDatabase", "Busy") | ("IndexedFile", "Busy") => Some((
+        ("SqlDatabase", "TimeoutMs") => Some((
+            "milliseconds >= 0 (default 0 = no timeout)",
+            "With `Mode = Async`: how long a statement may run before `onTimeout` fires and `Busy` clears. The database is not interrupted — the statement finishes on its worker and its result is discarded — and the connection is usable again once it does. Ignored in `Sync` mode.",
+        )),
+        ("SqlDatabase", "Busy") => Some((
+            "true | false (runtime-only, read-only)",
+            "With `Mode = Async`: true from `Query`/`Execute` until its `onQueryComplete`, `onQueryError`, `onTimeout` or `onCancelled`. `IsBusy()` reads it. Always false in `Sync` mode.",
+        )),
+        ("SqlDatabase", "ResultCount") => Some((
+            "integer (runtime-only, read-only)",
+            "With `Mode = Async`: the count an asynchronous `Query` (result rows) or `Execute` (affected rows) produced — what the statement itself returns in `Sync` mode. Written just before `onQueryComplete`; 0 on `onQueryError`.",
+        )),
+        ("IndexedFile", "Mode") | ("IndexedFile", "TimeoutMs") => Some((
+            "retired",
+            "**Retired** on this control: spec 032 planned asynchronous operation, and its facade is plain synchronous COBOL — a READ fills the record before the next statement. No longer seeded or shown; a value in an older form, or a COBOL read or write of it, is kept and ignored.",
+        )),
+        ("IndexedFile", "Busy") => Some((
             "retired",
             "**Retired** on this control: its operations are synchronous, so it is never busy. `IsBusy()` answers 0.",
         )),
@@ -6196,8 +6212,8 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
         ],
         "SqlDatabase" => vec![
             ("Open(connectionString: String) → Integer", "Open the connection; returns the handle (fires `onConnectOk`/`onConnectError`)."),
-            ("Execute(sql: String) → Integer", "Run a statement; returns the affected-row count (alias `Exec`)."),
-            ("Query(sql: String) → Integer", "Run a query; returns the result-row count."),
+            ("Execute(sql: String) → Integer", "Run a statement; returns the affected-row count (alias `Exec`). With `Mode = Async` it runs on a worker, returns 0 at once, and the count arrives in `ResultCount` with `onQueryComplete`."),
+            ("Query(sql: String) → Integer", "Run a query; returns the result-row count. With `Mode = Async` it runs on a worker, returns 0 at once, and the count arrives in `ResultCount` with `onQueryComplete` — fetch the rows there."),
             ("Fetch() → Boolean (0/1)", "Advance to the next row (fires `onRowFetched`)."),
             ("FetchAll() → Integer", "Row count of the current result set."),
             ("Close()", "Close the connection."),
