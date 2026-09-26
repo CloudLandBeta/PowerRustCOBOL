@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.240] — 2026-09-26
+
+### Feature — a Responsive MenuBar spans the running window
+
+- A `MenuBarStyle = Responsive` MenuBar, and every StatusBar, now widen with the
+  running window when the operator resizes it (never narrower than the form),
+  in the main window, a child window and a shell's content pane — so in
+  `rcrun run-form` and in a built application alike. They stopped at the
+  form's designed width. Only the frame's painted copy changes; Y, Height and
+  every other control keep the design (`Form::stretch_window_bars`, test
+  `window_bars_follow_the_running_windows_width`). KB, hover help and Guide
+  updated.
+
 ## [PowerRustCOBOL 1.70.239] — 2026-09-26
 
 ### Examples — the operator's own example edits

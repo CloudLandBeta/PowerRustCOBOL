@@ -1983,7 +1983,8 @@ What you do **not** set is where they sit: the division line decides that.
 > to 50 %. Set the orientation you want and drag the line back into place —
 > it is a one-time correction, and nothing you put on the form is lost.
 A **StatusBar** is the width of its window, always. You do not set its `X` or
-its `Width` — they are the form's, they follow a form resize on their own, and
+its `Width` — they are the form's, they follow a form resize on their own (and,
+at run time, the running window as the operator widens it), and
 the designer shows them greyed and offers only the top and bottom resize knobs.
 Its `Y` and `Height` are still yours: where along the bottom edge it sits, and
 how tall it is, are your decision. It is also **the one control that cannot go
@@ -3970,6 +3971,14 @@ with the pointer resting on the hour `▶` arrow.*
 The **MenuBar** control provides a 3-level pulldown menu system for your
 application. Menus are authored in a **tree editor** inside the IDE and stored
 as a YAML file alongside the `.cfrm`.
+
+**How wide the bar is — `MenuBarStyle`.** `Free` (the default) keeps the bar
+exactly as wide as you drew it. `Responsive` makes it a real window menu bar: it
+starts at the left edge and runs the form's full width in the designer, follows
+the form when you resize it there, and **at run time spans the running window** —
+when the operator widens the window, the bar widens with it to the right edge
+(it never gets narrower than the form). Its `Y` and `Height` stay yours, and no
+other control moves: a running form keeps its designed layout.
 
 **Editing menus.** Select the MenuBar control in the designer, then click
 "Edit Menu..." in its properties. The tree editor lets you add, remove, and

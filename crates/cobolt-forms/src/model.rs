@@ -7613,6 +7613,23 @@ impl Form {
         walk(&mut self.controls, form_w);
     }
 
+    /// The run-time half of [`Self::sync_menu_bar_responsive`] and
+    /// [`Self::sync_status_bars`]: stretch every `Responsive` MenuBar and every
+    /// StatusBar to `width`, the width the running window shows right now.
+    /// The design pins them to the FORM's width; a window the operator widens
+    /// past it left them stopping short of the right edge. Only x and width
+    /// change — never the design, only the copy a frame paints.
+    pub fn stretch_window_bars(controls: &mut [Control], width: f32) {
+        let w = width.round().max(1.0) as i32;
+        for c in controls {
+            if c.menu_bar_responsive() || c.control_type == ControlType::StatusBar {
+                c.rect.x = 0;
+                c.rect.w = w;
+            }
+            Self::stretch_window_bars(&mut c.children, width);
+        }
+    }
+
     /// Pin every StatusBar to the form's full width, and take it out of any
     /// container it has ended up in (operator, 2026-09-09).
     ///
@@ -8830,6 +8847,28 @@ mod tests {
             bar.set_prop("MenuBarStyle", PropValue::String(word.into()));
             assert!(!bar.menu_bar_responsive(), "{word:?} must NOT turn it on");
         }
+    }
+
+    /// At run time a Responsive MenuBar and a StatusBar follow the WINDOW's
+    /// width; a Free MenuBar and every other control keep their design rect,
+    /// and each bar keeps its own Y and Height.
+    #[test]
+    fn window_bars_follow_the_running_windows_width() {
+        let mut resp = Control::new("MB", ControlType::MenuBar, 0, 0);
+        resp.set_prop("MenuBarStyle", PropValue::String("Responsive".into()));
+        resp.rect = Rect::new(0, 0, 640, 28);
+        let mut free = Control::new("MF", ControlType::MenuBar, 0, 0);
+        free.rect = Rect::new(20, 40, 300, 28);
+        let mut status = Control::new("SB", ControlType::StatusBar, 0, 0);
+        status.rect = Rect::new(0, 452, 640, 24);
+        let mut btn = Control::new("B", ControlType::Button, 0, 0);
+        btn.rect = Rect::new(10, 100, 80, 30);
+        let mut controls = vec![resp, free, status, btn];
+        Form::stretch_window_bars(&mut controls, 1024.0);
+        assert_eq!((controls[0].rect.x, controls[0].rect.w, controls[0].rect.h), (0, 1024, 28));
+        assert_eq!(controls[1].rect, Rect::new(20, 40, 300, 28), "Free is the developer's");
+        assert_eq!((controls[2].rect.y, controls[2].rect.w, controls[2].rect.h), (452, 1024, 24));
+        assert_eq!(controls[3].rect, Rect::new(10, 100, 80, 30));
     }
 
     /// The property belongs to the bar alone — a SideMenu is the vertical

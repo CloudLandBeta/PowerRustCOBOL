@@ -2640,7 +2640,7 @@ impl FormBody {
         // focus during render, and the clipboard verbs need to know who HAD it.
         let pre_focus = ctx.memory(|m| m.focused());
         let output = {
-            let controls = self.painted_controls();
+            let mut controls = self.painted_controls();
             let st = LiveState {
                 state: &self.state,
                 anim: &self.anim,
@@ -2673,6 +2673,13 @@ impl FormBody {
                     egui::ScrollArea::both()
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
+                            // A Responsive MenuBar and a StatusBar span the
+                            // window the operator sees, not only the width
+                            // the form was designed at.
+                            cobolt_forms::Form::stretch_window_bars(
+                                &mut controls,
+                                ui.available_width().max(form_size.x),
+                            );
                             ui.set_min_size(form_size);
                             let input = cobolt_forms::render::RenderInput {
                                 controls: &controls,
@@ -5129,7 +5136,7 @@ impl FormHost {
         self.root.tick_viewers(ctx);
         let viewer_docs = self.root.viewer_documents();
         let output = {
-            let controls = self.root.controls.clone();
+            let mut controls = self.root.controls.clone();
             let st = LiveState {
                 state: &self.root.state,
                 anim: &self.root.anim,
@@ -5235,6 +5242,13 @@ impl FormHost {
                     let sa = egui::ScrollArea::both()
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
+                            // A Responsive MenuBar and a StatusBar span the
+                            // window the operator sees, not only the width
+                            // the form was designed at.
+                            cobolt_forms::Form::stretch_window_bars(
+                                &mut controls,
+                                ui.available_width().max(form_size.x),
+                            );
                             ui.set_min_size(form_size);
                             let input = cobolt_forms::render::RenderInput {
                                 controls: &controls,

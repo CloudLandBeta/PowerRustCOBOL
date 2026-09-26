@@ -3418,12 +3418,12 @@ pub static PROP_HELP: &[PropHelp] = &[
         "Couleur du texte du titre de menu sous le pointeur, et de l'élément déroulant sous le pointeur ou qui clignote après un clic. Blanc par défaut.",
     ] },
     PropHelp { ty: "MenuBar", prop: "MenuBarStyle", text: [
-        "Free (default) keeps the bar at the width you drew it. Responsive pins it to x 0 and the form's full width, in the designer and on load; Y and Height stay yours.",
-        "Free (predeterminado) mantiene la barra con el ancho dibujado. Responsive la fija en x 0 y al ancho total del formulario, en el diseñador y al cargar; Y y Height siguen siendo suyos.",
-        "Free (padrão) mantém a barra na largura desenhada. Responsive a fixa em x 0 e na largura total do formulário, no designer e ao carregar; Y e Height continuam seus.",
-        "Free（既定）は描いた幅のままにします。Responsive はデザイナー上と読み込み時に x 0・フォーム全幅に合わせます。Y と Height は変わりません。",
-        "Free（默认）保持绘制时的宽度。Responsive 在设计器中和加载时将其固定在 x 0 并占满窗体宽度；Y 和 Height 保持不变。",
-        "Free (par défaut) garde la barre à la largeur dessinée. Responsive la place en x 0 sur toute la largeur du formulaire, dans le concepteur et au chargement ; Y et Height restent les vôtres.",
+        "Free (default) keeps the width you drew. Responsive pins it to x 0 at the form's full width, and at run time it spans the window as the operator widens it; Y and Height stay yours.",
+        "Free (predeterminado) mantiene el ancho dibujado. Responsive la fija en x 0 con todo el ancho del formulario y, en ejecución, abarca la ventana cuando el operador la ensancha; Y y Height siguen siendo suyos.",
+        "Free (padrão) mantém a largura desenhada. Responsive a fixa em x 0 na largura total do formulário e, em execução, acompanha a janela quando o operador a alarga; Y e Height continuam seus.",
+        "Free（既定）は描いた幅のまま。Responsive は x 0 でフォームの全幅に固定し、実行時はオペレーターが広げたウィンドウの幅に合わせます。Y と Height はそのままです。",
+        "Free（默认）保持绘制的宽度。Responsive 固定在 x 0 并占满窗体全宽，运行时随操作员加宽的窗口一起延伸；Y 和 Height 保持不变。",
+        "Free (par défaut) garde la largeur dessinée. Responsive la cale en x 0 sur toute la largeur du formulaire et, à l'exécution, suit la fenêtre quand l'opérateur l'élargit ; Y et Height restent les vôtres.",
     ] },
     PropHelp { ty: "MenuBar", prop: "SelectedBgColor", text: [
         "Background of the menu title whose dropdown is open. Default #3366CC.",
