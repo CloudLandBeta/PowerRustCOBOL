@@ -6313,7 +6313,9 @@ impl Control {
         self.get_prop("CollapsedWidth")
             .map(|v| v.as_i64() as f32)
             .filter(|w| *w > 0.0)
-            .map(|w| w.max(SIDE_MENU_MIN_COLLAPSED_WIDTH))
+            // 24-200, the documented domain: the floor was enforced and the
+            // ceiling was not (property audit, 2026-09-26).
+            .map(|w| w.clamp(SIDE_MENU_MIN_COLLAPSED_WIDTH, 200.0))
             .unwrap_or(SIDE_MENU_COLLAPSED_WIDTH)
     }
 
@@ -10186,6 +10188,16 @@ mod tests {
                 "DataGrid property list missing {expected}"
             );
         }
+    }
+
+    /// `CollapsedWidth` keeps to its documented 24-200.
+    #[test]
+    fn side_menu_collapsed_width_keeps_to_its_domain() {
+        let mut c = Control::new("SM", ControlType::SideMenu, 0, 0);
+        c.set_prop("CollapsedWidth", PropValue::Int(500));
+        assert_eq!(c.side_menu_collapsed_width(), 200.0);
+        c.set_prop("CollapsedWidth", PropValue::Int(10));
+        assert_eq!(c.side_menu_collapsed_width(), SIDE_MENU_MIN_COLLAPSED_WIDTH);
     }
 
     /// Property audit, 2026-09-25: `ColumnFilters` set in the designer

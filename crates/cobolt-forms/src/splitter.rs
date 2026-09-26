@@ -329,8 +329,17 @@ pub struct Geometry {
 
 /// The inner area a Splitter divides: its rect less the border it draws, so a
 /// pane never sits on top of the splitter's own frame.
-pub fn content_rect(rect: Rect) -> Rect {
-    let b = 2;
+///
+/// The inset is the border's own `BorderWidth` (2 at least). It was a fixed
+/// 2, so a wider border was half covered by the panes and their contents
+/// (property audit, 2026-09-26). With `BorderStyle` `None` no border is drawn
+/// and the historical 2 stays.
+pub fn content_rect(ctrl: &Control, rect: Rect) -> Rect {
+    let drawn = !ctrl
+        .get_prop("BorderStyle")
+        .is_some_and(|v| v.as_str().trim().eq_ignore_ascii_case("None"));
+    let width = ctrl.get_prop("BorderWidth").map(|v| v.as_i64()).unwrap_or(1).clamp(0, 64) as i32;
+    let b = if drawn { width.max(2) } else { 2 };
     Rect::new(
         rect.x + b,
         rect.y + b,
@@ -343,7 +352,7 @@ pub fn content_rect(rect: Rect) -> Rect {
 /// space the caller is working in (form space for the model, screen space for a
 /// painter).
 pub fn geometry(ctrl: &Control, rect: Rect) -> Geometry {
-    let inner = content_rect(rect);
+    let inner = content_rect(ctrl, rect);
     let horizontal = is_horizontal(ctrl);
     let thick = line_size(ctrl);
     let half = thick / 2;
@@ -418,7 +427,7 @@ pub fn geometry(ctrl: &Control, rect: Rect) -> Geometry {
 /// `rect` is the splitter's rectangle in the same space as the pointer. A
 /// zero-width span cannot be divided, so it answers the current position.
 pub fn percent_at(ctrl: &Control, rect: Rect, px: i32, py: i32) -> i32 {
-    let inner = content_rect(rect);
+    let inner = content_rect(ctrl, rect);
     let (start, span, p) = if is_horizontal(ctrl) {
         (inner.x, inner.w, px)
     } else {
@@ -641,6 +650,19 @@ pub use painting::{paint, percent_at_screen, screen_geometry, ScreenGeometry, Sp
 
 #[cfg(test)]
 mod tests {
+    /// The panes keep off a frame wider than 2 px (property audit,
+    /// 2026-09-26); with no frame drawn the inset stays 2.
+    #[test]
+    fn the_panes_keep_off_a_wide_frame() {
+        let mut c = Control::new("SP", crate::ControlType::Splitter, 0, 0);
+        c.set_prop("BorderWidth", crate::PropValue::Int(6));
+        let inner = content_rect(&c, Rect::new(10, 10, 200, 100));
+        assert_eq!((inner.x, inner.y, inner.w, inner.h), (16, 16, 188, 88));
+        c.set_prop("BorderStyle", crate::PropValue::String("None".into()));
+        let inner = content_rect(&c, Rect::new(10, 10, 200, 100));
+        assert_eq!((inner.x, inner.w), (12, 196));
+    }
+
     use super::*;
 
     fn pane_at(x: i32, w: i32) -> Rect {
@@ -792,7 +814,7 @@ mod tests {
             let mut c = splitter(400, 200);
             c.set_prop("SplitPosition", pct as i64);
             let g = geometry(&c, c.rect);
-            let inner = content_rect(c.rect);
+            let inner = content_rect(&c, c.rect);
             let seen = ((g.line.x + g.line.w).min(inner.x + inner.w) - g.line.x.max(inner.x)).max(0);
             assert_eq!(
                 g.pane1.w + seen + g.pane2.w,
@@ -850,12 +872,12 @@ mod tests {
         c.set_prop("SplitPosition", 0i64);
         let g = geometry(&c, c.rect);
         assert!(
-            g.grip.x < content_rect(c.rect).x,
+            g.grip.x < content_rect(&c, c.rect).x,
             "the grip reaches outside the inner area at 0 %: {:?}",
             g.grip
         );
         assert!(
-            g.grip.x + g.grip.w > content_rect(c.rect).x,
+            g.grip.x + g.grip.w > content_rect(&c, c.rect).x,
             "…and half of it is still inside"
         );
     }
@@ -889,7 +911,7 @@ mod tests {
     #[test]
     fn the_pointer_maps_back_to_a_percentage() {
         let c = splitter(400, 200);
-        let inner = content_rect(c.rect);
+        let inner = content_rect(&c, c.rect);
         let mid = inner.x + inner.w / 2;
         assert_eq!(percent_at(&c, c.rect, mid, 100), 50);
         assert_eq!(percent_at(&c, c.rect, inner.x, 100), 0);

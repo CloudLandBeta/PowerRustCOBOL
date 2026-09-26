@@ -4880,6 +4880,22 @@ pub fn property_reference_for(control: &str, name: &str) -> Option<(&'static str
             "retired",
             "**Retired.** A DataGrid has no in-cell editing, so there was never anything for this to block. It is no longer seeded or shown; a value saved in an older form is kept and ignored. The cells change only when COBOL writes `Rows`.",
         )),
+        ("SideMenu", "HighlightBgColor") => Some((
+            COLOR_DOMAIN,
+            "The hovered row's background, laid down as a soft TINT (22 % of the colour) so a hover never reads as the active row, which wears SelectedBgColor solid. Empty falls back to a tint of SelectedBgColor.",
+        )),
+        ("SideMenu", "HighlightFgColor") => Some((
+            COLOR_DOMAIN,
+            "The hovered row's text and icon — used where it clears WCAG AA (4.5:1) against what is actually behind it (the tint over the rail over the form); where it would not, the row keeps ForegroundColor, so the seeded white never vanishes on a pale rail.",
+        )),
+        ("StatusBar", "Items") => Some((
+            "newline-separated texts",
+            "The texts the bar shows, left to right, one per line — in the bar's own ForegroundColor, font and font styles, on its designed face, on the designer canvas and in the running form alike.",
+        )),
+        ("Splitter", "BorderWidth") => Some((
+            "pixels 0-64",
+            "The width of the splitter's frame. The panes are inset by it (2 pixels at least), so a wide frame is never covered by the panes and what they hold; with BorderStyle None the inset is 2.",
+        )),
         ("Viewer", "Format") => Some((
             "one of: `Text` | `Markdown` | `Image` | `Pdf` | `HtmlSubset` (runtime-set)",
             "The format the runtime detected for the loaded document, from its extension and content; written on every load. Setting it does not change how the document is decoded.",
@@ -5230,14 +5246,14 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "TabPosition" => ("one of: `Top` | `Bottom` | `Left` | `Right`", "Edge the tab strip sits on."),
         "SelectedTab" => ("0-based tab index", "Currently active tab. The operator clicking a tab header writes this, and writing it from COBOL turns the page exactly as a click does — the page a running form shows is always this value, never the one the form was designed with."),
         "ActiveTabColor" => (COLOR_DOMAIN, "Highlight color of the active tab."),
-        "TabPadding" => ("pixels ≥ 0", "Padding inside each tab header."),
+        "TabPadding" => ("integer 0-64 (default 7)", "The GAP between neighbouring tab headers, and between the tab strip and the page area beside it. The padding inside a header is fixed; this does not change it."),
 
         // ── MenuBar ──
-        "MenuBarStyle" => ("one of: `Free` | `Responsive`", "How the bar decides its own width. `Free` (the default) leaves it exactly as wide as it was drawn — the historical behaviour, so no existing form moves. `Responsive` pins it to the form's FULL WIDTH and keeps it there through a resize, which is what a menu bar is normally expected to do. Only x and width are taken; the bar's Y and Height stay yours. It is the horizontal mirror of the SideMenu's `FullHeight`."),
+        "MenuBarStyle" => ("one of: `Free` | `Responsive`", "How the bar decides its own width. `Free` (the default) leaves it exactly as wide as it was drawn — the historical behaviour, so no existing form moves. `Responsive` pins it to the form's FULL WIDTH and keeps it there through a resize of the form in the designer, and each time the form is loaded — which is what a menu bar is normally expected to do. A running window the operator makes wider moves no control, this bar included: at run time a form keeps its designed layout. Only x and width are taken; the bar's Y and Height stay yours. It is the horizontal mirror of the SideMenu's `FullHeight`."),
         "HighlightBgColor" => (COLOR_DOMAIN, "Hovered menu item background."),
-        "HighlightFgColor" => (COLOR_DOMAIN, "Hovered menu item text."),
+        "HighlightFgColor" => (COLOR_DOMAIN, "MenuBar: the text of the title under the pointer, and of the dropdown item under the pointer or flashing after a click."),
         "SelectedBgColor" => (COLOR_DOMAIN, "Open/selected menu background."),
-        "SelectedFgColor" => (COLOR_DOMAIN, "Open/selected menu text."),
+        "SelectedFgColor" => (COLOR_DOMAIN, "MenuBar: the open title's text, on SelectedBgColor. SideMenu: the active row's text and icon, on its accent pill."),
 
         // ── Line / Shape ──
         "LineThickness" => ("pixels > 0", "Stroke thickness."),
@@ -5682,7 +5698,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         ),
 
         // ── Written from the code by the 2026-09-25 property audit ──
-        "AppTitle" => ("free text or empty", "SideMenu only. Application title drawn in the accent colour (SelectedBgColor) to the right of the header logo box of an OPEN sidebar. Shown only when the rail is wide enough to leave room beside the 270x80 logo box (about 330 pt); never on a collapsed rail."),
+        "AppTitle" => ("free text or empty", "SideMenu only. Application title drawn in the accent colour (SelectedBgColor) in the header of an OPEN sidebar, beside the logo box. The title gets its room first (up to 60 % of the header) and the logo box shrinks, keeping its shape and moving to the left, into what is left; a box narrower than 24 pt is not drawn and the title takes the header. Never shown on a collapsed rail."),
         "BackgroundImage" => ("image path or empty", "Snackbar: an image drawn over each notification's background colour, faded by BackgroundImageOpacity and fitted by BackgroundImageMode. Empty = none."),
         "BackgroundImageMode" => ("one of: `Fill` | `Fit` | `Stretch` | `Center` | `Tile`", "Snackbar: how BackgroundImage fits the notification. Default Fill."),
         "BackgroundImageOpacity" => ("percent 0–100 (default 15)", "Snackbar: opacity of BackgroundImage over the background colour; 0 hides the image."),

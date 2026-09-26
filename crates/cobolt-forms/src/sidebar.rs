@@ -261,6 +261,9 @@ pub struct SidebarPalette {
     pub accent: Color32,
     pub on_accent: Color32,
     pub hover: Color32,
+    /// The hovered row's ink (`HighlightFgColor`), used where it reads on the
+    /// hover tint — see [`hover_ink`].
+    pub hover_fg: Color32,
 }
 
 impl SidebarPalette {
@@ -274,7 +277,11 @@ impl SidebarPalette {
         let fg = pick("ForegroundColor", Color32::from_rgb(225, 230, 250));
         let accent = pick("SelectedBgColor", Color32::from_rgb(0x53, 0x6d, 0xfe));
         let on_accent = pick("SelectedFgColor", Color32::WHITE);
+        // A SideMenu's hover is a TINT of `HighlightBgColor` (22 %), by design:
+        // a hovered row must never read as the selected one, which wears the
+        // accent solid. The colour is the developer's; the weight is the rail's.
         let hover = pick("HighlightBgColor", accent);
+        let hover_fg = pick("HighlightFgColor", fg);
         let a = |c: Color32, mul: f32| {
             Color32::from_rgba_unmultiplied(
                 c.r(),
@@ -289,6 +296,7 @@ impl SidebarPalette {
             accent: a(accent, 1.0),
             on_accent: a(on_accent, 1.0),
             hover: a(hover, 0.22),
+            hover_fg: a(hover_fg, 1.0),
         }
     }
 }
@@ -1014,6 +1022,37 @@ pub fn header_image_rect(header: Rect, collapsed: bool) -> Rect {
     )
 }
 
+/// The OPEN header's logo box and title, when the rail has an `AppTitle` of
+/// `title_w` points: the title is given its room first (up to 60 % of the
+/// header) and the logo box fits what is left, left-aligned, keeping its
+/// 10:3 shape. A box narrower than 24 points is not drawn at all (the returned
+/// logo is empty) and the title takes the whole header.
+///
+/// The title used to follow a logo box centred across the whole header, and
+/// was drawn only if room was left over — on the default 200-point rail there
+/// never was, so an `AppTitle` simply never appeared (property audit,
+/// 2026-09-26). Without a title the header is [`header_image_rect`], unchanged.
+pub fn header_logo_and_title(header: Rect, title_w: f32) -> (Rect, Option<Rect>) {
+    if title_w <= 0.0 {
+        return (header_image_rect(header, false), None);
+    }
+    let avail_w = (header.width() - PAD_X * 2.0).max(1.0);
+    let avail_h = (header.height() - 8.0).max(1.0);
+    let title_room = title_w.min(avail_w * 0.6);
+    let logo_room = avail_w - title_room - 10.0;
+    let left = header.min.x + PAD_X;
+    let right = header.max.x - PAD_X;
+    if logo_room < 24.0 {
+        let none = Rect::from_min_size(Pos2::new(left, header.center().y), Vec2::ZERO);
+        return (none, Some(Rect::from_min_max(Pos2::new(left, header.min.y), Pos2::new(right, header.max.y))));
+    }
+    let k = (logo_room / HEADER_IMAGE_W).min(avail_h / HEADER_IMAGE_H).min(1.0);
+    let size = Vec2::new(HEADER_IMAGE_W * k, HEADER_IMAGE_H * k);
+    let logo = Rect::from_min_size(Pos2::new(left, header.center().y - size.y * 0.5), size);
+    let title = Rect::from_min_max(Pos2::new(logo.max.x + 10.0, header.min.y), Pos2::new(right, header.max.y));
+    (logo, Some(title))
+}
+
 fn paint_header(painter: &egui::Painter, rect: Rect, state: &SidebarState<'_>) {
     let pal = state.palette;
     // The header carries the developer's OWN logo, stretched to fill the box
@@ -1066,8 +1105,17 @@ fn paint_header(painter: &egui::Painter, rect: Rect, state: &SidebarState<'_>) {
         return;
     }
 
-    let logo = header_image_rect(rect, state.collapsed);
+    let title = state.chrome.app_title.trim();
+    let mut title_font = state.font.clone();
+    title_font.size *= 1.45;
+    let title_w = if title.is_empty() {
+        0.0
+    } else {
+        painter.layout_no_wrap(title.to_owned(), title_font.clone(), pal.accent).size().x
+    };
+    let (logo, title_rect) = header_logo_and_title(rect, title_w);
     match state.header_image {
+        _ if logo.width() < 1.0 => {}
         Some(tex) => {
             // The box is a LIMIT, not a shape to fill: the logo is drawn at its
             // own size while it fits, and scaled down keeping its aspect ratio
@@ -1104,26 +1152,14 @@ fn paint_header(painter: &egui::Painter, rect: Rect, state: &SidebarState<'_>) {
         }
     }
 
-    if !state.collapsed && !state.chrome.app_title.trim().is_empty() {
-        // The title follows the logo box, and only when there is room left for
-        // it — a 200pt logo fills most of a rail on its own.
-        let x = logo.max.x + 10.0;
-        if rect.max.x - PAD_X - x > 8.0 {
-            let mut f = state.font.clone();
-            f.size *= 1.45;
-            painter
-                .with_clip_rect(Rect::from_min_max(
-                    Pos2::new(x, rect.min.y),
-                    Pos2::new(rect.max.x - PAD_X, rect.max.y),
-                ))
-                .text(
-                    Pos2::new(x, rect.center().y),
-                    egui::Align2::LEFT_CENTER,
-                    state.chrome.app_title.trim(),
-                    f,
-                    pal.accent,
-                );
-        }
+    if let Some(tr) = title_rect.filter(|tr| tr.width() > 8.0) {
+        painter.with_clip_rect(tr.intersect(painter.clip_rect())).text(
+            Pos2::new(tr.min.x, tr.center().y),
+            egui::Align2::LEFT_CENTER,
+            title,
+            title_font,
+            pal.accent,
+        );
     }
     // NO hamburger glyph: the header pane carries the logo, and clicking
     // anywhere in it collapses or opens the rail. A ☰ would be a second
@@ -1197,6 +1233,29 @@ fn item_label_x(rect: Rect, depth: usize, icon: f32) -> f32 {
     rect.min.x + PAD_X + nest_offset(depth) + icon + 10.0
 }
 
+/// The ink of a hovered row: `HighlightFgColor` where it clears WCAG AA
+/// (4.5:1) on what is actually behind it — the hover tint over the rail over
+/// the form — and the row's normal ink where it would not. It was never read,
+/// so a hovered row kept `ForegroundColor` (property audit, 2026-09-26); the
+/// guard is there because the seeded white would vanish on a pale rail.
+fn hover_ink(state: &SidebarState<'_>) -> Color32 {
+    let pal = state.palette;
+    let rail = state.gradient.as_ref().map(|(start, _, _)| *start).unwrap_or(state.bg);
+    let behind = crate::paint::composite_premultiplied_over(
+        pal.hover,
+        crate::paint::composite_premultiplied_over(rail, state.backdrop),
+    );
+    let opaque = |c: Color32| {
+        let [r, g, b, _] = c.to_srgba_unmultiplied();
+        Color32::from_rgb(r, g, b)
+    };
+    if crate::paint::contrast_ratio(opaque(pal.hover_fg), behind) >= 4.5 {
+        pal.hover_fg
+    } else {
+        pal.fg
+    }
+}
+
 fn paint_item(
     painter: &egui::Painter,
     rect: Rect,
@@ -1224,7 +1283,15 @@ fn paint_item(
         painter.rect_filled(pill, RADIUS, pal.hover);
     }
 
-    let content = if active { pal.on_accent } else if enabled { pal.fg } else { pal.dim };
+    let content = if active {
+        pal.on_accent
+    } else if hovered && enabled {
+        hover_ink(state)
+    } else if enabled {
+        pal.fg
+    } else {
+        pal.dim
+    };
     // Each rail state draws at its own size — the icon beside a label and the
     // icon that IS the row are two different pictures.
     let icon = if state.collapsed { state.icon_size_collapsed } else { state.icon_size };
@@ -1556,6 +1623,36 @@ mod tests {
         vec![home, modern, analytical, apps, chat, level]
     }
 
+    /// A hovered row wears `HighlightFgColor` where it reads on the tint, and
+    /// keeps its normal ink where it would not (property audit, 2026-09-26).
+    #[test]
+    fn a_hovered_row_wears_highlight_fg_only_where_it_reads() {
+        let items = sample();
+        let mut st = state(&items, false, &[]);
+        st.palette.fg = Color32::from_rgb(20, 20, 20);
+        st.palette.hover_fg = Color32::WHITE;
+        st.palette.hover = Color32::from_rgba_unmultiplied(0x44, 0x88, 0xff, 56);
+        st.backdrop = Color32::from_rgb(18, 22, 40);
+        assert_eq!(hover_ink(&st), Color32::WHITE, "white reads on a dark rail");
+        st.backdrop = Color32::from_rgb(250, 250, 250);
+        assert_eq!(hover_ink(&st), Color32::from_rgb(20, 20, 20), "white on a pale rail falls back to the row ink");
+    }
+
+    /// An `AppTitle` gets its room: on the default 200-point rail it used to
+    /// be dropped for want of space beside a centred logo box.
+    #[test]
+    fn the_app_title_has_room_beside_the_logo() {
+        let header = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, HEADER_H));
+        let (logo, title) = header_logo_and_title(header, 70.0);
+        let title = title.expect("a title rect");
+        assert!(title.width() >= 70.0, "the title's width fits: {title:?}");
+        assert!(logo.max.x + 10.0 <= title.min.x + 0.01, "the logo box leaves the title alone");
+        assert!(logo.width() >= 24.0, "a logo box still fits: {logo:?}");
+        let (_, none) = header_logo_and_title(header, 0.0);
+        assert!(none.is_none(), "no title, no title rect");
+        assert_eq!(header_logo_and_title(header, 0.0).0, header_image_rect(header, false));
+    }
+
     fn state<'a>(
         items: &'a [MenuItem],
         collapsed: bool,
@@ -1575,6 +1672,7 @@ mod tests {
                 accent: Color32::BLUE,
                 on_accent: Color32::WHITE,
                 hover: Color32::DARK_GRAY,
+                hover_fg: Color32::WHITE,
             },
             selected: Some("modern"),
             expanded,

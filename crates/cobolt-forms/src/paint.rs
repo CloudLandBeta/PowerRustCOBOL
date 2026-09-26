@@ -5478,7 +5478,18 @@ fn draw_control_body(
                 String::new()
             }
         }
-        CT::StatusBar => "▬ StatusBar".into(),
+        // A StatusBar with items letters them itself (below); the stand-in
+        // marks only an empty one.
+        CT::StatusBar => {
+            let has_items = ctrl
+                .get_prop("Items")
+                .is_some_and(|v| v.as_str().lines().any(|l| !l.trim().is_empty()));
+            if has_items {
+                String::new()
+            } else {
+                "▬ StatusBar".into()
+            }
+        }
         // GroupBox draws its caption as a "legend" on the top-left border (below),
         // never as centered text.
         CT::GroupBox => String::new(),
@@ -6322,6 +6333,36 @@ fn draw_control_body(
                     x += w + 18.0;
                 }
             }
+        }
+    }
+
+    // ── StatusBar: its items, left to right ─────────────────────────────────
+    //
+    // The ONE painter for them: the designer canvas, Preview, Run Form and the
+    // compiled binary all come through here. The running form used to letter
+    // them on its own, in a fixed ink and a fixed 12 pt on a hard-wired navy
+    // strip, while the canvas showed only a "▬ StatusBar" stand-in — so neither
+    // surface showed what the other did, and the bar's BackgroundColor,
+    // ForegroundColor and font were ignored where it ran (property audit,
+    // 2026-09-26).
+    if matches!(ctrl.control_type, CT::StatusBar) && !matches!(*caption_mode, CaptionMode::Skip) {
+        let ink = Color32::from_rgba_premultiplied(label_color.r(), label_color.g(), label_color.b(), a);
+        let font_name = ctrl.get_prop("FontName").map(|v| v.as_str()).unwrap_or_default();
+        let fid = crate::fonts::font_id(painter.ctx(), &font_name, ctrl_font_size(ctrl));
+        let clipped = painter.with_clip_rect(rect.intersect(painter.clip_rect()));
+        let items = ctrl.get_prop("Items").map(|v| v.as_str().to_owned()).unwrap_or_default();
+        let mut x = rect.min.x + 8.0;
+        for item in items.lines().map(str::trim).filter(|l| !l.is_empty()) {
+            let drawn = styled_text(
+                &clipped,
+                ctrl,
+                Pos2::new(x, rect.center().y),
+                egui::Align2::LEFT_CENTER,
+                item,
+                fid.clone(),
+                ink,
+            );
+            x += drawn.width() + 18.0;
         }
     }
 

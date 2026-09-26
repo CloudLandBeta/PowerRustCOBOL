@@ -11064,6 +11064,13 @@ fn render_interactive(
                 .get_prop("SelectedBgColor")
                 .map(|v| paint::parse_color(v.as_str()))
                 .unwrap_or(Color32::from_rgb(51, 102, 204));
+            // The open title's ink, on `SelectedBgColor`. It was never read, so
+            // the open title kept the bar's normal ink (property audit,
+            // 2026-09-26).
+            let selected_fg = ctrl
+                .get_prop("SelectedFgColor")
+                .map(|v| paint::parse_color(v.as_str()))
+                .unwrap_or(Color32::WHITE);
 
             let menu_id = scoped_id(scope, ("menu_open", id));
 
@@ -11124,12 +11131,22 @@ fn render_interactive(
                     if let Some(icon) = menu_cursor {
                         resp = resp.on_hover_cursor(icon);
                     }
+                    // `galley_with_override_text_color`: the galley is laid out
+                    // in the bar's ink, and `galley()` uses its colour argument
+                    // only for text laid out WITHOUT one — so a hovered title
+                    // never took HighlightFgColor either.
                     if resp.hovered() && !is_open {
                         painter.rect_filled(label_rect, 2.0, highlight_bg);
-                        painter.galley(
+                        painter.galley_with_override_text_color(
                             pos2(x, screen.center().y - galley.size().y * 0.5),
                             galley,
                             highlight_fg,
+                        );
+                    } else if is_open {
+                        painter.galley_with_override_text_color(
+                            pos2(x, screen.center().y - galley.size().y * 0.5),
+                            galley,
+                            selected_fg,
                         );
                     } else {
                         painter.galley(
@@ -11263,10 +11280,31 @@ fn render_interactive(
                                             // vanished under the blue bar.
                                             let bg_idx =
                                                 ui.painter().add(egui::Shape::Noop);
+                                            // A row under the highlight band wears
+                                            // `HighlightFgColor`, as a hovered title
+                                            // does. The label is laid out before the
+                                            // row knows it is hovered, so it asks
+                                            // last frame's response — which egui
+                                            // keeps — and the blink's lit phase.
+                                            let row_id = scoped_id(scope, ("mi", &item.id));
+                                            let lit = match click_anim.as_ref().filter(
+                                                |(ati, aid, _)| *ati == ti && *aid == item.id,
+                                            ) {
+                                                Some((_, _, start)) => {
+                                                    (((now_t - start) / BLINK_PHASE) as i64) % 2
+                                                        == 0
+                                                }
+                                                None => ui
+                                                    .ctx()
+                                                    .read_response(row_id)
+                                                    .is_some_and(|r| r.hovered()),
+                                            };
                                             let item_resp = ui.horizontal(|ui| {
                                                 let dimmed = !item.enabled;
                                                 let item_fg = if dimmed {
                                                     Color32::from_rgb(120, 120, 130)
+                                                } else if lit {
+                                                    highlight_fg
                                                 } else {
                                                     fg
                                                 };
@@ -11681,30 +11719,11 @@ fn render_interactive(
             }
         }
         CT::StatusBar => {
+            // The designed face and its items, through the one painter the
+            // canvas uses — see the StatusBar block in `paint::draw_control_body`.
             let _clip_scope =
                 paint::ContainerClipScope::enter(painter.ctx(), paint::container_clip_of(ctrl));
-            paint::draw_surface_auto(
-                &painter,
-                screen,
-                Color32::from_rgb(40, 46, 76),
-                paint::control_border_rounding(ctrl, screen, paint::corner_radius(ctrl)),
-                false,
-                alpha,
-                paint::SurfaceRole::Card,
-            );
-            let fg = Color32::from_rgb(225, 230, 250);
-            let mut x = screen.min.x + 8.0;
-            for item in sv(ctrl, "Items").lines().filter(|l| !l.trim().is_empty()) {
-                let galley =
-                    painter.layout_no_wrap(item.trim().to_owned(), FontId::proportional(12.0), fg);
-                let w = galley.size().x;
-                painter.galley(
-                    pos2(x, screen.center().y - galley.size().y / 2.0),
-                    galley,
-                    fg,
-                );
-                x += w + 18.0;
-            }
+            paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
         }
         CT::PictureBox => {
             // Render through `draw_control` with a pre-loaded texture â the SAME
@@ -14162,6 +14181,69 @@ mod tests {
         crate::paint::register_menus(std::iter::empty());
     }
 
+    /// The open MenuBar title is lettered in `SelectedFgColor` — read by
+    /// nothing until the property audit (2026-09-26).
+    #[test]
+    fn an_open_menu_title_wears_selected_fg() {
+        use crate::menu::{MenuDefinition, MenuItem};
+        let _guard = crate::paint::menu_registry_test_lock();
+        let mut bar = ctrl("MenuBar-1", ControlType::MenuBar, 0, 0, 400, 28);
+        bar.set_prop("SelectedFgColor", crate::PropValue::String("#FFD700".into()));
+        let controls = vec![bar];
+        let mut file = MenuItem::new_action("file", "File");
+        file.items = vec![MenuItem::new_action("f1", "New")];
+        crate::paint::register_menus([(
+            "MenuBar-1".to_owned(),
+            MenuDefinition { menu: vec![file], hash: String::new() },
+        )]);
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new(("menu_open", "MenuBar-1")), Some(0usize)));
+        let mut out = ctx.run_ui(egui::RawInput::default(), |root_ui| {
+            egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                let rin = RenderInput {
+                    controls: &controls,
+                    state: &DesignedVisibility,
+                    form_size: Vec2::new(400.0, 200.0),
+                    glass: true,
+                    mode: RenderMode::Interactive,
+                    active_tabs: &active,
+                    backdrop: Default::default(),
+                };
+                let _ = render_form(ui, &rin);
+            });
+        });
+        out.textures_delta.clear();
+        let mut texts = Vec::new();
+        for cs in &out.shapes {
+            collect_text(&cs.shape, &mut texts);
+        }
+        crate::paint::register_menus(std::iter::empty());
+        let file_ink = texts.iter().find(|(t, _)| t == "File").map(|(_, c)| *c);
+        assert_eq!(file_ink, Some(Color32::from_rgb(0xFF, 0xD7, 0x00)), "texts: {texts:?}");
+    }
+
+    /// A StatusBar's items are lettered by the one painter both surfaces use:
+    /// the designer canvas and the running form show the same texts in the
+    /// same ink — the bar's own ForegroundColor. The canvas showed only a
+    /// stand-in and the running bar a fixed ink on a hard-wired strip.
+    #[test]
+    fn a_statusbar_letters_its_items_alike_on_the_canvas_and_when_running() {
+        let mut bar = ctrl("SB", ControlType::StatusBar, 0, 440, 640, 26);
+        bar.set_prop("Items", crate::PropValue::String("Ready\nOnline".into()));
+        bar.set_prop("BackgroundColor", crate::PropValue::String("#FFFFFF".into()));
+        bar.set_prop("ForegroundColor", crate::PropValue::String("#102040".into()));
+        let canvas = painted_text(std::slice::from_ref(&bar), "#FFFFFF");
+        let running = painted_text_interactive(std::slice::from_ref(&bar));
+        let ink = Color32::from_rgb(0x10, 0x20, 0x40);
+        for word in ["Ready", "Online"] {
+            let on = |texts: &[(String, Color32)]| texts.iter().find(|(t, _)| t == word).map(|(_, c)| *c);
+            assert_eq!(on(&canvas), Some(ink), "canvas letters {word}: {canvas:?}");
+            assert_eq!(on(&running), Some(ink), "running form letters {word}: {running:?}");
+        }
+        assert!(!canvas.iter().any(|(t, _)| t.contains("StatusBar")), "no stand-in over real items");
+    }
+
     /// **A clicked item fires at once, the row blinks, then the menu closes.**
     ///
     /// A real click (press then release on a dropdown row) must: NOT close the
@@ -15673,13 +15755,15 @@ mod tests {
     fn collect_text(shape: &egui::Shape, out: &mut Vec<(String, Color32)>) {
         match shape {
             egui::Shape::Text(t) => {
-                let colour = t
-                    .galley
-                    .job
-                    .sections
-                    .first()
-                    .map(|sec| sec.format.color)
-                    .unwrap_or(t.fallback_color);
+                // An override colour is what egui actually paints with.
+                let colour = t.override_text_color.unwrap_or_else(|| {
+                    t.galley
+                        .job
+                        .sections
+                        .first()
+                        .map(|sec| sec.format.color)
+                        .unwrap_or(t.fallback_color)
+                });
                 out.push((t.galley.text().to_owned(), colour));
             }
             egui::Shape::Vec(v) => v.iter().for_each(|s| collect_text(s, out)),
@@ -19153,7 +19237,7 @@ mod tests {
 
         let p1 = live_control(&controls, 1, &st).rect;
         let p2 = live_control(&controls, 2, &st).rect;
-        let inner = crate::splitter::content_rect(controls[0].rect);
+        let inner = crate::splitter::content_rect(&controls[0], controls[0].rect);
         assert!(
             (p1.w as f32 - inner.w as f32 * 0.25).abs() <= 2.0,
             "pane 1 holds a quarter after the drag: {p1:?} of {inner:?}"
@@ -19175,7 +19259,7 @@ mod tests {
     #[test]
     fn dragging_the_division_line_writes_a_new_split_position() {
         let controls = splitter_with_panes(300, 200);
-        let inner = crate::splitter::content_rect(controls[0].rect);
+        let inner = crate::splitter::content_rect(&controls[0], controls[0].rect);
         let centre = pos2((inner.x + inner.w / 2) as f32, (inner.y + inner.h / 2) as f32);
         let target = pos2(inner.x as f32 + inner.w as f32 * 0.25, centre.y);
 
@@ -19206,7 +19290,7 @@ mod tests {
     fn double_clicking_the_grip_centres_the_division() {
         let mut controls = splitter_with_panes(300, 200);
         controls[0].set_prop("SplitPosition", 20i64);
-        let inner = crate::splitter::content_rect(controls[0].rect);
+        let inner = crate::splitter::content_rect(&controls[0], controls[0].rect);
         // Where the line IS at 20 %, which is where the pointer has to be.
         let g = crate::splitter::geometry(&controls[0], controls[0].rect);
         let on_line = pos2(

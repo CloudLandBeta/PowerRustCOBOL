@@ -1921,6 +1921,10 @@ What you do **not** set is where they sit: the division line decides that.
   splitter is resized. Your COBOL can read it —
   `MOVE Splitter-1::GetProperty("SplitPosition") TO WS-N` — or set it:
   `SET Splitter-1::SplitPosition TO 30`.
+- **The frame** is the splitter's own `BorderStyle`, `BorderWidth` and
+  `BorderColor`, and the panes sit inside it: they are inset by
+  `BorderWidth` (2 points at least), so a wide frame is never covered by the
+  panes or what you put in them.
 - **Drag the line** — anywhere along it, not only on the grip — and the two
   panes redistribute under the pointer. The cursor becomes a **grab hand**
   over the line, and **double-clicking it puts the division back at 50 %**.
@@ -1989,6 +1993,15 @@ lighting up as a target. A status bar reports on the window, so a strip that is
 narrower than the window, or clipped inside a panel, is not one. (This is not
 the MenuBar's `MenuBarStyle`, which is a choice and defaults to the width you
 drew; a status bar has no such choice.)
+
+Its **`Items`** — one text per line — are lettered left to right in the bar's
+own `ForegroundColor`, font and font styles, on the face its `BackgroundColor`
+gives it. The designer canvas shows exactly what the running form shows.
+
+> ⚠️ **Caveat.** Until 1.70.233 the running bar ignored its design: it drew a
+> fixed navy strip with fixed light text, while the canvas showed only a
+> "▬ StatusBar" stand-in. A bar you never coloured now wears the same default
+> face as other controls; give it a `BackgroundColor` if you want a strip.
 
 > A **SideMenu** is the one control that changes how the whole application
 > starts: put it on the main form and the application opens as a *shell* with a
@@ -3974,8 +3987,9 @@ same directory as the `.cfrm`. The file includes an HMAC-SHA256 integrity hash;
 at runtime the hash is validated and a tampered file is rejected.
 
 **Colour properties.** The MenuBar exposes four colour properties:
-`HighlightBgColor`, `HighlightFgColor` (hover colours), `SelectedBgColor`,
-`SelectedFgColor` (open-menu colours). `BackgroundColor` and `ForegroundColor`
+`HighlightBgColor`, `HighlightFgColor` (hover colours — the title under the
+pointer, and the dropdown item under the pointer or flashing after a click),
+`SelectedBgColor`, `SelectedFgColor` (the open title's colours). `BackgroundColor` and `ForegroundColor`
 are also there for when you want to pick the bar's own face and caption ink
 yourself; left alone, the bar reads its surroundings instead — it takes a
 soft surface under a Neumorphic form style and picks caption ink that
@@ -10758,6 +10772,21 @@ shorter than about 88 points, or a collapsed rail, shrinks the box (keeping its
 Leave **HeaderImage** empty and the box is **outlined** instead, so you can see
 where the logo goes and how big it will be before you have one.
 
+**The application title.** Give **AppTitle** a text and it is drawn beside the
+logo, in the accent colour (`SelectedBgColor`). The title is given its room
+first — up to 60 % of the header — and the logo box shrinks, keeping its shape
+and moving to the left, into what is left; a box that would be narrower than
+24 points is not drawn and the title takes the header. (Before 1.70.233 the
+title appeared only beside a full-size logo, which a default 200-point rail
+never had room for, so it simply did not show.)
+
+**Hover colours.** The row under the pointer is laid down as a soft **tint** of
+`HighlightBgColor` — about a fifth of the colour — so a hovered row never reads
+as the active one, which wears `SelectedBgColor` solid. Its text and icon take
+`HighlightFgColor` wherever that stays readable (WCAG AA, 4.5:1) on the tinted
+row; where it would not — the default white on a pale rail — the row keeps its
+`ForegroundColor`.
+
 A **collapsed** rail does not show the logo at all: it shows **HeaderIcon**, a
 purpose-made 45 x 45 mark, because an image drawn for a 270-point header cannot
 be read at rail width. Set no **HeaderIcon** and the pane draws the
@@ -10818,8 +10847,8 @@ edge** on those surfaces too — everything to the right of the rail slides
 left over the column the rail gave up, exactly as the running shell moves
 its content pane, and slides back when the rail opens. The *open* pane needs no property: it is as wide as
 you drew the control. Values under 24 are raised to 24 — below that an icon
-row has nothing to fit in — and a form designed before the property existed
-keeps collapsing to 48, as it always did.
+row has nothing to fit in — values over 200 are lowered to 200, and a form
+designed before the property existed keeps collapsing to 48, as it always did.
 
 **What the collapsed rail carries.** The rail is one icon wide, so an item earns
 a place on it only when it can be reached *by its icon*: it has **an icon**, it

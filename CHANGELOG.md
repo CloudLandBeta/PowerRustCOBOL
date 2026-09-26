@@ -8,6 +8,41 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.233] — 2026-09-26
+
+### Fix — bar, menu and splitter properties that did nothing or half of it (audit group 4 of 8)
+
+The findings on TabControl, MenuBar, StatusBar, SideMenu and Splitter.
+(TabControl `HScroll`/`VScroll` landed in 1.70.231; `mcp_tool` was retired
+there.)
+
+- **MenuBar `SelectedFgColor`** — the open title is lettered in it; it was
+  never read. **`HighlightFgColor`** now reaches a hovered title too — the
+  title galley is laid out in the bar's ink and `painter.galley` only uses its
+  colour for text laid out without one, so it never did — and the dropdown
+  row under the pointer (or flashing after a click) wears it as well.
+- **StatusBar** — its items are lettered by one painter in
+  `paint::draw_control_body`, used by the designer canvas and every running
+  surface, in the bar's own ForegroundColor, font and styles on its designed
+  face. The canvas showed a "▬ StatusBar" stand-in and the running bar a
+  hard-wired navy strip with fixed 12 pt ink.
+- **SideMenu `HighlightFgColor`** — a hovered row wears it where it clears
+  WCAG AA on the hover tint, and keeps ForegroundColor where it would not.
+  The hover stays a 22 % tint of `HighlightBgColor` by design (documented).
+- **SideMenu `AppTitle`** — the title gets its room first and the logo box
+  shrinks, left-aligned; on the default 200 pt rail the title never showed.
+- **SideMenu `CollapsedWidth`** — capped at the documented 200.
+- **Splitter `BorderWidth`** — the panes are inset by it (2 at least), so a
+  wide frame is no longer covered by them.
+- **KB** — `TabPadding` (the gap between headers, not padding inside one),
+  `MenuBarStyle` (Responsive applies in the designer and on load; a running
+  window keeps its designed layout), per-type SideMenu hover colours,
+  StatusBar `Items`, Splitter `BorderWidth`, MenuBar `HighlightFgColor` /
+  `SelectedFgColor`, `AppTitle`. `chunked.data` regenerated; Properties-pane
+  explanations updated in six languages.
+- Test helper `collect_text` now reports a text run's override colour — what
+  egui paints — rather than the galley's section colour.
+
 ## [PowerRustCOBOL 1.70.232] — 2026-09-26
 
 ### Fix — list and grid properties that did nothing or half of it (audit group 3 of 8)
