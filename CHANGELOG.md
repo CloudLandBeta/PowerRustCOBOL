@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.262] — 2026-09-26
+
+### Examples — PowerChat's confirmation shows a question in the designer
+
+- `confirm-form`'s question label was designed empty (the caller supplies the
+  question at run time), so the form looked broken on the canvas. It now reads
+  "Are you sure?", which also stays when a caller sets no `ConfirmText`.
+- Also: the operator's own chat-form restyle (the Viewer's look, a backdrop
+  Shape) and the IDE's registration of the two new forms.
+
 ## [PowerRustCOBOL 1.70.261] — 2026-09-26
 
 ### Examples — PowerChat's interface rebuilt on the operator's rules

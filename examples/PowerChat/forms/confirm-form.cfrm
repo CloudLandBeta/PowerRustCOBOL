@@ -60,7 +60,10 @@
       *>   ConfirmAnswer - Y or N - when it returns. Closing it any other
       *>   way leaves the caller's own default, which should be N.
            INVOKE super::"GetProperty"("ConfirmText") RETURNING WS-TEXT
-           MOVE FUNCTION TRIM(WS-TEXT) TO Lbl-Question::Caption
+      *>   No question given: the designed "Are you sure?" stays.
+           IF WS-TEXT NOT = SPACES
+               MOVE FUNCTION TRIM(WS-TEXT) TO Lbl-Question::Caption
+           END-IF
            INVOKE super::"GetProperty"("ConfirmYes") RETURNING WS-TEXT
            IF WS-TEXT NOT = SPACES
                MOVE FUNCTION TRIM(WS-TEXT) TO Btn-Yes::Caption
@@ -106,7 +109,7 @@
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="WordWrap">true</Property>
     <Property name="AutoSize">false</Property>
-    <Property name="Caption"></Property>
+    <Property name="Caption">Are you sure?</Property>
     <Property name="Tooltip"></Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>

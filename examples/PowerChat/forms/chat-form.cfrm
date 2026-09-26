@@ -1562,10 +1562,10 @@
     <Property name="DataFormat"></Property>
     <Property name="BorderColor">#AAAAAA</Property>
   </Control>
-  <Control id="Vwr-Chat" type="Viewer" x="288" y="96" w="888" h="547" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#E1E6F8FF</Property>
+  <Control id="Vwr-Chat" type="Viewer" x="288" y="96" w="888" h="544" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FEFEFFFF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
-    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="ShadowOpacity">6</Property>
@@ -1573,7 +1573,7 @@
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">3</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
@@ -1591,7 +1591,7 @@
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Layout">Page</Property>
+    <Property name="Layout">Streamed</Property>
     <Property name="Fullscreen">false</Property>
     <Property name="SplitMode">None</Property>
     <Property name="SplitPercent">50</Property>
@@ -1635,8 +1635,8 @@
     <Property name="Multiline">true</Property>
     <Property name="ScrollBars">Vertical</Property>
     <Property name="MaximumLength">2000</Property>
-    <Property name="BackgroundColor">#E1E6F8FF</Property>
-    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#000F1DFF</Property>
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowColor">#000000</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
@@ -1645,7 +1645,7 @@
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">3</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
@@ -2401,5 +2401,43 @@
            CALL "PC-SETTING-PUT"
            CALL "PC-RELABEL"
 ]]></Event>
+  </Control>
+  <Control id="Shape-1" type="Shape" x="288" y="96" w="888" h="544" tab-order="3" z-order="-1" visible="true" enabled="true">
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="ShapeType">Rectangle</Property>
+    <Property name="FormStyle">false</Property>
+    <Property name="FillColor">#C0C0C0</Property>
+    <Property name="FillStyle">Solid</Property>
+    <Property name="LineColor">#000000</Property>
+    <Property name="LineThickness">1</Property>
+    <Property name="LineStyle">Solid</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
   </Control>
 </Form>
