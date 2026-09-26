@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="PROVIDERS-FORM" title="PowerChat" width="800" height="450" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
+<Form name="PROVIDERS-FORM" title="PowerChat" width="1072" height="552" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
   <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -1004,7 +1004,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Tab-Crud" type="TabControl" x="24" y="56" w="752" h="376" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Tab-Crud" type="TabControl" x="24" y="56" w="1024" h="440" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
@@ -1020,10 +1020,10 @@
     <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
+    <Property name="Anchor">true</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
-    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
@@ -1035,9 +1035,9 @@
     <Property name="Tabs">Browse
 Create/Update</Property>
     <Property name="TabPosition">Top</Property>
-    <Property name="SelectedTab">0</Property>
+    <Property name="SelectedTab">1</Property>
     <Property name="ActiveTabColor">#2C6FD2FF</Property>
-    <Property name="TabPadding">7</Property>
+    <Property name="TabPadding">0</Property>
     <Property name="HScroll">false</Property>
     <Property name="VScroll">false</Property>
     <Property name="CornerRadius">10</Property>
@@ -1081,7 +1081,7 @@ Create/Update</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Txt-Name" type="TextBox" x="192" y="144" w="568" h="32" tab-order="2" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Txt-Name" type="TextBox" x="192" y="144" w="808" h="32" tab-order="2" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="MaximumLength">30</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -1129,7 +1129,7 @@ Create/Update</Property>
     <Property name="Picture"></Property>
     <Property name="PasswordCharacter"></Property>
   </Control>
-  <Control id="Lbl-Api" type="Label" x="40" y="184" w="144" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Lbl-Api" type="Label" x="40" y="192" w="144" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1167,7 +1167,7 @@ Create/Update</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Cmb-Provider" type="ComboBox" x="192" y="184" w="568" h="32" tab-order="3" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Cmb-Provider" type="ComboBox" x="192" y="192" w="808" h="32" tab-order="3" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1225,7 +1225,7 @@ Create/Update</Property>
            MOVE WS-PROV-EP TO WS-LAST-DEFAULT
 ]]></Event>
   </Control>
-  <Control id="Lbl-Url" type="Label" x="40" y="224" w="144" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Lbl-Url" type="Label" x="40" y="240" w="144" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1263,7 +1263,7 @@ Create/Update</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Txt-Url" type="TextBox" x="192" y="224" w="568" h="32" tab-order="4" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Txt-Url" type="TextBox" x="192" y="240" w="808" h="32" tab-order="4" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1311,7 +1311,7 @@ Create/Update</Property>
     <Property name="Picture"></Property>
     <Property name="PasswordCharacter"></Property>
   </Control>
-  <Control id="Lbl-Key" type="Label" x="40" y="264" w="144" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Lbl-Key" type="Label" x="40" y="288" w="144" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1349,7 +1349,7 @@ Create/Update</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Txt-Key" type="TextBox" x="192" y="264" w="568" h="32" tab-order="5" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Txt-Key" type="TextBox" x="192" y="288" w="808" h="32" tab-order="5" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="PasswordCharacter">*</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -1397,7 +1397,7 @@ Create/Update</Property>
     <Property name="Text"></Property>
     <Property name="Picture"></Property>
   </Control>
-  <Control id="Lbl-Status" type="Label" x="248" y="304" w="512" h="72" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Lbl-Status" type="Label" x="248" y="360" w="512" h="72" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1435,7 +1435,7 @@ Create/Update</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Btn-Test" type="Button" x="40" y="304" w="192" h="32" tab-order="7" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Btn-Test" type="Button" x="40" y="360" w="192" h="32" tab-order="7" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1445,7 +1445,7 @@ Create/Update</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
@@ -1507,7 +1507,7 @@ Create/Update</Property>
            END-IF
 ]]></Event>
   </Control>
-  <Control id="Btn-Cancel" type="Button" x="528" y="384" w="112" h="32" tab-order="8" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Btn-Cancel" type="Button" x="768" y="448" w="112" h="32" tab-order="8" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1517,7 +1517,7 @@ Create/Update</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
@@ -1555,7 +1555,7 @@ Create/Update</Property>
            CALL "PC-CANCEL-EDIT"
 ]]></Event>
   </Control>
-  <Control id="Btn-Save" type="Button" x="648" y="384" w="112" h="32" tab-order="9" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Btn-Save" type="Button" x="888" y="448" w="112" h="32" tab-order="9" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1565,7 +1565,7 @@ Create/Update</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
@@ -1832,7 +1832,7 @@ delete:string</Property>
            END-EVALUATE
 ]]></Event>
   </Control>
-  <Control id="Btn-Cancel-Top" type="Button" x="528" y="104" w="112" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Btn-Cancel-Top" type="Button" x="768" y="96" w="112" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="Caption">Cancel</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
@@ -1859,7 +1859,7 @@ delete:string</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="ZOrder">0</Property>
     <Property name="IsDefault">false</Property>
     <Property name="BorderColor">#888888</Property>
@@ -1878,7 +1878,7 @@ delete:string</Property>
            CALL "PC-CANCEL-EDIT"
 ]]></Event>
   </Control>
-  <Control id="Btn-Save-Top" type="Button" x="648" y="104" w="112" h="32" tab-order="1" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Btn-Save-Top" type="Button" x="888" y="96" w="112" h="32" tab-order="1" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="Caption">Save</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
@@ -1905,7 +1905,7 @@ delete:string</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="ZOrder">0</Property>
     <Property name="IsDefault">false</Property>
     <Property name="BorderColor">#888888</Property>

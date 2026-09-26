@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="TOPICS-FORM" title="PowerChat" width="600" height="644" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed" form-format="Embedded">
+<Form name="TOPICS-FORM" title="PowerChat" width="1072" height="644" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed" form-format="Embedded">
   <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -1191,7 +1191,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Txt-Name" type="TextBox" x="40" y="176" w="520" h="32" tab-order="3" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Txt-Name" type="TextBox" x="40" y="176" w="720" h="32" tab-order="3" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="HintText">Name, e.g. Human Resources</Property>
     <Property name="MaximumLength">40</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
@@ -1239,7 +1239,7 @@
     <Property name="Picture"></Property>
     <Property name="PasswordCharacter"></Property>
   </Control>
-  <Control id="Txt-Prompt" type="TextBox" x="40" y="216" w="520" h="296" tab-order="4" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Txt-Prompt" type="TextBox" x="40" y="216" w="984" h="296" tab-order="4" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="HintText">What the assistant is for, how it should answer - the topic&apos;s system prompt</Property>
     <Property name="Multiline">true</Property>
     <Property name="ScrollBars">Vertical</Property>
@@ -1336,7 +1336,7 @@
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
@@ -1435,7 +1435,7 @@
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
@@ -1638,7 +1638,7 @@
            END-IF
 ]]></Event>
   </Control>
-  <Control id="Tab-Crud" type="TabControl" x="24" y="56" w="552" h="520" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Tab-Crud" type="TabControl" x="24" y="56" w="1016" h="520" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
@@ -1657,21 +1657,21 @@
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
-    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="ZOrder">0</Property>
     <Property name="Tabs">Browse
 Create/Update</Property>
     <Property name="TabPosition">Top</Property>
-    <Property name="SelectedTab">0</Property>
+    <Property name="SelectedTab">1</Property>
     <Property name="ActiveTabColor">#2C6FD2FF</Property>
-    <Property name="TabPadding">7</Property>
+    <Property name="TabPadding">0</Property>
     <Property name="HScroll">false</Property>
     <Property name="VScroll">false</Property>
     <Property name="CornerRadius">10</Property>
@@ -1704,7 +1704,7 @@ Create/Update</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="ZOrder">0</Property>
     <Property name="IsDefault">false</Property>
     <Property name="BorderColor">#888888</Property>
@@ -1722,7 +1722,7 @@ Create/Update</Property>
            CALL "PC-NEW-TOPIC"
 ]]></Event>
   </Control>
-  <Control id="Dg-List" type="DataGrid" x="40" y="144" w="520" h="416" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
+  <Control id="Dg-List" type="DataGrid" x="40" y="144" w="976" h="416" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
@@ -1741,7 +1741,7 @@ Create/Update</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
-    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
@@ -1812,7 +1812,7 @@ delete:string</Property>
            END-EVALUATE
 ]]></Event>
   </Control>
-  <Control id="Btn-Save" type="Button" x="40" y="96" w="120" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Btn-Save" type="Button" x="768" y="96" w="120" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="Caption">Save</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
@@ -1857,7 +1857,7 @@ delete:string</Property>
            CALL "PC-SAVE-TOPIC"
 ]]></Event>
   </Control>
-  <Control id="Btn-Cancel" type="Button" x="176" y="96" w="120" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Btn-Cancel" type="Button" x="904" y="96" w="120" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="Caption">Cancel</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
@@ -1902,7 +1902,7 @@ delete:string</Property>
            CALL "PC-CANCEL-EDIT"
 ]]></Event>
   </Control>
-  <Control id="Btn-Save2" type="Button" x="40" y="528" w="120" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Btn-Save2" type="Button" x="768" y="528" w="120" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="Caption">Save</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
@@ -1947,7 +1947,7 @@ delete:string</Property>
            CALL "PC-SAVE-TOPIC"
 ]]></Event>
   </Control>
-  <Control id="Btn-Cancel2" type="Button" x="176" y="528" w="120" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Btn-Cancel2" type="Button" x="904" y="528" w="120" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="Caption">Cancel</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>

@@ -1339,7 +1339,23 @@ impl ShadowStack {
                 clipped = painter.with_clip_rect(painter.clip_rect().intersect(c));
                 &clipped
             }
-            None => painter,
+            // A RAISED shadow falls outside the control, so it may use the
+            // room its container gives it (`ShadowBoundsScope`) — the padding
+            // around a TabControl page, a Panel's border band — rather than
+            // stopping at the container's content edge. Stopped there, a
+            // control flush with that edge lost its shadow along the edge and
+            // kept it only in the corner squares between its arc and its rect:
+            // a dark quadrant at the shadow's corner (operator, 2026-09-26:
+            // "datagrid...corners...really???").
+            None => match scoped_shadow_bounds(painter.ctx()) {
+                Some(bounds) => {
+                    let mut wide = painter.clone();
+                    wide.set_clip_rect(bounds.union(painter.clip_rect()));
+                    clipped = wide;
+                    &clipped
+                }
+                None => painter,
+            },
         };
         for l in &self.layers {
             p.rect_filled(l.rect, l.rounding, l.color);
@@ -14816,6 +14832,51 @@ impl Drop for ContainerClipScope<'_> {
             }
         });
     }
+}
+
+fn shadow_bounds_scope_id() -> egui::Id {
+    egui::Id::new("cobolt_forms::paint::shadow_bounds_scope")
+}
+
+/// How far a control's RAISED shadow may reach: its container's outer rect
+/// (within whatever clips the container), published by the render loop for
+/// the duration of one control, so [`ShadowStack::paint`] can let the shadow
+/// fall into the container's padding while the control's face and content stay
+/// clipped to the content area. Nested scopes restore the outer value on close.
+pub struct ShadowBoundsScope<'a> {
+    ctx: &'a egui::Context,
+    outer: Option<Option<egui::Rect>>,
+}
+
+impl<'a> ShadowBoundsScope<'a> {
+    pub fn enter(ctx: &'a egui::Context, bounds: Option<egui::Rect>) -> Self {
+        let outer = ctx.data_mut(|d| {
+            let outer = d.get_temp::<Option<egui::Rect>>(shadow_bounds_scope_id());
+            d.insert_temp(shadow_bounds_scope_id(), bounds);
+            outer
+        });
+        Self { ctx, outer }
+    }
+}
+
+impl Drop for ShadowBoundsScope<'_> {
+    fn drop(&mut self) {
+        let outer = self.outer;
+        self.ctx.data_mut(|d| match outer {
+            Some(b) => {
+                d.insert_temp(shadow_bounds_scope_id(), b);
+            }
+            None => {
+                d.remove_temp::<Option<egui::Rect>>(shadow_bounds_scope_id());
+            }
+        });
+    }
+}
+
+/// The bounds the innermost open [`ShadowBoundsScope`] published, if any.
+pub(crate) fn scoped_shadow_bounds(ctx: &egui::Context) -> Option<egui::Rect> {
+    ctx.data(|d| d.get_temp::<Option<egui::Rect>>(shadow_bounds_scope_id()))
+        .flatten()
 }
 
 /// The clip the innermost open [`ContainerClipScope`] published, if any.

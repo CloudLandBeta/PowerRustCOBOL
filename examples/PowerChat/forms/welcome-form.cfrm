@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="WELCOME-FORM" title="PowerChat" width="912" height="744" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed" form-format="Embedded">
+<Form name="WELCOME-FORM" title="PowerChat" width="984" height="600" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed" form-format="Embedded">
   <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -213,7 +213,7 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
+    <Property name="FontName">Helvetica Neue</Property>
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
@@ -271,6 +271,7 @@
     <Property name="Tooltip"></Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
+    <Animation name="anim1" trigger="OnFormLoad" kind="Shake" duration="1000" delay="4000" easing="EaseOut" repeat="Loop" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="Lbl-Welcome" type="Label" x="352" y="176" w="536" h="56" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>

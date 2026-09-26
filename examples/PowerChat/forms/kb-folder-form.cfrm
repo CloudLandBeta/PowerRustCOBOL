@@ -360,7 +360,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lbl-KB" type="Label" x="24" y="64" w="752" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-KB" type="Label" x="24" y="128" w="752" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -398,7 +398,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Txt-KbLocation" type="TextBox" x="24" y="92" w="672" h="32" tab-order="1" z-order="0" visible="true" enabled="true">
+  <Control id="Txt-KbLocation" type="TextBox" x="24" y="156" w="672" h="32" tab-order="1" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -446,7 +446,7 @@
     <Property name="Picture"></Property>
     <Property name="PasswordCharacter"></Property>
   </Control>
-  <Control id="Btn-BrowseKb" type="Button" x="704" y="92" w="72" h="32" tab-order="2" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-BrowseKb" type="Button" x="704" y="156" w="72" h="32" tab-order="2" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -499,7 +499,7 @@
            END-IF
 ]]></Event>
   </Control>
-  <Control id="Lbl-Status" type="Label" x="24" y="150" w="752" h="140" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Status" type="Label" x="24" y="232" w="752" h="140" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -547,7 +547,7 @@
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
@@ -595,7 +595,7 @@
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
@@ -660,7 +660,7 @@
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="ZOrder">0</Property>
     <Property name="IsDefault">false</Property>
     <Property name="BorderColor">#888888</Property>
@@ -705,7 +705,7 @@
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="ZOrder">0</Property>
     <Property name="IsDefault">false</Property>
     <Property name="BorderColor">#888888</Property>

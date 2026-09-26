@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="SETTINGS-FORM" title="PowerChat" width="720" height="620" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed" form-format="Embedded">
+<Form name="SETTINGS-FORM" title="PowerChat" width="728" height="620" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed" form-format="Embedded">
   <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -827,7 +827,7 @@
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
@@ -866,7 +866,7 @@
            CALL "PC-REFRESH"
 ]]></Event>
   </Control>
-  <Control id="Lbl-KbSum" type="Label" x="24" y="110" w="328" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-KbSum" type="Label" x="24" y="118" w="328" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -914,7 +914,7 @@
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
@@ -953,7 +953,7 @@
            CALL "PC-REFRESH"
 ]]></Event>
   </Control>
-  <Control id="Lbl-ProvSum" type="Label" x="368" y="110" w="328" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-ProvSum" type="Label" x="368" y="118" w="328" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -991,7 +991,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Btn-ModelSel" type="Button" x="24" y="146" w="328" h="44" tab-order="3" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-ModelSel" type="Button" x="24" y="154" w="328" h="44" tab-order="3" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1001,7 +1001,7 @@
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
@@ -1045,7 +1045,7 @@
            CALL "PC-REFRESH"
 ]]></Event>
   </Control>
-  <Control id="Lbl-ModelSum" type="Label" x="24" y="192" w="328" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-ModelSum" type="Label" x="24" y="208" w="328" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -1083,7 +1083,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Btn-Agents" type="Button" x="368" y="146" w="328" h="44" tab-order="4" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Agents" type="Button" x="368" y="154" w="328" h="44" tab-order="4" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1093,7 +1093,7 @@
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
@@ -1137,7 +1137,7 @@
            CALL "PC-REFRESH"
 ]]></Event>
   </Control>
-  <Control id="Lbl-AgentSum" type="Label" x="368" y="192" w="328" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-AgentSum" type="Label" x="368" y="208" w="328" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -1175,7 +1175,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lbl-Models" type="Label" x="24" y="232" w="672" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Models" type="Label" x="24" y="240" w="672" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Bold">true</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -1213,7 +1213,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lst-Models" type="ListBox" x="24" y="256" w="672" h="200" tab-order="5" z-order="0" visible="true" enabled="true">
+  <Control id="Lst-Models" type="ListBox" x="24" y="264" w="672" h="200" tab-order="5" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1257,7 +1257,7 @@
     <Property name="SelectedItemsColor"></Property>
     <Property name="ActiveItemTextColor"></Property>
   </Control>
-  <Control id="Btn-Export" type="Button" x="24" y="472" w="150" h="32" tab-order="6" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Export" type="Button" x="24" y="480" w="150" h="32" tab-order="6" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1267,7 +1267,7 @@
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
@@ -1391,7 +1391,7 @@
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
 ]]></Event>
   </Control>
-  <Control id="Btn-Import" type="Button" x="182" y="472" w="150" h="32" tab-order="7" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Import" type="Button" x="182" y="480" w="150" h="32" tab-order="7" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1401,7 +1401,7 @@
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
@@ -1568,7 +1568,7 @@
            MOVE WS-LONG TO Lbl-Status::Caption
 ]]></Event>
   </Control>
-  <Control id="Lbl-Status" type="Label" x="24" y="516" w="672" h="90" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Status" type="Label" x="24" y="524" w="672" h="80" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>

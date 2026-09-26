@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.265] — 2026-09-26
+
+### Fix — a square shadow corner outside a DataGrid's arc
+
+- A DataGrid laid flush with a TabControl page (PowerChat's Files form, under
+  Neumorphic) showed a grey square at its rounded corner. Its drop shadow was
+  clipped to the page's content edge, which is exactly the grid's own edge, so
+  the only shadow that survived was the sliver in the corner squares between
+  the grid's arc and its rectangle. A raised shadow may now fall into its
+  container's padding — up to the container's outer edge, never past it — on
+  both the running form and the designer canvas. Test
+  `a_shadow_falls_into_the_containers_padding`.
+- Also carries the PowerChat example forms as last edited by the operator.
+
 ## [PowerRustCOBOL 1.70.264] — 2026-09-26
 
 ### Fix — an animation's Loop did not repeat in the designer

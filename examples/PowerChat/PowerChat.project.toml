@@ -109,10 +109,10 @@ main-form-seal = "f598233888fb98910fc9ff9971915ac5c32c63259ddb04e934abd91b29a4c4
 
 [ai]
 schema_version = 1
-provider = ""
-endpoint = ""
+provider = "ollama_cloud"
+endpoint = "https://ollama.com/api/chat"
 endpoint_user_edited = false
-model = ""
+model = "gemma4:31b"
 system_prompt = "You are an expert pair programmer for PowerRustCOBOL..."
 cobol_proficiency_prompt = """
 You are an expert evaluator of Large Language Models for COBOL-85 and PowerRustCOBOL development.

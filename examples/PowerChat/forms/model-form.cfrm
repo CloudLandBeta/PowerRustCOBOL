@@ -907,21 +907,21 @@
   <Control id="Chk-Tools" type="CheckBox" x="320" y="172" w="456" h="24" tab-order="4" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
-    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowDistance">5</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="ShadowBlurStrength">0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="EnterAsTab">true</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="BorderColor">#8C8CA0</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#020202FF</Property>
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="FontName">Arial</Property>
@@ -948,7 +948,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Property name="GroupName"></Property>
-    <Property name="CheckBoxColor"></Property>
+    <Property name="CheckBoxColor">#F0F0F0FF</Property>
   </Control>
   <Control id="Lbl-Status" type="Label" x="24" y="224" w="752" h="140" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
@@ -998,7 +998,7 @@
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
@@ -1046,7 +1046,7 @@
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
@@ -1072,7 +1072,7 @@
     <Property name="IconSize">32</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="Caption">Save</Property>
-    <Property name="IsDefault">true</Property>
+    <Property name="IsDefault">false</Property>
     <Property name="Tooltip"></Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
@@ -1111,7 +1111,7 @@
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ShadowBlurStrength">0</Property>
     <Property name="ZOrder">0</Property>
     <Property name="IsDefault">false</Property>
     <Property name="BorderColor">#888888</Property>

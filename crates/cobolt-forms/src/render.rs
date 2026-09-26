@@ -2310,6 +2310,21 @@ fn render_form_inner(
             Some(c) => content_rect.intersect(c),
             None => content_rect,
         };
+        // How far this control's drop shadow may fall: its container's OUTER
+        // rect (within what clips the container), not the content rect the
+        // control itself is clipped to — see `paint::ShadowBoundsScope`.
+        let shadow_bounds = controls[idx].parent.as_deref().and_then(|pid| {
+            let outer = out.control_rects.get(pid).copied()?;
+            let pidx = controls.iter().position(|c| c.id.eq_ignore_ascii_case(pid))?;
+            let pscroll = ancestor_auto_scroll_offset(scope, controls, pidx, ui.ctx());
+            let pclip = match ancestor_clip_rect(controls, pidx, origin, pscroll, input.state) {
+                Some(c) => content_rect.intersect(c),
+                None => content_rect,
+            };
+            Some(outer.intersect(pclip))
+        });
+        let shadow_ctx = ui.ctx().clone();
+        let _shadow_scope = crate::paint::ShadowBoundsScope::enter(&shadow_ctx, shadow_bounds);
         // Fold the repeating-group card-appear effect into `tf`. The viewport is
         // the parent/container clip, so offscreen cards do not animate while
         // partially visible cards animate and remain clipped.
@@ -3156,6 +3171,21 @@ pub fn render_faces(
             )),
             None => painter.clip_rect(),
         };
+        // The drop shadow may fall into the container's padding, as in
+        // `render_form` (`paint::ShadowBoundsScope`).
+        let shadow_bounds = controls[idx].parent.as_deref().and_then(|pid| {
+            let outer = out.control_rects.get(pid).copied()?;
+            let pidx = controls.iter().position(|c| c.id.eq_ignore_ascii_case(pid))?;
+            let pclip = match containers::clip_rect(controls, pidx) {
+                Some(cm) => painter.clip_rect().intersect(Rect::from_min_size(
+                    origin + Vec2::new(cm.x as f32, cm.y as f32),
+                    Vec2::new(cm.w as f32, cm.h as f32),
+                )),
+                None => painter.clip_rect(),
+            };
+            Some(outer.intersect(pclip))
+        });
+        let _shadow_scope = crate::paint::ShadowBoundsScope::enter(painter.ctx(), shadow_bounds);
 
         let anc = containers::ancestor_opacity(controls, idx);
         let enabled = input.state.enabled(base)
@@ -8595,6 +8625,9 @@ fn render_interactive(
             ui.data_mut(|d| d.insert_temp(ctrl_id, cal));
         }
         CT::DataGrid => {
+            // The painter BEFORE the grid clips to itself: its drop shadow falls
+            // outside the grid, as every control's does.
+            let shadow_painter = painter.clone();
             let painter = painter.with_clip_rect(painter.clip_rect().intersect(screen));
             let _clip_scope =
                 paint::ContainerClipScope::enter(painter.ctx(), paint::container_clip_of(ctrl));
@@ -8982,7 +9015,13 @@ fn render_interactive(
             // with ShadowEnabled cast a shadow on the designer canvas and none
             // at all in Preview, Run Form or a compiled binary (operator,
             // 2026-09-16) — the same split that hid `Transparency`.
-            paint::draw_control_drop_shadow(&painter, ctrl, screen, face_alpha);
+            //
+            // Painted with the painter from BEFORE the grid clipped itself to
+            // `screen`: clipped to its own rect, the shadow was cut off outside
+            // the grid — where it belongs — and survived only in the corner
+            // squares between the arc and the rect, a dark quadrant at the
+            // shadow's corner (operator, 2026-09-26: "datagrid...corners").
+            paint::draw_control_drop_shadow(&shadow_painter, ctrl, screen, face_alpha);
             paint::draw_surface_auto_bg(
                 &painter,
                 screen,
@@ -22146,6 +22185,91 @@ mod tests {
         assert!((g[0].min.x - r[0].min.x).abs() < 0.5 && (g[0].max.x - r[0].max.x).abs() < 0.5, "one column");
         assert!((g[0].min.y - r[1].min.y).abs() < 0.5, "A's stack is as tall as B's bar: {g:?} {r:?}");
         println!("\n  BarChart Stacked -- two series side by side on the axis; stacked, A's second sits on its first and 10+10 reaches B's 20\n");
+    }
+
+    /// A control's drop shadow falls into its container's padding. A DataGrid
+    /// flush with a TabControl page's content edge had its shadow clipped at
+    /// that edge, so the shadow survived only in the corner squares between
+    /// the grid's arc and its rect — a dark quadrant at the shadow's corner
+    /// (operator, 2026-09-26: "datagrid...corners...really???"). The shadow
+    /// may now reach the TabControl's outer rect, never beyond it.
+    #[test]
+    fn a_shadow_falls_into_the_containers_padding() {
+        let mut tab = ctrlp("TAB", ControlType::TabControl, 24, 96, 920, 344, &[]);
+        tab.z_order = 0;
+        let mut grid = ctrlp(
+            "DG",
+            ControlType::DataGrid,
+            40,
+            184,
+            888,
+            240,
+            &[
+                ("ShadowEnabled", "true"),
+                ("ShadowDirection", "SouthEast"),
+                ("ShadowDistance", "7"),
+                ("CornerRadius", "10"),
+                ("Columns", "A:string"),
+                ("ShowCSVExportButton", "false"),
+            ],
+        );
+        grid.parent = Some("TAB".into());
+        grid.tab = Some(0);
+        let controls = vec![tab, grid];
+        let ctx = egui::Context::default();
+        crate::paint::set_glass_style(&ctx, crate::model::GlassStyle::Neumorphic);
+        let active = ActiveTabs::new();
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let mut shapes = Vec::new();
+        for i in 0..2 {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(976.0, 496.0)));
+            input.time = Some(i as f64 * 0.05);
+            let st = MapState(&overrides);
+            let mut full = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                    let inp = RenderInput {
+                        controls: &controls,
+                        state: &st,
+                        form_size: Vec2::new(976.0, 496.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Backdrop::default(),
+                    };
+                    let _ = render_form(ui, &inp);
+                });
+            });
+            full.textures_delta.clear();
+            shapes = full.shapes;
+        }
+        // The grid's shadow: translucent black layers larger than the grid.
+        let grid_rect = Rect::from_min_size(pos2(40.0, 184.0), Vec2::new(888.0, 240.0));
+        let tab_rect = Rect::from_min_size(pos2(24.0, 96.0), Vec2::new(920.0, 344.0));
+        let mut shadow_clips = Vec::new();
+        fn walk(s: &egui::Shape, clip: Rect, g: Rect, out: &mut Vec<Rect>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|x| walk(x, clip, g, out)),
+                egui::Shape::Rect(r)
+                    if r.fill.a() > 0 && r.fill.a() < 40 && r.rect.max.x > g.max.x && r.rect.max.y > g.max.y =>
+                {
+                    out.push(clip)
+                }
+                _ => {}
+            }
+        }
+        for c in &shapes {
+            walk(&c.shape, c.clip_rect, grid_rect, &mut shadow_clips);
+        }
+        assert!(!shadow_clips.is_empty(), "the grid casts a shadow");
+        assert!(
+            shadow_clips.iter().all(|c| c.max.x > grid_rect.max.x && c.max.y > grid_rect.max.y),
+            "the shadow reaches past the grid, into the page padding: {shadow_clips:?}"
+        );
+        assert!(
+            shadow_clips.iter().all(|c| tab_rect.expand(0.5).contains_rect(*c)),
+            "and never past the TabControl itself: {shadow_clips:?}"
+        );
     }
 
     /// A row's action buttons: a Button column whose cell value is
