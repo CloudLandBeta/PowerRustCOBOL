@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.258] — 2026-09-26
+
+### Fix — a DataGrid click could not say which cell it was
+
+- `onCellClick` / `onCellDoubleClick` carried the cell in the event's value,
+  which a COBOL handler never receives — so a handler could not tell which
+  row's button was pressed. A click now writes the run-time **`ClickedRow`** and
+  **`ClickedColumn`** (data row and data column, numbered from 1 as
+  `GetCellValue` counts) just before the event.
+- A **Button** column cell whose value is `icon:<name>` draws that catalogue
+  icon, flat, in the grid's text colour (`icon:pencil`, `icon:trash`) — a row's
+  Edit and Delete buttons. It drew the literal text.
+- Test `a_datagrid_reports_the_clicked_cell_and_draws_icon_buttons`; KB and
+  Guide updated.
+
 ## [PowerRustCOBOL 1.70.257] — 2026-09-26
 
 ### Fix — a project whose agents all had models was told to set up its AI

@@ -1467,7 +1467,10 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
     const SQL: &[&str] = &["ResultCount", "LastError", "StatusCode"];
     // `AllowCellEditing` — the cell an edit changed, written before
     // `onCellEdited` (row and column numbered from 1).
-    const DATA_GRID: &[&str] = &["EditedRow", "EditedColumn", "EditedValue", "PreviousValue"];
+    // …and the cell a click landed on, written before `onCellClick` /
+    // `onCellDoubleClick`.
+    const DATA_GRID: &[&str] =
+        &["EditedRow", "EditedColumn", "EditedValue", "PreviousValue", "ClickedRow", "ClickedColumn"];
     // `AllowEdit` — a renamed node's old label, written before `onNodeRenamed`
     // (the new one is the node payload's `CONTROL-NODE`).
     const TREE_VIEW: &[&str] = &["PreviousNodeText"];

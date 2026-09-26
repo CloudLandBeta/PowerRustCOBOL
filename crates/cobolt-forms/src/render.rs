@@ -10125,7 +10125,19 @@ fn render_interactive(
                             ctrl_id.with(("dg-cell", row_index, col.index)),
                             Sense::click(),
                         );
+                        // Which cell, for the handler: the data row and data
+                        // column numbered from 1, as `GetCellValue` counts
+                        // (0 for a column with no data behind it). The event
+                        // carried the cell as its value, which a COBOL handler
+                        // never receives — so a row's Edit/Delete button could
+                        // not say which row it was on.
+                        let report_cell = |out: &mut RenderOutput| {
+                            let data_col = if *source_index == usize::MAX { 0 } else { source_index + 1 };
+                            out.prop_updates.push((id.to_owned(), "ClickedRow".to_owned(), (row_index + 1).to_string()));
+                            out.prop_updates.push((id.to_owned(), "ClickedColumn".to_owned(), data_col.to_string()));
+                        };
                         if cell_resp.clicked() {
+                            report_cell(out);
                             ui.ctx().memory_mut(|m| {
                                 m.data.insert_temp(
                                     selection_id,
@@ -10143,6 +10155,7 @@ fn render_interactive(
                             ));
                         }
                         if cell_resp.double_clicked() {
+                            report_cell(out);
                             if allow_cell_edit && column_editable(col.index) {
                                 ui.data_mut(|d| {
                                     d.insert_temp(
@@ -10387,6 +10400,23 @@ fn render_interactive(
                                 Color32::from_rgba_unmultiplied(80, 145, 255, 55),
                             );
                         }
+                        continue;
+                    }
+                    // A button cell whose value is `icon:<name>` is an ICON
+                    // button — a row's pencil or trash can — drawn flat in the
+                    // grid's own ink from the icon catalogue.
+                    if edit_control.eq_ignore_ascii_case("button") && raw.trim().starts_with("icon:") {
+                        let name = raw.trim()["icon:".len()..].trim();
+                        let side = (cell_rect.height() - 8.0).clamp(10.0, 22.0);
+                        let icon_rect = Rect::from_center_size(cell_rect.center(), vec2(side, side));
+                        if ui.rect_contains_pointer(cell_rect) {
+                            body_painter.rect_filled(
+                                icon_rect.expand(3.0),
+                                4.0,
+                                Color32::from_rgba_unmultiplied(cell_fg.r(), cell_fg.g(), cell_fg.b(), 28),
+                            );
+                        }
+                        crate::icons::draw_menu_icon(&body_painter, icon_rect, name, cell_fg);
                         continue;
                     }
                     if edit_control.eq_ignore_ascii_case("button") {
@@ -22116,6 +22146,56 @@ mod tests {
         assert!((g[0].min.x - r[0].min.x).abs() < 0.5 && (g[0].max.x - r[0].max.x).abs() < 0.5, "one column");
         assert!((g[0].min.y - r[1].min.y).abs() < 0.5, "A's stack is as tall as B's bar: {g:?} {r:?}");
         println!("\n  BarChart Stacked -- two series side by side on the axis; stacked, A's second sits on its first and 10+10 reaches B's 20\n");
+    }
+
+    /// A row's action buttons: a Button column whose cell value is
+    /// `icon:<name>` draws that catalogue icon, and a click on any cell tells
+    /// the handler WHICH cell — `ClickedRow` / `ClickedColumn`, data row and
+    /// data column numbered from 1 — before `onCellClick`.
+    #[test]
+    fn a_datagrid_reports_the_clicked_cell_and_draws_icon_buttons() {
+        use crate::model::{DataGridAdvanced, DataGridColumn, DATAGRID_ADVANCED_PROP};
+        let mut advanced = DataGridAdvanced::default();
+        for (id, kind) in [("Name", ""), ("Edit", "Button"), ("Delete", "Button")] {
+            advanced.columns.push(DataGridColumn {
+                id: id.into(),
+                title: if kind.is_empty() { id.into() } else { String::new() },
+                source_name: id.into(),
+                value_type: "string".into(),
+                width: 100.0,
+                control_kind: kind.into(),
+                ..DataGridColumn::default()
+            });
+        }
+        let json = advanced.to_json().unwrap();
+        let grid = ctrlp(
+            "DG",
+            ControlType::DataGrid,
+            20,
+            20,
+            300,
+            200,
+            &[
+                ("Columns", "Name:string\nEdit:string\nDelete:string"),
+                ("Rows", "Ana\ticon:pencil\ticon:trash\nBia\ticon:pencil\ticon:trash"),
+                ("ShowCSVExportButton", "false"),
+                ("RowHeight", "22"),
+                (DATAGRID_ADVANCED_PROP, json.as_str()),
+            ],
+        );
+        // Row 2 (Bia), the third column: the trash can.
+        let at = pos2(20.0 + 250.0, 42.0 + 22.0 + 11.0);
+        let (events, props) = drive(&[grid.clone()], click_at(at, 0.0));
+        let dg = props.get("DG").expect("the click reported its cell");
+        assert_eq!(dg.get("ClickedRow").map(String::as_str), Some("2"));
+        assert_eq!(dg.get("ClickedColumn").map(String::as_str), Some("3"));
+        assert!(events.iter().any(|e| e.event == "onCellClick"));
+        let painted = drive_painted(&[grid], vec![(0.0, vec![]), (0.05, vec![])]);
+        assert!(
+            !painted.texts.iter().any(|t| t.text.contains("icon:")),
+            "an icon cell draws its icon, not its value"
+        );
+        println!("\n  DataGrid -- clicking Bia's trash can reports ClickedRow 2 / ClickedColumn 3; icon: cells draw icons\n");
     }
 
     /// `AllowCellEditing`: a double-click opens the cell in a text box, Enter

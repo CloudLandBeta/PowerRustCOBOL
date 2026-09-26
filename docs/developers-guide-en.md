@@ -2605,6 +2605,31 @@ background/foreground).
            END-IF.
 ```
 
+**Which cell was clicked, and Edit/Delete buttons per row.** Every click on a
+cell writes **`ClickedRow`** and **`ClickedColumn`** — the data row and data
+column, numbered from 1 like `GetCellValue` — just before `onCellClick` (and
+`onCellDoubleClick`) fires. A column whose kind is **Button** (set in **Edit
+DataGrid settings…**) draws each cell as a button; a cell value of
+`icon:<name>` draws that icon from the catalogue instead, flat, in the grid's
+text colour — `icon:pencil` and `icon:trash` give each row its Edit and Delete
+buttons:
+
+```cobol
+      *> Rows: name, then the two action columns
+           STRING WS-NAME X"09" "icon:pencil" X"09" "icon:trash"
+               DELIMITED BY SIZE INTO WS-ROW
+           MOVE DG-TOPICS::AddRow(WS-ROW) TO WS-IGNORED.
+
+       DG-TOPICS--ONCELLCLICK.
+           EVALUATE DG-TOPICS::ClickedColumn
+               WHEN 2 PERFORM EDIT-TOPIC      *> the pencil
+               WHEN 3 PERFORM DELETE-TOPIC    *> the trash can
+           END-EVALUATE.
+```
+
+> ⚠️ **Caveat.** Before 1.70.258 a click told the handler nothing: the cell
+> travelled with the event, which a COBOL handler never receives.
+
 > **Note.** A write of `FrozenColumns`, `FrozenRows`, `ColumnFilters`,
 > `GridLineStyle` or `RowHeight` from COBOL takes effect at once — exactly like
 > `FreezeColumns`, `FreezeRows`, `SetFilter` and `SetRowHeight` — also on a grid
