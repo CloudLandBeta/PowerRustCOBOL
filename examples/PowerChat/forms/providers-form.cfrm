@@ -29,13 +29,6 @@
           05 FILLER PIC X(120) VALUE "Connexion".
           05 FILLER PIC X(120) VALUE "接続".
           05 FILLER PIC X(120) VALUE "连接".
-      *>   NEW-CONN
-          05 FILLER PIC X(120) VALUE "(new connection)".
-          05 FILLER PIC X(120) VALUE "(nova conexão)".
-          05 FILLER PIC X(120) VALUE "(nueva conexión)".
-          05 FILLER PIC X(120) VALUE "(nouvelle connexion)".
-          05 FILLER PIC X(120) VALUE "（新しい接続）".
-          05 FILLER PIC X(120) VALUE "（新连接）".
       *>   NAME
           05 FILLER PIC X(120) VALUE "Name".
           05 FILLER PIC X(120) VALUE "Nome".
@@ -85,13 +78,6 @@
           05 FILLER PIC X(120) VALUE "Uniquement pour la définir ou la remplacer : elle ne sera plus jamais affichée".
           05 FILLER PIC X(120) VALUE "設定または置き換えるときだけ入力 - 二度と表示されません".
           05 FILLER PIC X(120) VALUE "仅用于设置或替换——之后不会再显示".
-      *>   REMOVE
-          05 FILLER PIC X(120) VALUE "Remove".
-          05 FILLER PIC X(120) VALUE "Remover".
-          05 FILLER PIC X(120) VALUE "Quitar".
-          05 FILLER PIC X(120) VALUE "Retirer".
-          05 FILLER PIC X(120) VALUE "削除".
-          05 FILLER PIC X(120) VALUE "移除".
       *>   TEST-CONN
           05 FILLER PIC X(120) VALUE "Test connection".
           05 FILLER PIC X(120) VALUE "Testar conexão".
@@ -120,13 +106,6 @@
           05 FILLER PIC X(120) VALUE "État".
           05 FILLER PIC X(120) VALUE "ステータス".
           05 FILLER PIC X(120) VALUE "状态".
-      *>   PICK-CONN
-          05 FILLER PIC X(120) VALUE "Pick a saved connection first.".
-          05 FILLER PIC X(120) VALUE "Escolha primeiro uma conexão salva.".
-          05 FILLER PIC X(120) VALUE "Primero elige una conexión guardada.".
-          05 FILLER PIC X(120) VALUE "Choisissez d'abord une connexion enregistrée.".
-          05 FILLER PIC X(120) VALUE "先に保存済みの接続を選んでください。".
-          05 FILLER PIC X(120) VALUE "请先选择一个已保存的连接。".
       *>   PICK-PROVIDER
           05 FILLER PIC X(120) VALUE "Pick the model's provider first.".
           05 FILLER PIC X(120) VALUE "Escolha primeiro o provedor do modelo.".
@@ -183,13 +162,6 @@
           05 FILLER PIC X(120) VALUE "Connexion retirée, avec sa clé.".
           05 FILLER PIC X(120) VALUE "接続をキーとともに削除しました。".
           05 FILLER PIC X(120) VALUE "连接及其密钥已移除。".
-      *>   TIP-CONN
-          05 FILLER PIC X(120) VALUE "Pick a saved connection to change it, or (new connection) to add one.".
-          05 FILLER PIC X(120) VALUE "Escolha uma conexão salva para alterá-la, ou (nova conexão) para criar outra.".
-          05 FILLER PIC X(120) VALUE "Elige una conexión guardada para cambiarla, o (nueva conexión) para añadir otra.".
-          05 FILLER PIC X(120) VALUE "Choisissez une connexion pour la modifier, ou (nouvelle connexion) pour en ajouter.".
-          05 FILLER PIC X(120) VALUE "変更する接続、または（新しい接続）を選びます。".
-          05 FILLER PIC X(120) VALUE "选择要修改的连接，或选择（新连接）来添加。".
       *>   TIP-NAME
           05 FILLER PIC X(120) VALUE "A short name you choose for this model, such as company-model. Agents are assigned by it.".
           05 FILLER PIC X(120) VALUE "Um nome curto que você escolhe para este modelo, como modelo-da-empresa. Os agentes usam esse nome.".
@@ -225,14 +197,90 @@
           05 FILLER PIC X(120) VALUE "Demande au fournisseur sa liste de modèles pour vérifier adresse et clé.".
           05 FILLER PIC X(120) VALUE "モデル一覧を問い合わせ、アドレスとキーを確かめます。".
           05 FILLER PIC X(120) VALUE "向提供商获取模型列表，以检查地址和密钥。".
+      *>   TAB-BROWSE
+          05 FILLER PIC X(120) VALUE "Browse".
+          05 FILLER PIC X(120) VALUE "Consultar".
+          05 FILLER PIC X(120) VALUE "Consultar".
+          05 FILLER PIC X(120) VALUE "Consulter".
+          05 FILLER PIC X(120) VALUE "一覧".
+          05 FILLER PIC X(120) VALUE "浏览".
+      *>   TAB-EDIT
+          05 FILLER PIC X(120) VALUE "Create/Update".
+          05 FILLER PIC X(120) VALUE "Criar/Atualizar".
+          05 FILLER PIC X(120) VALUE "Crear/Actualizar".
+          05 FILLER PIC X(120) VALUE "Créer/Modifier".
+          05 FILLER PIC X(120) VALUE "作成/更新".
+          05 FILLER PIC X(120) VALUE "创建/更新".
+      *>   NEW
+          05 FILLER PIC X(120) VALUE "New".
+          05 FILLER PIC X(120) VALUE "Novo".
+          05 FILLER PIC X(120) VALUE "Nuevo".
+          05 FILLER PIC X(120) VALUE "Nouveau".
+          05 FILLER PIC X(120) VALUE "新規".
+          05 FILLER PIC X(120) VALUE "新建".
+      *>   CLOSE
+          05 FILLER PIC X(120) VALUE "Close".
+          05 FILLER PIC X(120) VALUE "Fechar".
+          05 FILLER PIC X(120) VALUE "Cerrar".
+          05 FILLER PIC X(120) VALUE "Fermer".
+          05 FILLER PIC X(120) VALUE "閉じる".
+          05 FILLER PIC X(120) VALUE "关闭".
+      *>   MODEL
+          05 FILLER PIC X(120) VALUE "Model".
+          05 FILLER PIC X(120) VALUE "Modelo".
+          05 FILLER PIC X(120) VALUE "Modelo".
+          05 FILLER PIC X(120) VALUE "Modèle".
+          05 FILLER PIC X(120) VALUE "モデル".
+          05 FILLER PIC X(120) VALUE "模型".
+      *>   KEY-SET
+          05 FILLER PIC X(120) VALUE "Key set".
+          05 FILLER PIC X(120) VALUE "Chave definida".
+          05 FILLER PIC X(120) VALUE "Clave definida".
+          05 FILLER PIC X(120) VALUE "Clé définie".
+          05 FILLER PIC X(120) VALUE "キー設定済み".
+          05 FILLER PIC X(120) VALUE "已设密钥".
+      *>   YES
+          05 FILLER PIC X(120) VALUE "Yes".
+          05 FILLER PIC X(120) VALUE "Sim".
+          05 FILLER PIC X(120) VALUE "Sí".
+          05 FILLER PIC X(120) VALUE "Oui".
+          05 FILLER PIC X(120) VALUE "はい".
+          05 FILLER PIC X(120) VALUE "是".
+      *>   NO
+          05 FILLER PIC X(120) VALUE "No".
+          05 FILLER PIC X(120) VALUE "Não".
+          05 FILLER PIC X(120) VALUE "No".
+          05 FILLER PIC X(120) VALUE "Non".
+          05 FILLER PIC X(120) VALUE "いいえ".
+          05 FILLER PIC X(120) VALUE "否".
+      *>   CONFIRM-DELETE
+          05 FILLER PIC X(120) VALUE "Delete the connection &1 and its key?".
+          05 FILLER PIC X(120) VALUE "Excluir a conexão &1 e a sua chave?".
+          05 FILLER PIC X(120) VALUE "¿Eliminar la conexión &1 y su clave?".
+          05 FILLER PIC X(120) VALUE "Supprimer la connexion &1 et sa clé ?".
+          05 FILLER PIC X(120) VALUE "接続 &1 とそのキーを削除しますか?".
+          05 FILLER PIC X(120) VALUE "删除连接 &1 及其密钥？".
+      *>   CONN-REMOVED-AGENTS
+          05 FILLER PIC X(120) VALUE "Connection removed, with its key. &1 agent(s) that used it now have no model.".
+          05 FILLER PIC X(120) VALUE "Conexão removida, junto com a chave. &1 agente(s) que a usavam ficaram sem modelo.".
+          05 FILLER PIC X(120) VALUE "Conexión quitada, junto con su clave. &1 agente(s) que la usaban quedan sin modelo.".
+          05 FILLER PIC X(120) VALUE "Connexion retirée, avec sa clé. &1 agent(s) qui l'utilisaient n'ont plus de modèle.".
+          05 FILLER PIC X(120) VALUE "接続とキーを削除しました。&1 件のエージェントはモデルなしです。".
+          05 FILLER PIC X(120) VALUE "连接及其密钥已移除。&1 个代理已无模型。".
+      *>   SAVE-FAILED
+          05 FILLER PIC X(120) VALUE "The connection could not be saved (file status &1).".
+          05 FILLER PIC X(120) VALUE "Não foi possível salvar a conexão (status do arquivo &1).".
+          05 FILLER PIC X(120) VALUE "No se pudo guardar la conexión (estado de archivo &1).".
+          05 FILLER PIC X(120) VALUE "Impossible d'enregistrer la connexion (statut de fichier &1).".
+          05 FILLER PIC X(120) VALUE "接続を保存できませんでした（ファイル状態 &1）。".
+          05 FILLER PIC X(120) VALUE "无法保存连接（文件状态 &1）。".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 30.
+          05 PC-TEXT-ROW     OCCURS 37.
              10 PC-TEXT      PIC X(120) OCCURS 6.
       *>   The texts in the current language, by name.
        01 PC-TEXTS-NOW       GLOBAL.
           05 T-PROVIDERS-TITLE PIC X(120).
           05 T-CONNECTION PIC X(120).
-          05 T-NEW-CONN PIC X(120).
           05 T-NAME PIC X(120).
           05 T-HINT-MODEL-NAME PIC X(120).
           05 T-PROVIDER PIC X(120).
@@ -240,12 +288,10 @@
           05 T-HINT-ENDPOINT PIC X(120).
           05 T-API-KEY PIC X(120).
           05 T-HINT-KEY PIC X(120).
-          05 T-REMOVE PIC X(120).
           05 T-TEST-CONN PIC X(120).
           05 T-SAVE PIC X(120).
           05 T-CANCEL PIC X(120).
           05 T-STATUS PIC X(120).
-          05 T-PICK-CONN PIC X(120).
           05 T-PICK-PROVIDER PIC X(120).
           05 T-LISTING PIC X(120).
           05 T-CONN-OK-MODELS PIC X(120).
@@ -254,14 +300,24 @@
           05 T-CONN-NEEDS PIC X(120).
           05 T-CONN-NEEDS-KEY PIC X(120).
           05 T-CONN-REMOVED PIC X(120).
-          05 T-TIP-CONN PIC X(120).
           05 T-TIP-NAME PIC X(120).
           05 T-TIP-PROVIDER PIC X(120).
           05 T-TIP-URL PIC X(120).
           05 T-TIP-KEY PIC X(120).
           05 T-TIP-TEST-LIST PIC X(120).
+          05 T-TAB-BROWSE PIC X(120).
+          05 T-TAB-EDIT PIC X(120).
+          05 T-NEW PIC X(120).
+          05 T-CLOSE PIC X(120).
+          05 T-MODEL PIC X(120).
+          05 T-KEY-SET PIC X(120).
+          05 T-YES PIC X(120).
+          05 T-NO PIC X(120).
+          05 T-CONFIRM-DELETE PIC X(120).
+          05 T-CONN-REMOVED-AGENTS PIC X(120).
+          05 T-SAVE-FAILED PIC X(120).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(120) OCCURS 30.
+          05 PC-TEXT-NOW     PIC X(120) OCCURS 37.
       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
        01 WS-FMT             GLOBAL PIC X(120).
        01 WS-ARG1            GLOBAL PIC X(300).
@@ -293,6 +349,23 @@
        01 WS-N               GLOBAL PIC 9(4).
        01 WS-NE              GLOBAL PIC Z(3)9.
        01 WS-FOUND           GLOBAL PIC X.
+      *>   The CRUD: whether the Create/Update page holds a new record ("N")
+      *>   or an existing one ("E", WS-EDIT-NAME); WS-KEY-NAME is the key of
+      *>   the grid row clicked; and the grid row being built.
+       01 WS-EDIT-MODE       GLOBAL PIC X VALUE "N".
+       01 WS-KEY-NAME        GLOBAL PIC X(30).
+       01 WS-EDIT-NAME       GLOBAL PIC X(30).
+       01 WS-G               GLOBAL PIC 9(4).
+       01 WS-A               GLOBAL PIC 9.
+       01 WS-ROW             GLOBAL PIC X(700).
+       01 WS-ROW-NO          GLOBAL PIC 9(4).
+       01 WS-COL-NO          GLOBAL PIC 9(4).
+       01 WS-YESNO           GLOBAL PIC X(120).
+       01 WS-TABS            GLOBAL PIC X(250).
+       01 WS-QUESTION        GLOBAL PIC X(300).
+       01 WS-ANSWER          GLOBAL PIC X.
+       01 WS-CLEARED         GLOBAL PIC 9.
+       01 WS-SAVED-OK        GLOBAL PIC X.
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -451,38 +524,80 @@
            END-PERFORM
            CLOSE MODELS-FILE
 ]]></Event>
-    <Event name="PC-FILL-CONNS" paragraph="PC-FILL-CONNS"><![CDATA[       ENVIRONMENT DIVISION.
+    <Event name="PC-FILL-GRID" paragraph="PC-FILL-GRID"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-      *>   The picker: "(new connection)" first, then every saved one.
+      *>   The Browse grid: one row per saved connection, in name order,
+      *>   ending with its pencil (edit) and trash can (delete) buttons.
            CALL "PC-LOAD-CONNS"
-           MOVE Cmb-Conn::Clear() TO WS-OK
-           MOVE Cmb-Conn::AddItem(FUNCTION TRIM(T-NEW-CONN)) TO WS-OK
-           PERFORM VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-CONN-COUNT
-               MOVE Cmb-Conn::AddItem(FUNCTION TRIM(WS-CONN-NAME(WS-P))) TO WS-OK
+           MOVE Dg-List::ClearRows() TO WS-OK
+           IF WS-CONN-COUNT = 0
+               EXIT PROGRAM
+           END-IF
+           OPEN INPUT MODELS-FILE
+           PERFORM VARYING WS-G FROM 1 BY 1 UNTIL WS-G > WS-CONN-COUNT
+               MOVE WS-CONN-NAME(WS-G) TO MDL-NAME
+               READ MODELS-FILE
+                   INVALID KEY CONTINUE
+                   NOT INVALID KEY CALL "PC-GRID-ROW"
+               END-READ
            END-PERFORM
+           CLOSE MODELS-FILE
+]]></Event>
+    <Event name="PC-GRID-ROW" paragraph="PC-GRID-ROW"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   MODEL-REC in: its grid row - name, provider, endpoint, model,
+      *>   whether a key is stored (never the key itself), edit, delete.
+           MOVE MDL-API TO WS-PROV-ID
+           CALL "PC-PROVIDER-LABEL"
+           CALL "COBOL-KEY-IS-SET" USING MDL-NAME WS-KEY-FLAG
+           IF WS-KEY-FLAG = "Y"
+               MOVE T-YES TO WS-YESNO
+           ELSE
+               MOVE T-NO TO WS-YESNO
+           END-IF
+           MOVE SPACES TO WS-ROW
+           STRING FUNCTION TRIM(MDL-NAME) X"09"
+                  FUNCTION TRIM(WS-PROV-LABEL) X"09"
+                  FUNCTION TRIM(MDL-URL) X"09"
+                  FUNCTION TRIM(MDL-MODEL) X"09"
+                  FUNCTION TRIM(WS-YESNO) X"09"
+                  "icon:pencil" X"09" "icon:trash"
+               DELIMITED BY SIZE INTO WS-ROW
+           MOVE Dg-List::AddRow(WS-ROW) TO WS-OK
 ]]></Event>
     <Event name="PC-SHOW-CONN" paragraph="PC-SHOW-CONN"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-      *>   The picked connection in the fields; "(new connection)" empties
-      *>   them. The key field always stays empty: a key is never read back.
-           MOVE Cmb-Conn::GetSelectedIndex() TO WS-INDEX
+      *>   The Create/Update page for WS-KEY-NAME (kept as WS-EDIT-NAME, the
+      *>   record the page holds); spaces empty it for a new
+      *>   connection. The key field always stays empty: a key is never read
+      *>   back. The name is the record key: it can be typed only for a new
+      *>   connection - renaming one is not a save of the same record.
            MOVE SPACES TO Txt-Key::Text
-           IF WS-INDEX < 1 OR WS-INDEX > WS-CONN-COUNT
+           MOVE SPACES TO WS-KEY
+           MOVE SPACES TO Lbl-Status::Caption
+           IF WS-KEY-NAME = SPACES
+               MOVE "N" TO WS-EDIT-MODE
+               MOVE SPACES TO WS-EDIT-NAME
                MOVE SPACES TO Txt-Name::Text
                MOVE SPACES TO Txt-Url::Text
                MOVE SPACES TO WS-LAST-DEFAULT
+               MOVE "true" TO Txt-Name::Enabled
                MOVE Cmb-Provider::SetSelectedIndex(-1) TO WS-OK
                EXIT PROGRAM
            END-IF
+           MOVE "E" TO WS-EDIT-MODE
+           MOVE WS-KEY-NAME TO WS-EDIT-NAME
+           MOVE "false" TO Txt-Name::Enabled
            OPEN I-O MODELS-FILE
            IF WS-FS = "35"
                OPEN OUTPUT MODELS-FILE
                CLOSE MODELS-FILE
                OPEN I-O MODELS-FILE
            END-IF
-           MOVE WS-CONN-NAME(WS-INDEX) TO MDL-NAME
+           MOVE WS-KEY-NAME TO MDL-NAME
            READ MODELS-FILE
                INVALID KEY CONTINUE
                NOT INVALID KEY
@@ -497,6 +612,196 @@
                    MOVE MDL-URL TO Txt-Url::Text
            END-READ
            CLOSE MODELS-FILE
+]]></Event>
+    <Event name="PC-SAVE-CONN" paragraph="PC-SAVE-CONN"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Add or change a connection (both Save buttons). The key, when
+      *>   typed, goes straight to the key store and the field is cleared: it
+      *>   is never written to a file of ours, never shown again (spec 071
+      *>   R34, R37); an empty key field keeps the stored key. The model
+      *>   chosen for it survives, unless the provider changed.
+           CALL "PC-PICKED-PROVIDER"
+           MOVE Txt-Name::Text TO WS-XVAL
+           IF WS-EDIT-MODE = "E"
+               MOVE WS-EDIT-NAME TO WS-XVAL
+           END-IF
+           IF WS-XVAL = SPACES OR WS-PROV-IX = 0
+               MOVE FUNCTION TRIM(T-CONN-NEEDS) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           OPEN I-O MODELS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT MODELS-FILE
+               CLOSE MODELS-FILE
+               OPEN I-O MODELS-FILE
+           END-IF
+           MOVE WS-XVAL TO MDL-NAME
+           READ MODELS-FILE
+               INVALID KEY MOVE "N" TO WS-FOUND
+               NOT INVALID KEY MOVE "Y" TO WS-FOUND
+           END-READ
+           IF WS-FOUND = "N" OR MDL-API NOT = WS-PROV-ID
+               MOVE SPACES TO MDL-MODEL
+               MOVE "N" TO MDL-TOOLS
+               MOVE 5 TO MDL-RANK
+           END-IF
+           MOVE WS-XVAL TO MDL-NAME
+           MOVE WS-PROV-ID TO MDL-API
+           MOVE Txt-Url::Text TO MDL-URL
+           IF MDL-URL = SPACES
+               MOVE WS-PROV-EP TO MDL-URL
+           END-IF
+      *>   A new record is written; one that exists already is rewritten.
+           MOVE "Y" TO WS-SAVED-OK
+           WRITE MODEL-REC
+               INVALID KEY
+                   REWRITE MODEL-REC
+                       INVALID KEY MOVE "N" TO WS-SAVED-OK
+                   END-REWRITE
+           END-WRITE
+           IF WS-SAVED-OK = "N"
+               MOVE T-SAVE-FAILED TO WS-FMT
+               MOVE WS-FS TO WS-ARG1
+               CLOSE MODELS-FILE
+               CALL "PC-FMT"
+               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           COMMIT
+           CLOSE MODELS-FILE
+           CALL "COBOL-MODEL-SET" USING MDL-NAME MDL-API MDL-URL MDL-MODEL
+      *>   From here on the page holds this saved connection.
+           MOVE "E" TO WS-EDIT-MODE
+           MOVE WS-XVAL TO WS-EDIT-NAME
+           MOVE "false" TO Txt-Name::Enabled
+           MOVE T-CONN-SAVED TO WS-STATUS
+           MOVE Txt-Key::Text TO WS-KEY
+           IF WS-KEY NOT = SPACES
+               CALL "COBOL-KEY-SET" USING MDL-NAME WS-KEY WS-STATUS
+               IF WS-STATUS = "OK"
+                   MOVE T-CONN-KEY-SAVED TO WS-STATUS
+               END-IF
+               MOVE SPACES TO WS-KEY
+               MOVE SPACES TO Txt-Key::Text
+           ELSE
+      *>       A provider that needs a key, and none stored yet: say so, and
+      *>       stay on this page so it can be typed now.
+               CALL "COBOL-KEY-IS-SET" USING MDL-NAME WS-KEY-FLAG
+               IF WS-PROV-NEEDS = "Y" AND WS-KEY-FLAG NOT = "Y"
+                   MOVE FUNCTION TRIM(T-CONN-NEEDS-KEY) TO Lbl-Status::Caption
+                   CALL "PC-FILL-GRID"
+                   EXIT PROGRAM
+               END-IF
+           END-IF
+      *>   Saved: back to Browse, refreshed.
+           CALL "PC-FILL-GRID"
+           MOVE WS-STATUS TO Lbl-List-Status::Caption
+           MOVE 0 TO Tab-Crud::SelectedTab
+]]></Event>
+    <Event name="PC-CANCEL-EDIT" paragraph="PC-CANCEL-EDIT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Nothing is written: back to Browse as it was, not refreshed. A key
+      *>   typed and not saved is dropped, never kept in the field.
+           MOVE SPACES TO WS-KEY
+           MOVE SPACES TO Txt-Key::Text
+           MOVE 0 TO Tab-Crud::SelectedTab
+]]></Event>
+    <Event name="PC-DELETE-CONN" paragraph="PC-DELETE-CONN"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-KEY-NAME, once the user confirms: the record, the runtime's copy,
+      *>   its key, and every agent setting that pointed at it.
+           MOVE T-CONFIRM-DELETE TO WS-FMT
+           MOVE WS-KEY-NAME TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE WS-FMT-OUT TO WS-QUESTION
+           INVOKE ME::"SetProperty"("ConfirmText", WS-QUESTION)
+           INVOKE ME::"SetProperty"("ConfirmYes", T-YES)
+           INVOKE ME::"SetProperty"("ConfirmNo", T-NO)
+           INVOKE ME::"SetProperty"("ConfirmAnswer", "N")
+           INVOKE ME::"OpenFormSync"("CONFIRM-FORM")
+           INVOKE ME::"GetProperty"("ConfirmAnswer") RETURNING WS-ANSWER
+           IF WS-ANSWER NOT = "Y"
+               EXIT PROGRAM
+           END-IF
+           OPEN I-O MODELS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT MODELS-FILE
+               CLOSE MODELS-FILE
+               OPEN I-O MODELS-FILE
+           END-IF
+           MOVE WS-KEY-NAME TO MDL-NAME
+           DELETE MODELS-FILE
+               INVALID KEY CONTINUE
+           END-DELETE
+           COMMIT
+           CLOSE MODELS-FILE
+           CALL "COBOL-MODEL-REMOVE" USING MDL-NAME
+           CALL "COBOL-KEY-REMOVE" USING MDL-NAME
+           CALL "PC-CLEAR-AGENT-REFS"
+      *>   The Create/Update page must not keep holding a deleted record.
+           IF WS-EDIT-MODE = "E" AND WS-EDIT-NAME = WS-KEY-NAME
+               MOVE SPACES TO WS-KEY-NAME
+               CALL "PC-SHOW-CONN"
+           END-IF
+           CALL "PC-FILL-GRID"
+           IF WS-CLEARED > 0
+               MOVE T-CONN-REMOVED-AGENTS TO WS-FMT
+               MOVE WS-CLEARED TO WS-ARG1
+               CALL "PC-FMT"
+               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-List-Status::Caption
+           ELSE
+               MOVE FUNCTION TRIM(T-CONN-REMOVED) TO Lbl-List-Status::Caption
+           END-IF
+]]></Event>
+    <Event name="PC-CLEAR-AGENT-REFS" paragraph="PC-CLEAR-AGENT-REFS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-KEY-NAME was deleted: every chat agent that used it gets no
+      *>   connection, as "(off)" does in the agents dialog. Agent 1 reads
+      *>   AGENT-1-ENTRY and falls back to MODEL-ENTRY (PowerChat 1), so both
+      *>   are cleared together. WS-CLEARED out: how many agents lost it.
+           MOVE 0 TO WS-CLEARED
+           IF WS-KEY-NAME = SPACES
+               EXIT PROGRAM
+           END-IF
+           MOVE "AGENT-1-ENTRY" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           MOVE WS-SET-VALUE TO WS-XVAL
+           IF WS-XVAL = SPACES
+               MOVE "MODEL-ENTRY" TO WS-SET-NAME
+               CALL "PC-SETTING-GET"
+               MOVE WS-SET-VALUE TO WS-XVAL
+           END-IF
+           IF WS-XVAL = WS-KEY-NAME
+               ADD 1 TO WS-CLEARED
+               MOVE SPACES TO WS-SET-VALUE
+               MOVE "AGENT-1-ENTRY" TO WS-SET-NAME
+               CALL "PC-SETTING-PUT"
+               MOVE "MODEL-ENTRY" TO WS-SET-NAME
+               CALL "PC-SETTING-PUT"
+           ELSE
+      *>       Agent 1 uses another connection; a stale MODEL-ENTRY naming
+      *>       the deleted one is cleared all the same.
+               MOVE "MODEL-ENTRY" TO WS-SET-NAME
+               CALL "PC-SETTING-GET"
+               IF WS-SET-VALUE = WS-KEY-NAME
+                   MOVE SPACES TO WS-SET-VALUE
+                   CALL "PC-SETTING-PUT"
+               END-IF
+           END-IF
+           PERFORM VARYING WS-A FROM 2 BY 1 UNTIL WS-A > 3
+               MOVE SPACES TO WS-SET-NAME
+               STRING "AGENT-" WS-A "-ENTRY" DELIMITED BY SIZE INTO WS-SET-NAME
+               CALL "PC-SETTING-GET"
+               IF WS-SET-VALUE = WS-KEY-NAME
+                   ADD 1 TO WS-CLEARED
+                   MOVE SPACES TO WS-SET-VALUE
+                   CALL "PC-SETTING-PUT"
+               END-IF
+           END-PERFORM
 ]]></Event>
     <Event name="PC-LOAD-PROVIDERS" paragraph="PC-LOAD-PROVIDERS"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -569,11 +874,10 @@
                WHEN OTHER MOVE "en" TO WS-LANG
                           MOVE 1 TO WS-LANG-IX
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 30
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 37
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
            MOVE FUNCTION TRIM(T-PROVIDERS-TITLE) TO Lbl-Title::Caption
-           MOVE FUNCTION TRIM(T-CONNECTION) TO Lbl-Conn::Caption
            MOVE FUNCTION TRIM(T-NAME) TO Lbl-Name::Caption
            MOVE FUNCTION TRIM(T-HINT-MODEL-NAME) TO Txt-Name::HintText
            MOVE FUNCTION TRIM(T-PROVIDER) TO Lbl-Api::Caption
@@ -581,17 +885,30 @@
            MOVE FUNCTION TRIM(T-HINT-ENDPOINT) TO Txt-Url::HintText
            MOVE FUNCTION TRIM(T-API-KEY) TO Lbl-Key::Caption
            MOVE FUNCTION TRIM(T-HINT-KEY) TO Txt-Key::HintText
-           MOVE FUNCTION TRIM(T-REMOVE) TO Btn-Remove::Caption
            MOVE FUNCTION TRIM(T-TEST-CONN) TO Btn-Test::Caption
            MOVE FUNCTION TRIM(T-SAVE) TO Btn-Save::Caption
            MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel::Caption
+           MOVE FUNCTION TRIM(T-SAVE) TO Btn-Save-Top::Caption
+           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel-Top::Caption
+           MOVE FUNCTION TRIM(T-NEW) TO Btn-New::Caption
+           MOVE FUNCTION TRIM(T-CLOSE) TO Btn-Close::Caption
            MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
-           MOVE FUNCTION TRIM(T-TIP-CONN) TO Cmb-Conn::Tooltip
            MOVE FUNCTION TRIM(T-TIP-NAME) TO Txt-Name::Tooltip
            MOVE FUNCTION TRIM(T-TIP-PROVIDER) TO Cmb-Provider::Tooltip
            MOVE FUNCTION TRIM(T-TIP-URL) TO Txt-Url::Tooltip
            MOVE FUNCTION TRIM(T-TIP-KEY) TO Txt-Key::Tooltip
            MOVE FUNCTION TRIM(T-TIP-TEST-LIST) TO Btn-Test::Tooltip
+           MOVE SPACES TO WS-TABS
+           STRING FUNCTION TRIM(T-TAB-BROWSE) X"0A" FUNCTION TRIM(T-TAB-EDIT)
+               DELIMITED BY SIZE INTO WS-TABS
+           MOVE WS-TABS TO Tab-Crud::Tabs
+      *>   The grid's column titles; ids, widths and the two Button columns
+      *>   stay as designed.
+           INVOKE Dg-List::SetColumnTitle("name", T-CONNECTION)
+           INVOKE Dg-List::SetColumnTitle("provider", T-PROVIDER)
+           INVOKE Dg-List::SetColumnTitle("endpoint", T-ENDPOINT)
+           INVOKE Dg-List::SetColumnTitle("model", T-MODEL)
+           INVOKE Dg-List::SetColumnTitle("keyset", T-KEY-SET)
 ]]></Event>
     <Event name="PC-FMT" paragraph="PC-FMT"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -639,16 +956,12 @@
            CALL "PC-PATHS"
            CALL "PC-TEXTS"
            CALL "PC-LOAD-PROVIDERS"
-           CALL "PC-FILL-CONNS"
-      *>   The first saved connection, ready to change; none saved yet, a
-      *>   new one.
-           IF WS-CONN-COUNT > 0
-               MOVE 1 TO WS-P
-           ELSE
-               MOVE 0 TO WS-P
-           END-IF
-           MOVE Cmb-Conn::SetSelectedIndex(WS-P) TO WS-OK
+      *>   Every saved connection in the Browse grid; the Create/Update page
+      *>   starts empty, ready for a new one.
+           CALL "PC-FILL-GRID"
+           MOVE SPACES TO WS-KEY-NAME
            CALL "PC-SHOW-CONN"
+           MOVE 0 TO Tab-Crud::SelectedTab
 ]]></Event>
     <Event name="onClose" paragraph="PROVIDERS-FORM--ONCLOSE">
     </Event>
@@ -691,93 +1004,46 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lbl-Conn" type="Label" x="24" y="76" w="160" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#00000000</Property>
-    <Property name="ForegroundColor">#003758FF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Left</Property>
-    <Property name="VerticalAlignment">Middle</Property>
-    <Property name="WordWrap">false</Property>
-    <Property name="AutoSize">false</Property>
-    <Property name="Caption">Connection</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-  </Control>
-  <Control id="Cmb-Conn" type="ComboBox" x="196" y="72" w="580" h="32" tab-order="1" z-order="0" visible="true" enabled="true">
+  <Control id="Tab-Crud" type="TabControl" x="24" y="56" w="752" h="376" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
-    <Property name="ForegroundColor">#003758FF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">14</Property>
     <Property name="Bold">false</Property>
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="BorderColor">#AAAAAA</Property>
-    <Property name="DropDownHeight">240</Property>
-    <Property name="EnterAsTab">true</Property>
+    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="SelectedIndex">-1</Property>
-    <Property name="Sorted">false</Property>
-    <Property name="Tooltip">Pick a saved connection to change it, or (new connection) to add one.</Property>
-    <Property name="DropDownStyle">DropDownList</Property>
-    <Property name="Editable">false</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="Items"></Property>
-    <Property name="ActiveItemColor"></Property>
-    <Property name="HoverItemColor"></Property>
-    <Event name="onSelectedIndexChanged" paragraph="CMB-CONN--ONSELECTEDINDEXCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       PROCEDURE DIVISION.
-           CALL "PC-SHOW-CONN"
-]]></Event>
+    <Property name="Tabs">Browse
+Create/Update</Property>
+    <Property name="TabPosition">Top</Property>
+    <Property name="SelectedTab">0</Property>
+    <Property name="ActiveTabColor">#2C6FD2FF</Property>
+    <Property name="TabPadding">7</Property>
+    <Property name="HScroll">false</Property>
+    <Property name="VScroll">false</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
   </Control>
-  <Control id="Lbl-Name" type="Label" x="24" y="124" w="160" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Name" type="Label" x="40" y="144" w="144" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -815,7 +1081,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Txt-Name" type="TextBox" x="196" y="120" w="580" h="32" tab-order="2" z-order="0" visible="true" enabled="true">
+  <Control id="Txt-Name" type="TextBox" x="192" y="144" w="568" h="32" tab-order="2" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="MaximumLength">30</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -863,7 +1129,7 @@
     <Property name="Picture"></Property>
     <Property name="PasswordCharacter"></Property>
   </Control>
-  <Control id="Lbl-Api" type="Label" x="24" y="172" w="160" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Api" type="Label" x="40" y="184" w="144" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -901,7 +1167,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Cmb-Provider" type="ComboBox" x="196" y="168" w="580" h="32" tab-order="3" z-order="0" visible="true" enabled="true">
+  <Control id="Cmb-Provider" type="ComboBox" x="192" y="184" w="568" h="32" tab-order="3" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -959,7 +1225,7 @@
            MOVE WS-PROV-EP TO WS-LAST-DEFAULT
 ]]></Event>
   </Control>
-  <Control id="Lbl-Url" type="Label" x="24" y="220" w="160" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Url" type="Label" x="40" y="224" w="144" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -997,7 +1263,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Txt-Url" type="TextBox" x="196" y="216" w="580" h="32" tab-order="4" z-order="0" visible="true" enabled="true">
+  <Control id="Txt-Url" type="TextBox" x="192" y="224" w="568" h="32" tab-order="4" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1045,7 +1311,7 @@
     <Property name="Picture"></Property>
     <Property name="PasswordCharacter"></Property>
   </Control>
-  <Control id="Lbl-Key" type="Label" x="24" y="268" w="160" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Key" type="Label" x="40" y="264" w="144" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1083,7 +1349,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Txt-Key" type="TextBox" x="196" y="264" w="580" h="32" tab-order="5" z-order="0" visible="true" enabled="true">
+  <Control id="Txt-Key" type="TextBox" x="192" y="264" w="568" h="32" tab-order="5" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="PasswordCharacter">*</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -1131,7 +1397,7 @@
     <Property name="Text"></Property>
     <Property name="Picture"></Property>
   </Control>
-  <Control id="Lbl-Status" type="Label" x="24" y="312" w="752" h="64" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Status" type="Label" x="248" y="304" w="512" h="72" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1169,76 +1435,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Btn-Remove" type="Button" x="24" y="390" w="140" h="36" tab-order="6" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#E1E6F8FF</Property>
-    <Property name="ForegroundColor">#003758FF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="IsDefault">false</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="BorderWidth">1</Property>
-    <Property name="IconAlignment">Left</Property>
-    <Property name="IconPadding">10</Property>
-    <Property name="IconSize">32</Property>
-    <Property name="TextAlignment">MiddleCenter</Property>
-    <Property name="Caption">Remove</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="IconPath"></Property>
-    <Event name="onClick" paragraph="BTN-REMOVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       PROCEDURE DIVISION.
-           MOVE Cmb-Conn::GetSelectedIndex() TO WS-INDEX
-           IF WS-INDEX < 1 OR WS-INDEX > WS-CONN-COUNT
-               MOVE FUNCTION TRIM(T-PICK-CONN) TO Lbl-Status::Caption
-               EXIT PROGRAM
-           END-IF
-           OPEN I-O MODELS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT MODELS-FILE
-               CLOSE MODELS-FILE
-               OPEN I-O MODELS-FILE
-           END-IF
-           MOVE WS-CONN-NAME(WS-INDEX) TO MDL-NAME
-           DELETE MODELS-FILE
-               INVALID KEY CONTINUE
-           END-DELETE
-           COMMIT
-           CLOSE MODELS-FILE
-           CALL "COBOL-MODEL-REMOVE" USING MDL-NAME
-           CALL "COBOL-KEY-REMOVE" USING MDL-NAME
-           CALL "PC-FILL-CONNS"
-           MOVE Cmb-Conn::SetSelectedIndex(0) TO WS-OK
-           CALL "PC-SHOW-CONN"
-           MOVE FUNCTION TRIM(T-CONN-REMOVED) TO Lbl-Status::Caption
-]]></Event>
-  </Control>
-  <Control id="Btn-Test" type="Button" x="180" y="390" w="200" h="36" tab-order="7" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Test" type="Button" x="40" y="304" w="192" h="32" tab-order="7" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1310,7 +1507,7 @@
            END-IF
 ]]></Event>
   </Control>
-  <Control id="Btn-Cancel" type="Button" x="520" y="390" w="120" h="36" tab-order="8" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Cancel" type="Button" x="528" y="384" w="112" h="32" tab-order="8" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1354,11 +1551,11 @@
     <Event name="onClick" paragraph="BTN-CANCEL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-      *>   Nothing is written: the dialog closes as it was opened.
-           INVOKE ME::Close()
+      *>   The bottom Cancel; Btn-Cancel-Top does the same.
+           CALL "PC-CANCEL-EDIT"
 ]]></Event>
   </Control>
-  <Control id="Btn-Save" type="Button" x="656" y="390" w="120" h="36" tab-order="9" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Save" type="Button" x="648" y="384" w="112" h="32" tab-order="9" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1402,66 +1599,329 @@
     <Event name="onClick" paragraph="BTN-SAVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-      *>   Add or change a connection. The key, when typed, goes straight to
-      *>   the key store and the field is cleared: it is never written to a
-      *>   file of ours, never shown again (spec 071 R34, R37). The model
-      *>   chosen for it survives, unless the provider changed.
-           CALL "PC-PICKED-PROVIDER"
-           MOVE Txt-Name::Text TO WS-XVAL
-           IF WS-XVAL = SPACES OR WS-PROV-IX = 0
-               MOVE FUNCTION TRIM(T-CONN-NEEDS) TO Lbl-Status::Caption
+      *>   The bottom Save; Btn-Save-Top does the same.
+           CALL "PC-SAVE-CONN"
+]]></Event>
+  </Control>
+  <Control id="Btn-New" type="Button" x="40" y="104" w="120" h="32" tab-order="1" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
+    <Property name="Caption">New</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-NEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   An empty Create/Update page for a new connection.
+           MOVE SPACES TO WS-KEY-NAME
+           CALL "PC-SHOW-CONN"
+           MOVE SPACES TO Lbl-List-Status::Caption
+           MOVE 1 TO Tab-Crud::SelectedTab
+]]></Event>
+  </Control>
+  <Control id="Lbl-List-Status" type="Label" x="176" y="104" w="456" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
+    <Property name="Caption"></Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+  </Control>
+  <Control id="Btn-Close" type="Button" x="648" y="104" w="112" h="32" tab-order="3" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
+    <Property name="Caption">Close</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-CLOSE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Every change was saved as it was made; RAG settings refreshes
+      *>   itself when this dialog returns.
+           INVOKE ME::Close()
+]]></Event>
+  </Control>
+  <Control id="Dg-List" type="DataGrid" x="40" y="152" w="720" h="264" tab-order="2" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Columns">name:string
+provider:string
+endpoint:string
+model:string
+keyset:string
+edit:string
+delete:string</Property>
+    <Property name="Rows"></Property>
+    <Property name="AlternatingRowColor">#F0F8FF</Property>
+    <Property name="AlternatingRowOpacity">20</Property>
+    <Property name="AlternatingMode">Rows</Property>
+    <Property name="HeaderBackgroundColor">#E0E0E0</Property>
+    <Property name="HeaderForegroundColor">#000000</Property>
+    <Property name="FilterForegroundColor"></Property>
+    <Property name="FilterBackgroundColor"></Property>
+    <Property name="GridLineColor">#CCCCCC</Property>
+    <Property name="GridBackgroundImage"></Property>
+    <Property name="GridBackgroundPattern">None</Property>
+    <Property name="RowBackgroundPattern">None</Property>
+    <Property name="GridBackgroundImageMode">Fill</Property>
+    <Property name="SelectionMode">Row</Property>
+    <Property name="RowHeight">22</Property>
+    <Property name="AllowSorting">true</Property>
+    <Property name="AllowColumnResize">true</Property>
+    <Property name="AllowColumnReorder">false</Property>
+    <Property name="AllowRowResize">true</Property>
+    <Property name="AllowCellEditing">false</Property>
+    <Property name="AdvancedGrid">{&quot;schema_version&quot;:1,&quot;columns&quot;:[{&quot;id&quot;:&quot;name&quot;,&quot;title&quot;:&quot;Connection&quot;,&quot;source_name&quot;:&quot;name&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;&quot;,&quot;width&quot;:140.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:true,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]},{&quot;id&quot;:&quot;provider&quot;,&quot;title&quot;:&quot;Provider&quot;,&quot;source_name&quot;:&quot;provider&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;&quot;,&quot;width&quot;:120.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:true,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]},{&quot;id&quot;:&quot;endpoint&quot;,&quot;title&quot;:&quot;Endpoint&quot;,&quot;source_name&quot;:&quot;endpoint&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;&quot;,&quot;width&quot;:200.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:true,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]},{&quot;id&quot;:&quot;model&quot;,&quot;title&quot;:&quot;Model&quot;,&quot;source_name&quot;:&quot;model&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;&quot;,&quot;width&quot;:110.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:true,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]},{&quot;id&quot;:&quot;keyset&quot;,&quot;title&quot;:&quot;Key set&quot;,&quot;source_name&quot;:&quot;keyset&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;&quot;,&quot;width&quot;:62.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:true,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]},{&quot;id&quot;:&quot;edit&quot;,&quot;title&quot;:&quot;&quot;,&quot;source_name&quot;:&quot;edit&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;Button&quot;,&quot;width&quot;:44.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:false,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]},{&quot;id&quot;:&quot;delete&quot;,&quot;title&quot;:&quot;&quot;,&quot;source_name&quot;:&quot;delete&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;Button&quot;,&quot;width&quot;:44.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:false,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]}],&quot;frozen_columns&quot;:0,&quot;frozen_rows&quot;:0,&quot;row_height&quot;:22,&quot;row_overrides&quot;:[],&quot;filters&quot;:[],&quot;csv_export_mode&quot;:&quot;Filtered&quot;,&quot;csv_delimiter&quot;:&quot;,&quot;,&quot;grid_line_style&quot;:&quot;Solid&quot;,&quot;selectable_text&quot;:true}</Property>
+    <Property name="ShowRowNumbers">false</Property>
+    <Property name="ShowColumnFilters">false</Property>
+    <Property name="Title"></Property>
+    <Property name="AutoFitColumns">false</Property>
+    <Property name="ExportCSV">true</Property>
+    <Property name="ShowCSVExportButton">false</Property>
+    <Property name="CSVDelimiter">,</Property>
+    <Property name="CSVExportMode">Filtered</Property>
+    <Property name="FrozenColumns">0</Property>
+    <Property name="FrozenRows">0</Property>
+    <Property name="FrozenShadow">true</Property>
+    <Property name="GridLineStyle">Solid</Property>
+    <Property name="RowHeightOverrides"></Property>
+    <Property name="ColumnFilters"></Property>
+    <Property name="SelectableText">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Event name="onCellClick" paragraph="DG-LIST--ONCELLCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A row's pencil opens it on Create/Update; its trash can deletes it
+      *>   (after asking). Column 1 holds the connection name, the key.
+           MOVE Dg-List::ClickedRow TO WS-ROW-NO
+           MOVE Dg-List::ClickedColumn TO WS-COL-NO
+           IF WS-ROW-NO < 1
                EXIT PROGRAM
            END-IF
-           OPEN I-O MODELS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT MODELS-FILE
-               CLOSE MODELS-FILE
-               OPEN I-O MODELS-FILE
+           MOVE Dg-List::GetCellValue(WS-ROW-NO, 1) TO WS-KEY-NAME
+           IF WS-KEY-NAME = SPACES
+               EXIT PROGRAM
            END-IF
-           MOVE WS-XVAL TO MDL-NAME
-           READ MODELS-FILE
-               INVALID KEY MOVE "N" TO WS-FOUND
-               NOT INVALID KEY MOVE "Y" TO WS-FOUND
-           END-READ
-           IF WS-FOUND = "N" OR MDL-API NOT = WS-PROV-ID
-               MOVE SPACES TO MDL-MODEL
-               MOVE "N" TO MDL-TOOLS
-               MOVE 5 TO MDL-RANK
-           END-IF
-           MOVE WS-XVAL TO MDL-NAME
-           MOVE WS-PROV-ID TO MDL-API
-           MOVE Txt-Url::Text TO MDL-URL
-           IF MDL-URL = SPACES
-               MOVE WS-PROV-EP TO MDL-URL
-           END-IF
-           IF WS-FOUND = "Y"
-               REWRITE MODEL-REC
-           ELSE
-               WRITE MODEL-REC
-           END-IF
-           COMMIT
-           CLOSE MODELS-FILE
-           CALL "COBOL-MODEL-SET" USING MDL-NAME MDL-API MDL-URL MDL-MODEL
-           MOVE T-CONN-SAVED TO WS-STATUS
-           MOVE Txt-Key::Text TO WS-KEY
-           IF WS-KEY NOT = SPACES
-               CALL "COBOL-KEY-SET" USING MDL-NAME WS-KEY WS-STATUS
-               IF WS-STATUS = "OK"
-                   MOVE T-CONN-KEY-SAVED TO WS-STATUS
-               END-IF
-               MOVE SPACES TO WS-KEY
-               MOVE SPACES TO Txt-Key::Text
-           ELSE
-      *>       A provider that needs a key, and none stored yet: say so, and
-      *>       stay open so it can be typed now.
-               CALL "COBOL-KEY-IS-SET" USING MDL-NAME WS-KEY-FLAG
-               IF WS-PROV-NEEDS = "Y" AND WS-KEY-FLAG NOT = "Y"
-                   MOVE FUNCTION TRIM(T-CONN-NEEDS-KEY) TO Lbl-Status::Caption
-                   EXIT PROGRAM
-               END-IF
-           END-IF
-           MOVE WS-STATUS TO Lbl-Status::Caption
-           INVOKE ME::Close()
+           EVALUATE WS-COL-NO
+               WHEN 6
+                   CALL "PC-SHOW-CONN"
+                   MOVE SPACES TO Lbl-List-Status::Caption
+                   MOVE 1 TO Tab-Crud::SelectedTab
+               WHEN 7
+                   CALL "PC-DELETE-CONN"
+           END-EVALUATE
+]]></Event>
+  </Control>
+  <Control id="Btn-Cancel-Top" type="Button" x="528" y="104" w="112" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+    <Property name="Caption">Cancel</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-CANCEL-TOP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The top Cancel; Btn-Cancel does the same.
+           CALL "PC-CANCEL-EDIT"
+]]></Event>
+  </Control>
+  <Control id="Btn-Save-Top" type="Button" x="648" y="104" w="112" h="32" tab-order="1" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+    <Property name="Caption">Save</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-SAVE-TOP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The top Save; Btn-Save does the same.
+           CALL "PC-SAVE-CONN"
 ]]></Event>
   </Control>
 </Form>

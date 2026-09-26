@@ -1,0 +1,465 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="WELCOME-FORM" title="PowerChat" width="912" height="744" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed" form-format="Embedded">
+  <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
+       01 WS-DATA-DIR        GLOBAL PIC X(200).
+       01 WS-SET-NAME        GLOBAL PIC X(20).
+       01 WS-SET-VALUE       GLOBAL PIC X(200).
+       01 WS-SETTINGS-PATH   GLOBAL PIC X(240).
+      *>   The interface texts (spec 071 R44): one row per text, one column
+      *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
+      *>   only the values are translated.
+       01 WS-LANG            GLOBAL PIC XX VALUE "en".
+       01 WS-LANG-IX         GLOBAL PIC 9 VALUE 1.
+       01 WS-TX-I            GLOBAL PIC 9(4).
+       01 PC-TEXT-DATA       GLOBAL.
+      *>   WELCOME
+          05 FILLER PIC X(120) VALUE "Welcome! PowerChat needs a model before it can answer.".
+          05 FILLER PIC X(120) VALUE "Bem-vindo! O PowerChat precisa de um modelo antes de responder.".
+          05 FILLER PIC X(120) VALUE "¡Bienvenido! PowerChat necesita un modelo antes de responder.".
+          05 FILLER PIC X(120) VALUE "Bienvenue ! PowerChat a besoin d'un modèle avant de répondre.".
+          05 FILLER PIC X(120) VALUE "ようこそ！PowerChat が答えるにはモデルが必要です。".
+          05 FILLER PIC X(120) VALUE "欢迎！PowerChat 需要先配置一个模型才能回答。".
+      *>   STEP-1
+          05 FILLER PIC X(120) VALUE "1. Open RAG settings in the menu on the left - for now it is the only option open.".
+          05 FILLER PIC X(120) VALUE "1. Abra Configurações de RAG no menu à esquerda - por ora é a única opção liberada.".
+          05 FILLER PIC X(120) VALUE "1. Abre Configuración de RAG en el menú de la izquierda; por ahora es la única activa.".
+          05 FILLER PIC X(120) VALUE "1. Ouvrez Paramètres RAG dans le menu de gauche : pour l'instant, c'est la seule option.".
+          05 FILLER PIC X(120) VALUE "1. 左のメニューで「RAG 設定」を開きます（今はこれだけ使えます）。".
+          05 FILLER PIC X(120) VALUE "1. 在左侧菜单中打开“RAG 设置”（目前只有它可用）。".
+      *>   STEP-2
+          05 FILLER PIC X(120) VALUE "2. Model providers: add a connection (provider, API key), press Test connection and Save.".
+          05 FILLER PIC X(120) VALUE "2. Provedores de modelos: crie uma conexão (provedor, chave de API), Testar conexão e Salvar.".
+          05 FILLER PIC X(120) VALUE "2. Proveedores de modelos: añade una conexión (proveedor, clave de API), Probar conexión y Guardar.".
+          05 FILLER PIC X(120) VALUE "2. Fournisseurs de modèles : une connexion (fournisseur, clé API), Tester la connexion, Enregistrer.".
+          05 FILLER PIC X(120) VALUE "2. モデルプロバイダー: 接続（プロバイダー・API キー）を追加し、テストして保存。".
+          05 FILLER PIC X(120) VALUE "2. 模型提供商：添加连接（提供商、API 密钥），测试连接后保存。".
+      *>   STEP-3
+          05 FILLER PIC X(120) VALUE "3. Model selection: pick the model. Then Agents: give agent 1 that connection.".
+          05 FILLER PIC X(120) VALUE "3. Seleção de modelo: escolha o modelo. Depois Agentes: dê essa conexão ao agente 1.".
+          05 FILLER PIC X(120) VALUE "3. Selección de modelo: elige el modelo. Luego Agentes: asigna esa conexión al agente 1.".
+          05 FILLER PIC X(120) VALUE "3. Choix du modèle : choisissez-le. Puis Agents : donnez cette connexion à l'agent 1.".
+          05 FILLER PIC X(120) VALUE "3. 「モデルの選択」でモデルを選び、「エージェント」で接続を割り当てます。".
+          05 FILLER PIC X(120) VALUE "3. 在“模型选择”中选模型，再在“代理”中把连接分给代理 1。".
+      *>   STEP-4
+          05 FILLER PIC X(120) VALUE "4. Come back to Chat: the menu opens up. Create a topic, add its documents and ask.".
+          05 FILLER PIC X(120) VALUE "4. Volte ao Chat: o menu é liberado. Crie um tópico, adicione documentos e pergunte.".
+          05 FILLER PIC X(120) VALUE "4. Vuelve al Chat: el menú se habilita. Crea un tema, añade documentos y pregunta.".
+          05 FILLER PIC X(120) VALUE "4. Revenez au Chat : le menu s'ouvre. Créez un sujet, ajoutez ses documents, questionnez.".
+          05 FILLER PIC X(120) VALUE "4. チャットに戻るとメニューが使えます。トピックを作り、文書を追加して質問。".
+          05 FILLER PIC X(120) VALUE "4. 回到“聊天”后菜单即可使用。创建主题、添加文档，然后提问。".
+       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
+          05 PC-TEXT-ROW     OCCURS 5.
+             10 PC-TEXT      PIC X(120) OCCURS 6.
+      *>   The texts in the current language, by name.
+       01 PC-TEXTS-NOW       GLOBAL.
+          05 T-WELCOME PIC X(120).
+          05 T-STEP-1 PIC X(120).
+          05 T-STEP-2 PIC X(120).
+          05 T-STEP-3 PIC X(120).
+          05 T-STEP-4 PIC X(120).
+       01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
+          05 PC-TEXT-NOW     PIC X(120) OCCURS 5.
+]]></working-storage>
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+  <file-control><![CDATA[           SELECT SETTINGS-FILE ASSIGN TO WS-SETTINGS-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS SET-NAME
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+]]></file-control>
+  <file-section><![CDATA[       FD  SETTINGS-FILE IS GLOBAL.
+       01  SETTINGS-REC.
+           05 SET-NAME          PIC X(20).
+           05 SET-VALUE         PIC X(200).
+]]></file-section>
+  <user-procedures>
+    <Event name="PC-PATHS" paragraph="PC-PATHS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Where PowerChat keeps its own files: POWERCHAT_DATA, else "data".
+           DISPLAY "POWERCHAT_DATA" UPON ENVIRONMENT-NAME
+           ACCEPT WS-DATA-DIR FROM ENVIRONMENT-VALUE
+           IF WS-DATA-DIR = SPACES
+               MOVE "data" TO WS-DATA-DIR
+           END-IF
+           MOVE SPACES TO WS-SETTINGS-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/settings.idx"
+               DELIMITED BY SIZE INTO WS-SETTINGS-PATH
+]]></Event>
+    <Event name="PC-SETTING-GET" paragraph="PC-SETTING-GET"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-SET-NAME in, WS-SET-VALUE out (spaces when the setting is unset).
+           MOVE SPACES TO WS-SET-VALUE
+           OPEN I-O SETTINGS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT SETTINGS-FILE
+               CLOSE SETTINGS-FILE
+               OPEN I-O SETTINGS-FILE
+           END-IF
+           MOVE WS-SET-NAME TO SET-NAME
+           READ SETTINGS-FILE
+               INVALID KEY CONTINUE
+               NOT INVALID KEY MOVE SET-VALUE TO WS-SET-VALUE
+           END-READ
+           CLOSE SETTINGS-FILE
+]]></Event>
+    <Event name="PC-TEXTS" paragraph="PC-TEXTS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The language the user picked (LANG), the texts in it, and every
+      *>   designed caption that shows one (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           MOVE WS-SET-VALUE(1:2) TO WS-LANG
+           EVALUATE WS-LANG
+               WHEN "en" MOVE 1 TO WS-LANG-IX
+               WHEN "pt" MOVE 2 TO WS-LANG-IX
+               WHEN "es" MOVE 3 TO WS-LANG-IX
+               WHEN "fr" MOVE 4 TO WS-LANG-IX
+               WHEN "jp" MOVE 5 TO WS-LANG-IX
+               WHEN "cn" MOVE 6 TO WS-LANG-IX
+               WHEN OTHER MOVE "en" TO WS-LANG
+                          MOVE 1 TO WS-LANG-IX
+           END-EVALUATE
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 5
+               MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
+           END-PERFORM
+           MOVE FUNCTION TRIM(T-WELCOME) TO Lbl-Welcome::Caption
+           MOVE FUNCTION TRIM(T-STEP-1) TO Lbl-Step-1::Caption
+           MOVE FUNCTION TRIM(T-STEP-2) TO Lbl-Step-2::Caption
+           MOVE FUNCTION TRIM(T-STEP-3) TO Lbl-Step-3::Caption
+           MOVE FUNCTION TRIM(T-STEP-4) TO Lbl-Step-4::Caption
+]]></Event>
+  </user-procedures>
+  <form-events>
+    <Event name="onLoad" paragraph="WELCOME-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-PATHS"
+           CALL "PC-TEXTS"
+]]></Event>
+    <Event name="onActivate" paragraph="WELCOME-FORM--ONACTIVATE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Back on the pane: the language may have changed meanwhile (R46).
+           CALL "PC-TEXTS"
+]]></Event>
+    <Event name="onClose" paragraph="WELCOME-FORM--ONCLOSE">
+    </Event>
+  </form-events>
+  <Control id="Lbl-Title" type="Label" x="24" y="24" w="864" h="112" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Caption">PowerChat</Property>
+    <Property name="FontSize">84</Property>
+    <Property name="Bold">true</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Pic-Robot" type="PictureBox" x="64" y="176" w="256" h="304" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="ShowFrame">false</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="ImageAlignment">MiddleCenter</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="ImagePath">assets/robot.svg</Property>
+    <Property name="SizeMode">Zoom</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Lbl-Welcome" type="Label" x="352" y="176" w="536" h="56" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Caption">Welcome! PowerChat needs a model before it can answer.</Property>
+    <Property name="FontSize">18</Property>
+    <Property name="Bold">true</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Lbl-Step-1" type="Label" x="352" y="248" w="536" h="56" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Caption">1. Open RAG settings in the menu on the left - for now it is the only option open.</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Lbl-Step-2" type="Label" x="352" y="312" w="536" h="72" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Caption">2. Model providers: add a connection (provider, API key), press Test connection and Save.</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Lbl-Step-3" type="Label" x="352" y="392" w="536" h="56" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Caption">3. Model selection: pick the model. Then Agents: give agent 1 that connection.</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Lbl-Step-4" type="Label" x="352" y="456" w="536" h="72" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Caption">4. Come back to Chat: the menu opens up. Create a topic, add its documents and ask.</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+</Form>

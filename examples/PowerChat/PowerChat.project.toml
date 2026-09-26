@@ -8,10 +8,29 @@ version = "1.0.0"
 main = "src/main.cbl"
 copyright = ""
 license_model = "MIT"
-license_text = ""
+license_text = """
+MIT License
+
+Copyright (c) <year> <copyright holders>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the
+following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial
+portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+USE OR OTHER DEALINGS IN THE SOFTWARE.
+"""
 destination_folder = "PowerChat"
 debug_compilation = true
-built_with_version = "1.70.220"
+built_with_version = "1.70.257"
 
 [files]
 sources = ["src/main.cbl"]
@@ -26,6 +45,8 @@ forms = [
     "forms/providers-form.cfrm",
     "forms/model-form.cfrm",
     "forms/agents-form.cfrm",
+    "forms/confirm-form.cfrm",
+    "forms/welcome-form.cfrm",
 ]
 assets = [
     "assets/flags/en.png",
@@ -57,7 +78,7 @@ indexed = []
 fixed_format = false
 
 [ide]
-theme = ""
+theme = "neumorphic-cobalt"
 background_image = ""
 project_icon = ""
 background_opacity = 70
@@ -71,8 +92,8 @@ indexed_engine = ""
 
 [forms]
 theme = ""
-entrance-effect = ""
-entrance-ms = 600
+entrance-effect = "matrix-rain"
+entrance-ms = 1500
 entrance-easing = ""
 exit-effect = ""
 exit-ms = 400
@@ -157,7 +178,7 @@ Be honest about uncertainty: this is a lightweight interactive benchmark, not a 
 temperature = 0.699999988079071
 max_tokens = 8192
 timeout_secs = 30
-verbose_log = false
+verbose_log = true
 max_review_revisions = 2
 unreviewed_temperature = 0.10000000149011612
 agentic_ai_enabled = true

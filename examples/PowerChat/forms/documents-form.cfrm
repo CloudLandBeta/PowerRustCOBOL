@@ -609,7 +609,6 @@
            MOVE FUNCTION TRIM(T-DROP-HINT) TO Drop-Docs::Hint
            MOVE FUNCTION TRIM(T-DELETE) TO Btn-Delete::Caption
            MOVE FUNCTION TRIM(T-REFRESH) TO Btn-Refresh::Caption
-           MOVE FUNCTION TRIM(T-KB-UPDATING) TO Lbl-Progress::Caption
            MOVE FUNCTION TRIM(T-NEW-FOLDER) TO Btn-NewFolder::Caption
            MOVE FUNCTION TRIM(T-FOLDER-HINT) TO Txt-Folder::HintText
            MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
@@ -697,6 +696,9 @@
            CALL "PC-LIST-DOCS"
       *>   Pick up whatever changed in the folder since the last run (R16).
            MOVE KB-D::Refresh() TO WS-OK
+           IF WS-OK = "1"
+               MOVE FUNCTION TRIM(T-KB-UPDATING) TO Lbl-Progress::Caption
+           END-IF
 ]]></Event>
     <Event name="PC-LANG-NOW" paragraph="PC-LANG-NOW"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -717,6 +719,14 @@
                    END-EVALUATE
            END-READ
            CLOSE SETTINGS-FILE
+]]></Event>
+    <Event name="PC-PROGRESS-IDLE" paragraph="PC-PROGRESS-IDLE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Indexing ended (done, busy or failed): the progress strip goes
+      *>   back to empty. It stays in its place on the form.
+           MOVE SPACES TO Lbl-Progress::Caption
+           MOVE 0 TO Prg-Index::Value
 ]]></Event>
   </user-procedures>
   <form-events>
@@ -772,7 +782,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Trv-Docs" type="TreeView" x="24" y="56" w="456" h="300" tab-order="1" z-order="0" visible="true" enabled="true">
+  <Control id="Trv-Docs" type="TreeView" x="24" y="56" w="456" h="264" tab-order="1" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="FontName">Arial</Property>
@@ -866,7 +876,7 @@ Node 2</Property>
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
 ]]></Event>
   </Control>
-  <Control id="Drop-Docs" type="FileDropZone" x="496" y="56" w="160" h="160" tab-order="2" z-order="0" visible="true" enabled="true">
+  <Control id="Drop-Docs" type="FileDropZone" x="496" y="56" w="160" h="144" tab-order="2" z-order="0" visible="true" enabled="true">
     <Property name="Hint">Drop documents here, or click to choose</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -910,10 +920,12 @@ Node 2</Property>
            MOVE KB-D::Refresh() TO WS-OK
            IF WS-OK NOT = "1"
                MOVE KB-D::LastError TO Lbl-Status::Caption
+           ELSE
+               MOVE FUNCTION TRIM(T-KB-UPDATING) TO Lbl-Progress::Caption
            END-IF
 ]]></Event>
   </Control>
-  <Control id="Btn-Delete" type="Button" x="496" y="228" w="160" h="36" tab-order="3" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Delete" type="Button" x="496" y="208" w="160" h="32" tab-order="3" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Delete</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -1004,7 +1016,7 @@ Node 2</Property>
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
 ]]></Event>
   </Control>
-  <Control id="Btn-Refresh" type="Button" x="496" y="272" w="160" h="36" tab-order="4" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Refresh" type="Button" x="496" y="248" w="160" h="32" tab-order="4" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Refresh</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -1051,10 +1063,12 @@ Node 2</Property>
            MOVE KB-D::Refresh() TO WS-OK
            IF WS-OK NOT = "1"
                MOVE KB-D::LastError TO Lbl-Status::Caption
+           ELSE
+               MOVE FUNCTION TRIM(T-KB-UPDATING) TO Lbl-Progress::Caption
            END-IF
 ]]></Event>
   </Control>
-  <Control id="Lbl-Count" type="Label" x="24" y="372" w="456" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Count" type="Label" x="24" y="328" w="456" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1092,7 +1106,7 @@ Node 2</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lbl-Status" type="Label" x="24" y="392" w="456" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Status" type="Label" x="24" y="416" w="632" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1130,7 +1144,7 @@ Node 2</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Txt-Folder" type="TextBox" x="496" y="316" w="160" h="28" tab-order="5" z-order="0" visible="true" enabled="true">
+  <Control id="Txt-Folder" type="TextBox" x="496" y="288" w="160" h="28" tab-order="5" z-order="0" visible="true" enabled="true">
     <Property name="HintText">Folder name</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">14</Property>
@@ -1178,7 +1192,7 @@ Node 2</Property>
     <Property name="Picture"></Property>
     <Property name="PasswordCharacter"></Property>
   </Control>
-  <Control id="Btn-NewFolder" type="Button" x="496" y="352" w="160" h="36" tab-order="6" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-NewFolder" type="Button" x="496" y="320" w="160" h="32" tab-order="6" z-order="0" visible="true" enabled="true">
     <Property name="Caption">New folder</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -1275,47 +1289,8 @@ Node 2</Property>
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
 ]]></Event>
   </Control>
-  <Control id="Pnl-Progress" type="Panel" x="104" y="160" w="472" h="104" tab-order="0" z-order="10" visible="false" enabled="true">
-    <Property name="BackgroundColor">#E1E6F8FF</Property>
-    <Property name="ForegroundColor">#003758FF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="BorderWidth">1</Property>
-    <Property name="HideBackground">false</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="HScroll">false</Property>
-    <Property name="VScroll">false</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="mcp_tool"></Property>
-  </Control>
-  <Control id="Lbl-Progress" type="Label" x="120" y="176" w="440" h="40" tab-order="0" z-order="11" visible="false" enabled="true">
-    <Property name="Caption">Updating the Knowledge Base...</Property>
+  <Control id="Lbl-Progress" type="Label" x="24" y="360" w="632" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption"></Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1352,7 +1327,7 @@ Node 2</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Prg-Index" type="ProgressBar" x="120" y="224" w="440" h="20" tab-order="0" z-order="11" visible="false" enabled="true">
+  <Control id="Prg-Index" type="ProgressBar" x="24" y="392" w="632" h="16" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1444,7 +1419,8 @@ Node 2</Property>
     <Event name="onProgress" paragraph="KB-D--ONPROGRESS"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-      *>   The progress panel (R16a): which document, how many of how many.
+      *>   The progress strip (R16a): which document, how many of how many.
+      *>   The strip is always on the form; it is empty while nothing indexes.
            MOVE KB-D::ProgressCurrent TO WS-N1
            MOVE KB-D::ProgressTotal TO WS-N2
            MOVE KB-D::ProgressTotal TO Prg-Index::Maximum
@@ -1455,16 +1431,11 @@ Node 2</Property>
            MOVE KB-D::ProgressDocument TO WS-ARG3
            CALL "PC-FMT"
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Progress::Caption
-           MOVE "true" TO Pnl-Progress::Visible
-           MOVE "true" TO Lbl-Progress::Visible
-           MOVE "true" TO Prg-Index::Visible
 ]]></Event>
     <Event name="onIndexed" paragraph="KB-D--ONINDEXED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-           MOVE "false" TO Pnl-Progress::Visible
-           MOVE "false" TO Lbl-Progress::Visible
-           MOVE "false" TO Prg-Index::Visible
+           CALL "PC-PROGRESS-IDLE"
            MOVE KB-D::AddedCount TO WS-N1
            MOVE KB-D::UpdatedCount TO WS-N2
            MOVE KB-D::RemovedCount TO WS-N3
@@ -1492,17 +1463,13 @@ Node 2</Property>
     <Event name="onBusy" paragraph="KB-D--ONBUSY"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-           MOVE "false" TO Pnl-Progress::Visible
-           MOVE "false" TO Lbl-Progress::Visible
-           MOVE "false" TO Prg-Index::Visible
+           CALL "PC-PROGRESS-IDLE"
            MOVE KB-D::LastError TO Lbl-Status::Caption
 ]]></Event>
     <Event name="onError" paragraph="KB-D--ONERROR"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-           MOVE "false" TO Pnl-Progress::Visible
-           MOVE "false" TO Lbl-Progress::Visible
-           MOVE "false" TO Prg-Index::Visible
+           CALL "PC-PROGRESS-IDLE"
            MOVE KB-D::LastError TO Lbl-Status::Caption
 ]]></Event>
   </Control>

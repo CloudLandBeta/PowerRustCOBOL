@@ -50,6 +50,17 @@
           05 WS-SEQ-OF       PIC 9(4) OCCURS 200.
        01 WS-SEQ-COUNT       GLOBAL PIC 9(4).
        01 WS-K               GLOBAL PIC 9(4).
+      *>   The CRUD (Browse / Create-Update): a grid row, the clicked cell,
+      *>   the topic being edited (spaces = a new one) and the confirmation.
+       01 WS-ROW             GLOBAL PIC X(1200).
+       01 WS-PREVIEW         GLOBAL PIC X(1000).
+       01 WS-ROW-NO          GLOBAL PIC S9(4).
+       01 WS-COL-NO          GLOBAL PIC S9(4).
+       01 WS-EDIT-ID         GLOBAL PIC X(16).
+       01 WS-TABS            GLOBAL PIC X(240).
+       01 WS-QUESTION        GLOBAL PIC X(300).
+       01 WS-ANSWER          GLOBAL PIC X.
+       01 WS-SAVE-OK         GLOBAL PIC X.
       *>   The interface texts (spec 071 R44): one row per text, one column
       *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
       *>   only the values are translated.
@@ -205,8 +216,106 @@
           05 FILLER PIC X(110) VALUE "État".
           05 FILLER PIC X(110) VALUE "ステータス".
           05 FILLER PIC X(110) VALUE "状态".
+      *>   TAB-BROWSE
+          05 FILLER PIC X(110) VALUE "Browse".
+          05 FILLER PIC X(110) VALUE "Consultar".
+          05 FILLER PIC X(110) VALUE "Consultar".
+          05 FILLER PIC X(110) VALUE "Parcourir".
+          05 FILLER PIC X(110) VALUE "一覧".
+          05 FILLER PIC X(110) VALUE "浏览".
+      *>   TAB-EDIT
+          05 FILLER PIC X(110) VALUE "Create/Update".
+          05 FILLER PIC X(110) VALUE "Criar/Atualizar".
+          05 FILLER PIC X(110) VALUE "Crear/Actualizar".
+          05 FILLER PIC X(110) VALUE "Créer/Modifier".
+          05 FILLER PIC X(110) VALUE "作成/更新".
+          05 FILLER PIC X(110) VALUE "创建/更新".
+      *>   NEW
+          05 FILLER PIC X(110) VALUE "New".
+          05 FILLER PIC X(110) VALUE "Novo".
+          05 FILLER PIC X(110) VALUE "Nuevo".
+          05 FILLER PIC X(110) VALUE "Nouveau".
+          05 FILLER PIC X(110) VALUE "新規".
+          05 FILLER PIC X(110) VALUE "新建".
+      *>   SAVE
+          05 FILLER PIC X(110) VALUE "Save".
+          05 FILLER PIC X(110) VALUE "Salvar".
+          05 FILLER PIC X(110) VALUE "Guardar".
+          05 FILLER PIC X(110) VALUE "Enregistrer".
+          05 FILLER PIC X(110) VALUE "保存".
+          05 FILLER PIC X(110) VALUE "保存".
+      *>   CANCEL
+          05 FILLER PIC X(110) VALUE "Cancel".
+          05 FILLER PIC X(110) VALUE "Cancelar".
+          05 FILLER PIC X(110) VALUE "Cancelar".
+          05 FILLER PIC X(110) VALUE "Annuler".
+          05 FILLER PIC X(110) VALUE "キャンセル".
+          05 FILLER PIC X(110) VALUE "取消".
+      *>   EDIT-TOPIC
+          05 FILLER PIC X(110) VALUE "Edit topic".
+          05 FILLER PIC X(110) VALUE "Editar tópico".
+          05 FILLER PIC X(110) VALUE "Editar tema".
+          05 FILLER PIC X(110) VALUE "Modifier le sujet".
+          05 FILLER PIC X(110) VALUE "トピックを編集".
+          05 FILLER PIC X(110) VALUE "编辑主题".
+      *>   CONFIRM-DELETE
+          05 FILLER PIC X(110) VALUE "Delete the topic ""&1"" and its Knowledge Base?".
+          05 FILLER PIC X(110) VALUE "Excluir o tópico ""&1"" e sua base de conhecimento?".
+          05 FILLER PIC X(110) VALUE "¿Eliminar el tema ""&1"" y su base de conocimiento?".
+          05 FILLER PIC X(110) VALUE "Supprimer le sujet « &1 » et sa base de connaissances ?".
+          05 FILLER PIC X(110) VALUE "トピック「&1」とそのナレッジベースを削除しますか？".
+          05 FILLER PIC X(110) VALUE "删除主题“&1”及其知识库？".
+      *>   TOPIC-SAVED
+          05 FILLER PIC X(110) VALUE "Topic saved.".
+          05 FILLER PIC X(110) VALUE "Tópico salvo.".
+          05 FILLER PIC X(110) VALUE "Tema guardado.".
+          05 FILLER PIC X(110) VALUE "Sujet enregistré.".
+          05 FILLER PIC X(110) VALUE "トピックを保存しました。".
+          05 FILLER PIC X(110) VALUE "主题已保存。".
+      *>   TOPIC-DELETED
+          05 FILLER PIC X(110) VALUE "Topic deleted.".
+          05 FILLER PIC X(110) VALUE "Tópico excluído.".
+          05 FILLER PIC X(110) VALUE "Tema eliminado.".
+          05 FILLER PIC X(110) VALUE "Sujet supprimé.".
+          05 FILLER PIC X(110) VALUE "トピックを削除しました。".
+          05 FILLER PIC X(110) VALUE "主题已删除。".
+      *>   SAVE-FAILED
+          05 FILLER PIC X(110) VALUE "The topic could not be saved (status &1).".
+          05 FILLER PIC X(110) VALUE "Não foi possível salvar o tópico (status &1).".
+          05 FILLER PIC X(110) VALUE "No se pudo guardar el tema (estado &1).".
+          05 FILLER PIC X(110) VALUE "Impossible d'enregistrer le sujet (état &1).".
+          05 FILLER PIC X(110) VALUE "トピックを保存できませんでした（ステータス &1）。".
+          05 FILLER PIC X(110) VALUE "无法保存主题（状态 &1）。".
+      *>   YES
+          05 FILLER PIC X(110) VALUE "Yes".
+          05 FILLER PIC X(110) VALUE "Sim".
+          05 FILLER PIC X(110) VALUE "Sí".
+          05 FILLER PIC X(110) VALUE "Oui".
+          05 FILLER PIC X(110) VALUE "はい".
+          05 FILLER PIC X(110) VALUE "是".
+      *>   NO
+          05 FILLER PIC X(110) VALUE "No".
+          05 FILLER PIC X(110) VALUE "Não".
+          05 FILLER PIC X(110) VALUE "No".
+          05 FILLER PIC X(110) VALUE "Non".
+          05 FILLER PIC X(110) VALUE "いいえ".
+          05 FILLER PIC X(110) VALUE "否".
+      *>   COL-NAME
+          05 FILLER PIC X(110) VALUE "Name".
+          05 FILLER PIC X(110) VALUE "Nome".
+          05 FILLER PIC X(110) VALUE "Nombre".
+          05 FILLER PIC X(110) VALUE "Nom".
+          05 FILLER PIC X(110) VALUE "名前".
+          05 FILLER PIC X(110) VALUE "名称".
+      *>   COL-PROMPT
+          05 FILLER PIC X(110) VALUE "System prompt".
+          05 FILLER PIC X(110) VALUE "Prompt de sistema".
+          05 FILLER PIC X(110) VALUE "Prompt de sistema".
+          05 FILLER PIC X(110) VALUE "Prompt système".
+          05 FILLER PIC X(110) VALUE "システムプロンプト".
+          05 FILLER PIC X(110) VALUE "系统提示词".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 21.
+          05 PC-TEXT-ROW     OCCURS 35.
              10 PC-TEXT      PIC X(110) OCCURS 6.
       *>   The texts in the current language, by name.
        01 PC-TEXTS-NOW       GLOBAL.
@@ -231,8 +340,22 @@
           05 T-INSTALL-SAMPLES PIC X(110).
           05 T-REMOVE-SAMPLES PIC X(110).
           05 T-STATUS PIC X(110).
+          05 T-TAB-BROWSE PIC X(110).
+          05 T-TAB-EDIT PIC X(110).
+          05 T-NEW PIC X(110).
+          05 T-SAVE PIC X(110).
+          05 T-CANCEL PIC X(110).
+          05 T-EDIT-TOPIC PIC X(110).
+          05 T-CONFIRM-DELETE PIC X(110).
+          05 T-TOPIC-SAVED PIC X(110).
+          05 T-TOPIC-DELETED PIC X(110).
+          05 T-SAVE-FAILED PIC X(110).
+          05 T-YES PIC X(110).
+          05 T-NO PIC X(110).
+          05 T-COL-NAME PIC X(110).
+          05 T-COL-PROMPT PIC X(110).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(110) OCCURS 21.
+          05 PC-TEXT-NOW     PIC X(110) OCCURS 35.
       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
        01 WS-FMT             GLOBAL PIC X(110).
        01 WS-ARG1            GLOBAL PIC X(300).
@@ -414,8 +537,10 @@
     <Event name="PC-LOAD-TOPICS" paragraph="PC-LOAD-TOPICS"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-      *>   Every topic, in the order they were created (the key is a timestamp).
-           MOVE Lst-Topics::Clear() TO WS-OK
+      *>   Every topic, in the order they were created (the key is a timestamp),
+      *>   one grid row each: name, prompt, then the open / edit / delete
+      *>   buttons. Grid row n is WS-TOPIC-ID(n).
+           MOVE Dg-List::ClearRows() TO WS-OK
            MOVE 0 TO WS-TOPIC-COUNT
            OPEN I-O TOPICS-FILE
            IF WS-FS = "35"
@@ -435,7 +560,16 @@
                        IF WS-TOPIC-COUNT < 500
                            ADD 1 TO WS-TOPIC-COUNT
                            MOVE TOP-ID TO WS-TOPIC-ID(WS-TOPIC-COUNT)
-                           MOVE Lst-Topics::AddItem(FUNCTION TRIM(TOP-NAME)) TO WS-OK
+                           MOVE TOP-PROMPT TO WS-PREVIEW
+                           INSPECT WS-PREVIEW REPLACING ALL X"0A" BY SPACE
+                               ALL X"0D" BY SPACE ALL X"09" BY SPACE
+                           MOVE SPACES TO WS-ROW
+                           STRING FUNCTION TRIM(TOP-NAME) X"09"
+                                  FUNCTION TRIM(WS-PREVIEW) X"09"
+                                  "icon:chat" X"09" "icon:pencil" X"09"
+                                  "icon:trash"
+                               DELIMITED BY SIZE INTO WS-ROW
+                           MOVE Dg-List::AddRow(WS-ROW) TO WS-OK
                        END-IF
                END-READ
            END-PERFORM
@@ -665,15 +799,28 @@
                WHEN OTHER MOVE "en" TO WS-LANG
                           MOVE 1 TO WS-LANG-IX
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 21
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 35
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
            MOVE FUNCTION TRIM(T-TOPICS-TITLE) TO Lbl-Title::Caption
-           MOVE FUNCTION TRIM(T-OPEN-TOPIC) TO Btn-Open::Caption
-           MOVE FUNCTION TRIM(T-NEW-TOPIC) TO Lbl-New::Caption
+           MOVE SPACES TO WS-TABS
+           STRING FUNCTION TRIM(T-TAB-BROWSE) X"0A" FUNCTION TRIM(T-TAB-EDIT)
+               DELIMITED BY SIZE INTO WS-TABS
+           MOVE WS-TABS TO Tab-Crud::Tabs
+           INVOKE Dg-List::SetColumnTitle("name", T-COL-NAME)
+           INVOKE Dg-List::SetColumnTitle("prompt", T-COL-PROMPT)
+           MOVE FUNCTION TRIM(T-NEW) TO Btn-New::Caption
+           MOVE FUNCTION TRIM(T-SAVE) TO Btn-Save::Caption
+           MOVE FUNCTION TRIM(T-SAVE) TO Btn-Save2::Caption
+           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel::Caption
+           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel2::Caption
+           IF WS-EDIT-ID = SPACES
+               MOVE FUNCTION TRIM(T-NEW-TOPIC) TO Lbl-New::Caption
+           ELSE
+               MOVE FUNCTION TRIM(T-EDIT-TOPIC) TO Lbl-New::Caption
+           END-IF
            MOVE FUNCTION TRIM(T-HINT-TOPIC-NAME) TO Txt-Name::HintText
            MOVE FUNCTION TRIM(T-HINT-TOPIC-PROMPT) TO Txt-Prompt::HintText
-           MOVE FUNCTION TRIM(T-CREATE-TOPIC) TO Btn-Create::Caption
            MOVE FUNCTION TRIM(T-INSTALL-SAMPLES) TO Btn-Install::Caption
            MOVE FUNCTION TRIM(T-REMOVE-SAMPLES) TO Btn-RemoveSamples::Caption
            MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
@@ -762,6 +909,196 @@
            END-READ
            CLOSE SETTINGS-FILE
 ]]></Event>
+    <Event name="PC-OPEN-TOPIC" paragraph="PC-OPEN-TOPIC"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-TOPIC-ID-OF in: that topic becomes the current one (CUR-TOPIC).
+           MOVE "CUR-TOPIC" TO WS-SET-NAME
+           MOVE WS-TOPIC-ID-OF TO WS-SET-VALUE
+           CALL "PC-SETTING-PUT"
+           MOVE FUNCTION TRIM(T-TOPIC-OPENED) TO Lbl-Status::Caption
+]]></Event>
+    <Event name="PC-NEW-TOPIC" paragraph="PC-NEW-TOPIC"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The Create/Update page, empty: Save writes a new topic.
+           MOVE SPACES TO WS-EDIT-ID
+           MOVE SPACES TO Txt-Name::Text
+           MOVE SPACES TO Txt-Prompt::Text
+           MOVE FUNCTION TRIM(T-NEW-TOPIC) TO Lbl-New::Caption
+           MOVE 1 TO Tab-Crud::SelectedTab
+]]></Event>
+    <Event name="PC-EDIT-TOPIC" paragraph="PC-EDIT-TOPIC"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-TOPIC-ID-OF in: its name and prompt on the Create/Update page.
+      *>   The key is the topic's id, so the name stays editable (a rename).
+           OPEN I-O TOPICS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TOPICS-FILE
+               CLOSE TOPICS-FILE
+               OPEN I-O TOPICS-FILE
+           END-IF
+           MOVE "N" TO WS-SAVE-OK
+           MOVE WS-TOPIC-ID-OF TO TOP-ID
+           READ TOPICS-FILE
+               INVALID KEY CONTINUE
+               NOT INVALID KEY MOVE "Y" TO WS-SAVE-OK
+           END-READ
+           CLOSE TOPICS-FILE
+           IF WS-SAVE-OK NOT = "Y"
+               MOVE FUNCTION TRIM(T-PICK-TOPIC-FIRST) TO Lbl-Status::Caption
+               CALL "PC-LOAD-TOPICS"
+               EXIT PROGRAM
+           END-IF
+           MOVE WS-TOPIC-ID-OF TO WS-EDIT-ID
+           MOVE FUNCTION TRIM(TOP-NAME) TO Txt-Name::Text
+           MOVE FUNCTION TRIM(TOP-PROMPT) TO Txt-Prompt::Text
+           MOVE FUNCTION TRIM(T-EDIT-TOPIC) TO Lbl-New::Caption
+           MOVE 1 TO Tab-Crud::SelectedTab
+]]></Event>
+    <Event name="PC-SAVE-TOPIC" paragraph="PC-SAVE-TOPIC"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A topic is data: its own id, name, prompt, documents and Knowledge
+      *>   Base collection. Nothing about any topic is written in this code.
+      *>   WS-EDIT-ID spaces = a new topic (a fresh id and its collection);
+      *>   otherwise that topic, keeping its creation stamp and sample mark.
+           MOVE Txt-Name::Text TO WS-NEW-NAME
+           MOVE Txt-Prompt::Text TO WS-NEW-PROMPT
+           IF WS-NEW-NAME = SPACES
+               MOVE FUNCTION TRIM(T-NAME-FIRST) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           MOVE FUNCTION CURRENT-DATE TO WS-NOW
+           OPEN I-O TOPICS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TOPICS-FILE
+               CLOSE TOPICS-FILE
+               OPEN I-O TOPICS-FILE
+           END-IF
+           IF WS-EDIT-ID = SPACES
+               MOVE WS-NOW(1:16) TO WS-NEW-ID
+               MOVE WS-NEW-ID TO TOP-ID
+               MOVE WS-NOW(1:14) TO TOP-CREATED
+               MOVE "N" TO TOP-SAMPLE
+           ELSE
+               MOVE WS-EDIT-ID TO WS-NEW-ID
+               MOVE WS-EDIT-ID TO TOP-ID
+               READ TOPICS-FILE
+                   INVALID KEY
+                       MOVE WS-EDIT-ID TO TOP-ID
+                       MOVE WS-NOW(1:14) TO TOP-CREATED
+                       MOVE "N" TO TOP-SAMPLE
+               END-READ
+           END-IF
+           MOVE WS-NEW-NAME TO TOP-NAME
+           MOVE WS-NEW-PROMPT TO TOP-PROMPT
+           MOVE "Y" TO WS-SAVE-OK
+           WRITE TOPIC-REC
+               INVALID KEY
+                   IF WS-EDIT-ID = SPACES
+      *>               A fresh id already taken: another topic, this instant.
+                       MOVE FUNCTION TRIM(T-SAME-INSTANT) TO Lbl-Status::Caption
+                       MOVE "N" TO WS-SAVE-OK
+                   ELSE
+                       REWRITE TOPIC-REC
+                           INVALID KEY
+                               MOVE T-SAVE-FAILED TO WS-FMT
+                               MOVE WS-FS TO WS-ARG1
+                               CALL "PC-FMT"
+                               MOVE FUNCTION TRIM(WS-FMT-OUT)
+                                   TO Lbl-Status::Caption
+                               MOVE "N" TO WS-SAVE-OK
+                       END-REWRITE
+                   END-IF
+           END-WRITE
+           IF WS-SAVE-OK NOT = "Y"
+               CLOSE TOPICS-FILE
+               EXIT PROGRAM
+           END-IF
+           COMMIT
+           CLOSE TOPICS-FILE
+           IF WS-EDIT-ID = SPACES
+      *>       Its Knowledge Base collection: an empty documents folder and index.
+               MOVE KB-T::CreateCollection(WS-NEW-ID) TO WS-OK
+               IF WS-OK NOT = "1"
+                   MOVE KB-T::LastError TO Lbl-Status::Caption
+               ELSE
+                   MOVE FUNCTION TRIM(T-TOPIC-CREATED) TO Lbl-Status::Caption
+               END-IF
+           ELSE
+               MOVE FUNCTION TRIM(T-TOPIC-SAVED) TO Lbl-Status::Caption
+           END-IF
+           MOVE SPACES TO WS-EDIT-ID
+           MOVE SPACES TO Txt-Name::Text
+           MOVE SPACES TO Txt-Prompt::Text
+           CALL "PC-LOAD-TOPICS"
+           MOVE 0 TO Tab-Crud::SelectedTab
+]]></Event>
+    <Event name="PC-CANCEL-EDIT" paragraph="PC-CANCEL-EDIT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Back to Browse, nothing written and the list not reloaded.
+           MOVE SPACES TO WS-EDIT-ID
+           MOVE 0 TO Tab-Crud::SelectedTab
+]]></Event>
+    <Event name="PC-DELETE-TOPIC" paragraph="PC-DELETE-TOPIC"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-TOPIC-ID-OF in, after a confirmation: the topic goes the way the
+      *>   sample topics go - its Knowledge Base (moved aside, never deleted),
+      *>   its registered files and its prompt versions, and CUR-TOPIC when
+      *>   it was the current one.
+           OPEN I-O TOPICS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TOPICS-FILE
+               CLOSE TOPICS-FILE
+               OPEN I-O TOPICS-FILE
+           END-IF
+           MOVE "N" TO WS-SAVE-OK
+           MOVE WS-TOPIC-ID-OF TO TOP-ID
+           READ TOPICS-FILE
+               INVALID KEY CONTINUE
+               NOT INVALID KEY MOVE "Y" TO WS-SAVE-OK
+           END-READ
+           CLOSE TOPICS-FILE
+           IF WS-SAVE-OK NOT = "Y"
+               MOVE FUNCTION TRIM(T-PICK-TOPIC-FIRST) TO Lbl-Status::Caption
+               CALL "PC-LOAD-TOPICS"
+               EXIT PROGRAM
+           END-IF
+           MOVE T-CONFIRM-DELETE TO WS-FMT
+           MOVE TOP-NAME TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE WS-FMT-OUT TO WS-QUESTION
+           INVOKE ME::"SetProperty"("ConfirmText", WS-QUESTION)
+           INVOKE ME::"SetProperty"("ConfirmYes", T-YES)
+           INVOKE ME::"SetProperty"("ConfirmNo", T-NO)
+           INVOKE ME::"SetProperty"("ConfirmAnswer", "N")
+           INVOKE ME::"OpenFormSync"("CONFIRM-FORM")
+           INVOKE ME::"GetProperty"("ConfirmAnswer") RETURNING WS-ANSWER
+           IF WS-ANSWER NOT = "Y"
+               EXIT PROGRAM
+           END-IF
+           OPEN I-O TOPICS-FILE
+           MOVE WS-TOPIC-ID-OF TO TOP-ID
+           DELETE TOPICS-FILE
+               INVALID KEY CONTINUE
+           END-DELETE
+           COMMIT
+           CLOSE TOPICS-FILE
+           MOVE KB-T::RemoveCollection(WS-TOPIC-ID-OF) TO WS-OK
+           CALL "PC-DROP-TOPIC-ROWS"
+           MOVE "CUR-TOPIC" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           IF WS-SET-VALUE(1:16) = WS-TOPIC-ID-OF
+               MOVE SPACES TO WS-SET-VALUE
+               CALL "PC-SETTING-PUT"
+           END-IF
+           MOVE FUNCTION TRIM(T-TOPIC-DELETED) TO Lbl-Status::Caption
+           CALL "PC-LOAD-TOPICS"
+]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="TOPICS-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
@@ -816,107 +1153,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lst-Topics" type="ListBox" x="24" y="56" w="552" h="200" tab-order="1" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#E1E6F8FF</Property>
-    <Property name="ForegroundColor">#003758FF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="SelectedIndex">-1</Property>
-    <Property name="MultiSelect">false</Property>
-    <Property name="ShowCheckBoxes">false</Property>
-    <Property name="Sorted">false</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="Items"></Property>
-    <Property name="SelectedItems"></Property>
-    <Property name="CheckedItems"></Property>
-    <Property name="ActiveItemColor"></Property>
-    <Property name="SelectedItemsColor"></Property>
-    <Property name="ActiveItemTextColor"></Property>
-  </Control>
-  <Control id="Btn-Open" type="Button" x="424" y="264" w="152" h="36" tab-order="2" z-order="0" visible="true" enabled="true">
-    <Property name="Caption">Open topic</Property>
-    <Property name="BackgroundColor">#E1E6F8FF</Property>
-    <Property name="ForegroundColor">#003758FF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="IsDefault">false</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="BorderWidth">1</Property>
-    <Property name="IconAlignment">Left</Property>
-    <Property name="IconPadding">10</Property>
-    <Property name="IconSize">32</Property>
-    <Property name="TextAlignment">MiddleCenter</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="IconPath"></Property>
-    <Event name="onClick" paragraph="BTN-OPEN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       PROCEDURE DIVISION.
-           MOVE Lst-Topics::GetSelectedIndex() TO WS-INDEX
-           IF WS-INDEX < 0 OR WS-INDEX >= WS-TOPIC-COUNT
-               MOVE FUNCTION TRIM(T-PICK-TOPIC-FIRST) TO Lbl-Status::Caption
-               EXIT PROGRAM
-           END-IF
-           ADD 1 TO WS-INDEX
-           MOVE "CUR-TOPIC" TO WS-SET-NAME
-           MOVE WS-TOPIC-ID(WS-INDEX) TO WS-SET-VALUE
-           CALL "PC-SETTING-PUT"
-           MOVE FUNCTION TRIM(T-TOPIC-OPENED) TO Lbl-Status::Caption
-]]></Event>
-  </Control>
-  <Control id="Lbl-New" type="Label" x="24" y="312" w="552" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-New" type="Label" x="40" y="144" w="520" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="Caption">New topic</Property>
     <Property name="Bold">true</Property>
     <Property name="BackgroundColor">#00000000</Property>
@@ -954,7 +1191,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Txt-Name" type="TextBox" x="24" y="340" w="552" h="28" tab-order="3" z-order="0" visible="true" enabled="true">
+  <Control id="Txt-Name" type="TextBox" x="40" y="176" w="520" h="32" tab-order="3" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="HintText">Name, e.g. Human Resources</Property>
     <Property name="MaximumLength">40</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
@@ -1002,7 +1239,7 @@
     <Property name="Picture"></Property>
     <Property name="PasswordCharacter"></Property>
   </Control>
-  <Control id="Txt-Prompt" type="TextBox" x="24" y="376" w="552" h="112" tab-order="4" z-order="0" visible="true" enabled="true">
+  <Control id="Txt-Prompt" type="TextBox" x="40" y="216" w="520" h="296" tab-order="4" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="HintText">What the assistant is for, how it should answer - the topic&apos;s system prompt</Property>
     <Property name="Multiline">true</Property>
     <Property name="ScrollBars">Vertical</Property>
@@ -1050,95 +1287,7 @@
     <Property name="Picture"></Property>
     <Property name="PasswordCharacter"></Property>
   </Control>
-  <Control id="Btn-Create" type="Button" x="424" y="496" w="152" h="36" tab-order="5" z-order="0" visible="true" enabled="true">
-    <Property name="Caption">Create topic</Property>
-    <Property name="BackgroundColor">#E1E6F8FF</Property>
-    <Property name="ForegroundColor">#003758FF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="IsDefault">false</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="BorderWidth">1</Property>
-    <Property name="IconAlignment">Left</Property>
-    <Property name="IconPadding">10</Property>
-    <Property name="IconSize">32</Property>
-    <Property name="TextAlignment">MiddleCenter</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="IconPath"></Property>
-    <Event name="onClick" paragraph="BTN-CREATE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       PROCEDURE DIVISION.
-      *>   A topic is data: its own id, name, prompt, documents and Knowledge
-      *>   Base collection. Nothing about any topic is written in this code.
-           MOVE Txt-Name::Text TO WS-NEW-NAME
-           MOVE Txt-Prompt::Text TO WS-NEW-PROMPT
-           IF WS-NEW-NAME = SPACES
-               MOVE FUNCTION TRIM(T-NAME-FIRST) TO Lbl-Status::Caption
-               EXIT PROGRAM
-           END-IF
-           MOVE FUNCTION CURRENT-DATE TO WS-NOW
-           MOVE WS-NOW(1:16) TO WS-NEW-ID
-           OPEN I-O TOPICS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT TOPICS-FILE
-               CLOSE TOPICS-FILE
-               OPEN I-O TOPICS-FILE
-           END-IF
-           MOVE WS-NEW-ID TO TOP-ID
-           MOVE WS-NEW-NAME TO TOP-NAME
-           MOVE WS-NEW-PROMPT TO TOP-PROMPT
-           MOVE WS-NOW(1:14) TO TOP-CREATED
-           MOVE "N" TO TOP-SAMPLE
-           WRITE TOPIC-REC
-               INVALID KEY
-                   MOVE FUNCTION TRIM(T-SAME-INSTANT) TO Lbl-Status::Caption
-                   CLOSE TOPICS-FILE
-                   EXIT PROGRAM
-           END-WRITE
-           COMMIT
-           CLOSE TOPICS-FILE
-      *>   Its Knowledge Base collection: an empty documents folder and index.
-           MOVE KB-T::CreateCollection(WS-NEW-ID) TO WS-OK
-           IF WS-OK NOT = "1"
-               MOVE KB-T::LastError TO Lbl-Status::Caption
-           ELSE
-               MOVE FUNCTION TRIM(T-TOPIC-CREATED) TO Lbl-Status::Caption
-           END-IF
-           MOVE SPACES TO Txt-Name::Text
-           MOVE SPACES TO Txt-Prompt::Text
-           CALL "PC-LOAD-TOPICS"
-           MOVE WS-TOPIC-COUNT TO WS-INDEX
-           SUBTRACT 1 FROM WS-INDEX
-           MOVE Lst-Topics::SetSelectedIndex(WS-INDEX) TO WS-OK
-]]></Event>
-  </Control>
-  <Control id="Lbl-Status" type="Label" x="24" y="544" w="392" h="40" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Status" type="Label" x="24" y="584" w="552" h="40" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1176,7 +1325,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Btn-Install" type="Button" x="24" y="596" w="196" h="32" tab-order="7" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Install" type="Button" x="176" y="96" w="184" h="32" tab-order="7" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
     <Property name="Caption">Install sample topics</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -1275,7 +1424,7 @@
            CALL "PC-NEXT-IMPORT"
 ]]></Event>
   </Control>
-  <Control id="Btn-RemoveSamples" type="Button" x="228" y="596" w="196" h="32" tab-order="8" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-RemoveSamples" type="Button" x="376" y="96" w="184" h="32" tab-order="8" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
     <Property name="Caption">Remove sample topics</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -1487,6 +1636,360 @@
            IF WS-LANG-NOW NOT = WS-LANG
                CALL "TOPICS-FORM--ONACTIVATE"
            END-IF
+]]></Event>
+  </Control>
+  <Control id="Tab-Crud" type="TabControl" x="24" y="56" w="552" h="520" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Tabs">Browse
+Create/Update</Property>
+    <Property name="TabPosition">Top</Property>
+    <Property name="SelectedTab">0</Property>
+    <Property name="ActiveTabColor">#2C6FD2FF</Property>
+    <Property name="TabPadding">7</Property>
+    <Property name="HScroll">false</Property>
+    <Property name="VScroll">false</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+  </Control>
+  <Control id="Btn-New" type="Button" x="40" y="96" w="120" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
+    <Property name="Caption">New</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-NEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-NEW-TOPIC"
+]]></Event>
+  </Control>
+  <Control id="Dg-List" type="DataGrid" x="40" y="144" w="520" h="416" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Columns">name:string
+prompt:string
+open:string
+edit:string
+delete:string</Property>
+    <Property name="Rows"></Property>
+    <Property name="AlternatingRowColor">#F0F8FF</Property>
+    <Property name="AlternatingRowOpacity">20</Property>
+    <Property name="AlternatingMode">Rows</Property>
+    <Property name="HeaderBackgroundColor">#E0E0E0</Property>
+    <Property name="HeaderForegroundColor">#000000</Property>
+    <Property name="FilterForegroundColor"></Property>
+    <Property name="FilterBackgroundColor"></Property>
+    <Property name="GridLineColor">#CCCCCC</Property>
+    <Property name="GridBackgroundImage"></Property>
+    <Property name="GridBackgroundPattern">None</Property>
+    <Property name="RowBackgroundPattern">None</Property>
+    <Property name="GridBackgroundImageMode">Fill</Property>
+    <Property name="SelectionMode">Row</Property>
+    <Property name="RowHeight">22</Property>
+    <Property name="AllowSorting">true</Property>
+    <Property name="AllowColumnResize">true</Property>
+    <Property name="AllowColumnReorder">true</Property>
+    <Property name="AllowRowResize">true</Property>
+    <Property name="AllowCellEditing">false</Property>
+    <Property name="AdvancedGrid">{&quot;schema_version&quot;:1,&quot;columns&quot;:[{&quot;id&quot;:&quot;name&quot;,&quot;title&quot;:&quot;Name&quot;,&quot;source_name&quot;:&quot;name&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;&quot;,&quot;width&quot;:160.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:true,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]},{&quot;id&quot;:&quot;prompt&quot;,&quot;title&quot;:&quot;Prompt&quot;,&quot;source_name&quot;:&quot;prompt&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;&quot;,&quot;width&quot;:228.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:true,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]},{&quot;id&quot;:&quot;open&quot;,&quot;title&quot;:&quot;&quot;,&quot;source_name&quot;:&quot;open&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;Button&quot;,&quot;width&quot;:44.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:false,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]},{&quot;id&quot;:&quot;edit&quot;,&quot;title&quot;:&quot;&quot;,&quot;source_name&quot;:&quot;edit&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;Button&quot;,&quot;width&quot;:44.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:false,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]},{&quot;id&quot;:&quot;delete&quot;,&quot;title&quot;:&quot;&quot;,&quot;source_name&quot;:&quot;delete&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;Button&quot;,&quot;width&quot;:44.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:false,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]}],&quot;frozen_columns&quot;:0,&quot;frozen_rows&quot;:0,&quot;row_height&quot;:22,&quot;row_overrides&quot;:[],&quot;filters&quot;:[],&quot;csv_export_mode&quot;:&quot;Filtered&quot;,&quot;csv_delimiter&quot;:&quot;,&quot;,&quot;grid_line_style&quot;:&quot;Solid&quot;,&quot;selectable_text&quot;:true}</Property>
+    <Property name="ShowRowNumbers">false</Property>
+    <Property name="ShowColumnFilters">false</Property>
+    <Property name="Title"></Property>
+    <Property name="AutoFitColumns">false</Property>
+    <Property name="ExportCSV">true</Property>
+    <Property name="ShowCSVExportButton">true</Property>
+    <Property name="CSVDelimiter">,</Property>
+    <Property name="CSVExportMode">Filtered</Property>
+    <Property name="FrozenColumns">0</Property>
+    <Property name="FrozenRows">0</Property>
+    <Property name="FrozenShadow">true</Property>
+    <Property name="GridLineStyle">Solid</Property>
+    <Property name="RowHeightOverrides"></Property>
+    <Property name="ColumnFilters"></Property>
+    <Property name="SelectableText">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Event name="onCellClick" paragraph="DG-LIST--ONCELLCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Grid row n is WS-TOPIC-ID(n); columns 3, 4 and 5 are the open,
+      *>   edit and delete buttons.
+           MOVE Dg-List::ClickedRow TO WS-ROW-NO
+           MOVE Dg-List::ClickedColumn TO WS-COL-NO
+           IF WS-ROW-NO < 1 OR WS-ROW-NO > WS-TOPIC-COUNT
+               EXIT PROGRAM
+           END-IF
+           MOVE WS-TOPIC-ID(WS-ROW-NO) TO WS-TOPIC-ID-OF
+           EVALUATE WS-COL-NO
+               WHEN 3 CALL "PC-OPEN-TOPIC"
+               WHEN 4 CALL "PC-EDIT-TOPIC"
+               WHEN 5 CALL "PC-DELETE-TOPIC"
+               WHEN OTHER CONTINUE
+           END-EVALUATE
+]]></Event>
+  </Control>
+  <Control id="Btn-Save" type="Button" x="40" y="96" w="120" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+    <Property name="Caption">Save</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-SAVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-SAVE-TOPIC"
+]]></Event>
+  </Control>
+  <Control id="Btn-Cancel" type="Button" x="176" y="96" w="120" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+    <Property name="Caption">Cancel</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-CANCEL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-CANCEL-EDIT"
+]]></Event>
+  </Control>
+  <Control id="Btn-Save2" type="Button" x="40" y="528" w="120" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+    <Property name="Caption">Save</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-SAVE2--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-SAVE-TOPIC"
+]]></Event>
+  </Control>
+  <Control id="Btn-Cancel2" type="Button" x="176" y="528" w="120" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+    <Property name="Caption">Cancel</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-CANCEL2--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-CANCEL-EDIT"
 ]]></Event>
   </Control>
 </Form>

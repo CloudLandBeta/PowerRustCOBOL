@@ -7,7 +7,7 @@
   "enabled": true,
   "provider": "ollama_cloud",
   "endpoint": "https://ollama.com/api/chat",
-  "model": "some-vendor/a-fairly-long-model-identifier:latest",
+  "model": "deepseek-v4-pro:0813",
   "temperature": 0.7,
   "max_tokens": 8192,
   "timeout_secs": 30,

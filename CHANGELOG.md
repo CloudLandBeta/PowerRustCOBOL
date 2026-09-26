@@ -8,6 +8,34 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.261] — 2026-09-26
+
+### Examples — PowerChat's interface rebuilt on the operator's rules
+
+- **No overlap, nothing swapped in by visibility** (rule 1). The welcome screen
+  leaves the chat form for its own `welcome-form`, opened on a first run with
+  `SideMenu::ActivateItem` and from a **Getting started** menu row; the
+  Documents progress panel becomes a permanent strip of its own. Every form:
+  0 overlapping controls, 0 `::Visible` writes.
+- **One CRUD pattern** (rule 2) for Topics, Data files, Prompt versions and
+  Model providers: a TabControl (Browse / Create/Update); a New button above a
+  DataGrid whose rows end in pencil and trash icon buttons (`icon:pencil`,
+  `icon:trash`, the clicked row read from `ClickedRow` / `ClickedColumn`);
+  Save and Cancel at the top and the bottom of the fields; Save writes
+  (`WRITE`, `REWRITE` on `INVALID KEY`) and returns to Browse refreshed, Cancel
+  returns without; headings follow the language (`SetColumnTitle`).
+- **Deleting asks first**, through the new `confirm-form` (the caller sets
+  `ConfirmText`, opens it with `OpenFormSync`, reads `ConfirmAnswer`).
+- The KB folder, Model selection and Agents dialogs get Save/Cancel at the top
+  and the bottom.
+- Kept: opening a topic (a row icon), sample topics, promoting a prompt version
+  (a row icon; the active version cannot be deleted), testing a connection;
+  deleting a connection now also clears the agents that used it.
+- Also: the operator's agent model changes; `.gitignore` keeps an application's
+  key store (`settings/model-keys.dat`) and KnowledgeBase indexes out of the
+  repository. The Guide's PowerChat section describes the forms and the CRUD
+  pattern. Every form regenerates and passes `rcrun check`.
+
 ## [PowerRustCOBOL 1.70.260] — 2026-09-26
 
 ### Fix — a DataGrid's column headings could not follow the language

@@ -263,43 +263,15 @@
           05 FILLER PIC X(120) VALUE "État".
           05 FILLER PIC X(120) VALUE "ステータス".
           05 FILLER PIC X(120) VALUE "状态".
-      *>   WELCOME
-          05 FILLER PIC X(120) VALUE "Welcome! PowerChat needs a model before it can answer.".
-          05 FILLER PIC X(120) VALUE "Bem-vindo! O PowerChat precisa de um modelo antes de responder.".
-          05 FILLER PIC X(120) VALUE "¡Bienvenido! PowerChat necesita un modelo antes de responder.".
-          05 FILLER PIC X(120) VALUE "Bienvenue ! PowerChat a besoin d'un modèle avant de répondre.".
-          05 FILLER PIC X(120) VALUE "ようこそ！PowerChat が答えるにはモデルが必要です。".
-          05 FILLER PIC X(120) VALUE "欢迎！PowerChat 需要先配置一个模型才能回答。".
-      *>   STEP-1
-          05 FILLER PIC X(120) VALUE "1. Open RAG settings in the menu on the left - for now it is the only option open.".
-          05 FILLER PIC X(120) VALUE "1. Abra Configurações de RAG no menu à esquerda - por ora é a única opção liberada.".
-          05 FILLER PIC X(120) VALUE "1. Abre Configuración de RAG en el menú de la izquierda; por ahora es la única activa.".
-          05 FILLER PIC X(120) VALUE "1. Ouvrez Paramètres RAG dans le menu de gauche : pour l'instant, c'est la seule option.".
-          05 FILLER PIC X(120) VALUE "1. 左のメニューで「RAG 設定」を開きます（今はこれだけ使えます）。".
-          05 FILLER PIC X(120) VALUE "1. 在左侧菜单中打开“RAG 设置”（目前只有它可用）。".
-      *>   STEP-2
-          05 FILLER PIC X(120) VALUE "2. Model providers: add a connection (provider, API key), press Test connection and Save.".
-          05 FILLER PIC X(120) VALUE "2. Provedores de modelos: crie uma conexão (provedor, chave de API), Testar conexão e Salvar.".
-          05 FILLER PIC X(120) VALUE "2. Proveedores de modelos: añade una conexión (proveedor, clave de API), Probar conexión y Guardar.".
-          05 FILLER PIC X(120) VALUE "2. Fournisseurs de modèles : une connexion (fournisseur, clé API), Tester la connexion, Enregistrer.".
-          05 FILLER PIC X(120) VALUE "2. モデルプロバイダー: 接続（プロバイダー・API キー）を追加し、テストして保存。".
-          05 FILLER PIC X(120) VALUE "2. 模型提供商：添加连接（提供商、API 密钥），测试连接后保存。".
-      *>   STEP-3
-          05 FILLER PIC X(120) VALUE "3. Model selection: pick the model. Then Agents: give agent 1 that connection.".
-          05 FILLER PIC X(120) VALUE "3. Seleção de modelo: escolha o modelo. Depois Agentes: dê essa conexão ao agente 1.".
-          05 FILLER PIC X(120) VALUE "3. Selección de modelo: elige el modelo. Luego Agentes: asigna esa conexión al agente 1.".
-          05 FILLER PIC X(120) VALUE "3. Choix du modèle : choisissez-le. Puis Agents : donnez cette connexion à l'agent 1.".
-          05 FILLER PIC X(120) VALUE "3. 「モデルの選択」でモデルを選び、「エージェント」で接続を割り当てます。".
-          05 FILLER PIC X(120) VALUE "3. 在“模型选择”中选模型，再在“代理”中把连接分给代理 1。".
-      *>   STEP-4
-          05 FILLER PIC X(120) VALUE "4. Come back to Chat: the menu opens up. Create a topic, add its documents and ask.".
-          05 FILLER PIC X(120) VALUE "4. Volte ao Chat: o menu é liberado. Crie um tópico, adicione documentos e pergunte.".
-          05 FILLER PIC X(120) VALUE "4. Vuelve al Chat: el menú se habilita. Crea un tema, añade documentos y pregunta.".
-          05 FILLER PIC X(120) VALUE "4. Revenez au Chat : le menu s'ouvre. Créez un sujet, ajoutez ses documents, questionnez.".
-          05 FILLER PIC X(120) VALUE "4. チャットに戻るとメニューが使えます。トピックを作り、文書を追加して質問。".
-          05 FILLER PIC X(120) VALUE "4. 回到“聊天”后菜单即可使用。创建主题、添加文档，然后提问。".
+      *>   MENU-WELC
+          05 FILLER PIC X(120) VALUE "Getting started".
+          05 FILLER PIC X(120) VALUE "Primeiros passos".
+          05 FILLER PIC X(120) VALUE "Primeros pasos".
+          05 FILLER PIC X(120) VALUE "Premiers pas".
+          05 FILLER PIC X(120) VALUE "はじめに".
+          05 FILLER PIC X(120) VALUE "入门".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 29.
+          05 PC-TEXT-ROW     OCCURS 25.
              10 PC-TEXT      PIC X(120) OCCURS 6.
       *>   The texts in the current language, by name.
        01 PC-TEXTS-NOW       GLOBAL.
@@ -327,13 +299,9 @@
           05 T-HINT-ASK PIC X(120).
           05 T-SEND PIC X(120).
           05 T-STATUS PIC X(120).
-          05 T-WELCOME PIC X(120).
-          05 T-STEP-1 PIC X(120).
-          05 T-STEP-2 PIC X(120).
-          05 T-STEP-3 PIC X(120).
-          05 T-STEP-4 PIC X(120).
+          05 T-MENU-WELC PIC X(120).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(120) OCCURS 29.
+          05 PC-TEXT-NOW     PIC X(120) OCCURS 25.
       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
        01 WS-FMT             GLOBAL PIC X(120).
        01 WS-ARG1            GLOBAL PIC X(300).
@@ -1073,6 +1041,10 @@
            MOVE SideMenu-1::SetItemLabel("fils", FUNCTION TRIM(T-FILES-TITLE)) TO WS-OK
            MOVE SideMenu-1::SetItemLabel("prmt", FUNCTION TRIM(T-PROMPT-TITLE)) TO WS-OK
            MOVE SideMenu-1::SetItemLabel("sett", FUNCTION TRIM(T-SETTINGS-TITLE)) TO WS-OK
+      *>   The welcome form's row is a run-time one, so Clear() took it:
+      *>   it comes back here, in the current language, and stays enabled.
+           MOVE SideMenu-1::AddItem("welc", FUNCTION TRIM(T-MENU-WELC),
+                "rocket", "", "open-form:welcome-form") TO WS-OK
            IF WS-CONV-COUNT > 0
                MOVE SideMenu-1::AddSection(FUNCTION TRIM(T-CONVERSATIONS)) TO WS-ITEM
       *>       Row ids are "c" + the conversation id, apart from the menu's own.
@@ -1286,8 +1258,9 @@
        DATA DIVISION.
        PROCEDURE DIVISION.
       *>   Until one agent has a model, PowerChat can do nothing useful: the
-      *>   menu stays shut but for RAG settings - and Chat, the way back home
-      *>   that opens it - and the welcome screen says what to do (item 1).
+      *>   menu stays shut but for RAG settings, Getting started (the welcome
+      *>   form, which says what to do) and Chat, the way back home that
+      *>   opens it (item 1).
            MOVE "N" TO WS-CONFIGURED
            PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
                IF WS-AG-ENTRY(WS-A) NOT = SPACES
@@ -1304,24 +1277,6 @@
            MOVE SideMenu-1::SetItemEnabled("docs", WS-OK) TO WS-ITEM
            MOVE SideMenu-1::SetItemEnabled("fils", WS-OK) TO WS-ITEM
            MOVE SideMenu-1::SetItemEnabled("prmt", WS-OK) TO WS-ITEM
-           IF WS-CONFIGURED = "Y"
-               MOVE "false" TO WS-TEXT
-               MOVE "true" TO WS-LINE
-           ELSE
-               MOVE "true" TO WS-TEXT
-               MOVE "false" TO WS-LINE
-           END-IF
-           MOVE FUNCTION TRIM(WS-TEXT) TO PowerChat::Visible
-           MOVE FUNCTION TRIM(WS-TEXT) TO Pic-Robot::Visible
-           MOVE FUNCTION TRIM(WS-TEXT) TO Lbl-Welcome::Visible
-           MOVE FUNCTION TRIM(WS-TEXT) TO Lbl-Step-1::Visible
-           MOVE FUNCTION TRIM(WS-TEXT) TO Lbl-Step-2::Visible
-           MOVE FUNCTION TRIM(WS-TEXT) TO Lbl-Step-3::Visible
-           MOVE FUNCTION TRIM(WS-TEXT) TO Lbl-Step-4::Visible
-           MOVE FUNCTION TRIM(WS-LINE) TO Lbl-Topic::Visible
-           MOVE FUNCTION TRIM(WS-LINE) TO Vwr-Chat::Visible
-           MOVE FUNCTION TRIM(WS-LINE) TO Txt-Input::Visible
-           MOVE FUNCTION TRIM(WS-LINE) TO Btn-Send::Visible
 ]]></Event>
     <Event name="PC-REFRESH" paragraph="PC-REFRESH"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -1378,17 +1333,12 @@
                WHEN OTHER MOVE "en" TO WS-LANG
                           MOVE 1 TO WS-LANG-IX
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 29
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 25
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
            MOVE FUNCTION TRIM(T-HINT-ASK) TO Txt-Input::HintText
            MOVE FUNCTION TRIM(T-SEND) TO Btn-Send::Caption
            MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
-           MOVE FUNCTION TRIM(T-WELCOME) TO Lbl-Welcome::Caption
-           MOVE FUNCTION TRIM(T-STEP-1) TO Lbl-Step-1::Caption
-           MOVE FUNCTION TRIM(T-STEP-2) TO Lbl-Step-2::Caption
-           MOVE FUNCTION TRIM(T-STEP-3) TO Lbl-Step-3::Caption
-           MOVE FUNCTION TRIM(T-STEP-4) TO Lbl-Step-4::Caption
 ]]></Event>
     <Event name="PC-FMT" paragraph="PC-FMT"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -1443,13 +1393,18 @@
                CALL "PC-NEW-CONV"
            END-IF
       *>   No topic is forced open any more: with no model yet the menu is
-      *>   shut and the welcome screen explains; with one, Topics is a click.
+      *>   shut and the welcome form explains; with one, Topics is a click.
            IF WS-CUR-TOPIC = SPACES
                CALL "PC-ELECT"
            END-IF
            CALL "PC-LIST-CONVS"
            CALL "PC-MENU-STATE"
            CALL "PC-STATUS"
+      *>   Nothing configured yet: the ContentPane opens on the welcome form
+      *>   instead of an empty chat.
+           IF WS-CONFIGURED = "N"
+               MOVE SideMenu-1::ActivateItem("welc") TO WS-ITEM
+           END-IF
 ]]></Event>
     <Event name="onActivate" paragraph="CHAT-FORM--ONACTIVATE"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -1529,7 +1484,7 @@
            CALL "PC-STATUS"
 ]]></Event>
   </Control>
-  <Control id="Lbl-Topic" type="Label" x="288" y="32" w="880" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Topic" type="Label" x="288" y="24" w="888" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="FontSize">20</Property>
     <Property name="Bold">true</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
@@ -1568,7 +1523,7 @@
     <Property name="DataFormat"></Property>
     <Property name="BorderColor">#AAAAAA</Property>
   </Control>
-  <Control id="Lbl-Status" type="Label" x="288" y="58" w="888" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Status" type="Label" x="288" y="64" w="888" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1810,272 +1765,6 @@
            CALL "PC-ASK"
            MOVE FUNCTION TRIM(T-THINKING) TO Lbl-Status::Caption
 ]]></Event>
-  </Control>
-  <Control id="PowerChat" type="Label" x="288" y="84" w="888" h="112" tab-order="0" z-order="0" visible="false" enabled="true">
-    <Property name="BackgroundColor">#00000000</Property>
-    <Property name="ForegroundColor">#003758FF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="VerticalAlignment">Middle</Property>
-    <Property name="AutoSize">false</Property>
-    <Property name="Caption">PowerChat</Property>
-    <Property name="FontSize">84</Property>
-    <Property name="Bold">true</Property>
-    <Property name="WordWrap">true</Property>
-    <Property name="TextAlignment">MiddleCenter</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-  </Control>
-  <Control id="Pic-Robot" type="PictureBox" x="400" y="264" w="250" h="300" tab-order="0" z-order="0" visible="false" enabled="true">
-    <Property name="ShowFrame">false</Property>
-    <Property name="ForegroundColor">#003758FF</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="ImageAlignment">MiddleCenter</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="ImagePath">assets/robot.svg</Property>
-    <Property name="SizeMode">Zoom</Property>
-    <Property name="BackgroundColor">#E1E6F8FF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-  </Control>
-  <Control id="Lbl-Welcome" type="Label" x="670" y="264" w="406" h="56" tab-order="0" z-order="0" visible="false" enabled="true">
-    <Property name="BackgroundColor">#00000000</Property>
-    <Property name="ForegroundColor">#003758FF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Left</Property>
-    <Property name="VerticalAlignment">Middle</Property>
-    <Property name="AutoSize">false</Property>
-    <Property name="Caption">Welcome! PowerChat needs a model before it can answer.</Property>
-    <Property name="FontSize">18</Property>
-    <Property name="Bold">true</Property>
-    <Property name="WordWrap">true</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-  </Control>
-  <Control id="Lbl-Step-1" type="Label" x="670" y="336" w="406" h="50" tab-order="0" z-order="0" visible="false" enabled="true">
-    <Property name="BackgroundColor">#00000000</Property>
-    <Property name="ForegroundColor">#003758FF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Left</Property>
-    <Property name="VerticalAlignment">Middle</Property>
-    <Property name="AutoSize">false</Property>
-    <Property name="Caption">1. Open RAG settings in the menu on the left - for now it is the only option open.</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="WordWrap">true</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-  </Control>
-  <Control id="Lbl-Step-2" type="Label" x="670" y="396" w="406" h="70" tab-order="0" z-order="0" visible="false" enabled="true">
-    <Property name="BackgroundColor">#00000000</Property>
-    <Property name="ForegroundColor">#003758FF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Left</Property>
-    <Property name="VerticalAlignment">Middle</Property>
-    <Property name="AutoSize">false</Property>
-    <Property name="Caption">2. Model providers: add a connection (provider, API key), press Test connection and Save.</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="WordWrap">true</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-  </Control>
-  <Control id="Lbl-Step-3" type="Label" x="670" y="476" w="406" h="50" tab-order="0" z-order="0" visible="false" enabled="true">
-    <Property name="BackgroundColor">#00000000</Property>
-    <Property name="ForegroundColor">#003758FF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Left</Property>
-    <Property name="VerticalAlignment">Middle</Property>
-    <Property name="AutoSize">false</Property>
-    <Property name="Caption">3. Model selection: pick the model. Then Agents: give agent 1 that connection.</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="WordWrap">true</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-  </Control>
-  <Control id="Lbl-Step-4" type="Label" x="670" y="536" w="406" h="70" tab-order="0" z-order="0" visible="false" enabled="true">
-    <Property name="BackgroundColor">#00000000</Property>
-    <Property name="ForegroundColor">#003758FF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Left</Property>
-    <Property name="VerticalAlignment">Middle</Property>
-    <Property name="AutoSize">false</Property>
-    <Property name="Caption">4. Come back to Chat: the menu opens up. Create a topic, add its documents and ask.</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="WordWrap">true</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
   </Control>
   <Control id="AGENT-1" type="AgentObject" x="1200" y="16" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="TimeoutSeconds">120</Property>

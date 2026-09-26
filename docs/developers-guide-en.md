@@ -1193,20 +1193,42 @@ never overwritten.
 `examples/PowerChat` is a second, complete application rather than a gallery:
 a chatbot that answers questions about **one topic at a time**, from that
 topic's own documents, through a model the application's users choose. Copy it
-to start your own. Everything in it is COBOL in its ten forms:
+to start your own. Everything in it is COBOL in its twelve forms:
 
 | Form | What it shows you how to do |
 |---|---|
-| `chat-form` (main) | A SideMenu shell whose menu is designed in the menu editor, relabelled with `SetItemLabel` in the current language and held shut with `SetItemEnabled` until an agent has a model — a welcome screen (the name at 84 points, a robot, four steps) says what to do meanwhile; every other form opens **embedded** in the ContentPane by its row's `open-form:` action (the RAG settings dialogs excepted — they are modal windows), and `onActivate` refreshes the chat when the operator comes back; a `Viewer` as a chat; three `AgentObject`s that elect an orchestrator and split the work (below), grounded in a `KnowledgeBase` with `AllowKnowledgeBase`; conversations as run-time menu rows; token totals from `LastInputTokens` / `LastOutputTokens` |
-| `topics-form` | Topics as data, each with its own Knowledge Base collection (`CreateCollection`); sample topics installed from a plain text list and taken out again |
-| `documents-form` | The collection's documents as a `TreeView` built with `AddNode`, its folders kept in an indexed file so an empty one still shows; `onNodeSelect` points the `FileDropZone` at the chosen folder; `Refresh()`, and a progress panel driven by `onProgress` / `onIndexed` |
-| `settings-form` | A summary, not an editor: four group buttons — **Knowledge Base folder**, **Model providers**, **Model selection**, **Agents** — each with a one-line account of what it holds beneath it, the model list, Export/Import and the status line. Each button opens its group as a **modal dialog** (`INVOKE ME::"OpenFormSync"("FORM-ID")`, every dialog 800 x 450), and the summary reads the files again the moment the dialog closes. **Model selection** and **Agents** stay disabled (`MOVE "false" TO Btn-ModelSel::Enabled`) until at least one provider connection exists — without one they have nothing to offer. The whole setup is exported to and imported from XML through the save and open dialogs — the export never writes a key, and an import stores any `key="…"` added by hand to a `<model>` with `COBOL-KEY-SET`. After every change it asks the main form to re-check its menu with `INVOKE super::"PC-REFRESH"()`, so the menu opens the moment an agent has a model |
-| `kb-folder-form` | The KB folder, typed or picked with `COBOL-FOLDER-DIALOG`; written only on **Save** |
-| `providers-form` | One connection at a time — pick a saved one or **(new connection)**: a name, the IDE's providers in a ComboBox (`COBOL-PROVIDER-COUNT/GET`), the endpoint and the API key, stored with `COBOL-KEY-SET` and never shown again. **Test connection** lives here: it asks the provider for its model list (`COBOL-MODEL-LIST`), which proves the address and the key before any model is chosen |
-| `model-form` | Opening it **connects**: the first connection's provider is asked for its models at once, and picking another connection asks again; the model, whether it calls tools and its rank are saved onto the connection and handed over with `COBOL-MODEL-SET` |
-| `agents-form` | One ComboBox per agent — **(off)** or a saved connection |
-| `prompts-form` | Versions of a topic's system prompt, newest first with the active one marked; promoting an older version asks before it changes anything |
-| `files-form` | A topic's own indexed files, registered by path with `RegisterFile`: each one is tried as it is added, so a missing file or a `.cidx` that does not describe it is refused on the spot with its reason; the chat form registers the topic's files when it opens and names any it cannot use |
+| `chat-form` (main) | A SideMenu shell whose menu is designed in the menu editor, relabelled with `SetItemLabel` in the current language and held shut with `SetItemEnabled` until an agent has a model; a **Getting started** row added at run time (`AddItem`) opens the welcome form, and on a first run the program opens it itself with `ActivateItem`. Every other form opens **embedded** in the ContentPane by its row's `open-form:` action (the RAG settings dialogs excepted — they are modal windows), and `onActivate` refreshes the chat when the operator comes back; a `Viewer` as a chat; three `AgentObject`s that elect an orchestrator and split the work (below), grounded in a `KnowledgeBase` with `AllowKnowledgeBase`; conversations as run-time menu rows; token totals from `LastInputTokens` / `LastOutputTokens` |
+| `welcome-form` | The first-run screen — the name at 84 points, a robot, four steps — as a form of its own rather than controls hidden over the chat |
+| `topics-form` | **The CRUD pattern** (below): topics in a DataGrid with open, edit and delete icon buttons per row, each topic with its own Knowledge Base collection (`CreateCollection` on save, `RemoveCollection` on delete); sample topics installed from a plain text list and taken out again |
+| `documents-form` | The collection's documents as a `TreeView` built with `AddNode`, its folders kept in an indexed file so an empty one still shows; `onNodeSelect` points the `FileDropZone` at the chosen folder; `Refresh()`, and a progress strip — always in its own place, empty when idle — driven by `onProgress` / `onIndexed` |
+| `settings-form` | A summary, not an editor: four group buttons — **Knowledge Base folder**, **Model providers**, **Model selection**, **Agents** — each with a one-line account of what it holds beneath it, the model list, Export/Import and the status line. Each button opens its group as a **modal dialog** (`INVOKE ME::"OpenFormSync"("FORM-ID")`), and the summary reads the files again the moment the dialog closes. **Model selection** and **Agents** stay disabled until at least one provider connection exists. The whole setup is exported to and imported from XML — the export never writes a key, and an import stores any `key="…"` added by hand to a `<model>` with `COBOL-KEY-SET`. After every change it asks the main form to re-check its menu with `INVOKE super::"PC-REFRESH"()` |
+| `kb-folder-form` | The KB folder, typed or picked with `COBOL-FOLDER-DIALOG`; **Save** and **Cancel** at the top and at the bottom of the fields, both pairs calling the same `PC-SAVE` / `PC-CANCEL` |
+| `providers-form` | **The CRUD pattern** in a dialog: the connections in a grid (name, provider, endpoint, model, whether a key is set); Create/Update holds the name, the IDE's providers in a ComboBox (`COBOL-PROVIDER-COUNT/GET`), the endpoint and the API key — stored with `COBOL-KEY-SET` and never shown again — and **Test connection**, which asks the provider for its model list (`COBOL-MODEL-LIST`). Deleting a connection also clears the agents that used it |
+| `model-form` | Opening it **connects**: the first connection's provider is asked for its models at once, and picking another connection asks again; the model, whether it calls tools and its rank are saved onto the connection and handed over with `COBOL-MODEL-SET`. Save/Cancel at top and bottom |
+| `agents-form` | One ComboBox per agent — **(off)** or a saved connection; Save/Cancel at top and bottom |
+| `prompts-form` | **The CRUD pattern** for the versions of a topic's system prompt, newest first with the active one marked; a promote icon button per row makes a version the active prompt after a confirmation, and the active version cannot be deleted |
+| `files-form` | **The CRUD pattern** for a topic's own indexed files, registered by path with `RegisterFile`: each one is tried as it is saved, so a missing file or a `.cidx` that does not describe it is refused on the spot with its reason; the chat form registers the topic's files when it opens and names any it cannot use |
+| `confirm-form` | A yes/no question any form can ask: the caller sets `ConfirmText` (and translated `ConfirmYes` / `ConfirmNo`) on itself with `ME::"SetProperty"`, opens it with `OpenFormSync`, and reads `ConfirmAnswer` when it returns |
+
+**The CRUD pattern.** Every form that keeps a list of records — topics, data
+files, prompt versions, provider connections — is built the same way, so an
+operator learns it once:
+
+- a **TabControl** with two pages, **Browse** and **Create/Update**, turned from
+  COBOL with `MOVE 1 TO Tab-Crud::SelectedTab`;
+- on **Browse**, a **New** button above a **DataGrid** of the records; each row ends
+  in two icon buttons, a pencil and a trash can (`icon:pencil`, `icon:trash` in a
+  Button column), and `onCellClick` reads `ClickedRow` / `ClickedColumn` to know
+  which row's button it was; headings follow the language with `SetColumnTitle`;
+- on **Create/Update**, the fields between two identical pairs of **Save** and
+  **Cancel** buttons, at the top and at the bottom; **New** opens it empty, the
+  pencil opens it with the row loaded;
+- **Save** writes the record — `WRITE`, and on `INVALID KEY` a `REWRITE` — and
+  returns to **Browse** refreshed; **Cancel** returns without refreshing;
+- **Delete** asks first, through `confirm-form`.
+
+No control is ever hidden over another to be swapped in by a condition: what
+alternates lives in a form of its own.
 
 Its own data — settings, topics, conversations, their turns, the model list,
 registered files, prompt versions, document folders — is eight

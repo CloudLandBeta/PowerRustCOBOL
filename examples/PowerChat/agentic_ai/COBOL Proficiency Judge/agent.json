@@ -7,7 +7,7 @@
   "enabled": true,
   "provider": "ollama_cloud",
   "endpoint": "https://ollama.com/api/chat",
-  "model": "some-vendor/a-fairly-long-model-identifier:latest",
+  "model": "gemma4:31b",
   "temperature": 0.4,
   "max_tokens": 8192,
   "timeout_secs": 120,

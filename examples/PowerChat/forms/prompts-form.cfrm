@@ -21,9 +21,22 @@
        01 WS-INDEX           GLOBAL PIC S9(4).
        01 WS-I               GLOBAL PIC 9(4).
        01 WS-TEXT            GLOBAL PIC X(1000).
-       01 WS-ROW             GLOBAL PIC X(120).
+       01 WS-ROW             GLOBAL PIC X(300).
        01 WS-LINE            GLOBAL PIC X(200).
        01 WS-VNUM            GLOBAL PIC Z(3)9.
+      *>   The CRUD tabs: the version being edited (0 = a new one), the
+      *>   grid cell a click landed on, and the confirmation dialog's text.
+       01 WS-EDIT-VER        GLOBAL PIC 9(4) VALUE 0.
+       01 WS-SAVE-VER        GLOBAL PIC 9(4) VALUE 0.
+       01 WS-SAVE-OK         GLOBAL PIC X VALUE "Y".
+       01 WS-ROW-NO          GLOBAL PIC 9(4) VALUE 0.
+       01 WS-COL-NO          GLOBAL PIC 9(4) VALUE 0.
+       01 WS-KEY             GLOBAL PIC X(10).
+       01 WS-PREVIEW         GLOBAL PIC X(60).
+       01 WS-TABS            GLOBAL PIC X(270).
+       01 WS-QUESTION        GLOBAL PIC X(300).
+       01 WS-ANSWER          GLOBAL PIC X.
+       01 WS-FS-ERR          GLOBAL PIC XX.
       *>   The interface texts (spec 071 R44): one row per text, one column
       *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
       *>   only the values are translated.
@@ -53,13 +66,13 @@
           05 FILLER PIC X(130) VALUE "Choisissez d'abord une version dans la liste.".
           05 FILLER PIC X(130) VALUE "先に一覧からバージョンを選んでください。".
           05 FILLER PIC X(130) VALUE "请先在列表中选择一个版本。".
-      *>   SHOWING-V
-          05 FILLER PIC X(130) VALUE "Showing v&1.".
-          05 FILLER PIC X(130) VALUE "Mostrando a v&1.".
-          05 FILLER PIC X(130) VALUE "Mostrando la v&1.".
-          05 FILLER PIC X(130) VALUE "Affichage de la v&1.".
-          05 FILLER PIC X(130) VALUE "v&1 を表示しています。".
-          05 FILLER PIC X(130) VALUE "正在显示 v&1。".
+      *>   EDITING-V
+          05 FILLER PIC X(130) VALUE "Editing v&1".
+          05 FILLER PIC X(130) VALUE "Editando a v&1".
+          05 FILLER PIC X(130) VALUE "Editando la v&1".
+          05 FILLER PIC X(130) VALUE "Modification de la v&1".
+          05 FILLER PIC X(130) VALUE "v&1 を編集中".
+          05 FILLER PIC X(130) VALUE "正在编辑 v&1".
       *>   ALREADY-ACTIVE
           05 FILLER PIC X(130) VALUE "That version is already the active one.".
           05 FILLER PIC X(130) VALUE "Essa versão já é a ativa.".
@@ -68,12 +81,12 @@
           05 FILLER PIC X(130) VALUE "そのバージョンはすでに有効です。".
           05 FILLER PIC X(130) VALUE "该版本已经是当前版本。".
       *>   CONFIRM-ACTIVATE
-          05 FILLER PIC X(130) VALUE "Make v&1 the active prompt? Press Activate again to confirm.".
-          05 FILLER PIC X(130) VALUE "Tornar a v&1 o prompt ativo? Clique em Ativar de novo para confirmar.".
-          05 FILLER PIC X(130) VALUE "¿Hacer de la v&1 el prompt activo? Pulsa Activar otra vez para confirmar.".
-          05 FILLER PIC X(130) VALUE "Faire de la v&1 le prompt actif ? Cliquez de nouveau sur Activer pour confirmer.".
-          05 FILLER PIC X(130) VALUE "v&1 を有効なプロンプトにしますか？確定するにはもう一度「有効にする」を押してください。".
-          05 FILLER PIC X(130) VALUE "将 v&1 设为当前提示词？再次点击“启用”以确认。".
+          05 FILLER PIC X(130) VALUE "Make v&1 the active prompt?".
+          05 FILLER PIC X(130) VALUE "Tornar a v&1 o prompt ativo?".
+          05 FILLER PIC X(130) VALUE "¿Hacer de la v&1 el prompt activo?".
+          05 FILLER PIC X(130) VALUE "Faire de la v&1 le prompt actif ?".
+          05 FILLER PIC X(130) VALUE "v&1 を有効なプロンプトにしますか？".
+          05 FILLER PIC X(130) VALUE "将 v&1 设为当前提示词？".
       *>   NOW-ACTIVE
           05 FILLER PIC X(130) VALUE "v&1 is the active prompt.".
           05 FILLER PIC X(130) VALUE "A v&1 é o prompt ativo.".
@@ -116,13 +129,13 @@
           05 FILLER PIC X(130) VALUE "À quoi sert l'assistant et comment il répond : le prompt système du sujet".
           05 FILLER PIC X(130) VALUE "アシスタントの役割と回答の仕方 - トピックのシステムプロンプト".
           05 FILLER PIC X(130) VALUE "助手的用途及回答方式——该主题的系统提示词".
-      *>   SHOW-VERSION
-          05 FILLER PIC X(130) VALUE "Show version".
-          05 FILLER PIC X(130) VALUE "Mostrar versão".
-          05 FILLER PIC X(130) VALUE "Ver versión".
-          05 FILLER PIC X(130) VALUE "Afficher la version".
-          05 FILLER PIC X(130) VALUE "バージョンを表示".
-          05 FILLER PIC X(130) VALUE "查看版本".
+      *>   NEW-VERSION
+          05 FILLER PIC X(130) VALUE "New version".
+          05 FILLER PIC X(130) VALUE "Nova versão".
+          05 FILLER PIC X(130) VALUE "Nueva versión".
+          05 FILLER PIC X(130) VALUE "Nouvelle version".
+          05 FILLER PIC X(130) VALUE "新しいバージョン".
+          05 FILLER PIC X(130) VALUE "新版本".
       *>   ACTIVATE
           05 FILLER PIC X(130) VALUE "Activate".
           05 FILLER PIC X(130) VALUE "Ativar".
@@ -130,13 +143,13 @@
           05 FILLER PIC X(130) VALUE "Activer".
           05 FILLER PIC X(130) VALUE "有効にする".
           05 FILLER PIC X(130) VALUE "启用".
-      *>   SAVE-AS-NEW
-          05 FILLER PIC X(130) VALUE "Save as new".
-          05 FILLER PIC X(130) VALUE "Salvar como nova".
-          05 FILLER PIC X(130) VALUE "Guardar como nueva".
-          05 FILLER PIC X(130) VALUE "Enregistrer comme nouvelle".
-          05 FILLER PIC X(130) VALUE "新規保存".
-          05 FILLER PIC X(130) VALUE "另存为新版本".
+      *>   SAVE
+          05 FILLER PIC X(130) VALUE "Save".
+          05 FILLER PIC X(130) VALUE "Salvar".
+          05 FILLER PIC X(130) VALUE "Guardar".
+          05 FILLER PIC X(130) VALUE "Enregistrer".
+          05 FILLER PIC X(130) VALUE "保存".
+          05 FILLER PIC X(130) VALUE "保存".
       *>   STATUS
           05 FILLER PIC X(130) VALUE "Status".
           05 FILLER PIC X(130) VALUE "Status".
@@ -144,15 +157,127 @@
           05 FILLER PIC X(130) VALUE "État".
           05 FILLER PIC X(130) VALUE "ステータス".
           05 FILLER PIC X(130) VALUE "状态".
+      *>   TAB-BROWSE
+          05 FILLER PIC X(130) VALUE "Browse".
+          05 FILLER PIC X(130) VALUE "Consultar".
+          05 FILLER PIC X(130) VALUE "Consultar".
+          05 FILLER PIC X(130) VALUE "Parcourir".
+          05 FILLER PIC X(130) VALUE "一覧".
+          05 FILLER PIC X(130) VALUE "浏览".
+      *>   TAB-EDIT
+          05 FILLER PIC X(130) VALUE "Create/Update".
+          05 FILLER PIC X(130) VALUE "Criar/Atualizar".
+          05 FILLER PIC X(130) VALUE "Crear/Actualizar".
+          05 FILLER PIC X(130) VALUE "Créer/Modifier".
+          05 FILLER PIC X(130) VALUE "作成/更新".
+          05 FILLER PIC X(130) VALUE "新建/更新".
+      *>   NEW
+          05 FILLER PIC X(130) VALUE "New".
+          05 FILLER PIC X(130) VALUE "Novo".
+          05 FILLER PIC X(130) VALUE "Nuevo".
+          05 FILLER PIC X(130) VALUE "Nouveau".
+          05 FILLER PIC X(130) VALUE "新規".
+          05 FILLER PIC X(130) VALUE "新建".
+      *>   CANCEL
+          05 FILLER PIC X(130) VALUE "Cancel".
+          05 FILLER PIC X(130) VALUE "Cancelar".
+          05 FILLER PIC X(130) VALUE "Cancelar".
+          05 FILLER PIC X(130) VALUE "Annuler".
+          05 FILLER PIC X(130) VALUE "キャンセル".
+          05 FILLER PIC X(130) VALUE "取消".
+      *>   YES
+          05 FILLER PIC X(130) VALUE "Yes".
+          05 FILLER PIC X(130) VALUE "Sim".
+          05 FILLER PIC X(130) VALUE "Sí".
+          05 FILLER PIC X(130) VALUE "Oui".
+          05 FILLER PIC X(130) VALUE "はい".
+          05 FILLER PIC X(130) VALUE "是".
+      *>   NO
+          05 FILLER PIC X(130) VALUE "No".
+          05 FILLER PIC X(130) VALUE "Não".
+          05 FILLER PIC X(130) VALUE "No".
+          05 FILLER PIC X(130) VALUE "Non".
+          05 FILLER PIC X(130) VALUE "いいえ".
+          05 FILLER PIC X(130) VALUE "否".
+      *>   CONFIRM-DELETE
+          05 FILLER PIC X(130) VALUE "Delete v&1? This cannot be undone.".
+          05 FILLER PIC X(130) VALUE "Excluir a v&1? Isso não pode ser desfeito.".
+          05 FILLER PIC X(130) VALUE "¿Eliminar la v&1? No se puede deshacer.".
+          05 FILLER PIC X(130) VALUE "Supprimer la v&1 ? Cette action est irréversible.".
+          05 FILLER PIC X(130) VALUE "v&1 を削除しますか？元に戻せません。".
+          05 FILLER PIC X(130) VALUE "删除 v&1？此操作无法撤销。".
+      *>   ACTIVE-NO-DELETE
+          05 FILLER PIC X(130) VALUE "v&1 is the active prompt and cannot be deleted. Activate another version first.".
+          05 FILLER PIC X(130) VALUE "A v&1 é o prompt ativo e não pode ser excluída. Ative outra versão antes.".
+          05 FILLER PIC X(130) VALUE "La v&1 es el prompt activo y no se puede eliminar. Activa antes otra versión.".
+          05 FILLER PIC X(130) VALUE "La v&1 est le prompt actif : impossible de la supprimer. Activez d'abord une autre version.".
+          05 FILLER PIC X(130) VALUE "有効な v&1 は削除できません。先に別のバージョンを有効にしてください。".
+          05 FILLER PIC X(130) VALUE "v&1 是当前提示词，无法删除。请先启用其他版本。".
+      *>   DELETED
+          05 FILLER PIC X(130) VALUE "v&1 deleted.".
+          05 FILLER PIC X(130) VALUE "A v&1 foi excluída.".
+          05 FILLER PIC X(130) VALUE "Se eliminó la v&1.".
+          05 FILLER PIC X(130) VALUE "La v&1 a été supprimée.".
+          05 FILLER PIC X(130) VALUE "v&1 を削除しました。".
+          05 FILLER PIC X(130) VALUE "已删除 v&1。".
+      *>   SAVED-V
+          05 FILLER PIC X(130) VALUE "v&1 saved.".
+          05 FILLER PIC X(130) VALUE "A v&1 foi salva.".
+          05 FILLER PIC X(130) VALUE "Se guardó la v&1.".
+          05 FILLER PIC X(130) VALUE "La v&1 a été enregistrée.".
+          05 FILLER PIC X(130) VALUE "v&1 を保存しました。".
+          05 FILLER PIC X(130) VALUE "已保存 v&1。".
+      *>   SAVE-FAILED
+          05 FILLER PIC X(130) VALUE "Could not save v&1 (file status &2).".
+          05 FILLER PIC X(130) VALUE "Não foi possível salvar a v&1 (status &2).".
+          05 FILLER PIC X(130) VALUE "No se pudo guardar la v&1 (estado &2).".
+          05 FILLER PIC X(130) VALUE "Impossible d'enregistrer la v&1 (état &2).".
+          05 FILLER PIC X(130) VALUE "v&1 を保存できませんでした (状態 &2)。".
+          05 FILLER PIC X(130) VALUE "无法保存 v&1（状态 &2）。".
+      *>   DELETE-FAILED
+          05 FILLER PIC X(130) VALUE "Could not delete v&1 (file status &2).".
+          05 FILLER PIC X(130) VALUE "Não foi possível excluir a v&1 (status &2).".
+          05 FILLER PIC X(130) VALUE "No se pudo eliminar la v&1 (estado &2).".
+          05 FILLER PIC X(130) VALUE "Impossible de supprimer la v&1 (état &2).".
+          05 FILLER PIC X(130) VALUE "v&1 を削除できませんでした (状態 &2)。".
+          05 FILLER PIC X(130) VALUE "无法删除 v&1（状态 &2）。".
+      *>   COL-VERSION
+          05 FILLER PIC X(130) VALUE "Version".
+          05 FILLER PIC X(130) VALUE "Versão".
+          05 FILLER PIC X(130) VALUE "Versión".
+          05 FILLER PIC X(130) VALUE "Version".
+          05 FILLER PIC X(130) VALUE "バージョン".
+          05 FILLER PIC X(130) VALUE "版本".
+      *>   COL-CREATED
+          05 FILLER PIC X(130) VALUE "Created".
+          05 FILLER PIC X(130) VALUE "Criada em".
+          05 FILLER PIC X(130) VALUE "Creada".
+          05 FILLER PIC X(130) VALUE "Créée le".
+          05 FILLER PIC X(130) VALUE "作成日時".
+          05 FILLER PIC X(130) VALUE "创建时间".
+      *>   COL-ACTIVE
+          05 FILLER PIC X(130) VALUE "Active".
+          05 FILLER PIC X(130) VALUE "Ativa".
+          05 FILLER PIC X(130) VALUE "Activa".
+          05 FILLER PIC X(130) VALUE "Active".
+          05 FILLER PIC X(130) VALUE "有効".
+          05 FILLER PIC X(130) VALUE "当前".
+      *>   COL-TEXT
+          05 FILLER PIC X(130) VALUE "Text".
+          05 FILLER PIC X(130) VALUE "Texto".
+          05 FILLER PIC X(130) VALUE "Texto".
+          05 FILLER PIC X(130) VALUE "Texte".
+          05 FILLER PIC X(130) VALUE "テキスト".
+          05 FILLER PIC X(130) VALUE "文本".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 16.
+          05 PC-TEXT-ROW     OCCURS 32.
              10 PC-TEXT      PIC X(130) OCCURS 6.
       *>   The texts in the current language, by name.
        01 PC-TEXTS-NOW       GLOBAL.
           05 T-OPEN-TOPIC-FIRST PIC X(130).
           05 T-PROMPT-OF PIC X(130).
           05 T-PICK-VERSION-FIRST PIC X(130).
-          05 T-SHOWING-V PIC X(130).
+          05 T-EDITING-V PIC X(130).
           05 T-ALREADY-ACTIVE PIC X(130).
           05 T-CONFIRM-ACTIVATE PIC X(130).
           05 T-NOW-ACTIVE PIC X(130).
@@ -161,12 +286,28 @@
           05 T-ACTIVE-MARK PIC X(130).
           05 T-PROMPT-TITLE PIC X(130).
           05 T-HINT-PROMPT-EDITOR PIC X(130).
-          05 T-SHOW-VERSION PIC X(130).
+          05 T-NEW-VERSION PIC X(130).
           05 T-ACTIVATE PIC X(130).
-          05 T-SAVE-AS-NEW PIC X(130).
+          05 T-SAVE PIC X(130).
           05 T-STATUS PIC X(130).
+          05 T-TAB-BROWSE PIC X(130).
+          05 T-TAB-EDIT PIC X(130).
+          05 T-NEW PIC X(130).
+          05 T-CANCEL PIC X(130).
+          05 T-YES PIC X(130).
+          05 T-NO PIC X(130).
+          05 T-CONFIRM-DELETE PIC X(130).
+          05 T-ACTIVE-NO-DELETE PIC X(130).
+          05 T-DELETED PIC X(130).
+          05 T-SAVED-V PIC X(130).
+          05 T-SAVE-FAILED PIC X(130).
+          05 T-DELETE-FAILED PIC X(130).
+          05 T-COL-VERSION PIC X(130).
+          05 T-COL-CREATED PIC X(130).
+          05 T-COL-ACTIVE PIC X(130).
+          05 T-COL-TEXT PIC X(130).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(130) OCCURS 16.
+          05 PC-TEXT-NOW     PIC X(130) OCCURS 32.
       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
        01 WS-FMT             GLOBAL PIC X(130).
        01 WS-ARG1            GLOBAL PIC X(300).
@@ -326,7 +467,10 @@
        PROCEDURE DIVISION.
       *>   The topic's versions, newest first, the active one marked (R48).
       *>   A topic that has none yet gets version 1 from its current prompt.
-           MOVE Lst-Versions::Clear() TO WS-OK
+      *>   One grid row per version: number (the key), date, the active
+      *>   marker, a preview of the text, then the promote, edit and delete
+      *>   icon buttons.
+           MOVE Dg-List::ClearRows() TO WS-OK
            MOVE 0 TO WS-VER-COUNT WS-LAST-VER WS-ACTIVE-VER
            OPEN I-O PROMPTS-FILE
            IF WS-FS = "35"
@@ -377,17 +521,33 @@
                            ADD 1 TO WS-VER-COUNT
                            MOVE PRM-VERSION TO WS-VER(WS-VER-COUNT)
                            MOVE PRM-VERSION TO WS-VNUM
+      *>   A tab or a line break inside the text would split the row.
+                           MOVE PRM-TEXT(1:57) TO WS-PREVIEW
+                           INSPECT WS-PREVIEW REPLACING ALL X"09" BY SPACE
+                                                        ALL X"0A" BY SPACE
+                                                        ALL X"0D" BY SPACE
+                           IF PRM-TEXT(58:) NOT = SPACES
+                               MOVE SPACES TO WS-LINE
+                               STRING FUNCTION TRIM(WS-PREVIEW) "..."
+                                   DELIMITED BY SIZE INTO WS-LINE
+                               MOVE WS-LINE TO WS-PREVIEW
+                           END-IF
+                           MOVE SPACES TO WS-LINE
+                           IF PRM-ACTIVE = "Y"
+                               MOVE T-ACTIVE-MARK TO WS-LINE
+                           END-IF
                            MOVE SPACES TO WS-ROW
-                           STRING "v" FUNCTION TRIM(WS-VNUM) "   "
+                           STRING FUNCTION TRIM(WS-VNUM) X"09"
                                   PRM-CREATED(1:4) "-" PRM-CREATED(5:2) "-"
                                   PRM-CREATED(7:2) " " PRM-CREATED(9:2) ":"
-                                  PRM-CREATED(11:2)
+                                  PRM-CREATED(11:2) X"09"
+                                  FUNCTION TRIM(WS-LINE) X"09"
+                                  FUNCTION TRIM(WS-PREVIEW) X"09"
+                                  "icon:check-circle" X"09"
+                                  "icon:pencil" X"09"
+                                  "icon:trash"
                                DELIMITED BY SIZE INTO WS-ROW
-                           IF PRM-ACTIVE = "Y"
-                               STRING FUNCTION TRIM(WS-ROW) "   " FUNCTION TRIM(T-ACTIVE-MARK)
-                                   DELIMITED BY SIZE INTO WS-ROW
-                           END-IF
-                           MOVE Lst-Versions::AddItem(FUNCTION TRIM(WS-ROW)) TO WS-OK
+                           MOVE Dg-List::AddRow(WS-ROW) TO WS-OK
                        END-IF
                END-READ
            END-PERFORM
@@ -459,15 +619,25 @@
                WHEN OTHER MOVE "en" TO WS-LANG
                           MOVE 1 TO WS-LANG-IX
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 16
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 32
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
            MOVE FUNCTION TRIM(T-PROMPT-TITLE) TO Lbl-Title::Caption
            MOVE FUNCTION TRIM(T-HINT-PROMPT-EDITOR) TO Txt-Prompt::HintText
-           MOVE FUNCTION TRIM(T-SHOW-VERSION) TO Btn-View::Caption
-           MOVE FUNCTION TRIM(T-ACTIVATE) TO Btn-Activate::Caption
-           MOVE FUNCTION TRIM(T-SAVE-AS-NEW) TO Btn-Save::Caption
+           MOVE FUNCTION TRIM(T-NEW) TO Btn-New::Caption
+           MOVE FUNCTION TRIM(T-SAVE) TO Btn-Save::Caption
+           MOVE FUNCTION TRIM(T-SAVE) TO Btn-Save-Bottom::Caption
+           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel::Caption
+           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel-Bottom::Caption
            MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
+           MOVE SPACES TO WS-TABS
+           STRING FUNCTION TRIM(T-TAB-BROWSE) X"0A" FUNCTION TRIM(T-TAB-EDIT)
+               DELIMITED BY SIZE INTO WS-TABS
+           MOVE WS-TABS TO Tab-Crud::Tabs
+           INVOKE Dg-List::SetColumnTitle("Ver", T-COL-VERSION)
+           INVOKE Dg-List::SetColumnTitle("Created", T-COL-CREATED)
+           INVOKE Dg-List::SetColumnTitle("Active", T-COL-ACTIVE)
+           INVOKE Dg-List::SetColumnTitle("Text", T-COL-TEXT)
 ]]></Event>
     <Event name="PC-FMT" paragraph="PC-FMT"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -535,7 +705,171 @@
            MOVE TOP-NAME TO WS-ARG1
            CALL "PC-FMT"
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Title::Caption
-           MOVE TOP-PROMPT TO Txt-Prompt::Text
+           CALL "PC-LOAD-VERSIONS"
+           MOVE 0 TO Tab-Crud::SelectedTab
+]]></Event>
+    <Event name="PC-NEW" paragraph="PC-NEW"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   An empty editor on the Create/Update tab: Save adds a new version.
+           IF WS-CUR-TOPIC = SPACES
+               MOVE FUNCTION TRIM(T-OPEN-TOPIC-FIRST) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           MOVE 0 TO WS-EDIT-VER
+           MOVE SPACES TO WS-TEXT
+           MOVE WS-TEXT TO Txt-Prompt::Text
+           MOVE FUNCTION TRIM(T-NEW-VERSION) TO Lbl-Edit-Ver::Caption
+           MOVE 1 TO Tab-Crud::SelectedTab
+]]></Event>
+    <Event name="PC-EDIT" paragraph="PC-EDIT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-PICKED in: that version's text on the Create/Update tab.
+           MOVE WS-PICKED TO WS-VNUM
+           OPEN I-O PROMPTS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT PROMPTS-FILE
+               CLOSE PROMPTS-FILE
+               OPEN I-O PROMPTS-FILE
+           END-IF
+           MOVE WS-CUR-TOPIC TO PRM-TOPIC
+           MOVE WS-PICKED TO PRM-VERSION
+           MOVE "Y" TO WS-SAVE-OK
+           READ PROMPTS-FILE
+               INVALID KEY MOVE "N" TO WS-SAVE-OK
+           END-READ
+           CLOSE PROMPTS-FILE
+           IF WS-SAVE-OK NOT = "Y"
+               MOVE FUNCTION TRIM(T-PICK-VERSION-FIRST) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           MOVE WS-PICKED TO WS-EDIT-VER
+           MOVE PRM-TEXT TO WS-TEXT
+           MOVE WS-TEXT TO Txt-Prompt::Text
+           MOVE T-EDITING-V TO WS-FMT
+           MOVE WS-VNUM TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Edit-Ver::Caption
+           MOVE 1 TO Tab-Crud::SelectedTab
+]]></Event>
+    <Event name="PC-SAVE" paragraph="PC-SAVE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Both Save buttons. A new version (WS-EDIT-VER = 0) is written as
+      *>   the last one and becomes the active prompt; an edited one keeps its
+      *>   date and its active flag, and when it is the active one the topic's
+      *>   prompt follows. WRITE first; an existing key is REWRITTEN.
+           MOVE Txt-Prompt::Text TO WS-TEXT
+           IF WS-TEXT = SPACES
+               MOVE FUNCTION TRIM(T-PROMPT-EMPTY) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           IF WS-CUR-TOPIC = SPACES
+               MOVE FUNCTION TRIM(T-OPEN-TOPIC-FIRST) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           OPEN I-O PROMPTS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT PROMPTS-FILE
+               CLOSE PROMPTS-FILE
+               OPEN I-O PROMPTS-FILE
+           END-IF
+           MOVE FUNCTION CURRENT-DATE TO WS-NOW
+           MOVE WS-CUR-TOPIC TO PRM-TOPIC
+           IF WS-EDIT-VER = 0
+               COMPUTE WS-SAVE-VER = WS-LAST-VER + 1
+               MOVE WS-SAVE-VER TO PRM-VERSION
+               MOVE WS-NOW(1:14) TO PRM-CREATED
+               MOVE "N" TO PRM-ACTIVE
+           ELSE
+               MOVE WS-EDIT-VER TO WS-SAVE-VER
+               MOVE WS-SAVE-VER TO PRM-VERSION
+               READ PROMPTS-FILE
+                   INVALID KEY
+                       MOVE WS-NOW(1:14) TO PRM-CREATED
+                       MOVE "N" TO PRM-ACTIVE
+               END-READ
+               MOVE WS-CUR-TOPIC TO PRM-TOPIC
+               MOVE WS-SAVE-VER TO PRM-VERSION
+           END-IF
+           MOVE WS-TEXT TO PRM-TEXT
+           MOVE "Y" TO WS-SAVE-OK
+           WRITE PROMPT-REC
+               INVALID KEY
+                   REWRITE PROMPT-REC
+                       INVALID KEY MOVE "N" TO WS-SAVE-OK
+                                   MOVE WS-FS TO WS-FS-ERR
+                   END-REWRITE
+           END-WRITE
+           IF WS-SAVE-OK = "Y"
+               COMMIT
+           ELSE
+               ROLLBACK
+           END-IF
+           CLOSE PROMPTS-FILE
+           MOVE WS-SAVE-VER TO WS-VNUM
+           IF WS-SAVE-OK NOT = "Y"
+               MOVE T-SAVE-FAILED TO WS-FMT
+               MOVE WS-VNUM TO WS-ARG1
+               MOVE WS-FS-ERR TO WS-ARG2
+               CALL "PC-FMT"
+               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           IF WS-EDIT-VER = 0
+               MOVE WS-SAVE-VER TO WS-LAST-VER
+               MOVE WS-SAVE-VER TO WS-PICKED
+               CALL "PC-ACTIVATE"
+               MOVE T-SAVED-AS TO WS-FMT
+           ELSE
+               IF WS-SAVE-VER = WS-ACTIVE-VER
+                   MOVE WS-SAVE-VER TO WS-PICKED
+                   CALL "PC-ACTIVATE"
+               END-IF
+               MOVE T-SAVED-V TO WS-FMT
+           END-IF
+           MOVE WS-VNUM TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+           MOVE 0 TO WS-EDIT-VER
+           CALL "PC-LOAD-VERSIONS"
+           MOVE 0 TO Tab-Crud::SelectedTab
+]]></Event>
+    <Event name="PC-DELETE" paragraph="PC-DELETE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-PICKED in, already confirmed: that version leaves the history.
+      *>   The active version is refused before the question is asked.
+           MOVE WS-PICKED TO WS-VNUM
+           OPEN I-O PROMPTS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT PROMPTS-FILE
+               CLOSE PROMPTS-FILE
+               OPEN I-O PROMPTS-FILE
+           END-IF
+           MOVE WS-CUR-TOPIC TO PRM-TOPIC
+           MOVE WS-PICKED TO PRM-VERSION
+           MOVE "Y" TO WS-SAVE-OK
+           DELETE PROMPTS-FILE RECORD
+               INVALID KEY MOVE "N" TO WS-SAVE-OK
+                           MOVE WS-FS TO WS-FS-ERR
+           END-DELETE
+           IF WS-SAVE-OK = "Y"
+               COMMIT
+           ELSE
+               ROLLBACK
+           END-IF
+           CLOSE PROMPTS-FILE
+           IF WS-SAVE-OK = "Y"
+               MOVE T-DELETED TO WS-FMT
+           ELSE
+               MOVE T-DELETE-FAILED TO WS-FMT
+               MOVE WS-FS-ERR TO WS-ARG2
+           END-IF
+           MOVE WS-VNUM TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
            CALL "PC-LOAD-VERSIONS"
 ]]></Event>
     <Event name="PC-LANG-NOW" paragraph="PC-LANG-NOW"><![CDATA[       ENVIRONMENT DIVISION.
@@ -612,51 +946,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lst-Versions" type="ListBox" x="24" y="56" w="200" h="368" tab-order="1" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#E1E6F8FF</Property>
-    <Property name="ForegroundColor">#003758FF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="SelectedIndex">-1</Property>
-    <Property name="MultiSelect">false</Property>
-    <Property name="ShowCheckBoxes">false</Property>
-    <Property name="Sorted">false</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="Items"></Property>
-    <Property name="SelectedItems"></Property>
-    <Property name="CheckedItems"></Property>
-    <Property name="ActiveItemColor"></Property>
-    <Property name="SelectedItemsColor"></Property>
-    <Property name="ActiveItemTextColor"></Property>
-  </Control>
-  <Control id="Txt-Prompt" type="TextBox" x="240" y="56" w="416" h="320" tab-order="2" z-order="0" visible="true" enabled="true">
+  <Control id="Txt-Prompt" type="TextBox" x="40" y="144" w="600" h="224" tab-order="2" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="Multiline">true</Property>
     <Property name="ScrollBars">Vertical</Property>
     <Property name="MaximumLength">1000</Property>
@@ -704,153 +994,8 @@
     <Property name="Picture"></Property>
     <Property name="PasswordCharacter"></Property>
   </Control>
-  <Control id="Btn-View" type="Button" x="240" y="388" w="128" h="32" tab-order="3" z-order="0" visible="true" enabled="true">
-    <Property name="Caption">Show version</Property>
-    <Property name="BackgroundColor">#E1E6F8FF</Property>
-    <Property name="ForegroundColor">#003758FF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="IsDefault">false</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="BorderWidth">1</Property>
-    <Property name="IconAlignment">Left</Property>
-    <Property name="IconPadding">10</Property>
-    <Property name="IconSize">32</Property>
-    <Property name="TextAlignment">MiddleCenter</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="IconPath"></Property>
-    <Event name="onClick" paragraph="BTN-VIEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       PROCEDURE DIVISION.
-           MOVE Lst-Versions::GetSelectedIndex() TO WS-INDEX
-           IF WS-INDEX < 0 OR WS-INDEX >= WS-VER-COUNT
-               MOVE FUNCTION TRIM(T-PICK-VERSION-FIRST) TO Lbl-Status::Caption
-               EXIT PROGRAM
-           END-IF
-           ADD 1 TO WS-INDEX
-           MOVE WS-VER(WS-INDEX) TO WS-PICKED
-           MOVE WS-PICKED TO WS-VNUM
-           OPEN I-O PROMPTS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT PROMPTS-FILE
-               CLOSE PROMPTS-FILE
-               OPEN I-O PROMPTS-FILE
-           END-IF
-           MOVE WS-CUR-TOPIC TO PRM-TOPIC
-           MOVE WS-PICKED TO PRM-VERSION
-           READ PROMPTS-FILE
-               NOT INVALID KEY MOVE PRM-TEXT TO Txt-Prompt::Text
-           END-READ
-           CLOSE PROMPTS-FILE
-           MOVE T-SHOWING-V TO WS-FMT
-           MOVE WS-VNUM TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
-]]></Event>
-  </Control>
-  <Control id="Btn-Activate" type="Button" x="384" y="388" w="128" h="32" tab-order="4" z-order="0" visible="true" enabled="true">
-    <Property name="Caption">Activate</Property>
-    <Property name="BackgroundColor">#E1E6F8FF</Property>
-    <Property name="ForegroundColor">#003758FF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="IsDefault">false</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="BorderWidth">1</Property>
-    <Property name="IconAlignment">Left</Property>
-    <Property name="IconPadding">10</Property>
-    <Property name="IconSize">32</Property>
-    <Property name="TextAlignment">MiddleCenter</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="IconPath"></Property>
-    <Event name="onClick" paragraph="BTN-ACTIVATE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       PROCEDURE DIVISION.
-           MOVE Lst-Versions::GetSelectedIndex() TO WS-INDEX
-           IF WS-INDEX < 0 OR WS-INDEX >= WS-VER-COUNT
-               MOVE FUNCTION TRIM(T-PICK-VERSION-FIRST) TO Lbl-Status::Caption
-               EXIT PROGRAM
-           END-IF
-           ADD 1 TO WS-INDEX
-           MOVE WS-VER(WS-INDEX) TO WS-PICKED
-           MOVE WS-PICKED TO WS-VNUM
-      *>   Promoting another version asks first (R48): the first press asks,
-      *>   a second press on the same version confirms.
-           IF WS-PICKED = WS-ACTIVE-VER
-               MOVE FUNCTION TRIM(T-ALREADY-ACTIVE) TO Lbl-Status::Caption
-               EXIT PROGRAM
-           END-IF
-           IF WS-CONFIRM-VER NOT = WS-PICKED
-               MOVE WS-PICKED TO WS-CONFIRM-VER
-               MOVE T-CONFIRM-ACTIVATE TO WS-FMT
-               MOVE WS-VNUM TO WS-ARG1
-               CALL "PC-FMT"
-               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
-               EXIT PROGRAM
-           END-IF
-           MOVE 0 TO WS-CONFIRM-VER
-           CALL "PC-ACTIVATE"
-           MOVE T-NOW-ACTIVE TO WS-FMT
-           MOVE WS-VNUM TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
-           CALL "PC-LOAD-VERSIONS"
-]]></Event>
-  </Control>
-  <Control id="Btn-Save" type="Button" x="528" y="388" w="128" h="32" tab-order="5" z-order="0" visible="true" enabled="true">
-    <Property name="Caption">Save as new</Property>
+  <Control id="Btn-Save" type="Button" x="40" y="104" w="112" h="32" tab-order="5" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+    <Property name="Caption">Save</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -893,42 +1038,10 @@
     <Event name="onClick" paragraph="BTN-SAVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-      *>   The editor's text becomes a new version, and the active one.
-           MOVE Txt-Prompt::Text TO WS-TEXT
-           IF WS-TEXT = SPACES
-               MOVE FUNCTION TRIM(T-PROMPT-EMPTY) TO Lbl-Status::Caption
-               EXIT PROGRAM
-           END-IF
-           OPEN I-O PROMPTS-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT PROMPTS-FILE
-               CLOSE PROMPTS-FILE
-               OPEN I-O PROMPTS-FILE
-           END-IF
-           MOVE WS-CUR-TOPIC TO PRM-TOPIC
-           COMPUTE PRM-VERSION = WS-LAST-VER + 1
-           MOVE FUNCTION CURRENT-DATE TO WS-NOW
-           MOVE WS-NOW(1:14) TO PRM-CREATED
-           MOVE "N" TO PRM-ACTIVE
-           MOVE WS-TEXT TO PRM-TEXT
-           WRITE PROMPT-REC
-               INVALID KEY CONTINUE
-           END-WRITE
-           COMMIT
-           CLOSE PROMPTS-FILE
-           ADD 1 TO WS-LAST-VER
-           MOVE WS-LAST-VER TO WS-PICKED
-           CALL "PC-ACTIVATE"
-           MOVE WS-LAST-VER TO WS-VNUM
-           MOVE T-SAVED-AS TO WS-FMT
-           MOVE WS-VNUM TO WS-ARG1
-           CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
-           MOVE 0 TO WS-CONFIRM-VER
-           CALL "PC-LOAD-VERSIONS"
+           CALL "PC-SAVE"
 ]]></Event>
   </Control>
-  <Control id="Lbl-Status" type="Label" x="24" y="436" w="488" h="40" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Status" type="Label" x="24" y="440" w="632" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1009,6 +1122,406 @@
            IF WS-LANG-NOW NOT = WS-LANG
                CALL "PROMPTS-FORM--ONACTIVATE"
            END-IF
+]]></Event>
+  </Control>
+  <Control id="Tab-Crud" type="TabControl" x="24" y="56" w="632" h="376" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Tabs">Browse
+Create/Update</Property>
+    <Property name="TabPosition">Top</Property>
+    <Property name="SelectedTab">0</Property>
+    <Property name="ActiveTabColor">#2C6FD2FF</Property>
+    <Property name="TabPadding">7</Property>
+    <Property name="HScroll">false</Property>
+    <Property name="VScroll">false</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+  </Control>
+  <Control id="Btn-New" type="Button" x="40" y="104" w="112" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
+    <Property name="Caption">New</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-NEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-NEW"
+]]></Event>
+  </Control>
+  <Control id="Dg-List" type="DataGrid" x="40" y="144" w="600" h="272" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Columns">Ver:string
+Created:string
+Active:string
+Text:string
+Promote:string
+Edit:string
+Delete:string</Property>
+    <Property name="Rows"></Property>
+    <Property name="AlternatingRowColor">#F0F8FF</Property>
+    <Property name="AlternatingRowOpacity">20</Property>
+    <Property name="AlternatingMode">Rows</Property>
+    <Property name="HeaderBackgroundColor">#E0E0E0</Property>
+    <Property name="HeaderForegroundColor">#000000</Property>
+    <Property name="FilterForegroundColor"></Property>
+    <Property name="FilterBackgroundColor"></Property>
+    <Property name="GridLineColor">#CCCCCC</Property>
+    <Property name="GridBackgroundImage"></Property>
+    <Property name="GridBackgroundPattern">None</Property>
+    <Property name="RowBackgroundPattern">None</Property>
+    <Property name="GridBackgroundImageMode">Fill</Property>
+    <Property name="SelectionMode">Row</Property>
+    <Property name="RowHeight">22</Property>
+    <Property name="AllowSorting">true</Property>
+    <Property name="AllowColumnResize">true</Property>
+    <Property name="AllowColumnReorder">true</Property>
+    <Property name="AllowRowResize">true</Property>
+    <Property name="AllowCellEditing">false</Property>
+    <Property name="AdvancedGrid">{&quot;schema_version&quot;:1,&quot;columns&quot;:[{&quot;id&quot;:&quot;Ver&quot;,&quot;title&quot;:&quot;Version&quot;,&quot;source_name&quot;:&quot;Ver&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;&quot;,&quot;width&quot;:64.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:true,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]},{&quot;id&quot;:&quot;Created&quot;,&quot;title&quot;:&quot;Created&quot;,&quot;source_name&quot;:&quot;Created&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;&quot;,&quot;width&quot;:136.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:true,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]},{&quot;id&quot;:&quot;Active&quot;,&quot;title&quot;:&quot;Active&quot;,&quot;source_name&quot;:&quot;Active&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;&quot;,&quot;width&quot;:72.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:true,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]},{&quot;id&quot;:&quot;Text&quot;,&quot;title&quot;:&quot;Text&quot;,&quot;source_name&quot;:&quot;Text&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;&quot;,&quot;width&quot;:180.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:true,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]},{&quot;id&quot;:&quot;Promote&quot;,&quot;title&quot;:&quot;&quot;,&quot;source_name&quot;:&quot;Promote&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;Button&quot;,&quot;width&quot;:44.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:false,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]},{&quot;id&quot;:&quot;Edit&quot;,&quot;title&quot;:&quot;&quot;,&quot;source_name&quot;:&quot;Edit&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;Button&quot;,&quot;width&quot;:44.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:false,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]},{&quot;id&quot;:&quot;Delete&quot;,&quot;title&quot;:&quot;&quot;,&quot;source_name&quot;:&quot;Delete&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;Button&quot;,&quot;width&quot;:44.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:false,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]}],&quot;frozen_columns&quot;:0,&quot;frozen_rows&quot;:0,&quot;row_height&quot;:22,&quot;row_overrides&quot;:[],&quot;filters&quot;:[],&quot;csv_export_mode&quot;:&quot;Filtered&quot;,&quot;csv_delimiter&quot;:&quot;,&quot;,&quot;grid_line_style&quot;:&quot;Solid&quot;,&quot;selectable_text&quot;:true}</Property>
+    <Property name="ShowRowNumbers">false</Property>
+    <Property name="ShowColumnFilters">false</Property>
+    <Property name="Title"></Property>
+    <Property name="AutoFitColumns">false</Property>
+    <Property name="ExportCSV">true</Property>
+    <Property name="ShowCSVExportButton">true</Property>
+    <Property name="CSVDelimiter">,</Property>
+    <Property name="CSVExportMode">Filtered</Property>
+    <Property name="FrozenColumns">0</Property>
+    <Property name="FrozenRows">0</Property>
+    <Property name="FrozenShadow">true</Property>
+    <Property name="GridLineStyle">Solid</Property>
+    <Property name="RowHeightOverrides"></Property>
+    <Property name="ColumnFilters"></Property>
+    <Property name="SelectableText">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Event name="onCellClick" paragraph="DG-LIST--ONCELLCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Column 1 holds the version number (the key); 5 promotes, 6 edits
+      *>   and 7 deletes. Promoting and deleting ask first (R48).
+           MOVE Dg-List::ClickedRow TO WS-ROW-NO
+           MOVE Dg-List::ClickedColumn TO WS-COL-NO
+           IF WS-ROW-NO < 1 OR WS-COL-NO < 5
+               EXIT PROGRAM
+           END-IF
+           MOVE Dg-List::GetCellValue(WS-ROW-NO, 1) TO WS-KEY
+           MOVE 0 TO WS-PICKED
+           IF FUNCTION TRIM(WS-KEY) NOT = SPACES
+               COMPUTE WS-PICKED = FUNCTION NUMVAL(WS-KEY)
+           END-IF
+           IF WS-PICKED = 0
+               MOVE FUNCTION TRIM(T-PICK-VERSION-FIRST) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           MOVE WS-PICKED TO WS-VNUM
+           MOVE WS-VNUM TO WS-ARG1
+           EVALUATE WS-COL-NO
+               WHEN 5
+                   IF WS-PICKED = WS-ACTIVE-VER
+                       MOVE FUNCTION TRIM(T-ALREADY-ACTIVE) TO Lbl-Status::Caption
+                       EXIT PROGRAM
+                   END-IF
+                   MOVE T-CONFIRM-ACTIVATE TO WS-FMT
+                   CALL "PC-FMT"
+                   MOVE FUNCTION TRIM(WS-FMT-OUT) TO WS-QUESTION
+                   INVOKE ME::"SetProperty"("ConfirmText", WS-QUESTION)
+                   INVOKE ME::"SetProperty"("ConfirmYes", T-ACTIVATE)
+                   INVOKE ME::"SetProperty"("ConfirmNo", T-NO)
+                   INVOKE ME::"SetProperty"("ConfirmAnswer", "N")
+                   INVOKE ME::"OpenFormSync"("CONFIRM-FORM")
+                   INVOKE ME::"GetProperty"("ConfirmAnswer") RETURNING WS-ANSWER
+                   IF WS-ANSWER = "Y"
+                       CALL "PC-ACTIVATE"
+                       MOVE T-NOW-ACTIVE TO WS-FMT
+                       MOVE WS-VNUM TO WS-ARG1
+                       CALL "PC-FMT"
+                       MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+                       CALL "PC-LOAD-VERSIONS"
+                   END-IF
+               WHEN 6
+                   CALL "PC-EDIT"
+               WHEN 7
+                   IF WS-PICKED = WS-ACTIVE-VER
+                       MOVE T-ACTIVE-NO-DELETE TO WS-FMT
+                       CALL "PC-FMT"
+                       MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+                       EXIT PROGRAM
+                   END-IF
+                   MOVE T-CONFIRM-DELETE TO WS-FMT
+                   CALL "PC-FMT"
+                   MOVE FUNCTION TRIM(WS-FMT-OUT) TO WS-QUESTION
+                   INVOKE ME::"SetProperty"("ConfirmText", WS-QUESTION)
+                   INVOKE ME::"SetProperty"("ConfirmYes", T-YES)
+                   INVOKE ME::"SetProperty"("ConfirmNo", T-NO)
+                   INVOKE ME::"SetProperty"("ConfirmAnswer", "N")
+                   INVOKE ME::"OpenFormSync"("CONFIRM-FORM")
+                   INVOKE ME::"GetProperty"("ConfirmAnswer") RETURNING WS-ANSWER
+                   IF WS-ANSWER = "Y"
+                       CALL "PC-DELETE"
+                   END-IF
+           END-EVALUATE
+]]></Event>
+  </Control>
+  <Control id="Btn-Cancel" type="Button" x="160" y="104" w="112" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+    <Property name="Caption">Cancel</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-CANCEL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Back to the list as it was: nothing saved, nothing re-read.
+           MOVE 0 TO WS-EDIT-VER
+           MOVE 0 TO Tab-Crud::SelectedTab
+]]></Event>
+  </Control>
+  <Control id="Lbl-Edit-Ver" type="Label" x="288" y="104" w="352" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+    <Property name="Caption">New version</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+  </Control>
+  <Control id="Btn-Save-Bottom" type="Button" x="40" y="376" w="112" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+    <Property name="Caption">Save</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-SAVE-BOTTOM--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-SAVE"
+]]></Event>
+  </Control>
+  <Control id="Btn-Cancel-Bottom" type="Button" x="160" y="376" w="112" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+    <Property name="Caption">Cancel</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-CANCEL-BOTTOM--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Back to the list as it was: nothing saved, nothing re-read.
+           MOVE 0 TO WS-EDIT-VER
+           MOVE 0 TO Tab-Crud::SelectedTab
 ]]></Event>
   </Control>
 </Form>

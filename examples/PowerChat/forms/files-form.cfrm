@@ -21,9 +21,20 @@
        01 WS-NAME            GLOBAL PIC X(30).
        01 WS-RESULT          GLOBAL PIC X(30).
        01 WS-MESSAGE         GLOBAL PIC X(300).
-       01 WS-ROW             GLOBAL PIC X(400).
+       01 WS-ROW             GLOBAL PIC X(620).
        01 WS-LINE            GLOBAL PIC X(400).
        01 WS-DISCARD         GLOBAL PIC X(4).
+      *>   The CRUD tabs: which grid row/column was clicked, and whether the
+      *>   Create/Update page holds a new file ("N") or an existing one ("E",
+      *>   whose key sequence is WS-EDIT-SEQ).
+       01 WS-TABS            GLOBAL PIC X(300).
+       01 WS-ROW-NO          GLOBAL PIC 9(4).
+       01 WS-COL-NO          GLOBAL PIC 9(4).
+       01 WS-EDIT-MODE       GLOBAL PIC X VALUE "N".
+       01 WS-EDIT-SEQ        GLOBAL PIC 9(3) VALUE 0.
+       01 WS-SAVE-OK         GLOBAL PIC X.
+       01 WS-QUESTION        GLOBAL PIC X(300).
+       01 WS-ANSWER          GLOBAL PIC X(4).
       *>   The interface texts (spec 071 R44): one row per text, one column
       *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
       *>   only the values are translated.
@@ -144,8 +155,85 @@
           05 FILLER PIC X(140) VALUE "État".
           05 FILLER PIC X(140) VALUE "ステータス".
           05 FILLER PIC X(140) VALUE "状态".
+      *>   TAB-BROWSE
+          05 FILLER PIC X(140) VALUE "Browse".
+          05 FILLER PIC X(140) VALUE "Consultar".
+          05 FILLER PIC X(140) VALUE "Consultar".
+          05 FILLER PIC X(140) VALUE "Consulter".
+          05 FILLER PIC X(140) VALUE "一覧".
+          05 FILLER PIC X(140) VALUE "浏览".
+      *>   TAB-EDIT
+          05 FILLER PIC X(140) VALUE "Create/Update".
+          05 FILLER PIC X(140) VALUE "Criar/Atualizar".
+          05 FILLER PIC X(140) VALUE "Crear/Actualizar".
+          05 FILLER PIC X(140) VALUE "Créer/Modifier".
+          05 FILLER PIC X(140) VALUE "作成/更新".
+          05 FILLER PIC X(140) VALUE "创建/更新".
+      *>   NEW
+          05 FILLER PIC X(140) VALUE "New".
+          05 FILLER PIC X(140) VALUE "Novo".
+          05 FILLER PIC X(140) VALUE "Nuevo".
+          05 FILLER PIC X(140) VALUE "Nouveau".
+          05 FILLER PIC X(140) VALUE "新規".
+          05 FILLER PIC X(140) VALUE "新建".
+      *>   SAVE
+          05 FILLER PIC X(140) VALUE "Save".
+          05 FILLER PIC X(140) VALUE "Salvar".
+          05 FILLER PIC X(140) VALUE "Guardar".
+          05 FILLER PIC X(140) VALUE "Enregistrer".
+          05 FILLER PIC X(140) VALUE "保存".
+          05 FILLER PIC X(140) VALUE "保存".
+      *>   CANCEL
+          05 FILLER PIC X(140) VALUE "Cancel".
+          05 FILLER PIC X(140) VALUE "Cancelar".
+          05 FILLER PIC X(140) VALUE "Cancelar".
+          05 FILLER PIC X(140) VALUE "Annuler".
+          05 FILLER PIC X(140) VALUE "キャンセル".
+          05 FILLER PIC X(140) VALUE "取消".
+      *>   YES
+          05 FILLER PIC X(140) VALUE "Yes".
+          05 FILLER PIC X(140) VALUE "Sim".
+          05 FILLER PIC X(140) VALUE "Sí".
+          05 FILLER PIC X(140) VALUE "Oui".
+          05 FILLER PIC X(140) VALUE "はい".
+          05 FILLER PIC X(140) VALUE "是".
+      *>   NO
+          05 FILLER PIC X(140) VALUE "No".
+          05 FILLER PIC X(140) VALUE "Não".
+          05 FILLER PIC X(140) VALUE "No".
+          05 FILLER PIC X(140) VALUE "Non".
+          05 FILLER PIC X(140) VALUE "いいえ".
+          05 FILLER PIC X(140) VALUE "否".
+      *>   ASK-REMOVE
+          05 FILLER PIC X(140) VALUE "Remove &1 from this topic? The file itself is not touched.".
+          05 FILLER PIC X(140) VALUE "Remover &1 deste tópico? O arquivo em si não é alterado.".
+          05 FILLER PIC X(140) VALUE "¿Quitar &1 de este tema? El archivo en sí no se modifica.".
+          05 FILLER PIC X(140) VALUE "Retirer &1 de ce sujet ? Le fichier lui-même n'est pas modifié.".
+          05 FILLER PIC X(140) VALUE "&1 をこのトピックから外しますか？ファイル自体は変更されません。".
+          05 FILLER PIC X(140) VALUE "从此主题中移除 &1？文件本身不会被改动。".
+      *>   FILE-UPDATED
+          05 FILLER PIC X(140) VALUE "Updated &1 - &2".
+          05 FILLER PIC X(140) VALUE "Atualizado &1 - &2".
+          05 FILLER PIC X(140) VALUE "Actualizado &1 - &2".
+          05 FILLER PIC X(140) VALUE "Mis à jour &1 - &2".
+          05 FILLER PIC X(140) VALUE "&1 を更新しました - &2".
+          05 FILLER PIC X(140) VALUE "已更新 &1 - &2".
+      *>   NOT-SAVED
+          05 FILLER PIC X(140) VALUE "Not saved - file status &1.".
+          05 FILLER PIC X(140) VALUE "Não salvo - status do arquivo &1.".
+          05 FILLER PIC X(140) VALUE "No se guardó - estado del archivo &1.".
+          05 FILLER PIC X(140) VALUE "Non enregistré - état du fichier &1.".
+          05 FILLER PIC X(140) VALUE "保存されませんでした - ファイル状態 &1。".
+          05 FILLER PIC X(140) VALUE "未保存 - 文件状态 &1。".
+      *>   COL-FILE
+          05 FILLER PIC X(140) VALUE "File".
+          05 FILLER PIC X(140) VALUE "Arquivo".
+          05 FILLER PIC X(140) VALUE "Archivo".
+          05 FILLER PIC X(140) VALUE "Fichier".
+          05 FILLER PIC X(140) VALUE "ファイル".
+          05 FILLER PIC X(140) VALUE "文件".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 16.
+          05 PC-TEXT-ROW     OCCURS 27.
              10 PC-TEXT      PIC X(140) OCCURS 6.
       *>   The texts in the current language, by name.
        01 PC-TEXTS-NOW       GLOBAL.
@@ -165,8 +253,19 @@
           05 T-HINT-CIDX PIC X(140).
           05 T-ADD-FILE PIC X(140).
           05 T-STATUS PIC X(140).
+          05 T-TAB-BROWSE PIC X(140).
+          05 T-TAB-EDIT PIC X(140).
+          05 T-NEW PIC X(140).
+          05 T-SAVE PIC X(140).
+          05 T-CANCEL PIC X(140).
+          05 T-YES PIC X(140).
+          05 T-NO PIC X(140).
+          05 T-ASK-REMOVE PIC X(140).
+          05 T-FILE-UPDATED PIC X(140).
+          05 T-NOT-SAVED PIC X(140).
+          05 T-COL-FILE PIC X(140).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(140) OCCURS 16.
+          05 PC-TEXT-NOW     PIC X(140) OCCURS 27.
       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
        01 WS-FMT             GLOBAL PIC X(140).
        01 WS-ARG1            GLOBAL PIC X(300).
@@ -339,8 +438,9 @@
     <Event name="PC-LOAD-FILES" paragraph="PC-LOAD-FILES"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-      *>   The topic's registered files, each checked as it is listed.
-           MOVE Lst-Files::Clear() TO WS-OK
+      *>   The topic's registered files, each checked as it is listed. Grid
+      *>   row N is the file whose key sequence is WS-FILE-SEQ(N).
+           MOVE Dg-List::ClearRows() TO WS-DISCARD
            MOVE 0 TO WS-FILE-COUNT WS-NEXT-SEQ
            OPEN I-O TFILES-FILE
            IF WS-FS = "35"
@@ -369,10 +469,13 @@
                                MOVE TF-CIDX TO WS-CIDX
                                CALL "PC-TRY"
                                MOVE SPACES TO WS-ROW
-                               STRING FUNCTION TRIM(TF-NAME) " - " FUNCTION TRIM(TF-DATA)
-                                      "  [" FUNCTION TRIM(WS-RESULT) "]"
+                               STRING FUNCTION TRIM(TF-NAME)
+                                      "  [" FUNCTION TRIM(WS-RESULT) "]" X"09"
+                                      FUNCTION TRIM(TF-DATA) X"09"
+                                      FUNCTION TRIM(TF-CIDX) X"09"
+                                      "icon:pencil" X"09" "icon:trash"
                                    DELIMITED BY SIZE INTO WS-ROW
-                               MOVE Lst-Files::AddItem(FUNCTION TRIM(WS-ROW)) TO WS-OK
+                               MOVE Dg-List::AddRow(WS-ROW) TO WS-DISCARD
                            END-IF
                        END-IF
                END-READ
@@ -399,17 +502,28 @@
                WHEN OTHER MOVE "en" TO WS-LANG
                           MOVE 1 TO WS-LANG-IX
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 16
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 27
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
            MOVE FUNCTION TRIM(T-FILES-TITLE) TO Lbl-Title::Caption
            MOVE FUNCTION TRIM(T-FILES-HELP) TO Lbl-Help::Caption
-           MOVE FUNCTION TRIM(T-REMOVE) TO Btn-Remove::Caption
+           MOVE SPACES TO WS-TABS
+           STRING FUNCTION TRIM(T-TAB-BROWSE) X"0A" FUNCTION TRIM(T-TAB-EDIT)
+               DELIMITED BY SIZE INTO WS-TABS
+           MOVE WS-TABS TO Tab-Crud::Tabs
+      *>   The grid's headings: the data columns, by their designed id.
+           INVOKE Dg-List::SetColumnTitle("Col-Name", FUNCTION TRIM(T-COL-FILE))
+           INVOKE Dg-List::SetColumnTitle("Col-Data", FUNCTION TRIM(T-DATA-FILE))
+           INVOKE Dg-List::SetColumnTitle("Col-Cidx", FUNCTION TRIM(T-DESCRIPTION))
+           MOVE FUNCTION TRIM(T-NEW) TO Btn-New::Caption
+           MOVE FUNCTION TRIM(T-SAVE) TO Btn-Save::Caption
+           MOVE FUNCTION TRIM(T-SAVE) TO Btn-Save2::Caption
+           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel::Caption
+           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel2::Caption
            MOVE FUNCTION TRIM(T-DATA-FILE) TO Lbl-Data::Caption
            MOVE FUNCTION TRIM(T-HINT-DATA-PATH) TO Txt-Data::HintText
            MOVE FUNCTION TRIM(T-DESCRIPTION) TO Lbl-Cidx::Caption
            MOVE FUNCTION TRIM(T-HINT-CIDX) TO Txt-Cidx::HintText
-           MOVE FUNCTION TRIM(T-ADD-FILE) TO Btn-Add::Caption
            MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
 ]]></Event>
     <Event name="PC-FMT" paragraph="PC-FMT"><![CDATA[       ENVIRONMENT DIVISION.
@@ -458,8 +572,14 @@
            CALL "PC-TEXTS"
            MOVE "CUR-TOPIC" TO WS-SET-NAME
            CALL "PC-SETTING-GET"
+           IF WS-SET-VALUE(1:16) NOT = WS-CUR-TOPIC
+      *>       Another topic: a half-edited file of the old one is dropped.
+               CALL "PC-CANCEL"
+           END-IF
            MOVE WS-SET-VALUE(1:16) TO WS-CUR-TOPIC
            IF WS-CUR-TOPIC = SPACES
+               MOVE Dg-List::ClearRows() TO WS-DISCARD
+               MOVE 0 TO WS-FILE-COUNT
                MOVE FUNCTION TRIM(T-OPEN-TOPIC-FIRST) TO Lbl-Status::Caption
                EXIT PROGRAM
            END-IF
@@ -500,6 +620,184 @@
            END-READ
            CLOSE SETTINGS-FILE
 ]]></Event>
+    <Event name="PC-NEW" paragraph="PC-NEW"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   An empty Create/Update page for a new file of the current topic.
+           IF WS-CUR-TOPIC = SPACES
+               MOVE FUNCTION TRIM(T-OPEN-TOPIC-FIRST) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           MOVE "N" TO WS-EDIT-MODE
+           MOVE 0 TO WS-EDIT-SEQ
+           MOVE SPACES TO Txt-Data::Text
+           MOVE SPACES TO Txt-Cidx::Text
+           MOVE 1 TO Tab-Crud::SelectedTab
+]]></Event>
+    <Event name="PC-EDIT" paragraph="PC-EDIT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-ROW-NO in: that grid row's file, loaded into Create/Update.
+           MOVE "N" TO WS-SAVE-OK
+           OPEN I-O TFILES-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TFILES-FILE
+               CLOSE TFILES-FILE
+               OPEN I-O TFILES-FILE
+           END-IF
+           MOVE WS-CUR-TOPIC TO TF-TOPIC
+           MOVE WS-FILE-SEQ(WS-ROW-NO) TO TF-SEQ
+           READ TFILES-FILE
+               INVALID KEY CONTINUE
+               NOT INVALID KEY MOVE "Y" TO WS-SAVE-OK
+           END-READ
+           CLOSE TFILES-FILE
+           IF WS-SAVE-OK NOT = "Y"
+               MOVE FUNCTION TRIM(T-PICK-FILE-FIRST) TO Lbl-Status::Caption
+               CALL "PC-LOAD-FILES"
+               EXIT PROGRAM
+           END-IF
+           MOVE "E" TO WS-EDIT-MODE
+           MOVE TF-SEQ TO WS-EDIT-SEQ
+           MOVE FUNCTION TRIM(TF-DATA) TO Txt-Data::Text
+           MOVE FUNCTION TRIM(TF-CIDX) TO Txt-Cidx::Text
+           MOVE 1 TO Tab-Crud::SelectedTab
+]]></Event>
+    <Event name="PC-SAVE" paragraph="PC-SAVE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A file is only kept when it can be registered: its .cidx describes
+      *>   it, and it can be read (R23-R25). Otherwise the reason is shown and
+      *>   the Create/Update page stays open. A new file takes the next key
+      *>   sequence; an edited one keeps its own, so WRITE finds it taken and
+      *>   REWRITE replaces it.
+           IF WS-CUR-TOPIC = SPACES
+               MOVE FUNCTION TRIM(T-OPEN-TOPIC-FIRST) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           MOVE Txt-Data::Text TO WS-DATA
+           MOVE Txt-Cidx::Text TO WS-CIDX
+           IF WS-DATA = SPACES OR WS-CIDX = SPACES
+               MOVE FUNCTION TRIM(T-GIVE-BOTH) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           CALL "PC-TRY"
+           IF WS-OK NOT = "1"
+               MOVE T-NOT-ADDED TO WS-FMT
+               MOVE WS-RESULT TO WS-ARG1
+               MOVE WS-MESSAGE TO WS-ARG2
+               CALL "PC-FMT"
+               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           OPEN I-O TFILES-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TFILES-FILE
+               CLOSE TFILES-FILE
+               OPEN I-O TFILES-FILE
+           END-IF
+           MOVE WS-CUR-TOPIC TO TF-TOPIC
+           IF WS-EDIT-MODE = "E"
+               MOVE WS-EDIT-SEQ TO TF-SEQ
+           ELSE
+               MOVE WS-NEXT-SEQ TO TF-SEQ
+           END-IF
+           MOVE WS-NAME TO TF-NAME
+           MOVE WS-DATA TO TF-DATA
+           MOVE WS-CIDX TO TF-CIDX
+           MOVE "Y" TO WS-SAVE-OK
+           WRITE TFILE-REC
+               INVALID KEY
+                   REWRITE TFILE-REC
+                       INVALID KEY MOVE "N" TO WS-SAVE-OK
+                   END-REWRITE
+           END-WRITE
+           COMMIT
+           CLOSE TFILES-FILE
+           IF WS-SAVE-OK NOT = "Y"
+               MOVE T-NOT-SAVED TO WS-FMT
+               MOVE WS-FS TO WS-ARG1
+               CALL "PC-FMT"
+               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           IF WS-EDIT-MODE = "E"
+               MOVE T-FILE-UPDATED TO WS-FMT
+           ELSE
+               MOVE T-FILE-ADDED TO WS-FMT
+           END-IF
+           MOVE WS-NAME TO WS-ARG1
+           MOVE WS-MESSAGE TO WS-ARG2
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+           MOVE "N" TO WS-EDIT-MODE
+           MOVE SPACES TO Txt-Data::Text
+           MOVE SPACES TO Txt-Cidx::Text
+           CALL "PC-LOAD-FILES"
+           MOVE 0 TO Tab-Crud::SelectedTab
+]]></Event>
+    <Event name="PC-CANCEL" paragraph="PC-CANCEL"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Back to Browse as it was: nothing saved, nothing reloaded.
+           MOVE "N" TO WS-EDIT-MODE
+           MOVE SPACES TO Txt-Data::Text
+           MOVE SPACES TO Txt-Cidx::Text
+           MOVE 0 TO Tab-Crud::SelectedTab
+]]></Event>
+    <Event name="PC-DELETE" paragraph="PC-DELETE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-ROW-NO in: after a yes, that file leaves the topic's list. The
+      *>   file itself is untouched; the chat registers only what the list
+      *>   holds when the topic opens, so the record is all there is to drop.
+           OPEN I-O TFILES-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TFILES-FILE
+               CLOSE TFILES-FILE
+               OPEN I-O TFILES-FILE
+           END-IF
+           MOVE WS-CUR-TOPIC TO TF-TOPIC
+           MOVE WS-FILE-SEQ(WS-ROW-NO) TO TF-SEQ
+           MOVE "N" TO WS-SAVE-OK
+           READ TFILES-FILE
+               INVALID KEY CONTINUE
+               NOT INVALID KEY MOVE "Y" TO WS-SAVE-OK
+           END-READ
+           CLOSE TFILES-FILE
+           IF WS-SAVE-OK NOT = "Y"
+               MOVE FUNCTION TRIM(T-PICK-FILE-FIRST) TO Lbl-Status::Caption
+               CALL "PC-LOAD-FILES"
+               EXIT PROGRAM
+           END-IF
+           MOVE T-ASK-REMOVE TO WS-FMT
+           IF TF-NAME = SPACES
+               MOVE TF-DATA TO WS-ARG1
+           ELSE
+               MOVE TF-NAME TO WS-ARG1
+           END-IF
+           CALL "PC-FMT"
+           MOVE WS-FMT-OUT TO WS-QUESTION
+           INVOKE ME::"SetProperty"("ConfirmText", WS-QUESTION)
+           INVOKE ME::"SetProperty"("ConfirmYes", T-YES)
+           INVOKE ME::"SetProperty"("ConfirmNo", T-NO)
+           INVOKE ME::"SetProperty"("ConfirmAnswer", "N")
+           INVOKE ME::"OpenFormSync"("CONFIRM-FORM")
+           INVOKE ME::"GetProperty"("ConfirmAnswer") RETURNING WS-ANSWER
+           IF WS-ANSWER NOT = "Y"
+               EXIT PROGRAM
+           END-IF
+           OPEN I-O TFILES-FILE
+           MOVE WS-CUR-TOPIC TO TF-TOPIC
+           MOVE WS-FILE-SEQ(WS-ROW-NO) TO TF-SEQ
+           DELETE TFILES-FILE
+               INVALID KEY CONTINUE
+           END-DELETE
+           COMMIT
+           CLOSE TFILES-FILE
+           MOVE FUNCTION TRIM(T-FILE-REMOVED) TO Lbl-Status::Caption
+           CALL "PC-LOAD-FILES"
+]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="FILES-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
@@ -516,7 +814,7 @@
     <Event name="onClose" paragraph="FILES-FORM--ONCLOSE">
     </Event>
   </form-events>
-  <Control id="Lbl-Title" type="Label" x="24" y="16" w="632" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Title" type="Label" x="24" y="16" w="648" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Data files</Property>
     <Property name="FontSize">20</Property>
     <Property name="Bold">true</Property>
@@ -554,7 +852,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lbl-Help" type="Label" x="24" y="52" w="632" h="40" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Help" type="Label" x="24" y="48" w="648" h="40" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Indexed files the assistant may search for this topic. They are only ever read.</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -592,118 +890,46 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Lst-Files" type="ListBox" x="24" y="96" w="496" h="192" tab-order="1" z-order="0" visible="true" enabled="true">
+  <Control id="Tab-Crud" type="TabControl" x="24" y="96" w="648" h="344" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
-    <Property name="ForegroundColor">#003758FF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">14</Property>
     <Property name="Bold">false</Property>
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="SelectedIndex">-1</Property>
-    <Property name="MultiSelect">false</Property>
-    <Property name="ShowCheckBoxes">false</Property>
-    <Property name="Sorted">false</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="Items"></Property>
-    <Property name="SelectedItems"></Property>
-    <Property name="CheckedItems"></Property>
-    <Property name="ActiveItemColor"></Property>
-    <Property name="SelectedItemsColor"></Property>
-    <Property name="ActiveItemTextColor"></Property>
-  </Control>
-  <Control id="Btn-Remove" type="Button" x="528" y="96" w="128" h="32" tab-order="2" z-order="0" visible="true" enabled="true">
-    <Property name="Caption">Remove</Property>
-    <Property name="BackgroundColor">#E1E6F8FF</Property>
-    <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">3</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Tabs">Browse
+Create/Update</Property>
+    <Property name="TabPosition">Top</Property>
+    <Property name="SelectedTab">0</Property>
+    <Property name="ActiveTabColor">#2C6FD2FF</Property>
+    <Property name="TabPadding">7</Property>
+    <Property name="HScroll">false</Property>
+    <Property name="VScroll">false</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="IsDefault">false</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="BorderWidth">1</Property>
-    <Property name="IconAlignment">Left</Property>
-    <Property name="IconPadding">10</Property>
-    <Property name="IconSize">32</Property>
-    <Property name="TextAlignment">MiddleCenter</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="IconPath"></Property>
-    <Event name="onClick" paragraph="BTN-REMOVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       PROCEDURE DIVISION.
-           MOVE Lst-Files::GetSelectedIndex() TO WS-INDEX
-           IF WS-INDEX < 0 OR WS-INDEX >= WS-FILE-COUNT
-               MOVE FUNCTION TRIM(T-PICK-FILE-FIRST) TO Lbl-Status::Caption
-               EXIT PROGRAM
-           END-IF
-           ADD 1 TO WS-INDEX
-           OPEN I-O TFILES-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT TFILES-FILE
-               CLOSE TFILES-FILE
-               OPEN I-O TFILES-FILE
-           END-IF
-           MOVE WS-CUR-TOPIC TO TF-TOPIC
-           MOVE WS-FILE-SEQ(WS-INDEX) TO TF-SEQ
-           DELETE TFILES-FILE
-               INVALID KEY CONTINUE
-           END-DELETE
-           COMMIT
-           CLOSE TFILES-FILE
-           MOVE FUNCTION TRIM(T-FILE-REMOVED) TO Lbl-Status::Caption
-           CALL "PC-LOAD-FILES"
-]]></Event>
   </Control>
-  <Control id="Lbl-Data" type="Label" x="24" y="312" w="120" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Data" type="Label" x="40" y="192" w="120" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="Caption">Data file</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -741,7 +967,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Txt-Data" type="TextBox" x="148" y="310" w="508" h="28" tab-order="3" z-order="0" visible="true" enabled="true">
+  <Control id="Txt-Data" type="TextBox" x="168" y="190" w="488" h="28" tab-order="3" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="HintText">A path, a network path, or smb://server/share/file</Property>
     <Property name="MaximumLength">250</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
@@ -789,7 +1015,7 @@
     <Property name="Picture"></Property>
     <Property name="PasswordCharacter"></Property>
   </Control>
-  <Control id="Lbl-Cidx" type="Label" x="24" y="354" w="120" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Cidx" type="Label" x="40" y="232" w="120" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="Caption">Description</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -827,7 +1053,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Txt-Cidx" type="TextBox" x="148" y="352" w="508" h="28" tab-order="4" z-order="0" visible="true" enabled="true">
+  <Control id="Txt-Cidx" type="TextBox" x="168" y="230" w="488" h="28" tab-order="4" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="HintText">Its .cidx</Property>
     <Property name="MaximumLength">250</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
@@ -875,94 +1101,7 @@
     <Property name="Picture"></Property>
     <Property name="PasswordCharacter"></Property>
   </Control>
-  <Control id="Btn-Add" type="Button" x="528" y="396" w="128" h="32" tab-order="5" z-order="0" visible="true" enabled="true">
-    <Property name="Caption">Add file</Property>
-    <Property name="BackgroundColor">#E1E6F8FF</Property>
-    <Property name="ForegroundColor">#003758FF</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">3</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="IsDefault">false</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="BorderWidth">1</Property>
-    <Property name="IconAlignment">Left</Property>
-    <Property name="IconPadding">10</Property>
-    <Property name="IconSize">32</Property>
-    <Property name="TextAlignment">MiddleCenter</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="IconPath"></Property>
-    <Event name="onClick" paragraph="BTN-ADD--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       PROCEDURE DIVISION.
-      *>   A file is only kept when it can be registered: its .cidx describes
-      *>   it, and it can be read (R23-R25). Otherwise the reason is shown.
-           MOVE Txt-Data::Text TO WS-DATA
-           MOVE Txt-Cidx::Text TO WS-CIDX
-           IF WS-DATA = SPACES OR WS-CIDX = SPACES
-               MOVE FUNCTION TRIM(T-GIVE-BOTH) TO Lbl-Status::Caption
-               EXIT PROGRAM
-           END-IF
-           CALL "PC-TRY"
-           IF WS-OK NOT = "1"
-               MOVE T-NOT-ADDED TO WS-FMT
-               MOVE WS-RESULT TO WS-ARG1
-               MOVE WS-MESSAGE TO WS-ARG2
-               CALL "PC-FMT"
-               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
-               EXIT PROGRAM
-           END-IF
-           OPEN I-O TFILES-FILE
-           IF WS-FS = "35"
-               OPEN OUTPUT TFILES-FILE
-               CLOSE TFILES-FILE
-               OPEN I-O TFILES-FILE
-           END-IF
-           MOVE WS-CUR-TOPIC TO TF-TOPIC
-           MOVE WS-NEXT-SEQ TO TF-SEQ
-           MOVE WS-NAME TO TF-NAME
-           MOVE WS-DATA TO TF-DATA
-           MOVE WS-CIDX TO TF-CIDX
-           WRITE TFILE-REC
-               INVALID KEY REWRITE TFILE-REC
-           END-WRITE
-           COMMIT
-           CLOSE TFILES-FILE
-           MOVE T-FILE-ADDED TO WS-FMT
-           MOVE WS-NAME TO WS-ARG1
-           MOVE WS-MESSAGE TO WS-ARG2
-           CALL "PC-FMT"
-           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
-           MOVE SPACES TO Txt-Data::Text
-           MOVE SPACES TO Txt-Cidx::Text
-           CALL "PC-LOAD-FILES"
-]]></Event>
-  </Control>
-  <Control id="Lbl-Status" type="Label" x="24" y="448" w="632" h="34" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Status" type="Label" x="24" y="448" w="648" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1093,6 +1232,317 @@
            IF WS-LANG-NOW NOT = WS-LANG
                CALL "FILES-FORM--ONACTIVATE"
            END-IF
+]]></Event>
+  </Control>
+  <Control id="Btn-New" type="Button" x="40" y="144" w="128" h="32" tab-order="1" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
+    <Property name="Caption">New</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-NEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-NEW"
+]]></Event>
+  </Control>
+  <Control id="Dg-List" type="DataGrid" x="40" y="184" w="616" h="240" tab-order="2" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Columns">Col-Name:string
+Col-Data:string
+Col-Cidx:string
+Col-Edit:string
+Col-Del:string</Property>
+    <Property name="Rows"></Property>
+    <Property name="AlternatingRowColor">#F0F8FF</Property>
+    <Property name="AlternatingRowOpacity">20</Property>
+    <Property name="AlternatingMode">Rows</Property>
+    <Property name="HeaderBackgroundColor">#E0E0E0</Property>
+    <Property name="HeaderForegroundColor">#000000</Property>
+    <Property name="FilterForegroundColor"></Property>
+    <Property name="FilterBackgroundColor"></Property>
+    <Property name="GridLineColor">#CCCCCC</Property>
+    <Property name="GridBackgroundImage"></Property>
+    <Property name="GridBackgroundPattern">None</Property>
+    <Property name="RowBackgroundPattern">None</Property>
+    <Property name="GridBackgroundImageMode">Fill</Property>
+    <Property name="SelectionMode">Row</Property>
+    <Property name="RowHeight">22</Property>
+    <Property name="AllowSorting">true</Property>
+    <Property name="AllowColumnResize">true</Property>
+    <Property name="AllowColumnReorder">true</Property>
+    <Property name="AllowRowResize">true</Property>
+    <Property name="AllowCellEditing">false</Property>
+    <Property name="AdvancedGrid">{&quot;schema_version&quot;:1,&quot;columns&quot;:[{&quot;id&quot;:&quot;Col-Name&quot;,&quot;title&quot;:&quot;File&quot;,&quot;source_name&quot;:&quot;Col-Name&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;&quot;,&quot;width&quot;:160.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:true,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]},{&quot;id&quot;:&quot;Col-Data&quot;,&quot;title&quot;:&quot;Data file&quot;,&quot;source_name&quot;:&quot;Col-Data&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;&quot;,&quot;width&quot;:240.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:true,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]},{&quot;id&quot;:&quot;Col-Cidx&quot;,&quot;title&quot;:&quot;Description&quot;,&quot;source_name&quot;:&quot;Col-Cidx&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;&quot;,&quot;width&quot;:128.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:true,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]},{&quot;id&quot;:&quot;Col-Edit&quot;,&quot;title&quot;:&quot;&quot;,&quot;source_name&quot;:&quot;Col-Edit&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;Button&quot;,&quot;width&quot;:44.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:false,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]},{&quot;id&quot;:&quot;Col-Del&quot;,&quot;title&quot;:&quot;&quot;,&quot;source_name&quot;:&quot;Col-Del&quot;,&quot;value_type&quot;:&quot;string&quot;,&quot;cobol_mask&quot;:&quot;&quot;,&quot;edit_control&quot;:&quot;Textbox&quot;,&quot;control_kind&quot;:&quot;Button&quot;,&quot;width&quot;:44.0,&quot;width_unit&quot;:&quot;Points&quot;,&quot;visible&quot;:true,&quot;frozen&quot;:false,&quot;filter_enabled&quot;:false,&quot;sort_enabled&quot;:false,&quot;header_font_size&quot;:12,&quot;text_alignment&quot;:&quot;Left&quot;,&quot;foreground_color&quot;:&quot;#000000&quot;,&quot;background_color&quot;:&quot;#00000000&quot;,&quot;background_pattern&quot;:&quot;&quot;,&quot;background_image&quot;:&quot;&quot;,&quot;image_corner_radius&quot;:0.0,&quot;image_shadow&quot;:false,&quot;font_name&quot;:&quot;&quot;,&quot;font_size&quot;:0,&quot;bold&quot;:false,&quot;italic&quot;:false,&quot;underline&quot;:false,&quot;frame&quot;:null,&quot;gauge&quot;:null,&quot;value_style_rules&quot;:[]}],&quot;frozen_columns&quot;:0,&quot;frozen_rows&quot;:0,&quot;row_height&quot;:22,&quot;row_overrides&quot;:[],&quot;filters&quot;:[],&quot;csv_export_mode&quot;:&quot;Filtered&quot;,&quot;csv_delimiter&quot;:&quot;,&quot;,&quot;grid_line_style&quot;:&quot;Solid&quot;,&quot;selectable_text&quot;:true}</Property>
+    <Property name="ShowRowNumbers">false</Property>
+    <Property name="ShowColumnFilters">false</Property>
+    <Property name="Title"></Property>
+    <Property name="AutoFitColumns">false</Property>
+    <Property name="ExportCSV">true</Property>
+    <Property name="ShowCSVExportButton">true</Property>
+    <Property name="CSVDelimiter">,</Property>
+    <Property name="CSVExportMode">Filtered</Property>
+    <Property name="FrozenColumns">0</Property>
+    <Property name="FrozenRows">0</Property>
+    <Property name="FrozenShadow">true</Property>
+    <Property name="GridLineStyle">Solid</Property>
+    <Property name="RowHeightOverrides"></Property>
+    <Property name="ColumnFilters"></Property>
+    <Property name="SelectableText">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Event name="onCellClick" paragraph="DG-LIST--ONCELLCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE Dg-List::ClickedRow TO WS-ROW-NO
+           MOVE Dg-List::ClickedColumn TO WS-COL-NO
+           IF WS-ROW-NO < 1 OR WS-ROW-NO > WS-FILE-COUNT
+               EXIT PROGRAM
+           END-IF
+      *>   Column 4 is the pencil, column 5 the trash can.
+           EVALUATE WS-COL-NO
+               WHEN 4 CALL "PC-EDIT"
+               WHEN 5 CALL "PC-DELETE"
+           END-EVALUATE
+]]></Event>
+  </Control>
+  <Control id="Btn-Save" type="Button" x="40" y="144" w="128" h="32" tab-order="1" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+    <Property name="Caption">Save</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-SAVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-SAVE"
+]]></Event>
+  </Control>
+  <Control id="Btn-Cancel" type="Button" x="176" y="144" w="128" h="32" tab-order="2" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+    <Property name="Caption">Cancel</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-CANCEL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-CANCEL"
+]]></Event>
+  </Control>
+  <Control id="Btn-Save2" type="Button" x="40" y="280" w="128" h="32" tab-order="5" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+    <Property name="Caption">Save</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-SAVE2--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-SAVE"
+]]></Event>
+  </Control>
+  <Control id="Btn-Cancel2" type="Button" x="176" y="280" w="128" h="32" tab-order="6" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+    <Property name="Caption">Cancel</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-CANCEL2--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-CANCEL"
 ]]></Event>
   </Control>
 </Form>

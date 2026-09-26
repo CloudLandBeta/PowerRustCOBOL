@@ -51,6 +51,14 @@ examples/*/forms/**/*.backup-*
 # The lock an open indexed file holds beside itself — runtime state, not data.
 *.lck
 
+# An application's key store (COBOL-KEY-SET) — credentials, encrypted or not,
+# never belong in the repository.
+examples/*/settings/model-keys.dat
+
+# A KnowledgeBase collection's index and its lock — rebuilt from the documents.
+*.kbindex
+*.kbindex.lock
+
 # Grace's workflow run records — a log of past agent runs, not project source.
 examples/*/agentic_ai/Grace/
 

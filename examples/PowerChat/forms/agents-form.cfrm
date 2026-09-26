@@ -301,6 +301,8 @@
            MOVE FUNCTION TRIM(T-AGENTS-TITLE) TO Lbl-Title::Caption
            MOVE FUNCTION TRIM(T-SAVE) TO Btn-Save::Caption
            MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel::Caption
+           MOVE FUNCTION TRIM(T-SAVE) TO Btn-SaveTop::Caption
+           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-CancelTop::Caption
            MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
            MOVE T-AGENT-N TO WS-FMT
            MOVE 1 TO WS-A
@@ -359,6 +361,45 @@
                END-EVALUATE
            END-PERFORM
 ]]></Event>
+    <Event name="PC-SAVE" paragraph="PC-SAVE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Save - shared by the Save buttons at the top and at the bottom.
+      *>   Each agent's connection, or none. Agent 1's is also PowerChat 1's
+      *>   single MODEL-ENTRY, so "(off)" does not fall back to it.
+           MOVE Cmb-Agent-1::GetSelectedIndex() TO WS-INDEX
+           MOVE SPACES TO WS-SET-VALUE
+           IF WS-INDEX > 0 AND WS-INDEX <= WS-CONN-COUNT
+               MOVE WS-CONN-NAME(WS-INDEX) TO WS-SET-VALUE
+           END-IF
+           MOVE "AGENT-1-ENTRY" TO WS-SET-NAME
+           CALL "PC-SETTING-PUT"
+           MOVE "MODEL-ENTRY" TO WS-SET-NAME
+           CALL "PC-SETTING-PUT"
+           MOVE Cmb-Agent-2::GetSelectedIndex() TO WS-INDEX
+           MOVE SPACES TO WS-SET-VALUE
+           IF WS-INDEX > 0 AND WS-INDEX <= WS-CONN-COUNT
+               MOVE WS-CONN-NAME(WS-INDEX) TO WS-SET-VALUE
+           END-IF
+           MOVE "AGENT-2-ENTRY" TO WS-SET-NAME
+           CALL "PC-SETTING-PUT"
+           MOVE Cmb-Agent-3::GetSelectedIndex() TO WS-INDEX
+           MOVE SPACES TO WS-SET-VALUE
+           IF WS-INDEX > 0 AND WS-INDEX <= WS-CONN-COUNT
+               MOVE WS-CONN-NAME(WS-INDEX) TO WS-SET-VALUE
+           END-IF
+           MOVE "AGENT-3-ENTRY" TO WS-SET-NAME
+           CALL "PC-SETTING-PUT"
+           MOVE FUNCTION TRIM(T-AGENTS-SAVED) TO Lbl-Status::Caption
+           INVOKE ME::Close()
+]]></Event>
+    <Event name="PC-CANCEL" paragraph="PC-CANCEL"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Cancel - shared by the Cancel buttons at the top and at the bottom.
+      *>   Nothing is written: the dialog closes as it was opened.
+           INVOKE ME::Close()
+]]></Event>
   </user-procedures>
   <form-events>
     <Event name="onLoad" paragraph="AGENTS-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
@@ -407,7 +448,7 @@
     <Event name="onClose" paragraph="AGENTS-FORM--ONCLOSE">
     </Event>
   </form-events>
-  <Control id="Lbl-Title" type="Label" x="24" y="16" w="752" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Title" type="Label" x="24" y="16" w="480" h="36" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="FontSize">20</Property>
     <Property name="Bold">true</Property>
     <Property name="BackgroundColor">#00000000</Property>
@@ -770,8 +811,8 @@
     <Event name="onClick" paragraph="BTN-CANCEL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-      *>   Nothing is written: the dialog closes as it was opened.
-           INVOKE ME::Close()
+      *>   The same code as the Cancel button at the top.
+           CALL "PC-CANCEL"
 ]]></Event>
   </Control>
   <Control id="Btn-Save" type="Button" x="656" y="390" w="120" h="36" tab-order="5" z-order="0" visible="true" enabled="true">
@@ -818,33 +859,98 @@
     <Event name="onClick" paragraph="BTN-SAVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-      *>   Each agent's connection, or none. Agent 1's is also PowerChat 1's
-      *>   single MODEL-ENTRY, so "(off)" does not fall back to it.
-           MOVE Cmb-Agent-1::GetSelectedIndex() TO WS-INDEX
-           MOVE SPACES TO WS-SET-VALUE
-           IF WS-INDEX > 0 AND WS-INDEX <= WS-CONN-COUNT
-               MOVE WS-CONN-NAME(WS-INDEX) TO WS-SET-VALUE
-           END-IF
-           MOVE "AGENT-1-ENTRY" TO WS-SET-NAME
-           CALL "PC-SETTING-PUT"
-           MOVE "MODEL-ENTRY" TO WS-SET-NAME
-           CALL "PC-SETTING-PUT"
-           MOVE Cmb-Agent-2::GetSelectedIndex() TO WS-INDEX
-           MOVE SPACES TO WS-SET-VALUE
-           IF WS-INDEX > 0 AND WS-INDEX <= WS-CONN-COUNT
-               MOVE WS-CONN-NAME(WS-INDEX) TO WS-SET-VALUE
-           END-IF
-           MOVE "AGENT-2-ENTRY" TO WS-SET-NAME
-           CALL "PC-SETTING-PUT"
-           MOVE Cmb-Agent-3::GetSelectedIndex() TO WS-INDEX
-           MOVE SPACES TO WS-SET-VALUE
-           IF WS-INDEX > 0 AND WS-INDEX <= WS-CONN-COUNT
-               MOVE WS-CONN-NAME(WS-INDEX) TO WS-SET-VALUE
-           END-IF
-           MOVE "AGENT-3-ENTRY" TO WS-SET-NAME
-           CALL "PC-SETTING-PUT"
-           MOVE FUNCTION TRIM(T-AGENTS-SAVED) TO Lbl-Status::Caption
-           INVOKE ME::Close()
+      *>   The same code as the Save button at the top.
+           CALL "PC-SAVE"
+]]></Event>
+  </Control>
+  <Control id="Btn-CancelTop" type="Button" x="520" y="16" w="120" h="36" tab-order="6" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Cancel</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-CANCELTOP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-CANCEL"
+]]></Event>
+  </Control>
+  <Control id="Btn-SaveTop" type="Button" x="656" y="16" w="120" h="36" tab-order="7" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Save</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-SAVETOP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-SAVE"
 ]]></Event>
   </Control>
 </Form>
