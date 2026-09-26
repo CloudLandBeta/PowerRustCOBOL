@@ -4805,8 +4805,6 @@ const UNIVERSAL_PROPS: &[&str] = &[
     "ShadowBlur",
     "ShadowBlurStrength",
     "ZOrder",
-    "DataItem",
-    "DataFormat",
 ];
 
 /// The input/lifecycle events shared by most visual controls. Documented once;
@@ -4903,18 +4901,18 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "ForegroundColor" => (COLOR_DOMAIN, "Text / foreground drawing color. On a CheckBox, RadioButton or DateTimePicker it is kept only while it reads on the surface the text lands on, and otherwise flips to black or white — measured against the control's FRAME (its BackgroundColor), never against the tick box or circle, which the caption sits beside rather than on. Above Transparency 70 the frame paints too little to measure, so the color is used exactly as set; a CheckBox is 100 % transparent by default, so its caption color is always the one you gave it."),
         "FontName" => ("installed font family name, e.g. `\"Arial\"`", "Font family for the control's text."),
         "FontSize" => ("points, > 0 (typical 8-72)", "Font size in points."),
-        "Bold" => (BOOL_DOMAIN, "Bold text."),
+        "Bold" => (BOOL_DOMAIN, "Bold text: the caption, list items, grid cells and GroupBox legend; a TextBox being edited uses the font's real bold face when the system has one."),
         "Italic" => (BOOL_DOMAIN, "Italic text."),
         "Underline" => (BOOL_DOMAIN, "Underlined text."),
         "Strikethrough" => (BOOL_DOMAIN, "Struck-through text."),
-        "Tooltip" => ("free text", "Hover tooltip text (empty = no tooltip)."),
+        "Tooltip" => ("free text", "Text shown in a small pop-up while the pointer rests on the control in the running form, after its HoverDelayMs (empty = no tooltip). Every visual control shows it."),
         "Cursor" => (
             "one of: `Default` | `Hand` | `Text` | `Wait` | `Crosshair` | `No` | `SizeAll` | `SizeNS` | `SizeWE`",
             "Mouse cursor shown while hovering the control.",
         ),
         "HoverDelayMs" => ("milliseconds ≥ 0", "How long the pointer must rest before `onHoverEnter` fires."),
         "Anchor" => (BOOL_DOMAIN, "Locks the control against mouse dragging on the design canvas."),
-        "Padding" => ("pixels ≥ 0", "Inner padding around the control content."),
+        "Padding" => ("points, 0-128", "Extra space between the control's frame and its content: a caption moves away from the edges (Button, Label, CheckBox, RadioButton and other captioned controls), and a TextBox adds it to its InnerPadding."),
         "Transparency" => ("0-100 (percent)", "How much of what is behind the control shows through; 0 = opaque, 100 = the control's own face is not painted and the form (or the control underneath) shows in full. Replaces the former Opacity, which ran the other way round. A CheckBox defaults to 100."),
         "ShadowEnabled" => (BOOL_DOMAIN, "Enables the drop shadow."),
         "ShadowOpacity" => ("0-100 (percent)", "Drop-shadow opacity."),
@@ -4923,11 +4921,11 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "ShadowDirection" => (EIGHT_DIRECTIONS, "Direction the shadow is cast toward."),
         "ShadowDistance" => ("pixels ≥ 0", "Shadow offset distance."),
         "ShadowBlur" => (BOOL_DOMAIN, "Enables soft blur falloff on the shadow."),
-        "ShadowBlurStrength" => ("0-20", "Blur radius in layers."),
-        "ZOrder" => ("any integer; higher paints in front", "Stacking order among siblings."),
-        "DataItem" => ("COBOL WORKING-STORAGE data-item name", "Data-binding source item for this control (empty = unbound)."),
-        "DataFormat" => ("format string (empty = raw)", "Display format applied to the bound value."),
-        "CornerRadius" => ("pixels ≥ 0", "Rounded-corner radius. Carried by EVERY visual control including Label and the MenuBar/ToolBar/StatusBar bars (spec 016 Q4, settled 2026-09-03): a frame at Transparency = 100 is invisible, not absent, so it still has corners. Defaults: 3 on Button, 8 on charts, 10 on ProgressBar and ToolBar, 0 elsewhere."),
+        "ShadowBlurStrength" => ("-20..20, default 8", "Blur radius of the shadow, in layers. A negative value draws the shadow INSIDE the frame (sunken / inset) instead of outside it."),
+        "ZOrder" => ("any integer; higher paints in front", "Stacking order among siblings. Changed at run time by SET ctl::ZOrder, BringToFront (10000) or SendToBack (-10000), and the form redraws in the new order."),
+        "DataItem" => ("legacy; ignored", "Legacy per-control binding, read by nothing. A form that still carries it keeps it, but it binds nothing: bind a control through the form's Data Binding panel instead."),
+        "DataFormat" => ("legacy; ignored", "Legacy companion of DataItem, read by nothing. Formatting belongs to the form's data bindings."),
+        "CornerRadius" => ("pixels ≥ 0", "Rounded-corner radius. Carried by EVERY visual control including Label and the MenuBar/ToolBar/StatusBar bars (spec 016 Q4, settled 2026-09-03): a frame at Transparency = 100 is invisible, not absent, so it still has corners. Defaults: 3 on Button, 8 on charts, 10 on ProgressBar and ToolBar, 12 on Snackbar, 0 elsewhere."),
 
 
         // ── Text input / captions ──

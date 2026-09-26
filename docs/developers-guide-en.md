@@ -4682,10 +4682,16 @@ abbreviations). A few you will use constantly:
 | ---------------------------------------- | ------------------------------------------------------------------------- |
 | `Caption` / `Text`                       | The control's text (`Caption` for labels/buttons; `Text` for text boxes). |
 | `BackgroundColor` / `ForegroundColor`    | Colours (hex, e.g. `#1E3A5F`).                                             |
-| `FontName`, `FontSize`, `Bold`, `Italic` | Typography.                                                               |
+| `FontName`, `FontSize`, `Bold`, `Italic`, `Underline`, `Strikethrough` | Typography: the caption, list items, grid cells, a GroupBox legend and a TextBox's text as it is typed. |
 | `Visible`, `Enabled`                     | State.                                                                    |
 | `TextAlignment`                          | Text justification.                                                       |
-| `DataItem`                               | The COBOL working-storage item this control reads/writes.                 |
+| `Padding`                                | Extra space (0-128 points) between the frame and the content; a TextBox adds it to its `InnerPadding`. |
+| `Tooltip`                                | Pop-up text while the pointer rests on the control, on every visual control, after its `HoverDelayMs`. |
+| `ZOrder`                                 | Stacking order; `SET ctl::ZOrder`, `BringToFront` and `SendToBack` change it while the form runs. |
+
+> **Binding a control to data** is done on the form, in the **Data Binding**
+> panel, not with a property. Older forms may still carry `DataItem` and
+> `DataFormat` on their controls; they load unchanged, and nothing reads them.
 
 > **Note.** Standard acronyms are kept (`CSV`, `URL`, `API`, `TLS`); everything
 > else is written in full — for example `BackgroundColor` (not `BackColor`),

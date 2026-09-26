@@ -181,43 +181,113 @@ fn styled_text_job(
     halign: egui::Align,
 ) -> LayoutJob {
     let font_id = crate::fonts::font_id(painter.ctx(), font_name, fsize);
-    let underline = ctrl
-        .get_prop("Underline")
-        .map(|v| v.as_bool())
-        .unwrap_or(false);
-    let strikeout = ctrl
-        .get_prop("Strikethrough")
-        .map(|v| v.as_bool())
-        .unwrap_or(false);
-
     let mut job = LayoutJob::default();
     job.halign = halign;
     job.wrap.max_width = max_width;
     job.wrap.break_anywhere = false;
-    job.append(
-        text,
-        0.0,
-        TextFormat {
-            font_id,
-            color,
-            italics: ctrl
-                .get_prop("Italic")
-                .map(|v| v.as_bool())
-                .unwrap_or(false),
-            underline: if underline {
-                Stroke::new(1.0, color)
-            } else {
-                Stroke::NONE
-            },
-            strikethrough: if strikeout {
-                Stroke::new(1.0, color)
-            } else {
-                Stroke::NONE
-            },
-            ..Default::default()
-        },
-    );
+    job.append(text, 0.0, text_format(ctrl, font_id, color));
     job
+}
+
+/// The control's `Italic`, `Underline` and `Strikethrough` as a text format.
+/// `Bold` is not a format — egui has no bold face for an arbitrary font — it
+/// is a second stamp ([`paint_styled_galley`]).
+pub fn text_format(ctrl: &Control, font_id: egui::FontId, color: Color32) -> TextFormat {
+    let on = |k: &str| ctrl.get_prop(k).map(|v| v.as_bool()).unwrap_or(false);
+    TextFormat {
+        font_id,
+        color,
+        italics: on("Italic"),
+        underline: if on("Underline") { Stroke::new(1.0, color) } else { Stroke::NONE },
+        strikethrough: if on("Strikethrough") { Stroke::new(1.0, color) } else { Stroke::NONE },
+        ..Default::default()
+    }
+}
+
+/// Does any of the four font styles apply to this control?
+pub fn has_font_style(ctrl: &Control) -> bool {
+    ["Bold", "Italic", "Underline", "Strikethrough"]
+        .iter()
+        .any(|k| ctrl.get_prop(k).map(|v| v.as_bool()).unwrap_or(false))
+}
+
+/// A control's four font styles, detached from the control so a surface that
+/// no longer holds it (an open ComboBox list) can still letter in them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FontStyle {
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
+    pub strikethrough: bool,
+}
+
+impl FontStyle {
+    pub fn of(ctrl: &Control) -> Self {
+        let on = |k: &str| ctrl.get_prop(k).map(|v| v.as_bool()).unwrap_or(false);
+        Self {
+            bold: on("Bold"),
+            italic: on("Italic"),
+            underline: on("Underline"),
+            strikethrough: on("Strikethrough"),
+        }
+    }
+
+    pub fn is_plain(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// `painter.text(…)` in these styles. Bold is a second stamp half a point
+    /// to the right, as on captions.
+    pub fn text(
+        &self,
+        painter: &egui::Painter,
+        pos: Pos2,
+        anchor: egui::Align2,
+        text: &str,
+        font_id: egui::FontId,
+        color: Color32,
+    ) -> egui::Rect {
+        if self.is_plain() {
+            return painter.text(pos, anchor, text, font_id, color);
+        }
+        let stroke = |on: bool| if on { Stroke::new(1.0, color) } else { Stroke::NONE };
+        let mut job = LayoutJob::default();
+        job.append(
+            text,
+            0.0,
+            TextFormat {
+                font_id,
+                color,
+                italics: self.italic,
+                underline: stroke(self.underline),
+                strikethrough: stroke(self.strikethrough),
+                ..Default::default()
+            },
+        );
+        let galley = painter.layout_job(job);
+        let rect = anchor.anchor_size(pos, galley.size());
+        painter.galley(rect.min, galley.clone(), color);
+        if self.bold {
+            painter.galley(rect.min + Vec2::new(0.5, 0.0), galley, color);
+        }
+        rect
+    }
+}
+
+/// `painter.text(…)` with the control's font styles — Bold, Italic, Underline,
+/// Strikethrough — for the text a control shows other than its caption: list
+/// items, grid cells, a GroupBox legend. Those used to be drawn plain, so the
+/// styles worked on captions only (property audit, 2026-09-25).
+pub fn styled_text(
+    painter: &egui::Painter,
+    ctrl: &Control,
+    pos: Pos2,
+    anchor: egui::Align2,
+    text: &str,
+    font_id: egui::FontId,
+    color: Color32,
+) -> egui::Rect {
+    FontStyle::of(ctrl).text(painter, pos, anchor, text, font_id, color)
 }
 
 fn paint_styled_galley(
@@ -5564,7 +5634,9 @@ fn draw_control_body(
                 .unwrap_or("MiddleCenter");
             // Shrink to fit the button rather than run past its border. It laid
             // out at an INFINITE wrap width, so a caption simply never fitted.
-            let bpad = 3.0_f32.min(rect.width() * 0.2);
+            let bpad = (3.0_f32.min(rect.width() * 0.2) + content_padding(ctrl))
+                .min(rect.width() * 0.45)
+                .min(rect.height() * 0.45);
             let galley = fitted_caption_galley(
                 painter,
                 ctrl,
@@ -5600,8 +5672,9 @@ fn draw_control_body(
                     .as_ref()
                     .map(|tex| button_image_size(tex.size_vec2(), button_image_slot(ctrl)))
             };
+            let padded = rect.shrink((bpad - 3.0_f32.min(rect.width() * 0.2)).max(0.0));
             let (text_pos, image_rect) = button_content_layout(
-                rect,
+                padded,
                 galley.size(),
                 image_size,
                 image_alignment,
@@ -5639,13 +5712,13 @@ fn draw_control_body(
             // A Label is frameless — its text IS the control — so an oversized
             // caption used to run straight over its neighbours. It shrinks now,
             // like every other caption.
-            let lpad = 3.0_f32.min(rect.width() * 0.25);
+            let lpad = (3.0_f32.min(rect.width() * 0.25) + content_padding(ctrl)).min(rect.width() * 0.45);
             let valign = text_valign(
                 ctrl.get_prop("VerticalAlignment")
                     .map(|v| v.as_str())
                     .unwrap_or(""),
             );
-            let vpad = 2.0_f32.min(rect.height() * 0.25);
+            let vpad = (2.0_f32.min(rect.height() * 0.25) + content_padding(ctrl)).min(rect.height() * 0.45);
 
             // One layout at a given horizontal inset. Called twice: once to
             // learn how tall the caption is, and again once the corner radius
@@ -5860,7 +5933,8 @@ fn draw_control_body(
             // themed circle is drawn (Liquid Glass keeps its `(●)` glyph in the
             // caption) that rect is the full control, so the row reads the same
             // way: indicator first, caption after it.
-            let pad = 3.0_f32.min(checkbox_text_rect.width() * 0.2);
+            let pad = (3.0_f32.min(checkbox_text_rect.width() * 0.2) + content_padding(ctrl))
+                .min(checkbox_text_rect.width() * 0.45);
             let inner_w = (checkbox_text_rect.width() - 2.0 * pad).max(1.0);
             let min_font = 6.0_f32;
             let mut fit = fsize.max(min_font);
@@ -5903,7 +5977,9 @@ fn draw_control_body(
             // which works when the text can wrap. A caption is usually one word
             // ("Button-1"), and a word cannot be broken — so it overflows
             // sideways at a height that fits perfectly well.
-            let pad = 3.0_f32.min(rect.width() * 0.2);
+            let pad = (3.0_f32.min(rect.width() * 0.2) + content_padding(ctrl))
+                .min(rect.width() * 0.45)
+                .min(rect.height() * 0.45);
             let inner_w = (rect.width() - 2.0 * pad).max(1.0);
             let inner_h = (rect.height() - 2.0 * pad).max(1.0);
             let min_font = 6.0_f32;
@@ -6265,7 +6341,7 @@ pub fn draw_groupbox_caption(
         painter.rect_filled(bg_rect, 2.0, bg_color);
     }
 
-    painter.text(pos, egui::Align2::LEFT_CENTER, &cap, font_id, text);
+    styled_text(painter, ctrl, pos, egui::Align2::LEFT_CENTER, &cap, font_id, text);
 }
 
 fn is_legacy_groupbox_generated_caption(value: &str) -> bool {
@@ -7577,6 +7653,8 @@ pub struct ComboPopup<'a> {
     pub item_h: f32,
     pub font: egui::FontId,
     pub text: Color32,
+    /// The control's Bold / Italic / Underline / Strikethrough, for the items.
+    pub style: FontStyle,
     /// The tallest the panel may be: the control's `DropDownHeight`. Items past
     /// it are reached by scrolling — they used to be dropped outright.
     pub max_h: f32,
@@ -7619,22 +7697,24 @@ pub fn glass_combo_header(
     selected: &str,
     is_open: bool,
     enabled: bool,
-    // The control's own typography and colour. `None` keeps the header's
-    // built-in look, for callers that have no Control to hand.
-    text: Option<(egui::FontId, Color32)>,
+    // The control's own typography, colour and font styles. `None` keeps
+    // the header's built-in look, for callers that have no Control to hand.
+    text: Option<(egui::FontId, Color32, FontStyle)>,
 ) -> bool {
     use egui::{Align2, FontId, Pos2};
     // The control's own font and colour when the caller has them: a ComboBox
     // used to paint its value at a hardcoded 12 pt in a fixed near-white,
     // whatever `FontSize` and `ForegroundColor` said — the one control on the
     // form whose text ignored both.
-    let (font, text_color) = text.unwrap_or_else(|| {
+    let (font, text_color, style) = text.unwrap_or_else(|| {
         (
             FontId::proportional(12.0),
             Color32::from_rgb(220, 228, 255),
+            FontStyle::default(),
         )
     });
-    painter.text(
+    style.text(
+        painter,
         Pos2::new(rect.min.x + 8.0, rect.center().y),
         Align2::LEFT_CENTER,
         selected,
@@ -7896,7 +7976,8 @@ pub fn glass_combo_popup(ui: &mut egui::Ui, p: ComboPopup<'_>) -> GlassComboOutc
                         // clipped by the rim at the first and last item, and
                         // hanging the text off that would nudge those two lines
                         // out of step with the rest.
-                        ip.text(
+                        p.style.text(
+                            &ip,
                             Pos2::new(inner.left() + 10.0, row.center().y),
                             Align2::LEFT_CENTER,
                             item,
@@ -12285,9 +12366,23 @@ pub fn corner_radius(ctrl: &Control) -> f32 {
 }
 
 pub fn textbox_inner_padding(ctrl: &Control) -> f32 {
-    ctrl.get_prop("InnerPadding")
+    let inner = ctrl
+        .get_prop("InnerPadding")
         .map(|v| v.as_i64())
         .unwrap_or(3)
+        .clamp(0, 128) as f32;
+    // A TextBox's `Padding` adds to its own `InnerPadding`, so the property
+    // every control carries does something here too.
+    (inner + content_padding(ctrl)).min(128.0)
+}
+
+/// The control's `Padding`: extra space, in points, between its frame and its
+/// content (a caption, a TextBox's text). Every control carried it and no
+/// painter read it (property audit, 2026-09-25). 0 to 128.
+pub fn content_padding(ctrl: &Control) -> f32 {
+    ctrl.get_prop("Padding")
+        .map(|v| v.as_i64())
+        .unwrap_or(0)
         .clamp(0, 128) as f32
 }
 
@@ -18636,6 +18731,40 @@ method. Nothing in the control is reachable only by mouse.";
     /// a pill the top and bottom lines were laid across the full box width —
     /// which at those rows is entirely outside the shape — and nothing clipped
     /// them. A square Label must be completely unaffected by the fix.
+    /// `Padding` moves a caption away from the frame: every control carried
+    /// it and no painter read it (property audit, 2026-09-25). And a TextBox
+    /// adds it to its own InnerPadding.
+    #[test]
+    fn padding_moves_the_caption_away_from_the_frame() {
+        let caption_x = |padding: i64| -> f32 {
+            let ctx = egui::Context::default();
+            let mut c = Control::new("L", crate::model::ControlType::Label, 0, 0);
+            c.rect = crate::model::Rect::new(0, 0, 300, 60);
+            c.set_prop("Caption", crate::model::PropValue::String("Customer".into()));
+            c.set_prop("TextAlignment", crate::model::PropValue::String("Left".into()));
+            c.set_prop("CornerRadius", crate::model::PropValue::Int(0));
+            c.set_prop("Padding", crate::model::PropValue::Int(padding));
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 300.0)));
+            let mut out = None;
+            let mut full = ctx.run_ui(input, |root| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
+                    out = draw_control_capturing_label(&ui.painter().clone(), Pos2::ZERO, &c, false, false, 1.0, 1.0, None);
+                });
+            });
+            full.textures_delta.clear();
+            out.expect("a Label reports its caption").pos.x
+        };
+        let flush = caption_x(0);
+        let padded = caption_x(20);
+        assert!((padded - flush - 20.0).abs() < 0.5, "20 points further in: {flush} -> {padded}");
+
+        let mut tb = Control::new("T", crate::model::ControlType::TextBox, 0, 0);
+        tb.set_prop("InnerPadding", crate::model::PropValue::Int(3));
+        tb.set_prop("Padding", crate::model::PropValue::Int(5));
+        assert_eq!(textbox_inner_padding(&tb), 8.0, "a TextBox adds Padding to InnerPadding");
+    }
+
     #[test]
     fn a_rounded_labels_caption_stays_inside_the_arc() {
         let caption = "PowerRustCOBOL DataGrids are powerful tools capable of loading \

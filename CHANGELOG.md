@@ -8,6 +8,45 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.230] — 2026-09-25
+
+### Fix — the properties every control carries now do what they say (audit group 1 of 8)
+
+From the property audit of 1.70.228: the 12 findings on the properties common
+to every control.
+
+- **ZOrder** — `SET ctl::ZOrder`, `BringToFront` and `SendToBack` now reorder
+  the running form. The write landed in the property map, which no drawing
+  code reads (`merge_props` had no ZORDER arm), and the draw order was taken
+  from the designed controls, not the live ones.
+- **Tooltip** — shown on every visual control, after its `HoverDelayMs`. Only
+  Button, CheckBox, TextBox and ComboBox showed it.
+- **Padding** — extra space (0-128 points) between a control's frame and its
+  content: captions of Button, Label, CheckBox, RadioButton and the other
+  captioned controls move in, and a TextBox adds it to its `InnerPadding`.
+  Nothing read it before.
+- **Bold, Italic, Underline, Strikethrough** — now reach ListBox items, the
+  ComboBox value and its open list, DataGrid cells, the GroupBox legend and
+  the TextBox being edited; they applied to captions only. The editor takes
+  Italic/Underline/Strikethrough through its layouter and Bold from the font's
+  real bold face (`fonts::bold_font_id`, which queries the system for a face
+  that is actually bold); where there is none, the regular face is used.
+- **FontName on the DataGrid** — cells, headers, title and filter now use the
+  grid's font family; they were always the default font.
+- **DataItem / DataFormat** — legacy per-control binding that nothing read.
+  New controls no longer carry them (binding is the form's Data Binding
+  panel); forms that have them load them unchanged. System KB says so.
+- **System KB** — `ShadowBlurStrength` is -20..20 (negative = inset shadow);
+  `CornerRadius` lists Snackbar's default 12; `Padding`, `Tooltip`, `ZOrder`
+  and `Bold` describe what the code now does. `chunked.data` regenerated.
+- **Fonts** — a face inside a font collection (.ttc) is registered with its
+  own index; index 0 used to be assumed, which is a different face.
+- Properties-pane explanations updated to match, in all six languages.
+- Tests: `a_run_time_zorder_change_reorders_the_drawing`,
+  `a_label_shows_its_tooltip_when_the_pointer_rests_on_it`,
+  `padding_moves_the_caption_away_from_the_frame`,
+  `font_styles_reach_list_items_legends_editors_and_cells`.
+
 ## [PowerRustCOBOL 1.70.229] — 2026-09-25
 
 ### Feature — Help → Examples lists each example

@@ -2102,7 +2102,9 @@ fn render_form_inner(
     // (debug prints for repeating groups are now limited to databound ControlArrays
     // in the IDE layer)
     let controls: &[Control] = expanded.as_deref().unwrap_or(input.controls);
-    let order = containers::render_order(controls);
+    // Ordered by the LIVE z-order (same indices: `live_controls` maps
+    // `input.controls` one to one), so a run-time ZOrder change reorders.
+    let order = containers::render_order(expanded.as_deref().unwrap_or(&live_controls));
     let interactive = input.mode == RenderMode::Interactive;
 
     // ── Spec 058 R5/R5.1 — hand the paint whatever the host has already
@@ -2459,6 +2461,7 @@ fn render_form_inner(
             item_h,
             font,
             text,
+            style,
             max_h,
             reveal,
         } = combo;
@@ -2484,6 +2487,7 @@ fn render_form_inner(
                 item_h,
                 font,
                 text,
+                style,
                 max_h,
                 enabled: true,
                 reveal,
@@ -2542,6 +2546,8 @@ struct OpenCombo {
     item_h: f32,
     font: egui::FontId,
     text: Color32,
+    /// The control's font styles, for the items.
+    style: crate::paint::FontStyle,
     /// `DropDownHeight`: the tallest the panel may be before it scrolls.
     max_h: f32,
     /// Scroll this item into view â set on the frame the dropdown opens.
@@ -3166,6 +3172,14 @@ pub fn merge_props<'a>(
             "HEIGHT" => {
                 if let Ok(n) = v.trim().parse::<f32>() {
                     c.rect.h = n.round() as i32;
+                }
+            }
+            // Draw order is the struct field too: `BringToFront` / `SendToBack`
+            // and `SET ctl::ZOrder` write this, and it used to land in the
+            // property map where no drawing code looks, so they did nothing.
+            "ZORDER" => {
+                if let Ok(n) = v.trim().parse::<f32>() {
+                    c.z_order = n.round() as i32;
                 }
             }
             // Struct-backed, like the geometry above it. Writing these into the
@@ -5853,6 +5867,31 @@ fn render_interactive(
                 }
             }
         }
+        // The control's `Tooltip`, on EVERY visual control. Only the Button,
+        // CheckBox, TextBox and ComboBox arms attached it to their own widget,
+        // so on any other control it never appeared (property audit,
+        // 2026-09-25). Shown once the pointer has rested on the control for its
+        // HoverDelayMs, like the hover events.
+        if !matches!(ct, CT::Button | CT::CheckBox | CT::TextBox | CT::ComboBox) {
+            let tip = sv(ctrl, "Tooltip");
+            let tip = tip.trim();
+            if !tip.is_empty() && ui.rect_contains_pointer(screen) {
+                let rested = ui.ctx().input(|i| i.pointer.time_since_last_movement()) as f64;
+                if rested >= hover_delay_s {
+                    egui::containers::Tooltip::always_open(
+                        ui.ctx().clone(),
+                        ui.layer_id(),
+                        ctrl_id.with("tooltip"),
+                        egui::PopupAnchor::Pointer,
+                    )
+                    .show(|ui| {
+                        ui.label(tip);
+                    });
+                } else {
+                    ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(hover_delay_s - rested));
+                }
+            }
+        }
     }
 
     // THIS control's Neumorphic shadow settings, published before any arm below
@@ -6061,11 +6100,18 @@ fn render_interactive(
             // The designer paints the face with the control's own font
             // (family + size); the editable overlay must match or the run
             // form silently falls back to egui's default ~14 px font.
-            let edit_font = crate::fonts::font_id(
-                ui.ctx(),
-                &sv(ctrl, "FontName"),
-                paint::ctrl_font_size(ctrl),
-            );
+            //
+            // `Bold` takes the family's real bold face: text being typed cannot
+            // be emboldened by stamping it twice, as a caption is. Where the
+            // system has no bold face the regular one is used.
+            let text_style = paint::FontStyle::of(ctrl);
+            let edit_font = text_style
+                .bold
+                .then(|| crate::fonts::bold_font_id(ui.ctx(), &sv(ctrl, "FontName"), paint::ctrl_font_size(ctrl)))
+                .flatten()
+                .unwrap_or_else(|| {
+                    crate::fonts::font_id(ui.ctx(), &sv(ctrl, "FontName"), paint::ctrl_font_size(ctrl))
+                });
             // Placeholder shown while the box is empty â same font as the
             // text, foreground colour faded so it reads as a hint on both
             // light and dark faces (egui's default hint gray vanishes on
@@ -6195,19 +6241,25 @@ fn render_interactive(
             // altering the buffer: the value stays real, and the mask has the
             // same character count, so the caret and the selection still land
             // where the operator put them.
+            // What the editor shows: the password mask when there is one, in
+            // the control's Italic / Underline / Strikethrough (property audit,
+            // 2026-09-25 — the live editor used to ignore all three).
+            let text_format = paint::text_format(ctrl, edit_font.clone(), txt_col);
             let mut mask_layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap: f32| {
-                let masked: String =
-                    std::iter::repeat_n(mask_char.unwrap_or('*'), text.as_str().chars().count())
-                        .collect();
-                let mut job = egui::text::LayoutJob::simple(
-                    masked,
-                    edit_font.clone(),
-                    txt_col,
-                    if multiline { wrap } else { f32::INFINITY },
-                );
+                let shown: String = match mask_char {
+                    Some(c) => std::iter::repeat_n(c, text.as_str().chars().count()).collect(),
+                    None => text.as_str().to_owned(),
+                };
+                let mut job = egui::text::LayoutJob::default();
+                job.append(&shown, 0.0, text_format.clone());
+                job.wrap.max_width = if multiline { wrap } else { f32::INFINITY };
                 job.halign = halign;
                 ui.fonts_mut(|f| f.layout_job(job))
             };
+            let custom_layout = mask_char.is_some()
+                || text_style.italic
+                || text_style.underline
+                || text_style.strikethrough;
             // Which bars an overflowing multiline box shows. `None` still
             // SCROLLS -- it just draws no bars. Content the box cannot show
             // must never become unreachable, which is the whole reason the
@@ -6283,7 +6335,7 @@ fn render_interactive(
                             if char_limit > 0 {
                                 edit = edit.char_limit(char_limit);
                             }
-                            if mask_char.is_some() {
+                            if custom_layout {
                                 edit = edit.layouter(&mut mask_layouter);
                             }
                             ui.add(edit)
@@ -6314,7 +6366,7 @@ fn render_interactive(
                     if char_limit > 0 {
                         edit = edit.char_limit(char_limit);
                     }
-                    if mask_char.is_some() {
+                    if custom_layout {
                         edit = edit.layouter(&mut mask_layouter);
                     }
                     ui.put(single_rect, edit)
@@ -7197,7 +7249,7 @@ fn render_interactive(
                 &sel,
                 is_open,
                 enabled,
-                Some((item_font.clone(), item_color)),
+                Some((item_font.clone(), item_color, paint::FontStyle::of(ctrl))),
             );
             // The header registered itself under `ctrl_id`; its tooltip rides
             // on that response. Not while open: it would cover the list.
@@ -7293,6 +7345,7 @@ fn render_interactive(
                         + crate::model::LIST_ROW_PAD * 2.0,
                     font: item_font,
                     text: item_color,
+                    style: paint::FontStyle::of(ctrl),
                     max_h: sv(ctrl, "DropDownHeight")
                         .parse::<f32>()
                         .unwrap_or(200.0)
@@ -7702,7 +7755,8 @@ fn render_interactive(
                             } else {
                                 item_color
                             };
-                            row_painter.text(
+                            paint::FontStyle::of(ctrl).text(
+                                &row_painter,
                                 pos2(text_x, row_mid),
                                 Align2::LEFT_CENTER,
                                 item,
@@ -8354,6 +8408,12 @@ fn render_interactive(
             let grid_title = sv(ctrl, "Title").trim().to_owned();
             let show_csv_button = prop_bool(ctrl, "ShowCSVExportButton", false);
             let title_font = (font_size + 2.0).clamp(10.0, 22.0);
+            // The grid's text follows its FontName, like every other control's
+            // (the cells, header and title were always the default family).
+            let grid_ctx = ui.ctx().clone();
+            let grid_family = sv(ctrl, "FontName");
+            let grid_font = |size: f32| crate::fonts::font_id(&grid_ctx, &grid_family, size);
+            let grid_style = paint::FontStyle::of(ctrl);
             // The row is never shorter than the grid's own top arc, because the
             // arc becomes ITS arc. egui shrinks a corner radius that will not fit
             // the rect it is drawing, so a band shorter than the arc would be
@@ -8998,7 +9058,7 @@ fn render_interactive(
                     caption_rect.center(),
                     Align2::CENTER_CENTER,
                     &grid_title,
-                    FontId::proportional(title_font),
+                    grid_font(title_font),
                     header_fg,
                 );
             }
@@ -9038,7 +9098,7 @@ fn render_interactive(
                     pos2(x + col.width * 0.5, title_y),
                     Align2::CENTER_CENTER,
                     name,
-                    FontId::proportional(header_font_size),
+                    grid_font(header_font_size),
                     header_fg,
                 );
                 if show_filters {
@@ -9114,7 +9174,7 @@ fn render_interactive(
                         egui::TextEdit::singleline(&mut filter_text)
                             .hint_text("Filter...")
                             .text_color(filter_fg)
-                            .font(FontId::proportional((font_size - 1.0).max(8.0)))
+                            .font(grid_font((font_size - 1.0).max(8.0)))
                             .desired_width((col.width - 18.0).max(16.0))
                             .frame(egui::Frame::NONE),
                     );
@@ -9664,7 +9724,7 @@ fn render_interactive(
                             button_rect.center(),
                             Align2::CENTER_CENTER,
                             raw,
-                            FontId::proportional(
+                            grid_font(
                                 column_meta
                                     .map(|column| column.font_size)
                                     .filter(|size| *size > 0)
@@ -9747,7 +9807,7 @@ fn render_interactive(
                             pos2(text_clip.min.x, dropdown_rect.center().y),
                             Align2::LEFT_CENTER,
                             raw,
-                            FontId::proportional(
+                            grid_font(
                                 column_meta
                                     .map(|column| column.font_size)
                                     .filter(|size| *size > 0)
@@ -9859,29 +9919,32 @@ fn render_interactive(
                         .unwrap_or_default();
                     match alignment {
                         crate::model::DataGridTextAlignment::Right => {
-                            cell_painter.text(
+                            grid_style.text(
+                                &cell_painter,
                                 pos2(text_rect.max.x - 6.0, rrect.center().y),
                                 Align2::RIGHT_CENTER,
                                 &text,
-                                FontId::proportional(column_font_size),
+                                grid_font(column_font_size),
                                 text_color,
                             );
                         }
                         crate::model::DataGridTextAlignment::Center => {
-                            cell_painter.text(
+                            grid_style.text(
+                                &cell_painter,
                                 text_rect.center(),
                                 Align2::CENTER_CENTER,
                                 &text,
-                                FontId::proportional(column_font_size),
+                                grid_font(column_font_size),
                                 text_color,
                             );
                         }
                         crate::model::DataGridTextAlignment::Left => {
-                            cell_painter.text(
+                            grid_style.text(
+                                &cell_painter,
                                 pos2(text_rect.min.x + 6.0, rrect.center().y),
                                 Align2::LEFT_CENTER,
                                 &text,
-                                FontId::proportional(column_font_size),
+                                grid_font(column_font_size),
                                 text_color,
                             );
                         }
@@ -19607,6 +19670,149 @@ mod tests {
             Some("B"),
             "second Tab should advance to the next TextBox by TabOrder"
         );
+    }
+
+    /// Italic / Underline reach the text a control shows beyond its caption:
+    /// ListBox items, a GroupBox legend, the TextBox being edited, DataGrid
+    /// cells. Only captions honoured them (property audit, 2026-09-25).
+    #[test]
+    fn font_styles_reach_list_items_legends_editors_and_cells() {
+        let styled_texts = |ctrl: Control, needle: &str| -> Vec<(bool, bool)> {
+            let controls = [ctrl];
+            let ctx = egui::Context::default();
+            ctx.set_fonts(egui::FontDefinitions::default());
+            let active = ActiveTabs::new();
+            let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+            let mut found = Vec::new();
+            for i in 0..2 {
+                let mut input = egui::RawInput::default();
+                input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(500.0, 400.0)));
+                input.time = Some(i as f64 * 0.05);
+                let st = MapState(&overrides);
+                let mut out = ctx.run_ui(input, |root_ui| {
+                    egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                        let inp = RenderInput {
+                            controls: &controls,
+                            state: &st,
+                            form_size: Vec2::new(500.0, 400.0),
+                            glass: true,
+                            mode: RenderMode::Interactive,
+                            active_tabs: &active,
+                            backdrop: Backdrop::default(),
+                        };
+                        let _ = render_form(ui, &inp);
+                    });
+                });
+                out.textures_delta.clear();
+                if i == 1 {
+                    for s in &out.shapes {
+                        if let egui::epaint::Shape::Text(t) = &s.shape {
+                            if t.galley.text().contains(needle) {
+                                let f = &t.galley.job.sections[0].format;
+                                found.push((f.italics, f.underline != Stroke::NONE));
+                            }
+                        }
+                    }
+                }
+            }
+            found
+        };
+        let with = |mut c: Control, props: &[(&str, &str)]| {
+            for (k, v) in props {
+                c.set_prop(*k, crate::PropValue::String((*v).to_owned()));
+            }
+            c
+        };
+        let italic = [("Italic", "true")];
+        let list = with(ctrlp("LB", ControlType::ListBox, 0, 0, 200, 120, &[("Items", "Alpha-item\nBeta-item")]), &italic);
+        assert!(styled_texts(list, "Alpha-item").iter().any(|(it, _)| *it), "a ListBox item is italic");
+        let group = with(ctrlp("GB", ControlType::GroupBox, 20, 20, 200, 120, &[("Caption", "Legend-text")]), &italic);
+        assert!(styled_texts(group, "Legend-text").iter().any(|(it, _)| *it), "a GroupBox legend is italic");
+        let tb = with(ctrlp("TB", ControlType::TextBox, 0, 0, 200, 30, &[("Text", "typed-text")]), &italic);
+        assert!(styled_texts(tb, "typed-text").iter().any(|(it, _)| *it), "the TextBox editor is italic");
+        let grid = with(
+            ctrlp("DG", ControlType::DataGrid, 0, 0, 300, 150, &[("Columns", "Name:string"), ("Rows", "cell-value")]),
+            &[("Underline", "true")],
+        );
+        assert!(styled_texts(grid, "cell-value").iter().any(|(_, u)| *u), "a DataGrid cell is underlined");
+    }
+
+    /// A Label's `Tooltip` shows while the pointer rests on it. Only Button,
+    /// CheckBox, TextBox and ComboBox used to show theirs (property audit,
+    /// 2026-09-25).
+    #[test]
+    fn a_label_shows_its_tooltip_when_the_pointer_rests_on_it() {
+        let lbl = ctrlp(
+            "L",
+            ControlType::Label,
+            0,
+            0,
+            160,
+            30,
+            &[("Caption", "Name"), ("Tooltip", "the-customer-name-tip"), ("HoverDelayMs", "0")],
+        );
+        let controls = [lbl];
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let active = ActiveTabs::new();
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let at = pos2(40.0, 15.0);
+        let mut seen = false;
+        for i in 0..6 {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(400.0, 300.0)));
+            input.time = Some(i as f64 * 0.2);
+            if i == 0 {
+                input.events = vec![Event::PointerMoved(at)];
+            }
+            let st = MapState(&overrides);
+            let out = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                    let inp = RenderInput {
+                        controls: &controls,
+                        state: &st,
+                        form_size: Vec2::new(400.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Backdrop::default(),
+                    };
+                    let _ = render_form(ui, &inp);
+                });
+            });
+            seen |= out.shapes.iter().any(|s| match &s.shape {
+                egui::epaint::Shape::Text(t) => t.galley.text().contains("the-customer-name-tip"),
+                _ => false,
+            });
+        }
+        assert!(seen, "the Label's tooltip is painted");
+    }
+
+    /// `BringToFront` / `SET ctl::ZOrder` at run time reorders the controls:
+    /// the live ZOrder reaches the struct field every drawing path sorts by,
+    /// and the draw order is taken from the live controls. It used to land in
+    /// the property map, where no drawing code looks (property audit,
+    /// 2026-09-25).
+    #[test]
+    fn a_run_time_zorder_change_reorders_the_drawing() {
+        let mut a = ctrlp("A", ControlType::Button, 0, 0, 120, 40, &[("Caption", "A")]);
+        a.z_order = 0;
+        let mut b = ctrlp("B", ControlType::Button, 0, 0, 120, 40, &[("Caption", "B")]);
+        b.z_order = 1;
+        let designed = [a, b];
+        let ids = |cs: &[Control]| -> Vec<String> {
+            containers::render_order(cs).into_iter().map(|i| cs[i].id.clone()).collect()
+        };
+        assert_eq!(ids(&designed), ["A", "B"], "as designed, B is drawn last (on top)");
+        let front = [("ZOrder".to_owned(), "10000".to_owned())];
+        let live: Vec<Control> = vec![
+            merge_props(&designed[0], front.iter().map(|(k, v)| (k, v))),
+            designed[1].clone(),
+        ];
+        assert_eq!(live[0].z_order, 10000, "ZOrder reaches the field");
+        assert_eq!(ids(&live), ["B", "A"], "brought to the front, A is drawn last");
+        let back = [("zorder".to_owned(), "-10000".to_owned())];
+        assert_eq!(merge_props(&designed[1], back.iter().map(|(k, v)| (k, v))).z_order, -10000);
     }
 
     /// A shell draws two forms in one frame: the SideMenu's footer (its own

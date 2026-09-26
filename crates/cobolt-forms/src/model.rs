@@ -4659,9 +4659,11 @@ impl Control {
         // ── Identification ────────────────────────────────────────────────────
         props.insert("ZOrder".into(), PropValue::Int(0));
 
-        // ── Data binding (all controls) ────────────────────────────────────────
-        props.insert("DataItem".into(), PropValue::String("".into()));
-        props.insert("DataFormat".into(), PropValue::String("".into()));
+        // ── Data binding ──────────────────────────────────────────────────────
+        // Not a property: a control is bound through the FORM's bindings (the
+        // Data Binding panel, `Form::data_bindings`). `DataItem` / `DataFormat`
+        // were seeded here and read by nothing on any surface (property audit,
+        // 2026-09-25); a form that still carries them loads them untouched.
 
         // ── Keyboard: Enter moves to the next control, like Tab ────────────────
         // See `Control::enter_as_tab` for who honours it.
@@ -5457,7 +5459,6 @@ impl Control {
                 props.insert("ThumbColor".into(), PropValue::String("#0078D7".into()));
                 props.insert("FillColor".into(), PropValue::String("#0078D7".into())); // filled portion of track
                 props.insert("ShowValue".into(), PropValue::Bool(false)); // label current value
-                props.insert("DataItem".into(), PropValue::String("".into()));
             }
             // Knob (spec 039). The shared painter draws the dial at whatever
             // size the control was given, so there is no Size preset to pick —

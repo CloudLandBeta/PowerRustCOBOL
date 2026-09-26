@@ -83,20 +83,34 @@ fn egui_can_rasterize(bytes: &[u8], index: u32) -> bool {
 }
 
 fn load_font_bytes(family: &str) -> Option<Vec<u8>> {
+    load_face_bytes(family, fontdb::Weight::NORMAL).map(|(bytes, _)| bytes)
+}
+
+/// The face of `family` at `weight`, as bytes egui can rasterise. For a weight
+/// other than normal, only a face that really IS that heavy counts: `fontdb`
+/// answers with the nearest face, and a regular face handed back for "bold"
+/// would draw bold text exactly like regular text.
+fn load_face_bytes(family: &str, weight: fontdb::Weight) -> Option<(Vec<u8>, u32)> {
     let q = fontdb::Query {
         families: &[fontdb::Family::Name(family)],
-        weight: fontdb::Weight::NORMAL,
+        weight,
         stretch: fontdb::Stretch::Normal,
         style: fontdb::Style::Normal,
     };
     let id = db().query(&q)?;
-    let bytes = db().with_face_data(id, |data, _idx| data.to_vec())?;
+    if weight != fontdb::Weight::NORMAL {
+        let face = db().face(id)?;
+        if face.weight.0 < 600 {
+            return None;
+        }
+    }
+    let (bytes, index) = db().with_face_data(id, |data, idx| (data.to_vec(), idx))?;
     // Reject faces egui's rasteriser can't parse (e.g. bitmap-only fonts such as
     // "GB18030 Bitmap"), which would otherwise panic inside `set_fonts`.
-    if !egui_can_rasterize(&bytes, 0) {
+    if !egui_can_rasterize(&bytes, index) {
         return None;
     }
-    Some(bytes)
+    Some((bytes, index))
 }
 
 /// TTF bytes for a common sans-serif system font, for embedding into a PDF
@@ -233,7 +247,47 @@ pub fn font_id(ctx: &egui::Context, family: &str, size: f32) -> egui::FontId {
     if is_builtin(fam) {
         return egui::FontId::proportional(size);
     }
+    resolve(ctx, fam, size, || load_face_bytes(fam, fontdb::Weight::NORMAL))
+        .unwrap_or_else(|| egui::FontId::proportional(size))
+}
 
+/// The BOLD face of `family` at `size`, when the system has one: a real bold
+/// face, for text that cannot be emboldened by stamping it twice — an editor
+/// (a TextBox's text as it is typed). `None` when there is no such face yet or
+/// at all; the caller then draws the regular face. The built-in stand-in for
+/// Arial/Helvetica looks for the system's own bold Arial or Helvetica.
+pub fn bold_font_id(ctx: &egui::Context, family: &str, size: f32) -> Option<egui::FontId> {
+    let size = size.max(1.0);
+    let fam = family.trim();
+    let candidates: Vec<&str> = if is_builtin(fam) {
+        vec!["Arial", "Helvetica", "Helvetica Neue", "Liberation Sans", "DejaVu Sans"]
+    } else {
+        vec![fam]
+    };
+    for cand in candidates {
+        // Registered under its own name, so the regular and the bold face of
+        // one family are two entries of the same cache.
+        let key = format!("{cand}\u{1}bold");
+        if let Some(id) = resolve(ctx, &key, size, || load_face_bytes(cand, fontdb::Weight::BOLD)) {
+            return Some(id);
+        }
+        // Loading (not failed): wait for it rather than trying the next.
+        if !matches!(inner().lock().unwrap().state.get(&key), Some(FontState::Failed)) {
+            return None;
+        }
+    }
+    None
+}
+
+/// Register the face `load` returns under the family name `fam` (once), and
+/// hand out its `FontId` when the context has it bound. `None` while it is
+/// loading and when it cannot be loaded.
+fn resolve(
+    ctx: &egui::Context,
+    fam: &str,
+    size: f32,
+    load: impl FnOnce() -> Option<(Vec<u8>, u32)>,
+) -> Option<egui::FontId> {
     let now = ctx.cumulative_pass_nr();
     // Asked BEFORE our own lock is taken: `is_bound` writes the egui context,
     // and so does `set_fonts` below — nesting the two would be a deadlock
@@ -250,18 +304,18 @@ pub fn font_id(ctx: &egui::Context, family: &str, size: f32) -> egui::FontId {
     }
 
     match g.state.get(fam).copied() {
-        Some(FontState::Ready) => named(),
-        Some(FontState::Failed) => egui::FontId::proportional(size),
+        Some(FontState::Ready) => Some(named()),
+        Some(FontState::Failed) => None,
         Some(FontState::Loading(when)) => {
             // `now > when` says the atlas has had a pass to rebuild — but only
             // the context can say the family SURVIVED it (a clobber inside that
             // window would otherwise be promoted straight to a panic).
             if now > when && bound {
                 g.state.insert(fam.to_owned(), FontState::Ready);
-                named()
+                Some(named())
             } else {
                 // Same pass set_fonts was issued — atlas not rebuilt yet.
-                egui::FontId::proportional(size)
+                None
             }
         }
         None => {
@@ -273,14 +327,15 @@ pub fn font_id(ctx: &egui::Context, family: &str, size: f32) -> egui::FontId {
                 let defs = g.defs.clone();
                 ctx.set_fonts(defs);
                 g.state.insert(fam.to_owned(), FontState::Loading(now));
-                return egui::FontId::proportional(size);
+                return None;
             }
-            match load_font_bytes(fam) {
-                Some(bytes) => {
-                    g.defs.font_data.insert(
-                        fam.to_owned(),
-                        std::sync::Arc::new(egui::FontData::from_owned(bytes)),
-                    );
+            match load() {
+                Some((bytes, index)) => {
+                    // The face's own index inside a collection (.ttc): index 0
+                    // is a different face of the same file.
+                    let mut data = egui::FontData::from_owned(bytes);
+                    data.index = index;
+                    g.defs.font_data.insert(fam.to_owned(), std::sync::Arc::new(data));
                     // Chain egui's default proportional fonts after this face so any
                     // glyphs it lacks still render (instead of showing tofu).
                     let mut chain = vec![fam.to_owned()];
@@ -298,7 +353,7 @@ pub fn font_id(ctx: &egui::Context, family: &str, size: f32) -> egui::FontId {
                     g.state.insert(fam.to_owned(), FontState::Failed);
                 }
             }
-            egui::FontId::proportional(size)
+            None
         }
     }
 }
