@@ -8,6 +8,14 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.249] — 2026-09-26
+
+### Examples — PowerChat's flag buttons are flat again
+
+- Switching the main form to Neumorphic Light re-applied the theme's shadow and
+  gradient face to the six language-flag buttons; both are off again, so the
+  flags sit on the menu with no button face.
+
 ## [PowerRustCOBOL 1.70.248] — 2026-09-26
 
 ### Examples — PowerChat in Neumorphic Light
