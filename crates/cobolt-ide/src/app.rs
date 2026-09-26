@@ -15749,14 +15749,14 @@ impl CoboltApp {
 
             // Advance all playing animations
             if dt > 0.0 {
-                let anim_meta: std::collections::HashMap<String, (u64, cobolt_forms::model::AnimRepeat)> = d
+                let anim_meta: std::collections::HashMap<String, (u64, cobolt_forms::model::AnimRepeat, u64)> = d
                     .form
                     .controls
                     .iter()
                     .flat_map(|c| {
                         c.animations
                             .iter()
-                            .map(move |a| (format!("{}:{}", c.id, a.name), (a.duration_ms, a.repeat.clone())))
+                            .map(move |a| (format!("{}:{}", c.id, a.name), (a.duration_ms, a.repeat.clone(), a.repeat_delay_ms)))
                     })
                     .collect();
                 let mut need_repaint = false;
@@ -15772,10 +15772,10 @@ impl CoboltApp {
                         need_repaint = true;
                         continue;
                     }
-                    let (dur_ms, repeat) = anim_meta
+                    let (dur_ms, repeat, pause_ms) = anim_meta
                         .get(key)
                         .cloned()
-                        .unwrap_or((400, cobolt_forms::model::AnimRepeat::Once));
+                        .unwrap_or((400, cobolt_forms::model::AnimRepeat::Once, 0));
                     // The engine's own step: Loop / PingPong / Count repeat in
                     // the preview exactly as in the running form.
                     cobolt_forms::anim::advance_clock(
@@ -15783,7 +15783,9 @@ impl CoboltApp {
                         &mut state.forward,
                         &mut state.loops,
                         &mut state.playing,
+                        &mut state.delay_remaining,
                         &repeat,
+                        pause_ms as f32 / 1000.0,
                         dur_ms as f32 / 1000.0,
                         dt,
                     );

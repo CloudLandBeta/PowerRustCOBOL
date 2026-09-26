@@ -58,15 +58,28 @@ fn zoomout_scale(t: f32) -> f32 {
 /// the running form's engine and the designer's canvas and preview all step
 /// through it, so a loop cannot work in one and not the other (the designer's
 /// two clocks stopped every animation after one pass; operator, 2026-09-26).
+///
+/// `pause_s` is the animation's `RepeatDelay`: when a pass ends and another
+/// follows, the clock rests where the pass ended and `wait` is set to it. The
+/// caller counts `wait` down (the same countdown as the start `Delay`) before
+/// stepping again; the next step then begins the new pass.
+#[allow(clippy::too_many_arguments)]
 pub fn advance_clock(
     t: &mut f32,
     forward: &mut bool,
     loops: &mut u32,
     playing: &mut bool,
+    wait: &mut f32,
     repeat: &AnimRepeat,
+    pause_s: f32,
     dur_s: f32,
     dt: f32,
 ) {
+    // A Loop/Count pass that ended in a pause rests at t = 1; the first step
+    // after the pause starts the next pass from the beginning.
+    if *playing && *forward && *t >= 1.0 && matches!(repeat, AnimRepeat::Loop | AnimRepeat::Count(_)) {
+        *t = 0.0;
+    }
     if dur_s <= 0.0 {
         *t = 1.0;
         *playing = false;
@@ -89,16 +102,19 @@ pub fn advance_clock(
                 *t = 1.0;
                 *playing = false;
             }
-            AnimRepeat::Loop => *t = 0.0,
+            AnimRepeat::Loop => *t = if pause_s > 0.0 { 1.0 } else { 0.0 },
             AnimRepeat::PingPong => *forward = !overshoot_high,
             AnimRepeat::Count(n) => {
                 if *loops >= (*n).max(1) {
                     *t = 1.0;
                     *playing = false;
                 } else {
-                    *t = 0.0;
+                    *t = if pause_s > 0.0 { 1.0 } else { 0.0 };
                 }
             }
+        }
+        if *playing && !matches!(repeat, AnimRepeat::Once) && pause_s > 0.0 {
+            *wait = pause_s;
         }
     }
 }
@@ -377,7 +393,9 @@ impl AnimRuntime {
                 &mut state.forward,
                 &mut state.loops,
                 &mut state.playing,
+                &mut state.delay_remaining,
                 &state.def.repeat,
+                state.def.repeat_delay_ms as f32 / 1000.0,
                 dur,
                 dt,
             );
@@ -415,9 +433,9 @@ mod tests {
     #[test]
     fn the_shared_clock_repeats_as_the_repeat_says() {
         let run = |repeat: AnimRepeat| {
-            let (mut t, mut fwd, mut loops, mut playing) = (0.0, true, 0u32, true);
+            let (mut t, mut fwd, mut loops, mut playing, mut wait) = (0.0, true, 0u32, true, 0.0);
             for _ in 0..3 {
-                advance_clock(&mut t, &mut fwd, &mut loops, &mut playing, &repeat, 1.0, 0.6);
+                advance_clock(&mut t, &mut fwd, &mut loops, &mut playing, &mut wait, &repeat, 0.0, 1.0, 0.6);
             }
             (t, fwd, loops, playing)
         };
@@ -427,6 +445,41 @@ mod tests {
         assert!(playing && !fwd, "PingPong turns round");
         let (t, _, _, playing) = run(AnimRepeat::Once);
         assert!(!playing && t == 1.0, "Once rests at the end");
+    }
+    /// `RepeatDelay`: after each pass the control rests where the pass ended
+    /// for that long, then the next pass starts from the beginning — in the
+    /// running form's engine, through the same clock the designer uses.
+    #[test]
+    fn a_repeat_delay_rests_between_passes() {
+        let mut def = AnimationDef::new("pulse");
+        def.duration_ms = 1000;
+        def.repeat = AnimRepeat::Loop;
+        def.repeat_delay_ms = 500;
+        let mut rt = AnimRuntime::new(800.0, 600.0);
+        rt.play("Label-1", &def);
+        let st = |rt: &AnimRuntime| rt.states.values().next().cloned().unwrap();
+        for _ in 0..10 {
+            rt.tick(0.1);
+        }
+        let s = st(&rt);
+        assert!(s.playing && s.t == 1.0 && s.delay_remaining > 0.0, "resting at the end: {s:?}");
+        for _ in 0..4 {
+            rt.tick(0.1);
+        }
+        assert_eq!(st(&rt).t, 1.0, "still resting inside the 500 ms");
+        for _ in 0..3 {
+            rt.tick(0.1);
+        }
+        let s = st(&rt);
+        assert!(s.t > 0.0 && s.t < 0.5, "the next pass started over: {s:?}");
+        // PingPong rests at each turn.
+        let (mut t, mut fwd, mut loops, mut playing, mut wait) = (0.0, true, 0u32, true, 0.0);
+        advance_clock(&mut t, &mut fwd, &mut loops, &mut playing, &mut wait, &AnimRepeat::PingPong, 0.3, 1.0, 1.2);
+        assert!(!fwd && t == 1.0 && wait == 0.3, "PingPong turns and waits");
+        // Without a delay nothing waits.
+        let (mut t, mut fwd, mut loops, mut playing, mut wait) = (0.0, true, 0u32, true, 0.0);
+        advance_clock(&mut t, &mut fwd, &mut loops, &mut playing, &mut wait, &AnimRepeat::Loop, 0.0, 1.0, 1.2);
+        assert!(t == 0.0 && wait == 0.0);
     }
     use crate::ControlType;
 

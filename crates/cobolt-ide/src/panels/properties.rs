@@ -5753,6 +5753,22 @@ impl PropertiesPanel {
                         });
                 });
 
+                if !matches!(anim.repeat, AnimRepeat::Once) {
+                    let mut pause = anim.repeat_delay_ms as i64;
+                    property_row(ui, "Repeat delay (ms)", |ui| {
+                        if ui
+                            .add(DragValue::new(&mut pause).speed(10).range(0..=60_000))
+                            .changed()
+                        {
+                            action.set_props.push((
+                                id.to_owned(),
+                                format!("Anim{sel}_RepeatDelay"),
+                                PropValue::Int(pause),
+                            ));
+                        }
+                    });
+                }
+
                 if anim.kind.as_str() == "Slide" {
                     let mut sdx = anim.slide_dx as i64;
                     property_row(ui, "Slide DX", |ui| {

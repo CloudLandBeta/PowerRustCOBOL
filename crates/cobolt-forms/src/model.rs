@@ -1081,6 +1081,10 @@ pub struct AnimationDef {
     pub delay_ms: u64,
     pub easing: EasingKind,
     pub repeat: AnimRepeat,
+    /// Milliseconds to wait between one pass and the next when the animation
+    /// repeats (Loop, PingPong, Count). The control rests where the pass ended
+    /// for this long. `0` = start the next pass at once.
+    pub repeat_delay_ms: u64,
     /// When kind=Slide, the pixel offset from which the control enters.
     pub slide_dx: i32,
     pub slide_dy: i32,
@@ -1125,6 +1129,7 @@ impl AnimationDef {
             delay_ms: 0,
             easing: EasingKind::EaseOut,
             repeat: AnimRepeat::Once,
+            repeat_delay_ms: 0,
             slide_dx: 0,
             slide_dy: 0,
         }

@@ -1875,6 +1875,39 @@ form's width/height to the chosen profile.
 > caption are inked against the card they sit on, so they stay legible on a
 > light form theme as readily as on a dark one.
 
+### Control animations
+
+A control can carry any number of **animations**, edited in the **Animations**
+card of the Properties pane. Each one has:
+
+| Field | What it does |
+|-------|--------------|
+| **Name** | How your COBOL starts it. New animations are named `anim1`, `anim2`, … |
+| **Trigger** | When it plays: `OnFormLoad` / `OnShow` (when the window comes up), `OnClick`, `OnHover`, `OnFocus`, `OnTimer` (each tick of a chosen Timer), or `Programmatic` (only when your code asks). |
+| **Kind** | The movement: fly in from a side or corner, fade in/out, zoom in/out, bounce, shake, pulse, spin, flip, or slide by **Slide DX / Slide DY** pixels. |
+| **Duration (ms)** | How long one pass takes. |
+| **Delay (ms)** | How long to wait before the **first** pass. |
+| **Easing** | The speed curve of a pass. |
+| **Repeat** | `Once`, `Loop` (start over), `PingPong` (play forward, then back) or `Count`. |
+| **Repeat delay (ms)** | Shown when Repeat is not `Once`: how long the control **rests between one pass and the next**, where the pass ended. `0` starts the next pass at once. |
+
+A pulsing "new message" badge that beats once a second, with a pause between
+beats, is a `Pulse` animation with Duration 400, Repeat `Loop` and Repeat
+delay 600. Start a `Programmatic` one from a handler:
+
+```cobol
+           INVOKE Lbl-Badge::PlayAnimation("anim1")
+      *> ...and later
+           INVOKE Lbl-Badge::StopAnimation()
+```
+
+The designer canvas, the form preview, **Run Form** and the built application
+all step animations through the same clock, so a loop and its pauses look the
+same everywhere.
+
+> ⚠️ **Caveat — `Count` always plays three passes.** The number of passes is
+> not yet editable: choosing `Count` stores three.
+
 ---
 
 ## 8. The control catalogue

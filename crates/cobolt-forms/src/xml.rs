@@ -1294,6 +1294,7 @@ fn parse_control<R: std::io::BufRead>(
                 let mut delay = 0u64;
                 let mut easing = "EaseInOut".to_owned();
                 let mut repeat = "Once".to_owned();
+                let mut repeat_delay = 0u64;
                 let mut slide_dx = 0i32;
                 let mut slide_dy = 0i32;
                 for (key, val) in attrs {
@@ -1305,6 +1306,7 @@ fn parse_control<R: std::io::BufRead>(
                         b"delay" => delay = val.parse().unwrap_or(0),
                         b"easing" => easing = val,
                         b"repeat" => repeat = val,
+                        b"repeat-delay" => repeat_delay = val.parse().unwrap_or(0),
                         b"slide-dx" => slide_dx = val.parse().unwrap_or(0),
                         b"slide-dy" => slide_dy = val.parse().unwrap_or(0),
                         _ => {}
@@ -1323,6 +1325,7 @@ fn parse_control<R: std::io::BufRead>(
                         "Count" => AnimRepeat::Count(3),
                         _ => AnimRepeat::Once,
                     };
+                    anim.repeat_delay_ms = repeat_delay;
                     anim.slide_dx = slide_dx;
                     anim.slide_dy = slide_dy;
                     ctrl.animations.push(anim);
@@ -1723,6 +1726,9 @@ fn write_control<W: std::io::Write>(w: &mut Writer<W>, ctrl: &Control) -> Result
         ae.push_attribute(("delay", anim.delay_ms.to_string().as_str()));
         ae.push_attribute(("easing", anim.easing.as_str()));
         ae.push_attribute(("repeat", anim.repeat.as_str()));
+        if anim.repeat_delay_ms > 0 {
+            ae.push_attribute(("repeat-delay", anim.repeat_delay_ms.to_string().as_str()));
+        }
         ae.push_attribute(("slide-dx", anim.slide_dx.to_string().as_str()));
         ae.push_attribute(("slide-dy", anim.slide_dy.to_string().as_str()));
         w.write_event(Event::Empty(ae))?;
@@ -2274,6 +2280,24 @@ Actor Caption:string</Property>
         );
         let loaded = load_form_from_str(&legacy).expect("loads");
         assert!(loaded.controls[0].get_prop("Transparency").map_or(true, |v| v.as_i64() != 100));
+    }
+
+    /// An animation's `RepeatDelay` is saved and read back; a form written
+    /// before it existed loads with no delay.
+    #[test]
+    fn an_animation_repeat_delay_round_trips() {
+        let mut form = sample_form();
+        let mut a = crate::model::AnimationDef::new("pulse");
+        a.repeat = crate::model::AnimRepeat::Loop;
+        a.repeat_delay_ms = 750;
+        form.controls[0].animations.push(a);
+        let xml = form_to_string(&form).expect("form_to_string failed");
+        assert!(xml.contains(r#"repeat-delay="750""#), "{xml}");
+        let loaded = load_form_from_str(&xml).expect("loads");
+        assert_eq!(loaded.controls[0].animations[0].repeat_delay_ms, 750);
+        let old = xml.replace(r#" repeat-delay="750""#, "");
+        let loaded = load_form_from_str(&old).expect("loads");
+        assert_eq!(loaded.controls[0].animations[0].repeat_delay_ms, 0);
     }
 
     #[test]

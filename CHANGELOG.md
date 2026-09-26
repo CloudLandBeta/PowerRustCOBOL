@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.266] — 2026-09-26
+
+### Feature — Repeat delay: a pause between an animation's passes
+
+- A control animation gains **Repeat delay (ms)** (Animations card, shown when
+  Repeat is not `Once`; `.cfrm` attribute `repeat-delay`, written only when
+  set). Between one pass and the next the control rests where the pass ended
+  for that long — at the end for `Loop`/`Count`, at each turn for `PingPong`.
+  The shared clock `anim::advance_clock` implements it, so the running form,
+  the built application, the designer canvas and the preview agree. Tests
+  `a_repeat_delay_rests_between_passes`,
+  `an_animation_repeat_delay_round_trips`.
+- Developer's Guide: new section **Control animations** (§7).
+
 ## [PowerRustCOBOL 1.70.265] — 2026-09-26
 
 ### Fix — a square shadow corner outside a DataGrid's arc

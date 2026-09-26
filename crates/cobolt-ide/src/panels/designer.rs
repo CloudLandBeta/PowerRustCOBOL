@@ -5915,6 +5915,7 @@ impl DesignerPanel {
                                         _ => AnimRepeat::Once,
                                     }
                                 }
+                                "RepeatDelay" => anim.repeat_delay_ms = value.as_i64().max(0) as u64,
                                 "SlideDX" => anim.slide_dx = value.as_i64() as i32,
                                 "SlideDY" => anim.slide_dy = value.as_i64() as i32,
                                 _ => {}
@@ -6811,14 +6812,14 @@ impl DesignerPanel {
         if dt > 0.0 {
             let mut need_repaint = false;
             // Collect animation definitions: key -> (duration_ms, delay_ms)
-            let anim_meta: HashMap<String, (u64, AnimRepeat)> = self
+            let anim_meta: HashMap<String, (u64, AnimRepeat, u64)> = self
                 .form
                 .controls
                 .iter()
                 .flat_map(|c| {
                     c.animations
                         .iter()
-                        .map(move |a| (format!("{}:{}", c.id, a.name), (a.duration_ms, a.repeat.clone())))
+                        .map(move |a| (format!("{}:{}", c.id, a.name), (a.duration_ms, a.repeat.clone(), a.repeat_delay_ms)))
                 })
                 .collect();
 
@@ -6837,10 +6838,10 @@ impl DesignerPanel {
                     continue; // don't advance t yet
                 }
 
-                let (dur_ms, repeat) = anim_meta
+                let (dur_ms, repeat, pause_ms) = anim_meta
                     .get(key)
                     .cloned()
-                    .unwrap_or((400, AnimRepeat::Once));
+                    .unwrap_or((400, AnimRepeat::Once, 0));
                 // The engine's own step, so Loop / PingPong / Count repeat here
                 // exactly as they do in the running form.
                 cobolt_forms::anim::advance_clock(
@@ -6848,7 +6849,9 @@ impl DesignerPanel {
                     &mut state.forward,
                     &mut state.loops,
                     &mut state.playing,
+                    &mut state.delay_remaining,
                     &repeat,
+                    pause_ms as f32 / 1000.0,
                     dur_ms as f32 / 1000.0,
                     dt,
                 );
@@ -16952,6 +16955,7 @@ mod anim_behavior_tests {
             delay_ms: 0,
             easing: EasingKind::Linear, // linear → eased(t) == t, so checks are exact
             repeat: AnimRepeat::Once,
+            repeat_delay_ms: 0,
             slide_dx: 0,
             slide_dy: 0,
         }
