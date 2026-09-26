@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.239] — 2026-09-26
+
+### Examples — the operator's own example edits
+
+- **PowerChat** — its project agents (`agentic_ai/`), the project settings, and
+  its starter data files (`settings.idx`, `models.idx`, `convs.idx`).
+- **PowerDemo3** — the Common `main-form`, the viewer form, the menu and side-menu
+  demos, the `actors` copybook and data, and the vendored `ferris-says` README.
+- **`.gitignore`** — the `.lck` lock an open indexed file keeps beside itself,
+  and dated form backups (`*.backup-YYYYMMDD`), are no longer offered for commit.
+
 ## [PowerRustCOBOL 1.70.238] — 2026-09-26
 
 ### Fix — an icon-only Button painted nothing

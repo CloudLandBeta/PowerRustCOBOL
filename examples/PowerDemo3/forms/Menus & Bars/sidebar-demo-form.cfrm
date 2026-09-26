@@ -223,6 +223,8 @@
     <Property name="BorderStyle">Fixed3D</Property>
     <Property name="BorderColor">#AAAAAA</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="AutoEnter">false</Property>
   </Control>
   <Control id="SideMenu-Demo" type="SideMenu" x="0" y="0" w="240" h="660" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#2D3C67FF</Property>

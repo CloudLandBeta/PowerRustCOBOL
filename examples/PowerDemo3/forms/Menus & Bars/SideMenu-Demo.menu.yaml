@@ -1,46 +1,46 @@
 menu:
-- id: sb-home
+- id: yohg
   label: Dashboard
   type: action
   icon: home
   enabled: true
-- id: sb-inbox
+- id: iyyy
   label: Inbox
   type: action
   icon: mail
   enabled: true
   badge: '6'
   badge_style: count
-- id: sb-sales
+- id: eltz
   label: Sales
   type: action
   icon: chart
   enabled: true
   items:
-  - id: sb-sales-orders
+  - id: rylr
     label: Orders
     type: action
     icon: doc-text
     enabled: true
-  - id: sb-sales-invoices
+  - id: fqfo
     label: Invoices
     type: action
     icon: doc-text
     enabled: true
-- id: sb-people
+- id: kmyl
   label: Customers
   type: action
   icon: user
   enabled: true
-- id: sb-new
+- id: ladf
   label: What's new
   type: action
   icon: diamond
   enabled: true
   badge: New
-- id: sb-settings
+- id: zjna
   label: Settings
   type: action
   icon: gear
   enabled: true
-hash: d59eceb44501a6f073cd835156e1402fe93bcee4cbba84d9d903165a9378f993
+hash: 31f7d27a1e9af19404922eca35e3ae2c48b8e7fcba34d674b3bc82ead4d0b560

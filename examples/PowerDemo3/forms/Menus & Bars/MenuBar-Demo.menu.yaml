@@ -1,66 +1,66 @@
 menu:
-- id: mb-file
+- id: xmuo
   label: File
   type: action
   icon: folder-open
   enabled: true
   items:
-  - id: mb-file-new
+  - id: dnjj
     label: New order
     type: action
     icon: plus
     enabled: true
-  - id: mb-file-open
+  - id: kvjr
     label: Open order...
     type: action
     icon: folder-open
     enabled: true
-  - id: mb-file-save
+  - id: glco
     label: Save
     type: action
     icon: doc-save
     enabled: true
-- id: mb-edit
+- id: hvhd
   label: Edit
   type: action
   icon: pencil
   enabled: true
   items:
-  - id: mb-edit-copy
+  - id: khvy
     label: Copy
     type: action
     icon: doc-copy
     enabled: true
-  - id: mb-edit-paste
+  - id: lxss
     label: Paste
     type: action
     icon: clipboard-paste
     enabled: true
-- id: mb-view
+- id: tjhw
   label: View
   type: action
   icon: eye
   enabled: true
   items:
-  - id: mb-view-grid
+  - id: otab
     label: Show the grid
     type: action
     icon: control-data-grid
     enabled: true
-  - id: mb-view-log
+  - id: xpdo
     label: Show the log
     type: action
     icon: doc-text
     enabled: true
-- id: mb-help
+- id: zobw
   label: Help
   type: action
   icon: help-circle
   enabled: true
   items:
-  - id: mb-help-about
+  - id: otyl
     label: About
     type: action
     icon: info-circle
     enabled: true
-hash: e03a23372ed8e3fea109ad22466358aae5e0c404a44bfd9de45dc15817513cc5
+hash: a4742246ca59e41bb6658648e328bb5e9b0a997d94374f6a7f0287668db72034

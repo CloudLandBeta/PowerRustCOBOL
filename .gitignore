@@ -46,6 +46,10 @@ examples/*/data/*chunked.data
 # Editor backups of a form — the .cfrm beside them IS the source.
 examples/*/forms/**/*.bak-*
 examples/*/forms/**/*.backup
+examples/*/forms/**/*.backup-*
+
+# The lock an open indexed file holds beside itself — runtime state, not data.
+*.lck
 
 # Grace's workflow run records — a log of past agent runs, not project source.
 examples/*/agentic_ai/Grace/

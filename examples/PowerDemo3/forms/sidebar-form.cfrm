@@ -212,6 +212,8 @@
     <Property name="BorderStyle">None</Property>
     <Property name="BorderColor">#AAAAAA</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="AutoEnter">false</Property>
   </Control>
   <Control id="Panel-2" type="Panel" x="624" y="136" w="624" h="102" tab-order="0" z-order="3" visible="true" enabled="true">
     <Property name="BackgroundColor">#FFFFFFFF</Property>
@@ -1170,6 +1172,7 @@
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="CheckBoxBorderColor">#8B8B8BFF</Property>
+    <Property name="EnterAsTab">true</Property>
   </Control>
   <Control id="CheckBox-2" type="CheckBox" x="792" y="336" w="120" h="22" tab-order="0" z-order="125" visible="true" enabled="true" parent="Panel-7">
     <Property name="Caption">CheckBox-2</Property>
@@ -1207,6 +1210,7 @@
     <Property name="BorderColor">#000021FF</Property>
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="EnterAsTab">true</Property>
   </Control>
   <Control id="ToolBar-1" type="ToolBar" x="320" y="56" w="1120" h="64" tab-order="0" z-order="126" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
@@ -1449,6 +1453,7 @@
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="Selected">false</Property>
+    <Property name="EnterAsTab">true</Property>
     <Event name="onClick" paragraph="RADIOBUTTON-1--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -1569,6 +1574,7 @@
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="Selected">false</Property>
+    <Property name="EnterAsTab">true</Property>
     <Event name="onClick" paragraph="RADIOBUTTON-2--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -1619,6 +1625,7 @@
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="Selected">false</Property>
+    <Property name="EnterAsTab">true</Property>
     <Event name="onClick" paragraph="RADIOBUTTON-3--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -1669,6 +1676,7 @@
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="Selected">false</Property>
+    <Property name="EnterAsTab">true</Property>
     <Event name="onClick" paragraph="RADIOBUTTON-4--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -2176,6 +2184,8 @@ Fortran
     <Property name="BorderStyle">None</Property>
     <Property name="BorderColor">#AAAAAA</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="AutoEnter">false</Property>
   </Control>
   <Control id="Panel-11" type="Panel" x="1137" y="736" w="392" h="120" tab-order="0" z-order="384" visible="true" enabled="true" parent="Splitter-1-Pane2">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
@@ -2361,6 +2371,8 @@ Fortran
     <Property name="BorderStyle">None</Property>
     <Property name="BorderColor">#AAAAAA</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="AutoEnter">false</Property>
   </Control>
   <Control id="RadioButton-5" type="RadioButton" x="1148" y="780" w="140" h="22" tab-order="0" z-order="387" visible="true" enabled="true" parent="Splitter-2-Pane1">
     <Property name="Caption">RadioButton</Property>
@@ -2401,6 +2413,7 @@ Fortran
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="Selected">false</Property>
+    <Property name="EnterAsTab">true</Property>
   </Control>
   <Control id="Gauge-3" type="Gauge" x="1324" y="756" w="116" h="68" tab-order="0" z-order="388" visible="true" enabled="true" parent="Splitter-2-Pane1">
     <Property name="BackgroundColor">#E1E6F8FF</Property>

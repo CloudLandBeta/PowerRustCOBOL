@@ -29,7 +29,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 destination_folder = "PowerDemo3"
 debug_compilation = true
-built_with_version = "1.70.100"
+built_with_version = "1.70.223"
 
 [files]
 sources = ["src/main.cbl"]
@@ -58,6 +58,7 @@ forms = [
     "forms/Common/filedropzone-form.cfrm",
     "forms/Common/knob-form.cfrm",
     "forms/Common/gauge-form.cfrm",
+    "forms/Common/main-form.cfrm",
     "forms/Common/viewer-form.cfrm",
     "forms/Containers/groupbox-form.cfrm",
     "forms/Containers/panel-form.cfrm",
@@ -136,6 +137,8 @@ generated = [
     "generated/indexedfile-form.cbl",
     "generated/websearch-form.cbl",
     "generated/actors-indexed.cbl",
+    "generated/main-form.cbl",
+    "generated/viewer-form.cbl",
 ]
 indexed = ["indexed/actors.cidx"]
 
@@ -164,8 +167,11 @@ exit-effect = "iris-wipe"
 exit-ms = 400
 exit-easing = "ease-in"
 entrance-on-restore = true
+focus-ring = true
+focus-ring-color = ""
+focus-ring-pulse = true
 main-form = "SIDEBAR-FORM"
-main-form-seal = "7a32e547d5231dfdb1749c554f204d9fbc9da4a6e965bf53bac6867ded5a09a3"
+main-form-seal = "d18ee77df9a24ec6cca0bd0c9898e70a9eac30ffa2d98abf7d5135cf9b2994fc"
 
 [ai]
 schema_version = 1

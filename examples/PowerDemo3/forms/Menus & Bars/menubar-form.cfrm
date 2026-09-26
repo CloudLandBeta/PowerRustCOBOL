@@ -222,6 +222,8 @@
     <Property name="BorderStyle">None</Property>
     <Property name="BorderColor">#AAAAAA</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="AutoEnter">false</Property>
   </Control>
   <Control id="MenuBar-Demo" type="MenuBar" x="0" y="0" w="1000" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#C7C7C7FF</Property>
@@ -289,19 +291,35 @@
        WORKING-STORAGE SECTION.
        01 WS-LINE PIC X(160).
        01 WS-NL   PIC X.
+       01 WS-ITEM PIC X(4).
+       01 WS-NAME PIC X(40).
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
            MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> COBOL-CONTROL-ID carries the menu item that was chosen.
+      *> SelectedItemId carries the id of the menu item that was chosen,
+      *> by a click or its accelerator. COBOL-CONTROL-ID is the MenuBar itself.
+      *> Each id is fixed; copy it from the menu editor's Copy button.
+           MOVE MenuBar-Demo::SelectedItemId TO WS-ITEM.
+           EVALUATE WS-ITEM
+               WHEN "dnjj" MOVE "File > New order"    TO WS-NAME
+               WHEN "kvjr" MOVE "File > Open order"   TO WS-NAME
+               WHEN "glco" MOVE "File > Save"         TO WS-NAME
+               WHEN "khvy" MOVE "Edit > Copy"         TO WS-NAME
+               WHEN "lxss" MOVE "Edit > Paste"        TO WS-NAME
+               WHEN "otab" MOVE "View > Show the grid" TO WS-NAME
+               WHEN "xpdo" MOVE "View > Show the log" TO WS-NAME
+               WHEN "otyl" MOVE "Help > About"        TO WS-NAME
+               WHEN OTHER  MOVE "(unknown item)"      TO WS-NAME
+           END-EVALUATE.
       *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
       *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
       *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
       *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
       *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
       *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "menu item chosen: " COBOL-CONTROL-ID INTO WS-LINE.
+           STRING "menu item chosen: " WS-ITEM INTO WS-LINE.
       *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
       *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
       *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
@@ -309,6 +327,8 @@
       *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
       *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
            Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(" - ").
+           Txt-Log::AppendText(FUNCTION TRIM(WS-NAME)).
            Txt-Log::AppendText(WS-NL).
 
       *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
@@ -317,7 +337,7 @@
       *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
       *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
       *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-           MOVE WS-LINE TO Lbl-Last::Caption.
+           MOVE WS-NAME TO Lbl-Last::Caption.
 ]]></Event>
   </Control>
   <Control id="Lbl-Last-Cap" type="Label" x="48" y="200" w="300" h="20" tab-order="0" z-order="0" visible="true" enabled="true">

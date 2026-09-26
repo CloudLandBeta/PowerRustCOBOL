@@ -1,0 +1,25 @@
+{
+  "id": "f03b2b23-32ab-4ebf-bd66-95350dccec9a",
+  "name": "COBOL Event Handler Script Agent",
+  "kind": "specialist",
+  "specialization": "cobol-events",
+  "purpose": "Implements delegated COBOL-85 / RustCOBOL event handlers.",
+  "enabled": true,
+  "provider": "ollama_cloud",
+  "endpoint": "https://ollama.com/api/chat",
+  "model": "some-vendor/a-fairly-long-model-identifier:latest",
+  "temperature": 0.7,
+  "max_tokens": 8192,
+  "timeout_secs": 30,
+  "model_profile": null,
+  "no_model": false,
+  "routing": "Receives event implementation tasks from Grace or Form Designer Agent; returns complete COBOL-85/RustCOBOL handlers and validation evidence to Grace; performs no form design or documentation writes.",
+  "companion": "33ed9986-30d2-43d8-949b-750071a5ed6d",
+  "steering": [],
+  "policies": [],
+  "skills": [],
+  "tools": [
+    "knowledge.search"
+  ],
+  "knowledge": []
+}

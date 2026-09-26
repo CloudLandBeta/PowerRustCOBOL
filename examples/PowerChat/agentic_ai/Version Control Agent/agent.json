@@ -1,0 +1,27 @@
+{
+  "id": "9ee1c869-af53-40ed-b970-f6753b6033a9",
+  "name": "Version Control Agent",
+  "kind": "specialist",
+  "specialization": "version-control",
+  "purpose": "Manages Git for the project: branches, commits, push, revert, rebase.",
+  "enabled": true,
+  "provider": "ollama_cloud",
+  "endpoint": "https://ollama.com/api/chat",
+  "model": "some-vendor/a-fairly-long-model-identifier:latest",
+  "temperature": 0.7,
+  "max_tokens": 8192,
+  "timeout_secs": 30,
+  "model_profile": null,
+  "no_model": false,
+  "routing": "Receives project Git tasks from Grace or an explicit developer request; requires confirmation for destructive or history-changing operations; returns command evidence and repository state to Grace.",
+  "companion": "3ee27935-5a1a-41c8-a2b8-db8babc5050b",
+  "steering": [],
+  "policies": [],
+  "skills": [],
+  "tools": [
+    "git (project repository)",
+    "git.run",
+    "knowledge.search"
+  ],
+  "knowledge": []
+}

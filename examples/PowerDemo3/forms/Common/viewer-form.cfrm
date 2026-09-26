@@ -69,6 +69,8 @@
            Txt-Log::AppendText("Viewer demo ready.").
            Txt-Log::AppendText(WS-NL).
 ]]></Event>
+    <Event name="onClose" paragraph="VIEWER-FORM--ONCLOSE">
+    </Event>
   </form-events>
   <Control id="Lbl-Title" type="Label" x="24" y="16" w="1232" h="28" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Viewer</Property>
@@ -76,6 +78,20 @@
     <Property name="FontSize">20</Property>
     <Property name="FontName">Arial</Property>
     <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
   </Control>
   <Control id="Lbl-Status" type="Label" x="24" y="50" w="1232" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Ready.</Property>
@@ -83,11 +99,41 @@
     <Property name="FontSize">12</Property>
     <Property name="FontName">Arial</Property>
     <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
   </Control>
-  <Control id="Fdz-View1" type="FileDropZone" x="24" y="84" w="352" h="52" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Fdz-View1" type="FileDropZone" x="400" y="112" w="352" h="52" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Hint">Click to choose a file for view 1 (or drop one here)</Property>
     <Property name="StageOnly">true</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onFilesDropped" paragraph="FDZ-VIEW1--ONFILESDROPPED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -114,10 +160,26 @@
            Txt-Log::AppendText(WS-NL).
 ]]></Event>
   </Control>
-  <Control id="Fdz-View2" type="FileDropZone" x="24" y="142" w="352" h="52" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Fdz-View2" type="FileDropZone" x="904" y="112" w="352" h="52" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Hint">Click to choose a file for view 2 (turns on split view)</Property>
     <Property name="StageOnly">true</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onFilesDropped" paragraph="FDZ-VIEW2--ONFILESDROPPED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -151,10 +213,40 @@
     <Property name="FontSize">11</Property>
     <Property name="FontName">Arial</Property>
     <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
   </Control>
   <Control id="Btn-Layout-Raw" type="Button" x="24" y="222" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Raw</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-LAYOUT-RAW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -169,6 +261,22 @@
   <Control id="Btn-Layout-Web" type="Button" x="204" y="222" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Web</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-LAYOUT-WEB--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -183,6 +291,22 @@
   <Control id="Btn-Layout-Print" type="Button" x="24" y="254" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Print</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-LAYOUT-PRINT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -197,6 +321,22 @@
   <Control id="Btn-Layout-Page" type="Button" x="204" y="254" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Page</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-LAYOUT-PAGE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -211,6 +351,22 @@
   <Control id="Btn-Layout-Streamed" type="Button" x="24" y="286" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Streamed</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-LAYOUT-STREAMED--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -225,6 +381,22 @@
   <Control id="Btn-Fullscreen" type="Button" x="204" y="286" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Fullscreen</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-FULLSCREEN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -246,10 +418,40 @@
     <Property name="FontSize">11</Property>
     <Property name="FontName">Arial</Property>
     <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
   </Control>
   <Control id="Btn-Split-None" type="Button" x="24" y="340" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Split: none</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-SPLIT-NONE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -264,6 +466,22 @@
   <Control id="Btn-Split-LR" type="Button" x="204" y="340" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Split: side by side</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-SPLIT-LR--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -278,6 +496,22 @@
   <Control id="Btn-Split-TB" type="Button" x="24" y="372" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Split: stacked</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-SPLIT-TB--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -292,6 +526,22 @@
   <Control id="Btn-Filmstrip" type="Button" x="204" y="372" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Filmstrip</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-FILMSTRIP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -310,6 +560,22 @@
   <Control id="Btn-Full" type="Button" x="24" y="404" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Mode: full</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-FULL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -324,6 +590,22 @@
   <Control id="Btn-Cards" type="Button" x="204" y="404" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Mode: cards</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-CARDS--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -341,10 +623,40 @@
     <Property name="FontSize">11</Property>
     <Property name="FontName">Arial</Property>
     <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
   </Control>
   <Control id="Btn-Zoom-Out" type="Button" x="24" y="458" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Zoom out</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-ZOOM-OUT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -362,6 +674,22 @@
   <Control id="Btn-Zoom-In" type="Button" x="204" y="458" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Zoom in</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-ZOOM-IN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -380,6 +708,22 @@
   <Control id="Btn-Zoom-100" type="Button" x="24" y="490" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Zoom 100%</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-ZOOM-100--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -394,6 +738,22 @@
   <Control id="Btn-Font-Up" type="Button" x="204" y="490" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Font +</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-FONT-UP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -412,6 +772,22 @@
   <Control id="Btn-Prev-Page" type="Button" x="24" y="522" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Previous page</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-PREV-PAGE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -429,6 +805,22 @@
   <Control id="Btn-Next-Page" type="Button" x="204" y="522" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Next page</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-NEXT-PAGE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -448,14 +840,60 @@
     <Property name="FontSize">11</Property>
     <Property name="FontName">Arial</Property>
     <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
   </Control>
   <Control id="Txt-Find" type="TextBox" x="24" y="576" w="352" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Text">COBOL</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Fixed3D</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
   </Control>
   <Control id="Btn-Find" type="Button" x="24" y="608" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Find</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-FIND--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -474,6 +912,22 @@
   <Control id="Btn-Find-Next" type="Button" x="204" y="608" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Next match</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-FIND-NEXT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -492,6 +946,22 @@
   <Control id="Btn-Find-Prev" type="Button" x="24" y="640" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Previous match</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-FIND-PREV--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -510,6 +980,22 @@
   <Control id="Btn-Find-Close" type="Button" x="204" y="640" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Close find</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-FIND-CLOSE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -525,6 +1011,24 @@
     <Property name="Caption">Case sensitive</Property>
     <Property name="Checked">false</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#8C8CA0</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="CHK-CASE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -545,6 +1049,24 @@
     <Property name="Caption">Highlight</Property>
     <Property name="Checked">true</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#8C8CA0</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="CHK-HIGHLIGHT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -566,6 +1088,20 @@
     <Property name="FontSize">11</Property>
     <Property name="FontName">Arial</Property>
     <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
   </Control>
   <Control id="Cap-Actions" type="Label" x="24" y="724" w="352" h="18" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Save, print, share - and the live stream</Property>
@@ -573,10 +1109,40 @@
     <Property name="FontSize">11</Property>
     <Property name="FontName">Arial</Property>
     <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
   </Control>
   <Control id="Btn-Save" type="Button" x="24" y="746" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Save as...</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-SAVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -594,6 +1160,22 @@
   <Control id="Btn-Print" type="Button" x="204" y="746" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Print</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-PRINT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -608,6 +1190,22 @@
   <Control id="Btn-Share" type="Button" x="24" y="778" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Share</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-SHARE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -622,6 +1220,22 @@
   <Control id="Btn-Jump" type="Button" x="204" y="778" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Jump to latest</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-JUMP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -636,6 +1250,22 @@
   <Control id="Btn-Stream-Start" type="Button" x="24" y="810" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Start stream</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-STREAM-START--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -657,6 +1287,22 @@
   <Control id="Btn-Stream-Stop" type="Button" x="204" y="810" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Stop stream</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-STREAM-STOP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -672,6 +1318,22 @@
   <Control id="Btn-New-Conv" type="Button" x="24" y="842" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">New conversation</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-NEW-CONV--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -687,6 +1349,22 @@
   <Control id="Btn-Reg-Conv" type="Button" x="204" y="842" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Register past one</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-REG-CONV--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -704,6 +1382,22 @@
   <Control id="Btn-Sel-Conv" type="Button" x="24" y="874" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Select past one</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-SEL-CONV--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -720,10 +1414,42 @@
     <Property name="Minimum">0</Property>
     <Property name="Maximum">100000</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
   </Control>
   <Control id="Btn-Sample-Md" type="Button" x="24" y="906" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Sample: Markdown</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-SAMPLE-MD--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -739,6 +1465,22 @@
   <Control id="Btn-Sample-Txt" type="Button" x="204" y="906" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Sample: paged text</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onClick" paragraph="BTN-SAMPLE-TXT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -755,7 +1497,7 @@
            Txt-Log::AppendText(WS-NL).
 ]]></Event>
   </Control>
-  <Control id="VWR-1" type="Viewer" x="400" y="84" w="856" h="726" tab-order="0" z-order="1" visible="true" enabled="true">
+  <Control id="VWR-1" type="Viewer" x="400" y="192" w="856" h="615" tab-order="0" z-order="1" visible="true" enabled="true">
     <Property name="Layout">Page</Property>
     <Property name="SplitMode">None</Property>
     <Property name="SplitPercent">50</Property>
@@ -764,6 +1506,22 @@
     <Property name="View1CardSize">55</Property>
     <Property name="FontSize">14</Property>
     <Property name="RenderAsHtml">true</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onLoaded" paragraph="VWR-1--ONLOADED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -806,6 +1564,20 @@
   <Control id="Tmr-Stream" type="Timer" x="1200" y="16" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Interval">120</Property>
     <Property name="Enabled">false</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Event name="onTick" paragraph="TMR-STREAM--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -860,10 +1632,25 @@
 ]]></Event>
   </Control>
   <Control id="Txt-Log" type="TextBox" x="400" y="822" w="856" h="108" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="Text"></Property>
     <Property name="Multiline">true</Property>
     <Property name="ReadOnly">true</Property>
     <Property name="FontSize">11</Property>
     <Property name="FontName">Courier New</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Fixed3D</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
   </Control>
 </Form>
