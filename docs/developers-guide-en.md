@@ -2121,20 +2121,34 @@ Name the sub-fields instead and it reads your own layout:
        01  WS-SALES-COUNT         PIC 99 VALUE 12.
 ```
 
-with `LabelField` = `SALES-MONTH` and `ValueFields` = `SALES-AMOUNT`. A running
-chart draws **one** series, so only the first field in `ValueFields` is plotted.
-On a scatter chart, `BubbleField` = `SALES-VOLUME` sizes each bubble (the
-largest is `BubbleScale` across its radius); `AddPoint` takes a size as a third
-argument for one point at a time:
+with `LabelField` = `SALES-MONTH` and `ValueFields` = `SALES-AMOUNT`.
+
+**More than one series.** Name more fields in `ValueFields` —
+`SALES-AMOUNT, SALES-VOLUME` — and a bar, line or area chart draws one series
+per field, coloured from `SeriesColors` and named in the legend by
+`SeriesLabels`. One point at a time, `AddPoint` takes a value per series:
 
 ```cobol
-           INVOKE CH-SALES 'AddPoint' USING "APR" 7 9
+           INVOKE CH-SALES 'AddPoint' USING "APR" 7 9 4
 ```
 
-> **Retired.** `Stacked` promised stacked bars and areas, but a running chart
-> draws one series, so there is nothing to stack; it is no longer seeded or
-> shown. A pie or donut no longer carries `ShowXAxis` / `ShowYAxis` — it has no
-> axes. `BarCornerRadius` rounds **every** corner of a bar.
+A point given fewer values than the others is 0 in the series it leaves out.
+**`Stacked`** (bar and area charts) piles the series up instead of standing
+them side by side: each label becomes one bar made of coloured segments — or
+one band per series on an area chart — so it reads as the label's total, and
+the plot scales to the largest total.
+
+On a **scatter chart** there is one series, and the third `AddPoint` argument
+is the bubble's size instead; `BubbleField` = `SALES-VOLUME` sizes every bubble
+from the table (the largest is `BubbleScale` across its radius). A pie or donut
+draws the first series.
+
+> ⚠️ **Caveat.** A tooltip (`ShowTooltips`) reports the **first** series' value
+> for the label under the pointer, also on a stacked bar.
+>
+> A pie or donut no longer carries `ShowXAxis` / `ShowYAxis` — it has no axes.
+> `BarCornerRadius` rounds **every** corner of a bar — on a stacked bar, only
+> the top segment's, so the joints stay flat.
 
 **Non-visual services**
 : Timer, AgentObject (AI agent), RestClient, SqlDatabase, **IndexedFile**,

@@ -5972,8 +5972,8 @@ impl Control {
                                                                                    // Bar/Line/Area specifics
                 if matches!(control_type, ControlType::BarChart) {
                     props.insert("Horizontal".into(), PropValue::Bool(false));
-                    // `Stacked` is retired: a running chart holds ONE series,
-                    // so there is nothing to stack (property audit, 2026-09-26).
+                    // Several series pile up instead of standing side by side.
+                    props.insert("Stacked".into(), PropValue::Bool(false));
                     props.insert("BarCornerRadius".into(), PropValue::Int(3));
                 }
                 if matches!(
@@ -5985,6 +5985,7 @@ impl Control {
                     props.insert("PointRadius".into(), PropValue::Int(4));
                     if matches!(control_type, ControlType::AreaChart) {
                         props.insert("FillAlpha".into(), PropValue::Int(40)); // 0-100%
+                        props.insert("Stacked".into(), PropValue::Bool(false));
                     }
                 }
                 // The frame border, like every other control's — and, charts

@@ -1604,6 +1604,11 @@ pub struct Interpreter {
     /// from `BubbleField` or a third AddPoint argument. Sent beside the
     /// points as `__ChartSizes` so the points' own wire format is untouched.
     chart_sizes: HashMap<String, Vec<f64>>,
+    /// The values of the SECOND and later series, one list per point in
+    /// `chart_data` — from the other `ValueFields`, or extra `AddPoint`
+    /// arguments on a bar, line or area chart. Written into `__ChartData`
+    /// after the first value (`label<TAB>v1<TAB>v2…`).
+    chart_more: HashMap<String, Vec<Vec<f64>>>,
     /// The last FILE STATUS code of every file, by upper-cased name, whether
     /// or not its SELECT declares a status item. Read by `COBOL-FILE-STATUS`.
     last_file_status: HashMap<String, String>,
@@ -2068,6 +2073,7 @@ impl Interpreter {
             event_pending: None,
             chart_data: HashMap::new(),
             chart_sizes: HashMap::new(),
+            chart_more: HashMap::new(),
             last_file_status: HashMap::new(),
             async_result_tx,
             async_result_rx,
@@ -10925,29 +10931,33 @@ impl Interpreter {
                 let chart = id.trim().to_owned();
                 let id = chart.to_ascii_uppercase();
                 match self.chart_points_from_fields(&chart, count) {
-                    Some((points, sizes)) => {
+                    Some((points, sizes, more)) => {
                         self.chart_data.insert(id.clone(), points);
                         self.chart_sizes.insert(id.clone(), sizes);
+                        self.chart_more.insert(id.clone(), more);
                     }
                     None => {
                         self.chart_data.insert(id.clone(), parse_chart_table(&raw, count));
                         self.chart_sizes.remove(&id);
+                        self.chart_more.remove(&id);
                     }
                 }
                 self.push_chart_data(&id);
             }
-            // COBOL-CHART-ADD-POINT chart-id label value [size]  (append one point;
-            // `size` is a ScatterChart bubble's)
+            // COBOL-CHART-ADD-POINT chart-id label value [more…]  (append one
+            // point; on a ScatterChart the fourth argument is its bubble's
+            // size, on a bar, line or area chart each further argument is the
+            // point's value in the next series)
             "COBOL-CHART-ADD-POINT" if using.len() >= 3 => {
                 let id = self.eval_call_arg(&using[0], span)?.as_display_string();
                 let label = self.eval_call_arg(&using[1], span)?.as_display_string();
                 let value = self.eval_call_arg(&using[2], span)?.as_f64();
-                let size = match using.get(3) {
-                    Some(a) => Some(self.eval_call_arg(a, span)?.as_f64()),
-                    None => None,
-                };
+                let mut rest = Vec::new();
+                for a in using.iter().skip(3) {
+                    rest.push(self.eval_call_arg(a, span)?.as_f64());
+                }
                 let id = id.trim().to_ascii_uppercase();
-                self.add_chart_point(&id, label.trim().to_owned(), value, size);
+                self.add_chart_point_args(&id, label.trim().to_owned(), value, rest);
                 self.push_chart_data(&id);
             }
             // COBOL-FILE-STATUS file-name status-item
@@ -10977,6 +10987,7 @@ impl Interpreter {
                 let id = id.trim().to_ascii_uppercase();
                 self.chart_data.remove(&id);
                 self.chart_sizes.remove(&id);
+                self.chart_more.remove(&id);
                 self.push_chart_data(&id);
             }
             // COBOL-CHART-REFRESH chart-id  (re-send current data → repaint)
@@ -12705,6 +12716,7 @@ impl Interpreter {
         let key = control_id.to_ascii_uppercase();
         self.chart_data.insert(key.clone(), points);
         self.chart_sizes.remove(&key);
+        self.chart_more.remove(&key);
         self.push_chart_data(&key);
         n
     }
@@ -13522,8 +13534,17 @@ impl Interpreter {
             .chart_data
             .get(id)
             .map(|pts| {
+                let more = self.chart_more.get(id);
                 pts.iter()
-                    .map(|(l, v)| format!("{}\t{}", l.replace(['\t', '\n'], " "), v))
+                    .enumerate()
+                    .map(|(i, (l, v))| {
+                        let mut line = format!("{}\t{}", l.replace(['\t', '\n'], " "), v);
+                        for m in more.and_then(|m| m.get(i)).into_iter().flatten() {
+                            line.push('\t');
+                            line.push_str(&m.to_string());
+                        }
+                        line
+                    })
                     .collect::<Vec<_>>()
                     .join("\n")
             })
@@ -13544,6 +13565,34 @@ impl Interpreter {
     /// Append one point to a chart, and its bubble size when one is given. A
     /// chart that had sizes and is given a point without one keeps its list
     /// aligned with a zero, so size `i` is always point `i`'s.
+    /// An `AddPoint`'s arguments after the value: a ScatterChart's bubble
+    /// size, or on any other chart the point's value in each further series.
+    /// A point with fewer series than the one before it is padded with zeros
+    /// so the series stay aligned; a point with more pads the earlier ones.
+    fn add_chart_point_args(&mut self, key: &str, label: String, value: f64, rest: Vec<f64>) {
+        let scatter = self
+            .objects
+            .get(key)
+            .or_else(|| self.objects.iter().find(|(k, _)| k.eq_ignore_ascii_case(key)).map(|(_, o)| o))
+            .is_some_and(|o| o.class.eq_ignore_ascii_case("ScatterChart"));
+        if scatter {
+            self.add_chart_point(key, label, value, rest.first().copied());
+            return;
+        }
+        self.add_chart_point(key, label, value, None);
+        if rest.is_empty() && !self.chart_more.contains_key(key) {
+            return;
+        }
+        let n = self.chart_data.get(key).map(Vec::len).unwrap_or(0);
+        let more = self.chart_more.entry(key.to_owned()).or_default();
+        more.resize(n.saturating_sub(1), Vec::new());
+        more.push(rest);
+        let width = more.iter().map(Vec::len).max().unwrap_or(0);
+        for m in more.iter_mut() {
+            m.resize(width, 0.0);
+        }
+    }
+
     fn add_chart_point(&mut self, key: &str, label: String, value: f64, size: Option<f64>) {
         let points = self.chart_data.entry(key.to_owned()).or_default();
         points.push((label, value));
@@ -13561,11 +13610,19 @@ impl Interpreter {
     /// no label and value field, so `SET-TABLE` keeps reading the fixed
     /// layout (`PIC X(64)` label + `PIC 9(18)V9(6)` value) it always has.
     /// Neither property was read by anything (property audit, 2026-09-26).
-    fn chart_points_from_fields(&self, chart: &str, count: usize) -> Option<(Vec<(String, f64)>, Vec<f64>)> {
+    #[allow(clippy::type_complexity)]
+    fn chart_points_from_fields(
+        &self,
+        chart: &str,
+        count: usize,
+    ) -> Option<(Vec<(String, f64)>, Vec<f64>, Vec<Vec<f64>>)> {
         let prop = |k: &str| self.obj_get(chart, k).trim().to_owned();
         let label = prop("LabelField");
         let values = prop("ValueFields");
-        let value = values.split(',').map(str::trim).find(|v| !v.is_empty())?.to_owned();
+        let mut fields = values.split(',').map(str::trim).filter(|v| !v.is_empty());
+        let value = fields.next()?.to_owned();
+        // Every further field is one more series, read the same way.
+        let others: Vec<String> = fields.map(|f| self.env.resolve_name(f, &[])).collect();
         if label.is_empty() {
             return None;
         }
@@ -13574,6 +13631,7 @@ impl Interpreter {
         let bubble = (!bubble.is_empty()).then(|| self.env.resolve_name(&bubble, &[]));
         let mut points = Vec::new();
         let mut sizes = Vec::new();
+        let mut more = Vec::new();
         for i in 1..=count {
             let at = |f: &str| crate::environment::subscript_key(f, &[i as i64]);
             let text = self.env.get(&at(&label)).map(|v| v.as_display_string().trim().to_owned()).unwrap_or_default();
@@ -13582,8 +13640,12 @@ impl Interpreter {
             if let Some(b) = &bubble {
                 sizes.push(self.env.get(&at(b)).map(|v| v.as_f64()).unwrap_or(0.0));
             }
+            more.push(others.iter().map(|f| self.env.get(&at(f)).map(|v| v.as_f64()).unwrap_or(0.0)).collect());
         }
-        Some((points, sizes))
+        if others.is_empty() {
+            more.clear();
+        }
+        Some((points, sizes, more))
     }
 
     // ── Expression evaluation ─────────────────────────────────────────────────
@@ -15001,6 +15063,7 @@ impl Interpreter {
                     let key = obj.to_ascii_uppercase();
                     self.chart_data.remove(&key);
                     self.chart_sizes.remove(&key);
+                    self.chart_more.remove(&key);
                     self.push_chart_data(&key);
                 }
                 self.obj_set(obj, "Text", String::new());
@@ -15059,9 +15122,10 @@ impl Interpreter {
                 let key = obj.to_ascii_uppercase();
                 let label = arg(0);
                 let value = args.get(1).map(|v| v.as_f64()).unwrap_or(0.0);
-                // A third argument is a ScatterChart bubble's size.
-                let size = args.get(2).map(|v| v.as_f64());
-                self.add_chart_point(&key, label, value, size);
+                // Further arguments: a ScatterChart bubble's size, or the
+                // point's value in each further series.
+                let rest: Vec<f64> = args.iter().skip(2).map(|v| v.as_f64()).collect();
+                self.add_chart_point_args(&key, label, value, rest);
                 self.push_chart_data(&key);
                 none
             }

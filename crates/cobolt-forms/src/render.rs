@@ -2072,8 +2072,8 @@ fn panel_content_size(
 /// state, it must not be saved into a `.cfrm`, and it dies with the window.
 #[derive(Clone, PartialEq)]
 struct ChartTween {
-    from: Vec<crate::chart::Point>,
-    to: Vec<crate::chart::Point>,
+    from: Vec<crate::chart::Row>,
+    to: Vec<crate::chart::Row>,
     started: f64,
 }
 
@@ -12356,7 +12356,7 @@ fn render_interactive(
             let grown_owner;
             let mut chart_ctrl = ctrl;
             if let Some(anim_ms) = crate::chart::value_anim_ms(ctrl) {
-                let target = crate::chart::parse_chart_data(
+                let target = crate::chart::parse_chart_rows(
                     &ctrl
                         .get_prop("__ChartData")
                         .map(|v| v.as_str().to_owned())
@@ -12376,7 +12376,7 @@ fn render_interactive(
                     let from = match &prior {
                         Some(s) if now - s.started < secs => {
                             let t = ((now - s.started) / secs) as f32;
-                            crate::chart::tween_series(&s.from, &s.to, t)
+                            crate::chart::tween_rows(&s.from, &s.to, t)
                         }
                         Some(s) => s.to.clone(),
                         // The FIRST data a chart is given is not animated at
@@ -12401,8 +12401,8 @@ fn render_interactive(
                     let mut c = ctrl.clone();
                     c.set_prop(
                         "__ChartData",
-                        crate::model::PropValue::String(crate::chart::format_chart_data(
-                            &crate::chart::tween_series(&state.from, &state.to, t),
+                        crate::model::PropValue::String(crate::chart::format_chart_rows(
+                            &crate::chart::tween_rows(&state.from, &state.to, t),
                         )),
                     );
                     tweened_owner = c;
@@ -22068,6 +22068,54 @@ mod tests {
         assert!(bob.min.x > bob_plain.min.x + 10.0, "the gutter pushes the columns right");
         assert!(!plain.texts.iter().any(|p| p.text == "3"), "off: no numbers");
         println!("\n  DataGrid ShowRowNumbers -- 1, 2, 3 painted left of the cells; the first column moves right to make room\n");
+    }
+
+    /// Several series, and `Stacked`: side by side each bar stands on the
+    /// axis; stacked, a label's second series sits exactly on its first, and
+    /// the tallest stack (A: 10+10) reaches as high as the tallest single bar
+    /// (B: 20) — the plot scales to totals.
+    #[test]
+    fn a_bar_chart_stacks_its_series_when_asked() {
+        let red = Color32::from_rgb(255, 0, 0);
+        let green = Color32::from_rgb(0, 255, 0);
+        let bars = |stacked: &str| -> (Vec<Rect>, Vec<Rect>) {
+            let chart = ctrlp(
+                "CH",
+                ControlType::BarChart,
+                20,
+                20,
+                300,
+                200,
+                &[
+                    ("__ChartData", "A\t10\t10\nB\t20\t0"),
+                    ("SeriesColors", "#FF0000,#00FF00"),
+                    ("Stacked", stacked),
+                    ("AnimateOnLoad", "false"),
+                ],
+            );
+            let painted = drive_painted(&[chart], vec![(0.0, vec![]), (0.05, vec![])]);
+            let of = |c: Color32| -> Vec<Rect> {
+                let mut v: Vec<Rect> =
+                    // The legend's 7-point swatches share the colours; the
+                    // bars are the wide ones.
+                    painted.fills.iter().filter(|(r, f)| *f == c && r.width() > 10.0).map(|(r, _)| *r).collect();
+                v.sort_by(|a, b| a.min.x.total_cmp(&b.min.x));
+                v.dedup();
+                v
+            };
+            (of(red), of(green))
+        };
+        let (r, g) = bars("false");
+        assert_eq!((r.len(), g.len()), (2, 1), "side by side: A and B in red, A in green: {r:?} {g:?}");
+        assert!((r[0].max.y - g[0].max.y).abs() < 0.5, "both stand on the axis");
+        assert!(g[0].min.x >= r[0].max.x - 0.5, "the green bar stands beside the red");
+
+        let (r, g) = bars("true");
+        assert_eq!((r.len(), g.len()), (2, 1), "stacked: {r:?} {g:?}");
+        assert!((g[0].max.y - r[0].min.y).abs() < 0.5, "A's green sits on its red: {r:?} {g:?}");
+        assert!((g[0].min.x - r[0].min.x).abs() < 0.5 && (g[0].max.x - r[0].max.x).abs() < 0.5, "one column");
+        assert!((g[0].min.y - r[1].min.y).abs() < 0.5, "A's stack is as tall as B's bar: {g:?} {r:?}");
+        println!("\n  BarChart Stacked -- two series side by side on the axis; stacked, A's second sits on its first and 10+10 reaches B's 20\n");
     }
 
     /// `AllowCellEditing`: a double-click opens the cell in a text box, Enter

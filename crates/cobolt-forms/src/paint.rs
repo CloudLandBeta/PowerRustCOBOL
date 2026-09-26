@@ -11443,6 +11443,23 @@ fn radial_disc_mesh(center: Pos2, rad: f32, cc: Color32, ce: Color32) -> egui::e
 
 /// Vertical gradient area fill below a polyline: each column fades from `top_c`
 /// at the line to `bot_c` at `baseline` — the line-chart gradient (spec 013).
+/// The band between two curves drawn with the same x steps — a stacked
+/// area's layer, from the series below it up to its own top.
+fn band_mesh(top: &[Pos2], bottom: &[Pos2], color: Color32) -> egui::epaint::Mesh {
+    let mut mesh = egui::epaint::Mesh::default();
+    let n = top.len().min(bottom.len());
+    for i in 0..n {
+        mesh.colored_vertex(top[i], color);
+        mesh.colored_vertex(bottom[i], color);
+    }
+    for i in 0..n.saturating_sub(1) {
+        let a = (2 * i) as u32;
+        mesh.add_triangle(a, a + 1, a + 2);
+        mesh.add_triangle(a + 1, a + 3, a + 2);
+    }
+    mesh
+}
+
 fn grad_area_mesh(
     top: &[Pos2],
     baseline: f32,
@@ -12344,12 +12361,26 @@ pub fn draw_chart_preview(
     // present it is auto-scaled to the plot and drawn; otherwise a representative
     // sample is shown, so the designer canvas and an unpopulated chart still look
     // meaningful.
-    let live: Vec<(String, f32)> = ctrl
+    // Every series a label carries (`label<TAB>v1<TAB>v2…`); `live` is the
+    // first, which is all a pie, a donut, a scatter and the tooltip read.
+    let live_rows: Vec<crate::chart::Row> = ctrl
         .get_prop("__ChartData")
         .map(|v| v.as_str().to_owned())
         .filter(|s| !s.trim().is_empty())
-        .map(|s| crate::chart::parse_chart_data(&s))
+        .map(|s| crate::chart::parse_chart_rows(&s))
         .unwrap_or_default();
+    let live: Vec<(String, f32)> = live_rows.iter().map(|(l, v)| (l.clone(), v[0])).collect();
+    let category_chart = matches!(ctrl.control_type, CT::BarChart | CT::LineChart | CT::AreaChart);
+    let series_count = if category_chart {
+        live_rows.iter().map(|(_, v)| v.len()).max().unwrap_or(0)
+    } else {
+        live_rows.len().min(1)
+    };
+    // `Stacked` (bar and area charts): each series sits on the ones before it,
+    // so a label's marks add up to its total. With one series there is
+    // nothing to stack and the chart draws as it always has.
+    let stacked = matches!(ctrl.control_type, CT::BarChart | CT::AreaChart)
+        && ctrl.get_prop("Stacked").map(|v| v.as_bool()).unwrap_or(false);
 
     // Sample fallback (normalised Y for 5 points, 2 series).
     let sample1: &[f32] = &[0.40, 0.70, 0.55, 0.85, 0.60];
@@ -12380,9 +12411,44 @@ pub fn draw_chart_preview(
         .unwrap_or(1.0)
         .clamp(0.0, 1.0);
     let live_norm: Vec<f32> = live_norm.iter().map(|v| v * grow).collect();
-    let series1: &[f32] = if live.is_empty() { sample1 } else { &live_norm };
-    let series2: &[f32] = if live.is_empty() { sample2 } else { &[] };
-    let n = series1.len().max(1);
+    // The series a bar, line or area chart plots, each auto-scaled into the
+    // plot: against the largest value of ANY series — or, stacked, against
+    // the largest total, so the tallest stack reaches the top. One series
+    // scales exactly as before.
+    let plotted: Vec<Vec<f32>> = if live.is_empty() {
+        vec![sample1.to_vec(), sample2.to_vec()]
+    } else if category_chart {
+        let value = |r: &crate::chart::Row, s: usize| r.1.get(s).copied().unwrap_or(0.0);
+        let maxv = if stacked {
+            live_rows.iter().map(|r| r.1.iter().map(|v| v.max(0.0)).sum::<f32>()).fold(0.0_f32, f32::max)
+        } else {
+            live_rows.iter().flat_map(|r| r.1.iter().copied()).fold(0.0_f32, f32::max)
+        }
+        .max(f32::EPSILON);
+        (0..series_count)
+            .map(|s| live_rows.iter().map(|r| (value(r, s).max(0.0) / maxv).clamp(0.0, 1.0) * grow).collect())
+            .collect()
+    } else {
+        vec![live_norm.clone()]
+    };
+    // Stacked, each series' marks run from the sum of the series before it
+    // (`bases`) to that sum plus its own (`tops`).
+    let (bases, tops): (Vec<Vec<f32>>, Vec<Vec<f32>>) = {
+        let mut bases = Vec::new();
+        let mut tops = Vec::new();
+        let mut acc = vec![0.0_f32; plotted.first().map(Vec::len).unwrap_or(0)];
+        for series in &plotted {
+            let base = if stacked { acc.clone() } else { vec![0.0; series.len()] };
+            let top: Vec<f32> = series.iter().zip(&base).map(|(v, b)| (v + b).min(1.0)).collect();
+            if stacked {
+                acc = top.clone();
+            }
+            bases.push(base);
+            tops.push(top);
+        }
+        (bases, tops)
+    };
+    let n = plotted.first().map(Vec::len).unwrap_or(0).max(1);
 
     let px_x = |i: usize| plot.min.x + (i as f32 + 0.5) / n as f32 * plot.width();
     let px_y = |v: f32| plot.max.y - v * plot.height();
@@ -12411,9 +12477,41 @@ pub fn draw_chart_preview(
                 .map(|v| v.as_i64() as f32)
                 .unwrap_or(3.0)
                 .max(0.0);
-            for (si, series) in [series1, series2].iter().enumerate() {
+            let k = plotted.len();
+            // Side by side, more than two series share the slot; one or two
+            // keep the historical geometry exactly.
+            let (bar_w, gap) = if k > 2 && !stacked {
+                (bar_total * 0.76 / k as f32, bar_total * 0.10 / k as f32)
+            } else {
+                (bar_w, gap)
+            };
+            let slot_h = plot.height() / n as f32;
+            for (si, series) in plotted.iter().enumerate() {
                 for (i, &v) in series.iter().enumerate() {
-                    let br = if horizontal {
+                    let br = if stacked {
+                        // One bar per label, its series piled up in order.
+                        let (lo, hi) = (bases[si][i], tops[si][i]);
+                        if horizontal {
+                            let th = slot_h * 0.6;
+                            let y = plot.min.y + i as f32 * slot_h + (slot_h - th) * 0.5;
+                            egui::Rect::from_min_max(
+                                Pos2::new(plot.min.x + lo * plot.width(), y),
+                                Pos2::new(plot.min.x + hi * plot.width(), y + th),
+                            )
+                        } else {
+                            let w = bar_total * 0.6;
+                            let x = plot.min.x + i as f32 * bar_total + (bar_total - w) * 0.5;
+                            egui::Rect::from_min_max(
+                                Pos2::new(x, plot.max.y - hi * plot.height()),
+                                Pos2::new(x + w, plot.max.y - lo * plot.height()),
+                            )
+                        }
+                    } else if horizontal && k > 2 {
+                        let th = slot_h * 0.76 / k as f32;
+                        let g = slot_h * 0.10 / k as f32;
+                        let y = plot.min.y + i as f32 * slot_h + g + si as f32 * (th + g);
+                        egui::Rect::from_min_size(Pos2::new(plot.min.x, y), Vec2::new(v * plot.width(), th))
+                    } else if horizontal {
                         let y = plot.min.y
                             + (i as f32 + 0.5 + si as f32 * (0.5 + gap)) / n as f32 * plot.height()
                             - bar_w * 0.5;
@@ -12425,7 +12523,16 @@ pub fn draw_chart_preview(
                         let h = v * plot.height();
                         egui::Rect::from_min_size(Pos2::new(x, plot.max.y - h), Vec2::new(bar_w, h))
                     };
-                    let r = bar_corner.min(br.width() * 0.5).min(br.height() * 0.5);
+                    if br.width() <= 0.0 || br.height() <= 0.0 {
+                        continue;
+                    }
+                    // Stacked, only the top segment is rounded: a rounded joint
+                    // between two segments shows as a notch.
+                    let r = if stacked && si + 1 < k {
+                        0.0
+                    } else {
+                        bar_corner.min(br.width() * 0.5).min(br.height() * 0.5)
+                    };
                     if gradient {
                         // Each bar gets its own light→dark vertical gradient, with
                         // the configured rounded corners.
@@ -12442,7 +12549,7 @@ pub fn draw_chart_preview(
             }
         }
         CT::LineChart => {
-            for (si, series) in [series1, series2].iter().enumerate() {
+            for (si, series) in plotted.iter().enumerate() {
                 let raw: Vec<Pos2> = series
                     .iter()
                     .enumerate()
@@ -12476,8 +12583,8 @@ pub fn draw_chart_preview(
             }
         }
         CT::AreaChart => {
-            for (si, series) in [series1, series2].iter().enumerate() {
-                let raw: Vec<Pos2> = series
+            for si in 0..plotted.len() {
+                let raw: Vec<Pos2> = tops[si]
                     .iter()
                     .enumerate()
                     .map(|(i, &v)| Pos2::new(px_x(i), px_y(v)))
@@ -12487,6 +12594,16 @@ pub fn draw_chart_preview(
                 } else {
                     raw.clone()
                 };
+                // Stacked, the band between this series' top and the one
+                // below it; otherwise down to the axis, as always.
+                let floor: Option<Vec<Pos2>> = (stacked && si > 0).then(|| {
+                    let raw: Vec<Pos2> = bases[si]
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &v)| Pos2::new(px_x(i), px_y(v)))
+                        .collect();
+                    if smooth { catmull_rom(&raw, 14) } else { raw }
+                });
                 // Fill via a per-column mesh (handles the concave smoothed edge).
                 // Non-gradient keeps the existing alpha-80 translucency (R8);
                 // gradient fades vertically from the line to transparent.
@@ -12502,9 +12619,12 @@ pub fn draw_chart_preview(
                     let f = Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), fill_alpha);
                     (f, f, c)
                 };
-                painter.add(egui::Shape::mesh(grad_area_mesh(
-                    &top, plot.max.y, top_c, bot_c,
-                )));
+                match &floor {
+                    Some(floor) => painter.add(egui::Shape::mesh(band_mesh(&top, floor, top_c))),
+                    None => painter.add(egui::Shape::mesh(grad_area_mesh(
+                        &top, plot.max.y, top_c, bot_c,
+                    ))),
+                };
                 for w in top.windows(2) {
                     painter.line_segment([w[0], w[1]], Stroke::new(chart_stroke, line_c));
                 }
@@ -12791,7 +12911,7 @@ pub fn draw_chart_preview(
             // it does not name keeps "Series n". It was never read.
             let names = chart_str("SeriesLabels");
             let names: Vec<&str> = names.split(',').map(str::trim).collect();
-            let count = if live.is_empty() { 2 } else { 1 };
+            let count = if live.is_empty() { 2 } else { series_count.max(1) };
             (0..count)
                 .map(|i| {
                     let name = names

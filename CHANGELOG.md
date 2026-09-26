@@ -8,6 +8,25 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.246] — 2026-09-26
+
+### Feature — charts with several series, stacked or side by side
+
+- A chart's data carries a value per series (`label<TAB>v1<TAB>v2…`,
+  `chart::parse_chart_rows` / `format_chart_rows` / `tween_rows`). Bar, line
+  and area charts draw every series, coloured by `SeriesColors` and named in
+  the legend by `SeriesLabels`; pie, donut and scatter use the first.
+- Series come from `AddPoint(label, v1, v2, …)` / `COBOL-CHART-ADD-POINT`
+  (on a ScatterChart the next argument stays the bubble size) and from every
+  field named in `ValueFields`.
+- **`Stacked`** is back and real on bar and area charts (seeded false): bars
+  pile into one segmented column per label, areas into bands, and the plot
+  scales to the largest total.
+- The value animation tweens every series. One series draws exactly as
+  before. Caveat: a tooltip reports the first series.
+- Tests: rows parse/format/tween, AddPoint per series, and stacked vs side-by-side
+  bars. KB, hover help and Guide updated.
+
 ## [PowerRustCOBOL 1.70.245] — 2026-09-26
 
 ### Feature — rename a TreeView node in place

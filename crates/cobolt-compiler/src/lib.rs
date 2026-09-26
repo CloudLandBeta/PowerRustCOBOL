@@ -5496,10 +5496,10 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         ),
         "DataCount" => ("COBOL data-item name", "Item holding the number of occupied table rows."),
         "LabelField" => ("sub-field name", "Charts: the table sub-field (an OCCURS item) whose value labels each point. With it and `ValueFields` set, `SET-TABLE` reads occurrences 1 to `DataCount` from these fields instead of the fixed layout."),
-        "ValueFields" => ("comma-separated sub-field names", "Charts: the table sub-field holding each point's value. A running chart draws ONE series, so only the FIRST field named is plotted."),
+        "ValueFields" => ("comma-separated sub-field names", "Charts: the table sub-fields holding each point's values — the first is the first series, each further field one more series (a bar, line or area chart draws them all; pie, donut and scatter use the first). `SeriesLabels` names them in the legend; `Stacked` piles them up."),
         "SeriesLabels" => ("comma-separated display names", "The names the legend gives the series, in order; a series left unnamed shows as `Series n`. A pie's legend names its slices from the data instead."),
         "Horizontal" => (BOOL_DOMAIN, "Horizontal bars instead of vertical."),
-        "Stacked" => ("retired", "**Retired.** A running chart draws ONE series, so there is nothing to stack. No longer seeded or shown; a value in an older form is kept and ignored."),
+        "Stacked" => (BOOL_DOMAIN, "BarChart / AreaChart (default false): with several series, pile each series on the ones before it — one bar per label made of coloured segments, or area bands laid one over the other — so a label's marks add up to its total, and the plot scales to the largest total. Off, the series stand side by side (bars) or overlap from the axis (areas). With one series it changes nothing. Series come from `AddPoint(label, v1, v2, …)` or from every field named in `ValueFields`."),
         "BarCornerRadius" => ("pixels ≥ 0", "Rounding on every corner of a bar, held to half the bar's width and height so a short bar stays a bar."),
         "Smooth" => (BOOL_DOMAIN, "Catmull-Rom smoothing of the polyline."),
         "ShowPoints" => (BOOL_DOMAIN, "Draws a marker on every point of a Line or Area chart."),
@@ -6011,7 +6011,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
     let chart_methods: Vec<(&'static str, &'static str)> = vec![
         (
             "AddPoint(label: String, value: Number)",
-            "Append one data point and repaint.",
+            "Append one data point and repaint. On a BarChart, LineChart or AreaChart each further argument — `AddPoint(label, v1, v2, …)` — is the point's value in the next series (a point given fewer is 0 in the rest); on a ScatterChart the third argument is the bubble's size.",
         ),
         ("Clear()", "Remove all pushed data (chart falls back to its sample preview)."),
         ("Refresh()", "Force a repaint with the current data."),

@@ -29,18 +29,76 @@ pub const MIN_ANIM_MS: i64 = 250;
 /// One point of a series.
 pub type Point = (String, f32);
 
-/// Parse the `__ChartData` wire format: one `label<TAB>value` per line.
+/// One label and its value in every series: a bar chart's category with its
+/// bars, a line chart's x-position with each line's y.
+pub type Row = (String, Vec<f32>);
+
+/// Parse the `__ChartData` wire format: one `label<TAB>value[<TAB>value…]` per
+/// line — the FIRST series only. See [`parse_chart_rows`] for all of them.
 ///
-/// A line without a tab, or whose value is not a number, is **skipped** rather
-/// than defaulted to zero — a zero would be plotted, and a bar that is not
-/// there is a better answer than a bar that is wrong.
+/// A line without a tab, or whose first value is not a number, is **skipped**
+/// rather than defaulted to zero — a zero would be plotted, and a bar that is
+/// not there is a better answer than a bar that is wrong.
 pub fn parse_chart_data(raw: &str) -> Vec<Point> {
+    parse_chart_rows(raw).into_iter().map(|(l, v)| (l, v[0])).collect()
+}
+
+/// Parse the `__ChartData` wire format with every series: a label, then one
+/// value per series, tab-separated. Skipped like [`parse_chart_data`] when
+/// the first value is missing or not a number; a LATER value that is not a
+/// number is 0 in its series, so the rows stay aligned.
+pub fn parse_chart_rows(raw: &str) -> Vec<Row> {
     raw.lines()
         .filter_map(|ln| {
-            let mut it = ln.splitn(2, '\t');
+            let mut it = ln.split('\t');
             let label = it.next()?.to_owned();
-            let value: f32 = it.next()?.trim().parse().ok()?;
-            Some((label, value))
+            let first: f32 = it.next()?.trim().parse().ok()?;
+            let mut values = vec![first];
+            values.extend(it.map(|v| v.trim().parse().unwrap_or(0.0)));
+            Some((label, values))
+        })
+        .collect()
+}
+
+/// Render rows back to the `__ChartData` wire format.
+pub fn format_chart_rows(rows: &[Row]) -> String {
+    rows.iter()
+        .map(|(l, vs)| {
+            let mut line = l.replace(['\t', '\n'], " ");
+            for v in vs {
+                line.push('\t');
+                line.push_str(&v.to_string());
+            }
+            line
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// [`tween_series`] for every series at once: value `j` of row `i` travels
+/// from value `j` of the row shown there before (0 when there was none).
+pub fn tween_rows(from: &[Row], to: &[Row], t: f32) -> Vec<Row> {
+    let k = ease_out(t);
+    to.iter()
+        .enumerate()
+        .map(|(i, (label, targets))| {
+            let values = targets
+                .iter()
+                .enumerate()
+                .map(|(j, target)| {
+                    if !target.is_finite() {
+                        return *target;
+                    }
+                    let start = from
+                        .get(i)
+                        .and_then(|(_, vs)| vs.get(j))
+                        .copied()
+                        .filter(|v| v.is_finite())
+                        .unwrap_or(0.0);
+                    start + (target - start) * k
+                })
+                .collect();
+            (label.clone(), values)
         })
         .collect()
 }
@@ -121,6 +179,19 @@ pub fn tween_series(from: &[Point], to: &[Point], t: f32) -> Vec<Point> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Several series travel on one line: the first alone is what a
+    /// single-series reader sees, a bad later value is 0, and a one-series
+    /// row writes back exactly as it always did.
+    #[test]
+    fn a_row_carries_every_series() {
+        let rows = parse_chart_rows("Jan\t10\t20\t5\nFeb\t7\tx\nbad\tno\t3");
+        assert_eq!(rows, vec![("Jan".into(), vec![10.0, 20.0, 5.0]), ("Feb".into(), vec![7.0, 0.0])]);
+        assert_eq!(parse_chart_data("Jan\t10\t20"), vec![("Jan".to_owned(), 10.0)]);
+        assert_eq!(format_chart_rows(&[("A".into(), vec![1.5])]), format_chart_data(&[("A".into(), 1.5)]));
+        let mid = tween_rows(&[("A".into(), vec![0.0, 10.0])], &[("A".into(), vec![10.0, 10.0, 4.0])], 1.0);
+        assert_eq!(mid, vec![("A".into(), vec![10.0, 10.0, 4.0])]);
+    }
 
     fn pts(v: &[(&str, f32)]) -> Vec<Point> {
         v.iter().map(|(l, x)| ((*l).to_owned(), *x)).collect()

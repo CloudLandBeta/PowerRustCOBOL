@@ -109,3 +109,24 @@ fn inline_addpoint_interops_with_chart_runtime_calls() {
     assert_eq!(data.len(), 2, "{data:?}");
     assert_eq!(data[1], "Jan\t150\nFeb\t200");
 }
+
+/// Several series (operator, 2026-09-26: chart stacking): on a bar, line or
+/// area chart each argument after the value is the point's value in the next
+/// series, carried on the same line; a point given fewer is padded with 0,
+/// and a later wider point pads the earlier ones, so the series stay aligned.
+#[test]
+fn inline_addpoint_takes_a_value_per_series() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. DEMO.
+       PROCEDURE DIVISION.
+           LINECHART-1::AddPoint("Jan", 150, 90).
+           LINECHART-1::AddPoint("Feb", 200).
+           LINECHART-1::AddPoint("Mar", 120, 80, 40).
+           STOP RUN.
+"#;
+    let data = chart_data_updates(&run_with_chart(src));
+    assert_eq!(data[0], "Jan\t150\t90");
+    assert_eq!(data[1], "Jan\t150\t90\nFeb\t200\t0");
+    assert_eq!(data[2], "Jan\t150\t90\t0\nFeb\t200\t0\t0\nMar\t120\t80\t40");
+}
