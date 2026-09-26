@@ -8,6 +8,14 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.252] — 2026-09-26
+
+### Housekeeping — BUGS.md
+
+- BUG-002 (fixed at 1.70.20) had its row under Resolved Bugs but its write-up
+  under Open Bugs; the write-up now sits with the resolved entries. Content
+  unchanged — BUG-001 is the one open bug.
+
 ## [PowerRustCOBOL 1.70.251] — 2026-09-26
 
 ### Fix — `cobolt-bench` did not compile (BUG-003)

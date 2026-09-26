@@ -70,6 +70,15 @@ and nothing in that document warns the reader. Parked in `NIST/progress.json`
 rather than fixed on a `z` bump, because GOLDEN RULE #8 charges five translations
 per edit to that canonical.
 
+---
+
+## Resolved Bugs
+
+| ID | Detected | Fixed | Crate | Error | Summary | Fix |
+|----|----------|-------|-------|-------|---------|-----|
+| BUG-002 | 2026-09-14 | 2026-09-14 (1.70.20) | cobolt-runtime | runtime | `FUNCTION LENGTH` measured the value instead of the declaration on numeric items. | `interpreter.rs` — the `LENGTH` arm now asks `declared_length()` first, which reads the item's declared width from the environment; literals and expressions still fall through to the value. Regression test: `tests/test_function_length.rs`. |
+| BUG-003 | 2026-09-25 | 2026-09-26 (1.70.251) | cobolt-bench | `E0599` | The benchmark did not compile: `ReadOnlyTable::get` is a method of redb 4's `ReadableTable` trait, which was not imported. | `crates/cobolt-bench/src/main.rs` — `use redb::ReadableTable;` in the random-read benchmark. `cargo check --workspace --all-targets` reports no errors. |
+
 ### BUG-002 — `FUNCTION LENGTH` measures the value, not the declaration ✅ FIXED 1.70.20
 
 **Not a compiler error either**, and found the same way — by `/doc-audit` on
@@ -138,12 +147,3 @@ fix and proved nothing.
 **NIST gate: green, byte-identical.** Compile 420/420 FAIL 0; execution 383 clean,
 PASS 8418 / FAIL 50 / DELETED 96; every module on its baseline. Full
 `cobolt-runtime` suite: 872 passed, 0 failed.
-
----
-
-## Resolved Bugs
-
-| ID | Detected | Fixed | Crate | Error | Summary | Fix |
-|----|----------|-------|-------|-------|---------|-----|
-| BUG-002 | 2026-09-14 | 2026-09-14 (1.70.20) | cobolt-runtime | runtime | `FUNCTION LENGTH` measured the value instead of the declaration on numeric items. | `interpreter.rs` — the `LENGTH` arm now asks `declared_length()` first, which reads the item's declared width from the environment; literals and expressions still fall through to the value. Regression test: `tests/test_function_length.rs`. |
-| BUG-003 | 2026-09-25 | 2026-09-26 (1.70.251) | cobolt-bench | `E0599` | The benchmark did not compile: `ReadOnlyTable::get` is a method of redb 4's `ReadableTable` trait, which was not imported. | `crates/cobolt-bench/src/main.rs` — `use redb::ReadableTable;` in the random-read benchmark. `cargo check --workspace --all-targets` reports no errors. |
