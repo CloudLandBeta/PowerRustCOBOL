@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.248] — 2026-09-26
+
+### Examples — PowerChat in Neumorphic Light
+
+- Every PowerChat form wears the Neumorphic Light form theme, as the operator
+  set the main form: the other nine re-themed with the designer's own
+  `apply_glass_style_defaults`, on the main form's background (`FEFFFFFF`).
+- All text is `#003758FF` — every control carrying a `ForegroundColor`, on all
+  ten forms. The operator's own layout edits and logo are included.
+
 ## [PowerRustCOBOL 1.70.247] — 2026-09-26
 
 ### Fix — the KB said DataGrid rows and columns count from 0

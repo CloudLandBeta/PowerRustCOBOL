@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="AGENTS-FORM" title="PowerChat" width="800" height="450" background="36383EFF" background-gradient-enabled="true" background-gradient-start="#4E4E4EFF" background-gradient-end="#000000FF" background-gradient-direction="South" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Dark" modal-overlay-style="Greyed">
+<Form name="AGENTS-FORM" title="PowerChat" width="800" height="450" background="FEFFFFFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
   <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -411,18 +411,18 @@
     <Property name="FontSize">20</Property>
     <Property name="Bold">true</Property>
     <Property name="BackgroundColor">#00000000</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
@@ -447,18 +447,18 @@
   </Control>
   <Control id="Lbl-Agent-1" type="Label" x="24" y="76" w="160" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
@@ -484,19 +484,19 @@
     <Property name="DataFormat"></Property>
   </Control>
   <Control id="Cmb-Agent-1" type="ComboBox" x="196" y="72" w="580" h="32" tab-order="1" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#36383EFF</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
@@ -528,18 +528,18 @@
   </Control>
   <Control id="Lbl-Agent-2" type="Label" x="24" y="124" w="160" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
@@ -565,19 +565,19 @@
     <Property name="DataFormat"></Property>
   </Control>
   <Control id="Cmb-Agent-2" type="ComboBox" x="196" y="120" w="580" h="32" tab-order="2" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#36383EFF</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
@@ -609,18 +609,18 @@
   </Control>
   <Control id="Lbl-Agent-3" type="Label" x="24" y="172" w="160" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
@@ -646,19 +646,19 @@
     <Property name="DataFormat"></Property>
   </Control>
   <Control id="Cmb-Agent-3" type="ComboBox" x="196" y="168" w="580" h="32" tab-order="3" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#36383EFF</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
@@ -690,18 +690,18 @@
   </Control>
   <Control id="Lbl-Status" type="Label" x="24" y="224" w="752" h="140" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
@@ -727,19 +727,19 @@
     <Property name="DataFormat"></Property>
   </Control>
   <Control id="Btn-Cancel" type="Button" x="520" y="390" w="120" h="36" tab-order="4" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#36383EFF</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
@@ -775,19 +775,19 @@
 ]]></Event>
   </Control>
   <Control id="Btn-Save" type="Button" x="656" y="390" w="120" h="36" tab-order="5" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#36383EFF</Property>
-    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
