@@ -4848,6 +4848,33 @@ const BOOL_DOMAIN: &str = "`1` (true) or `0` (false)";
 
 /// Curated `(value domain, description)` for a property name. Applies to every
 /// control that seeds the name; the type and default are derived mechanically.
+/// [`property_reference`] for `name` on a control of type `control` — the
+/// same name can mean different things on different controls, and a lookup by
+/// name alone gave every one of them the first arm's text (a Button's
+/// `IconSize` was described as a TreeView's; property audit, 2026-09-25).
+pub fn property_reference_for(control: &str, name: &str) -> Option<(&'static str, &'static str)> {
+    let specific = match (control, name) {
+        ("Button", "IconSize") => Some((
+            "pixels, one of: `16` `32` `48` `64` `80` `96` `128` (default 32)",
+            "Edge length of the Button's icon (IconPath).",
+        )),
+        ("TreeView", "IconSize") => Some((
+            "integer 6-64 (default 14)",
+            "Icon and disclosure-arrow size in points. The arrow's slot is reserved on EVERY row whether or not the node has children, so labels line up in a column.",
+        )),
+        ("SideMenu", "IconSize") => Some((
+            "points (default 22; below 4 is ignored)",
+            "Menu-item icon size while the rail is OPEN (see IconSizeCollapsed for the collapsed rail).",
+        )),
+        ("Viewer", "Format") => Some((
+            "one of: `Text` | `Markdown` | `Image` | `Pdf` | `HtmlSubset` (runtime-set)",
+            "The format the runtime detected for the loaded document, from its extension and content; written on every load. Setting it does not change how the document is decoded.",
+        )),
+        _ => None,
+    };
+    specific.or_else(|| property_reference(name))
+}
+
 pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
     Some(match name {
         // ── Universal appearance ──
@@ -4944,7 +4971,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "PasswordCharacter" => ("single character or empty", "Masks input with this character when set."),
         "ReadOnly" => (BOOL_DOMAIN, "Blocks user editing (value still settable from COBOL)."),
         "ScrollBars" => ("one of: `None` | `Horizontal` | `Vertical` | `Both`", "Which scrollbars a multiline box shows. None still scrolls, it just draws no bars. Horizontal and Both stop the text wrapping."),
-        "WordWrap" => (BOOL_DOMAIN, "Wraps long lines."),
+        "WordWrap" => (BOOL_DOMAIN, "Wraps long lines at the control's width. Off: a Label keeps its own lines and shrinks its font to fit; a multiline TextBox scrolls sideways instead of wrapping."),
         "TextAlignment" => (
             "`Left` | `Center` | `Right` | `Justified` on Label/TextBox (Button also accepts anchored forms like `MiddleCenter`)",
             "Horizontal alignment of the text. `Justified` stretches wrapped lines to the full width (static text; a TextBox being edited shows it left-aligned).",
@@ -4953,7 +4980,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             "`Top` | `Middle` | `Bottom`",
             "Vertical alignment of the text (Label and single-line TextBox; a multiline TextBox stays top-anchored).",
         ),
-        "AutoSize" => (BOOL_DOMAIN, "Grows the control to fit its text."),
+        "AutoSize" => (BOOL_DOMAIN, "Label: the control takes its caption's size (anchored at its top-left): wider as the text grows, or — with WordWrap on — the same width and taller. The designer resizes it as you edit, and a caption set from COBOL resizes it at run time."),
 
         // ── Borders ──
         "BorderStyle" => (
@@ -4972,10 +4999,10 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             BOOL_DOMAIN,
             "Selected state of a **RadioButton** — the radio's own name for what a CheckBox calls `Checked`. Only one RadioButton in a `GroupName` is selected at a time: selecting one clears its siblings and each cleared button raises `onUncheck`. Forms saved before this name existed store `Checked`, and are migrated to `Selected` when they load.",
         ),
-        "GroupName" => ("free text", "RadioButtons sharing a GroupName are mutually exclusive."),
-        "CheckAlignment" => ("`Left` | `Right`", "Side of the caption the check/radio glyph sits on."),
+        "GroupName" => ("free text", "RadioButton: radios sharing a GroupName are mutually exclusive. A CheckBox has none — check boxes are independent."),
+        "CheckAlignment" => ("`Left` | `Right`", "Side the check box or the radio circle sits on; the caption takes the other side."),
         "CheckColor" => (COLOR_DOMAIN, "Color of the check/radio mark — the tick itself, drawn inside the box."),
-        "CheckSize" => ("0-100", "Percentage of the check glyph's own box the checkmark stroke fills."),
+        "CheckSize" => ("0-100", "CheckBox: percentage of its box the checkmark fills. A RadioButton has none: its circle is filled whole when selected."),
         "CheckBoxColor" => ("`#RRGGBB`, or empty for the theme's own", "Fill of the TICK BOX (a RadioButton's circle) — the box only, never the frame. BackgroundColor is the frame's, as on every other control. Left EMPTY (the default) the active theme paints the box; naming a color makes it lead over whatever the theme would have used."),
         "CheckBoxBorderStyle" => ("`None` | `Single` | `Fixed3D` | `Raised` | `Sunken`", "Border drawn around the TICK BOX, separate from the frame's BorderStyle. `None` (the default) keeps whatever rim the theme draws."),
         "CheckBoxBorderColor" => (COLOR_DOMAIN, "Color of the tick box's own border."),
@@ -4986,9 +5013,9 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "HeaderImage" => ("image path or empty", "SideMenu only. The logo at the top of an OPEN sidebar. Its box is 270x80 points and that box is a LIMIT, not a shape to fill: a smaller logo is drawn at its own size, centred, and a bigger one is scaled down to fit keeping its aspect ratio (540x80 draws 270x40; 270x240 draws 90x80). Empty outlines the box instead. A collapsed rail shows HeaderIcon, not this."),
         "SizeMode" => (
             "PictureBox: `Normal` | `Stretch` | `Zoom` | `CenterImage` | `AutoSize`; Animator: `Fit` | `Fill` | `Stretch` | `Center`",
-            "How the image is scaled inside the control.",
+            "How the image is scaled inside the control. PictureBox: Normal = its own size, shrunk only when it does not fit, placed by ImageAlignment; Zoom = as large as fits, aspect kept; Stretch = fills the box; CenterImage = its own size (shrunk to fit), centred; AutoSize = the control takes the image's own size.",
         ),
-        "ImageAlignment" => ("anchor name, e.g. `MiddleCenter`, `TopLeft`", "Where the unscaled image is anchored."),
+        "ImageAlignment" => ("anchor name, e.g. `MiddleCenter`, `TopLeft`, `BottomRight`", "PictureBox: where the image sits when it does not fill the box (SizeMode Normal or Zoom). CenterImage always centres; Stretch and Fill cover the box."),
         "ShowFrame" => (BOOL_DOMAIN, "Draws the frame/background behind the image."),
         "Source" => ("path to GIF / WebP / APNG / still image", "Animated image the Animator plays."),
         "AutoPlay" => (BOOL_DOMAIN, "Starts playing when the form loads."),
@@ -5109,7 +5136,6 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "CheckBoxBorderWidth" => ("integer 0-10 (default 1)", "The tick box's rim width."),
         "CheckColor" => (COLOR_DOMAIN, "The colour of the TICK itself (TreeView, CheckBox, RadioButton). On a TreeView, empty follows the node ink."),
         "CheckSize" => ("integer 10-100 (default 70)", "How much of the tick BOX the tick fills, as a percentage — not the box's size, which is `CheckBoxSize` on a TreeView and the font on a CheckBox. A fuller tick also draws a heavier stroke."),
-        "IconSize" => ("integer 6-64 (default 14)", "Icon and disclosure-arrow size in points. The arrow's slot is reserved on EVERY row whether or not the node has children, so labels line up in a column."),
         "IconColor" => (COLOR_DOMAIN, "Icons and disclosure arrows. Empty — the default — follows the node ink, so legible text means legible icons."),
         "HighContrastText" => (BOOL_DOMAIN, "ON by default: node ink is picked by CONTRAST RATIO against the face the tree is actually painted on, so it clears WCAG AA on a white face, a dark card or a glass surface alike. Off falls back to the theme's own text colour, for a developer who wants the tree to match the theme even where that costs legibility. An explicit `ForegroundColor` outranks both."),
         "RowHeight" => ("integer 8-200 (default 18)", "The row's MINIMUM height in points — a floor, not a ceiling. A row is never shorter than what it holds, so growing `IconSize` or `CheckBoxSize` grows the row with it rather than letting a big icon paint over the nodes above and below."),
@@ -5124,25 +5150,25 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "LineColor" => (COLOR_DOMAIN, "Connector/line color (TreeView, Line, Shape). On a Splitter, the division line between its two panes; empty = the form theme's own rule colour."),
 
         // ── Containers ──
-        "HScroll" => (BOOL_DOMAIN, "Horizontal auto-scroll when children overflow."),
-        "VScroll" => (BOOL_DOMAIN, "Vertical auto-scroll when children overflow."),
+        "HScroll" => (BOOL_DOMAIN, "Panel, GroupBox, TabControl: horizontal scrolling when the children reach past the content area."),
+        "VScroll" => (BOOL_DOMAIN, "Panel, GroupBox, TabControl: vertical scrolling when the children reach past the content area."),
         "HideBackground" => (BOOL_DOMAIN, "Hides the fill/border while keeping the content visible."),
         "HideCaption" => (BOOL_DOMAIN, "Hides the GroupBox caption text."),
-        "CaptionEnabled" => (BOOL_DOMAIN, "Reserves the caption band (off = children use the full box)."),
+        "CaptionEnabled" => (BOOL_DOMAIN, "Whether the legend reads as enabled: off draws it dimmed (about 45% opacity), like a disabled caption. It reserves no space and does not change where children go."),
         "UserControl" => ("User Control definition name or empty", "Marks a deployed project User Control instance."),
-        "mcp_tool" => ("tool name or empty", "MCP tool this container is exposed as (advanced; leave empty)."),
+        "mcp_tool" => ("reserved; ignored", "Reserved and not used: a container is not exposed as an MCP tool. New controls no longer carry it; a form that still does keeps it unchanged."),
 
         // ── Repeating group (ControlArray) ──
         "IsRepeatingGroup" => (BOOL_DOMAIN, "Turns the GroupBox into a repeating card template (control array)."),
         "ArrayName" => ("COBOL identifier or empty (empty = control id)", "Name used to address instances: `Name(index)::Member`."),
-        "ItemCount" => ("integer ≥ 0", "Number of live card instances at runtime."),
+        "ItemCount" => ("integer 0-500", "Number of cards at run time. A bound group gets it from its data (RefreshBinding sets it); an unbound group uses it once it is above 0 — set in the designer or by the program — and shows its PreviewItemCount template cards while it is 0."),
         "LayoutDirection" => ("one of: `Vertical` | `Horizontal` | `Grid`", "How cards flow inside the group."),
         "ItemSpacing" => ("pixels ≥ 0", "Gap between cards."),
         "ItemsPerRow" => ("integer ≥ 1", "Cards per row when LayoutDirection = `Grid`."),
         "PlacementEffect" => ("one of: `None` | `Deal` | `FadeIn` | `ZoomIn` | `ZoomOut`", "Card entrance animation when data binds."),
         "CardAppearDuration" => ("milliseconds ≥ 0", "Duration of the card entrance animation."),
-        "CloneEvents" => (BOOL_DOMAIN, "Cloned cards fire the template's event handlers (with `CONTROL-ARRAY-INDEX`)."),
-        "PreviewItemCount" => ("integer ≥ 1", "Cards shown on the design canvas."),
+        "CloneEvents" => (BOOL_DOMAIN, "On (default): every card of a repeating group fires the template's event handlers, with `CONTROL-ARRAY-INDEX` = the card's number. Off: only the designed card (1) fires; its clones are display only."),
+        "PreviewItemCount" => ("integer 1-500", "Cards shown on the design canvas, and at run time by an unbound group whose ItemCount is 0."),
 
         // ── DataGrid ──
         "Columns" => ("one `Name:Type` per line; Type ∈ `string` | `number` | `datetime` (default `string`)", "Column definitions."),
@@ -5211,7 +5237,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "ShapeType" => ("one of: `Rectangle` | `Circle` | `Triangle`", "Geometric shape drawn."),
         "FormStyle" => (BOOL_DOMAIN, "Shape follows the form's glass style."),
         "FillColor" => (COLOR_DOMAIN, "Shape interior fill. On a Slider, the travelled part of the rail — Minimum to Value — which is the part that reads as filled; left at its default the active theme paints."),
-        "FillStyle" => ("one of: `Solid` | `None` | `Hatched`", "How the shape interior is filled."),
+        "FillStyle" => ("one of: `Solid` | `None` | `Hatched`", "How the shape interior is filled: Solid with FillColor, None left empty, Hatched with diagonal lines in FillColor over a transparent face."),
         "LineStyle" => ("one of: `Solid` | `Dash` | `Dot` | `DashDot`", "Shape outline dash pattern."),
 
         // ── Splitter ──
@@ -5419,7 +5445,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "IconPath" => ("image path or empty", "Icon drawn next to the caption."),
         "IconAlignment" => ("`Left` | `Right` | `Top` | `Bottom`", "Side of the caption the icon sits on."),
         "IconPadding" => ("pixels ≥ 0", "Gap between icon and caption."),
-        "IconSize" => ("pixels, one of: `16` `32` `48` `64` `80` `96` `128`; on a SideMenu any value 8-64", "Icon edge length. On a SideMenu this is the menu-item icon size while the rail is OPEN (see IconSizeCollapsed for the other state)."),
+        "IconSize" => ("points; see the control", "Icon size. What it sizes, and its range, depend on the control: a Button's icon, a TreeView's row icons and arrows, a SideMenu's item icons."),
         "IconSizeCollapsed" => ("pixels, 8-64 (SideMenu only)", "Menu-item icon size while the sidebar is COLLAPSED — its own value because the two rail states are two designs: open, the icon sits beside a label; collapsed, the icon IS the row. Unset (a form designed before this property existed) falls back to IconSize."),
         "CollapsedWidth" => ("points, 24-200 (SideMenu only), default 48", "How wide the COLLAPSED icon rail is, on every surface — the running shell's MenuPane, the designer canvas and the preview all narrow the rail to this one value, so the rail the developer designs against is exactly the rail their users see. The OPEN width stays the control's own drawn Width. Values under 24 are raised to 24 (below it an icon row has nothing to fit in); unset (a form designed before this property existed) falls back to 48, the width the rail has always collapsed to."),
 
@@ -6797,7 +6823,7 @@ fn controls_reference_doc() -> String {
                 continue;
             }
             let (ty, default) = prop_type_and_default(v);
-            let (domain, desc) = property_reference(pname).unwrap_or(("", ""));
+            let (domain, desc) = property_reference_for(&name, pname).unwrap_or(("", ""));
             push_prop_line(&mut doc, pname, ty, &default, domain, desc);
             specific += 1;
         }
@@ -6821,7 +6847,7 @@ fn controls_reference_doc() -> String {
                  and are not saved in the form. **Read them; never try to set them.**\n\n",
             );
             for pname in runtime {
-                let (_, desc) = property_reference(pname).unwrap_or(("", ""));
+                let (_, desc) = property_reference_for(&name, pname).unwrap_or(("", ""));
                 if desc.is_empty() {
                     doc.push_str(&format!("- `{pname}`\n"));
                 } else {
@@ -10525,7 +10551,7 @@ mod runtime_only_property_tests {
         // declaration.
         let src = include_str!("lib.rs");
         let table_start = src
-            .find("pub fn property_reference")
+            .find("pub fn property_reference(")
             .expect("property_reference must exist");
         let table = &src[table_start..];
         let table = &table[..table.find("\n}\n").unwrap_or(table.len())];

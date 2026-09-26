@@ -2287,11 +2287,15 @@ A **Repeating Group** section then appears in the properties pane:
   *FadeIn*, *ZoomIn*, or *ZoomOut*. Zoom effects keep each card anchored at its
   final layout position and scale the whole card group with elastic easing.
 - **Auto-scroll parent** — let the parent container scroll when instances
-  overflow (place the group inside a **Panel** with **Auto-scroll** on).
-- **Clone events** — all instances of a child control share one event handler.
+  overflow (place the group inside a **Panel**, **GroupBox** or **TabControl**
+  with **HScroll**/**VScroll** on — all three scroll their children).
+- **Clone events** — on (the default), all instances of a child control share
+  one event handler, told which card fired by `CONTROL-ARRAY-INDEX`. Off, only
+  the designed card (1) runs its handlers; the clones are display only.
 - **Preview items** — how many instances the **designer** previews (these are
   render-only ghosts; they are *not* added to your form, so selection and undo
-  are unaffected).
+  are unaffected). At run time an unbound group shows this many only while its
+  `ItemCount` is 0.
 
 At run time each instance and its children are addressed by index using the
 member-access syntax, e.g. `CustomerCard(3)::CustomerName::Caption` — the index
@@ -2307,7 +2311,8 @@ designer seeds for it (§10):
            DISPLAY "card " CONTROL-ARRAY-INDEX " was clicked".
 ```
 
-Set `ItemCount` for a fixed number of cards, or bind `DataSource` and let the
+Set `ItemCount` (in the designer, or `SET grp::ItemCount` from COBOL) for a
+fixed number of cards, or bind `DataSource` and let the
 data decide; `RefreshBinding()` on the group repopulates the cards from
 working-storage after you change it.
 
@@ -4692,6 +4697,20 @@ abbreviations). A few you will use constantly:
 > **Binding a control to data** is done on the form, in the **Data Binding**
 > panel, not with a property. Older forms may still carry `DataItem` and
 > `DataFormat` on their controls; they load unchanged, and nothing reads them.
+
+A few properties whose effect depends on the control:
+
+| Control | Property | What it does |
+|---|---|---|
+| Label | `AutoSize` | The Label takes its caption's size, anchored at its top-left. It resizes as you type in the designer, and again when COBOL changes the caption. |
+| Label | `WordWrap` | On: the caption wraps at the Label's width. Off (the default): it keeps its own lines and shrinks its font to fit. |
+| TextBox | `WordWrap` | Multiline box. On (the default): long lines wrap. Off: they stay whole and the box scrolls sideways. |
+| CheckBox, RadioButton | `CheckAlignment` | `Right` puts the box or circle after the caption. |
+| RadioButton | `CheckBoxColor` | The circle's fill in both states. A contrasting dot marks the selected radio. |
+| PictureBox | `SizeMode` | `Normal`: the image's own size, shrunk only when it does not fit. `Zoom`: the largest that fits. `Stretch`: fills the box. `CenterImage`: centred. `AutoSize`: the control takes the image's size. |
+| PictureBox | `ImageAlignment` | Where the image sits when it does not fill the box (`Normal`, `Zoom`): `TopLeft` … `BottomRight`. |
+| Shape | `FillStyle` | `Solid`, `None`, or `Hatched`: diagonal lines in `FillColor` over a transparent face. |
+| Panel, GroupBox, TabControl | `HScroll`, `VScroll` | The children scroll inside the content area when they reach past it. |
 
 > **Note.** Standard acronyms are kept (`CSV`, `URL`, `API`, `TLS`); everything
 > else is written in full — for example `BackgroundColor` (not `BackColor`),

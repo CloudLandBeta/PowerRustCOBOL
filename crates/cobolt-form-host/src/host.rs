@@ -1628,6 +1628,23 @@ impl FormBody {
             } else {
                 (ev.ctrl_id.clone(), 0)
             };
+            // `CloneEvents` off on the repeating group: only the designed
+            // card (instance 1) runs the handlers — its clones are display
+            // only. The flag was read by nothing, so every clone always fired
+            // (property audit, 2026-09-25).
+            if inst > 1 {
+                let group_id = ev.ctrl_id.split('.').next().unwrap_or("");
+                let clones_fire = self
+                    .controls
+                    .iter()
+                    .find(|c| c.id.eq_ignore_ascii_case(group_id))
+                    .and_then(|g| g.get_prop("CloneEvents"))
+                    .map(|v| v.as_bool())
+                    .unwrap_or(true);
+                if !clones_fire {
+                    continue;
+                }
+            }
             // The event's VALUE travels with it. It was dropped here, so a
             // TreeView handler for onNodeCheck/onNodeCollapse/onNodeExpand
             // could not tell which node had moved — those events write no
@@ -7666,6 +7683,35 @@ mod parity {
     /// next tick went in the bin. Silently — a dropped tick has nothing to report.
     ///
     /// The guard now waits until the interpreter is genuinely behind.
+    /// `CloneEvents` off: only the designed card (instance 1) of a repeating
+    /// group runs the handlers; a click on a clone is not dispatched. On (the
+    /// default), every card fires with its CONTROL-ARRAY-INDEX (property
+    /// audit, 2026-09-25).
+    #[test]
+    fn clone_events_off_keeps_the_clones_from_firing() {
+        let pending = Arc::new(AtomicUsize::new(0));
+        let (ev_tx, ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let mut body = timer_body(ev_tx, input_tx, pending);
+        let mut group = cobolt_forms::Control::new("CARD", cobolt_forms::ControlType::GroupBox, 0, 0);
+        group.set_prop("IsRepeatingGroup", cobolt_forms::model::PropValue::Bool(true));
+        group.set_prop("CloneEvents", cobolt_forms::model::PropValue::Bool(false));
+        body.controls.push(group);
+        let click = |inst: usize| cobolt_forms::render::UiEvent {
+            ctrl_id: format!("CARD.CARD-{inst}.BTN"),
+            event: "onClick".to_owned(),
+            value: None,
+        };
+        body.forward_interaction(&[], vec![click(1), click(2)], false);
+        let sent: Vec<(String, usize)> = ev_rx.try_iter().map(|e| (e.ctrl_id, e.instance_index)).collect();
+        assert_eq!(sent, vec![("BTN".to_owned(), 1)], "only the designed card fires");
+
+        body.controls.last_mut().unwrap().set_prop("CloneEvents", cobolt_forms::model::PropValue::Bool(true));
+        body.forward_interaction(&[], vec![click(1), click(2)], false);
+        let sent: Vec<(String, usize)> = ev_rx.try_iter().map(|e| (e.ctrl_id, e.instance_index)).collect();
+        assert_eq!(sent, vec![("BTN".to_owned(), 1), ("BTN".to_owned(), 2)], "every card fires");
+    }
+
     #[test]
     fn a_timer_is_not_starved_by_the_events_its_own_handler_causes() {
         let body_pending = Arc::new(AtomicUsize::new(0));

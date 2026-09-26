@@ -711,7 +711,7 @@ fn picturebox_container_border(
                         // ancestors (e.g. a rounded GroupBox card that lives inside a scrolling
                         // Panel). This keeps _ContainerClip correct for PictureBox children both
                         // directly under a scroll panel and deep inside databound repeating cards.
-    let parent_has_scroll = matches!(controls[p].control_type, ControlType::Panel)
+    let parent_has_scroll = scrolls_its_content(&controls[p].control_type)
         && (plive.get_prop("HScroll").map_or(false, |vv| vv.as_bool())
             || plive.get_prop("VScroll").map_or(false, |vv| vv.as_bool()));
     let off = if parent_has_scroll {
@@ -1223,16 +1223,30 @@ fn is_repeating_instance_group(c: &Control) -> bool {
 /// authoritative â including **0**, which renders NO card at all (an empty data
 /// source shows nothing; task 3). An **unbound** template group falls back to
 /// `PreviewItemCount` (clamped â¥1) so the designer always has one card to edit.
+/// Containers whose `HScroll` / `VScroll` scroll their children. It was the
+/// Panel alone, although the GroupBox and the TabControl carry both properties
+/// (property audit, 2026-09-25).
+fn scrolls_its_content(ct: &ControlType) -> bool {
+    matches!(ct, ControlType::Panel | ControlType::GroupBox | ControlType::TabControl)
+}
+
 fn repeating_instance_count(c: &Control) -> usize {
     let bound = c
         .get_prop("DataSource")
         .map(|v| !v.as_str().trim().is_empty())
         .unwrap_or(false);
-    if bound {
-        c.get_prop("ItemCount")
-            .map(|v| v.as_i64())
-            .unwrap_or(0)
-            .clamp(0, 500) as usize
+    let item_count = c
+        .get_prop("ItemCount")
+        .map(|v| v.as_i64())
+        .unwrap_or(0)
+        .clamp(0, 500) as usize;
+    // A bound group: its data decides (RefreshBinding sets ItemCount). An
+    // unbound one: ItemCount when set — in the designer, or by the program
+    // (`SET grp::ItemCount`), which used to change nothing on an unbound
+    // group (property audit, 2026-09-25) — else its PreviewItemCount template
+    // cards, so a card designed and never bound still shows.
+    if bound || item_count > 0 {
+        item_count
     } else {
         c.get_prop("PreviewItemCount")
             .map(|v| v.as_i64())
@@ -1663,7 +1677,7 @@ fn ancestor_auto_scroll_offset(
     let mut cur = idx;
     while let Some(pid) = controls[cur].parent.clone() {
         if let Some(p) = controls.iter().position(|c| c.id == pid) {
-            let is_panel = matches!(controls[p].control_type, ControlType::Panel);
+            let is_panel = scrolls_its_content(&controls[p].control_type);
             let has_h = is_panel
                 && controls[p]
                     .get_prop("HScroll")
@@ -1916,7 +1930,7 @@ fn ancestor_clip_rect(
             // to where the pane IS after a drag, not where it was designed.
             let plive = live_control(controls, p, state);
             let cr = plive.content_rect();
-            let has_scroll = matches!(pctrl.control_type, ControlType::Panel)
+            let has_scroll = scrolls_its_content(&pctrl.control_type)
                 && (plive.get_prop("HScroll").map_or(false, |v| v.as_bool())
                     || plive.get_prop("VScroll").map_or(false, |v| v.as_bool()));
             let off = if apply_scroll && !has_scroll {
@@ -2186,7 +2200,12 @@ fn render_form_inner(
         }
 
         // Live control (designer source-of-truth face via draw_control).
-        let live = live_control(controls, idx, input.state);
+        let mut live = live_control(controls, idx, input.state);
+        // A Label with AutoSize follows its (live) caption: one set from COBOL
+        // resizes it at run time, as the designer resizes it while editing.
+        if let Some(r) = crate::paint::autosize_rect(ui.ctx(), &live) {
+            live.rect = r;
+        }
         let r = live.rect;
 
         // Apply ancestor AutoScroll offsets (if any) so children of a Panel with
@@ -2231,10 +2250,17 @@ fn render_form_inner(
         // the panel rect (with oversized content to enable bars/input). The
         // offset is stored in egui data and subtracted from descendant screens
         // above, so children appear scrolled inside the panel.
-        if interactive && matches!(base.control_type, ControlType::Panel) {
+        if interactive && scrolls_its_content(&base.control_type) {
             let hscroll = base.get_prop("HScroll").map_or(false, |v| v.as_bool());
             let vscroll = base.get_prop("VScroll").map_or(false, |v| v.as_bool());
             if hscroll || vscroll {
+                // The viewport is the CONTENT area: inside the border, and
+                // below a TabControl's tab strip — the whole rect for a Panel.
+                let cr = base.content_rect();
+                let screen = Rect::from_min_size(
+                    screen.min + Vec2::new((cr.x - base.rect.x) as f32, (cr.y - base.rect.y) as f32),
+                    Vec2::new(cr.w as f32, cr.h as f32),
+                );
                 let sid = scoped_id(scope, ("autoscr", &base.id));
                 let overscroll_id = scoped_id(scope, ("overscroll", &base.id));
 
@@ -6282,6 +6308,12 @@ fn render_interactive(
                     egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
                 ),
             };
+            // `WordWrap` off: lines are not wrapped at the field's width, so
+            // the box scrolls sideways to reach the rest of a long line (the
+            // designer canvas already drew it this way; the running editor
+            // wrapped regardless — property audit, 2026-09-25).
+            let word_wrap = ctrl.get_prop("WordWrap").map(|v| v.as_bool()).unwrap_or(true);
+            let scroll_dirs = if multiline && !word_wrap { [true, scroll_dirs[1]] } else { scroll_dirs };
             let resp = if multiline {
                 // egui's multiline editor auto-grows to its content, so it would
                 // spill past the TextBox's fixed height (and its rounded bottom).
@@ -14837,6 +14869,80 @@ mod tests {
         // 0 rows (task 3): the group and its children disappear entirely.
         let expanded = expand_repeating_groups(&bound_repeating_group(0)).expect("still processed");
         assert!(expanded.is_empty(), "0 rows must produce no cards");
+    }
+
+    /// A GroupBox with VScroll scrolls its children, as a Panel does; it used
+    /// to be the Panel alone (property audit, 2026-09-25).
+    #[test]
+    fn a_groupbox_with_vscroll_scrolls_its_children() {
+        let mut group = ctrlp("GB", ControlType::GroupBox, 0, 0, 200, 100, &[("Caption", "Box")]);
+        group.set_prop("VScroll", crate::PropValue::Bool(true));
+        let mut deep = ctrlp("L", ControlType::Label, 10, 60, 150, 20, &[("Caption", "deep-label-text")]);
+        deep.parent = Some("GB".into());
+        let mut bottom = ctrlp("M", ControlType::Label, 10, 280, 150, 20, &[("Caption", "far-below")]);
+        bottom.parent = Some("GB".into());
+        let controls = [group, deep, bottom];
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let active = ActiveTabs::new();
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let at = pos2(100.0, 50.0);
+        let mut ys = Vec::new();
+        for i in 0..30 {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(400.0, 300.0)));
+            input.time = Some(i as f64 * 0.05);
+            input.events = match i {
+                1 => vec![Event::PointerMoved(at)],
+                2..=6 => vec![Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: Vec2::new(0.0, -40.0),
+                    modifiers: Modifiers::default(),
+                    phase: egui::TouchPhase::Move,
+                }],
+                _ => vec![],
+            };
+            let st = MapState(&overrides);
+            let mut out = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                    let inp = RenderInput {
+                        controls: &controls,
+                        state: &st,
+                        form_size: Vec2::new(400.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Backdrop::default(),
+                    };
+                    let _ = render_form(ui, &inp);
+                });
+            });
+            out.textures_delta.clear();
+            if let Some(y) = out.shapes.iter().find_map(|s| match &s.shape {
+                egui::epaint::Shape::Text(t) if t.galley.text().contains("deep-label-text") => Some(t.pos.y),
+                _ => None,
+            }) {
+                ys.push(y);
+            }
+        }
+        let (first, last) = (ys.first().copied().unwrap(), ys.last().copied().unwrap());
+        assert!(last < first - 10.0, "the child moved up as the GroupBox scrolled: {first} -> {last}");
+    }
+
+    /// An unbound group follows ItemCount once it is set — by the designer
+    /// or by the program — instead of staying at its preview count.
+    #[test]
+    fn unbound_repeating_group_follows_a_set_item_count() {
+        use crate::model::PropValue;
+        let mut group = ctrl("CARD", ControlType::GroupBox, 0, 0, 200, 60);
+        group.set_prop("IsRepeatingGroup", PropValue::Bool(true));
+        group.set_prop("ItemCount", PropValue::Int(3));
+        group.set_prop("PreviewItemCount", PropValue::Int(1));
+        let mut member = ctrl("NAME", ControlType::Label, 10, 10, 80, 20);
+        member.parent = Some("CARD".into());
+        let expanded = expand_repeating_groups(&vec![group, member]).expect("expand");
+        assert!(expanded.iter().any(|c| c.id == "CARD.CARD-3.NAME"), "three cards");
+        assert!(!expanded.iter().any(|c| c.id == "CARD.CARD-4.NAME"));
     }
 
     #[test]

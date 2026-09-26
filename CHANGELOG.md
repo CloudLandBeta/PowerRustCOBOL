@@ -8,6 +8,54 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.231] — 2026-09-25
+
+### Fix — basic-control properties that did nothing or half of it (audit group 2 of 8)
+
+The 18 findings on Button, Label, TextBox, CheckBox, RadioButton, GroupBox,
+Panel, PictureBox, Line and Shape, plus TabControl's scrolling from group 3.
+
+- **Label `AutoSize`** — the Label takes its caption's size (anchored at its
+  top-left; with WordWrap it keeps its width and grows down). The designer
+  resizes the stored control as you edit, and a caption set from COBOL
+  resizes it at run time (`paint::autosize_rect`).
+- **Label `WordWrap`** — off (the default) keeps the caption's own lines and
+  shrinks the font to fit; on wraps. It always wrapped. 2 of the 332 Labels in
+  the repository's examples change, both short captions.
+- **TextBox `WordWrap`** — honoured by the running editor too: off, lines stay
+  whole and the box scrolls sideways (the canvas already drew it that way).
+- **RadioButton** — `CheckAlignment` Right puts the circle after the caption;
+  with a `CheckBoxColor` the selected radio shows a contrasting dot (on and
+  off differed only by the rim). `CheckSize` is no longer offered on a radio:
+  its circle is filled whole (operator, 2026-08-22), so there is no mark to size.
+- **CheckBox `GroupName`** — no longer offered: check boxes are independent.
+- **GroupBox / TabControl `HScroll`, `VScroll`** — scroll their children in the
+  content area, as a Panel does. It was the Panel alone.
+- **GroupBox `CloneEvents`** — off: only the designed card (1) of a repeating
+  group runs the handlers. Nothing read it; every clone fired.
+- **GroupBox `ItemCount` / `PreviewItemCount`** — an unbound group follows
+  `ItemCount` once it is above 0 (designer or `SET grp::ItemCount`); while it is
+  0 it shows its PreviewItemCount template cards, as before.
+- **PictureBox `ImageAlignment`** — places the image where it does not fill the
+  box (Normal, Zoom). **`SizeMode` AutoSize** gives the control the image's own
+  size; CenterImage stays centred.
+- **Shape `FillStyle` Hatched** — diagonal lines in FillColor, clipped to the
+  rectangle, circle or triangle. It drew as Solid.
+- **`mcp_tool`** (Panel, GroupBox, TabControl) — an unimplemented idea: no longer
+  seeded (the TabControl carried a full JSON tool spec into every form); old
+  forms load it unchanged.
+- **System KB** — `property_reference_for(control, name)`: a Button's
+  `IconSize` was described as a TreeView's, and a Viewer's `Format` as a
+  DateTimePicker's. `CaptionEnabled` described a layout band that does not
+  exist (it dims the legend). All the above re-described; `chunked.data`
+  regenerated. Properties-pane explanations updated in all six languages.
+- Tests: `a_label_with_autosize_takes_its_captions_size`,
+  `a_radio_button_aligns_its_circle_and_shows_its_selection`,
+  `a_picturebox_aligns_its_image_and_autosizes`, `hatch_lines_stay_inside_the_shape`,
+  `a_groupbox_with_vscroll_scrolls_its_children` (fails without the fix),
+  `unbound_repeating_group_follows_a_set_item_count`,
+  `clone_events_off_keeps_the_clones_from_firing`.
+
 ## [PowerRustCOBOL 1.70.230] — 2026-09-25
 
 ### Fix — the properties every control carries now do what they say (audit group 1 of 8)

@@ -8216,6 +8216,12 @@ impl DesignerPanel {
                         },
                     );
                 }
+                // Label AutoSize: the stored size follows the caption and the
+                // font, as a PowerCOBOL/VB designer does, so the handles, the
+                // saved form and every run surface agree on it.
+                if cobolt_forms::paint::apply_autosize(ui.ctx(), &mut self.form.controls) {
+                    self.dirty = true;
+                }
                 let animated_controls: Option<Vec<cobolt_forms::model::Control>> =
                     (!move_offsets.is_empty()).then(|| {
                         self.form

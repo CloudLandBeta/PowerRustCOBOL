@@ -154,8 +154,33 @@ fn fitted_caption_galley(
     max_h: f32,
     halign: egui::Align,
 ) -> std::sync::Arc<egui::Galley> {
+    fitted_caption_galley_wrapping(painter, ctrl, text, font_name, fsize, color, max_w, max_h, halign, true)
+}
+
+/// [`fitted_caption_galley`], with line wrapping optional: with `wrap` off the
+/// text keeps its own lines (only its line breaks break it), and is still
+/// shrunk until it fits `max_w` x `max_h`.
+#[allow(clippy::too_many_arguments)]
+fn fitted_caption_galley_wrapping(
+    painter: &egui::Painter,
+    ctrl: &Control,
+    text: &str,
+    font_name: &str,
+    fsize: f32,
+    color: Color32,
+    max_w: f32,
+    max_h: f32,
+    halign: egui::Align,
+    wrap: bool,
+) -> std::sync::Arc<egui::Galley> {
     const MIN_FONT: f32 = 6.0;
-    let wrap_w = if max_w.is_finite() { max_w.max(1.0) } else { max_w };
+    let wrap_w = if !wrap {
+        f32::INFINITY
+    } else if max_w.is_finite() {
+        max_w.max(1.0)
+    } else {
+        max_w
+    };
     let mut fit = fsize.max(MIN_FONT);
     let lay = |size: f32| {
         painter.layout_job(styled_text_job(
@@ -2738,7 +2763,7 @@ fn draw_control_body(
         }
 
         // ── Face ──────────────────────────────────────────────────────────────
-        if fill_style != "None" {
+        if fill_style != "None" && fill_style != "Hatched" {
             let flat_fill = alpha_color(fill_color);
             // The designed background GRADIENT, which leads over every flat and
             // frosted face exactly as it does on any other control.
@@ -2864,6 +2889,22 @@ fn draw_control_body(
                 ));
             } else {
                 painter.rect_filled(rect, rr_round, flat_fill);
+            }
+        }
+        // `Hatched`: diagonal lines in the fill colour over a transparent face,
+        // kept inside the silhouette. It was offered and drawn as Solid
+        // (property audit, 2026-09-25).
+        if fill_style == "Hatched" {
+            let outline: Vec<Pos2> = if is_round {
+                circle_perimeter(cc, circ_r)
+            } else if is_tri {
+                vec![tri_top, tri_br, tri_bl]
+            } else {
+                vec![rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom()]
+            };
+            let stroke = Stroke::new(1.0, alpha_color(fill_color));
+            for seg in hatch_segments(rect, &outline, 8.0) {
+                painter.line_segment(seg, stroke);
             }
         }
 
@@ -5159,11 +5200,16 @@ fn draw_control_body(
                 .get_prop("SizeMode")
                 .map(|v| v.as_str().to_owned())
                 .unwrap_or_else(|| "Normal".into());
+            let align = ctrl
+                .get_prop("ImageAlignment")
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_else(|| "MiddleCenter".into());
             if draw_picturebox_image(
                 painter,
                 rect,
                 image_path.trim(),
                 &size_mode,
+                &align,
                 alpha_mul,
                 corner,
             ) {
@@ -5549,7 +5595,18 @@ fn draw_control_body(
         // a form saved before the rename still lights its radio up.
         let checked = crate::model::toggle_state_of(ctrl);
         let (d, pad, gap) = toggle_indicator_metrics(rect, ctrl);
-        let c = Pos2::new(rect.left() + pad + d * 0.5, rect.center().y);
+        // `CheckAlignment` Right puts the circle after the caption, as it puts
+        // a CheckBox's box; it was always on the left (property audit,
+        // 2026-09-25).
+        let right_aligned = ctrl
+            .get_prop("CheckAlignment")
+            .map(|v| v.as_str().eq_ignore_ascii_case("Right"))
+            .unwrap_or(false);
+        let c = if right_aligned {
+            Pos2::new(rect.right() - pad - d * 0.5, rect.center().y)
+        } else {
+            Pos2::new(rect.left() + pad + d * 0.5, rect.center().y)
+        };
         let (fill, rim, rim_w) = radio_indicator_colors(painter.ctx(), ctrl, checked);
         // A radio is round: the same fill and rim, as a circle rather than a
         // rounded square — and the same two properties the CheckBox's box
@@ -5568,8 +5625,20 @@ fn draw_control_body(
         if box_style != "None" && box_bw > 0.5 {
             painter.circle_stroke(c, d * 0.5, Stroke::new(box_bw, alpha_color(box_bc)));
         }
-        checkbox_text_rect =
-            egui::Rect::from_min_max(egui::pos2(c.x + d * 0.5 + gap, rect.min.y), rect.max);
+        // With a `CheckBoxColor` the circle wears that colour in BOTH states,
+        // so the selection needs a mark of its own: a dot in the contrasting
+        // colour a CheckBox's tick uses. Without it, on and off differed only
+        // by the rim (property audit, 2026-09-25).
+        if checked {
+            if let Some(bg) = user_checkbox_color(ctrl) {
+                painter.circle_filled(c, d * 0.22, alpha_color(caret_color(bg, Color32::WHITE)));
+            }
+        }
+        checkbox_text_rect = if right_aligned {
+            egui::Rect::from_min_max(rect.min, egui::pos2(c.x - d * 0.5 - gap, rect.max.y))
+        } else {
+            egui::Rect::from_min_max(egui::pos2(c.x + d * 0.5 + gap, rect.min.y), rect.max)
+        };
     }
 
     if !label.is_empty() {
@@ -5723,8 +5792,9 @@ fn draw_control_body(
             // One layout at a given horizontal inset. Called twice: once to
             // learn how tall the caption is, and again once the corner radius
             // has had its say about how wide it may be.
+            let label_wraps = ctrl.get_prop("WordWrap").map(|v| v.as_bool()).unwrap_or(false);
             let lay = |hpad: f32| -> std::sync::Arc<egui::Galley> {
-                if text_justified(&align_raw) {
+                if text_justified(&align_raw) && label_wraps {
                     // Justified text fills the width by construction; keep the
                     // job path so `justify` is honoured.
                     let mut job = styled_text_job(
@@ -5740,7 +5810,10 @@ fn draw_control_body(
                     job.justify = true;
                     painter.layout_job(job)
                 } else {
-                    fitted_caption_galley(
+                    // `WordWrap` off: the caption keeps its own lines and
+                    // shrinks to fit instead of wrapping. It used to wrap
+                    // whatever the property said (property audit, 2026-09-25).
+                    fitted_caption_galley_wrapping(
                         painter,
                         ctrl,
                         &label,
@@ -5750,6 +5823,7 @@ fn draw_control_body(
                         (rect.width() - 2.0 * hpad).max(1.0),
                         rect.height().max(1.0),
                         halign,
+                        label_wraps,
                     )
                 }
             };
@@ -6212,6 +6286,66 @@ fn draw_control_body(
     }
 }
 
+/// The diagonal hatch lines (bottom-left to top-right, `spacing` apart)
+/// that fall inside the convex polygon `outline`, which encloses `rect`'s
+/// shape. Each line is clipped to the polygon (Cyrus–Beck).
+pub fn hatch_segments(rect: egui::Rect, outline: &[Pos2], spacing: f32) -> Vec<[Pos2; 2]> {
+    let mut out = Vec::new();
+    if outline.len() < 3 || spacing <= 0.0 {
+        return out;
+    }
+    // Orientation-independent inward normals: the centroid is always inside.
+    let n = outline.len();
+    let centroid = outline.iter().fold(Vec2::ZERO, |acc, p| acc + p.to_vec2()) / n as f32;
+    let span = rect.width() + rect.height();
+    // Lines leaving the bottom edge anywhere from one height left of the rect
+    // (they cross its upper-left corner) to its right edge.
+    let mut k = -rect.height();
+    while k <= rect.width() {
+        // One line through (left + k, bottom), running up and to the right,
+        // long enough to cross the whole rect before clipping.
+        let base = Pos2::new(rect.left() + k, rect.bottom());
+        let start = base - Vec2::new(span, -span);
+        let end = base + Vec2::new(span, -span);
+        let d = end - start;
+        let (mut t0, mut t1) = (0.0_f32, 1.0_f32);
+        let mut inside = true;
+        for i in 0..n {
+            let a = outline[i];
+            let b = outline[(i + 1) % n];
+            let edge = b - a;
+            let mut normal = Vec2::new(-edge.y, edge.x);
+            if normal.dot(centroid.to_pos2() - a) < 0.0 {
+                normal = -normal;
+            }
+            let num = normal.dot(start - a);
+            let den = normal.dot(d);
+            if den.abs() < 1e-6 {
+                if num < 0.0 {
+                    inside = false;
+                    break;
+                }
+                continue;
+            }
+            let t = -num / den;
+            if den > 0.0 {
+                t0 = t0.max(t);
+            } else {
+                t1 = t1.min(t);
+            }
+            if t0 > t1 {
+                inside = false;
+                break;
+            }
+        }
+        if inside {
+            out.push([start + d * t0, start + d * t1]);
+        }
+        k += spacing;
+    }
+    out
+}
+
 /// Compute the destination rect for an image of `native` size inside `rect`,
 /// according to a PictureBox/Animator-style `size_mode`.
 /// Map a PictureBox/Animator `SizeMode` property value to the canonical mode
@@ -6222,7 +6356,45 @@ pub fn pic_size_mode(m: &str) -> &'static str {
         "Stretch" | "StretchImage" => "Stretch",
         "Zoom" | "Fit" => "Fit",
         "Fill" => "Fill",
-        _ => "Center", // Normal / CenterImage / AutoSize
+        "CenterImage" | "Center" => "Center",
+        // Normal and AutoSize: the image's own size (shrunk only when it does
+        // not fit), placed by ImageAlignment. AutoSize also sizes the control
+        // to the image (`autosize_rect`), so there it simply fills it.
+        _ => "Normal",
+    }
+}
+
+/// Place a `size` inside `rect` by an alignment name: `TopLeft`, `TopCenter`,
+/// `TopRight`, `MiddleLeft`, `MiddleCenter`, `MiddleRight`, `BottomLeft`,
+/// `BottomCenter`, `BottomRight` (anything else centres).
+pub fn anchor_in(rect: egui::Rect, size: Vec2, align: &str) -> egui::Rect {
+    let a = align.to_ascii_lowercase();
+    let x = if a.ends_with("left") {
+        rect.left()
+    } else if a.ends_with("right") {
+        rect.right() - size.x
+    } else {
+        rect.center().x - size.x / 2.0
+    };
+    let y = if a.starts_with("top") {
+        rect.top()
+    } else if a.starts_with("bottom") {
+        rect.bottom() - size.y
+    } else {
+        rect.center().y - size.y / 2.0
+    };
+    egui::Rect::from_min_size(egui::pos2(x, y), size)
+}
+
+/// [`media_dest_rect`] with the image placed by `align` where it does not fill
+/// the rect (the `Normal` and `Fit` modes). `Center` stays centred, `Fill` and
+/// `Stretch` cover the rect. A PictureBox's `ImageAlignment` was read by
+/// nothing: the image was always centred (property audit, 2026-09-25).
+pub fn media_dest_rect_aligned(rect: egui::Rect, native: Vec2, size_mode: &str, align: &str) -> egui::Rect {
+    let dest = media_dest_rect(rect, native, size_mode);
+    match size_mode {
+        "Normal" | "Fit" => anchor_in(rect, dest.size(), align),
+        _ => dest,
     }
 }
 
@@ -6812,12 +6984,13 @@ fn draw_picturebox_image(
     rect: egui::Rect,
     image_path: &str,
     size_mode: &str,
+    align: &str,
     alpha_mul: f32,
     corner: f32,
 ) -> bool {
     let a = (alpha_mul.clamp(0.0, 1.0) * 255.0) as u8;
     if let Some(native) = picturebox_svg_native_size(image_path) {
-        let dest = media_dest_rect(rect, native, pic_size_mode(size_mode));
+        let dest = media_dest_rect_aligned(rect, native, pic_size_mode(size_mode), align);
         if let Some(tex) = picturebox_svg_texture(painter.ctx(), image_path, dest.size()) {
             paint_picturebox_texture(painter, rect, dest, tex.id(), a, corner);
             return true;
@@ -6825,11 +6998,20 @@ fn draw_picturebox_image(
         return false;
     }
     if let Some(tex) = picturebox_texture(painter.ctx(), image_path) {
-        let dest = media_dest_rect(rect, tex.size_vec2(), pic_size_mode(size_mode));
+        let dest = media_dest_rect_aligned(rect, tex.size_vec2(), pic_size_mode(size_mode), align);
         paint_picturebox_texture(painter, rect, dest, tex.id(), a, corner);
         return true;
     }
     false
+}
+
+/// The image's own size, in points, when it can be read (SVG or raster).
+pub fn picturebox_native_size(ctx: &egui::Context, image_path: &str) -> Option<Vec2> {
+    let path = image_path.trim();
+    if path.is_empty() {
+        return None;
+    }
+    picturebox_svg_native_size(path).or_else(|| picturebox_texture(ctx, path).map(|t| t.size_vec2()))
 }
 
 /// Render a PictureBox into `rect`: an optional frame (card + border) plus the
@@ -6855,7 +7037,7 @@ pub fn draw_picturebox(
             SurfaceRole::Card,
         );
     }
-    if !draw_picturebox_image(painter, rect, image_path, size_mode, alpha_mul, corner) && show_frame
+    if !draw_picturebox_image(painter, rect, image_path, size_mode, "MiddleCenter", alpha_mul, corner) && show_frame
     {
         painter.text(
             rect.center(),
@@ -12374,6 +12556,81 @@ pub fn textbox_inner_padding(ctrl: &Control) -> f32 {
     // A TextBox's `Padding` adds to its own `InnerPadding`, so the property
     // every control carries does something here too.
     (inner + content_padding(ctrl)).min(128.0)
+}
+
+/// Where a Label with `AutoSize` on belongs: its caption's size plus the
+/// Label's own insets, anchored at its top-left, as in PowerCOBOL and VB. With
+/// `WordWrap` on it keeps its width and grows downward; off, it grows sideways
+/// too. `None` for anything else. `AutoSize` was seeded and read by nothing, so
+/// a Label never grew (property audit, 2026-09-25).
+pub fn label_autosize_rect(ctx: &egui::Context, ctrl: &Control) -> Option<crate::model::Rect> {
+    if ctrl.control_type != ControlType::Label
+        || !ctrl.get_prop("AutoSize").map(|v| v.as_bool()).unwrap_or(false)
+    {
+        return None;
+    }
+    let caption = ctrl.get_prop("Caption").map(|v| v.to_string()).unwrap_or_default();
+    let family = ctrl.get_prop("FontName").map(|v| v.to_string()).unwrap_or_default();
+    let font = crate::fonts::font_id(ctx, &family, ctrl_font_size(ctrl));
+    let wraps = ctrl.get_prop("WordWrap").map(|v| v.as_bool()).unwrap_or(false);
+    let pad_h = 3.0 + content_padding(ctrl);
+    let pad_v = 2.0 + content_padding(ctrl);
+    let mut job = LayoutJob::default();
+    job.wrap.max_width = if wraps {
+        (ctrl.rect.w as f32 - 2.0 * pad_h).max(1.0)
+    } else {
+        f32::INFINITY
+    };
+    job.append(&caption, 0.0, text_format(ctrl, font, Color32::WHITE));
+    let size = ctx.fonts_mut(|f| f.layout_job(job)).size();
+    // One point more when Bold: its second stamp sits half a point to the right.
+    let bold = if ctrl.get_prop("Bold").map(|v| v.as_bool()).unwrap_or(false) { 1.0 } else { 0.0 };
+    let w = if wraps {
+        ctrl.rect.w
+    } else {
+        (size.x + 2.0 * pad_h + bold).ceil() as i32
+    };
+    let h = (size.y + 2.0 * pad_v).ceil() as i32;
+    Some(crate::model::Rect::new(ctrl.rect.x, ctrl.rect.y, w.max(1), h.max(1)))
+}
+
+/// Where a control that sizes itself belongs: a Label with `AutoSize` on
+/// ([`label_autosize_rect`]), or a PictureBox whose `SizeMode` is `AutoSize`,
+/// which takes its image's own size, anchored at its top-left. That mode
+/// never resized anything before (property audit, 2026-09-25).
+pub fn autosize_rect(ctx: &egui::Context, ctrl: &Control) -> Option<crate::model::Rect> {
+    if ctrl.control_type == ControlType::PictureBox {
+        let auto = ctrl.get_prop("SizeMode").map(|v| v.as_str() == "AutoSize").unwrap_or(false);
+        if !auto {
+            return None;
+        }
+        let path = ctrl.get_prop("ImagePath").map(|v| v.to_string()).unwrap_or_default();
+        let native = picturebox_native_size(ctx, &crate::assets::resolve(&path).to_string_lossy())
+            .or_else(|| picturebox_native_size(ctx, &path))?;
+        return Some(crate::model::Rect::new(
+            ctrl.rect.x,
+            ctrl.rect.y,
+            native.x.round().max(1.0) as i32,
+            native.y.round().max(1.0) as i32,
+        ));
+    }
+    label_autosize_rect(ctx, ctrl)
+}
+
+/// [`autosize_rect`] applied to every control that sizes itself (children
+/// included); `true` when any rect changed.
+pub fn apply_autosize(ctx: &egui::Context, controls: &mut [Control]) -> bool {
+    let mut changed = false;
+    for c in controls.iter_mut() {
+        if let Some(r) = autosize_rect(ctx, c) {
+            if r != c.rect {
+                c.rect = r;
+                changed = true;
+            }
+        }
+        changed |= apply_autosize(ctx, &mut c.children);
+    }
+    changed
 }
 
 /// The control's `Padding`: extra space, in points, between its frame and its
@@ -18731,6 +18988,123 @@ method. Nothing in the control is reachable only by mouse.";
     /// a pill the top and bottom lines were laid across the full box width —
     /// which at those rows is entirely outside the shape — and nothing clipped
     /// them. A square Label must be completely unaffected by the fix.
+    /// Hatch lines stay inside the silhouette they fill: a rectangle's box,
+    /// a circle's disc (property audit, 2026-09-25: Hatched drew as Solid).
+    #[test]
+    fn hatch_lines_stay_inside_the_shape() {
+        let rect = egui::Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(100.0, 60.0));
+        let boxed = hatch_segments(
+            rect,
+            &[rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom()],
+            8.0,
+        );
+        assert!(boxed.len() >= 15, "the box is crossed by many lines: {}", boxed.len());
+        let inside = |p: Pos2, r: egui::Rect| r.expand(0.01).contains(p);
+        assert!(boxed.iter().all(|[a, b]| inside(*a, rect) && inside(*b, rect)), "every end inside the box");
+        assert!(boxed.iter().all(|[a, b]| (b.x - a.x - (a.y - b.y)).abs() < 0.01), "all diagonal, up and right");
+        let c = rect.center();
+        let disc = hatch_segments(rect, &circle_perimeter(c, 30.0), 8.0);
+        assert!(!disc.is_empty());
+        assert!(disc.iter().all(|[a, b]| a.distance(c) <= 30.01 && b.distance(c) <= 30.01), "inside the disc");
+    }
+
+    /// A PictureBox places its image by ImageAlignment where it does not fill
+    /// the box, and SizeMode AutoSize gives the control the image's own size
+    /// (property audit, 2026-09-25).
+    #[test]
+    fn a_picturebox_aligns_its_image_and_autosizes() {
+        let rect = egui::Rect::from_min_size(Pos2::new(100.0, 50.0), Vec2::new(200.0, 100.0));
+        let native = Vec2::new(40.0, 20.0);
+        let tl = media_dest_rect_aligned(rect, native, "Normal", "TopLeft");
+        assert_eq!(tl.min, rect.min, "TopLeft: at the corner");
+        let br = media_dest_rect_aligned(rect, native, "Normal", "BottomRight");
+        assert_eq!(br.max, rect.max, "BottomRight: at the far corner");
+        let c = media_dest_rect_aligned(rect, native, "Center", "TopLeft");
+        assert_eq!(c.center(), rect.center(), "CenterImage ignores the alignment");
+        assert_eq!(pic_size_mode("Normal"), "Normal");
+        assert_eq!(pic_size_mode("CenterImage"), "Center");
+
+        let dir = std::env::temp_dir().join(format!("prc-pic-autosize-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let svg = dir.join("box.svg");
+        std::fs::write(&svg, r#"<svg xmlns="http://www.w3.org/2000/svg" width="120" height="45" viewBox="0 0 120 45"><rect width="120" height="45" fill="red"/></svg>"#).unwrap();
+        let ctx = egui::Context::default();
+        let mut pic = Control::new("P", crate::model::ControlType::PictureBox, 10, 20);
+        pic.set_prop("ImagePath", crate::model::PropValue::String(svg.display().to_string()));
+        pic.set_prop("SizeMode", crate::model::PropValue::String("AutoSize".into()));
+        let r = autosize_rect(&ctx, &pic).expect("an AutoSize PictureBox sizes itself");
+        assert_eq!((r.x, r.y, r.w, r.h), (10, 20, 120, 45));
+        pic.set_prop("SizeMode", crate::model::PropValue::String("Normal".into()));
+        assert!(autosize_rect(&ctx, &pic).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A RadioButton honours CheckAlignment (circle on the right), and with a
+    /// CheckBoxColor its selection still shows, as a dot (property audit,
+    /// 2026-09-25).
+    #[test]
+    fn a_radio_button_aligns_its_circle_and_shows_its_selection() {
+        // (centre, filled?) of every circle the radio paints.
+        let circles = |props: &[(&str, crate::model::PropValue)]| -> Vec<(Pos2, bool)> {
+            let ctx = egui::Context::default();
+            let mut c = Control::new("R", crate::model::ControlType::RadioButton, 0, 0);
+            c.rect = crate::model::Rect::new(0, 0, 200, 30);
+            for (k, v) in props {
+                c.set_prop(*k, v.clone());
+            }
+            let mut full = ctx.run_ui(egui::RawInput::default(), |root| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
+                    draw_control(&ui.painter().clone(), Pos2::ZERO, &c, false, false, 1.0, 1.0, None);
+                });
+            });
+            full.textures_delta.clear();
+            full.shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::epaint::Shape::Circle(ci) => Some((ci.center, ci.fill.a() > 0)),
+                    _ => None,
+                })
+                .collect()
+        };
+        use crate::model::PropValue as P;
+        let right = circles(&[("CheckAlignment", P::String("Right".into()))]);
+        assert!(!right.is_empty() && right.iter().all(|(c, _)| c.x > 150.0), "the circle sits on the right: {right:?}");
+        let left = circles(&[]);
+        assert!(!left.is_empty() && left.iter().all(|(c, _)| c.x < 50.0), "and on the left by default: {left:?}");
+        let colored = [("CheckBoxColor", P::String("#2E7D32".into()))];
+        let filled = |v: &[(Pos2, bool)]| v.iter().filter(|(_, f)| *f).count();
+        let off = circles(&colored);
+        let on = circles(&[colored[0].clone(), ("Selected", P::Bool(true))]);
+        assert_eq!(filled(&on), filled(&off) + 1, "selected adds the dot: off {off:?}, on {on:?}");
+    }
+
+    /// A Label with AutoSize takes its caption's size: longer text, wider
+    /// Label; with WordWrap it keeps its width and grows down. Off, nothing
+    /// moves (property audit, 2026-09-25).
+    #[test]
+    fn a_label_with_autosize_takes_its_captions_size() {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        let label = |caption: &str, auto: bool, wrap: bool| {
+            let mut c = Control::new("L", crate::model::ControlType::Label, 10, 20);
+            c.rect = crate::model::Rect::new(10, 20, 80, 20);
+            c.set_prop("Caption", crate::model::PropValue::String(caption.into()));
+            c.set_prop("AutoSize", crate::model::PropValue::Bool(auto));
+            c.set_prop("WordWrap", crate::model::PropValue::Bool(wrap));
+            c
+        };
+        assert!(label_autosize_rect(&ctx, &label("Name", false, false)).is_none(), "off: unchanged");
+        let short = label_autosize_rect(&ctx, &label("Name", true, false)).unwrap();
+        let long = label_autosize_rect(&ctx, &label("Customer name and address", true, false)).unwrap();
+        assert_eq!((short.x, short.y), (10, 20), "anchored at its top-left");
+        assert!(long.w > short.w + 50, "longer caption, wider Label: {} vs {}", long.w, short.w);
+        assert_eq!(long.h, short.h, "one line either way");
+        let wrapped = label_autosize_rect(&ctx, &label("Customer name and address", true, true)).unwrap();
+        assert_eq!(wrapped.w, 80, "WordWrap keeps the width");
+        assert!(wrapped.h > short.h, "and grows down");
+    }
+
     /// `Padding` moves a caption away from the frame: every control carried
     /// it and no painter read it (property audit, 2026-09-25). And a TextBox
     /// adds it to its own InnerPadding.

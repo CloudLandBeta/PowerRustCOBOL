@@ -6234,17 +6234,20 @@ impl PropertiesPanel {
                     &["Left", "Center", "Right"],
                 );
                 color_row(ui, id, "CheckColor", ctrl, action);
-                int_prop_row(
-                    ui,
-                    id,
-                    "CheckSize",
-                    "Check size",
-                    ctrl,
-                    action,
-                    10..=100,
-                    Some("%"),
-                    70,
-                );
+                // A CheckBox's tick has a size; a radio's circle is filled whole.
+                if matches!(ctrl.control_type, ControlType::CheckBox) {
+                    int_prop_row(
+                        ui,
+                        id,
+                        "CheckSize",
+                        "Check size",
+                        ctrl,
+                        action,
+                        10..=100,
+                        Some("%"),
+                        70,
+                    );
+                }
                 if matches!(ctrl.control_type, ControlType::RadioButton) {
                     let cur = ctrl
                         .get_prop("GroupName")
