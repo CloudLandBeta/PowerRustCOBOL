@@ -8,6 +8,38 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.237] — 2026-09-26
+
+### Fix — form properties that did nothing or half of it (audit group 8 of 8)
+
+- **Writes to the form's own properties reach the window** — `me::` or
+  `super::` `Title` retitles, `Width`/`Height` resize (64-8192), `X`/`Y` move,
+  `BackgroundColor`/`Transparency` repaint the backdrop
+  (`FormBody::apply_form_window_update`, from the drains and from a
+  `super::` write-through). They changed only the property store.
+- **Transparency** — a main window whose form has any `Transparency` is
+  created see-through, so the desktop shows (it did only during a desktop
+  entrance effect).
+- **Child windows** honour `CanMinimize`, `CanMaximize`, `FullScreen` and the
+  designed `StartPosition` (Custom or screen-relative) when the caller gives no
+  position. Child-window transparency remains opaque (one clear colour per
+  process) — documented.
+- **Shell applications** honour the main form's `CanMinimize`, `CanMaximize`,
+  `TitleVisible`, `FullScreen`, `WindowState`, `StartPosition`/`X`/`Y` and
+  `TaskbarIcon`.
+- **TaskbarIcon** is resolved against the application's folder (a
+  project-relative icon failed from anywhere but the project folder) and gets a
+  📂 picker.
+- **BackgroundColor** — `#000000FF` paints black (it became the default navy);
+  the colour's alpha multiplies with `Transparency`; `#00000000`, a 6-digit
+  black and empty still mean "unset".
+- **Properties pane** — a `UseThemeBackground` row; MenuPane rows only on a
+  main form with a SideMenu; Width/Height capped at `FORM_MAX_SIZE` (now in
+  `cobolt_forms::model`, shared with the designer); the gradient labels, the
+  browse tooltips and the image-mode hint are `Tr` keys in six languages.
+- `Form::modal_overlay_style`'s doc comment named the wrong default.
+- **KB**, `chunked.data`, hover help (six languages) and the Guide updated.
+
 ## [PowerRustCOBOL 1.70.236] — 2026-09-26
 
 ### Fix — non-visual control properties that did nothing or half of it (audit group 7 of 8)

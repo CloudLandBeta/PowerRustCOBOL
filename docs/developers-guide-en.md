@@ -5055,6 +5055,10 @@ A form that leaves its own Theme unset shows the inherited one marked
 **(from project)**, so what the picker reports is always what the form actually
 renders with.
 
+**Use theme background**, the checkbox under Theme, lets a theme that ships its
+own background art replace the form's background image — in the designer and
+when the form runs. Off by default; the form keeps its own background.
+
 #### Elegance
 
 **Elegance** is a second built-in theme, chosen from the same Theme dropdown as
@@ -5728,8 +5732,9 @@ time, and there is nothing on disk left to edit. Ship applications as built
 binaries when the sign-on form is the thing you are protecting.
 
 The main form's Window section also offers **Taskbar icon** — the image the
-single taskbar/dock entry uses. Windows opened from other forms never create
-taskbar entries. Per-OS note: on macOS the Dock naturally shows one icon per
+single taskbar/dock entry uses; 📂 picks it, and a path relative to the project
+works wherever the application runs, a built binary included. Windows opened
+from other forms never create taskbar entries. Per-OS note: on macOS the Dock naturally shows one icon per
 application; on Windows/Linux child windows are created with the skip-taskbar
 flag.
 
@@ -5748,6 +5753,38 @@ leaving fullscreen returns to the previous state). At runtime:
 Each **actual** fullscreen transition fires the form's `onFullScreenChanged`
 event (the OS may refuse a request — the event follows reality, once per real
 change; read `me`'s `FullScreen` for the new value).
+
+**Where they apply.** The main window, a **shell** application's window (a
+main form carrying a SideMenu) and a **child window** opened with
+`OpenFormSync` / `OpenFormAsync` or a Stand Alone menu action all honour
+`CanMinimize`, `CanMaximize`, `FullScreen` and `WindowState`; a child window
+also opens where its `StartPosition` says when the caller passes no position,
+and a shell window takes `TitleVisible`, `StartPosition` and the taskbar icon
+too. Entrance/exit effects stay the main window's.
+
+**Changing the window from COBOL.** Writing the form's own properties changes
+the running window, from the form itself or from a form it opened:
+
+```cobol
+    MOVE "Saving…"   TO me::Title.
+    MOVE 900         TO me::Width.
+    MOVE "#1E3A5FFF" TO me::BackgroundColor.
+    MOVE "Done"      TO super::Title.
+```
+
+`Title` retitles, `Width`/`Height` resize (64 to 8192), `X`/`Y` move, and
+`BackgroundColor`/`Transparency` repaint the backdrop. In a shell application
+the shell owns the window, so there only the backdrop changes.
+
+**A see-through form.** `Transparency` above 0 makes the main window show the
+desktop through the form. A `BackgroundColor` of `#000000FF` is black, and a
+colour's own alpha multiplies with `Transparency`; only `#00000000` or an empty
+value leave the theme's default dark background.
+
+> ⚠️ **Caveat.** Before 1.70.237 none of this reached the window: the writes
+> changed the property and nothing else, a shell or child window ignored most
+> of its design, and a black background came out dark blue. A child window is
+> still opaque whatever its `Transparency`.
 
 **FormState — protecting unsaved work.** `FormState` is a runtime-only form
 property with two values, `Ready` (default) and `Waiting`. While a form is
@@ -11364,7 +11401,9 @@ Rules to expect:
   Referencing a NULL `super` raises the standard runtime error.
 - `me::<property>` works the same way on the form's own surface —
   `me::Width`, `MOVE "New" TO me::Title` — and `me` and the form's own name
-  address the same thing.
+  address the same thing. Writing `Title`, `Width`, `Height`, `X`, `Y`,
+  `BackgroundColor` or `Transparency` through either changes the running
+  window (see *Window chrome & state*).
 
 ### Opening forms — the three doors
 

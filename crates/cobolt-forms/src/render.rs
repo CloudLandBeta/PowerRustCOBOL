@@ -591,45 +591,57 @@ fn tile_grid(area: Rect, tsize: Vec2) -> Vec<(u32, u32)> {
 /// surface: strip `#`, take the first 6 hex digits, and treat unset / pure black
 /// as the default dark navy so a transparent form is still a visible window.
 pub fn backdrop_color(color_hex: &str, transparency: u8) -> Color32 {
-    let s = color_hex.trim();
-    let s = s.strip_prefix('#').unwrap_or(s);
-    let hex = if s.len() >= 6 { &s[..6] } else { s };
-    let bg_alpha = (255.0 * (1.0 - transparency.min(100) as f32 / 100.0)) as u8;
-    if hex.len() == 6 {
-        let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(20);
-        let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(22);
-        let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(45);
-        let (r, g, b) = if r == 0 && g == 0 && b == 0 {
-            (20, 22, 45)
-        } else {
-            (r, g, b)
-        };
-        Color32::from_rgba_premultiplied(
-            (r as f32 * bg_alpha as f32 / 255.0) as u8,
-            (g as f32 * bg_alpha as f32 / 255.0) as u8,
-            (b as f32 * bg_alpha as f32 / 255.0) as u8,
-            bg_alpha,
-        )
-    } else {
-        Color32::from_rgba_premultiplied(20, 22, 45, bg_alpha.max(200))
+    let t = 1.0 - transparency.min(100) as f32 / 100.0;
+    match form_background_rgba(color_hex) {
+        // The colour's own alpha (the picker offers one) and the form's
+        // `Transparency` both apply: they multiply.
+        Some((r, g, b, a)) => {
+            let bg_alpha = (a as f32 * t) as u8;
+            Color32::from_rgba_premultiplied(
+                (r as f32 * bg_alpha as f32 / 255.0) as u8,
+                (g as f32 * bg_alpha as f32 / 255.0) as u8,
+                (b as f32 * bg_alpha as f32 / 255.0) as u8,
+                bg_alpha,
+            )
+        }
+        None => {
+            let bg_alpha = (255.0 * t) as u8;
+            Color32::from_rgba_premultiplied(
+                (20.0 * t) as u8,
+                (22.0 * t) as u8,
+                (45.0 * t) as u8,
+                bg_alpha,
+            )
+        }
     }
 }
 
-/// Has the developer actually chosen a form background?
-///
-/// Empty, or six hex digits that are all zero â the same "unset" that
-/// [`backdrop_color`] maps to its default navy.
-fn form_background_unset(color_hex: &str) -> bool {
+/// A form background as `(r, g, b, a)`, or `None` when it is unset: empty,
+/// unreadable, or black with no alpha or a zero alpha (`#000000`,
+/// `#00000000` — the sentinel older forms carry). An explicit opaque black
+/// (`#000000FF`, what the colour picker writes) IS black: it came out as the
+/// default navy, and the picker's alpha was thrown away (property audit,
+/// 2026-09-26).
+fn form_background_rgba(color_hex: &str) -> Option<(u8, u8, u8, u8)> {
     let s = color_hex.trim();
     let s = s.strip_prefix('#').unwrap_or(s);
-    let hex = if s.len() >= 6 { &s[..6] } else { s };
-    if hex.len() != 6 {
-        return true;
+    if s.len() != 6 && s.len() != 8 {
+        return None;
     }
-    ["r", "g", "b"]
-        .iter()
-        .enumerate()
-        .all(|(i, _)| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).unwrap_or(1) == 0)
+    let byte = |i: usize| u8::from_str_radix(&s[i..i + 2], 16).ok();
+    let (r, g, b) = (byte(0)?, byte(2)?, byte(4)?);
+    let a = if s.len() == 8 { byte(6)? } else { 255 };
+    let black = r == 0 && g == 0 && b == 0;
+    if black && (s.len() == 6 || a == 0) {
+        return None;
+    }
+    Some((r, g, b, a))
+}
+
+/// Has the developer actually chosen a form background? The same "unset"
+/// [`backdrop_color`] paints as its default navy.
+fn form_background_unset(color_hex: &str) -> bool {
+    form_background_rgba(color_hex).is_none()
 }
 
 /// The form's backdrop, letting the active THEME supply the default when the
@@ -21924,6 +21936,22 @@ mod tests {
         let settled = frames(10);
         assert!(early < settled * 0.95, "part way it is shorter: {early} vs {settled}");
         assert!(settled > 0.0);
+    }
+
+    /// Property audit, 2026-09-26: a form background of explicit opaque
+    /// black paints black (it came out navy), the picker's alpha multiplies
+    /// with Transparency, and the unset forms (`#00000000`, legacy `#000000`,
+    /// empty) keep the default navy.
+    #[test]
+    fn a_form_background_of_black_is_black_and_unset_stays_navy() {
+        assert_eq!(backdrop_color("#000000FF", 0), Color32::from_rgba_premultiplied(0, 0, 0, 255));
+        let navy = backdrop_color("", 0);
+        assert_eq!(navy, Color32::from_rgba_premultiplied(20, 22, 45, 255));
+        assert_eq!(backdrop_color("#00000000", 0), navy);
+        assert_eq!(backdrop_color("#000000", 0), navy);
+        // Alpha 0x80 at Transparency 50: a quarter.
+        assert_eq!(backdrop_color("#FFFFFF80", 50).a(), 64);
+        assert_eq!(backdrop_color("#FFFFFFFF", 0), Color32::WHITE);
     }
 
     /// The four TextBox input properties are honoured. All were seeded, shown in

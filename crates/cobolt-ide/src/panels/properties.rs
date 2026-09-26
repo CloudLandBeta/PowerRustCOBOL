@@ -4458,7 +4458,7 @@ impl PropertiesPanel {
             ui,
             id,
             "BackgroundGradientEnabled",
-            "Background gradient",
+            tr.lbl_gradient,
             ctrl,
             action,
         );
@@ -4467,7 +4467,7 @@ impl PropertiesPanel {
                 ui,
                 id,
                 "BackgroundGradientStartColor",
-                "Gradient start",
+                tr.lbl_gradient_start,
                 ctrl,
                 action,
                 "#F0F0F0FF",
@@ -4476,7 +4476,7 @@ impl PropertiesPanel {
                 ui,
                 id,
                 "BackgroundGradientEndColor",
-                "Gradient end",
+                tr.lbl_gradient_end,
                 ctrl,
                 action,
                 "#C8D0DCFF",
@@ -4485,7 +4485,7 @@ impl PropertiesPanel {
                 ui,
                 id,
                 "BackgroundGradientDirection",
-                "Gradient direction",
+                tr.lbl_gradient_direction,
                 ctrl,
                 action,
                 &[
@@ -9967,7 +9967,7 @@ impl PropertiesPanel {
         let mut w = form.width as i64;
         property_row_keyed(ui, tr.lbl_width, Some("Width"), |ui| {
             if ui
-                .add(DragValue::new(&mut w).speed(1).range(64..=9999))
+                .add(DragValue::new(&mut w).speed(1).range(64..=i64::from(cobolt_forms::model::FORM_MAX_SIZE)))
                 .changed()
             {
                 action.form_props.push(("Width".into(), w.to_string()));
@@ -9976,7 +9976,7 @@ impl PropertiesPanel {
         let mut h = form.height as i64;
         property_row_keyed(ui, tr.lbl_height, Some("Height"), |ui| {
             if ui
-                .add(DragValue::new(&mut h).speed(1).range(64..=9999))
+                .add(DragValue::new(&mut h).speed(1).range(64..=i64::from(cobolt_forms::model::FORM_MAX_SIZE)))
                 .changed()
             {
                 action.form_props.push(("Height".into(), h.to_string()));
@@ -10229,6 +10229,27 @@ impl PropertiesPanel {
                         *tb_buf = form.taskbar_icon.clone();
                     }
                     property_row_keyed(ui, tr.lbl_taskbar_icon, Some("TaskbarIcon"), |ui| {
+                        // Picked like the background image, and stored the
+                        // same way, so a project-relative icon travels with
+                        // the project. It was a bare text box.
+                        let vp = ui.ctx().viewport_id();
+                        let pick_k = format!("form-TaskbarIcon-pick:{vp:?}");
+                        if ui.button("📂").on_hover_text(tr.tip_browse_icon).clicked() {
+                            crate::file_dialog::open_file(
+                                ui.ctx(),
+                                &pick_k,
+                                "Icons",
+                                &["png", "ico", "jpg", "jpeg", "bmp"],
+                            );
+                        }
+                        if crate::file_dialog::is_open(&pick_k) {
+                            ui.ctx().request_repaint();
+                        }
+                        if let Some(Some(p)) = crate::file_dialog::take(&pick_k) {
+                            let path_str = store_asset_path(&p);
+                            *tb_buf = path_str.clone();
+                            action.form_props.push(("TaskbarIcon".into(), path_str));
+                        }
                         if ui
                             .add(
                                 egui::TextEdit::singleline(tb_buf)
@@ -10245,6 +10266,9 @@ impl PropertiesPanel {
 
                     // ── 049 R39 — the shell MenuPane's background (Q7: it
                     // lives on the main form, the shell's owner). ─────────────
+                    // Only a main form with a SideMenu has a shell, so only
+                    // there do these rows paint anything.
+                    if form.has_side_menu() {
                     property_row_keyed(ui, tr.lbl_menu_pane_bg, Some("MenuPaneCustom"), |ui| {
                         let mut custom = form.menu_pane_background.is_some();
                         if ui
@@ -10388,6 +10412,7 @@ impl PropertiesPanel {
                                 });
                         });
                     }
+                    } // has_side_menu
                 }
 
                 // ── 049 R1/R5 — how the form may be loaded. The main form owns
@@ -10715,6 +10740,20 @@ impl PropertiesPanel {
                             }
                         });
                 });
+                // `UseThemeBackground`: honoured by the designer and every host,
+                // and settable from COBOL, but the pane had no row for it, so a
+                // developer could not turn it on here (property audit,
+                // 2026-09-26).
+                property_row_keyed(ui, tr.lbl_use_theme_background, Some("UseThemeBackground"), |ui| {
+                    let mut on = form.use_theme_background;
+                    if ui
+                        .checkbox(&mut on, "")
+                        .on_hover_text(tr.tip_use_theme_background)
+                        .changed()
+                    {
+                        action.form_props.push(("UseThemeBackground".into(), on.to_string()));
+                    }
+                });
                 // The glass STYLE is its own choice and no longer cleared by
                 // picking a theme — the two were one control, so setting either
                 // silently discarded the other.
@@ -10771,7 +10810,7 @@ impl PropertiesPanel {
                     }
                     property_row_keyed(ui, tr.lbl_image_path, Some("BackgroundImage"), |ui| {
                         let pick_k = format!("form-BgImage-pick:{vp:?}");
-                        if ui.button("📂").on_hover_text("Browse for image…").clicked() {
+                        if ui.button("📂").on_hover_text(tr.tip_browse_image).clicked() {
                             crate::file_dialog::open_file(
                                 ui.ctx(),
                                 &pick_k,
@@ -10818,10 +10857,7 @@ impl PropertiesPanel {
                         });
                 });
                 ui.label(
-                    RichText::new(
-                        "Stretch = fill exactly  •  Fill = crop to fill  •  Fit = letterbox\n\
-             Center = original size  •  Tile = repeat",
-                    )
+                    RichText::new(tr.hint_img_modes)
                     .small()
                     .color(Color32::GRAY)
                     .italics(),
@@ -12345,7 +12381,11 @@ fn image_browse_row(
         help_label(ui, key, key);
         // Open the native picker asynchronously — a synchronous dialog nests the
         // OS event loop and aborts winit 0.30.
-        if ui.button("📂").on_hover_text("Browse for image…").clicked() {
+        if ui
+            .button("📂")
+            .on_hover_text(crate::i18n::current_tr(ui.ctx()).tip_browse_image)
+            .clicked()
+        {
             crate::file_dialog::open_file(
                 ui.ctx(),
                 &pick_key,

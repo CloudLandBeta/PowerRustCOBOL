@@ -1241,6 +1241,7 @@ pub fn run_shell(
     let input_tx = config.input_tx.clone();
     let form_req_tx = config.form_req_tx.clone();
     let title_fallback = config.title_fallback.clone();
+    let icon_path = config.icon_path.clone();
     let (host, form) = crate::FormHost::new(config);
 
     let mut shell = Shell::default();
@@ -1343,14 +1344,37 @@ pub fn run_shell(
             shell.breadcrumb_height
         },
     );
-    let viewport = egui::ViewportBuilder::default()
+    // The main form's designed window, as a plain window gets it (`host::run`):
+    // title-bar buttons, the title bar itself, full screen, maximized, a
+    // custom position and the taskbar icon. A shell window used to take the
+    // title and size alone, so every one of these was ignored in a shell
+    // application (property audit, 2026-09-26). Minimized and a
+    // screen-relative position need the window to exist: first frame.
+    let mut viewport = egui::ViewportBuilder::default()
         .with_title(&title)
         .with_inner_size([designed.x, designed.y])
         .with_resizable(true)
         // R43 — the shell window carries alpha; the chrome paints itself.
-        .with_transparent(true);
+        .with_transparent(true)
+        .with_minimize_button(form.can_minimize)
+        .with_maximize_button(form.can_maximize)
+        .with_decorations(form.title_visible)
+        .with_fullscreen(form.full_screen)
+        .with_maximized(form.window_state == cobolt_forms::model::WindowState::Maximized);
+    if form.start_position == cobolt_forms::model::FormStartPosition::Custom {
+        viewport = viewport.with_position(egui::pos2(form.x as f32, form.y as f32));
+    }
+    let taskbar_icon = (!form.taskbar_icon.trim().is_empty())
+        .then(|| cobolt_forms::assets::resolve(form.taskbar_icon.trim()));
+    if let Some(icon) = crate::host::load_host_icon(taskbar_icon.as_deref().or(icon_path.as_deref())) {
+        viewport = viewport.with_icon(icon);
+    }
+    let start_minimized = form.window_state == cobolt_forms::model::WindowState::Minimized;
+    let pending_start = form.start_position.is_screen_relative().then_some(form.start_position);
     let native_options = crate::native_options(viewport);
     let app = ShellApp {
+        start_minimized,
+        pending_start,
         shell,
         chain,
         host,
@@ -1374,6 +1398,11 @@ pub fn run_shell(
 /// The shell window's eframe app: Shell chrome + the main form's [`FormHost`]
 /// in the ContentPane.
 struct ShellApp {
+    /// The main form opens minimized (first frame: winit has no builder).
+    start_minimized: bool,
+    /// A screen-relative designed StartPosition, applied once the monitor's
+    /// size is known.
+    pending_start: Option<cobolt_forms::model::FormStartPosition>,
     shell: Shell,
     chain: NavChain,
     host: crate::FormHost,
@@ -1777,6 +1806,24 @@ impl eframe::App for ShellApp {
 
     fn ui(&mut self, root_ui: &mut Ui, frame: &mut eframe::Frame) {
         let _ = frame;
+        if self.start_minimized {
+            self.start_minimized = false;
+            root_ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+        }
+        if let Some(start) = self.pending_start {
+            let ready = root_ui.ctx().input(|i| {
+                let v = i.viewport();
+                Some((v.monitor_size?, v.outer_rect?.size()))
+            });
+            if let Some((monitor, window)) = ready {
+                if let Some((x, y)) =
+                    cobolt_forms::model::resolved_start_position(start, (monitor.x, monitor.y), (window.x, window.y))
+                {
+                    root_ui.ctx().send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
+                }
+                self.pending_start = None;
+            }
+        }
         // 051 R19 — while a Sync-opened (modal) child window lives, the WHOLE
         // shell face waits: chrome, breadcrumb and pane alike.
         if self.host.root_modal_blocked() {
@@ -3296,6 +3343,8 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         // read back with its flags.
         let (test_tx, test_rx) = mpsc::channel();
         let mut app = ShellApp {
+            start_minimized: false,
+            pending_start: None,
             shell: Shell::default(),
             chain: NavChain::default(),
             host,
@@ -3431,6 +3480,8 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             }),
         });
         let mut app = ShellApp {
+            start_minimized: false,
+            pending_start: None,
             shell: Shell::default(),
             chain,
             host,
@@ -3601,6 +3652,8 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             }),
         });
         let mut app = ShellApp {
+            start_minimized: false,
+            pending_start: None,
             shell: Shell::default(),
             chain,
             host,
@@ -3744,6 +3797,8 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             }),
         });
         let mut app = ShellApp {
+            start_minimized: false,
+            pending_start: None,
             shell: Shell::default(),
             chain,
             host,
@@ -3871,6 +3926,8 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             }),
         });
         let mut app = ShellApp {
+            start_minimized: false,
+            pending_start: None,
             shell: Shell::default(),
             chain,
             host,
@@ -3991,6 +4048,8 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             }),
         });
         let mut app = ShellApp {
+            start_minimized: false,
+            pending_start: None,
             shell: Shell::default(),
             chain,
             host,
@@ -5178,6 +5237,8 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             let mut shell = Shell::default();
             shell.side_ctrl = Some(side_ctrl);
             let mut app = ShellApp {
+            start_minimized: false,
+            pending_start: None,
                 shell,
                 chain,
                 host,

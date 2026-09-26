@@ -4621,6 +4621,10 @@ opened it, on both paths — a menu load and `OpenFormSync` / `OpenFormAsync`.
   `FullScreen`, `TitleVisible`, `CanMinimize`, `CanMaximize`, `FormState`,
   `FormFormat`, `BackgroundColor`, `Transparency`. A typo such as `super::Widht`
   fails the build at any depth.
+- **Writing them changes the window**: `MOVE "Processing..." TO super::Title`
+  retitles the opener's window; `BackgroundColor`/`Transparency` repaint its
+  backdrop, `Width`/`Height` resize it and `X`/`Y` move it (a shell
+  application's window belongs to the shell: there only the backdrop changes).
 - **Form-specific procedures use parentheses** — `super::"RecalcTotals"()` — and
   dispatch at run time.
 - **`super` can be NULL**: in the main form, and in an async-opened form whose
@@ -6571,6 +6575,25 @@ fn controls_reference_doc() -> String {
          settable at runtime), `FullScreen` (Boolean — orthogonal to WindowState; leaving \
          fullscreen returns to the previous state), and `TitleVisible` (Boolean, default true — \
          false renders a chromeless window).\n\n",
+    );
+    doc.push_str(
+        "Where the window properties apply: the main window, a SHELL application's window (a \
+         main form carrying a SideMenu — CanMinimize, CanMaximize, TitleVisible, FullScreen, \
+         WindowState, StartPosition/X/Y and TaskbarIcon are all honoured there too), and a \
+         CHILD window opened with OpenFormSync/OpenFormAsync or a Stand Alone menu action \
+         (CanMinimize, CanMaximize, FullScreen, WindowState, and StartPosition/X/Y when the \
+         caller passes no position). Entrance/exit effects and a see-through `Transparency` are \
+         the main window's only. `TaskbarIcon` is resolved against the application's folder, \
+         like every asset, so a project-relative icon works however the program is launched. \
+         `Transparency` (0-100) on the main window shows the DESKTOP through the form: the \
+         window is created carrying alpha whenever it is above 0. `BackgroundColor` \
+         `#000000FF` paints black (only `#00000000`, a 6-digit black or empty mean 'unset', the \
+         default dark blue), and a colour's own alpha multiplies with `Transparency`.\n\n\
+         Writing the form's own properties at run time — `me::X`, or `super::X` from a form it \
+         opened — changes the running window: `Title` retitles it, `BackgroundColor` and \
+         `Transparency` repaint the backdrop, `Width`/`Height` resize it (64 to 8192) and \
+         `X`/`Y` move it. In a shell application the shell owns the window, so there only the \
+         backdrop changes.\n\n",
     );
     doc.push_str(
         "`FormState` (`\"Ready\"` | `\"Waiting\"`, runtime-only, default Ready) guards unsaved \

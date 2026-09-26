@@ -324,7 +324,12 @@ pub fn run(config: FormHostConfig) {
     }
     viewport =
         viewport.with_maximized(form.window_state == cobolt_forms::model::WindowState::Maximized);
-    if fx_transparent {
+    let _ = fx_transparent;
+    // See-through when an entrance plays over the desktop OR the form has a
+    // `Transparency` of its own: the window must be created carrying alpha,
+    // or the property only faded the backdrop toward its base colour and the
+    // desktop never showed (property audit, 2026-09-26).
+    if app.see_through {
         // The effect plays over the DESKTOP: the surface must carry alpha, and
         // that can only be decided at creation. macOS still draws a drop
         // shadow around a transparent window, which would outline the
@@ -335,9 +340,12 @@ pub fn run(config: FormHostConfig) {
     // 037 R9 — the MAIN form's TaskbarIcon outranks the project icon; other
     // forms keep the project icon (their windows are taskbar-less once opened
     // via OpenForm*, spec 037 R8).
+    // Resolved like every other asset — against the application's folder —
+    // so a project-relative path works however the program was launched; a
+    // built binary started from elsewhere fell back to the default icon.
     let taskbar_icon_path: Option<PathBuf> =
         if form.main_form && !form.taskbar_icon.trim().is_empty() {
-            Some(PathBuf::from(form.taskbar_icon.trim()))
+            Some(cobolt_forms::assets::resolve(form.taskbar_icon.trim()))
         } else {
             None
         };
@@ -490,6 +498,7 @@ impl FormHost {
         }
 
         let (fx_hide_chrome, fx_transparent) = fx_window_flags(&fx_entrance);
+        let see_through = fx_transparent || (surface != Surface::Pane && form.transparency > 0);
 
         let host = FormHost {
             root: FormBody {
@@ -588,6 +597,7 @@ impl FormHost {
             pointer_inside: false,
             pointer_down: false,
             fx_transparent,
+            see_through,
             fx_chrome_pending: fx_hide_chrome && form.title_visible,
             fx_chrome_restore: None,
             fx_chrome_hidden_for_exit: false,
@@ -1982,6 +1992,63 @@ impl FormBody {
     ///   only, so recolouring a button in a child form did nothing.
     ///
     /// Both call this now, so neither can be fixed without the other.
+    /// A write to the FORM's own window properties — `me::Title`,
+    /// `BackgroundColor`, `Transparency`, `Width`, `Height`, `X`, `Y` — made
+    /// visible. They were readable and writable from COBOL and changed only the
+    /// property store: no command ever reached the window, and the backdrop
+    /// kept the colour and transparency captured at open (property audit,
+    /// 2026-09-26). The backdrop values apply on every surface; the window
+    /// commands only to the window this body owns (`window`, its viewport) —
+    /// `None` in the shell's pane, where the shell owns it. Returns whether it
+    /// was such a write (the update is still stored as usual either way).
+    pub(crate) fn apply_form_window_update(
+        &mut self,
+        ctx: &egui::Context,
+        u: &StateUpdate,
+        window: Option<egui::ViewportId>,
+    ) -> bool {
+        if !u.ctrl_id.trim().eq_ignore_ascii_case(&self.form_object) {
+            return false;
+        }
+        let num = || u.value.trim().parse::<f32>().ok();
+        match u.prop.to_ascii_lowercase().as_str() {
+            "backgroundcolor" => self.bg_hex = u.value.trim().to_owned(),
+            "transparency" => {
+                if let Some(t) = num() {
+                    self.transparency = t.clamp(0.0, 100.0) as u8;
+                }
+            }
+            "title" => {
+                if let Some(vp) = window {
+                    ctx.send_viewport_cmd_to(vp, egui::ViewportCommand::Title(u.value.trim().to_owned()));
+                }
+            }
+            "width" | "height" => {
+                let Some(v) = num().filter(|v| *v >= 64.0) else { return true };
+                let v = v.min(cobolt_forms::model::FORM_MAX_SIZE as f32);
+                if u.prop.eq_ignore_ascii_case("width") {
+                    self.form_size.x = v;
+                } else {
+                    self.form_size.y = v;
+                }
+                if let Some(vp) = window {
+                    ctx.send_viewport_cmd_to(vp, egui::ViewportCommand::InnerSize(self.form_size));
+                }
+            }
+            "x" | "y" => {
+                if let (Some(v), Some(vp)) = (num(), window) {
+                    let at = ctx
+                        .input_for(vp, |i| i.viewport().outer_rect.map(|r| r.min))
+                        .unwrap_or(egui::Pos2::ZERO);
+                    let to = if u.prop.eq_ignore_ascii_case("x") { egui::pos2(v, at.y) } else { egui::pos2(at.x, v) };
+                    ctx.send_viewport_cmd_to(vp, egui::ViewportCommand::OuterPosition(to));
+                }
+            }
+            _ => return false,
+        }
+        true
+    }
+
     pub(crate) fn apply_interpreter_update(&mut self, u: StateUpdate, diagnostics: bool) {
         let key = if u.instance_index > 0 {
             match self.array_member_group(&u.ctrl_id) {
@@ -2518,6 +2585,10 @@ impl FormBody {
         let updates: Vec<StateUpdate> = self.state_rx.try_iter().collect();
         let drained = updates.len();
         for u in updates {
+            // A child WINDOW's own window; a ContentPane occupant has none.
+            let vp = ctx.viewport_id();
+            let own_window = (vp != egui::ViewportId::ROOT).then_some(vp);
+            self.apply_form_window_update(ctx, &u, own_window);
             // A child form rides the same diagnostics switch the root does; the
             // host reads it once at start-up, a body reads it here.
             self.apply_interpreter_update(u, crate::diagnostics::frame_diagnostics_enabled());
@@ -2815,6 +2886,14 @@ pub(crate) struct ChildWindow {
     pub(crate) size: egui::Vec2,
     pub(crate) pos: Option<egui::Pos2>,
     pub(crate) decorations: bool,
+    /// The form's designed window chrome — ignored until the property audit
+    /// (2026-09-26): a child window had title, size and decorations only.
+    pub(crate) can_minimize: bool,
+    pub(crate) can_maximize: bool,
+    pub(crate) full_screen: bool,
+    /// A screen-relative designed `StartPosition`, applied on the first frame
+    /// the monitor's size is known, when the caller gave no position.
+    pub(crate) pending_start: Option<cobolt_forms::model::FormStartPosition>,
     /// The caller's `formWindowState` override, or the design's — applied as
     /// commands on the first frame (Maximized/Minimized/Fullscreen).
     pub(crate) initial_state: Option<String>,
@@ -2902,6 +2981,11 @@ pub struct FormHost {
     /// `WindowEffect::plays_over_desktop`). The form's own `transparency` then
     /// reaches the desktop for the window's whole life, as designed.
     fx_transparent: bool,
+    /// The window carries alpha: `fx_transparent`, or a form whose own
+    /// `Transparency` is above 0. Decides the viewport's creation, the clear
+    /// colour and whether the panel fills; `fx_transparent` alone still
+    /// decides how an effect paints.
+    pub(crate) see_through: bool,
     /// The title bar is designed to be visible but is currently OFF so the
     /// entrance plays with no fixed chrome; it is switched back on the frame
     /// the animation ends.
@@ -3179,10 +3263,28 @@ impl FormHost {
                         if let Some(body) = target {
                             let _ = body.input_tx.send(StateUpdate {
                                 ctrl_id: body.form_object.clone(),
-                                prop: key,
-                                value,
+                                prop: key.clone(),
+                                value: value.clone(),
                                 instance_index: 0,
                             });
+                        }
+                        // …and made visible on that form's window: a write
+                        // through `super::` reaches the target's interpreter by
+                        // the line above and never passes the drain that
+                        // applies the form's own writes (property audit,
+                        // 2026-09-26).
+                        let pane = self.surface == Surface::Pane;
+                        let child_vp = self.child_viewport(&handle);
+                        let body = if handle == ROOT_HANDLE {
+                            Some((&mut self.root, (!pane).then_some(egui::ViewportId::ROOT)))
+                        } else if let Some(c) = self.children.iter_mut().find(|c| c.handle == handle) {
+                            Some((&mut c.body, child_vp))
+                        } else {
+                            self.occupants.values_mut().find(|o| o.handle == handle).map(|o| (&mut o.body, None))
+                        };
+                        if let Some((body, vp)) = body {
+                            let u = StateUpdate::new(body.form_object.clone(), key, value);
+                            body.apply_form_window_update(ctx, &u, vp);
                         }
                     }
                     // 049 R44 — surfaced for the SHELL host, which applies it
@@ -3614,10 +3716,18 @@ impl FormHost {
             width.map(|w| w as f32).unwrap_or(fw).max(1.0),
             height.map(|h| h as f32).unwrap_or(fh).max(1.0),
         );
+        // The caller's position wins; with none, the form's own designed
+        // `StartPosition` — a `Custom` X/Y at once, a screen-relative one on
+        // the first frame.
         let pos = match (x, y) {
             (Some(px), Some(py)) => Some(egui::pos2(px as f32, py as f32)),
+            _ if form.start_position == cobolt_forms::model::FormStartPosition::Custom => {
+                Some(egui::pos2(form.x as f32, form.y as f32))
+            }
             _ => None,
         };
+        let pending_start = (pos.is_none() && form.start_position.is_screen_relative())
+            .then_some(form.start_position);
         let initial_state = window_state.or_else(|| match form.window_state {
             cobolt_forms::model::WindowState::Maximized => Some("Maximized".into()),
             cobolt_forms::model::WindowState::Minimized => Some("Minimized".into()),
@@ -3631,6 +3741,10 @@ impl FormHost {
             size,
             pos,
             decorations: form.title_visible,
+            can_minimize: form.can_minimize,
+            can_maximize: form.can_maximize,
+            full_screen: form.full_screen,
+            pending_start,
             initial_state,
             init_sent: false,
             finish_reported: false,
@@ -3886,7 +4000,10 @@ impl FormHost {
             let mut builder = egui::ViewportBuilder::default()
                 .with_title(child.title.clone())
                 .with_inner_size(child.size)
-                .with_decorations(child.decorations);
+                .with_decorations(child.decorations)
+                .with_minimize_button(child.can_minimize)
+                .with_maximize_button(child.can_maximize)
+                .with_fullscreen(child.full_screen);
             if live_modal_caller_vp.is_some() {
                 builder = builder.with_always_on_top();
             }
@@ -3902,6 +4019,22 @@ impl FormHost {
             }
             let mut close_requested = false;
             ctx.show_viewport_immediate(vp, builder, |vp_ui, _class| {
+                if let Some(start) = child.pending_start {
+                    let ready = vp_ui.input(|i| {
+                        let v = i.viewport();
+                        Some((v.monitor_size?, v.outer_rect?.size()))
+                    });
+                    if let Some((monitor, window)) = ready {
+                        if let Some((x, y)) = cobolt_forms::model::resolved_start_position(
+                            start,
+                            (monitor.x, monitor.y),
+                            (window.x, window.y),
+                        ) {
+                            vp_ui.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
+                        }
+                        child.pending_start = None;
+                    }
+                }
                 if !child.init_sent {
                     child.init_sent = true;
                     if let Some(s) = &child.initial_state {
@@ -4037,7 +4170,7 @@ impl eframe::App for FormHost {
     /// desktop. Otherwise it is the form's own background colour, so no
     /// stray frame of eframe's default grey can show through an effect.
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        if self.fx_transparent {
+        if self.see_through {
             egui::Color32::TRANSPARENT.to_normalized_gamma_f32()
         } else {
             cobolt_forms::render::backdrop_color(&self.root.bg_hex, 0).to_normalized_gamma_f32()
@@ -4805,6 +4938,10 @@ impl FormHost {
                 drained += 1;
                 continue;
             }
+            // The form's own window properties, on the root's own window —
+            // the shell owns it when this host is its pane.
+            let own_window = (self.surface != Surface::Pane).then_some(egui::ViewportId::ROOT);
+            self.root.apply_form_window_update(ctx, &u, own_window);
             // Routing, the toolbar-button door and the OBSERVER events all live in
             // one place, shared with the child-window path — see
             // `FormBody::apply_interpreter_update` for why that matters.
@@ -5010,7 +5147,7 @@ impl FormHost {
             // form's designed opacity against the desktop. In Pane mode the
             // panel never fills either — the pane-fixed backdrop below is the
             // one and only background paint (049 R41).
-            let panel_fill = if self.fx_transparent || surface == Surface::Pane {
+            let panel_fill = if self.see_through || surface == Surface::Pane {
                 egui::Color32::TRANSPARENT
             } else {
                 bg_fill
@@ -6279,6 +6416,97 @@ mod parity {
         finished: Arc<AtomicBool>,
         _form_req_tx: mpsc::Sender<cobolt_runtime::form_host::FormRequest>,
         _closed_rx: mpsc::Receiver<String>,
+    }
+
+    /// A form with a `Transparency` of its own gets a see-through window, as
+    /// an entrance over the desktop always did; a pane never does, and an
+    /// opaque form stays opaque (property audit, 2026-09-26).
+    #[test]
+    fn a_transparent_form_gets_a_see_through_window() {
+        let build = |transparency: u8, surface: Surface| -> bool {
+            let mut form = cobolt_forms::Form::new("SEE", "See", 320, 200);
+            form.transparency = transparency;
+            let (ev_tx, _ev_rx) = mpsc::channel();
+            let (input_tx, _input_rx) = mpsc::channel();
+            let (_state_tx, state_rx) = mpsc::channel();
+            let (_display_tx, display_rx) = mpsc::channel();
+            let (form_req_tx, form_req_rx) = mpsc::channel();
+            let (closed_tx, _closed_rx) = mpsc::channel();
+            let (host, _f) = FormHost::new(FormHostConfig {
+                form,
+                flat: Vec::new(),
+                state: HashMap::new(),
+                ev_tx,
+                input_tx,
+                state_rx,
+                display_rx,
+                pending: Arc::new(AtomicUsize::new(0)),
+                finished: Arc::new(AtomicBool::new(false)),
+                form_req_rx,
+                closed_tx,
+                form_req_tx,
+                form_source: None,
+                child_theme: None,
+                child_interpreter_setup: None,
+                shared_rust_bridge: None,
+                fx_entrance: FxSpec::default(),
+                fx_exit: FxSpec::default(),
+                fx_restore: false,
+                theme_pack: None,
+                surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+                icon_path: None,
+                title_fallback: String::new(),
+                hooks: Box::new(NoHooks),
+                surface,
+            });
+            host.see_through
+        };
+        assert!(build(30, Surface::Window));
+        assert!(!build(0, Surface::Window));
+        assert!(!build(30, Surface::Pane));
+    }
+
+    /// Property audit, 2026-09-26: a COBOL write to the form's own window
+    /// properties reaches the running form — BackgroundColor / Transparency /
+    /// Width / Height update the body, and Title / Width become commands to
+    /// the window (none in the shell's pane, which does not own it).
+    #[test]
+    fn a_form_property_write_reaches_the_window() {
+        let (mut host, _pipes) = host_with("none:600:ease-out", "none:600:ease-out", false);
+        let ctx = egui::Context::default();
+        let form = host.root.form_object.clone();
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let ctx = ui.ctx().clone();
+            for (k, v) in [
+                ("BackgroundColor", "#112233FF"),
+                ("Transparency", "40"),
+                ("Title", "Processing..."),
+                ("Width", "640"),
+            ] {
+                assert!(host.root.apply_form_window_update(&ctx, &StateUpdate::new(form.clone(), k, v), Some(egui::ViewportId::ROOT)));
+            }
+            // Someone else's property is not the form's.
+            assert!(!host.root.apply_form_window_update(&ctx, &StateUpdate::new("BTN-1", "Title", "x"), Some(egui::ViewportId::ROOT)));
+        });
+        out.textures_delta.clear();
+        assert_eq!(host.root.bg_hex, "#112233FF");
+        assert_eq!(host.root.transparency, 40);
+        assert_eq!(host.root.form_size.x, 640.0);
+        let cmds = &out.viewport_output[&egui::ViewportId::ROOT].commands;
+        assert!(cmds.iter().any(|c| matches!(c, egui::ViewportCommand::Title(t) if t == "Processing...")), "{cmds:?}");
+        assert!(cmds.iter().any(|c| matches!(c, egui::ViewportCommand::InnerSize(_))), "{cmds:?}");
+
+        // In a pane the body still takes the value, and no window command goes out.
+        let (mut pane, _p) = host_with_surface("none:600:ease-out", "none:600:ease-out", false, Surface::Pane);
+        let form = pane.root.form_object.clone();
+        let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let ctx = ui.ctx().clone();
+            pane.root.apply_form_window_update(&ctx, &StateUpdate::new(form.clone(), "Title", "x"), None);
+            pane.root.apply_form_window_update(&ctx, &StateUpdate::new(form.clone(), "BackgroundColor", "#445566FF"), None);
+        });
+        assert_eq!(pane.root.bg_hex, "#445566FF");
+        let cmds = out.viewport_output.get(&egui::ViewportId::ROOT).map(|v| v.commands.clone()).unwrap_or_default();
+        assert!(!cmds.iter().any(|c| matches!(c, egui::ViewportCommand::Title(_))), "the pane sends no title");
     }
 
     fn host_with(entrance: &str, exit: &str, restore: bool) -> (FormHost, Pipes) {

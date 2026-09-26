@@ -3994,6 +3994,10 @@ pub const SIDE_MENU_COLLAPSED_WIDTH: f32 = 48.0;
 /// reads as `Free` and does not move.
 pub const MENU_BAR_STYLES: [&str; 2] = ["Free", "Responsive"];
 
+/// The largest a form may be, in either direction — the designer's limit and
+/// the running form's, one value so the two cannot disagree.
+pub const FORM_MAX_SIZE: i32 = 8192;
+
 /// The narrowest a collapsed rail may be. Below this an icon row has nothing
 /// to fit in; `CollapsedWidth` values under it are raised to it, never obeyed.
 pub const SIDE_MENU_MIN_COLLAPSED_WIDTH: f32 = 24.0;
@@ -7344,7 +7348,7 @@ pub struct Form {
     pub title_visible: bool,
     /// How this form's own face looks while blocked by a Sync-opened (modal)
     /// child of its own — a child window, or a modal a ContentPane occupant
-    /// opened (051 R19/R28). Defaults to `SemiTransparent`.
+    /// opened (051 R19/R28). Defaults to `None` (the enum's default).
     pub modal_overlay_style: ModalOverlayStyle,
 
     // ── 049 Application shell ───────────────────────────────────────────────

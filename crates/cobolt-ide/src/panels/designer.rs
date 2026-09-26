@@ -1648,7 +1648,7 @@ const FORM_MIN_SIZE: i32 = 64;
 /// the maximum supported texture size. Requested was (2056, 20006)`. The
 /// Height field had held `480`, and typing `768` appended instead of
 /// replacing. Nothing between that keystroke and the GPU said no.
-pub(crate) const FORM_MAX_SIZE: i32 = 8192;
+pub(crate) const FORM_MAX_SIZE: i32 = cobolt_forms::model::FORM_MAX_SIZE;
 
 /// A form dimension clamped into the range that can actually be rendered.
 ///
