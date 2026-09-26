@@ -1889,6 +1889,7 @@ card of the Properties pane. Each one has:
 | **Delay (ms)** | How long to wait before the **first** pass. |
 | **Easing** | The speed curve of a pass. |
 | **Repeat** | `Once`, `Loop` (start over), `PingPong` (play forward, then back) or `Count`. |
+| **Passes** | Shown when Repeat is `Count`: how many passes it plays (default 3), then it rests at the end. |
 | **Repeat delay (ms)** | Shown when Repeat is not `Once`: how long the control **rests between one pass and the next**, where the pass ended. `0` starts the next pass at once. |
 
 A pulsing "new message" badge that beats once a second, with a pause between
@@ -1904,9 +1905,6 @@ delay 600. Start a `Programmatic` one from a handler:
 The designer canvas, the form preview, **Run Form** and the built application
 all step animations through the same clock, so a loop and its pauses look the
 same everywhere.
-
-> ⚠️ **Caveat — `Count` always plays three passes.** The number of passes is
-> not yet editable: choosing `Count` stores three.
 
 ---
 

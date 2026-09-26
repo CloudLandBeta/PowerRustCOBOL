@@ -5911,9 +5911,16 @@ impl DesignerPanel {
                                     anim.repeat = match value.as_str() {
                                         "Loop" => AnimRepeat::Loop,
                                         "PingPong" => AnimRepeat::PingPong,
-                                        "Count" => AnimRepeat::Count(3),
+                                        // Keep the number of passes when Count is re-picked.
+                                        "Count" => match anim.repeat {
+                                            AnimRepeat::Count(n) => AnimRepeat::Count(n),
+                                            _ => AnimRepeat::Count(3),
+                                        },
                                         _ => AnimRepeat::Once,
                                     }
+                                }
+                                "RepeatCount" => {
+                                    anim.repeat = AnimRepeat::Count(value.as_i64().clamp(1, 10_000) as u32)
                                 }
                                 "RepeatDelay" => anim.repeat_delay_ms = value.as_i64().max(0) as u64,
                                 "SlideDX" => anim.slide_dx = value.as_i64() as i32,

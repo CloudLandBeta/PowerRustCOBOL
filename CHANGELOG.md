@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.267] — 2026-09-26
+
+### Fix — an animation's Count always played three passes
+
+- Choosing Repeat `Count` stored three passes and nothing could change it;
+  the `.cfrm` did not even save the number. The Animations card now shows
+  **Passes** (1–10000) when Repeat is `Count`, the `.cfrm` saves it as
+  `repeat-count`, and re-picking `Count` keeps the number already set. A form
+  saved before this still loads as three. Test
+  `an_animation_count_round_trips`. Guide: the caveat is replaced by the
+  **Passes** row.
+
 ## [PowerRustCOBOL 1.70.266] — 2026-09-26
 
 ### Feature — Repeat delay: a pause between an animation's passes

@@ -5753,6 +5753,22 @@ impl PropertiesPanel {
                         });
                 });
 
+                if let AnimRepeat::Count(n) = anim.repeat {
+                    let mut passes = n.max(1) as i64;
+                    property_row(ui, "Passes", |ui| {
+                        if ui
+                            .add(DragValue::new(&mut passes).speed(0.2).range(1..=10_000))
+                            .changed()
+                        {
+                            action.set_props.push((
+                                id.to_owned(),
+                                format!("Anim{sel}_RepeatCount"),
+                                PropValue::Int(passes),
+                            ));
+                        }
+                    });
+                }
+
                 if !matches!(anim.repeat, AnimRepeat::Once) {
                     let mut pause = anim.repeat_delay_ms as i64;
                     property_row(ui, "Repeat delay (ms)", |ui| {

@@ -1295,6 +1295,7 @@ fn parse_control<R: std::io::BufRead>(
                 let mut easing = "EaseInOut".to_owned();
                 let mut repeat = "Once".to_owned();
                 let mut repeat_delay = 0u64;
+                let mut repeat_count = 3u32;
                 let mut slide_dx = 0i32;
                 let mut slide_dy = 0i32;
                 for (key, val) in attrs {
@@ -1307,6 +1308,7 @@ fn parse_control<R: std::io::BufRead>(
                         b"easing" => easing = val,
                         b"repeat" => repeat = val,
                         b"repeat-delay" => repeat_delay = val.parse().unwrap_or(0),
+                        b"repeat-count" => repeat_count = val.parse::<u32>().unwrap_or(3).max(1),
                         b"slide-dx" => slide_dx = val.parse().unwrap_or(0),
                         b"slide-dy" => slide_dy = val.parse().unwrap_or(0),
                         _ => {}
@@ -1322,7 +1324,8 @@ fn parse_control<R: std::io::BufRead>(
                     anim.repeat = match repeat.as_str() {
                         "Loop" => AnimRepeat::Loop,
                         "PingPong" => AnimRepeat::PingPong,
-                        "Count" => AnimRepeat::Count(3),
+                        // Forms saved before `repeat-count` existed played three.
+                        "Count" => AnimRepeat::Count(repeat_count),
                         _ => AnimRepeat::Once,
                     };
                     anim.repeat_delay_ms = repeat_delay;
@@ -1726,6 +1729,9 @@ fn write_control<W: std::io::Write>(w: &mut Writer<W>, ctrl: &Control) -> Result
         ae.push_attribute(("delay", anim.delay_ms.to_string().as_str()));
         ae.push_attribute(("easing", anim.easing.as_str()));
         ae.push_attribute(("repeat", anim.repeat.as_str()));
+        if let AnimRepeat::Count(n) = anim.repeat {
+            ae.push_attribute(("repeat-count", n.max(1).to_string().as_str()));
+        }
         if anim.repeat_delay_ms > 0 {
             ae.push_attribute(("repeat-delay", anim.repeat_delay_ms.to_string().as_str()));
         }
@@ -2298,6 +2304,23 @@ Actor Caption:string</Property>
         let old = xml.replace(r#" repeat-delay="750""#, "");
         let loaded = load_form_from_str(&old).expect("loads");
         assert_eq!(loaded.controls[0].animations[0].repeat_delay_ms, 0);
+    }
+
+    /// `Count`'s number of passes is saved and read back; a form saved before
+    /// it was editable still plays three.
+    #[test]
+    fn an_animation_count_round_trips() {
+        let mut form = sample_form();
+        let mut a = crate::model::AnimationDef::new("blink");
+        a.repeat = crate::model::AnimRepeat::Count(7);
+        form.controls[0].animations.push(a);
+        let xml = form_to_string(&form).expect("form_to_string failed");
+        assert!(xml.contains(r#"repeat-count="7""#), "{xml}");
+        let loaded = load_form_from_str(&xml).expect("loads");
+        assert!(matches!(loaded.controls[0].animations[0].repeat, crate::model::AnimRepeat::Count(7)));
+        let old = xml.replace(r#" repeat-count="7""#, "");
+        let loaded = load_form_from_str(&old).expect("loads");
+        assert!(matches!(loaded.controls[0].animations[0].repeat, crate::model::AnimRepeat::Count(3)));
     }
 
     #[test]
