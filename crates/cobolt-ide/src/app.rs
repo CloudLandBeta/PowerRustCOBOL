@@ -950,6 +950,10 @@ pub struct CoboltApp {
     /// Shown once after opening a project that has no usable AI model or no
     /// configured agent, inviting the user to set them up.
     ai_setup_modal: bool,
+    /// While the AI-setup invite is up: whether every enabled agent now has a
+    /// model. Cached — it reads the agents from disk — and cleared whenever a
+    /// manager opened from the invite, so it is asked again when it closes.
+    ai_setup_ready: Option<bool>,
     /// Spec 059 — the IDE Walkthrough.
     walkthrough: crate::panels::walkthrough::Walkthrough,
     /// The machine flag, read once at startup like `rust_check_done`. Reading
@@ -2100,6 +2104,7 @@ impl CoboltApp {
             about_open: false,
             sdk_modal_open: false,
             ai_setup_modal: false,
+            ai_setup_ready: None,
             walkthrough: Default::default(),
             walkthrough_shown: crate::ui_prefs::walkthrough_shown(),
             had_project_last_frame: false,
@@ -11951,8 +11956,29 @@ impl CoboltApp {
         // brings the invite back, so the model and the agent can both be set from
         // one place — only ✕ / "Later" dismisses it.
         if self.models_modal.is_some() || self.agents_modal.is_some() {
+            self.ai_setup_ready = None;
             return;
         }
+        // Once everything is set the invite stops asking and says so: it stays
+        // open by design (so models and agents are set from one place), and a
+        // "nothing is configured" message over a finished setup reads as a
+        // setup that did not take (operator, 2026-09-26).
+        let ready = match self.ai_setup_ready {
+            Some(r) => r,
+            None => {
+                let r = self
+                    .project_path
+                    .as_ref()
+                    .and_then(|p| p.parent())
+                    .map(|root| {
+                        let db = crate::agents_db::AgentsDb::load(root);
+                        ai_setup_complete_for(&self.llm, &db.agents)
+                    })
+                    .unwrap_or(false);
+                self.ai_setup_ready = Some(r);
+                r
+            }
+        };
         let mut open = true;
         let mut hide_again = self
             .cobolt_project
@@ -11984,7 +12010,8 @@ impl CoboltApp {
                     ui.add_space(10.0);
                     ui.vertical(|ui| {
                         ui.add_space(6.0);
-                        ui.label(egui::RichText::new(tr.ai_setup_msg).size(13.0));
+                        let msg = if ready { tr.ai_setup_done_msg } else { tr.ai_setup_msg };
+                        ui.label(egui::RichText::new(msg).size(13.0));
                         ui.add_space(14.0);
                         ui.horizontal(|ui| {
                             if ui.button(tr.ai_setup_models).clicked() {
@@ -18552,6 +18579,16 @@ fn ai_setup_needed_for(
     !grace_ready
 }
 
+/// Everything the invite asks for is in place: a model, and a model for EVERY
+/// enabled agent — Grace, the judge and the specialists alike.
+fn ai_setup_complete_for(
+    llm: &crate::llm::LlmConfig,
+    agents: &[crate::agents_db::AgentDef],
+) -> bool {
+    !ai_setup_needed_for(llm, agents)
+        && agents.iter().filter(|a| a.enabled).all(|a| agent_resolves_model(llm, a))
+}
+
 fn sanitize_file_stem(name: &str) -> String {
     let cleaned: String = name
         .trim()
@@ -21071,6 +21108,27 @@ mod ai_setup_invite_tests {
         llm.model_profiles = vec![profile("d9566a66", "ollama_cloud", "gemma4:31b")];
         let agents = vec![agent("Grace", "orchestrator", false, Some("d9566a66"), "")];
         assert!(ai_setup_needed_for(&llm, &agents));
+    }
+
+    /// The invite says setup is DONE only when every enabled agent has a
+    /// model: Grace alone is enough to stop the invite opening, not enough to
+    /// call the setup finished. A disabled agent does not hold it back
+    /// (operator, 2026-09-26).
+    #[test]
+    fn setup_is_complete_only_when_every_enabled_agent_has_a_model() {
+        let mut llm = LlmConfig::load_defaults_for_test();
+        llm.provider.clear();
+        llm.model.clear();
+        llm.model_profiles = vec![profile("d9566a66", "ollama_cloud", "gemma4:31b")];
+        let mut agents = vec![
+            agent("Grace", "orchestrator", true, Some("d9566a66"), ""),
+            agent("Form Designer Agent", "specialist", true, Some("d9566a66"), "gemma4:31b"),
+            agent("Retired Agent", "specialist", false, None, ""),
+        ];
+        assert!(ai_setup_complete_for(&llm, &agents), "all enabled agents resolve a model");
+        agents.push(agent("Documentation Agent", "specialist", true, None, ""));
+        assert!(!ai_setup_needed_for(&llm, &agents), "Grace is ready…");
+        assert!(!ai_setup_complete_for(&llm, &agents), "…but one specialist still has no model");
     }
 }
 

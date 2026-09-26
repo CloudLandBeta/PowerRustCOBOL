@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.254] — 2026-09-26
+
+### Fix — the AI-setup invite kept saying nothing was configured
+
+- The "Set up the AI for this project" invite stays open while its Models /
+  Agents / Judge managers are used, and kept saying "this project has no AI
+  model or agent configured yet" after every agent had one. Once a model is set
+  and every ENABLED agent resolves a model, it now says "Agents configured
+  successfully. Don't forget to check the agents' proficiency…" (new `Tr` key
+  `ai_setup_done_msg`, six languages). The answer is re-read each time a
+  manager closes. Test `setup_is_complete_only_when_every_enabled_agent_has_a_model`.
+
 ## [PowerRustCOBOL 1.70.253] — 2026-09-26
 
 ### Fix — Test connection called a good key broken on a paid model
