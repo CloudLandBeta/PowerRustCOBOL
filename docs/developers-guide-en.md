@@ -2322,10 +2322,13 @@ face: the glass styles, a background gradient, a form theme or an asset pack.
 
 > **Note — Neumorphic.** That style paints its own soft relief, lit from the
 > top-left, from the same shadow stack that gives the whole form its look, so
-> `Fixed3D`, `Raised` and `Single` all read as raised there. **`Sunken` turns
-> that relief over** — shadow on the top and left, highlight on the bottom and
-> right — so a control set to it reads as pressed *into* the form. That is the
-> whole of `BorderStyle` under Neumorphic: raised, or pressed.
+> `Fixed3D` and `Raised` read as raised there. **`Sunken` turns that relief
+> over** — shadow on the top and left, highlight on the bottom and right — so a
+> control set to it reads as pressed *into* the form. **`Single` stays your own
+> line**, in `BorderColor` and `BorderWidth`, as on every other style.
+>
+> ⚠️ Before 1.70.263 `Single` was relief too under Neumorphic, so `BorderColor`
+> and `BorderWidth` seemed to do nothing on a Neumorphic form.
 
 > Older forms that used a container **Border radius** still load and round
 > correctly — it is read as an alias for **Corner radius**.
@@ -5003,6 +5006,7 @@ A few properties whose effect depends on the control:
 | Label | `WordWrap` | On: the caption wraps at the Label's width. Off (the default): it keeps its own lines and shrinks its font to fit. |
 | TextBox | `WordWrap` | Multiline box. On (the default): long lines wrap. Off: they stay whole and the box scrolls sideways. |
 | CheckBox, RadioButton | `CheckAlignment` | `Right` puts the box or circle after the caption. |
+| CheckBox, RadioButton | `CheckSpacing` | Points between the box (or circle) and the caption, 0–64; 6 unless you set it. |
 | RadioButton | `CheckBoxColor` | The circle's fill in both states. A contrasting dot marks the selected radio. |
 | PictureBox | `SizeMode` | `Normal`: the image's own size, shrunk only when it does not fit. `Zoom`: the largest that fits. `Stretch`: fills the box. `CenterImage`: centred. `AutoSize`: the control takes the image's size. |
 | PictureBox | `ImageAlignment` | Where the image sits when it does not fill the box (`Normal`, `Zoom`): `TopLeft` … `BottomRight`. |

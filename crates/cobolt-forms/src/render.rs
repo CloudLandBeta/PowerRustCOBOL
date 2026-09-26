@@ -24814,6 +24814,9 @@ mod shape_dump {
             let mut c = Control::new("PNL", ControlType::Panel, 40, 40);
             c.rect = crate::model::Rect::new(40, 40, 400, 200);
             c.set_prop("CornerRadius", crate::model::PropValue::Int(24));
+            // The RELIEF border: under Neumorphic a `Single` border is one flat
+            // line since 1.70.263, and this pins the relief's concentric arcs.
+            c.set_prop("BorderStyle", crate::model::PropValue::String("Raised".into()));
             c
         };
         let controls = vec![container];

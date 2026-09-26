@@ -4812,6 +4812,9 @@ impl Control {
                 if matches!(control_type, ControlType::CheckBox) {
                     props.insert("CheckSize".into(), PropValue::Int(70));
                 }
+                // Points between the box (or circle) and the caption — the 6
+                // the painter always used.
+                props.insert("CheckSpacing".into(), PropValue::Int(6));
                 // The frame around the WHOLE control, not the check glyph — the
                 // glyph is drawn by the CheckBox branch of `draw_control` and is
                 // governed by CheckColor/CheckSize. `None` like Label, the

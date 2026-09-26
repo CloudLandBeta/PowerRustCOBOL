@@ -5001,7 +5001,12 @@ fn draw_control_body(
             } else {
                 frame_rect
             };
-            if is_neumorphic {
+            // Neumorphic draws a RELIEF border in its own greys — but `Single`
+            // is a flat line in the developer's own `BorderColor`, whatever the
+            // theme. It used to be relief too, so BorderColor did nothing on a
+            // Neumorphic form (operator, 2026-09-26: a CheckBox's border
+            // properties "don't work").
+            if is_neumorphic && !border_style.eq_ignore_ascii_case("Single") {
                 draw_neumorphic_user_border(
                     painter,
                     border_rect,
@@ -14619,7 +14624,13 @@ pub fn fit_clamp(v: f32, lo: f32, hi: f32) -> f32 {
 fn toggle_indicator_metrics(rect: egui::Rect, ctrl: &Control) -> (f32, f32, f32) {
     let d = fit_clamp(ctrl_font_size(ctrl) * 1.25, 12.0, (rect.height() - 4.0).max(10.0));
     let pad = 4.0_f32.min(rect.width() * 0.08);
-    let gap = 6.0_f32.min(rect.width() * 0.08);
+    // `CheckSpacing` — the developer's distance between the box and the
+    // caption. Unset, the 6 points (at most 8 % of a narrow control) it has
+    // always been.
+    let gap = match ctrl.get_prop("CheckSpacing").map(|v| v.as_i64()) {
+        Some(n) => (n as f32).clamp(0.0, 64.0).min(rect.width() * 0.5),
+        None => 6.0_f32.min(rect.width() * 0.08),
+    };
     (d, pad, gap)
 }
 
@@ -17344,6 +17355,55 @@ mod toggle_surface_tests {
         let mut cb = Control::new("chk", ControlType::CheckBox, 0, 0);
         cb.rect = crate::model::Rect { x: 0, y: 0, w: 160, h: 24 };
         cb
+    }
+
+    /// Under Neumorphic a `Single` border is the developer's own flat line —
+    /// BorderColor and BorderWidth as set — while Raised / Sunken / Fixed3D
+    /// keep the theme's relief. `Single` used to be relief too, so the colour
+    /// did nothing on a Neumorphic form (operator, 2026-09-26).
+    #[test]
+    fn a_single_border_keeps_its_colour_under_neumorphic() {
+        let strokes = |style: &str| -> Vec<(Color32, f32)> {
+            let mut cb = checkbox();
+            cb.set_prop("BorderStyle", crate::PropValue::String(style.into()));
+            cb.set_prop("BorderColor", crate::PropValue::String("#FF00FF".into()));
+            cb.set_prop("BorderWidth", crate::PropValue::Int(2));
+            let ctx = egui::Context::default();
+            set_glass_style(&ctx, crate::model::GlassStyle::Neumorphic);
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, &cb, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            let mut out = Vec::new();
+            fn walk(s: &egui::Shape, out: &mut Vec<(Color32, f32)>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    egui::Shape::Rect(r) if r.stroke.width > 0.0 => out.push((r.stroke.color, r.stroke.width)),
+                    _ => {}
+                }
+            }
+            full.shapes.iter().for_each(|c| walk(&c.shape, &mut out));
+            out
+        };
+        let magenta = |v: &[(Color32, f32)]| v.iter().any(|(c, w)| (c.r(), c.g(), c.b()) == (255, 0, 255) && *w == 2.0);
+        assert!(magenta(&strokes("Single")), "Single: the chosen colour and width");
+        assert!(!magenta(&strokes("Raised")), "Raised: the theme's relief, not a flat line");
+    }
+
+    /// `CheckSpacing` sets the distance between the box and the caption;
+    /// unset it is the 6 points it always was.
+    #[test]
+    fn check_spacing_sets_the_gap_between_box_and_caption() {
+        let rect = egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 24.0));
+        let mut cb = checkbox();
+        cb.properties.remove("CheckSpacing");
+        assert_eq!(toggle_indicator_metrics(rect, &cb).2, 6.0);
+        cb.set_prop("CheckSpacing", crate::PropValue::Int(20));
+        assert_eq!(toggle_indicator_metrics(rect, &cb).2, 20.0);
+        cb.set_prop("CheckSpacing", crate::PropValue::Int(0));
+        assert_eq!(toggle_indicator_metrics(rect, &cb).2, 0.0);
     }
 
     /// Reports 3, 5 and 6. A CheckBox is 100 % transparent by default, which
@@ -24492,11 +24552,14 @@ mod elegance_baseline_tests {
             ("asset-pack", GS::Classic, 665),
             ("liquid-glass", GS::Enhanced, 755),
             ("asset-pack", GS::Enhanced, 739),
-            ("liquid-glass", GS::Neumorphic, 645),
-            ("asset-pack", GS::Neumorphic, 661),
-            ("liquid-glass", GS::NeumorphicDark, 645),
-            ("asset-pack", GS::NeumorphicDark, 661),
+            ("liquid-glass", GS::Neumorphic, 609),
+            ("asset-pack", GS::Neumorphic, 637),
+            ("liquid-glass", GS::NeumorphicDark, 609),
+            ("asset-pack", GS::NeumorphicDark, 637),
         ];
+        // (The Neumorphic rows fell by 36 / 24 at 1.70.263: a `Single` border
+        // is one flat stroke there now, where it was the multi-stroke relief —
+        // the fixture's single-bordered controls, not the seam.)
         for (theme, gs, want) in expected {
             let got = rows
                 .iter()
@@ -24583,17 +24646,17 @@ mod border_3d_tests {
 
         let raised = top_left_ink("Raised");
         let sunken = top_left_ink("Sunken");
-        let single = top_left_ink("Single");
+        let fixed = top_left_ink("Fixed3D");
         assert!(
             raised > sunken,
             "Raised lights the top-left ({raised}) and Sunken shades it ({sunken})"
         );
-        assert_eq!(
-            single, raised,
-            "every other style keeps the raised relief this style has always drawn"
-        );
+        // `Single` is the developer's own flat line since 1.70.263
+        // (`a_single_border_keeps_its_colour_under_neumorphic`); Fixed3D is
+        // still the raised relief.
+        assert_eq!(fixed, raised, "Fixed3D keeps the raised relief");
         println!(
-            "\n  Neumorphic — top-left edge ink: Raised {raised}, Single {single}, \
+            "\n  Neumorphic — top-left edge ink: Raised {raised}, Fixed3D {fixed}, \
              Sunken {sunken} (the relief turns over)\n"
         );
     }

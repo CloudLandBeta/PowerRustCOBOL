@@ -6238,6 +6238,7 @@ impl PropertiesPanel {
                     &["Left", "Center", "Right"],
                 );
                 color_row(ui, id, "CheckColor", ctrl, action);
+                int_prop_row(ui, id, "CheckSpacing", tr.lbl_check_spacing, ctrl, action, 0..=64, Some("px"), 6);
                 // A CheckBox's tick has a size; a radio's circle is filled whole.
                 if matches!(ctrl.control_type, ControlType::CheckBox) {
                     int_prop_row(

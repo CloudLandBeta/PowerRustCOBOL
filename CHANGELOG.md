@@ -8,6 +8,22 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.263] — 2026-09-26
+
+### Fix — border properties did nothing under Neumorphic; CheckBox spacing
+
+- Under the Neumorphic glass style every border was drawn as the theme's grey
+  relief, `Single` included, so `BorderColor` and `BorderWidth` did nothing on a
+  Neumorphic form (operator, 2026-09-26: a CheckBox's border). `Single` is now
+  the developer's own flat line there, as on every other style; `Raised`,
+  `Fixed3D` and `Sunken` keep the relief. Tests: the new
+  `a_single_border_keeps_its_colour_under_neumorphic`; the relief tests now pin
+  `Raised`/`Fixed3D`, and the Neumorphic shape baseline records the one-stroke
+  border (609 / 637).
+- **`CheckSpacing`** (CheckBox and RadioButton, points 0-64, default 6): the
+  distance between the box and its caption, which was fixed at 6. Designer row
+  (`lbl_check_spacing`, six languages), hover help, KB and Guide.
+
 ## [PowerRustCOBOL 1.70.262] — 2026-09-26
 
 ### Examples — PowerChat's confirmation shows a question in the designer

@@ -1113,6 +1113,14 @@ pub static PROP_HELP: &[PropHelp] = &[
         "勾选标记相对于方框的大小百分比（10-100，默认 70）。",
         "Taille de la coche en pourcentage de la case (10-100, 70 par défaut).",
     ] },
+    PropHelp { ty: "CheckBox", prop: "CheckSpacing", text: [
+        "Distance in points between the box (or circle) and the caption, 0-64 (default 6).",
+        "Distancia en puntos entre la casilla (o el círculo) y el texto, 0-64 (predeterminado 6).",
+        "Distância em pontos entre a caixa (ou o círculo) e o texto, 0-64 (padrão 6).",
+        "ボックス（または円）と文字の間隔（ポイント、0～64、既定 6）。",
+        "框（或圆）与文字之间的距离（点，0-64，默认 6）。",
+        "Distance en points entre la case (ou le cercle) et le texte, 0-64 (6 par défaut).",
+    ] },
     PropHelp { ty: "CheckBox", prop: "Checked", text: [
         "Checked state: 1 = ticked, 0 = clear. Can be read and set from COBOL.",
         "Estado de marcado: 1 = marcado, 0 = desmarcado. Se puede leer y establecer desde COBOL.",
@@ -3992,6 +4000,14 @@ pub static PROP_HELP: &[PropHelp] = &[
         "現在 RadioButton では効果がありません。円とその塗りつぶしのサイズは固定です。",
         "目前对 RadioButton 不起作用：圆圈及其填充的大小是固定的。",
         "Sans effet pour l'instant sur un RadioButton : le cercle et son remplissage ont une taille fixe.",
+    ] },
+    PropHelp { ty: "RadioButton", prop: "CheckSpacing", text: [
+        "Distance in points between the box (or circle) and the caption, 0-64 (default 6).",
+        "Distancia en puntos entre la casilla (o el círculo) y el texto, 0-64 (predeterminado 6).",
+        "Distância em pontos entre a caixa (ou o círculo) e o texto, 0-64 (padrão 6).",
+        "ボックス（または円）と文字の間隔（ポイント、0～64、既定 6）。",
+        "框（或圆）与文字之间的距离（点，0-64，默认 6）。",
+        "Distance en points entre la case (ou le cercle) et le texte, 0-64 (6 par défaut).",
     ] },
     PropHelp { ty: "RadioButton", prop: "EnterAsTab", text: [
         "1 (default) = Enter moves the focus to the next control in tab order, like Tab; onEnterPressed still fires. A multiline TextBox keeps Enter for new lines.",
