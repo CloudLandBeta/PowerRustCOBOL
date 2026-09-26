@@ -8,6 +8,15 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.250] — 2026-09-26
+
+### Examples — PowerChat's background and shadows
+
+- Every PowerChat form's background is `DFE0E1FF`.
+- Every drop shadow that is on has a blur strength of 3 (it was 8) — 76
+  controls across the ten forms. The operator's own move of the chat input
+  and Send button is included.
+
 ## [PowerRustCOBOL 1.70.249] — 2026-09-26
 
 ### Examples — PowerChat's flag buttons are flat again

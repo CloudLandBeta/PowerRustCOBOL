@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="MODEL-FORM" title="PowerChat" width="800" height="450" background="FEFFFFFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
+<Form name="MODEL-FORM" title="PowerChat" width="800" height="450" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
   <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -643,7 +643,7 @@
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ShadowBlurStrength">3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
@@ -729,7 +729,7 @@
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ShadowBlurStrength">3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
@@ -811,7 +811,7 @@
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ShadowBlurStrength">3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
@@ -858,7 +858,7 @@
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ShadowBlurStrength">3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
@@ -942,7 +942,7 @@
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ShadowBlurStrength">3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
@@ -990,7 +990,7 @@
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ShadowBlurStrength">3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
