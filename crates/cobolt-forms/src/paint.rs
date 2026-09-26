@@ -5773,7 +5773,16 @@ fn draw_control_body(
         }
     }
 
-    if !label.is_empty() {
+    // A Button with an icon and NO caption is an icon button — a row of flags,
+    // a toolbar-style glyph. Its icon is painted in the caption block below,
+    // which ran only for a non-empty caption, so such a button showed nothing
+    // but its face (operator, 2026-09-26: "powerchat, where are the flags?").
+    let icon_only_button = matches!(ctrl.control_type, CT::Button)
+        && ctrl
+            .get_prop("IconPath")
+            .or_else(|| ctrl.get_prop("ImagePath"))
+            .is_some_and(|v| !v.as_str().trim().is_empty());
+    if !label.is_empty() || icon_only_button {
         // A CheckBox has no face of its own by default, so its caption sits on
         // whatever it was dropped onto — a GroupBox, a Panel, a dark form, a
         // Neumorphic Dark surface. The seeded default is plain black, which is
@@ -19680,7 +19689,9 @@ method. Nothing in the control is reachable only by mouse.";
     fn a_label_with_autosize_takes_its_captions_size() {
         let ctx = egui::Context::default();
         ctx.set_fonts(egui::FontDefinitions::default());
-        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        // The frame's texture delta (the font atlas) is never uploaded here,
+        // and epaint asserts when an unapplied delta is dropped.
+        ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
         let label = |caption: &str, auto: bool, wrap: bool| {
             let mut c = Control::new("L", crate::model::ControlType::Label, 10, 20);
             c.rect = crate::model::Rect::new(10, 20, 80, 20);
@@ -25468,4 +25479,44 @@ pub fn draw_snackbar(
     crate::icons::draw_menu_icon(painter, close_glyph, "x-mark", ink);
 
     SnackbarPaint { rect, close: close_rect, buttons: button_rects }
+}
+
+#[cfg(test)]
+mod icon_button_tests {
+    use super::*;
+
+    /// A Button with an icon and no caption paints its icon. The icon was
+    /// painted in the caption block, which ran only for a non-empty caption,
+    /// so a row of flag buttons showed empty faces (operator, 2026-09-26).
+    #[test]
+    fn an_icon_button_without_a_caption_paints_its_icon() {
+        let dir = std::env::temp_dir().join(format!("prc-icon-btn-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("flag.png");
+        image::RgbaImage::from_pixel(6, 4, image::Rgba([200, 30, 30, 255]))
+            .save(&png)
+            .unwrap();
+        let mut btn = Control::new("Flag-en", crate::ControlType::Button, 0, 0);
+        btn.rect = crate::model::Rect::new(0, 0, 40, 30);
+        btn.set_prop("Caption", crate::PropValue::String(String::new()));
+        btn.set_prop("IconPath", crate::PropValue::String(png.to_string_lossy().into_owned()));
+        let ctx = egui::Context::default();
+        let mut textured = 0usize;
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            draw_control(ui.painter(), Pos2::new(10.0, 10.0), &btn, false, true, 1.0, 1.0, None);
+        });
+        fn walk(s: &egui::Shape, n: &mut usize) {
+            match s {
+                egui::Shape::Mesh(m) if m.texture_id != egui::TextureId::default() => *n += 1,
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, n)),
+                _ => {}
+            }
+        }
+        for cs in &out.shapes {
+            walk(&cs.shape, &mut textured);
+        }
+        out.textures_delta.clear();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(textured >= 1, "the icon must be painted");
+    }
 }

@@ -1010,12 +1010,12 @@ pub static PROP_HELP: &[PropHelp] = &[
         "Fichier image (PNG, JPG, SVG, etc.) dessiné à côté du libellé du bouton. Vide = aucune icône.",
     ] },
     PropHelp { ty: "Button", prop: "IconSize", text: [
-        "Width and height of the button's icon, in pixels (16-128, default 32).",
-        "Ancho y alto del icono del botón, en píxeles (16-128, predeterminado 32).",
-        "Largura e altura do ícone do botão, em pixels (16-128, padrão 32).",
-        "ボタンのアイコンの幅と高さ（ピクセル、16～128、既定 32）。",
-        "按钮图标的宽度和高度（像素，16-128，默认 32）。",
-        "Largeur et hauteur de l'icône du bouton, en pixels (16-128, 32 par défaut).",
+        "Width and height of the button's icon, in pixels (default 32). The image is drawn at exactly this size: supply a square one, or it is distorted.",
+        "Ancho y alto del icono del botón, en píxeles (predeterminado 32). La imagen se dibuja exactamente a ese tamaño: use una cuadrada o saldrá deformada.",
+        "Largura e altura do ícone do botão, em pixels (padrão 32). A imagem é desenhada exatamente nesse tamanho: forneça uma quadrada, ou ela sai distorcida.",
+        "ボタンのアイコンの幅と高さ（ピクセル、既定 32）。画像はちょうどこの大きさで描かれるため、正方形の画像を用意してください。そうでないと歪みます。",
+        "按钮图标的宽度和高度（像素，默认 32）。图像按此尺寸精确绘制：请提供正方形图像，否则会变形。",
+        "Largeur et hauteur de l'icône du bouton, en pixels (32 par défaut). L'image est dessinée exactement à cette taille : fournissez-la carrée, sinon elle est déformée.",
     ] },
     PropHelp { ty: "Button", prop: "IsDefault", text: [
         "Makes this the form's default button: pressing Enter clicks it, unless that Enter is moving the focus to the next field.",

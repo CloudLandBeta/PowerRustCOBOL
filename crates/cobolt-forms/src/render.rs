@@ -20510,7 +20510,7 @@ mod tests {
                 input.events = vec![Event::PointerMoved(at)];
             }
             let st = MapState(&overrides);
-            let out = ctx.run_ui(input, |root_ui| {
+            let mut out = ctx.run_ui(input, |root_ui| {
                 egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
                     let inp = RenderInput {
                         controls: &controls,
@@ -20524,6 +20524,8 @@ mod tests {
                     let _ = render_form(ui, &inp);
                 });
             });
+            // Never uploaded here; epaint asserts on a dropped unapplied delta.
+            out.textures_delta.clear();
             seen |= out.shapes.iter().any(|s| match &s.shape {
                 egui::epaint::Shape::Text(t) => t.galley.text().contains("the-customer-name-tip"),
                 _ => false,

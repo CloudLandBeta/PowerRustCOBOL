@@ -4896,7 +4896,18 @@ A few properties whose effect depends on the control:
 > image-only button (an `IconPath` and nothing else): the image then has the
 > whole face. The emptied Caption is kept when the form is saved and opened
 > again. Before 1.70.221 it was lost on opening, and the button came back
-> labelled with its own id, a label that also crowded the image out.
+> labelled with its own id, a label that also crowded the image out. Before
+> 1.70.238 the image itself was not painted either: an image-only button showed
+> an empty face, in the designer and at run time.
+>
+> ⚠️ **The icon is drawn at exactly `IconSize` × `IconSize`.** `IconSize` is one
+> number, the side of a square, and the image is scaled to fill it — its own
+> proportions are not kept. Supplying an image of the right shape is your job: a
+> 3:2 flag drawn as a 32 × 32 icon comes out squashed. Pad a non-square picture
+> with transparency to a square canvas (a 72 × 48 flag becomes 72 × 72, with a
+> transparent band above and below), and it keeps its shape at any `IconSize`.
+> Keep the button at least `IconSize` + 2 × `IconPadding` in each direction: a
+> side that does not fit is squeezed to the space left, which distorts the icon.
 
 > **A Label's text can be selected and copied.** At run time a Label's `Caption`
 > is live text, not a picture of text: the operator drags across it to select,

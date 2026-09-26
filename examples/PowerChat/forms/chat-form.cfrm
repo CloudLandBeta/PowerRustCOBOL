@@ -1472,7 +1472,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientStartColor">#0092A0FF</Property>
     <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">10</Property>
@@ -2405,10 +2405,10 @@
     <Property name="DataFormat"></Property>
     <Property name="mcp_tool"></Property>
   </Control>
-  <Control id="Flag-en" type="Button" x="6" y="749" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
+  <Control id="Flag-en" type="Button" x="6" y="748" w="40" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000FF</Property>
     <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowOpacity">6</Property>
@@ -2416,7 +2416,7 @@
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
     <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
@@ -2431,13 +2431,13 @@
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
+    <Property name="Transparency">100</Property>
     <Property name="ZOrder">0</Property>
     <Property name="BorderColor">#888888</Property>
     <Property name="BorderWidth">1</Property>
-    <Property name="IconPadding">10</Property>
+    <Property name="IconPadding">0</Property>
     <Property name="IconPath">assets/flags/en.png</Property>
-    <Property name="IconSize">18</Property>
+    <Property name="IconSize">32</Property>
     <Property name="IconAlignment">Left</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="Cursor">Hand</Property>
@@ -2456,10 +2456,10 @@
            CALL "PC-RELABEL"
 ]]></Event>
   </Control>
-  <Control id="Flag-pt" type="Button" x="48" y="749" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
+  <Control id="Flag-pt" type="Button" x="48" y="748" w="40" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000FF</Property>
     <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowOpacity">6</Property>
@@ -2467,7 +2467,7 @@
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
     <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
@@ -2482,13 +2482,13 @@
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
+    <Property name="Transparency">100</Property>
     <Property name="ZOrder">0</Property>
     <Property name="BorderColor">#888888</Property>
     <Property name="BorderWidth">1</Property>
-    <Property name="IconPadding">10</Property>
+    <Property name="IconPadding">0</Property>
     <Property name="IconPath">assets/flags/pt.png</Property>
-    <Property name="IconSize">18</Property>
+    <Property name="IconSize">32</Property>
     <Property name="IconAlignment">Left</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="Cursor">Hand</Property>
@@ -2507,10 +2507,10 @@
            CALL "PC-RELABEL"
 ]]></Event>
   </Control>
-  <Control id="Flag-es" type="Button" x="90" y="749" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
+  <Control id="Flag-es" type="Button" x="90" y="748" w="40" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000FF</Property>
     <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowOpacity">6</Property>
@@ -2518,7 +2518,7 @@
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
     <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
@@ -2533,13 +2533,13 @@
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
+    <Property name="Transparency">100</Property>
     <Property name="ZOrder">0</Property>
     <Property name="BorderColor">#888888</Property>
     <Property name="BorderWidth">1</Property>
-    <Property name="IconPadding">10</Property>
+    <Property name="IconPadding">0</Property>
     <Property name="IconPath">assets/flags/es.png</Property>
-    <Property name="IconSize">18</Property>
+    <Property name="IconSize">32</Property>
     <Property name="IconAlignment">Left</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="Cursor">Hand</Property>
@@ -2558,10 +2558,10 @@
            CALL "PC-RELABEL"
 ]]></Event>
   </Control>
-  <Control id="Flag-fr" type="Button" x="132" y="749" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
+  <Control id="Flag-fr" type="Button" x="132" y="748" w="40" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000FF</Property>
     <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowOpacity">6</Property>
@@ -2569,7 +2569,7 @@
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
     <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
@@ -2584,13 +2584,13 @@
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
+    <Property name="Transparency">100</Property>
     <Property name="ZOrder">0</Property>
     <Property name="BorderColor">#888888</Property>
     <Property name="BorderWidth">1</Property>
-    <Property name="IconPadding">10</Property>
+    <Property name="IconPadding">0</Property>
     <Property name="IconPath">assets/flags/fr.png</Property>
-    <Property name="IconSize">18</Property>
+    <Property name="IconSize">32</Property>
     <Property name="IconAlignment">Left</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="Cursor">Hand</Property>
@@ -2609,10 +2609,10 @@
            CALL "PC-RELABEL"
 ]]></Event>
   </Control>
-  <Control id="Flag-jp" type="Button" x="174" y="749" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
+  <Control id="Flag-jp" type="Button" x="174" y="748" w="40" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000FF</Property>
     <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowOpacity">6</Property>
@@ -2620,7 +2620,7 @@
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
     <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
@@ -2635,13 +2635,13 @@
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
+    <Property name="Transparency">100</Property>
     <Property name="ZOrder">0</Property>
     <Property name="BorderColor">#888888</Property>
     <Property name="BorderWidth">1</Property>
-    <Property name="IconPadding">10</Property>
+    <Property name="IconPadding">0</Property>
     <Property name="IconPath">assets/flags/jp.png</Property>
-    <Property name="IconSize">18</Property>
+    <Property name="IconSize">32</Property>
     <Property name="IconAlignment">Left</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="Cursor">Hand</Property>
@@ -2660,10 +2660,10 @@
            CALL "PC-RELABEL"
 ]]></Event>
   </Control>
-  <Control id="Flag-cn" type="Button" x="216" y="749" w="40" h="30" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
+  <Control id="Flag-cn" type="Button" x="216" y="748" w="40" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1-Footer">
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000FF</Property>
     <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowOpacity">6</Property>
@@ -2671,7 +2671,7 @@
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
     <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
@@ -2686,13 +2686,13 @@
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
+    <Property name="Transparency">100</Property>
     <Property name="ZOrder">0</Property>
     <Property name="BorderColor">#888888</Property>
     <Property name="BorderWidth">1</Property>
-    <Property name="IconPadding">10</Property>
+    <Property name="IconPadding">0</Property>
     <Property name="IconPath">assets/flags/cn.png</Property>
-    <Property name="IconSize">18</Property>
+    <Property name="IconSize">32</Property>
     <Property name="IconAlignment">Left</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="Cursor">Hand</Property>

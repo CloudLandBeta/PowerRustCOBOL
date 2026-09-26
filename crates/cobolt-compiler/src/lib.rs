@@ -4860,7 +4860,7 @@ pub fn property_reference_for(control: &str, name: &str) -> Option<(&'static str
     let specific = match (control, name) {
         ("Button", "IconSize") => Some((
             "pixels, one of: `16` `32` `48` `64` `80` `96` `128` (default 32)",
-            "Edge length of the Button's icon (IconPath).",
+            "Edge length of the Button's square icon slot: the IconPath image is drawn at exactly IconSize x IconSize, so supply an image of that proportion (pad a non-square one with transparency) or it is distorted. A Button with an icon and an empty Caption is an icon button: the icon is centred and nothing else is drawn on the face.",
         )),
         ("TreeView", "IconSize") => Some((
             "integer 6-64 (default 14)",

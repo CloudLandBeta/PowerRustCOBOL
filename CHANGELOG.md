@@ -8,6 +8,23 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.238] — 2026-09-26
+
+### Fix — an icon-only Button painted nothing
+
+- **A Button with an `IconPath` and an empty `Caption` paints its icon** —
+  in the designer and at run time. The icon was drawn inside the caption
+  block, which ran only for a non-empty caption, so such a button showed an
+  empty face (PowerChat's language flags). Test
+  `an_icon_button_without_a_caption_paints_its_icon`.
+- **`IconSize` is the exact square the icon fills** — unchanged, and now
+  stated in the KB, the hover help and the Guide: the image is not
+  proportion-corrected, so the developer supplies one of the right shape.
+- **PowerChat** — the six flag buttons are flat icon buttons (no gradient,
+  shadow or face; `IconSize` 32, `IconPadding` 0, 40×32), and the flag PNGs
+  are padded to square 72×72 canvases with transparent bands so they are not
+  squashed.
+
 ## [PowerRustCOBOL 1.70.237] — 2026-09-26
 
 ### Fix — form properties that did nothing or half of it (audit group 8 of 8)
