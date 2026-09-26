@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.260] — 2026-09-26
+
+### Fix — a DataGrid's column headings could not follow the language
+
+- A heading designed in Edit DataGrid settings is one language only, and no
+  method changed it at run time (`SetColumnWidth` existed; a title did not), so
+  every translated application kept English headings. **`SetColumnTitle(column,
+  title)`** sets one while the program runs, the column named by its designed id
+  (`_RuntimeColumnTitles`, applied by `DataGridAdvanced::from_control`). Test
+  `a_runtime_column_title_replaces_the_designed_one`; KB and Guide updated.
+
 ## [PowerRustCOBOL 1.70.259] — 2026-09-26
 
 ### Feature — `SideMenu::ActivateItem(id)`: navigate from code

@@ -6086,6 +6086,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("FreezeRows(count: Integer)", "Freeze the first N rows."),
             ("SetRowHeight(pixels: Integer)", "Set the uniform row height. With two arguments, `SetRowHeight(row, pixels)`, gives one row (numbered from 1) its own height in `RowHeightOverrides`; 0 pixels hands it back to the uniform one."),
             ("SetColumnWidth(column: Integer, pixels: Integer)", "Set one column's width."),
+            ("SetColumnTitle(column: String, title: String)", "Set one column's heading at run time — how a grid's headings follow the program's language (a designed title is one language only). Name the column by its id as designed in Edit DataGrid settings (a number is ambiguous there)."),
             ("GetSelectedText() → String", "Text of the current selection."),
             ("CopySelection()", "Copy the selection to the clipboard."),
             ("ExportCSV() → String", "Serialise the grid as CSV."),

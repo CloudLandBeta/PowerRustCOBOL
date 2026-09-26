@@ -2630,6 +2630,15 @@ buttons:
 > ⚠️ **Caveat.** Before 1.70.258 a click told the handler nothing: the cell
 > travelled with the event, which a COBOL handler never receives.
 
+**Headings in the running language.** A title designed in **Edit DataGrid
+settings…** is one language only. `SetColumnTitle(column, title)` replaces it
+while the program runs — call it wherever you translate your other captions.
+Name the column by the **id** you gave it in the settings:
+
+```cobol
+           INVOKE DG-TOPICS::SetColumnTitle("Name", T-COL-NAME)
+```
+
 > **Note.** A write of `FrozenColumns`, `FrozenRows`, `ColumnFilters`,
 > `GridLineStyle` or `RowHeight` from COBOL takes effect at once — exactly like
 > `FreezeColumns`, `FreezeRows`, `SetFilter` and `SetRowHeight` — also on a grid

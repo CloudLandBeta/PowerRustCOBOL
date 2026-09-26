@@ -726,6 +726,21 @@ impl DataGridAdvanced {
                 self.set_column_width_by_key(column.trim(), width);
             }
         }
+        // `SetColumnTitle(column, title)` — a heading in the running
+        // language: a designed title is one language only.
+        if let Some(raw) = control
+            .get_prop("_RuntimeColumnTitles")
+            .map(PropValue::as_str)
+        {
+            for line in raw.lines() {
+                let Some((column, title)) = line.split_once('=') else {
+                    continue;
+                };
+                if let Some(ix) = self.column_index_for_key(column.trim()) {
+                    self.columns[ix].title = title.trim().to_owned();
+                }
+            }
+        }
     }
 
     fn column_index_for_key(&self, column_key: &str) -> Option<usize> {
@@ -10271,6 +10286,28 @@ mod tests {
                 "DataGrid property list missing {expected}"
             );
         }
+    }
+
+    /// `SetColumnTitle(column, title)` — a heading in the running language
+    /// replaces the designed one; the column named by its id. An unknown key
+    /// changes nothing.
+    #[test]
+    fn a_runtime_column_title_replaces_the_designed_one() {
+        let mut grid = Control::new("DG", ControlType::DataGrid, 0, 0);
+        let mut advanced = DataGridAdvanced::default();
+        for id in ["Name", "Edit"] {
+            advanced.columns.push(DataGridColumn {
+                id: id.into(),
+                title: id.into(),
+                source_name: id.into(),
+                ..DataGridColumn::default()
+            });
+        }
+        grid.set_prop(DATAGRID_ADVANCED_PROP, PropValue::String(advanced.to_json().unwrap()));
+        grid.set_prop("_RuntimeColumnTitles", PropValue::String("Name=Nome\nnope=X".into()));
+        let read = DataGridAdvanced::from_control(&grid);
+        let titles: Vec<&str> = read.columns.iter().map(|c| c.title.as_str()).collect();
+        assert_eq!(titles, ["Nome", "Edit"]);
     }
 
     /// `CollapsedWidth` keeps to its documented 24-200.

@@ -15552,6 +15552,13 @@ impl Interpreter {
                 self.set_datagrid_runtime_kv(obj, "_RuntimeColumnWidths", &arg(0), &arg(1));
                 none
             }
+            // A column's heading, translated at run time; the column named by
+            // its id (as designed), best, or its number.
+            "SETCOLUMNTITLE" => {
+                let title = arg(1).replace(['\n', '\r'], " ");
+                self.set_datagrid_runtime_kv(obj, "_RuntimeColumnTitles", &arg(0), &title);
+                none
+            }
             "GETSELECTEDTEXT" => val(self.datagrid_selected_text(obj)),
             "COPYSELECTION" => {
                 self.obj_set(obj, "_CopySelection", "1".into());
@@ -18932,7 +18939,7 @@ fn is_known_method(name: &str) -> bool {
         // DataGrid
             | "GETROWCOUNT" | "GETCELLVALUE" | "SETCELLVALUE" | "ADDROW"
             | "DELETEROW" | "CLEARROWS" | "SORT" | "SETFILTER" | "CLEARFILTERS"
-            | "FREEZECOLUMNS" | "FREEZEROWS" | "SETROWHEIGHT" | "SETCOLUMNWIDTH"
+            | "FREEZECOLUMNS" | "FREEZEROWS" | "SETROWHEIGHT" | "SETCOLUMNWIDTH" | "SETCOLUMNTITLE"
             | "GETSELECTEDTEXT" | "COPYSELECTION" | "EXPORTCSV"
         // TreeView — walking the tree, and reading a node. Every one takes the
         // node's INDEX, so every one MUST be listed here: an unlisted name
