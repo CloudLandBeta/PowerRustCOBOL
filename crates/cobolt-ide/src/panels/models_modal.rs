@@ -413,6 +413,12 @@ impl ModelsModal {
             if let Ok(res) = rx.try_recv() {
                 let msg = match res {
                     LlmResponse::Ok(_) | LlmResponse::Chunk(_) => tr.ai_test_ok.to_string(),
+                    // 402: the provider KNEW the key and the account — it is
+                    // this one model the plan does not cover. That is a
+                    // successful connection test, not a failed one (operator,
+                    // 2026-09-26: Ollama Cloud's free tier refusing
+                    // glm-5.3-flash read as a broken key).
+                    LlmResponse::Err(e) if is_payment_required(&e) => tr.ai_test_model_not_in_plan.to_string(),
                     LlmResponse::Err(e) => {
                         action.alert_error = Some(e.clone());
                         format!("{}: {e}", tr.ai_test_failed_title)
@@ -873,6 +879,12 @@ impl ModelsModal {
     }
 }
 
+/// A provider refused the request for PAYMENT (HTTP 402) — which it can only
+/// do after authenticating the key.
+fn is_payment_required(error: &str) -> bool {
+    error.contains(" 402 ") || error.contains("402 Payment Required") || error.contains("Payment Required")
+}
+
 /// Which model a provider's connection test should send to.
 ///
 /// The model actually in use when this provider offers it, and otherwise the
@@ -943,6 +955,17 @@ mod tests {
     /// provider configured for gemma4 therefore exercised nemotron-3-ultra,
     /// and the 401 help then told the developer to check whether a model they
     /// had never chosen was still offered (operator, 2026-09-04).
+    /// A 402 is the provider accepting the key and refusing the MODEL — the
+    /// exact text Ollama Cloud sends for a model outside the free tier. A 401
+    /// (a bad key) is not.
+    #[test]
+    fn payment_required_is_a_plan_answer_not_a_bad_key() {
+        let ollama = "stream error: HttpError: Invalid status code 402 Payment Required with message: \
+                      {\"error\":{\"message\":\"this model is not included in your free usage\"}}";
+        assert!(is_payment_required(ollama));
+        assert!(!is_payment_required("stream error: HttpError: Invalid status code 401 Unauthorized"));
+    }
+
     #[test]
     fn the_test_uses_the_model_in_use_when_the_provider_offers_it() {
         let models = vec![

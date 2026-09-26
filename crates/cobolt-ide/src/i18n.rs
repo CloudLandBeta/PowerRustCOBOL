@@ -948,6 +948,7 @@ pub struct Tr {
     pub ai_detecting: &'static str,
     pub ai_testing: &'static str,
     pub ai_test_ok: &'static str,
+    pub ai_test_model_not_in_plan: &'static str,
 
     // ── Designer toolbar ──────────────────────────────────────────────────────
     pub dt_save: &'static str,
@@ -2524,6 +2525,7 @@ const EN: Tr = Tr {
     ai_detecting: "Detecting the API…",
     ai_testing:                "Testing the connection…",
     ai_test_ok:                "Connection OK.",
+    ai_test_model_not_in_plan: "Connected — the key is accepted, but this model is not included in your plan. Choose another model, or add credits at the provider.",
 
     dt_save:           "💾 Save",
     dt_save_tooltip:   "Save form and regenerate COBOL",
@@ -3907,6 +3909,7 @@ const ES: Tr = Tr {
     ai_detecting: "Detectando la API…",
     ai_testing:                "Probando la conexión…",
     ai_test_ok:                "Conexión correcta.",
+    ai_test_model_not_in_plan: "Conectado: la clave es válida, pero este modelo no está incluido en su plan. Elija otro modelo o añada crédito en el proveedor.",
 
     dt_save:           "💾 Guardar",
     dt_save_tooltip:   "Guardar formulario y regenerar COBOL",
@@ -5290,6 +5293,7 @@ const PT: Tr = Tr {
     ai_detecting: "Detectando a API…",
     ai_testing:                "Testando a conexão…",
     ai_test_ok:                "Conexão OK.",
+    ai_test_model_not_in_plan: "Conectado — a chave foi aceita, mas este modelo não está incluído no seu plano. Escolha outro modelo ou adicione créditos no provedor.",
 
     dt_save:           "💾 Salvar",
     dt_save_tooltip:   "Salvar formulário e regenerar COBOL",
@@ -6672,6 +6676,7 @@ const JA: Tr = Tr {
     ai_detecting: "APIを検出中…",
     ai_testing:                "接続をテスト中…",
     ai_test_ok:                "接続は正常です。",
+    ai_test_model_not_in_plan: "接続できました。キーは有効ですが、このモデルはご利用のプランに含まれていません。別のモデルを選ぶか、プロバイダーでクレジットを追加してください。",
 
     dt_save:           "💾 保存",
     dt_save_tooltip:   "フォームを保存してCOBOLを再生成",
@@ -8061,6 +8066,7 @@ const ZH: Tr = Tr {
     ai_detecting: "正在检测 API…",
     ai_testing: "正在测试连接…",
     ai_test_ok: "连接正常。",
+    ai_test_model_not_in_plan: "已连接——密钥有效，但您的套餐不包含此模型。请选择其他模型，或在提供商处充值。",
 
     dt_save: "💾 保存",
     dt_save_tooltip: "保存窗体并重新生成 COBOL",
@@ -9445,6 +9451,7 @@ const FR: Tr = Tr {
     ai_detecting: "Détection de l'API…",
     ai_testing:                "Test de la connexion…",
     ai_test_ok:                "Connexion OK.",
+    ai_test_model_not_in_plan: "Connecté — la clé est acceptée, mais ce modèle n'est pas inclus dans votre offre. Choisissez un autre modèle ou ajoutez des crédits chez le fournisseur.",
 
     dt_save:           "💾 Enregistrer",
     dt_save_tooltip:   "Enregistrer le formulaire et régénérer le COBOL",

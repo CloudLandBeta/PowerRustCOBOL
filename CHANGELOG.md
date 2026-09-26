@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.253] — 2026-09-26
+
+### Fix — Test connection called a good key broken on a paid model
+
+- The Model Providers Manager's **Test connection** probes one model (the one
+  in use, else the provider's first). Ollama Cloud's free tier answers a paid
+  model such as `glm-5.3-flash` with **402 Payment Required** — which it can
+  only send after accepting the key — and the test reported it as a failed
+  connection with an error alert. A 402 now reads "Connected — the key is
+  accepted, but this model is not included in your plan" (new `Tr` key
+  `ai_test_model_not_in_plan`, six languages), with no alert; a 401 is still a
+  failure. Test `payment_required_is_a_plan_answer_not_a_bad_key`; Guide
+  updated.
+
 ## [PowerRustCOBOL 1.70.252] — 2026-09-26
 
 ### Housekeeping — BUGS.md

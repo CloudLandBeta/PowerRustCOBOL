@@ -1059,7 +1059,13 @@ failure, never glossed as success.
 
 A **Test connection** button sends a tiny request to your endpoint and reports
 whether the model is reachable and the key/model are accepted — use it to
-confirm the setup before relying on it. The assistant becomes available as soon
+confirm the setup before relying on it. The request goes to the model in use
+when this provider offers it, otherwise to the provider's first model, and the
+answer names that model. A provider that answers **402 Payment Required** has
+accepted your key and refused only that model — a paid model outside a free
+plan, typically — so the test reports the connection as good and says the
+model is not in your plan: choose another model, or add credits with the
+provider. The assistant becomes available as soon
 as **Endpoint URL** and **Model** are both set. Clear the endpoint to hide it
 again.
 
