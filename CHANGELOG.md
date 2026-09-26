@@ -8,6 +8,14 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.251] — 2026-09-26
+
+### Fix — `cobolt-bench` did not compile (BUG-003)
+
+- The random-read benchmark called `get` on a redb `ReadOnlyTable` without
+  importing redb 4's `ReadableTable` trait, which provides it. Imported;
+  `cargo check --workspace --all-targets` reports no errors again.
+
 ## [PowerRustCOBOL 1.70.250] — 2026-09-26
 
 ### Examples — PowerChat's background and shadows

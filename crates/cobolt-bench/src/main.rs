@@ -372,6 +372,8 @@ fn bench_indexed_redb(scale: f64) -> (Row, Row) {
     // pattern is reproducible run to run — a benchmark that reshuffles itself
     // cannot be compared against yesterday's number.
     let read_row = measure("indexed redb (random read)", "read", || {
+        // `get` is a method of the `ReadableTable` trait in redb 4.
+        use redb::ReadableTable;
         let r = db.begin_read().expect("begin read");
         let t = r.open_table(PRIMARY).expect("open table");
         let step: u64 = 2_654_435_761;
