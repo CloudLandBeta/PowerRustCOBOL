@@ -4957,8 +4957,6 @@ impl PropertiesPanel {
                             .show(ui, |ui| {
                                 datagrid_text_modal_row(ui, id, "Title", "Grid title", ctrl, action, "");
                                 ui.end_row();
-                                bool_row(ui, id, "ReadOnly", "Read only", ctrl, action);
-                                ui.end_row();
                                 bool_row(ui, id, "AllowSorting", "Allow sorting", ctrl, action);
                                 ui.end_row();
                                 bool_row(ui, id, "AllowColumnResize", "Allow column resize", ctrl, action);
@@ -7513,7 +7511,6 @@ impl PropertiesPanel {
                         }
                     });
                 }
-                bool_row_inline(ui, id, "AllowEdit", "Allow edit", ctrl, action);
                 bool_row_inline(ui, id, "CheckBoxes", "Checkboxes", ctrl, action);
                 bool_row_inline(ui, id, "ShowLines", "Show lines", ctrl, action);
                 bool_row_inline(ui, id, "ShowRootLines", "Root lines", ctrl, action);
@@ -12024,7 +12021,7 @@ fn datagrid_grid_line_style_modal_row(
         .selected_text(current.as_str())
         .width(140.0)
         .show_ui(ui, |ui| {
-            for opt in ["Solid", "Dash", "Dots", "None"] {
+            for opt in ["Solid", "Dash", "Dots", "DashDot", "None"] {
                 if ui.selectable_label(current.as_str() == opt, opt).clicked() {
                     action.set_props.push((
                         id.to_owned(),

@@ -4866,6 +4866,20 @@ pub fn property_reference_for(control: &str, name: &str) -> Option<(&'static str
             "points (default 22; below 4 is ignored)",
             "Menu-item icon size while the rail is OPEN (see IconSizeCollapsed for the collapsed rail).",
         )),
+        ("TreeView", "CheckBoxColor") => Some((COLOR_DOMAIN, "The tick box's own fill (TreeView, CheckBox, RadioButton). Empty — the default — means 'not chosen', so the theme keeps painting the box; that is also why naming white is possible. On a TreeView, empty keeps the recessed well the box has always drawn.")),
+        ("TreeView", "CheckBoxBorderStyle") => Some(("`None` | `Single` | `Fixed3D` | `Raised` | `Sunken`", "The rim around the TICK BOX, separate from the frame's `BorderStyle`, which rims the whole control. On a TreeView it is seeded `Single` — what the box has always been drawn with — so `None` is how you switch it off.")),
+        ("TreeView", "CheckBoxBorderColor") => Some((COLOR_DOMAIN, "The tick box's rim colour. On a TreeView, empty follows the node ink, so legible text means a legible box.")),
+        ("TreeView", "CheckBoxBorderWidth") => Some(("integer 0-10 (default 1)", "The tick box's rim width.")),
+        ("TreeView", "CheckColor") => Some((COLOR_DOMAIN, "The colour of the TICK itself (TreeView, CheckBox, RadioButton). On a TreeView, empty follows the node ink.")),
+        ("TreeView", "CheckSize") => Some(("integer 10-100 (default 70)", "How much of the tick BOX the tick fills, as a percentage — not the box's size, which is `CheckBoxSize` on a TreeView and the font on a CheckBox. A fuller tick also draws a heavier stroke.")),
+        ("DataGrid", "RowHeight") => Some((
+            "integer 14-120 (default 22)",
+            "The height of EVERY row, exactly — a grid's rows are uniform. Dragging a row edge (`AllowRowResize`) writes it, `SetRowHeight` sets it from COBOL, and so does a plain write of the property.",
+        )),
+        ("DataGrid", "ReadOnly") => Some((
+            "retired",
+            "**Retired.** A DataGrid has no in-cell editing, so there was never anything for this to block. It is no longer seeded or shown; a value saved in an older form is kept and ignored. The cells change only when COBOL writes `Rows`.",
+        )),
         ("Viewer", "Format") => Some((
             "one of: `Text` | `Markdown` | `Image` | `Pdf` | `HtmlSubset` (runtime-set)",
             "The format the runtime detected for the loaded document, from its extension and content; written on every load. Setting it does not change how the document is decoded.",
@@ -5074,7 +5088,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             "project-relative or absolute path of a .txt, or empty",
             "ComboBox / ListBox: a text file the list reads its items from each time the form opens — one item per line, blank lines left out — so editing the file changes the list without touching the form. When the file cannot be read, the designed Items stay. Keep it in the project's assets/ folder so a built application carries it. In the inspector, 📂 picks the file and ✕ clears the path and the items. From COBOL, LoadFromFile(path) does the same at any time.",
         ),
-        "SelectedIndex" => ("0-based index; -1 = no selection", "Currently selected item."),
+        "SelectedIndex" => ("0-based index; -1 = no selection", "The selected item's position among the items AS SHOWN (`Sorted` applied), which is also what a pick reports. Setting it — in the designer or from COBOL, by the property or `SetSelectedIndex` — selects that item: `Value` becomes its text; -1, or a position past the end, clears the selection. ComboBox and ListBox."),
         "MultiSelect" => (
             BOOL_DOMAIN,
             "Lets the user build a selection with Ctrl-click (Cmd on a Mac), reported in SelectedItems.",
@@ -5114,12 +5128,12 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
              never looks like selecting it.",
         ),
         "Sorted" => (BOOL_DOMAIN, "Shows the items in alphabetical order, by TEXT and ignoring case, so 10 sorts before 9. Display order only - the stored Items keeps the order it was written in. ListBox, ComboBox and TreeView. A TreeView sorts SIBLINGS only — every child stays under the parent it was written under — and a node's handle (`CONTROL-NODE-INDEX`, the `Node…` methods) is still its line as written, so sorting never renumbers a handler."),
-        "DropDownStyle" => ("one of: `DropDown` | `DropDownList` | `Simple`", "ComboBox edit/list behaviour."),
+        "DropDownStyle" => ("one of: `DropDown` | `DropDownList` | `Simple`", "`DropDown` (the default): a text field that takes typing, with a button on the right that opens the list — a press on the text places the caret. `DropDownList`: pick-only — a press anywhere opens the list and typing is refused. `Simple`: the text field with the list always shown beneath it, inside the control, and no dropdown (no `onDropDown`)."),
         "DropDownHeight" => ("pixels > 0", "Maximum height of the opened list. The list is as tall as its items need up to this, and scrolls past it."),
-        "Editable" => (BOOL_DOMAIN, "Allows typing free text into the combo. It does not change what the arrow keys do: those always walk the list."),
+        "Editable" => (BOOL_DOMAIN, "Whether the combo's text field takes typing (the `DropDown` and `Simple` styles; a `DropDownList` never does). Typed text becomes `Value` even when it names no item — `SelectedIndex` is then -1 — and raises `onChange` and `onTextChanged`; while the list is open, typing moves its highlight to the first item that begins with the text. Off, a `DropDown` combo is pick-only. The arrow keys always walk the list."),
 
         // ── TreeView ──
-        "AllowEdit" => (BOOL_DOMAIN, "In-place node label editing. **NOT IMPLEMENTED** — the property is seeded and shown in the inspector, but no surface lets the operator rename a node yet. Do not tell a developer this works; to edit a tree at run time, write the new `Items` from COBOL."),
+        "AllowEdit" => ("retired", "**Retired.** It promised in-place node label editing, which no surface ever had. It is no longer seeded or shown; a value saved in an older form is kept and ignored. To rename a node at run time, write the new `Items` from COBOL."),
         "CheckBoxes" => (BOOL_DOMAIN, "Draws a tick box on every node. A click ON THE BOX ticks it (a click anywhere else on the row selects the node) and the ticked nodes land in `CheckedNodes`, one per line, with `onNodeCheck` carrying the node."),
         "CheckedNodes" => ("newline-separated node labels", "Which boxes are ticked, one node per line — the `CheckBoxes` companion, read and written exactly like `SelectedNode`. Writing it from COBOL ticks those nodes."),
         "CollapsedNodes" => ("newline-separated node labels", "Which nodes are FOLDED SHUT, one per line — so EMPTY means the whole tree is open, which is what a tree shows untouched. A node with children draws a disclosure arrow; clicking it folds or unfolds and fires `onNodeCollapse`/`onNodeExpand` with that node. Writing this from COBOL folds a tree to any shape without touching `Items`."),
@@ -5127,15 +5141,12 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "ParentIcon" => ("icon name from the catalogue (default `folder`)", "The icon on a node that HOLDS other nodes while it is folded shut."),
         "ParentIconOpen" => ("icon name from the catalogue (default `folder-open`)", "The icon on a node that holds other nodes while it is open — a folded and an open folder are different pictures, which is how the state reads at a glance."),
         "LeafIcon" => ("icon name from the catalogue (default `doc-text`)", "The icon on a node with nothing under it."),
-        // The tick box's own dress — the SAME five keys a CheckBox carries, so
-        // a developer who has styled one has styled both. `CheckBoxSize` is the
-        // box in points; `CheckSize` is the tick's share of that box.
-        "CheckBoxColor" => (COLOR_DOMAIN, "The tick box's own fill (TreeView, CheckBox, RadioButton). Empty — the default — means 'not chosen', so the theme keeps painting the box; that is also why naming white is possible. On a TreeView, empty keeps the recessed well the box has always drawn."),
-        "CheckBoxBorderStyle" => ("`None` | `Single` | `Fixed3D` | `Raised` | `Sunken`", "The rim around the TICK BOX, separate from the frame's `BorderStyle`, which rims the whole control. On a TreeView it is seeded `Single` — what the box has always been drawn with — so `None` is how you switch it off."),
-        "CheckBoxBorderColor" => (COLOR_DOMAIN, "The tick box's rim colour. On a TreeView, empty follows the node ink, so legible text means a legible box."),
-        "CheckBoxBorderWidth" => ("integer 0-10 (default 1)", "The tick box's rim width."),
-        "CheckColor" => (COLOR_DOMAIN, "The colour of the TICK itself (TreeView, CheckBox, RadioButton). On a TreeView, empty follows the node ink."),
-        "CheckSize" => ("integer 10-100 (default 70)", "How much of the tick BOX the tick fills, as a percentage — not the box's size, which is `CheckBoxSize` on a TreeView and the font on a CheckBox. A fuller tick also draws a heavier stroke."),
+        // The tick box's own dress (CheckBoxColor, CheckBoxBorderStyle,
+        // CheckBoxBorderColor, CheckBoxBorderWidth, CheckColor, CheckSize) —
+        // the SAME keys a CheckBox carries — is described per type in
+        // `property_reference_for`: a TreeView's DEFAULTS differ from a check
+        // box's. As plain arms here they sat behind the CheckBox ones and were
+        // unreachable (property audit, 2026-09-25).
         "IconColor" => (COLOR_DOMAIN, "Icons and disclosure arrows. Empty — the default — follows the node ink, so legible text means legible icons."),
         "HighContrastText" => (BOOL_DOMAIN, "ON by default: node ink is picked by CONTRAST RATIO against the face the tree is actually painted on, so it clears WCAG AA on a white face, a dark card or a glass surface alike. Off falls back to the theme's own text colour, for a developer who wants the tree to match the theme even where that costs legibility. An explicit `ForegroundColor` outranks both."),
         "RowHeight" => ("integer 8-200 (default 18)", "The row's MINIMUM height in points — a floor, not a ceiling. A row is never shorter than what it holds, so growing `IconSize` or `CheckBoxSize` grows the row with it rather than letting a big icon paint over the nodes above and below."),
@@ -5179,15 +5190,14 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "HeaderBackgroundColor" => (COLOR_DOMAIN, "Header row fill."),
         "HeaderForegroundColor" => (COLOR_DOMAIN, "Header row text color."),
         "GridLineColor" => (COLOR_DOMAIN, "Grid line color."),
-        "GridLineStyle" => ("one of: `None` | `Solid` | `Dash` | `Dot` | `DashDot`", "Grid line dash style."),
+        "GridLineStyle" => ("one of: `Solid` | `Dash` | `Dots` | `DashDot` | `None` (`Dot` reads as `Dots`)", "How the grid's lines are drawn. A write from COBOL takes effect at once — also on a grid configured in **Edit DataGrid settings…**. A rounded grid's outer outline stays solid: a dashed stroke cannot follow a corner arc."),
         "GridBackgroundImage" => ("image path or empty", "Watermark image behind the cells."),
         "GridBackgroundImageMode" => ("one of: `Fill` | `Fit` | `Stretch` | `Tile` | `Center`", "How the background image scales."),
         "GridBackgroundPattern" => ("one of: `None` | `Stripes` | `Dots` | `Cross` | `X` | `X Dots` | `O`", "Procedural background pattern."),
         "RowBackgroundPattern" => ("one of: `None` | `Stripes` | `Dots` | `Cross` | `X` | `X Dots` | `O`", "Per-row background pattern."),
-        "SelectionMode" => ("one of: `Row` | `Cell` | `Column`", "What a click selects."),
-        "RowHeight" => ("pixels > 0", "Uniform row height."),
-        "RowHeightOverrides" => ("`row:height` pairs, one per line", "Per-row height overrides."),
-        "AllowSorting" => (BOOL_DOMAIN, "Click a header to sort."),
+        "SelectionMode" => ("one of: `Row` (default) | `Cell` | `Column`", "What a click on a cell highlights: its whole row (`Row`), the cell alone (`Cell`) or its whole column (`Column`). Ctrl+C copies what is highlighted — the cell, the row's cells joined by `CSVDelimiter`, or the column's values in the rows shown, one per line. `onCellClick` reports the cell either way."),
+        "RowHeightOverrides" => ("retired", "**Retired.** A grid's rows are uniform — `RowHeight` sets them all — and no surface ever read per-row heights. It is no longer seeded or shown; a value saved in an older form is kept and ignored."),
+        "AllowSorting" => (BOOL_DOMAIN, "A click on a column title sorts the rows shown by that column — ascending, then descending on the next click — and a ▲/▼ marks it. A column declared numeric, or whose every value is a number, sorts by value (9 before 100); any other sorts as text, ignoring case. Display order only: `Rows` keeps its order, and a click still reports each row's own index. A column whose settings turn sorting off is not sorted. `onColumnClick` fires either way. The `Sort` method, by contrast, reorders `Rows` itself."),
         "AllowColumnResize" => (BOOL_DOMAIN, "Drag header edges to resize."),
         "AutoFitColumns" => (
             BOOL_DOMAIN,
@@ -5198,20 +5208,20 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
              **Edit DataGrid settings…** — points for the narrow, predictable ones, a percentage \
              for those that should follow the form.",
         ),
-        "AllowColumnReorder" => (BOOL_DOMAIN, "Drag headers to reorder columns."),
+        "AllowColumnReorder" => (BOOL_DOMAIN, "Shows a ‹ and a › button in each column title (on columns at least 58 points wide) that move the column one place left or right. Columns are not dragged."),
         "AllowRowResize" => (BOOL_DOMAIN, "Drag row edges to resize."),
         "AdvancedGrid" => ("internal serialized settings; leave empty", "Advanced designer-managed grid settings."),
-        "ShowRowNumbers" => (BOOL_DOMAIN, "Shows a row-number gutter."),
+        "ShowRowNumbers" => (BOOL_DOMAIN, "Shows a gutter left of the columns numbering the rows as shown, from 1, in the header's colours. It takes its width from the columns rather than covering the first one, and stays put when the grid scrolls sideways."),
         "ShowColumnFilters" => (BOOL_DOMAIN, "Shows the per-column filter row."),
         "FilterForegroundColor" => (COLOR_DOMAIN, "Filter row text color. Empty = the form theme decides."),
         "FilterBackgroundColor" => (COLOR_DOMAIN, "Filter row field fill. Empty = the form theme decides."),
-        "ColumnFilters" => ("`column=value` pairs, one per line", "Active column filters (runtime)."),
-        "ExportCSV" => (BOOL_DOMAIN, "Enables CSV export."),
+        "ColumnFilters" => ("`column=value` pairs, one per line", "The active filters: a row shows only when each named column contains its value, ignoring case. Set in the designer, the grid starts filtered. The filter row, `SetFilter` and a COBOL write of the property all keep it current, and a write takes effect at once — also on a grid configured in **Edit DataGrid settings…**."),
+        "ExportCSV" => (BOOL_DOMAIN, "Master switch for the built-in CSV button: off, the button is hidden even when `ShowCSVExportButton` is on. The `ExportCSV` method and the generated `<id>-EXPORT-CSV` paragraph work either way."),
         "ShowCSVExportButton" => (BOOL_DOMAIN, "Shows the built-in export button. It sits hard right on its own band above the column titles, so it never covers a column title; `Title` shares that band."),
         "CSVDelimiter" => ("single character, default `,`", "CSV field delimiter."),
         "CSVExportMode" => ("`Filtered` | `AllRows`", "Whether export honours active filters."),
-        "FrozenColumns" => ("integer ≥ 0", "Leading columns that do not scroll."),
-        "FrozenRows" => ("integer ≥ 0", "Leading rows that do not scroll."),
+        "FrozenColumns" => ("integer ≥ 0", "Leading columns that do not scroll sideways. A write from COBOL takes effect at once, like `FreezeColumns` — also on a grid configured in **Edit DataGrid settings…**."),
+        "FrozenRows" => ("integer ≥ 0", "Leading rows that do not scroll. A write from COBOL takes effect at once, like `FreezeRows` — also on a grid configured in **Edit DataGrid settings…**."),
         "FrozenShadow" => (BOOL_DOMAIN, "Soft shadow cast by frozen rows/columns."),
         "SelectableText" => (BOOL_DOMAIN, "Cell text can be selected/copied."),
 

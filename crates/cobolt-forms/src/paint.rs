@@ -2431,6 +2431,53 @@ pub fn draw_control_capturing_label(
     caption
 }
 
+/// What a ComboBox / ListBox has selected: its `Value`, or — when that is
+/// empty — the item at its `SelectedIndex` among the `items` as shown. A
+/// SelectedIndex set in the designer used to select nothing, because only
+/// `Value` was ever read (property audit, 2026-09-25).
+pub fn list_current_value(ctrl: &Control, items: &[String]) -> String {
+    let value = ctrl.get_prop("Value").map(|v| v.as_str().to_owned()).unwrap_or_default();
+    if !value.is_empty() {
+        return value;
+    }
+    ctrl.get_prop("SelectedIndex").map(|v| v.as_str().to_owned()).unwrap_or_default()
+        .trim()
+        .parse::<i64>()
+        .ok()
+        .and_then(|i| usize::try_from(i).ok())
+        .and_then(|i| items.get(i).cloned())
+        .unwrap_or_default()
+}
+
+/// A ComboBox whose `DropDownStyle` is `Simple`: a text field with its list
+/// always shown beneath it, inside the control.
+pub fn combo_is_simple(ctrl: &Control) -> bool {
+    ctrl.get_prop("DropDownStyle")
+        .is_some_and(|v| v.as_str().trim().eq_ignore_ascii_case("Simple"))
+}
+
+/// Whether a ComboBox takes typed text: `Editable`, unless its
+/// `DropDownStyle` is `DropDownList`, which is a pick-only list by
+/// definition. Neither property was read anywhere, so every combo was
+/// pick-only whatever it declared (property audit, 2026-09-25).
+pub fn combo_typable(ctrl: &Control) -> bool {
+    ctrl.get_prop("Editable").map(|v| v.as_bool()).unwrap_or(true)
+        && !ctrl
+            .get_prop("DropDownStyle")
+            .is_some_and(|v| v.as_str().trim().eq_ignore_ascii_case("DropDownList"))
+}
+
+/// A `Simple` combo's two parts: the text field — one line of the control's
+/// text with the field's padding, never taller than the control — and the
+/// list below it.
+pub fn simple_combo_split(ctrl: &Control, rect: egui::Rect) -> (egui::Rect, egui::Rect) {
+    let head_h = (crate::model::text_line_height(ctrl) + 12.0).min(rect.height());
+    let head = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), head_h));
+    let list_top = (head.max.y + 2.0).min(rect.max.y);
+    let list = egui::Rect::from_min_max(egui::pos2(rect.min.x, list_top), rect.max);
+    (head, list)
+}
+
 /// [`draw_control`] **without** the canvas placeholder text.
 ///
 /// A handful of controls stand in for their content on the canvas — a ComboBox
@@ -5140,24 +5187,28 @@ fn draw_control_body(
             // on read one thing on the canvas and another the moment the form
             // ran — which is how a working sort looked broken (operator,
             // 2026-08-18).
-            let value = ctrl
-                .get_prop("Value")
+            //
+            // What the running form shows, by the same rule: `Value`, else the
+            // item at `SelectedIndex`; a pick-only combo then falls back to its
+            // first item, while a typable one shows its empty field. A `Simple`
+            // combo letters its field and list itself, below.
+            let mut items: Vec<String> = ctrl
+                .get_prop("Items")
                 .map(|v| v.as_str().to_owned())
-                .unwrap_or_default();
-            let shown = if value.is_empty() {
-                let mut items: Vec<String> = ctrl
-                    .get_prop("Items")
-                    .map(|v| v.as_str().to_owned())
-                    .unwrap_or_default()
-                    .lines()
-                    .map(|l| l.to_owned())
-                    .collect();
-                list_display_items(ctrl, &mut items);
-                items.first().cloned().unwrap_or_default()
+                .unwrap_or_default()
+                .lines()
+                .map(|l| l.to_owned())
+                .collect();
+            list_display_items(ctrl, &mut items);
+            let mut shown = list_current_value(ctrl, &items);
+            if shown.is_empty() && !combo_typable(ctrl) {
+                shown = items.first().cloned().unwrap_or_default();
+            }
+            if combo_is_simple(ctrl) {
+                String::new()
             } else {
-                value
-            };
-            format!("{shown} ▾")
+                format!("{shown} ▾")
+            }
         }
         CT::DateTimePicker => {
             let raw = ctrl
@@ -5639,6 +5690,59 @@ fn draw_control_body(
         } else {
             egui::Rect::from_min_max(egui::pos2(c.x + d * 0.5 + gap, rect.min.y), rect.max)
         };
+    }
+
+    // ── A `Simple` ComboBox on the canvas: its field's value, the rule under
+    // the field, and the list beneath — what the running form shows, where the
+    // canvas used to letter a dropdown's `value ▾` in the middle of it.
+    if matches!(ctrl.control_type, CT::ComboBox)
+        && combo_is_simple(ctrl)
+        && !matches!(*caption_mode, CaptionMode::Skip)
+    {
+        let mut items: Vec<String> = ctrl
+            .get_prop("Items")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default()
+            .lines()
+            .map(|l| l.to_owned())
+            .collect();
+        list_display_items(ctrl, &mut items);
+        let value = list_current_value(ctrl, &items);
+        let ink = Color32::from_rgba_premultiplied(label_color.r(), label_color.g(), label_color.b(), a);
+        let font_name = ctrl.get_prop("FontName").map(|v| v.as_str()).unwrap_or_default();
+        let font = crate::fonts::font_id(painter.ctx(), &font_name, ctrl_font_size(ctrl));
+        let clipped = painter.with_clip_rect(rect.intersect(painter.clip_rect()));
+        let (head, list) = simple_combo_split(ctrl, rect);
+        styled_text(
+            &clipped,
+            ctrl,
+            Pos2::new(head.min.x + 8.0, head.center().y),
+            egui::Align2::LEFT_CENTER,
+            &value,
+            font.clone(),
+            ink,
+        );
+        clipped.line_segment(
+            [Pos2::new(rect.min.x, head.max.y + 1.0), Pos2::new(rect.max.x, head.max.y + 1.0)],
+            Stroke::new(1.0, ink.gamma_multiply(0.35)),
+        );
+        let pitch = crate::model::text_line_height(ctrl) + crate::model::LIST_ROW_PAD * 2.0;
+        let mut y = list.min.y + crate::model::LIST_FRAME_PAD;
+        for item in &items {
+            if y > list.max.y {
+                break;
+            }
+            styled_text(
+                &clipped,
+                ctrl,
+                Pos2::new(list.min.x + crate::model::LIST_FRAME_PAD + 2.0 + 4.0, y + pitch * 0.5),
+                egui::Align2::LEFT_CENTER,
+                item,
+                font.clone(),
+                ink,
+            );
+            y += pitch;
+        }
     }
 
     if !label.is_empty() {

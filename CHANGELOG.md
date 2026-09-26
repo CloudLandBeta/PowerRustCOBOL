@@ -8,6 +8,54 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.232] — 2026-09-26
+
+### Fix — list and grid properties that did nothing or half of it (audit group 3 of 8)
+
+The findings on ComboBox, ListBox, DataGrid and TreeView.
+
+- **ComboBox `DropDownStyle` / `Editable`** — neither was read, so every combo
+  was pick-only. `DropDown` (the default) is now a text field with a ▼ button:
+  typed text becomes `Value` (an item or not; `SelectedIndex` -1 when not),
+  raising `onChange` / `onTextChanged`, and only the button opens the list.
+  `DropDownList` stays pick-only; `Simple` shows the list inside the control
+  under the field — drawn by the ListBox's own code, not a copy of it. The
+  designer canvas letters each style the way it runs. Existing forms that
+  declared `DropDown` become typeable; PowerChat's pick-only combos already
+  declare `DropDownList`.
+- **ComboBox / ListBox `SelectedIndex`** — setting it (designer, property
+  write, `SetSelectedIndex`) now selects the item and moves `Value`, counted
+  as shown (Sorted applied); both runtime write paths share one helper.
+- **DataGrid `AllowSorting`** — a title click sorts the rows shown (numeric
+  columns by value), ascending then descending, marked ▲/▼; `Rows` and the
+  reported row indices are untouched. The title click never reached the grid
+  at all: the grid's focus target, registered after the titles, took it, so
+  **`onColumnClick` never fired** — it does now, and the click walks the
+  layout, so a frozen column's title is hit where it is painted.
+- **DataGrid `ShowRowNumbers`** — a numbered gutter that takes its width from
+  the columns and stays put when the grid scrolls sideways.
+- **DataGrid `SelectionMode`** — `Row` / `Column` highlight the whole row /
+  column (it was always one cell); Ctrl+C in `Column` copies the column.
+- **DataGrid `ExportCSV`** — the master switch for the built-in button.
+- **DataGrid runtime writes** — `FrozenColumns`, `FrozenRows`,
+  `ColumnFilters`, `GridLineStyle` and `RowHeight` written from COBOL reach
+  the runtime overrides, so they work on a grid configured in Edit DataGrid
+  settings; `ColumnFilters` set in the designer filters; the filter row keeps
+  the runtime filter current (after a `SetFilter`, typing there was undone).
+- **DataGrid `GridLineStyle` `DashDot`** — documented, and drawn as Solid; it
+  is a style of its own now (also in the settings modal).
+- **DataGrid `RowHeight`** — clamped 14–120, the range a row-edge drag writes
+  (60 stopped a dragged row from growing).
+- **Retired** — DataGrid `ReadOnly` (no in-cell editing to block), DataGrid
+  `RowHeightOverrides` (rows are uniform), TreeView `AllowEdit` (no in-place
+  rename): no longer seeded or shown; values in older forms are kept and
+  ignored.
+- **System KB** — seven `property_reference` arms were unreachable duplicates
+  (the TreeView tick-box dress and the grid's `RowHeight`), so a TreeView and
+  a grid were described with another control's text; they are per-type
+  entries now. Texts corrected for every item above; `chunked.data`
+  regenerated. Properties-pane explanations updated in all six languages.
+
 ## [PowerRustCOBOL 1.70.231] — 2026-09-25
 
 ### Fix — basic-control properties that did nothing or half of it (audit group 2 of 8)

@@ -1217,12 +1217,69 @@ fn is_repeating_instance_group(c: &Control) -> bool {
             .unwrap_or(false)
 }
 
-/// How many runtime instances a repeating group renders.
-///
-/// A **databound** group (its `DataSource` is set) treats `ItemCount` as
-/// authoritative â including **0**, which renders NO card at all (an empty data
-/// source shows nothing; task 3). An **unbound** template group falls back to
-/// `PreviewItemCount` (clamped â¥1) so the designer always has one card to edit.
+/// The text field of a typable ComboBox, or the read-only one of a `Simple`
+/// combo that is not `Editable`. What is typed becomes `Value` whether or not
+/// it names an item — taking free text is what a typable combo is for — and
+/// `SelectedIndex` follows: the item it names exactly, or -1. Returns the
+/// field's response and the text it holds now.
+#[allow(clippy::too_many_arguments)]
+fn combo_text_field(
+    ui: &mut egui::Ui,
+    ctrl: &Control,
+    ctrl_id: egui::Id,
+    id: &str,
+    rect: Rect,
+    clip: Rect,
+    items: &[String],
+    shown: &str,
+    font: egui::FontId,
+    color: Color32,
+    enabled: bool,
+    editable: bool,
+    out: &mut RenderOutput,
+) -> (egui::Response, String) {
+    let mut buf = shown.to_owned();
+    let read_copy = buf.clone();
+    let mut read_view: &str = read_copy.as_str();
+    // The control's Italic / Underline / Strikethrough, as the TextBox's
+    // editor letters them; Bold arrives in `font`.
+    let format = crate::paint::text_format(ctrl, font.clone(), color);
+    let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, _wrap: f32| {
+        let mut job = egui::text::LayoutJob::default();
+        job.append(text.as_str(), 0.0, format.clone());
+        job.wrap.max_width = f32::INFINITY;
+        ui.fonts_mut(|f| f.layout_job(job))
+    };
+    // TextEdit keeps a 4 px inner margin of its own, so the text starts where
+    // the pick-only header letters its value (8 px in).
+    let field = Rect::from_min_max(egui::pos2(rect.min.x + 4.0, rect.min.y), rect.max);
+    let resp = ui
+        .scope_builder(egui::UiBuilder::new().max_rect(field), |ui| {
+            ui.set_clip_rect(field.intersect(clip).intersect(ui.clip_rect()));
+            ui.visuals_mut().text_cursor.stroke.color = color;
+            let text: &mut dyn egui::TextBuffer = if editable { &mut buf } else { &mut read_view };
+            let edit = egui::TextEdit::singleline(text)
+                .id(ctrl_id)
+                .frame(egui::Frame::NONE)
+                .interactive(enabled)
+                .vertical_align(egui::Align::Center)
+                .font(font.clone())
+                .text_color(color)
+                .layouter(&mut layouter);
+            ui.put(field, edit)
+        })
+        .inner;
+    if resp.changed() && editable {
+        let index = items.iter().position(|it| it == &buf).map_or(-1, |i| i as i64);
+        out.prop_updates.push((id.to_owned(), "Value".to_owned(), buf.clone()));
+        out.prop_updates.push((id.to_owned(), "SelectedIndex".to_owned(), index.to_string()));
+        out.events.push(UiEvent::change(id, &buf));
+        out.events.push(UiEvent::ev(id, "onTextChanged"));
+    }
+    let now = if editable { buf } else { shown.to_owned() };
+    (resp, now)
+}
+
 /// Containers whose `HScroll` / `VScroll` scroll their children. It was the
 /// Panel alone, although the GroupBox and the TabControl carry both properties
 /// (property audit, 2026-09-25).
@@ -1230,6 +1287,12 @@ fn scrolls_its_content(ct: &ControlType) -> bool {
     matches!(ct, ControlType::Panel | ControlType::GroupBox | ControlType::TabControl)
 }
 
+/// How many runtime instances a repeating group renders.
+///
+/// A **databound** group (its `DataSource` is set) treats `ItemCount` as
+/// authoritative â including **0**, which renders NO card at all (an empty data
+/// source shows nothing; task 3). An **unbound** template group falls back to
+/// `PreviewItemCount` (clamped â¥1) so the designer always has one card to edit.
 fn repeating_instance_count(c: &Control) -> usize {
     let bound = c
         .get_prop("DataSource")
@@ -5751,6 +5814,38 @@ fn datagrid_confined_fill_rects(screen: Rect, radius: f32, r: Rect) -> Vec<Rect>
     out
 }
 
+/// Order the rows a DataGrid shows by one column, stably: numerically when
+/// the column is declared numeric or every value in it reads as a number,
+/// otherwise as text, ignoring case. A value that is not a number sorts after
+/// the numbers.
+fn sort_datagrid_rows(indices: &mut [usize], rows: &[Vec<String>], source: usize, ty: &str, descending: bool) {
+    let cell = |r: usize| rows.get(r).and_then(|row| row.get(source)).map(String::as_str).unwrap_or("");
+    let number = |v: &str| v.trim().parse::<f64>().ok();
+    let declared = matches!(
+        ty.trim().to_ascii_lowercase().as_str(),
+        "number" | "numeric" | "int" | "integer" | "decimal" | "float" | "double" | "currency" | "money"
+    );
+    let numeric = declared
+        || indices.iter().all(|&r| {
+            let v = cell(r).trim();
+            v.is_empty() || number(v).is_some()
+        });
+    indices.sort_by(|&a, &b| {
+        let (x, y) = (cell(a), cell(b));
+        let order = if numeric {
+            match (number(x), number(y)) {
+                (Some(p), Some(q)) => p.partial_cmp(&q).unwrap_or(std::cmp::Ordering::Equal),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => x.to_lowercase().cmp(&y.to_lowercase()),
+            }
+        } else {
+            x.to_lowercase().cmp(&y.to_lowercase())
+        };
+        if descending { order.reverse() } else { order }
+    });
+}
+
 fn draw_datagrid_line(
     painter: &egui::Painter,
     points: [egui::Pos2; 2],
@@ -5762,7 +5857,7 @@ fn draw_datagrid_line(
         DataGridGridLineStyle::Solid => {
             painter.line_segment(points, stroke);
         }
-        DataGridGridLineStyle::Dash | DataGridGridLineStyle::Dots => {
+        DataGridGridLineStyle::Dash | DataGridGridLineStyle::Dots | DataGridGridLineStyle::DashDot => {
             let start = points[0];
             let end = points[1];
             let delta = end - start;
@@ -5771,16 +5866,22 @@ fn draw_datagrid_line(
                 return;
             }
             let dir = delta / length;
-            let (segment, gap) = match style {
-                DataGridGridLineStyle::Dash => (6.0, 4.0),
-                DataGridGridLineStyle::Dots => (1.0, 4.0),
+            // The repeating (mark, gap) pattern; DashDot alternates a dash and
+            // a dot.
+            let pattern: &[(f32, f32)] = match style {
+                DataGridGridLineStyle::Dash => &[(6.0, 4.0)],
+                DataGridGridLineStyle::Dots => &[(1.0, 4.0)],
+                DataGridGridLineStyle::DashDot => &[(6.0, 3.0), (1.0, 3.0)],
                 _ => unreachable!(),
             };
             let mut offset = 0.0;
+            let mut k = 0;
             while offset < length {
+                let (segment, gap) = pattern[k % pattern.len()];
                 let next = (offset + segment).min(length);
                 painter.line_segment([start + dir * offset, start + dir * next], stroke);
                 offset += segment + gap;
+                k += 1;
             }
         }
     }
@@ -7171,6 +7272,69 @@ fn render_interactive(
                 out.events.push(UiEvent::ev(id, "onValueChanged"));
             }
         }
+        CT::ComboBox if crate::paint::combo_is_simple(ctrl) => {
+            // `DropDownStyle = Simple`: a text field with the list always open
+            // beneath it, inside the control. The list IS a ListBox — drawn by
+            // the ListBox arm in an id space of its own, reporting under the
+            // combo's id — so picking, dragging, the arrow keys, scrolling and
+            // the highlight colours are the list's, not a second copy of them.
+            let mut items: Vec<String> = sv(ctrl, "Items").lines().map(|l| l.to_owned()).collect();
+            paint::list_display_items(ctrl, &mut items);
+            let cur = crate::paint::list_current_value(ctrl, &items);
+            let (head, list) = crate::paint::simple_combo_split(ctrl, screen);
+            let mut head_face = ctrl.clone();
+            head_face.rect.h = head.height().round() as i32;
+            paint::draw_control_face(&painter, head.min, &head_face, false, glass, alpha, 1.0, None);
+            let fg = sv(ctrl, "ForegroundColor");
+            let item_color = paint::caret_color(
+                paint::control_surface_tone(ui.ctx(), ctrl, form_bg),
+                if fg.is_empty() {
+                    Color32::from_rgb(220, 228, 255)
+                } else {
+                    paint::parse_color(&fg)
+                },
+            );
+            let font_name = sv(ctrl, "FontName");
+            let size = paint::ctrl_font_size(ctrl);
+            let field_font = if paint::FontStyle::of(ctrl).bold {
+                crate::fonts::bold_font_id(ui.ctx(), &font_name, size)
+            } else {
+                None
+            }
+            .unwrap_or_else(|| crate::fonts::font_id(ui.ctx(), &font_name, size));
+            let typable = crate::paint::combo_typable(ctrl);
+            let (resp, _) = combo_text_field(
+                ui, ctrl, ctrl_id, id, head, clip, &items, &cur, field_font, item_color, enabled,
+                typable, out,
+            );
+            let _ = with_tooltip(resp, ctrl);
+            if list.height() >= 4.0 {
+                let mut lb = ctrl.clone();
+                lb.control_type = CT::ListBox;
+                // The combo's own handlers and pointer events already ran for
+                // the whole control; the list must not raise them twice.
+                lb.events.clear();
+                lb.rect.h = list.height().round() as i32;
+                for key in ["Tooltip", "Cursor", "MultiSelect", "ShowCheckBoxes"] {
+                    lb.properties.shift_remove(key);
+                }
+                render_interactive(
+                    ui,
+                    Some(ctrl_id.with("simple-list")),
+                    &lb,
+                    list,
+                    clip,
+                    glass,
+                    alpha,
+                    enabled,
+                    form_bg,
+                    decimal_comma,
+                    currency,
+                    out,
+                    open_combos,
+                );
+            }
+        }
         CT::ComboBox => {
             // The face is the DEVELOPER'S â `BackgroundColor`, the background
             // gradient, the border and the corner radius â drawn by the same
@@ -7188,12 +7352,18 @@ fn render_interactive(
             // exactly as they typed it.
             paint::list_display_items(ctrl, &mut items);
             let items = items;
-            let cur = sv(ctrl, "Value");
+            let cur = crate::paint::list_current_value(ctrl, &items);
             let sel = if cur.is_empty() {
                 items.first().cloned().unwrap_or_default()
             } else {
                 cur.clone()
             };
+            // A typable combo (`Editable`, and not a `DropDownList`) is a text
+            // field with a dropdown button: a press on the field puts the
+            // caret there, and only the button opens the list — Windows' own
+            // DropDown combo. A pick-only combo opens from anywhere on it.
+            let typable = crate::paint::combo_typable(ctrl);
+            let arrow_zone = Rect::from_min_max(pos2(screen.max.x - 26.0, screen.min.y), screen.max);
             let open_id = ctrl_id.with("combo_open");
             let was_open_id = ctrl_id.with("combo_was_open");
             let highlight_id = combo_highlight_id(scope, id);
@@ -7217,7 +7387,11 @@ fn render_interactive(
                 )
             });
             let on_control = pointer_pos.is_some_and(|p| screen.contains(p));
-            let pressed_here = enabled && pointer_pressed && on_control;
+            let on_arrow = pointer_pos.is_some_and(|p| arrow_zone.contains(p));
+            // On a typable combo a press on the text field closes an open
+            // list, and otherwise only places the caret.
+            let pressed_here =
+                enabled && pointer_pressed && on_control && (!typable || on_arrow || is_open);
 
             // A dropdown opens on the PRESS, not on the release: the classic
             // combo gesture is press on the header, drag into the list, release
@@ -7273,16 +7447,32 @@ fn render_interactive(
             // The header's own click (a release without a drag) is already
             // answered by the press above; the response is taken so the header
             // still swallows the pointer and reports hover.
-            let _ = paint::glass_combo_header(
-                &painter,
-                ui,
-                screen,
-                ctrl_id,
-                &sel,
-                is_open,
-                enabled,
-                Some((item_font.clone(), item_color, paint::FontStyle::of(ctrl))),
-            );
+            // A typable combo's value is lettered by its text field below, so
+            // the header draws only the button, under an id of its own — the
+            // control's id belongs to the field, which Tab focuses.
+            let _ = if typable {
+                paint::glass_combo_header(
+                    &painter,
+                    ui,
+                    arrow_zone,
+                    ctrl_id.with("combo_button"),
+                    "",
+                    is_open,
+                    enabled,
+                    Some((item_font.clone(), item_color, paint::FontStyle::of(ctrl))),
+                )
+            } else {
+                paint::glass_combo_header(
+                    &painter,
+                    ui,
+                    screen,
+                    ctrl_id,
+                    &sel,
+                    is_open,
+                    enabled,
+                    Some((item_font.clone(), item_color, paint::FontStyle::of(ctrl))),
+                )
+            };
             // The header registered itself under `ctrl_id`; its tooltip rides
             // on that response. Not while open: it would cover the list.
             if !is_open {
@@ -7324,6 +7514,9 @@ fn render_interactive(
                 has_keyboard = false;
             }
             let listening = has_keyboard || ui.memory(|m| m.has_focus(ctrl_id));
+            // What a typable combo's field shows this frame: the value, or the
+            // item an arrow key has just moved it to.
+            let mut shown = cur.clone();
             if enabled && !is_open && !items.is_empty() && listening {
                 let (up, down) = ui.input_mut(|i| {
                     (
@@ -7343,6 +7536,7 @@ fn render_interactive(
                     };
                     if Some(to) != from {
                         highlight = to;
+                        shown = items[to].clone();
                         out.prop_updates.push((
                             id.to_owned(),
                             "Value".to_owned(),
@@ -7355,6 +7549,32 @@ fn render_interactive(
                         ));
                         out.events.push(UiEvent::change(id, &items[to]));
                         out.events.push(UiEvent::ev(id, "onSelectedIndexChanged"));
+                    }
+                }
+            }
+            // The field, added AFTER the arrow keys were taken for the list, so
+            // they walk the items rather than move the caret to either end.
+            if typable {
+                let field_font = if paint::FontStyle::of(ctrl).bold {
+                    crate::fonts::bold_font_id(ui.ctx(), &sv(ctrl, "FontName"), paint::ctrl_font_size(ctrl))
+                        .unwrap_or_else(|| item_font.clone())
+                } else {
+                    item_font.clone()
+                };
+                let text_rect = Rect::from_min_max(screen.min, pos2(arrow_zone.min.x, screen.max.y));
+                let (resp, now) = combo_text_field(
+                    ui, ctrl, ctrl_id, id, text_rect, clip, &items, &shown, field_font, item_color,
+                    enabled, true, out,
+                );
+                // Typing moves the open list's highlight to the first item the
+                // text begins, so Enter picks what is being typed.
+                if resp.changed() && !now.is_empty() {
+                    let lower = now.to_lowercase();
+                    if let Some(h) = items.iter().position(|it| it.to_lowercase().starts_with(&lower)) {
+                        highlight = h;
+                        if is_open {
+                            reveal = Some(h);
+                        }
                     }
                 }
             }
@@ -7400,7 +7620,7 @@ fn render_interactive(
             // exactly as they typed it.
             paint::list_display_items(ctrl, &mut items);
             let items = items;
-            let cur = sv(ctrl, "Value");
+            let cur = crate::paint::list_current_value(ctrl, &items);
             let mut picked: Option<(usize, String)> = None;
             let mut double_picked: Option<String> = None;
             // The items are egui widgets, so their text came from the AMBIENT
@@ -8206,10 +8426,12 @@ fn render_interactive(
                 .filter(|l| !l.is_empty())
                 .map(|l| l.split('\t').map(|c| c.to_owned()).collect())
                 .collect();
+            // 14–120, the range a row-edge drag writes: clamping at 60 here
+            // stopped a row dragged taller than that from growing on screen.
             let row_h = sv(ctrl, "RowHeight")
                 .parse::<f32>()
                 .unwrap_or(22.0)
-                .clamp(14.0, 60.0);
+                .clamp(14.0, 120.0);
             let advanced_grid = DataGridAdvanced::from_control(ctrl);
             let display_cols: Vec<(usize, String, String)> = if advanced_grid.columns.is_empty() {
                 cols.iter()
@@ -8247,10 +8469,39 @@ fn render_interactive(
                 display_cols
             };
             let source_names: Vec<String> = cols.iter().map(|(name, _)| name.clone()).collect();
-            let displayed_row_indices =
+            let mut displayed_row_indices =
                 advanced_grid.filtered_row_indices_for_sources(&rows, &source_names);
+            // `AllowSorting`: a click on a column title sorts what the grid
+            // SHOWS by that column — ascending, then descending on the next
+            // click — and leaves `Rows` alone, so a selection still reports the
+            // row's own index. It was seeded and never read: the click raised
+            // onColumnClick and nothing sorted (property audit, 2026-09-25).
+            let allow_sorting = prop_bool(ctrl, "AllowSorting", true);
+            let sort_id = ctrl_id.with("datagrid-sort");
+            let sort_state: Option<(usize, bool)> =
+                if allow_sorting { ui.data(|d| d.get_temp(sort_id)) } else { None };
+            if let Some((sort_col, descending)) = sort_state {
+                if let Some((source_index, _, ty)) = display_cols.get(sort_col) {
+                    sort_datagrid_rows(&mut displayed_row_indices, &rows, *source_index, ty, descending);
+                }
+            }
+            let displayed_row_indices = displayed_row_indices;
             let ncols = display_cols.len().max(1);
-            let col_w = screen.width() / ncols as f32;
+            // `ShowRowNumbers`: a gutter left of the columns numbering the rows
+            // as shown, wide enough for the largest number. It takes its width
+            // from the columns rather than covering the first one, so every
+            // column position below is measured from `cx` across `cw`.
+            let show_row_numbers = prop_bool(ctrl, "ShowRowNumbers", false);
+            let number_font_size = sv(ctrl, "FontSize").parse::<f32>().unwrap_or(12.0).clamp(6.0, 72.0);
+            let gutter = if show_row_numbers {
+                let digits = displayed_row_indices.len().max(1).to_string().len().max(2) as f32;
+                (digits * number_font_size * 0.62 + 12.0).min(screen.width() * 0.5)
+            } else {
+                0.0
+            };
+            let cx = screen.min.x + gutter;
+            let cw = (screen.width() - gutter).max(1.0);
+            let col_w = cw / ncols as f32;
             let frozen_columns = advanced_grid.frozen_columns.min(ncols);
             let frozen_rows = advanced_grid.frozen_rows.min(displayed_row_indices.len());
             // Every column's DECLARED width, with the unit it was declared in.
@@ -8268,7 +8519,7 @@ fn render_interactive(
             let auto_fit = prop_bool(ctrl, "AutoFitColumns", false);
             let resolved = crate::datagrid::resolve_column_widths(
                 &declared_widths,
-                screen.width(),
+                cw,
                 auto_fit,
             );
             let column_measures: Vec<DataGridColumnMeasure> = (0..ncols)
@@ -8438,7 +8689,12 @@ fn render_interactive(
             // The title shares the row so a grid showing the button is not spending
             // a whole band on one badge.
             let grid_title = sv(ctrl, "Title").trim().to_owned();
-            let show_csv_button = prop_bool(ctrl, "ShowCSVExportButton", false);
+            // `ExportCSV` is the master switch for the built-in button: off, the
+            // button is hidden whatever `ShowCSVExportButton` says. The
+            // `ExportCSV` method and the generated export paragraph work either
+            // way. It was read by codegen alone and changed nothing on screen.
+            let show_csv_button = prop_bool(ctrl, "ShowCSVExportButton", false)
+                && prop_bool(ctrl, "ExportCSV", true);
             let title_font = (font_size + 2.0).clamp(10.0, 22.0);
             // The grid's text follows its FontName, like every other control's
             // (the cells, header and title were always the default family).
@@ -8608,7 +8864,7 @@ fn render_interactive(
                 .ctx()
                 .memory(|m| m.data.get_temp::<f32>(scroll_x_id).unwrap_or(0.0));
             let mut layout = DataGridLayout::compute(&DataGridLayoutInput {
-                width: screen.width(),
+                width: cw,
                 height: (screen.height() - frozen_rows_height).max(band_h),
                 row_count: scrollable_row_count,
                 columns: column_measures.clone(),
@@ -8677,7 +8933,7 @@ fn render_interactive(
                 }
             }
             layout = DataGridLayout::compute(&DataGridLayoutInput {
-                width: screen.width(),
+                width: cw,
                 height: (screen.height() - frozen_rows_height).max(band_h),
                 row_count: scrollable_row_count,
                 columns: column_measures.clone(),
@@ -8716,35 +8972,6 @@ fn render_interactive(
                         .memory_mut(|m| m.data.insert_temp(last_id, (scroll_y, scroll_x)));
                 }
             }
-            // spec 021 T12: column-header clicks with the display column index.
-            {
-                let mut x = header_rect.min.x - scroll_x;
-                for (display_index, measure) in column_measures.iter().enumerate() {
-                    let col_header = Rect::from_min_max(
-                        pos2(x.max(header_rect.min.x), header_rect.min.y),
-                        pos2((x + measure.width).min(header_rect.max.x), header_rect.max.y),
-                    );
-                    x += measure.width;
-                    if col_header.width() <= 0.0 {
-                        continue;
-                    }
-                    if ui
-                        .interact(
-                            col_header,
-                            ctrl_id.with(("dg-colhdr", display_index)),
-                            Sense::click(),
-                        )
-                        .clicked()
-                        && enabled
-                    {
-                        out.events.push(UiEvent::with_value(
-                            id,
-                            "onColumnClick",
-                            &display_index.to_string(),
-                        ));
-                    }
-                }
-            }
             let selected_cell = ui
                 .ctx()
                 .memory(|m| m.data.get_temp::<DataGridCellSelection>(selection_id));
@@ -8754,13 +8981,23 @@ fn render_interactive(
                         .iter()
                         .map(|(source_index, _, _)| *source_index)
                         .collect();
-                    if let Some(text) = datagrid_copy_text(
-                        &rows,
-                        &visible_source_columns,
-                        selected_cell,
-                        &sv(ctrl, "SelectionMode"),
-                        &sv(ctrl, "CSVDelimiter"),
-                    ) {
+                    let copied = if sv(ctrl, "SelectionMode").trim().eq_ignore_ascii_case("column") {
+                        crate::datagrid::datagrid_copy_column_text(
+                            &rows,
+                            &displayed_row_indices,
+                            &visible_source_columns,
+                            selected_cell.display_column_index,
+                        )
+                    } else {
+                        datagrid_copy_text(
+                            &rows,
+                            &visible_source_columns,
+                            selected_cell,
+                            &sv(ctrl, "SelectionMode"),
+                            &sv(ctrl, "CSVDelimiter"),
+                        )
+                    };
+                    if let Some(text) = copied {
                         ui.ctx().copy_text(text);
                     }
                 }
@@ -8769,6 +9006,58 @@ fn render_interactive(
             let grid_focus = ui.interact(screen, ctrl_id.with("datagrid-focus"), Sense::click());
             if grid_focus.clicked() {
                 grid_focus.request_focus();
+            }
+            // spec 021 T12: column-header clicks with the display column index.
+            // Walked through the LAYOUT, so a frozen column's title and a
+            // scrolled one are hit where they are painted (the old walk summed
+            // widths in order and ignored the frozen band). With the filter row
+            // showing, only the title half sorts: the lower half is the filter.
+            //
+            // Registered AFTER the grid's own focus target, which covers the
+            // whole control: egui gives a click to the widget registered last,
+            // so while the titles came first that target took every click on
+            // them, and onColumnClick never fired at all.
+            {
+                let title_bottom = if show_filters {
+                    header_rect.min.y + header_h * 0.55
+                } else {
+                    header_rect.max.y
+                };
+                for col in layout.frozen_columns.iter().chain(layout.scrollable_columns.iter()) {
+                    let left = cx + col.x;
+                    let min_x = if col.frozen { cx } else { cx + layout.frozen_columns_width };
+                    let col_header = Rect::from_min_max(
+                        pos2(left.max(min_x), header_rect.min.y),
+                        pos2((left + col.width).min(screen.max.x), title_bottom),
+                    );
+                    if col_header.width() <= 0.0 {
+                        continue;
+                    }
+                    if ui
+                        .interact(col_header, ctrl_id.with(("dg-colhdr", col.index)), Sense::click())
+                        .clicked()
+                        && enabled
+                    {
+                        out.events.push(UiEvent::with_value(
+                            id,
+                            "onColumnClick",
+                            &col.index.to_string(),
+                        ));
+                        let sortable = advanced_grid
+                            .columns
+                            .get(col.index)
+                            .map(|column| column.sort_enabled)
+                            .unwrap_or(true);
+                        if allow_sorting && sortable {
+                            let next = match sort_state {
+                                Some((c, descending)) if c == col.index => (c, !descending),
+                                _ => (col.index, false),
+                            };
+                            ui.data_mut(|d| d.insert_temp(sort_id, next));
+                            ui.ctx().request_repaint();
+                        }
+                    }
+                }
             }
             // Whether the GRID owns the keyboard — tracked here, not read from
             // egui's focus.
@@ -8931,16 +9220,16 @@ fn render_interactive(
                         let target_left: f32 = column_widths.iter().take(display_col).sum();
                         let target_right = target_left + column_widths[display_col];
                         let visible_left = layout.frozen_columns_width + scroll_x;
-                        let visible_right = screen.width() + scroll_x;
+                        let visible_right = cw + scroll_x;
                         if target_left < visible_left {
                             scroll_x = (target_left - layout.frozen_columns_width).max(0.0);
                         } else if target_right > visible_right {
-                            scroll_x = (target_right - screen.width()).max(0.0);
+                            scroll_x = (target_right - cw).max(0.0);
                         }
                     }
 
                     layout = DataGridLayout::compute(&DataGridLayoutInput {
-                        width: screen.width(),
+                        width: cw,
                         height: (screen.height() - frozen_rows_height).max(band_h),
                         row_count: scrollable_row_count,
                         columns: column_measures.clone(),
@@ -8967,8 +9256,8 @@ fn render_interactive(
                     .iter()
                     .chain(layout.scrollable_columns.iter())
                 {
-                    let edge_x = screen.min.x + col.x + col.width;
-                    if edge_x <= screen.min.x || edge_x >= screen.max.x {
+                    let edge_x = cx + col.x + col.width;
+                    if edge_x <= cx || edge_x >= screen.max.x {
                         continue;
                     }
                     let handle = Rect::from_min_max(
@@ -9101,7 +9390,7 @@ fn render_interactive(
             {
                 let (_, name, _) = &display_cols[col.index];
                 let column_meta = advanced_grid.columns.get(col.index);
-                let x = screen.min.x + col.x;
+                let x = cx + col.x;
                 // Clip a scrollable header cell to the region right of the frozen
                 // band so it scrolls behind the frozen columns (matches the body).
                 let painter = if col.frozen {
@@ -9109,7 +9398,7 @@ fn render_interactive(
                 } else {
                     painter.with_clip_rect(Rect::from_min_max(
                         pos2(
-                            screen.min.x + layout.frozen_columns_width,
+                            cx + layout.frozen_columns_width,
                             header_rect.min.y,
                         ),
                         pos2(screen.max.x, header_rect.max.y),
@@ -9133,6 +9422,16 @@ fn render_interactive(
                     grid_font(header_font_size),
                     header_fg,
                 );
+                // Which column the rows are sorted by, and which way.
+                if let Some((_, descending)) = sort_state.filter(|(c, _)| *c == col.index) {
+                    painter.with_clip_rect(cell_rect).text(
+                        pos2(x + col.width - 6.0, title_y),
+                        Align2::RIGHT_CENTER,
+                        if descending { "\u{25BC}" } else { "\u{25B2}" },
+                        FontId::proportional(9.0),
+                        header_fg.gamma_multiply(0.8),
+                    );
+                }
                 if show_filters {
                     let filter_key = column_meta
                         .map(|column| {
@@ -9192,7 +9491,7 @@ fn render_interactive(
                     if !col.frozen {
                         let scrollable = Rect::from_min_max(
                             pos2(
-                                screen.min.x + layout.frozen_columns_width,
+                                cx + layout.frozen_columns_width,
                                 header_rect.min.y,
                             ),
                             pos2(screen.max.x, header_rect.max.y),
@@ -9228,6 +9527,15 @@ fn render_interactive(
                         out.prop_updates.push((
                             id.to_owned(),
                             "ColumnFilters".to_owned(),
+                            datagrid_filter_property(&updated),
+                        ));
+                        // …and the runtime override, which outranks the
+                        // settings once COBOL has filtered the grid (SetFilter,
+                        // or a write of ColumnFilters): left stale, it undid
+                        // every keystroke typed here after that.
+                        out.prop_updates.push((
+                            id.to_owned(),
+                            "_RuntimeColumnFilters".to_owned(),
                             datagrid_filter_property(&updated),
                         ));
                     }
@@ -9392,6 +9700,7 @@ fn render_interactive(
             );
             let body_painter_base = painter.with_clip_rect(body_rect);
             let scroll_body_painter = painter.with_clip_rect(scroll_body_rect);
+            let selection_mode = sv(ctrl, "SelectionMode").trim().to_ascii_lowercase();
             let mut rows_to_draw = Vec::new();
             for display_row in 0..frozen_rows {
                 let y = body_rect.min.y + row_h * display_row as f32;
@@ -9453,6 +9762,19 @@ fn render_interactive(
                     &sv(ctrl, "RowBackgroundPattern"),
                     Color32::from_rgba_unmultiplied(255, 255, 255, 18),
                 );
+                if gutter > 0.0 {
+                    // The row's number, as shown (1-based), on the header's
+                    // colours: a row header, as a spreadsheet draws it.
+                    let number_rect = Rect::from_min_size(pos2(screen.min.x, y), vec2(gutter, row_h));
+                    fill_confined(&body_painter, number_rect, header_bg);
+                    body_painter.with_clip_rect(number_rect.intersect(body_painter.clip_rect())).text(
+                        pos2(number_rect.max.x - 6.0, number_rect.center().y),
+                        Align2::RIGHT_CENTER,
+                        (display_row + 1).to_string(),
+                        grid_font(number_font_size),
+                        header_fg.gamma_multiply(0.8),
+                    );
+                }
                 for col in layout
                     .frozen_columns
                     .iter()
@@ -9465,7 +9787,7 @@ fn render_interactive(
                         body_painter.clone()
                     } else {
                         body_painter.with_clip_rect(Rect::from_min_max(
-                            pos2(screen.min.x + layout.frozen_columns_width, body_rect.min.y),
+                            pos2(cx + layout.frozen_columns_width, body_rect.min.y),
                             pos2(screen.max.x, body_rect.max.y),
                         ))
                     };
@@ -9475,7 +9797,7 @@ fn render_interactive(
                     } else {
                         ""
                     };
-                    let x0 = screen.min.x + col.x;
+                    let x0 = cx + col.x;
                     // Full column-width band for this row: the background layer
                     // (appearance/column colour) fills this so the inter-column
                     // gutter under each vertical separator obeys the appearance
@@ -9528,9 +9850,16 @@ fn render_interactive(
                         cell_selected = ui.ctx().memory(|m| {
                             m.data
                                 .get_temp::<DataGridCellSelection>(selection_id)
-                                .map(|selection| {
-                                    selection.row_index == row_index
-                                        && selection.display_column_index == col.index
+                                // `SelectionMode`: the selected cell's whole row,
+                                // whole column, or the cell alone. The highlight
+                                // was always one cell, whatever it said.
+                                .map(|selection| match selection_mode.as_str() {
+                                    "row" => selection.row_index == row_index,
+                                    "column" => selection.display_column_index == col.index,
+                                    _ => {
+                                        selection.row_index == row_index
+                                            && selection.display_column_index == col.index
+                                    }
                                 })
                                 .unwrap_or(false)
                         });
@@ -9999,7 +10328,7 @@ fn render_interactive(
             // bottom-right, matching the grid's own corner. Drawn after the rows
             // (covers glass + alternating tint) and before the separators.
             if let Some(fill) = grid_bg_underlay_faded {
-                let filler_x0 = screen.min.x + layout.total_columns_width;
+                let filler_x0 = cx + layout.total_columns_width;
                 if filler_x0 < screen.max.x - 0.5 {
                     let filler_rect = Rect::from_min_max(
                         pos2(filler_x0, body_rect.min.y),
@@ -10023,13 +10352,13 @@ fn render_interactive(
                 .iter()
                 .chain(layout.scrollable_columns.iter())
             {
-                let x = screen.min.x + col.x + col.width;
+                let x = cx + col.x + col.width;
                 // A scrollable column's separator must not intrude into the frozen
                 // band as it scrolls left behind the frozen columns.
                 let min_x = if col.frozen {
-                    screen.min.x
+                    cx - 0.5
                 } else {
-                    screen.min.x + layout.frozen_columns_width
+                    cx + layout.frozen_columns_width
                 };
                 if x > min_x && x < screen.max.x {
                     // From the top of the COLUMN TITLES, not of the grid: a column
@@ -10047,6 +10376,19 @@ fn render_interactive(
                         grid_line_style,
                     );
                 }
+            }
+            // The row-number gutter's edge, from the column titles down.
+            if gutter > 0.0 {
+                draw_datagrid_line(
+                    &painter,
+                    clip_datagrid_line_to_corners(
+                        screen,
+                        grid_cr,
+                        [pos2(cx, header_rect.min.y), pos2(cx, screen.max.y)],
+                    ),
+                    Stroke::new(1.0, grid_c),
+                    grid_line_style,
+                );
             }
             draw_datagrid_line(
                 &painter,
@@ -10126,7 +10468,7 @@ fn render_interactive(
             // shadow onto the content that scrolls behind them (a spreadsheet cue).
             if prop_bool(ctrl, "FrozenShadow", true) {
                 if layout.frozen_columns_width > 0.0 && layout.max_scroll_x > 0.0 {
-                    let x0 = screen.min.x + layout.frozen_columns_width;
+                    let x0 = cx + layout.frozen_columns_width;
                     let shadow = Rect::from_min_max(
                         pos2(x0, screen.min.y),
                         pos2((x0 + 11.0).min(screen.max.x), screen.max.y),
@@ -14871,6 +15213,20 @@ mod tests {
         assert!(expanded.is_empty(), "0 rows must produce no cards");
     }
 
+    /// A SelectedIndex set in the designer selects that item when Value is
+    /// empty; a Value wins over it.
+    #[test]
+    fn a_designed_selected_index_selects_its_item() {
+        let items = vec!["AC".to_owned(), "AL".to_owned(), "AM".to_owned()];
+        let mut c = ctrlp("C", ControlType::ComboBox, 0, 0, 100, 24, &[("SelectedIndex", "2")]);
+        assert_eq!(crate::paint::list_current_value(&c, &items), "AM");
+        c.set_prop("Value", crate::PropValue::String("AC".into()));
+        assert_eq!(crate::paint::list_current_value(&c, &items), "AC");
+        c.set_prop("Value", crate::PropValue::String(String::new()));
+        c.set_prop("SelectedIndex", crate::PropValue::Int(-1));
+        assert_eq!(crate::paint::list_current_value(&c, &items), "");
+    }
+
     /// A GroupBox with VScroll scrolls its children, as a Panel does; it used
     /// to be the Panel alone (property audit, 2026-09-25).
     #[test]
@@ -15607,10 +15963,10 @@ mod tests {
         // The filter row is where the grid hosts a real `TextEdit`, which is the
         // part that escapes; without this the audit would not reach it.
         grid.set_prop("ShowColumnFilters", true);
-        grid.set_prop(
-            "ColumnFilters",
-            "GRIDOVERFLOWGRIDOVERFLOW=GRIDFILTEROVERFLOWGRIDFILTER",
-        );
+        // A value the row CONTAINS: a designed filter really filters now
+        // (property audit, 2026-09-25), and one the row lacked hid the very
+        // cell this audit measures.
+        grid.set_prop("ColumnFilters", "GRIDOVERFLOWGRIDOVERFLOW=GRIDCELL");
         grid.parent = Some("Panel-1".into());
         let mut zone = Control::new("FDZ-1", ControlType::FileDropZone, 60, 370);
         zone.rect = crate::model::Rect::new(60, 370, 320, 60);
@@ -15753,7 +16109,7 @@ mod tests {
             (ControlType::DateTimePicker, None),
             (ControlType::NumericUpDown, None),
             (ControlType::TextBox, Some(("Text", "Sample"))),
-            (ControlType::ComboBox, Some(("Items", "Sample"))),
+            (ControlType::ComboBox, Some(("Value", "Sample"))),
             (ControlType::GroupBox, Some(("Caption", "Sample"))),
         ] {
             let (w, h) = t.default_size();
@@ -15770,9 +16126,10 @@ mod tests {
             );
             let (captions, placed) = painted_captions(&[c]);
             let frame = *placed.get(&format!("{}-1", t.as_str())).expect("placed");
+            // A combo's ▼ / ▲ is an icon at a fixed size, not its text.
             let Some(caption) = captions
                 .iter()
-                .find(|p| !p.text.trim().is_empty())
+                .find(|p| !p.text.trim().is_empty() && !matches!(p.text.trim(), "\u{25BC}" | "\u{25B2}"))
                 .cloned()
             else {
                 continue; // nothing written on it by default
@@ -20504,7 +20861,7 @@ mod tests {
             0,
             160,
             26,
-            &[("Items", "Apple\nBanana\nCherry"), ("Value", "")],
+            &[("Items", "Apple\nBanana\nCherry"), ("Value", ""), ("DropDownStyle", "DropDownList")],
         )];
         let hc = pos2(80.0, 13.0);
         // Popup item rows start at header.max_y+1 = 27, 22px tall; Banana = index 1.
@@ -20646,6 +21003,8 @@ mod tests {
 
         // ── ComboBox: the same, in the open dropdown ──────────────────────
         let mut cmb = ctrl("ComboBox-1", ControlType::ComboBox, 20, 20, 220, 24);
+        // Pick-only: the list opens from anywhere on the header.
+        cmb.set_prop("DropDownStyle", crate::PropValue::String("DropDownList".into()));
         cmb.set_prop("Items", crate::PropValue::String(TYPED.to_owned()));
         cmb.set_prop("DropDownHeight", crate::PropValue::Int(600));
         cmb.set_prop("Sorted", crate::PropValue::Bool(true));
@@ -20696,6 +21055,8 @@ mod tests {
     fn a_dropdowns_scrollbar_sits_inside_the_border() {
         let items: Vec<String> = (1..=30).map(|n| format!("Item-{n:02}")).collect();
         let mut cmb = ctrl("Cmb", ControlType::ComboBox, 20, 20, 320, 26);
+        // Pick-only: the list opens from anywhere on the header.
+        cmb.set_prop("DropDownStyle", crate::PropValue::String("DropDownList".into()));
         cmb.set_prop("Items", crate::PropValue::String(items.join("\n")));
         cmb.set_prop("Value", crate::PropValue::String("Item-01".to_owned()));
         let hc = pos2(180.0, 33.0);
@@ -20747,6 +21108,8 @@ mod tests {
         // A list that FITS must not scroll: three items, in a panel tall enough
         // for them plus the margin, all three painted where they were laid out.
         let mut short = ctrl("Short", ControlType::ComboBox, 20, 200, 320, 26);
+        // Pick-only: the list opens from anywhere on the header.
+        short.set_prop("DropDownStyle", crate::PropValue::String("DropDownList".into()));
         short.set_prop(
             "Items",
             crate::PropValue::String("Alpha\nBeta\nGamma".to_owned()),
@@ -20807,6 +21170,8 @@ mod tests {
             let mut c = ctrl("Cmb", ControlType::ComboBox, 20, 20, 200, 26);
             c.set_prop("Items", crate::PropValue::String("6\n1\n2\n11\n10".into()));
             c.set_prop("Sorted", crate::PropValue::Bool(sorted));
+            // Pick-only; a typable combo is checked at the end.
+            c.set_prop("DropDownStyle", crate::PropValue::String("DropDownList".into()));
             if !value.is_empty() {
                 c.set_prop("Value", crate::PropValue::String(value.to_owned()));
             }
@@ -20854,11 +21219,232 @@ mod tests {
         );
         assert_eq!(running_says(&c), "11");
 
+        // A TYPABLE combo (DropDown, Editable) is a text field: with no Value
+        // it shows an empty field on both surfaces, not the first item — the
+        // field holds what Value holds — and a Value on both.
+        let mut c = combo(false, "");
+        c.set_prop("DropDownStyle", crate::PropValue::String("DropDown".into()));
+        assert_eq!(canvas_says(&c), " \u{25BE}");
+        assert_eq!(running_says(&c), "");
+        c.set_prop("Value", crate::PropValue::String("11".into()));
+        assert_eq!(canvas_says(&c), "11 \u{25BE}");
+        assert_eq!(running_says(&c), "11");
+
         println!(
             "\n  ComboBox canvas -- unsorted shows 6 on both surfaces, Sorted shows 1 on \
              both, and a Value of 11 shows 11 on both; the canvas used to letter the first \
-             TYPED item and ignore Value\n"
+             TYPED item and ignore Value. A typable combo with no Value shows an empty \
+             field on both\n"
         );
+    }
+
+    /// A typable ComboBox (`DropDownStyle = DropDown`, `Editable`) takes typed
+    /// text: a press on its field places the caret and does NOT open the list,
+    /// what is typed becomes Value (an item or not), SelectedIndex follows, and
+    /// only the button opens the list. `Editable = false` keeps it pick-only.
+    /// Neither property was read by anything (property audit, 2026-09-25).
+    #[test]
+    fn a_typable_combobox_takes_text_and_opens_from_its_button() {
+        let mut cmb = ctrl("Cmb", ControlType::ComboBox, 20, 20, 220, 26);
+        cmb.set_prop("Items", crate::PropValue::String("Recife\nRio\nSalvador".into()));
+        cmb.set_prop("DropDownStyle", crate::PropValue::String("DropDown".into()));
+        cmb.set_prop("Editable", crate::PropValue::Bool(true));
+        let field = pos2(60.0, 33.0);
+        let button = pos2(230.0, 33.0);
+        let get = |o: &Map<String, Map<String, String>>, k: &str| {
+            o.get("Cmb").and_then(|p| p.get(k)).cloned()
+        };
+        let type_into = |c: &Control, text: &str| {
+            drive(
+                std::slice::from_ref(c),
+                vec![
+                    (0.00, vec![Event::PointerMoved(field)]),
+                    (0.05, vec![press(field)]),
+                    (0.10, vec![release(field)]),
+                    (0.15, vec![Event::Text(text.to_owned())]),
+                    (0.20, vec![]),
+                ],
+            )
+        };
+
+        let (events, overrides) = type_into(&cmb, "Ri");
+        assert!(!names(&events).contains(&"onDropDown"), "a press on the field must not open the list: {:?}", names(&events));
+        assert_eq!(get(&overrides, "Value").as_deref(), Some("Ri"), "free text becomes Value");
+        assert_eq!(get(&overrides, "SelectedIndex").as_deref(), Some("-1"), "text naming no item selects none");
+        assert!(names(&events).contains(&"onTextChanged"));
+
+        let (_, overrides) = type_into(&cmb, "Rio");
+        assert_eq!(get(&overrides, "SelectedIndex").as_deref(), Some("1"), "text naming an item selects it");
+
+        let (events, _) = drive(
+            std::slice::from_ref(&cmb),
+            vec![
+                (0.00, vec![Event::PointerMoved(button)]),
+                (0.05, vec![press(button)]),
+                (0.10, vec![release(button)]),
+                (0.15, vec![]),
+            ],
+        );
+        assert!(names(&events).contains(&"onDropDown"), "the button opens the list: {:?}", names(&events));
+
+        // Editable off: pick-only again — the field press opens the list, and
+        // typing changes nothing.
+        let mut fixed = cmb.clone();
+        fixed.set_prop("Editable", crate::PropValue::Bool(false));
+        let (events, overrides) = type_into(&fixed, "Ri");
+        assert!(names(&events).contains(&"onDropDown"), "a pick-only combo opens from anywhere");
+        assert_ne!(get(&overrides, "Value").as_deref(), Some("Ri"), "a pick-only combo takes no text");
+
+        println!(
+            "\n  ComboBox DropDown -- a press on the field types (\"Ri\" -> Value Ri, SelectedIndex \
+             -1; \"Rio\" -> SelectedIndex 1), only the button opens the list; Editable off \
+             is pick-only\n"
+        );
+    }
+
+    /// A `Simple` ComboBox shows its list inside the control, under a text
+    /// field, with no dropdown: picking a row sets Value and SelectedIndex,
+    /// typing sets Value, and nothing ever raises onDropDown.
+    #[test]
+    fn a_simple_combobox_shows_its_list_beneath_the_field() {
+        let mut cmb = ctrl("Cmb", ControlType::ComboBox, 20, 20, 220, 160);
+        cmb.set_prop("Items", crate::PropValue::String("Alpha\nBeta\nGamma".into()));
+        cmb.set_prop("DropDownStyle", crate::PropValue::String("Simple".into()));
+        let (head, _) = crate::paint::simple_combo_split(&cmb, Rect::from_min_size(pos2(20.0, 20.0), Vec2::new(220.0, 160.0)));
+        let pitch = crate::model::text_line_height(&cmb) + crate::model::LIST_ROW_PAD * 2.0;
+        let row = |n: usize| pos2(100.0, head.max.y + 2.0 + crate::model::LIST_FRAME_PAD + pitch * (n as f32 + 0.5));
+        let get = |o: &Map<String, Map<String, String>>, k: &str| {
+            o.get("Cmb").and_then(|p| p.get(k)).cloned()
+        };
+
+        let (events, overrides) = drive(
+            std::slice::from_ref(&cmb),
+            vec![
+                (0.00, vec![Event::PointerMoved(row(1))]),
+                (0.05, vec![press(row(1))]),
+                (0.10, vec![release(row(1))]),
+                (0.15, vec![]),
+            ],
+        );
+        assert_eq!(get(&overrides, "Value").as_deref(), Some("Beta"), "a row of the inline list is picked");
+        assert_eq!(get(&overrides, "SelectedIndex").as_deref(), Some("1"));
+        assert!(!names(&events).contains(&"onDropDown"), "a Simple combo has no dropdown");
+
+        let field = pos2(60.0, head.center().y);
+        let (events, overrides) = drive(
+            std::slice::from_ref(&cmb),
+            vec![
+                (0.00, vec![Event::PointerMoved(field)]),
+                (0.05, vec![press(field)]),
+                (0.10, vec![release(field)]),
+                (0.15, vec![Event::Text("Zeta".to_owned())]),
+                (0.20, vec![]),
+            ],
+        );
+        assert_eq!(get(&overrides, "Value").as_deref(), Some("Zeta"), "its field takes typed text");
+        assert!(!names(&events).contains(&"onDropDown"));
+
+        println!("\n  ComboBox Simple -- the inline list picks Beta (index 1), the field takes \"Zeta\", no dropdown\n");
+    }
+
+    /// A plain two-column grid for the property-audit tests: no caption row
+    /// (no CSV button, no title), so the titles run 20..42 and the rows start
+    /// at 42, 22 px each; the two columns share the width equally.
+    fn audit_grid(extra: &[(&str, &str)]) -> Control {
+        let mut props: Vec<(&str, &str)> = vec![
+            ("Columns", "Name:string\nAge:number"),
+            ("Rows", "Bob\t30\nann\t9\nCid\t100"),
+            ("ShowCSVExportButton", "false"),
+            ("RowHeight", "22"),
+        ];
+        props.extend_from_slice(extra);
+        ctrlp("DG", ControlType::DataGrid, 20, 20, 300, 200, &props)
+    }
+
+    fn click_at(p: Pos2, t: f64) -> Vec<(f64, Vec<Event>)> {
+        vec![
+            (t, vec![Event::PointerMoved(p)]),
+            (t + 0.05, vec![press(p)]),
+            (t + 0.10, vec![release(p)]),
+        ]
+    }
+
+    /// `AllowSorting`: a click on a column title orders the rows the grid
+    /// shows by that column — numerically for a number column — and a second
+    /// click reverses it. `Rows` is left alone, so a click on the first row
+    /// shown still reports that row's OWN index. Off, the click sorts nothing.
+    #[test]
+    fn a_datagrid_sorts_by_the_column_title_clicked() {
+        let age_title = pos2(20.0 + 225.0, 31.0);
+        let first_row = pos2(100.0, 53.0);
+        let first_shown = |grid: &Control, clicks_on_title: usize| -> String {
+            let mut frames = Vec::new();
+            for i in 0..clicks_on_title {
+                frames.extend(click_at(age_title, i as f64 * 0.2));
+            }
+            frames.extend(click_at(first_row, clicks_on_title as f64 * 0.2));
+            frames.push((clicks_on_title as f64 * 0.2 + 0.2, vec![]));
+            let (events, _) = drive(std::slice::from_ref(grid), frames);
+            events
+                .iter()
+                .find(|e| e.event == "onCellClick")
+                .and_then(|e| e.value.clone())
+                .unwrap_or_default()
+        };
+        let grid = audit_grid(&[]);
+        assert_eq!(first_shown(&grid, 0), "0,0", "unsorted: Bob (row 0) is first");
+        assert_eq!(first_shown(&grid, 1), "1,0", "ascending by Age: 9 (ann, row 1) is first, not \"100\"");
+        assert_eq!(first_shown(&grid, 2), "2,0", "descending by Age: 100 (Cid, row 2) is first");
+        // The title click itself is reported, sorting or not. It never was:
+        // the grid's focus target, registered after the titles, took it.
+        let (events, _) = drive(std::slice::from_ref(&grid), {
+            let mut f = click_at(age_title, 0.0);
+            f.push((0.2, vec![]));
+            f
+        });
+        assert!(
+            events.iter().any(|e| e.event == "onColumnClick" && e.value.as_deref() == Some("1")),
+            "onColumnClick carries the column: {:?}",
+            names(&events)
+        );
+        let fixed = audit_grid(&[("AllowSorting", "false")]);
+        assert_eq!(first_shown(&fixed, 1), "0,0", "AllowSorting off: the click sorts nothing");
+        println!("\n  DataGrid AllowSorting -- Age ascending shows row 1 (9) first, descending row 2 (100); off leaves row 0 first\n");
+    }
+
+    /// `ShowRowNumbers`: a gutter numbering the rows as shown, which takes its
+    /// width from the columns instead of covering the first one.
+    #[test]
+    fn a_datagrid_shows_row_numbers_in_a_gutter_of_their_own() {
+        let painted = drive_painted(&[audit_grid(&[("ShowRowNumbers", "true")])], vec![(0.0, vec![]), (0.05, vec![])]);
+        let at = |t: &str| painted.texts.iter().find(|p| p.text == t).map(|p| p.ink);
+        let bob = at("Bob").expect("the first cell is painted");
+        for n in ["1", "2", "3"] {
+            let number = at(n).unwrap_or_else(|| panic!("row number {n} is painted"));
+            assert!(number.max.x <= bob.min.x, "row number {n} ({number:?}) must sit left of the cells ({bob:?})");
+        }
+        let plain = drive_painted(&[audit_grid(&[])], vec![(0.0, vec![]), (0.05, vec![])]);
+        let bob_plain = plain.texts.iter().find(|p| p.text == "Bob").map(|p| p.ink).expect("painted");
+        assert!(bob.min.x > bob_plain.min.x + 10.0, "the gutter pushes the columns right");
+        assert!(!plain.texts.iter().any(|p| p.text == "3"), "off: no numbers");
+        println!("\n  DataGrid ShowRowNumbers -- 1, 2, 3 painted left of the cells; the first column moves right to make room\n");
+    }
+
+    /// `SelectionMode`: a click highlights the cell alone (`Cell`), its whole
+    /// row (`Row`) or its whole column (`Column`). It was always one cell.
+    #[test]
+    fn a_datagrid_highlights_what_its_selection_mode_selects() {
+        let highlight = Color32::from_rgba_unmultiplied(80, 145, 255, 55);
+        let lit = |mode: &str| -> usize {
+            let mut frames = click_at(pos2(100.0, 53.0), 0.0);
+            frames.push((0.2, vec![]));
+            let painted = drive_painted(&[audit_grid(&[("SelectionMode", mode)])], frames);
+            painted.fills.iter().filter(|(_, c)| *c == highlight).count()
+        };
+        assert_eq!(lit("Cell"), 1, "Cell: the cell alone");
+        assert_eq!(lit("Row"), 2, "Row: both cells of the row");
+        assert_eq!(lit("Column"), 3, "Column: the column in all three rows");
+        println!("\n  DataGrid SelectionMode -- Cell lights 1 cell, Row 2 (the row), Column 3 (the column)\n");
     }
 
     /// The four TextBox input properties are honoured. All were seeded, shown in
@@ -21383,6 +21969,8 @@ mod tests {
     #[test]
     fn a_dropdowns_selection_band_is_cut_by_the_panels_corner() {
         let mut cmb = ctrl("ComboBox-1", ControlType::ComboBox, 336, 104, 160, 24);
+        // Pick-only: the list opens from anywhere on the header.
+        cmb.set_prop("DropDownStyle", crate::PropValue::String("DropDownList".into()));
         for (k, v) in [
             ("Items", "6\n1\n2\n3\n4\n5\n11\n7\n8\n9\n10"),
             ("Value", "10"),
@@ -21529,7 +22117,7 @@ mod tests {
         // (row 2), so one frame carries both highlights at once.
         let combo = |extra: &[(&str, &str)]| -> Vec<Control> {
             let mut props: Vec<(&str, &str)> =
-                vec![("Items", "Apple\nBanana\nCherry"), ("Value", "Apple")];
+                vec![("Items", "Apple\nBanana\nCherry"), ("Value", "Apple"), ("DropDownStyle", "DropDownList")];
             props.extend_from_slice(extra);
             vec![ctrlp("Cmb", ControlType::ComboBox, 0, 0, 160, 26, &props)]
         };
@@ -21630,7 +22218,7 @@ mod tests {
         const HARDCODED_NAVY: Color32 = Color32::from_rgb(25, 38, 80);
         let base = |extra: &[(&str, &str)]| -> Vec<Control> {
             let mut props: Vec<(&str, &str)> =
-                vec![("Items", "Apple\nBanana\nCherry"), ("Value", "Apple")];
+                vec![("Items", "Apple\nBanana\nCherry"), ("Value", "Apple"), ("DropDownStyle", "DropDownList")];
             props.extend_from_slice(extra);
             vec![ctrlp("Cmb", ControlType::ComboBox, 20, 20, 220, 26, &props)]
         };
@@ -21724,6 +22312,8 @@ mod tests {
     fn a_long_dropdown_scrolls_instead_of_dropping_its_tail() {
         let items: Vec<String> = (1..=30).map(|n| format!("Item-{n:02}")).collect();
         let mut cmb = ctrl("Cmb", ControlType::ComboBox, 20, 20, 220, 26);
+        // Pick-only: the list opens from anywhere on the header.
+        cmb.set_prop("DropDownStyle", crate::PropValue::String("DropDownList".into()));
         cmb.set_prop("Items", crate::PropValue::String(items.join("\n")));
         cmb.set_prop("Value", crate::PropValue::String("Item-01".to_owned()));
         let item_h = combo_item_h(&cmb);
@@ -21822,6 +22412,8 @@ mod tests {
     #[test]
     fn a_drag_from_the_header_picks_the_item_it_is_released_on() {
         let mut cmb = ctrl("Cmb", ControlType::ComboBox, 20, 20, 220, 26);
+        // Pick-only: the list opens from anywhere on the header.
+        cmb.set_prop("DropDownStyle", crate::PropValue::String("DropDownList".into()));
         cmb.set_prop(
             "Items",
             crate::PropValue::String("Alpha\nBeta\nGamma\nDelta\nEpsilon".to_owned()),
@@ -21942,6 +22534,8 @@ mod tests {
     #[test]
     fn the_arrow_keys_walk_a_combobox_open_or_closed() {
         let mut cmb = ctrl("Cmb", ControlType::ComboBox, 20, 20, 220, 26);
+        // Pick-only: the list opens from anywhere on the header.
+        cmb.set_prop("DropDownStyle", crate::PropValue::String("DropDownList".into()));
         cmb.set_prop(
             "Items",
             crate::PropValue::String("Alpha\nBeta\nGamma\nDelta".to_owned()),
@@ -22105,6 +22699,8 @@ mod tests {
     #[test]
     fn a_dropdowns_items_are_lettered_in_the_controls_own_type() {
         let mut cmb = ctrl("Cmb", ControlType::ComboBox, 20, 20, 260, 40);
+        // Pick-only: the list opens from anywhere on the header.
+        cmb.set_prop("DropDownStyle", crate::PropValue::String("DropDownList".into()));
         cmb.set_prop("Items", crate::PropValue::String("Alpha\nBeta".to_owned()));
         cmb.set_prop("Value", crate::PropValue::String("Alpha".to_owned()));
         cmb.set_prop("FontSize", crate::PropValue::Int(20));

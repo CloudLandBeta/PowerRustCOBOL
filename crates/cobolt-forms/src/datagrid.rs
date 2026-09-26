@@ -242,6 +242,24 @@ pub fn datagrid_copy_text(
     Some(row.get(source_index).cloned().unwrap_or_default())
 }
 
+/// What Ctrl+C copies from a grid whose `SelectionMode` is `Column`: the
+/// selected column's value in every row the grid shows, in the order shown,
+/// one per line.
+pub fn datagrid_copy_column_text(
+    rows: &[Vec<String>],
+    shown_rows: &[usize],
+    visible_source_columns: &[usize],
+    display_column_index: usize,
+) -> Option<String> {
+    let source_index = *visible_source_columns.get(display_column_index)?;
+    let cells: Vec<&str> = shown_rows
+        .iter()
+        .filter_map(|r| rows.get(*r))
+        .map(|row| row.get(source_index).map(String::as_str).unwrap_or(""))
+        .collect();
+    Some(cells.join("\n"))
+}
+
 impl DataGridLayout {
     pub fn compute(input: &DataGridLayoutInput) -> Self {
         let width = input.width.max(0.0);

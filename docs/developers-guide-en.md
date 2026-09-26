@@ -2480,10 +2480,49 @@ background/foreground).
   data-bound column** and all **non-data-bound columns** that follow it.
 - **Grid line backgrounds** (the fills separating columns/rows) obey the
   background set in the grid's appearance settings.
-- The **outer border** uses the `GridLineStyle` (Solid/Dash/Dots/None) from the
-  DataGrid settings and is rendered as an inset rounded stroke when radius > 0.
+- The **outer border** uses the `GridLineStyle` (Solid/Dash/Dots/DashDot/None)
+  from the DataGrid settings and is rendered as an inset rounded stroke when
+  radius > 0 — always solid then, since a dash cannot follow a corner arc.
 - All appearance, line style, and border behaviour is identical in the designer
   canvas, Preview, Run Form, and compiled binary (unified render engine).
+
+**Sorting, row numbers and selection**
+
+- **AllowSorting** (on by default): a click on a column title sorts the rows by
+  that column — ascending, then descending on the next click — and a ▲/▼ marks
+  the column. A numeric column (declared `number`, or one whose every value is
+  a number) sorts by value, so `9` comes before `100`; any other sorts as text,
+  ignoring case. Only the **display** order changes: `Rows` keeps its order, and
+  `onCellClick` still reports each row's own index, so your COBOL table lines up.
+  `onColumnClick` fires either way. (The `Sort` method, by contrast, reorders
+  `Rows` itself.)
+- **ShowRowNumbers**: a gutter left of the columns numbers the rows as shown,
+  from 1, in the header's colours. It takes its width from the columns and stays
+  put when the grid scrolls sideways.
+- **SelectionMode**: what a click highlights — the whole row (`Row`, the
+  default), the cell alone (`Cell`) or the whole column (`Column`). Ctrl+C copies
+  what is highlighted: the cell, the row (cells joined by `CSVDelimiter`), or the
+  column's values in the rows shown, one per line.
+- **ExportCSV** is the master switch for the built-in CSV button: off, the
+  button is hidden even with `ShowCSVExportButton` on. The `ExportCSV` method
+  and the generated `<id>-EXPORT-CSV` paragraph work either way.
+- `RowHeight` is the height of every row, 14–120 points; dragging a row edge
+  writes it. Rows are uniform — the old `RowHeightOverrides` promised per-row
+  heights, was never read, and is retired. So is the grid's `ReadOnly`: there is
+  no in-cell editing for it to block.
+
+```cobol
+      *> Freeze the key column and filter to one city, from COBOL.
+           MOVE 1        TO DG-CUSTOMERS::FrozenColumns
+           MOVE "City=Rio" TO DG-CUSTOMERS::ColumnFilters
+```
+
+> **Note.** A write of `FrozenColumns`, `FrozenRows`, `ColumnFilters`,
+> `GridLineStyle` or `RowHeight` from COBOL takes effect at once — exactly like
+> `FreezeColumns`, `FreezeRows`, `SetFilter` and `SetRowHeight` — also on a grid
+> you configured in **Edit DataGrid settings…**, whose saved settings used to
+> win over the property. `ColumnFilters` set in the designer starts the grid
+> filtered.
 
 **Other features**
 
@@ -2938,9 +2977,10 @@ designer canvas, the preview, Run Form and the compiled binary.
 > letting a big icon paint over its neighbours; **Gap between nodes**
 > (`NodeSpacing`) adds space on top of that.
 >
-> ⚠️ **One thing it still does not do:** **AllowEdit** renames nothing, because
-> no surface offers an in-place edit yet. To change a tree's text while the form
-> runs, write `Items`.
+> ⚠️ **Renaming a node in place is not offered.** The old **AllowEdit** property
+> promised it and nothing ever read it, so it is retired: new trees do not carry
+> it and the Properties pane no longer shows it (an older form keeps its value,
+> which is ignored). To change a tree's text while the form runs, write `Items`.
 
 **So are the highlights.** The colour behind a highlighted row is a property
 like any other, and there are two of them because a list highlights two
@@ -3023,6 +3063,45 @@ list without touching the form. If the file cannot be read, the designed
 A relative path in `LoadFromFile` is resolved the same way as `ItemsFile`.
 `WS-COUNT` should be signed (`PIC S9(4)`) so it can hold the `-1`.
 
+#### ComboBox — the three styles
+
+A ComboBox is one of three things, chosen by **DropDownStyle** — the same three
+a Windows combo has always offered:
+
+| DropDownStyle              | What the operator gets                                                                                                   |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **DropDown** (the default) | A text field they can **type** in, with a ▼ button on the right. A press on the text places the caret; only the button opens the list. |
+| **DropDownList**           | Pick-only. A press anywhere on the combo opens the list, and typing is refused.                                           |
+| **Simple**                 | The text field with the list **always shown beneath it**, inside the control. There is no dropdown, so no `onDropDown`.  |
+
+**Editable** switches the typing off without changing the look: a `DropDown`
+combo with `Editable` off behaves exactly like a `DropDownList`.
+
+What is typed becomes `Value` — **even when it is not one of the items**, which
+is the point of a combo that takes text (a city that is not in the list yet).
+`SelectedIndex` follows: the item the text names exactly, or `-1`. Each
+keystroke raises `onChange` and `onTextChanged`, and while the list is open the
+highlight jumps to the first item that begins with what has been typed, so
+Enter picks it.
+
+```cobol
+       CBO-CITY-ONCHANGE.
+           MOVE CBO-CITY::Value         TO WS-CITY
+           MOVE CBO-CITY::SelectedIndex TO WS-CITY-IX
+           IF WS-CITY-IX < 0
+               DISPLAY "New city typed: " WS-CITY
+           END-IF.
+```
+
+> **Note.** A new ComboBox is a `DropDown` — typeable. For a list the operator
+> must choose from, set **DropDownStyle** to `DropDownList`, as you would in
+> PowerCOBOL or isCOBOL.
+
+> ⚠️ **Caveat.** Until 1.70.232 neither property was read: every combo behaved as
+> a pick-only list whatever it declared. A form built then with the default
+> `DropDown` now lets the operator type. Set `DropDownList` where that is not
+> what you want.
+
 #### ComboBox — the gestures, the face, and the colours of an open dropdown
 
 **How the operator moves through a dropdown.** The same three gestures a
@@ -3032,7 +3111,7 @@ running off:
 
 | Gesture              | What it does                                                                                                                                                                                                                                                                                                                                        |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Click the header** | Opens the list. It does *not* also pick whatever is under the pointer.                                                                                                                                                                                                                                                                               |
+| **Click the header** | Opens the list (on a typeable `DropDown` combo, click the ▼ button — a click on the text places the caret). It does *not* also pick whatever is under the pointer.                                                                                                                                                                                 |
 | **Press and drag**   | Press the header, drag into the list, release on an item to pick it — the classic combo gesture. The highlight follows the pointer *up or down*; reversing direction walks it back. Dragging above the first item holds at the first; below the last, at the last, so a drag that leaves the control stops on an item rather than choosing nothing. |
 | **↑ / ↓**          | Walk the items, once the combo has been clicked (or Tabbed to).                                                                                                                                                                                                                                                                                     |
 
@@ -3045,7 +3124,7 @@ What the arrows *mean* depends on whether the list is open:
 | **open**    | move the highlight, committing nothing                                                              | commits the highlighted item | closes, leaving the value where it was |
 
 > **Note.** `Editable` makes no difference to the arrows. They belong to the
-> list, and the caret — if a combo ever grows one — to ← and →.
+> list, even in a combo you can type in; the caret moves with ← and →.
 
 The list **scrolls to keep the highlighted item in view**, landing it on the
 first or last visible line, and opening the list scrolls straight to the value
@@ -3064,6 +3143,10 @@ alphabetical order. Three things worth knowing:
   you typed them, so clearing the box gives your own order straight back.
 - `SelectedIndex` is the index of the item **as displayed**, so it matches what
   the operator picked. `Value` is the item's text and is the same either way.
+  Setting `SelectedIndex` — in the designer, or from COBOL with
+  `MOVE 2 TO CBO-CITY::SelectedIndex` or `SetSelectedIndex` — selects that item
+  and moves `Value` with it; `-1` clears the selection. The same holds for a
+  ListBox.
 
 > A **TreeView** carries `Sorted` too, and since 1.61.153 it acts on it — by
 > ordering **siblings**, leaving every child under the parent you wrote it

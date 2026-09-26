@@ -165,6 +165,9 @@ pub enum DataGridGridLineStyle {
     Solid,
     Dash,
     Dots,
+    /// Dash, dot, dash — documented all along, and until 2026-09-25 drawn
+    /// as Solid because the engine had no such style.
+    DashDot,
     None,
 }
 
@@ -180,6 +183,7 @@ impl DataGridGridLineStyle {
             Self::Solid => "Solid",
             Self::Dash => "Dash",
             Self::Dots => "Dots",
+            Self::DashDot => "DashDot",
             Self::None => "None",
         }
     }
@@ -188,6 +192,7 @@ impl DataGridGridLineStyle {
         match s.trim().to_ascii_lowercase().as_str() {
             "dash" | "dashed" => Self::Dash,
             "dot" | "dots" | "dotted" => Self::Dots,
+            "dashdot" | "dash-dot" | "dash dot" | "dashdotted" => Self::DashDot,
             "none" | "off" | "false" => Self::None,
             _ => Self::Solid,
         }
@@ -651,6 +656,25 @@ impl DataGridAdvanced {
             .get_prop("SelectableText")
             .map(PropValue::as_bool)
             .unwrap_or(self.selectable_text);
+        // `ColumnFilters` (`column=value` lines) set in the designer filters
+        // the grid from the start. It was only ever a read-back mirror of the
+        // runtime filters, and filtered nothing (property audit, 2026-09-25).
+        if let Some(raw) = control.get_prop("ColumnFilters").map(PropValue::as_str) {
+            self.set_filters_from_lines(raw);
+        }
+    }
+
+    fn set_filters_from_lines(&mut self, raw: &str) {
+        self.filters.clear();
+        for line in raw.lines() {
+            let Some((column, value)) = line.split_once('=') else {
+                continue;
+            };
+            let column = column.trim();
+            if !column.is_empty() {
+                self.set_filter(column, value.trim());
+            }
+        }
     }
 
     fn apply_runtime_overrides(&mut self, control: &Control) {
@@ -679,16 +703,14 @@ impl DataGridAdvanced {
             .get_prop("_RuntimeColumnFilters")
             .map(PropValue::as_str)
         {
-            self.filters.clear();
-            for line in raw.lines() {
-                let Some((column, value)) = line.split_once('=') else {
-                    continue;
-                };
-                let column = column.trim();
-                if !column.is_empty() {
-                    self.set_filter(column, value.trim());
-                }
-            }
+            self.set_filters_from_lines(raw);
+        }
+        if let Some(style) = control
+            .get_prop("_RuntimeGridLineStyle")
+            .map(PropValue::as_str)
+            .filter(|s| !s.trim().is_empty())
+        {
+            self.grid_line_style = DataGridGridLineStyle::from_str(style);
         }
         if let Some(raw) = control
             .get_prop("_RuntimeColumnWidths")
@@ -4955,7 +4977,8 @@ impl Control {
                 // Cell data: rows separated by '\n', cells within a row by TAB.
                 // Populated at runtime (e.g. from a bound COBOL table via SET-PROPERTY).
                 props.insert("Rows".into(), PropValue::String("".into()));
-                props.insert("ReadOnly".into(), PropValue::Bool(false));
+                // `ReadOnly` is retired on a grid: there is no in-cell editing
+                // for it to block (property audit, 2026-09-25).
                 props.insert(
                     "AlternatingRowColor".into(),
                     PropValue::String("#F0F8FF".into()),
@@ -5030,7 +5053,8 @@ impl Control {
                 // content (a spreadsheet-style freeze cue).
                 props.insert("FrozenShadow".into(), PropValue::Bool(true));
                 props.insert("GridLineStyle".into(), PropValue::String("Solid".into()));
-                props.insert("RowHeightOverrides".into(), PropValue::String("".into()));
+                // `RowHeightOverrides` is retired: rows are uniform and nothing
+                // ever read per-row heights (property audit, 2026-09-25).
                 props.insert("ColumnFilters".into(), PropValue::String("".into()));
                 props.insert("SelectableText".into(), PropValue::Bool(true));
             }
@@ -5221,7 +5245,8 @@ impl Control {
                     "Items".into(),
                     PropValue::String("Node 1\n  Child 1\n  Child 2\nNode 2".into()),
                 );
-                props.insert("AllowEdit".into(), PropValue::Bool(false));
+                // `AllowEdit` is retired: no surface ever edited a node label in
+                // place (property audit, 2026-09-25).
                 props.insert("CheckBoxes".into(), PropValue::Bool(false));
                 props.insert("ShowLines".into(), PropValue::Bool(true));
                 props.insert("ShowRootLines".into(), PropValue::Bool(true));
@@ -10152,7 +10177,6 @@ mod tests {
             "FrozenRows",
             "GridLineStyle",
             "RowBackgroundPattern",
-            "RowHeightOverrides",
             "SelectableText",
             "ShowColumnFilters",
             "ShowCSVExportButton",
@@ -10162,6 +10186,33 @@ mod tests {
                 "DataGrid property list missing {expected}"
             );
         }
+    }
+
+    /// Property audit, 2026-09-25: `ColumnFilters` set in the designer
+    /// filters the grid; a runtime `GridLineStyle` wins over the saved
+    /// settings; and `DashDot`, documented all along, is a style of its own.
+    #[test]
+    fn datagrid_honours_designed_filters_and_runtime_line_style() {
+        let mut grid = Control::new("DG", ControlType::DataGrid, 0, 0);
+        grid.set_prop("Columns", PropValue::String("Name:string\nCity:string".into()));
+        grid.set_prop("ColumnFilters", PropValue::String("City=rio".into()));
+        let rows = vec![
+            vec!["Ana".to_owned(), "Recife".to_owned()],
+            vec!["Bia".to_owned(), "Rio".to_owned()],
+        ];
+        let names = vec!["Name".to_owned(), "City".to_owned()];
+        assert_eq!(
+            DataGridAdvanced::from_control(&grid).filtered_row_indices_for_sources(&rows, &names),
+            vec![1],
+            "the designed filter keeps only the Rio row"
+        );
+
+        let mut saved = DataGridAdvanced::from_control(&grid);
+        saved.grid_line_style = DataGridGridLineStyle::Dots;
+        grid.set_prop(DATAGRID_ADVANCED_PROP, PropValue::String(saved.to_json().unwrap()));
+        grid.set_prop("_RuntimeGridLineStyle", PropValue::String("DashDot".into()));
+        assert_eq!(DataGridAdvanced::from_control(&grid).grid_line_style, DataGridGridLineStyle::DashDot);
+        assert_eq!(DataGridGridLineStyle::from_str("dash-dot").as_str(), "DashDot");
     }
 
     #[test]

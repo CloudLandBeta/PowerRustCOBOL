@@ -764,7 +764,6 @@ fn seed_missing_props(form: &mut Form) {
                     ("FrozenColumns", PropValue::Int(0)),
                     ("FrozenRows", PropValue::Int(0)),
                     ("GridLineStyle", PropValue::String("Solid".into())),
-                    ("RowHeightOverrides", PropValue::String(String::new())),
                     ("ColumnFilters", PropValue::String(String::new())),
                     ("SelectableText", PropValue::Bool(true)),
                 ];

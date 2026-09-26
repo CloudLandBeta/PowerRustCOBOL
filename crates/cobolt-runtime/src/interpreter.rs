@@ -13180,12 +13180,65 @@ impl Interpreter {
         self.eval_expr(call_arg_expr(arg), span)
     }
 
-    /// `true` when the object was seeded as one of the six chart control types,
-    /// so chart-specific method arms only fire on actual charts.
+    /// A list's SelectedIndex, written by either path ([`Self::obj_set`] or
+    /// `MOVE … TO CTL::SelectedIndex`), moves `Value` to that item — the
+    /// number alone changed nothing on screen (property audit, 2026-09-25).
+    /// The index counts the items as the list SHOWS them (Sorted applied), as
+    /// a pick reports it; -1 or an index past the end clears the selection.
+    fn sync_list_selection(&mut self, obj: &str, prop: &str, val: &str) {
+        if !(prop.eq_ignore_ascii_case("SelectedIndex") && self.is_list_object(obj)) {
+            return;
+        }
+        let mut items: Vec<String> = self.obj_get(obj, "Items").lines().map(str::to_owned).collect();
+        if matches!(self.obj_get(obj, "Sorted").as_str(), "1" | "true" | "TRUE" | "True") {
+            items.sort_by_key(|a| a.to_lowercase());
+        }
+        let chosen = val
+            .trim()
+            .parse::<i64>()
+            .ok()
+            .and_then(|i| usize::try_from(i).ok())
+            .and_then(|i| items.get(i).cloned())
+            .unwrap_or_default();
+        if self.obj_get(obj, "Value") != chosen {
+            self.objects.set_property(obj, "Value", chosen.clone());
+            if let Some(tx) = &self.state_tx {
+                let _ = tx.send(StateUpdate::new(obj.to_string(), "Value".to_string(), chosen));
+            }
+        }
+    }
+
+    /// A DataGrid configured in **Edit DataGrid settings…** keeps these in its
+    /// settings, which the renderer reads before the plain properties — so a
+    /// COBOL write of `FrozenColumns`, `FrozenRows`, `ColumnFilters`,
+    /// `GridLineStyle` or `RowHeight` changed the property and nothing on
+    /// screen (property audit, 2026-09-25). The write is mirrored into the
+    /// runtime override the renderer honours over the settings, exactly what
+    /// the FreezeColumns / FreezeRows / SetFilter / SetRowHeight methods do.
+    fn sync_datagrid_override(&mut self, obj: &str, prop: &str, val: &str) {
+        let is_grid = self.objects.get(obj).is_some_and(|o| o.class == "DataGrid");
+        if !is_grid {
+            return;
+        }
+        let over = match prop.to_ascii_lowercase().as_str() {
+            "frozencolumns" => "_RuntimeFrozenColumns",
+            "frozenrows" => "_RuntimeFrozenRows",
+            "columnfilters" => "_RuntimeColumnFilters",
+            "gridlinestyle" => "_RuntimeGridLineStyle",
+            "rowheight" => "_RuntimeRowHeight",
+            _ => return,
+        };
+        if self.obj_get(obj, over) != val {
+            self.obj_set(obj, over, val.to_owned());
+        }
+    }
+
     fn is_list_object(&self, obj: &str) -> bool {
         matches!(self.objects.get(obj).map(|o| o.class.as_str()), Some("ComboBox" | "ListBox"))
     }
 
+    /// `true` when the object was seeded as one of the six chart control types,
+    /// so chart-specific method arms only fire on actual charts.
     fn is_chart_object(&self, obj: &str) -> bool {
         matches!(
             self.objects.get(obj).map(|o| o.class.as_str()),
@@ -13377,6 +13430,13 @@ impl Interpreter {
         {
             self.publish_own_form_prop(prop, &val);
         }
+        // A ComboBox / ListBox shows the item its `Value` names, so a
+        // SelectedIndex written by the program (SetSelectedIndex, or the
+        // property) must move `Value` with it — the number alone changed
+        // nothing on screen (property audit, 2026-09-25). The index counts the
+        // items as the list SHOWS them (Sorted applied), as a pick reports it.
+        self.sync_list_selection(obj, prop, &val);
+        self.sync_datagrid_override(obj, prop, &val);
         // For a databound ControlArray, any set of ItemCount should re-hydrate
         // the current table rows into the (new) instances so cards aren't just
         // clones of the template/first row.
@@ -14358,6 +14418,10 @@ impl Interpreter {
             let _ = tx.send(
                 StateUpdate::new(root.to_string(), key, val.clone()).with_index(instance),
             );
+        }
+        if let Some(key) = single_prop_key(path) {
+            self.sync_list_selection(root, &key, &val);
+            self.sync_datagrid_override(root, &key, &val);
         }
         // 049 — own-form property writes (me::X / <FORM-NAME>::X) are
         // mirrored to the supervisor for other forms' `super::X` reads.
@@ -20326,6 +20390,64 @@ MAIN.
             vec![("AA".to_owned(), 1.0), ("BB".to_owned(), 2.0), ("CC".to_owned(), 3.0)],
             "a chart: category and value per occurrence"
         );
+    }
+
+    /// A COBOL write of a DataGrid's FrozenColumns / FrozenRows /
+    /// ColumnFilters / GridLineStyle reaches the runtime override the renderer
+    /// honours over the grid's saved settings — the property alone changed
+    /// nothing on a grid configured in Edit DataGrid settings.
+    #[test]
+    fn datagrid_property_writes_reach_the_runtime_overrides() {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T.
+PROCEDURE DIVISION.
+MAIN.
+    MOVE 1 TO DG-1::FrozenColumns
+    MOVE 2 TO DG-1::FrozenRows
+    MOVE 'Dash' TO DG-1::GridLineStyle
+    MOVE 'City=Rio' TO DG-1::ColumnFilters
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let mut interp = Interpreter::new(parsed.program.expect("parses"));
+        interp.seed_objects([("DG-1".to_owned(), "DataGrid".to_owned(), vec![])]);
+        interp.run().expect("runs");
+        assert_eq!(interp.obj_get("DG-1", "_RuntimeFrozenColumns"), "1");
+        assert_eq!(interp.obj_get("DG-1", "_RuntimeFrozenRows"), "2");
+        assert_eq!(interp.obj_get("DG-1", "_RuntimeGridLineStyle"), "Dash");
+        assert_eq!(interp.obj_get("DG-1", "_RuntimeColumnFilters"), "City=Rio");
+    }
+
+    /// Setting SelectedIndex from COBOL moves Value with it, counting the
+    /// items as the list shows them (Sorted applied); -1 clears it. The index
+    /// alone changed nothing on screen (property audit, 2026-09-25).
+    #[test]
+    fn set_selected_index_moves_the_value_of_a_combo_and_a_list() {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T.
+PROCEDURE DIVISION.
+MAIN.
+    INVOKE CMB-1 'SetSelectedIndex' USING 1
+    MOVE 2 TO LST-1::SelectedIndex
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let mut interp = Interpreter::new(parsed.program.expect("parses"));
+        interp.seed_objects([
+            ("CMB-1".to_owned(), "ComboBox".to_owned(), vec![("Items".to_owned(), "AC\nAL\nAM".to_owned())]),
+            (
+                "LST-1".to_owned(),
+                "ListBox".to_owned(),
+                vec![("Items".to_owned(), "pear\napple\nfig".to_owned()), ("Sorted".to_owned(), "true".to_owned())],
+            ),
+        ]);
+        interp.run().expect("runs");
+        assert_eq!(interp.obj_get("CMB-1", "Value"), "AL");
+        assert_eq!(interp.obj_get("LST-1", "Value"), "pear", "sorted: apple, fig, pear");
+        interp.obj_set("CMB-1", "SelectedIndex", "-1".into());
+        assert_eq!(interp.obj_get("CMB-1", "Value"), "", "-1 clears it");
     }
 
     /// `ComboBox::LoadFromFile(path)` replaces the items with a text file's
