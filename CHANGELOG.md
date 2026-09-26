@@ -8,6 +8,37 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.235] — 2026-09-26
+
+### Fix — chart and media properties that did nothing or half of it (audit group 6 of 8)
+
+The findings on the six charts, Maps, WebSearch and Viewer.
+
+- **`AnimateOnLoad`** — the first time a running chart has data its marks grow
+  into place over `AnimationDuration`. Growth is a `__ChartGrow` fraction the
+  painter applies AFTER its auto-scale; growing the values instead is
+  invisible, which is why the first fill had never been animated.
+- **`ShowTooltips`** — the bar, point or slice under the pointer shows
+  `label: value`. The plot layout moved into `paint::chart_frame`, shared by
+  the painter and the new hit-test `paint::chart_point_at`.
+- **`SeriesColors`** paints the series when changed from the seeded list (which
+  still defers to the theme) and is offered in the Properties pane;
+  **`SeriesLabels`** names the legend's series.
+- **AreaChart `ShowPoints` / `PointRadius`** draw markers.
+- **`LabelField` / `ValueFields` / `BubbleField`** — `COBOL-CHART-SET-TABLE`
+  reads the named sub-fields of each occurrence (first value field only: a
+  running chart has one series) instead of the fixed layout; `AddPoint` and
+  `COBOL-CHART-ADD-POINT` take a bubble size; sizes travel as `__ChartSizes`
+  and **`BubbleScale`** sizes the largest bubble.
+- **Retired** `Stacked`; pie and donut no longer carry `ShowXAxis`/`ShowYAxis`.
+- **WebSearch `TimeoutMs`** bounds a Sync search too.
+- **KB** — the above, `BarCornerRadius` (every corner), `DataSource`,
+  `TimeoutMs`. `chunked.data` regenerated; Properties-pane explanations updated
+  in six languages. Maps `ApiKeySource` stays seeded and reserved (spec 039
+  R33 requires it present and empty).
+- The elegance baseline moves +10 on every row: the fixture's area chart now
+  draws its ten sample markers.
+
 ## [PowerRustCOBOL 1.70.234] — 2026-09-26
 
 ### Fix — value-control properties that did nothing or half of it (audit group 5 of 8)

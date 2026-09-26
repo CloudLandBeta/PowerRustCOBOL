@@ -11543,7 +11543,7 @@ fn grad_slice_mesh(
 
 /// A chart value as a label: whole numbers plain, fractions to one decimal.
 /// Chart labels are read at a glance, so `12` beats `12.000000`.
-fn format_chart_number(v: f32) -> String {
+pub fn format_chart_number(v: f32) -> String {
     if (v - v.round()).abs() < 0.05 {
         format!("{}", v.round() as i64)
     } else {
@@ -11740,6 +11740,198 @@ pub(crate) fn draw_chart_border(
         return;
     }
     draw_control_border(painter, rect, rounding, &style, width, premultiplied_at(color, alpha));
+}
+
+/// The seeded `SeriesColors`: meaning "not chosen", so the theme decides.
+pub const DEFAULT_SERIES_COLORS: &str = "#4C9BE8,#E87A4C,#4CE87A,#E84C9B,#9B4CE8,#E8C84C";
+
+/// A chart's `SeriesColors` as a palette, when the developer set one that is
+/// not the seeded default.
+pub fn chart_series_colors(ctrl: &Control) -> Option<Vec<Color32>> {
+    let raw = ctrl.get_prop("SeriesColors").map(|v| v.as_str().trim().to_owned())?;
+    let norm = |s: &str| s.split(',').map(|c| c.trim().to_ascii_uppercase()).collect::<Vec<_>>();
+    if raw.is_empty() || norm(&raw) == norm(DEFAULT_SERIES_COLORS) {
+        return None;
+    }
+    let colors: Vec<Color32> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+        .map(parse_color)
+        .filter(|c| c.a() > 0)
+        .collect();
+    (!colors.is_empty()).then_some(colors)
+}
+
+/// Where a chart's plot sits inside its content rect, and the bands around
+/// it: the title, the axis captions and the legend. One function, so the
+/// painter and the hover hit-test (`chart_point_at`) can never disagree about
+/// where a bar or a point is.
+pub struct ChartFrame {
+    pub plot: egui::Rect,
+    pub cap_h: f32,
+    pub cap_w: f32,
+    pub legend_w: f32,
+    pub legend_h: f32,
+    pub margin_t: f32,
+    pub margin_b: f32,
+    pub margin_r: f32,
+    pub title_font: f32,
+}
+
+pub fn chart_frame(ctrl: &Control, rect: egui::Rect) -> ChartFrame {
+    use crate::model::ControlType as CT;
+    let chart_font_size = ctrl
+        .get_prop("FontSize")
+        .map(|v| v.as_i64() as f32)
+        .unwrap_or(CHART_FONT_BASE)
+        .clamp(4.0, 200.0);
+    let type_scale = CHART_FONT_SCALE * (chart_font_size / CHART_FONT_BASE);
+    let chart_str = |key: &str| -> String {
+        ctrl.get_prop(key)
+            .map(|v| v.as_str().trim().to_owned())
+            .unwrap_or_default()
+    };
+    let is_pie = matches!(ctrl.control_type, CT::PieChart | CT::DonutChart);
+    let x_caption = chart_str("XAxisLabel");
+    let y_caption = chart_str("YAxisLabel");
+    let show_legend = ctrl.get_prop("ShowLegend").map(|v| v.as_bool()).unwrap_or(false);
+    let title_text = chart_str("Title");
+    // Room reserved for whatever the properties asked to be drawn. Reserved
+    // rather than overlaid: a caption written across the plot is worse than no
+    // caption at all.
+    //
+    // Every band scales with the type, or doubling the font would simply write
+    // twice the text into the same strip (operator, 2026-09-02).
+    let cap_h = if x_caption.is_empty() { 0.0 } else { 13.0 * type_scale };
+    let cap_w = if y_caption.is_empty() { 0.0 } else { 13.0 * type_scale };
+    // A pie's legend lists its slices, so it stands beside the chart; a
+    // category chart's lists its series, so it sits under it.
+    let legend_w = if show_legend && is_pie {
+        (rect.width() * 0.30).min(90.0 * type_scale)
+    } else {
+        0.0
+    };
+    let legend_h = if show_legend && !is_pie { 13.0 * type_scale } else { 0.0 };
+
+    // Inner plot area (leave margin for axes / labels).
+    //
+    // The top band has to clear the TITLE at its own size — on a short chart
+    // 12 % of the height is less than one line, and the title would be drawn
+    // over the plot it labels.
+    // `TitleFontSize` sizes the title on its own; `0` — the default — leaves it
+    // following the chart's `FontSize` exactly as it always has. The value is a
+    // point size like every other `FontSize`, so it is NOT put through
+    // `type_scale`: a developer who asks for 24 gets 24.
+    let title_font = match ctrl.get_prop("TitleFontSize").map(|v| v.as_i64()) {
+        Some(pt) if pt > 0 => (pt as f32).clamp(4.0, 200.0),
+        _ => 10.0 * type_scale,
+    };
+    // The band reserved for it is sized from THAT, so a title the developer
+    // enlarged takes room rather than printing over the plot it labels — the
+    // same rule every other band here follows.
+    let title_band = if title_text.is_empty() {
+        0.0
+    } else {
+        title_font * 1.5
+    };
+    let mut margin_l = rect.width() * 0.10 + cap_w;
+    let mut margin_b = rect.height() * 0.12 + cap_h + legend_h;
+    let mut margin_t = (rect.height() * 0.12).max(title_band);
+    let mut margin_r = rect.width() * 0.04 + legend_w;
+    // The bands are absolute sizes and the chart is not: on a small enough
+    // control they add up to more than there is, and the plot comes out
+    // INSIDE-OUT. Doubling the type halved the size at which that happens, so
+    // the chrome is held to 60 % of each side and shrinks proportionally past
+    // that — a cramped legend beats a chart drawn back to front.
+    let (max_v, max_h) = (rect.height() * 0.60, rect.width() * 0.60);
+    let v = margin_t + margin_b;
+    if v > max_v && v > 0.0 {
+        let k = max_v / v;
+        margin_t *= k;
+        margin_b *= k;
+    }
+    let h = margin_l + margin_r;
+    if h > max_h && h > 0.0 {
+        let k = max_h / h;
+        margin_l *= k;
+        margin_r *= k;
+    }
+    let plot = egui::Rect::from_min_max(
+        Pos2::new(rect.min.x + margin_l, rect.min.y + margin_t),
+        Pos2::new(rect.max.x - margin_r, rect.max.y - margin_b),
+    );
+    ChartFrame { plot, cap_h, cap_w, legend_w, legend_h, margin_t, margin_b, margin_r, title_font }
+}
+
+/// The data point under `pos` on a chart drawn in `rect`, as `(label,
+/// value)` — what `ShowTooltips` shows. Live data only: the sample a chart
+/// shows before it has any is not data. Reads the same layout the painter
+/// draws with ([`chart_frame`]), so the hit is where the mark is.
+pub fn chart_point_at(ctrl: &Control, rect: egui::Rect, pos: Pos2) -> Option<(String, f32)> {
+    use crate::model::ControlType as CT;
+    let live = ctrl
+        .get_prop("__ChartData")
+        .map(|v| crate::chart::parse_chart_data(v.as_str()))
+        .unwrap_or_default();
+    if live.is_empty() || !rect.contains(pos) {
+        return None;
+    }
+    let plot = chart_frame(ctrl, rect).plot;
+    let n = live.len();
+    let maxv = live.iter().map(|(_, v)| *v).fold(0.0_f32, f32::max).max(f32::EPSILON);
+    let norm = |v: f32| (v / maxv).clamp(0.0, 1.0);
+    let hit = |i: usize| live.get(i).cloned();
+    match ctrl.control_type {
+        CT::BarChart => {
+            let horizontal = ctrl.get_prop("Horizontal").map(|v| v.as_bool()).unwrap_or(false);
+            if !plot.contains(pos) {
+                return None;
+            }
+            let along = if horizontal { (pos.y - plot.min.y) / plot.height() } else { (pos.x - plot.min.x) / plot.width() };
+            let i = (along * n as f32).floor();
+            (0.0..n as f32).contains(&i).then(|| hit(i as usize)).flatten()
+        }
+        CT::LineChart | CT::AreaChart | CT::ScatterChart => {
+            let best = (0..n)
+                .map(|i| {
+                    let p = Pos2::new(
+                        plot.min.x + (i as f32 + 0.5) / n as f32 * plot.width(),
+                        plot.max.y - norm(live[i].1) * plot.height(),
+                    );
+                    (i, p.distance(pos))
+                })
+                .min_by(|a, b| a.1.total_cmp(&b.1))?;
+            let reach = ctrl.get_prop("BubbleScale").filter(|_| ctrl.control_type == CT::ScatterChart).map(|v| v.as_i64() as f32).unwrap_or(0.0).max(10.0);
+            (best.1 <= reach).then(|| hit(best.0)).flatten()
+        }
+        CT::PieChart | CT::DonutChart => {
+            let center = plot.center();
+            let outer = plot.size().min_elem() * 0.44;
+            let inner = if ctrl.control_type == CT::DonutChart {
+                outer * ctrl.get_prop("InnerRadius").map(|v| v.as_i64()).unwrap_or(40) as f32 / 100.0
+            } else {
+                0.0
+            };
+            let d = pos - center;
+            let r = d.length();
+            if r > outer || r < inner {
+                return None;
+            }
+            let turn = (d.y.atan2(d.x) + std::f32::consts::FRAC_PI_2).rem_euclid(std::f32::consts::TAU)
+                / std::f32::consts::TAU;
+            let sum: f32 = live.iter().map(|(_, v)| v.max(0.0)).sum::<f32>().max(f32::EPSILON);
+            let mut acc = 0.0;
+            for (i, (_, v)) in live.iter().enumerate() {
+                acc += v.max(0.0) / sum;
+                if turn <= acc {
+                    return hit(i);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
 }
 
 pub fn draw_chart_preview(
@@ -11944,6 +12136,11 @@ pub fn draw_chart_preview(
                         .collect()
                 })
         });
+    // `SeriesColors`, when the developer changed it: a comma-separated list
+    // of colours for the series (a pie's slices), in order. It was read by
+    // nothing (property audit, 2026-09-26). The seeded default list means
+    // "not chosen", so the theme's palette still rules an untouched chart.
+    let base_pal = chart_series_colors(ctrl).unwrap_or(base_pal);
     let chart_stroke = active
         .as_ref()
         .map(|p| p.manifest.chart_style.stroke_width)
@@ -12020,70 +12217,8 @@ pub fn draw_chart_preview(
     let title_text = chart_str("Title");
     let cap_font = egui::FontId::proportional(9.0 * type_scale);
     let legend_font = egui::FontId::proportional(9.0 * type_scale);
-    // Room reserved for whatever the properties asked to be drawn. Reserved
-    // rather than overlaid: a caption written across the plot is worse than no
-    // caption at all.
-    //
-    // Every band scales with the type, or doubling the font would simply write
-    // twice the text into the same strip (operator, 2026-09-02).
-    let cap_h = if x_caption.is_empty() { 0.0 } else { 13.0 * type_scale };
-    let cap_w = if y_caption.is_empty() { 0.0 } else { 13.0 * type_scale };
-    // A pie's legend lists its slices, so it stands beside the chart; a
-    // category chart's lists its series, so it sits under it.
-    let legend_w = if show_legend && is_pie {
-        (rect.width() * 0.30).min(90.0 * type_scale)
-    } else {
-        0.0
-    };
-    let legend_h = if show_legend && !is_pie { 13.0 * type_scale } else { 0.0 };
-
-    // Inner plot area (leave margin for axes / labels).
-    //
-    // The top band has to clear the TITLE at its own size — on a short chart
-    // 12 % of the height is less than one line, and the title would be drawn
-    // over the plot it labels.
-    // `TitleFontSize` sizes the title on its own; `0` — the default — leaves it
-    // following the chart's `FontSize` exactly as it always has. The value is a
-    // point size like every other `FontSize`, so it is NOT put through
-    // `type_scale`: a developer who asks for 24 gets 24.
-    let title_font = match ctrl.get_prop("TitleFontSize").map(|v| v.as_i64()) {
-        Some(pt) if pt > 0 => (pt as f32).clamp(4.0, 200.0),
-        _ => 10.0 * type_scale,
-    };
-    // The band reserved for it is sized from THAT, so a title the developer
-    // enlarged takes room rather than printing over the plot it labels — the
-    // same rule every other band here follows.
-    let title_band = if title_text.is_empty() {
-        0.0
-    } else {
-        title_font * 1.5
-    };
-    let mut margin_l = rect.width() * 0.10 + cap_w;
-    let mut margin_b = rect.height() * 0.12 + cap_h + legend_h;
-    let mut margin_t = (rect.height() * 0.12).max(title_band);
-    let mut margin_r = rect.width() * 0.04 + legend_w;
-    // The bands are absolute sizes and the chart is not: on a small enough
-    // control they add up to more than there is, and the plot comes out
-    // INSIDE-OUT. Doubling the type halved the size at which that happens, so
-    // the chrome is held to 60 % of each side and shrinks proportionally past
-    // that — a cramped legend beats a chart drawn back to front.
-    let (max_v, max_h) = (rect.height() * 0.60, rect.width() * 0.60);
-    let v = margin_t + margin_b;
-    if v > max_v && v > 0.0 {
-        let k = max_v / v;
-        margin_t *= k;
-        margin_b *= k;
-    }
-    let h = margin_l + margin_r;
-    if h > max_h && h > 0.0 {
-        let k = max_h / h;
-        margin_l *= k;
-        margin_r *= k;
-    }
-    let plot = egui::Rect::from_min_max(
-        Pos2::new(rect.min.x + margin_l, rect.min.y + margin_t),
-        Pos2::new(rect.max.x - margin_r, rect.max.y - margin_b),
-    );
+    let ChartFrame { plot, cap_h, cap_w, legend_w, legend_h, margin_t, margin_b, margin_r, title_font } =
+        chart_frame(ctrl, rect);
     // Captions and the legend live in the MARGINS, outside the plot's own clip,
     // so they need a painter bounded by the whole control instead.
     let chrome = painter.with_clip_rect(rect.shrink(1.0));
@@ -12224,6 +12359,18 @@ pub fn draw_chart_preview(
             .map(|(_, v)| (v / maxv).clamp(0.0, 1.0))
             .collect()
     };
+    // `AnimateOnLoad`: the running form sets `__ChartGrow` from 0 to 1 over
+    // the chart's `AnimationDuration` the first time it has data, and every
+    // mark is drawn at that fraction of its height (a pie at that fraction of
+    // its sweep). Applied AFTER the auto-scale — growing the values instead
+    // is invisible, because the scale grows with them. Absent (the designer,
+    // or once it has landed) is 1.
+    let grow = ctrl
+        .get_prop("__ChartGrow")
+        .and_then(|v| v.as_str().trim().parse::<f32>().ok())
+        .unwrap_or(1.0)
+        .clamp(0.0, 1.0);
+    let live_norm: Vec<f32> = live_norm.iter().map(|v| v * grow).collect();
     let series1: &[f32] = if live.is_empty() { sample1 } else { &live_norm };
     let series2: &[f32] = if live.is_empty() { sample2 } else { &[] };
     let n = series1.len().max(1);
@@ -12352,6 +12499,14 @@ pub fn draw_chart_preview(
                 for w in top.windows(2) {
                     painter.line_segment([w[0], w[1]], Stroke::new(chart_stroke, line_c));
                 }
+                // `ShowPoints` / `PointRadius` on an area chart, as on a line
+                // chart: seeded and offered, and the area branch drew no
+                // markers at all.
+                if show_points {
+                    for &p in &raw {
+                        painter.circle_filled(p, point_r, line_c);
+                    }
+                }
             }
         }
         CT::ScatterChart => {
@@ -12375,23 +12530,40 @@ pub fn draw_chart_preview(
             } else {
                 vec![(live_pts.as_slice(), 0usize)]
             };
+            // Bubble sizes (`BubbleField`, or a third AddPoint argument), one
+            // per point in `__ChartSizes`: the largest is drawn `BubbleScale`
+            // points across its radius, the rest in proportion. Without sizes
+            // every point is a `PointRadius` marker, as before.
+            let sizes: Vec<f32> = ctrl
+                .get_prop("__ChartSizes")
+                .map(|v| v.as_str().lines().map(|l| l.trim().parse::<f32>().unwrap_or(0.0)).collect())
+                .unwrap_or_default();
+            let max_size = sizes.iter().copied().fold(0.0_f32, f32::max);
+            let bubble_scale = ctrl.get_prop("BubbleScale").map(|v| v.as_i64() as f32).unwrap_or(20.0).clamp(2.0, 200.0);
+            let radius_of = |i: usize| -> f32 {
+                match sizes.get(i) {
+                    Some(sz) if max_size > 0.0 && !live.is_empty() => (sz.max(0.0) / max_size * bubble_scale).max(2.0),
+                    _ => point_r + 0.5,
+                }
+            };
             for (pts, ci) in groups {
                 let c = pal[ci % pal.len()];
-                for &(fx, fy) in pts {
+                for (pi, &(fx, fy)) in pts.iter().enumerate() {
                     let p = Pos2::new(
                         plot.min.x + fx * plot.width(),
                         plot.max.y - fy * plot.height(),
                     );
+                    let r = radius_of(pi);
                     if gradient {
                         // Each bubble: its own radial gradient (light centre → dark edge).
                         painter.add(egui::Shape::mesh(radial_disc_mesh(
                             p,
-                            point_r + 1.0,
+                            r + 0.5,
                             shade(mono_base, 0.20),
                             shade(mono_base, -0.20),
                         )));
                     } else {
-                        painter.circle_stroke(p, point_r + 0.5, Stroke::new(1.5, c));
+                        painter.circle_stroke(p, r, Stroke::new(1.5, c));
                     }
                 }
             }
@@ -12423,6 +12595,11 @@ pub fn draw_chart_preview(
                     .sum::<f32>()
                     .max(f32::EPSILON);
                 live.iter().map(|(_, v)| v.max(0.0) / sum).collect()
+            };
+            let slice_vec: Vec<f32> = if live.is_empty() {
+                slice_vec
+            } else {
+                slice_vec.iter().map(|f| f * grow).collect()
             };
             let slices: &[f32] = &slice_vec; // proportions
             let mut start = -std::f32::consts::FRAC_PI_2; // top
@@ -12601,9 +12778,20 @@ pub fn draw_chart_preview(
                 .map(|(i, l)| (l, pal[i % pal.len()]))
                 .collect()
         } else {
+            // `SeriesLabels` names them — comma-separated, in order; a series
+            // it does not name keeps "Series n". It was never read.
+            let names = chart_str("SeriesLabels");
+            let names: Vec<&str> = names.split(',').map(str::trim).collect();
             let count = if live.is_empty() { 2 } else { 1 };
             (0..count)
-                .map(|i| (format!("Series {}", i + 1), pal[i % pal.len()]))
+                .map(|i| {
+                    let name = names
+                        .get(i)
+                        .filter(|n| !n.is_empty())
+                        .map(|n| (*n).to_owned())
+                        .unwrap_or_else(|| format!("Series {}", i + 1));
+                    (name, pal[i % pal.len()])
+                })
                 .collect()
         };
         let swatch = 7.0_f32;
@@ -24162,15 +24350,21 @@ mod elegance_baseline_tests {
         // showed — is gone. The fixture holds one chart of each of the six
         // types, one leaf each, so the move is exactly 6 and the same 6 under
         // both themes and all four styles: six controls, not the seam.
+        //
+        // **+10 on every row, 1.70.235.** The AreaChart now draws the
+        // `ShowPoints` markers it was seeded with (property audit): the
+        // fixture's area chart shows its two sample series of five points, so
+        // exactly ten circles, the same ten under both themes and all four
+        // styles — one control, not the seam.
         let expected: [(&str, GS, usize); 8] = [
-            ("liquid-glass", GS::Classic, 645),
-            ("asset-pack", GS::Classic, 655),
-            ("liquid-glass", GS::Enhanced, 745),
-            ("asset-pack", GS::Enhanced, 729),
-            ("liquid-glass", GS::Neumorphic, 635),
-            ("asset-pack", GS::Neumorphic, 651),
-            ("liquid-glass", GS::NeumorphicDark, 635),
-            ("asset-pack", GS::NeumorphicDark, 651),
+            ("liquid-glass", GS::Classic, 655),
+            ("asset-pack", GS::Classic, 665),
+            ("liquid-glass", GS::Enhanced, 755),
+            ("asset-pack", GS::Enhanced, 739),
+            ("liquid-glass", GS::Neumorphic, 645),
+            ("asset-pack", GS::Neumorphic, 661),
+            ("liquid-glass", GS::NeumorphicDark, 645),
+            ("asset-pack", GS::NeumorphicDark, 661),
         ];
         for (theme, gs, want) in expected {
             let got = rows

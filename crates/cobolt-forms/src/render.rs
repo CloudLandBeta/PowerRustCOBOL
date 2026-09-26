@@ -12035,6 +12035,7 @@ fn render_interactive(
             // hold this frame's interpolated series, so it needs no knowledge of
             // any of this.
             let tweened_owner;
+            let grown_owner;
             let mut chart_ctrl = ctrl;
             if let Some(anim_ms) = crate::chart::value_anim_ms(ctrl) {
                 let target = crate::chart::parse_chart_data(
@@ -12093,9 +12094,52 @@ fn render_interactive(
                         .request_repaint_after(std::time::Duration::from_millis(16));
                 }
             }
+            // `AnimateOnLoad`: the first time the chart has data, every mark
+            // grows into place over `AnimationDuration` (250 ms at least). The
+            // painter applies the fraction AFTER its auto-scale, which is the
+            // only way a first appearance can be seen to move. It was read by
+            // nothing (property audit, 2026-09-26).
+            let has_data = !sv(ctrl, "__ChartData").trim().is_empty();
+            if has_data && prop_bool(ctrl, "AnimateOnLoad", true) {
+                let key = ctrl_id.with("chart_grow_start");
+                let now = ui.input(|i| i.time);
+                let started = ui.ctx().memory_mut(|m| *m.data.get_temp_mut_or_insert_with(key, || now));
+                let secs = (ctrl
+                    .get_prop("AnimationDuration")
+                    .map(|v| v.as_i64())
+                    .unwrap_or(crate::chart::DEFAULT_ANIM_MS)
+                    .max(crate::chart::MIN_ANIM_MS)) as f64
+                    / 1000.0;
+                let t = ((now - started) / secs).clamp(0.0, 1.0) as f32;
+                if t < 1.0 {
+                    let eased = 1.0 - (1.0 - t).powi(3);
+                    let mut c = chart_ctrl.clone();
+                    c.set_prop("__ChartGrow", crate::model::PropValue::String(format!("{eased:.4}")));
+                    grown_owner = c;
+                    chart_ctrl = &grown_owner;
+                    ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
+                }
+            }
             paint::draw_control(
                 &painter, screen.min, chart_ctrl, false, glass, alpha, 1.0, None,
             );
+            // `ShowTooltips`: the point, bar or slice under the pointer, as
+            // "label: value". Only the control's own Tooltip ever showed.
+            if prop_bool(ctrl, "ShowTooltips", true) {
+                if let Some(pos) = ui.ctx().pointer_hover_pos().filter(|p| screen.contains(*p) && clip.contains(*p)) {
+                    if let Some((label, value)) = paint::chart_point_at(ctrl, screen, pos) {
+                        egui::containers::Tooltip::always_open(
+                            ui.ctx().clone(),
+                            ui.layer_id(),
+                            ctrl_id.with("chart_point_tip"),
+                            egui::PopupAnchor::Pointer,
+                        )
+                        .show(|ui| {
+                            ui.label(format!("{label}: {}", paint::format_chart_number(value)));
+                        });
+                    }
+                }
+            }
             // spec 021: onDataChanged when the chart's data-bearing properties
             // change (COBOL AddPoint/Clear/DataSource writes land here).
             if bound.contains(&"onDataChanged") {
@@ -21799,6 +21843,89 @@ mod tests {
         assert_eq!(o.get("KN").and_then(|p| p.get("Value")).map(String::as_str), Some("50"));
     }
 
+    /// Property audit, 2026-09-26 (group 6): the chart properties that were
+    /// read by nothing — SeriesColors, SeriesLabels, bubble sizes, the hover
+    /// hit-test behind ShowTooltips, and AnimateOnLoad's growth.
+    #[test]
+    fn a_chart_honours_its_colours_names_bubbles_and_hover() {
+        let chart = |kind: ControlType, props: &[(&str, &str)]| -> Control {
+            let mut base: Vec<(&str, &str)> = vec![
+                ("__ChartData", "Alpha\t30\nBeta\t20\nGamma\t50"),
+                ("AnimateOnLoad", "false"),
+                ("ShowGridLines", "false"),
+            ];
+            base.extend_from_slice(props);
+            ctrlp("Ch", kind, 20, 20, 320, 240, &base)
+        };
+        // SeriesColors, when changed from the seeded default, paints the series.
+        let red = Color32::from_rgb(0xD0, 0x10, 0x10);
+        let painted = drive_painted(&[chart(ControlType::BarChart, &[("SeriesColors", "#D01010,#10D010"), ("ShowLegend", "false")])], vec![(0.0, vec![]), (0.05, vec![])]);
+        assert!(painted.fills.iter().any(|(_, c)| *c == red), "the bars wear the first SeriesColors entry");
+        // The seeded list means "not chosen": the theme's palette still rules.
+        assert!(crate::paint::chart_series_colors(&chart(ControlType::BarChart, &[("SeriesColors", crate::paint::DEFAULT_SERIES_COLORS)])).is_none());
+
+        // SeriesLabels names the legend's series.
+        let texts: Vec<String> = painted_text_interactive(&[chart(ControlType::LineChart, &[("ShowLegend", "true"), ("SeriesLabels", "Revenue")])])
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect();
+        assert!(texts.iter().any(|t| t == "Revenue"), "legend: {texts:?}");
+
+        // The hit-test finds the bar, the point and the slice under the pointer.
+        let frame = Rect::from_min_size(pos2(20.0, 20.0), Vec2::new(320.0, 240.0));
+        let bar = chart(ControlType::BarChart, &[]);
+        let plot = crate::paint::chart_frame(&bar, frame).plot;
+        let third = pos2(plot.min.x + plot.width() * (2.5 / 3.0), plot.max.y - 4.0);
+        assert_eq!(crate::paint::chart_point_at(&bar, frame, third).map(|p| p.0), Some("Gamma".to_owned()));
+        let pie = chart(ControlType::PieChart, &[]);
+        let pp = crate::paint::chart_frame(&pie, frame).plot;
+        // Just right of 12 o'clock is the first slice, Alpha (30 %).
+        let first = pp.center() + Vec2::new(4.0, -pp.size().min_elem() * 0.3);
+        assert_eq!(crate::paint::chart_point_at(&pie, frame, first).map(|p| p.0), Some("Alpha".to_owned()));
+        // No live data, nothing to report.
+        let mut empty = pie.clone();
+        empty.set_prop("__ChartData", crate::PropValue::String(String::new()));
+        assert!(crate::paint::chart_point_at(&empty, frame, first).is_none());
+        println!("\n  Charts -- SeriesColors paints the bars, the seeded list defers to the theme; SeriesLabels names the legend; hover finds Gamma's bar and Alpha's slice\n");
+    }
+
+    /// AnimateOnLoad: the first frames with data draw the bars shorter than
+    /// they settle, and the chart lands at full height.
+    #[test]
+    fn a_chart_grows_into_place_on_load() {
+        let c = ctrlp(
+            "Ch",
+            ControlType::BarChart,
+            20,
+            20,
+            320,
+            240,
+            &[
+                ("__ChartData", "A\t40\nB\t100"),
+                ("ShowLegend", "false"),
+                ("ShowGridLines", "false"),
+                ("AnimateOnLoad", "true"),
+                ("AnimationDuration", "250"),
+            ],
+        );
+        let tallest = |p: &Painted| -> f32 {
+            let frame = *p.placed.get("Ch").expect("placed");
+            p.fills
+                .iter()
+                .filter(|(r, _)| frame.contains_rect(*r) && r.width() < frame.width() * 0.5)
+                .map(|(r, _)| r.height())
+                .fold(0.0, f32::max)
+        };
+        let frames = |n: usize| -> f32 {
+            let lists: Vec<&[Control]> = (0..n).map(|_| std::slice::from_ref(&c)).collect();
+            tallest(&drive_painted_series(&lists))
+        };
+        let early = frames(3);
+        let settled = frames(10);
+        assert!(early < settled * 0.95, "part way it is shorter: {early} vs {settled}");
+        assert!(settled > 0.0);
+    }
+
     /// The four TextBox input properties are honoured. All were seeded, shown in
     /// the inspector and documented, and read by NOTHING (operator, 2026-08-18,
     /// from the dead-property audit): a field marked read-only took edits, a
@@ -21965,6 +22092,8 @@ mod tests {
                     ("Title", ""),
                     ("AnimationDuration", "250"),
                     ("AnimateValues", if animate { "true" } else { "false" }),
+                    // The first appearance's growth is its own test.
+                    ("AnimateOnLoad", "false"),
                 ],
             )]
         };
@@ -22114,8 +22243,9 @@ mod tests {
     #[test]
     fn a_chart_honours_its_axis_captions_labels_and_legend() {
         let chart = |kind: ControlType, props: &[(&str, &str)]| -> Vec<Control> {
+            // One frame is measured: no load growth to catch mid-way.
             let mut base: Vec<(&str, &str)> =
-                vec![("__ChartData", "Alpha\t30\nBeta\t20\nGamma\t50")];
+                vec![("__ChartData", "Alpha\t30\nBeta\t20\nGamma\t50"), ("AnimateOnLoad", "false")];
             base.extend_from_slice(props);
             vec![ctrlp("Ch", kind, 20, 20, 320, 240, &base)]
         };

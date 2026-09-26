@@ -9604,8 +9604,11 @@ impl PropertiesPanel {
                 color_row_labeled(ui, id, "TitleColor", "Title colour", ctrl, action);
                 bool_row_inline(ui, id, "ShowLegend", "Show legend", ctrl, action);
                 bool_row_inline(ui, id, "ShowGridLines", "Show grid lines", ctrl, action);
-                bool_row_inline(ui, id, "ShowXAxis", "Show X axis line", ctrl, action);
-                bool_row_inline(ui, id, "ShowYAxis", "Show Y axis line", ctrl, action);
+                // A pie or a donut has no axes to show or hide.
+                if !matches!(ctrl.control_type, ControlType::PieChart | ControlType::DonutChart) {
+                    bool_row_inline(ui, id, "ShowXAxis", "Show X axis line", ctrl, action);
+                    bool_row_inline(ui, id, "ShowYAxis", "Show Y axis line", ctrl, action);
+                }
                 bool_row_inline(ui, id, "ShowTooltips", "Show tooltips", ctrl, action);
                 bool_row_inline(ui, id, "AnimateOnLoad", "Animate on load", ctrl, action);
                 // Value animation, and its duration BENEATH it — the operator
@@ -9859,12 +9862,27 @@ impl PropertiesPanel {
                     "Actual,Budget",
                     action,
                 );
+                // Series colours (comma-separated): seeded on every chart and
+                // offered nowhere until the property audit (2026-09-26).
+                let sc = ctrl
+                    .get_prop("SeriesColors")
+                    .map(|v| v.as_str().to_owned())
+                    .unwrap_or_default();
+                text_row_hint(
+                    ui,
+                    &mut self.hints,
+                    id,
+                    "SeriesColors",
+                    &sc,
+                    "Series colours:",
+                    "#4C9BE8,#E87A4C",
+                    action,
+                );
 
                 // ── Type-specific ─────────────────────────────────────────────
                 if matches!(ctrl.control_type, ControlType::BarChart) {
                     section_header(ui, tr.sec_bar_options);
                     bool_row_inline(ui, id, "Horizontal", "Horizontal bars", ctrl, action);
-                    bool_row_inline(ui, id, "Stacked", "Stacked", ctrl, action);
                     int_prop_row(
                         ui,
                         id,
@@ -9907,7 +9925,6 @@ impl PropertiesPanel {
                             Some("%"),
                             40,
                         );
-                        bool_row_inline(ui, id, "Stacked", "Stacked areas", ctrl, action);
                     }
                 }
                 if matches!(

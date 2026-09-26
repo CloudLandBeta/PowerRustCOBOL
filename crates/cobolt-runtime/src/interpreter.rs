@@ -1600,6 +1600,10 @@ pub struct Interpreter {
     /// property (via a `StateUpdate`) so the GUI chart renderer plots it. Empty ⇒
     /// the designer's representative sample preview is shown instead.
     chart_data: HashMap<String, Vec<(String, f64)>>,
+    /// Bubble sizes for a ScatterChart, one per point in `chart_data` —
+    /// from `BubbleField` or a third AddPoint argument. Sent beside the
+    /// points as `__ChartSizes` so the points' own wire format is untouched.
+    chart_sizes: HashMap<String, Vec<f64>>,
 
     // ── Async I/O operations (spec 032) ───────────────────────────────────────
     /// Cloned into each background worker thread; the worker posts its
@@ -2060,6 +2064,7 @@ impl Interpreter {
             cancel: None,
             event_pending: None,
             chart_data: HashMap::new(),
+            chart_sizes: HashMap::new(),
             async_result_tx,
             async_result_rx,
             async_pending: HashMap::new(),
@@ -10847,21 +10852,32 @@ impl Interpreter {
                 let id = self.eval_call_arg(&using[0], span)?.as_display_string();
                 let raw = self.eval_call_arg(&using[1], span)?.as_display_string();
                 let count = self.eval_call_arg(&using[2], span)?.as_f64() as usize;
-                let id = id.trim().to_ascii_uppercase();
-                self.chart_data
-                    .insert(id.clone(), parse_chart_table(&raw, count));
+                let chart = id.trim().to_owned();
+                let id = chart.to_ascii_uppercase();
+                match self.chart_points_from_fields(&chart, count) {
+                    Some((points, sizes)) => {
+                        self.chart_data.insert(id.clone(), points);
+                        self.chart_sizes.insert(id.clone(), sizes);
+                    }
+                    None => {
+                        self.chart_data.insert(id.clone(), parse_chart_table(&raw, count));
+                        self.chart_sizes.remove(&id);
+                    }
+                }
                 self.push_chart_data(&id);
             }
-            // COBOL-CHART-ADD-POINT chart-id label value  (append one point)
+            // COBOL-CHART-ADD-POINT chart-id label value [size]  (append one point;
+            // `size` is a ScatterChart bubble's)
             "COBOL-CHART-ADD-POINT" if using.len() >= 3 => {
                 let id = self.eval_call_arg(&using[0], span)?.as_display_string();
                 let label = self.eval_call_arg(&using[1], span)?.as_display_string();
                 let value = self.eval_call_arg(&using[2], span)?.as_f64();
+                let size = match using.get(3) {
+                    Some(a) => Some(self.eval_call_arg(a, span)?.as_f64()),
+                    None => None,
+                };
                 let id = id.trim().to_ascii_uppercase();
-                self.chart_data
-                    .entry(id.clone())
-                    .or_default()
-                    .push((label.trim().to_owned(), value));
+                self.add_chart_point(&id, label.trim().to_owned(), value, size);
                 self.push_chart_data(&id);
             }
             // COBOL-CHART-CLEAR chart-id
@@ -10869,6 +10885,7 @@ impl Interpreter {
                 let id = self.eval_call_arg(&using[0], span)?.as_display_string();
                 let id = id.trim().to_ascii_uppercase();
                 self.chart_data.remove(&id);
+                self.chart_sizes.remove(&id);
                 self.push_chart_data(&id);
             }
             // COBOL-CHART-REFRESH chart-id  (re-send current data → repaint)
@@ -12456,6 +12473,7 @@ impl Interpreter {
         // Keyed as COBOL-CHART-* and AddPoint key it.
         let key = control_id.to_ascii_uppercase();
         self.chart_data.insert(key.clone(), points);
+        self.chart_sizes.remove(&key);
         self.push_chart_data(&key);
         n
     }
@@ -13269,6 +13287,57 @@ impl Interpreter {
             "__ChartData".to_owned(),
             serialized,
         ));
+        let sizes = self
+            .chart_sizes
+            .get(id)
+            .map(|s| s.iter().map(|v| v.to_string()).collect::<Vec<_>>().join("\n"))
+            .unwrap_or_default();
+        let _ = tx.send(StateUpdate::new(id.to_owned(), "__ChartSizes".to_owned(), sizes));
+    }
+
+    /// Append one point to a chart, and its bubble size when one is given. A
+    /// chart that had sizes and is given a point without one keeps its list
+    /// aligned with a zero, so size `i` is always point `i`'s.
+    fn add_chart_point(&mut self, key: &str, label: String, value: f64, size: Option<f64>) {
+        let points = self.chart_data.entry(key.to_owned()).or_default();
+        points.push((label, value));
+        let n = points.len();
+        if size.is_some() || self.chart_sizes.contains_key(key) {
+            let sizes = self.chart_sizes.entry(key.to_owned()).or_default();
+            sizes.resize(n - 1, 0.0);
+            sizes.push(size.unwrap_or(0.0));
+        }
+    }
+
+    /// A chart's points read from the table the developer named: the
+    /// `LabelField` and the first of `ValueFields` (and, on a ScatterChart,
+    /// `BubbleField`), occurrences 1..=`count`. `None` when the chart names
+    /// no label and value field, so `SET-TABLE` keeps reading the fixed
+    /// layout (`PIC X(64)` label + `PIC 9(18)V9(6)` value) it always has.
+    /// Neither property was read by anything (property audit, 2026-09-26).
+    fn chart_points_from_fields(&self, chart: &str, count: usize) -> Option<(Vec<(String, f64)>, Vec<f64>)> {
+        let prop = |k: &str| self.obj_get(chart, k).trim().to_owned();
+        let label = prop("LabelField");
+        let values = prop("ValueFields");
+        let value = values.split(',').map(str::trim).find(|v| !v.is_empty())?.to_owned();
+        if label.is_empty() {
+            return None;
+        }
+        let bubble = prop("BubbleField");
+        let (label, value) = (self.env.resolve_name(&label, &[]), self.env.resolve_name(&value, &[]));
+        let bubble = (!bubble.is_empty()).then(|| self.env.resolve_name(&bubble, &[]));
+        let mut points = Vec::new();
+        let mut sizes = Vec::new();
+        for i in 1..=count {
+            let at = |f: &str| crate::environment::subscript_key(f, &[i as i64]);
+            let text = self.env.get(&at(&label)).map(|v| v.as_display_string().trim().to_owned()).unwrap_or_default();
+            let v = self.env.get(&at(&value)).map(|v| v.as_f64()).unwrap_or(0.0);
+            points.push((text, v));
+            if let Some(b) = &bubble {
+                sizes.push(self.env.get(&at(b)).map(|v| v.as_f64()).unwrap_or(0.0));
+            }
+        }
+        Some((points, sizes))
     }
 
     // ── Expression evaluation ─────────────────────────────────────────────────
@@ -14685,6 +14754,7 @@ impl Interpreter {
                 if self.is_chart_object(obj) {
                     let key = obj.to_ascii_uppercase();
                     self.chart_data.remove(&key);
+                    self.chart_sizes.remove(&key);
                     self.push_chart_data(&key);
                 }
                 self.obj_set(obj, "Text", String::new());
@@ -14743,10 +14813,9 @@ impl Interpreter {
                 let key = obj.to_ascii_uppercase();
                 let label = arg(0);
                 let value = args.get(1).map(|v| v.as_f64()).unwrap_or(0.0);
-                self.chart_data
-                    .entry(key.clone())
-                    .or_default()
-                    .push((label, value));
+                // A third argument is a ScatterChart bubble's size.
+                let size = args.get(2).map(|v| v.as_f64());
+                self.add_chart_point(&key, label, value, size);
                 self.push_chart_data(&key);
                 none
             }
@@ -15641,8 +15710,12 @@ impl Interpreter {
                 );
                 // Brave, Serper and Tavily authenticate in a header, so the
                 // request carries a config now instead of the stock one.
+                // `TimeoutMs` bounds a synchronous search too: it reached only
+                // the async worker, so a Sync search could hang on a slow
+                // provider (property audit, 2026-09-26).
                 let cfg = crate::http_runtime::RequestConfig {
                     headers: req.headers.clone(),
+                    timeout_ms: self.rest_timeout_ms(obj),
                     ..Default::default()
                 };
                 if self.agent_is_verbose(obj) {
@@ -20410,6 +20483,57 @@ MAIN.
             vec![("AA".to_owned(), 1.0), ("BB".to_owned(), 2.0), ("CC".to_owned(), 3.0)],
             "a chart: category and value per occurrence"
         );
+    }
+
+    /// SET-TABLE reads the sub-fields a chart names in `LabelField`,
+    /// `ValueFields` (the first) and `BubbleField`; AddPoint takes a bubble
+    /// size as a third argument. Without LabelField it keeps the fixed layout.
+    #[test]
+    fn a_chart_table_reads_the_fields_it_names() {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-TABLE.
+   05 WS-ROW OCCURS 3 TIMES.
+      10 SALES-MONTH  PIC X(3).
+      10 SALES-AMOUNT PIC 9(5).
+      10 SALES-VOLUME PIC 9(3).
+01 WS-COUNT PIC 9 VALUE 3.
+PROCEDURE DIVISION.
+MAIN.
+    MOVE 'JAN' TO SALES-MONTH(1)
+    MOVE 10 TO SALES-AMOUNT(1)
+    MOVE 5 TO SALES-VOLUME(1)
+    MOVE 'FEB' TO SALES-MONTH(2)
+    MOVE 20 TO SALES-AMOUNT(2)
+    MOVE 6 TO SALES-VOLUME(2)
+    MOVE 'MAR' TO SALES-MONTH(3)
+    MOVE 30 TO SALES-AMOUNT(3)
+    MOVE 7 TO SALES-VOLUME(3)
+    CALL 'COBOL-CHART-SET-TABLE' USING 'CH-1' WS-TABLE WS-COUNT
+    INVOKE CH-1 'AddPoint' USING 'APR' 7 9
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let mut interp = Interpreter::new(parsed.program.expect("parses"));
+        interp.seed_objects([(
+            "CH-1".to_owned(),
+            "ScatterChart".to_owned(),
+            vec![
+                ("LabelField".to_owned(), "SALES-MONTH".to_owned()),
+                ("ValueFields".to_owned(), "SALES-AMOUNT, SALES-BUDGET".to_owned()),
+                ("BubbleField".to_owned(), "SALES-VOLUME".to_owned()),
+            ],
+        )]);
+        interp.run().expect("runs");
+        let points = interp.chart_data.get("CH-1").cloned().unwrap_or_default();
+        assert_eq!(
+            points,
+            vec![("JAN".to_owned(), 10.0), ("FEB".to_owned(), 20.0), ("MAR".to_owned(), 30.0), ("APR".to_owned(), 7.0)]
+        );
+        assert_eq!(interp.chart_sizes.get("CH-1").cloned().unwrap_or_default(), vec![5.0, 6.0, 7.0, 9.0]);
     }
 
     /// Increment/Decrement stop at Maximum/Minimum and step fractions;

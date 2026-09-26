@@ -2066,10 +2066,16 @@ A chart also honours its own **captions, labels and legend**:
 | `ShowLegend`                | Slice names beside a pie or donut; series names under a bar, line, area or scatter chart. **Ticked by default.**                                        |
 | `ShowLabels`                | A label on every pie/donut slice. **Ticked by default.**                                                                                                |
 | `LabelFormat`               | What that label says: `percent` (the slice's share), `value` (the number), or `label` (its name).                                                       |
-| `PointRadius`               | Line and scatter marker radius, in pixels.                                                                                                             |
+| `SeriesColors`              | The series' colours (a pie's slices), comma-separated, in order. The seeded list means "not chosen" — the theme's palette paints the chart until you change it. |
+| `SeriesLabels`              | The names the legend gives the series, comma-separated; an unnamed series shows as `Series n`.                                                          |
+| `ShowPoints`                | A marker on every point of a line **or area** chart.                                                                                                    |
+| `PointRadius`               | Line and area marker radius, and a scatter point's radius when it has no bubble sizes, in pixels.                                                        |
+| `BubbleScale`               | A scatter chart's largest bubble radius; the others are sized in proportion to their sizes (see below).                                                  |
+| `ShowTooltips`              | In the running form, the bar, point or slice under the pointer shows `label: value`. **Ticked by default.**                                              |
+| `AnimateOnLoad`             | The first time the running chart has data, its marks grow into place over `AnimationDuration`. **Ticked by default.**                                   |
 | `FillAlpha`                 | The opacity an area chart fills at, 0–100 %.                                                                                                          |
 | `AnimateValues`             | Animate a **change of data**: the chart travels from the values it is showing to the new ones instead of cutting to them. Off by default.               |
-| `AnimationDuration`         | How long that move takes, in milliseconds. Shown only while `AnimateValues` is ticked. Default 2000; anything under 250 is raised to 250.               |
+| `AnimationDuration`         | How long that move — and the `AnimateOnLoad` growth — takes, in milliseconds. Default 2000; anything under 250 is raised to 250.                     |
 
 > **The rest of a chart's type follows `FontSize`.** The legend, the axis
 > captions and the value labels are all sized from the chart's own `FontSize`,
@@ -2089,25 +2095,45 @@ the data again mid-move and it re-aims **from the frame on screen**, not from
 the set it was heading for, so the chart never jumps backwards to set off
 again.
 
-> **The first fill is not animated, and could not be.** A plot auto-scales to
-> its own largest value, so a series rising uniformly from zero paints exactly
-> the same bars the whole way up — the animation would run and nothing would
-> move. Only a change in how the values relate to *each other* is visible, so
-> that is the only thing that travels. A chart filled once on load therefore
-> appears immediately, which is what you want anyway.
+> **The first fill is `AnimateOnLoad`'s, not `AnimateValues`'.** A plot
+> auto-scales to its own largest value, so *values* rising uniformly from zero
+> would paint the same bars the whole way up. `AnimateOnLoad` grows the
+> **marks** instead — after the scale is applied — so the bars, the line and a
+> pie's sweep visibly rise into place the first time the chart has data.
+> Untick it for a chart that should simply appear.
 
 > ⚠️ `ShowLegend` and `ShowLabels` have been ticked since charts existed and
 > did nothing until 1.61.97, so charts you built before then gain a legend and
 > slice labels. Untick them for the old look.
 
-> **Not yet honoured.** `ValueFields`, `SeriesLabels`, `Stacked`, `LabelField`,
-> `BubbleField` and `BubbleScale` all describe **several** data series drawn
-> from a bound table's sub-fields; a chart today receives one series, pushed
-> from COBOL as `label<TAB>value` lines, so there is nothing yet for them to
-> act on. `ShowTooltips` and `AnimateOnLoad` need a pointer and a clock, which
-> the chart painter does not have. (`AnimateValues` above is a different
-> thing and *is* honoured: its clock lives in the running form, not in the
-> painter, which is why the designer canvas never animates.)
+**Plotting a table by its field names.** Set `DataSource` and `DataCount` and
+the generated `<id>-SET-TABLE` paragraph plots your table. By default each
+occurrence must be a `PIC X(64)` label followed by a `PIC 9(18)V9(6)` value.
+Name the sub-fields instead and it reads your own layout:
+
+```cobol
+       01  WS-SALES.
+           05  WS-SALE OCCURS 12 TIMES.
+               10  SALES-MONTH    PIC X(3).
+               10  SALES-AMOUNT   PIC 9(7)V99.
+               10  SALES-VOLUME   PIC 9(5).
+       01  WS-SALES-COUNT         PIC 99 VALUE 12.
+```
+
+with `LabelField` = `SALES-MONTH` and `ValueFields` = `SALES-AMOUNT`. A running
+chart draws **one** series, so only the first field in `ValueFields` is plotted.
+On a scatter chart, `BubbleField` = `SALES-VOLUME` sizes each bubble (the
+largest is `BubbleScale` across its radius); `AddPoint` takes a size as a third
+argument for one point at a time:
+
+```cobol
+           INVOKE CH-SALES 'AddPoint' USING "APR" 7 9
+```
+
+> **Retired.** `Stacked` promised stacked bars and areas, but a running chart
+> draws one series, so there is nothing to stack; it is no longer seeded or
+> shown. A pie or donut no longer carries `ShowXAxis` / `ShowYAxis` — it has no
+> axes. `BarCornerRadius` rounds **every** corner of a bar.
 
 **Non-visual services**
 : Timer, AgentObject (AI agent), RestClient, SqlDatabase, **IndexedFile**,

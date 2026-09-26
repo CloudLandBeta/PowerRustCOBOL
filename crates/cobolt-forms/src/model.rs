@@ -5887,9 +5887,12 @@ impl Control {
                 props.insert("TitleColor".into(), PropValue::String("".into()));
                 props.insert("ShowLegend".into(), PropValue::Bool(true));
                 props.insert("ShowGridLines".into(), PropValue::Bool(true));
-                // Independent X/Y axis-line visibility (default on).
-                props.insert("ShowXAxis".into(), PropValue::Bool(true));
-                props.insert("ShowYAxis".into(), PropValue::Bool(true));
+                // Independent X/Y axis-line visibility (default on). A pie or
+                // a donut has no axes, so it carries neither.
+                if !matches!(control_type, ControlType::PieChart | ControlType::DonutChart) {
+                    props.insert("ShowXAxis".into(), PropValue::Bool(true));
+                    props.insert("ShowYAxis".into(), PropValue::Bool(true));
+                }
                 props.insert("ShowTooltips".into(), PropValue::Bool(true));
                 props.insert("AnimateOnLoad".into(), PropValue::Bool(true));
                 // Value animation (operator, 2026-09-02): when on, a chart whose
@@ -5933,7 +5936,8 @@ impl Control {
                                                                                    // Bar/Line/Area specifics
                 if matches!(control_type, ControlType::BarChart) {
                     props.insert("Horizontal".into(), PropValue::Bool(false));
-                    props.insert("Stacked".into(), PropValue::Bool(false));
+                    // `Stacked` is retired: a running chart holds ONE series,
+                    // so there is nothing to stack (property audit, 2026-09-26).
                     props.insert("BarCornerRadius".into(), PropValue::Int(3));
                 }
                 if matches!(
@@ -5945,7 +5949,6 @@ impl Control {
                     props.insert("PointRadius".into(), PropValue::Int(4));
                     if matches!(control_type, ControlType::AreaChart) {
                         props.insert("FillAlpha".into(), PropValue::Int(40)); // 0-100%
-                        props.insert("Stacked".into(), PropValue::Bool(false));
                     }
                 }
                 // The frame border, like every other control's — and, charts
