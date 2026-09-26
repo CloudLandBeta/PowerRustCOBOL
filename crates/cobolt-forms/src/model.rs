@@ -1465,12 +1465,16 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
     const MENU_BAR: &[&str] = &["SelectedItemId"];
     // Spec 032 — an asynchronous statement's count, and the failure text.
     const SQL: &[&str] = &["ResultCount", "LastError", "StatusCode"];
+    // `AllowCellEditing` — the cell an edit changed, written before
+    // `onCellEdited` (row and column numbered from 1).
+    const DATA_GRID: &[&str] = &["EditedRow", "EditedColumn", "EditedValue", "PreviousValue"];
     match ControlType::from_str(type_name) {
         ControlType::MenuBar => MENU_BAR,
         ControlType::SideMenu => SIDE_MENU,
         ControlType::Maps => MAPS,
         ControlType::AgentObject => AGENT,
         ControlType::SqlDatabase => SQL,
+        ControlType::DataGrid => DATA_GRID,
         ControlType::KnowledgeBase => KNOWLEDGE_BASE,
         ControlType::RestClient | ControlType::WebSearch => ASYNC,
         ControlType::Snackbar => SNACKBAR,
@@ -3463,6 +3467,7 @@ impl ControlType {
             ControlType::DataGrid => &[
                 "onCellClick",
                 "onCellDoubleClick",
+                "onCellEdited",
                 "onRowSelect",
                 "onRowDoubleClick",
                 "onColumnClick",
@@ -5042,6 +5047,10 @@ impl Control {
                 props.insert("AllowColumnResize".into(), PropValue::Bool(true));
                 props.insert("AllowColumnReorder".into(), PropValue::Bool(true));
                 props.insert("AllowRowResize".into(), PropValue::Bool(true));
+                // In-cell editing: double-click or F2. Off by default — the old
+                // `ReadOnly` was seeded false on every grid and is retired, so
+                // editing is a switch of its own nobody has turned on yet.
+                props.insert("AllowCellEditing".into(), PropValue::Bool(false));
                 props.insert(DATAGRID_ADVANCED_PROP.into(), PropValue::String("".into()));
                 props.insert("ShowRowNumbers".into(), PropValue::Bool(false));
                 props.insert("ShowColumnFilters".into(), PropValue::Bool(false));

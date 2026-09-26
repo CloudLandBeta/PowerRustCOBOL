@@ -4967,6 +4967,8 @@ impl PropertiesPanel {
                                 ui.end_row();
                                 bool_row(ui, id, "AllowRowResize", "Allow row resize", ctrl, action);
                                 ui.end_row();
+                                bool_row(ui, id, "AllowCellEditing", "Allow cell editing", ctrl, action);
+                                ui.end_row();
                                 bool_row(ui, id, "ShowColumnFilters", "Show column filters", ctrl, action);
                                 ui.end_row();
                                 bool_row(ui, id, "SelectableText", "Selectable text", ctrl, action);

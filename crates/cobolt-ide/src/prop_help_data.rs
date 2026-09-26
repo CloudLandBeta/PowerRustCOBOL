@@ -1225,6 +1225,14 @@ pub static PROP_HELP: &[PropHelp] = &[
         "内部使用：由 Edit DataGrid settings 保存的列布局和高级设置。请勿手动编辑。",
         "Interne : disposition des colonnes et réglages avancés enregistrés par Edit DataGrid settings. Ne pas modifier à la main.",
     ] },
+    PropHelp { ty: "DataGrid", prop: "AllowCellEditing", text: [
+        "Lets the operator edit a cell in place: double-click or F2, Enter to keep, Escape to cancel. The new text goes into Rows and onCellEdited fires. Default false.",
+        "Permite al operador editar una celda en su sitio: doble clic o F2, Enter para guardar, Esc para cancelar. El texto nuevo va a Rows y se dispara onCellEdited. Predeterminado falso.",
+        "Permite ao operador editar uma célula no lugar: clique duplo ou F2, Enter para manter, Esc para cancelar. O novo texto vai para Rows e onCellEdited dispara. Padrão falso.",
+        "オペレーターがセルをその場で編集できます。ダブルクリックか F2 で開き、Enter で確定、Esc で取り消し。新しい文字列は Rows に入り onCellEdited が発生します。既定は false。",
+        "允许操作员就地编辑单元格：双击或按 F2，Enter 保留，Esc 取消。新文本写入 Rows 并触发 onCellEdited。默认 false。",
+        "Permet à l'opérateur de modifier une cellule sur place : double-clic ou F2, Entrée pour garder, Échap pour annuler. Le texte va dans Rows et onCellEdited se déclenche. Faux par défaut.",
+    ] },
     PropHelp { ty: "DataGrid", prop: "AllowColumnReorder", text: [
         "Shows small ‹ › arrows in each column header (when at least 58 points wide) to move the column left or right at run time. Default on.",
         "Muestra pequeñas flechas ‹ › en la cabecera de cada columna (de al menos 58 puntos de ancho) para moverla a izquierda o derecha en ejecución. Activo por defecto.",

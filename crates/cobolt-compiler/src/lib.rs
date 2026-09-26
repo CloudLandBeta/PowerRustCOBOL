@@ -4882,7 +4882,7 @@ pub fn property_reference_for(control: &str, name: &str) -> Option<(&'static str
         )),
         ("DataGrid", "ReadOnly") => Some((
             "retired",
-            "**Retired.** A DataGrid has no in-cell editing, so there was never anything for this to block. It is no longer seeded or shown; a value saved in an older form is kept and ignored. The cells change only when COBOL writes `Rows`.",
+            "**Retired.** It was seeded false on every grid while there was no in-cell editing to block. It is no longer seeded or shown; a value saved in an older form is kept and ignored. In-cell editing is `AllowCellEditing` (off by default), not this.",
         )),
         ("SideMenu", "HighlightBgColor") => Some((
             COLOR_DOMAIN,
@@ -5248,6 +5248,11 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "GridBackgroundPattern" => ("one of: `None` | `Stripes` | `Dots` | `Cross` | `X` | `X Dots` | `O`", "Procedural background pattern."),
         "RowBackgroundPattern" => ("one of: `None` | `Stripes` | `Dots` | `Cross` | `X` | `X Dots` | `O`", "Per-row background pattern."),
         "SelectionMode" => ("one of: `Row` (default) | `Cell` | `Column`", "What a click on a cell highlights: its whole row (`Row`), the cell alone (`Cell`) or its whole column (`Column`). Ctrl+C copies what is highlighted — the cell, the row's cells joined by `CSVDelimiter`, or the column's values in the rows shown, one per line. `onCellClick` reports the cell either way."),
+        "AllowCellEditing" => (BOOL_DOMAIN, "DataGrid (default false): the operator may edit a cell in place — a double-click, or F2 on the selected cell, opens it in a text box; Enter or clicking away commits, Escape cancels. A commit that changed the text writes it into `Rows` and fires `onCellEdited` with `EditedRow`, `EditedColumn` (the DATA row and column, numbered from 1 — `GetCellValue`'s), `EditedValue` and `PreviousValue`; the handler validates and stores it, and can put `PreviousValue` back with `SetCellValue` to refuse it. A column with no data behind it, or one showing its value as an image, is not editable; a typed tab or line break becomes a space. The retired `ReadOnly` does not control this."),
+        "EditedRow" => ("integer (runtime-only, read-only)", "DataGrid: in `onCellEdited`, the data row the operator edited, numbered from 1."),
+        "EditedColumn" => ("integer (runtime-only, read-only)", "DataGrid: in `onCellEdited`, the data column the operator edited, numbered from 1."),
+        "EditedValue" => ("text (runtime-only, read-only)", "DataGrid: in `onCellEdited`, the cell's new text — already in `Rows`."),
+        "PreviousValue" => ("text (runtime-only, read-only)", "DataGrid: in `onCellEdited`, what the cell held before the edit."),
         "RowHeightOverrides" => ("`row=height` pairs separated by `;` — rows numbered from 1 (e.g. `1=40;8=64`); empty = every row is `RowHeight`", "DataGrid: rows with a height of their own, 14–400 points; every other row stays `RowHeight`. The row is the DATA row, so a height stays with its row when the grid is sorted or filtered, and `Sort`, `DeleteRow` and `ClearRows` carry it along. Set it in the grid's settings, or from COBOL with `SetRowHeight(row, pixels)` (0 pixels hands the row back to `RowHeight`). Dragging the lower edge of such a row resizes that row alone; dragging any other row edge still resizes every row."),
         "AllowSorting" => (BOOL_DOMAIN, "A click on a column title sorts the rows shown by that column — ascending, then descending on the next click — and a ▲/▼ marks it. A column declared numeric, or whose every value is a number, sorts by value (9 before 100); any other sorts as text, ignoring case. Display order only: `Rows` keeps its order, and a click still reports each row's own index. A column whose settings turn sorting off is not sorted. `onColumnClick` fires either way. The `Sort` method, by contrast, reorders `Rows` itself."),
         "AllowColumnResize" => (BOOL_DOMAIN, "Drag header edges to resize."),
@@ -5843,6 +5848,7 @@ fn event_reference(name: &str) -> &'static str {
         "onFrameChanged" => "animation advanced a frame",
         "onLooped" => "animation restarted a loop",
         "onCellClick" => "a cell was clicked",
+        "onCellEdited" => "DataGrid with `AllowCellEditing`: the operator changed a cell — `EditedRow`, `EditedColumn`, `EditedValue`, `PreviousValue` say which and how; the new text is already in `Rows`",
         "onCellDoubleClick" => "a cell was double-clicked",
         "onRowSelect" => "a row became selected",
         "onRowDoubleClick" => "a row was double-clicked",

@@ -5830,6 +5830,49 @@ fn datagrid_confined_fill_rects(screen: Rect, radius: f32, r: Rect) -> Vec<Rect>
 /// the column is declared numeric or every value in it reads as a number,
 /// otherwise as text, ignoring case. A value that is not a number sorts after
 /// the numbers.
+/// A DataGrid cell open for editing (`AllowCellEditing`).
+#[derive(Clone, Debug, Default)]
+struct DataGridEdit {
+    /// The DATA row, as in `Rows`.
+    row_index: usize,
+    display_col: usize,
+    original: String,
+    text: String,
+    /// Focus the box on the frame it first appears.
+    fresh: bool,
+}
+
+/// What committing `edit` writes, or `None` when nothing changed: the new
+/// `Rows`, and the run-time report a handler reads in `onCellEdited` — row
+/// and column numbered from 1 as COBOL numbers them, the column being the
+/// DATA column (`GetCellValue`'s). A tab or line break typed into a cell
+/// would split its row, so each becomes a space.
+fn datagrid_commit_edit(
+    rows: &[Vec<String>],
+    display_cols: &[(usize, String, String)],
+    edit: &DataGridEdit,
+) -> Option<Vec<(&'static str, String)>> {
+    let text: String = edit.text.chars().map(|c| if matches!(c, '\t' | '\n' | '\r') { ' ' } else { c }).collect();
+    if text == edit.original {
+        return None;
+    }
+    let src = display_cols.get(edit.display_col)?.0;
+    let mut rows = rows.to_vec();
+    let row = rows.get_mut(edit.row_index)?;
+    if row.len() <= src {
+        row.resize(src + 1, String::new());
+    }
+    row[src] = text.clone();
+    let joined = rows.iter().map(|r| r.join("\t")).collect::<Vec<_>>().join("\n");
+    Some(vec![
+        ("Rows", joined),
+        ("EditedRow", (edit.row_index + 1).to_string()),
+        ("EditedColumn", (src + 1).to_string()),
+        ("PreviousValue", edit.original.clone()),
+        ("EditedValue", text),
+    ])
+}
+
 fn sort_datagrid_rows(indices: &mut [usize], rows: &[Vec<String>], source: usize, ty: &str, descending: bool) {
     let cell = |r: usize| rows.get(r).and_then(|row| row.get(source)).map(String::as_str).unwrap_or("");
     let number = |v: &str| v.trim().parse::<f64>().ok();
@@ -9265,7 +9308,56 @@ fn render_interactive(
                 has_keyboard = true;
             }
             ui.data_mut(|d| d.insert_temp(kb_id, has_keyboard));
-            if enabled && has_keyboard && !displayed_row_indices.is_empty() && ncols > 0 {
+            // `AllowCellEditing`: a double-click or F2 opens the cell in a text
+            // box; Enter or leaving it commits, Escape cancels. Off by default.
+            let allow_cell_edit = enabled && prop_bool(ctrl, "AllowCellEditing", false);
+            let edit_id = ctrl_id.with("datagrid-edit");
+            let editing: Option<DataGridEdit> =
+                if allow_cell_edit { ui.data(|d| d.get_temp(edit_id)) } else { None };
+            // A column holds editable text unless it has no data behind it or
+            // shows its value as an image.
+            let column_editable = |display_col: usize| -> bool {
+                display_cols.get(display_col).is_some_and(|(src, _, _)| *src != usize::MAX)
+                    && !advanced_grid.columns.get(display_col).is_some_and(|c| {
+                        let kind =
+                            if c.control_kind.trim().is_empty() { &c.edit_control } else { &c.control_kind };
+                        kind.eq_ignore_ascii_case("image")
+                    })
+            };
+            if allow_cell_edit
+                && editing.is_none()
+                && has_keyboard
+                && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F2))
+            {
+                if let Some(sel) = ui.data(|d| d.get_temp::<DataGridCellSelection>(selection_id)) {
+                    if column_editable(sel.display_column_index) {
+                        let src = display_cols[sel.display_column_index].0;
+                        let text = rows
+                            .get(sel.row_index)
+                            .and_then(|r| r.get(src))
+                            .cloned()
+                            .unwrap_or_default();
+                        ui.data_mut(|d| {
+                            d.insert_temp(
+                                edit_id,
+                                DataGridEdit {
+                                    row_index: sel.row_index,
+                                    display_col: sel.display_column_index,
+                                    original: text.clone(),
+                                    text,
+                                    fresh: true,
+                                },
+                            )
+                        });
+                    }
+                }
+            }
+            if enabled
+                && editing.is_none()
+                && has_keyboard
+                && !displayed_row_indices.is_empty()
+                && ncols > 0
+            {
                 // CONSUME the navigation keys, do not merely observe them.
                 //
                 // egui moves keyboard focus with the arrows, and a grid that
@@ -9896,6 +9988,7 @@ fn render_interactive(
             let body_painter_base = painter.with_clip_rect(body_rect);
             let scroll_body_painter = painter.with_clip_rect(scroll_body_rect);
             let selection_mode = sv(ctrl, "SelectionMode").trim().to_ascii_lowercase();
+            let mut edit_rect: Option<Rect> = None;
             let mut rows_to_draw = Vec::new();
             for display_row in 0..frozen_rows {
                 let y = body_rect.min.y + frozen_geo.top(display_row);
@@ -10009,6 +10102,12 @@ fn render_interactive(
                     if alt_cols && col.index % 2 == 1 {
                         fill_confined(&body_painter, col_rect, alt_bg);
                     }
+                    if editing
+                        .as_ref()
+                        .is_some_and(|e| e.row_index == row_index && e.display_col == col.index)
+                    {
+                        edit_rect = Some(cell_rect.intersect(body_painter.clip_rect()));
+                    }
                     let mut cell_selected = false;
                     if prop_bool(ctrl, "SelectableText", true) {
                         let cell_resp = ui.interact(
@@ -10034,6 +10133,20 @@ fn render_interactive(
                             ));
                         }
                         if cell_resp.double_clicked() {
+                            if allow_cell_edit && column_editable(col.index) {
+                                ui.data_mut(|d| {
+                                    d.insert_temp(
+                                        edit_id,
+                                        DataGridEdit {
+                                            row_index,
+                                            display_col: col.index,
+                                            original: raw.to_owned(),
+                                            text: raw.to_owned(),
+                                            fresh: true,
+                                        },
+                                    )
+                                });
+                            }
                             out.events.push(UiEvent::with_value(
                                 id,
                                 "onCellDoubleClick",
@@ -10515,6 +10628,42 @@ fn render_interactive(
                             Color32::from_rgba_unmultiplied(80, 145, 255, 55),
                         );
                     }
+                }
+            }
+            // The cell being edited, over everything painted for it. Scrolled
+            // out of sight the edit stays open and reappears with its cell.
+            if let (Some(mut edit), Some(rect)) = (editing, edit_rect) {
+                let text_id = ctrl_id.with("datagrid-edit-text");
+                let resp = ui.put(
+                    rect,
+                    egui::TextEdit::singleline(&mut edit.text)
+                        .id(text_id)
+                        .font(egui::FontId::proportional(font_size))
+                        .margin(vec2(3.0, 1.0)),
+                );
+                if edit.fresh {
+                    resp.request_focus();
+                    edit.fresh = false;
+                }
+                let (enter, escape) = ui.input(|i| {
+                    (i.key_pressed(egui::Key::Enter), i.key_pressed(egui::Key::Escape))
+                });
+                if escape {
+                    ui.data_mut(|d| d.remove::<DataGridEdit>(edit_id));
+                } else if resp.lost_focus() || enter {
+                    ui.data_mut(|d| d.remove::<DataGridEdit>(edit_id));
+                    if let Some(update) = datagrid_commit_edit(&rows, &display_cols, &edit) {
+                        for (key, value) in update {
+                            out.prop_updates.push((id.to_owned(), key.to_owned(), value));
+                        }
+                        out.events.push(UiEvent::with_value(
+                            id,
+                            "onCellEdited",
+                            &format!("{},{}", edit.row_index, edit.display_col),
+                        ));
+                    }
+                } else {
+                    ui.data_mut(|d| d.insert_temp(edit_id, edit));
                 }
             }
             // Filler area to the right of the last column (when the columns are
@@ -21756,6 +21905,58 @@ mod tests {
         assert!(bob.min.x > bob_plain.min.x + 10.0, "the gutter pushes the columns right");
         assert!(!plain.texts.iter().any(|p| p.text == "3"), "off: no numbers");
         println!("\n  DataGrid ShowRowNumbers -- 1, 2, 3 painted left of the cells; the first column moves right to make room\n");
+    }
+
+    /// `AllowCellEditing`: a double-click opens the cell in a text box, Enter
+    /// commits — the new text lands in `Rows` with the run-time report and
+    /// `onCellEdited` — and Escape leaves the cell as it was. Off, a
+    /// double-click edits nothing.
+    #[test]
+    fn a_datagrid_cell_is_edited_in_place_when_editing_is_allowed() {
+        let bob = pos2(100.0, 53.0);
+        let edit_frames = |finish: Event| -> Vec<(f64, Vec<Event>)> {
+            vec![
+                (0.0, vec![Event::PointerMoved(bob)]),
+                (0.05, vec![press(bob)]),
+                (0.10, vec![release(bob)]),
+                (0.15, vec![press(bob)]),
+                (0.20, vec![release(bob)]),
+                (0.25, vec![]),
+                (0.30, vec![Event::Key {
+                    key: egui::Key::A,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::COMMAND,
+                }]),
+                (0.35, vec![Event::Text("Zed".to_owned())]),
+                (0.40, vec![finish]),
+                (0.45, vec![]),
+            ]
+        };
+        let (events, props) = drive(
+            &[audit_grid(&[("AllowCellEditing", "true")])],
+            edit_frames(key_ev(egui::Key::Enter)),
+        );
+        let dg = props.get("DG").expect("the edit reported");
+        assert_eq!(dg.get("Rows").map(String::as_str), Some("Zed\t30\nann\t9\nCid\t100"));
+        assert_eq!(dg.get("EditedRow").map(String::as_str), Some("1"));
+        assert_eq!(dg.get("EditedColumn").map(String::as_str), Some("1"));
+        assert_eq!(dg.get("PreviousValue").map(String::as_str), Some("Bob"));
+        assert_eq!(dg.get("EditedValue").map(String::as_str), Some("Zed"));
+        assert!(events.iter().any(|e| e.event == "onCellEdited"), "onCellEdited fires");
+
+        let (events, props) = drive(
+            &[audit_grid(&[("AllowCellEditing", "true")])],
+            edit_frames(key_ev(egui::Key::Escape)),
+        );
+        assert!(props.get("DG").and_then(|p| p.get("Rows")).is_none(), "Escape: unchanged");
+        assert!(!events.iter().any(|e| e.event == "onCellEdited"));
+
+        let (events, props) = drive(&[audit_grid(&[])], edit_frames(key_ev(egui::Key::Enter)));
+        assert!(props.get("DG").and_then(|p| p.get("Rows")).is_none(), "off by default");
+        assert!(!events.iter().any(|e| e.event == "onCellEdited"));
+        println!("\n  DataGrid AllowCellEditing -- double-click, type, Enter: Rows + EditedRow/Column/Value/PreviousValue + onCellEdited; Escape and off change nothing\n");
     }
 
     /// `RowHeightOverrides`: a row with a height of its own pushes every row

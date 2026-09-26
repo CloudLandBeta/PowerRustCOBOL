@@ -8,6 +8,23 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.244] — 2026-09-26
+
+### Feature — edit a DataGrid cell in place
+
+- **`AllowCellEditing`** (new, default false): a double-click, or F2 on the
+  selected cell, opens it in a text box; Enter or clicking away keeps the
+  change, Escape drops it. A kept change is written into `Rows` and raises the
+  new **`onCellEdited`**, with the run-time `EditedRow` / `EditedColumn` (data
+  row and column, numbered from 1), `EditedValue` and `PreviousValue`. Columns
+  with no data behind them, or showing an image, are not editable; a typed tab
+  or line break becomes a space. The grid's keyboard navigation stands aside
+  while a cell is open.
+- A new name on purpose: the retired `ReadOnly` was seeded false on every grid,
+  so reviving it would have made every existing grid editable.
+- Test: double-click, type, Enter (the exact new `Rows` and the report),
+  Escape, and the switch off. KB, hover help, grid settings and Guide updated.
+
 ## [PowerRustCOBOL 1.70.243] — 2026-09-26
 
 ### Feature — a DataGrid row can have a height of its own

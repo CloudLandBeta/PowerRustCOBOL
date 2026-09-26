@@ -2552,8 +2552,18 @@ background/foreground).
   set in the grid's settings or with `SetRowHeight(row, pixels)`. The height
   belongs to the data row, so it stays with its row when the grid is sorted or
   filtered, and `Sort`, `DeleteRow` and `ClearRows` carry it along; dragging
-  the edge of such a row resizes that row alone. The grid's `ReadOnly` is
-  retired: there is no in-cell editing for it to block.
+  the edge of such a row resizes that row alone.
+- **Editing a cell in place — `AllowCellEditing`** (off by default). The
+  operator double-clicks a cell, or presses F2 on the selected one, and it
+  opens as a text box; Enter or clicking away keeps the change, Escape drops
+  it. A kept change is written into `Rows` and raises **`onCellEdited`**, whose
+  handler reads `EditedRow` and `EditedColumn` (the data row and column,
+  numbered from 1 like `GetCellValue`), `EditedValue` and `PreviousValue`. The
+  grid only *shows* the new text — storing it is your handler's job, and so is
+  refusing it: put `PreviousValue` back with `SetCellValue`. A column with no
+  data behind it, or one that shows its value as an image, is not editable.
+  (The old `ReadOnly` is retired and does not control this — it was switched
+  off on every grid before editing existed.)
 
 ```cobol
       *> Freeze the key column and filter to one city, from COBOL.
@@ -2561,6 +2571,18 @@ background/foreground).
            MOVE "City=Rio" TO DG-CUSTOMERS::ColumnFilters
       *> Give the third row room for a two-line note; 0 hands it back.
            INVOKE DG-CUSTOMERS::SetRowHeight(3, 44)
+```
+
+```cobol
+       DG-CUSTOMERS--ONCELLEDITED.
+      *> Column 3 is the credit limit: it must be numeric.
+           IF DG-CUSTOMERS::EditedColumn = 3
+              AND FUNCTION TEST-NUMVAL(DG-CUSTOMERS::EditedValue) NOT = 0
+               INVOKE DG-CUSTOMERS::SetCellValue(DG-CUSTOMERS::EditedRow,
+                   3, DG-CUSTOMERS::PreviousValue)
+           ELSE
+               PERFORM SAVE-CUSTOMER-ROW
+           END-IF.
 ```
 
 > **Note.** A write of `FrozenColumns`, `FrozenRows`, `ColumnFilters`,
