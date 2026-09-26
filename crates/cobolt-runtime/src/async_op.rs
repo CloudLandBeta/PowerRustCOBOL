@@ -38,6 +38,10 @@ pub enum AsyncOutcome {
     /// provider that answers in an unexpected shape produces one diagnosis,
     /// not two that can drift apart.
     AgentReply { status: u16, body: String },
+    /// A `StreamReply` Ask's reply so far. Not final — the Ask is still in
+    /// flight; the worker throttles these, and the finished stream arrives as
+    /// an ordinary [`Self::AgentReply`].
+    AgentPartial { text: String },
     /// Spec 068 — a KnowledgeBase operation moved on. Not final: the operation
     /// is still pending. Throttled by the worker.
     KbProgress {

@@ -345,6 +345,14 @@ pub static PROP_HELP: &[PropHelp] = &[
         "已停用：回复从未流式传输，每次请求都获取完整答案。仅保留于旧窗体中且被忽略；COBOL 读写仍可正常执行。",
         "Retirée : les réponses n'ont jamais été diffusées en continu ; chaque requête demande la réponse entière. Conservée depuis d'anciens formulaires et ignorée ; les lectures et écritures COBOL fonctionnent toujours.",
     ] },
+    PropHelp { ty: "AgentObject", prop: "StreamReply", text: [
+        "Show the reply while it arrives: PartialReply holds the text so far and onPartialReply fires; onResponse still ends the Ask. TimeoutSeconds becomes a silence limit. Default false.",
+        "Muestra la respuesta mientras llega: PartialReply guarda el texto recibido y se dispara onPartialReply; onResponse sigue cerrando el Ask. TimeoutSeconds pasa a ser límite de silencio. Predeterminado falso.",
+        "Mostra a resposta enquanto chega: PartialReply guarda o texto até agora e onPartialReply dispara; onResponse ainda encerra o Ask. TimeoutSeconds vira limite de silêncio. Padrão falso.",
+        "応答を受信しながら表示します。PartialReply にそれまでの文字列が入り onPartialReply が発生し、最後は従来どおり onResponse で Ask が終わります。TimeoutSeconds は無通信の上限になります。既定は false。",
+        "边接收边显示回复：PartialReply 保存目前收到的文本并触发 onPartialReply；Ask 仍以 onResponse 结束。TimeoutSeconds 变为静默时限。默认 false。",
+        "Affiche la réponse pendant qu'elle arrive : PartialReply contient le texte reçu et onPartialReply se déclenche ; onResponse termine toujours l'Ask. TimeoutSeconds devient une limite de silence. Faux par défaut.",
+    ] },
     PropHelp { ty: "AgentObject", prop: "SystemPrompt", text: [
         "System prompt sent with every Ask (default \"You are a helpful assistant.\"). Empty sends none. A program can change it at run time with SetPrompt.",
         "Prompt de sistema enviado en cada Ask (por defecto \"You are a helpful assistant.\"). Vacío: no se envía ninguno. El programa puede cambiarlo en tiempo de ejecución con SetPrompt.",

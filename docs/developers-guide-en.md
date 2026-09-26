@@ -8557,8 +8557,9 @@ reference: `docs/database-runtime-en.md`.
   events to bind: `onComplete`, `onError`, `onTimeout` and `onCancelled`.
 - **AI agents.** The **AI Agent** non-visual control models a connection to a
   Large Language Model — its endpoint, model, system prompt, temperature and token
-  limits — and raises two events for your COBOL handlers: `onResponse` when the
-  reply arrives, and `onError` when it does not.
+  limits — and raises events for your COBOL handlers: `onResponse` when the
+  reply arrives, `onError` when it does not, and — with `StreamReply` on —
+  `onPartialReply` while it is still being written.
 
 > ⚠️ **Caveat.** Network features reach the outside world — handle errors and
 > timeouts in COBOL. Treat credentials as runtime configuration, never as part
@@ -8792,8 +8793,9 @@ unless it names an item your form declares.
 > **Retired, and harmless.** `LoadStrategy` (the `.cidx` definition owns
 > storage — a form that has it still gets its `WS-<id>-LOAD-STRATEGY` item),
 > `MaximumConnections` (there is no pool), and the AgentObject's `Stream`
-> (replies were never streamed) and `TargetControls` (an agent never writes a
-> control itself). None is offered any more; code that sets or reads one still
+> (it was switched on in every older form and never read — streaming is the
+> new `StreamReply`, off until you turn it on) and `TargetControls` (an agent
+> never writes a control itself). None is offered any more; code that sets or reads one still
 > compiles and runs, and the value is ignored. An AgentObject's
 > `AgentEndpoint` may now be a path — `/v1/chat/completions` — joined onto
 > `AgentURL`'s host.
@@ -9345,6 +9347,38 @@ while the model thinks. The answer therefore arrives in a *second* handler —
 > raced — test `Busy` (or disable the button) if the user can press twice.
 > `TimeoutSeconds` bounds the wait; raising `MaximumTokens` lengthens the
 > answer, so raise the timeout with it.
+
+**Showing the reply while it arrives — `StreamReply`.** A long answer can take
+many seconds, and an empty box for all of them feels broken. Turn `StreamReply`
+on and the model's text reaches your program while it is being written: up to
+ten times a second `onPartialReply` fires, with `PartialReply` holding the
+reply so far and `ReplyPiece` only what is new since the last time. The Ask
+still ends the way it always did — `onResponse`, once, with the whole text in
+`LastReply` — so a handler written for the unstreamed Ask keeps working.
+
+```cobol
+       SEND-BUTTON--ONCLICK.
+           INVOKE VWR-1::AppendMarkdown("**Assistant:**")
+               RETURNING WS-MESSAGE-ID
+           Agent1::Ask(Prompt-Box::Text).
+
+       AGENT1--ONPARTIALREPLY.
+           INVOKE VWR-1::AppendToMessage(WS-MESSAGE-ID,
+               Agent1::ReplyPiece, "Raw").
+
+       AGENT1--ONRESPONSE.
+           MOVE Agent1::LastReply TO WS-LAST-ANSWER.
+```
+
+> **Notes.** Streamed, `TimeoutSeconds` is a limit on *silence*: every piece
+> that arrives restarts it, so a long answer that keeps coming is never cut
+> off, while a provider that goes quiet still times out. `Busy` stays true
+> until `onResponse` (or `onError`). An Ask that offers tools is never
+> streamed — its rounds are answered by your program, not shown.
+>
+> ⚠️ **Caveat.** The OpenAI-compatible providers, Anthropic and Ollama all
+> stream. A `Custom` endpoint that cannot fails the Ask with its own error in
+> `LastError`; switch `StreamReply` off for it.
 
 `WebSearch` is classified as a `RestApi`-kind binding **source** (the same
 kind `RestClient` uses — there is no separate `WebSearch` source kind), so

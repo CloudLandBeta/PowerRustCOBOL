@@ -8734,6 +8734,9 @@ impl PropertiesPanel {
                     None,
                     30,
                 );
+                // Show the reply while it arrives (`PartialReply`,
+                // `onPartialReply`); `onResponse` still ends every Ask.
+                bool_row_inline(ui, id, "StreamReply", tr.lbl_stream_reply, ctrl, action);
                 // The debugging switch. An Ask that yields nothing looks exactly
                 // like an Ask that never ran, and this is what tells them apart.
                 bool_row_inline(ui, id, "Verbose", "Verbose log", ctrl, action);

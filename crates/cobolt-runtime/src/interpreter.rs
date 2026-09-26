@@ -3532,6 +3532,7 @@ impl Interpreter {
                 r.outcome,
                 crate::async_op::AsyncOutcome::KbProgress { .. }
                     | crate::async_op::AsyncOutcome::KbToolResult { .. }
+                    | crate::async_op::AsyncOutcome::AgentPartial { .. }
             ) {
                 self.async_pending.remove(&r.ctrl_id);
             }
@@ -3548,6 +3549,9 @@ impl Interpreter {
                 }
                 crate::async_op::AsyncOutcome::AgentReply { status, body } => {
                     self.agent_delivered(&r.ctrl_id, status, &body);
+                }
+                crate::async_op::AsyncOutcome::AgentPartial { text } => {
+                    self.agent_partial(&r.ctrl_id, text);
                 }
                 crate::async_op::AsyncOutcome::HttpSuccess { body, status } => {
                     if self.agent_is_verbose(&r.ctrl_id) {
@@ -12239,8 +12243,9 @@ impl Interpreter {
             gen.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
         };
         let timeout_ms = cfg.timeout_ms;
+        let offers_tools = !tools.is_empty();
         self.tool_loops.remove(obj);
-        if !tools.is_empty() {
+        if offers_tools {
             self.agent_begin_tool_loop(
                 obj,
                 req.clone(),
@@ -12272,17 +12277,75 @@ impl Interpreter {
         } else {
             0
         };
+        // `StreamReply` — the reply is read as the provider writes it and
+        // shown on the way (`PartialReply` + `onPartialReply`). A tool-offering
+        // Ask is never streamed: its rounds are answered by the program, not
+        // shown. `Stream`, the retired switch seeded on older forms, is NOT
+        // this — it stays a no-op, so no existing form starts streaming.
+        // Streamed, `TimeoutSeconds` is a SILENCE limit: every piece that
+        // arrives restarts it (`agent_partial`), and the transport's own limit
+        // is per read, so a long answer that keeps coming is never cut off.
+        let stream = !offers_tools
+            && matches!(
+                self.obj_get(obj, "StreamReply").trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes"
+            );
+        self.obj_set(obj, "PartialReply", String::new());
+        self.obj_set(obj, "ReplyPiece", String::new());
         let tx = self.async_result_tx.clone();
         let http = self.http.clone();
         let ctrl_id = obj.to_string();
         std::thread::spawn(move || {
-            let (body, status) = http.send_configured("POST", &url, Some(&body), &cfg);
+            let (body, status) = if stream {
+                let mut asm = ag::StreamAssembler::default();
+                let mut last_sent = std::time::Instant::now();
+                let mut unsent = false;
+                let (err, status) = http.post_streaming(&url, &ag::streaming_body(&body), &cfg, &mut |line| {
+                    unsent |= asm.feed(line);
+                    // Throttled: a handler per token would drown the event
+                    // loop; ten a second reads as live.
+                    if unsent && last_sent.elapsed() >= std::time::Duration::from_millis(100) {
+                        unsent = false;
+                        last_sent = std::time::Instant::now();
+                        let _ = tx.send(crate::async_op::AsyncOpResult {
+                            ctrl_id: ctrl_id.clone(),
+                            generation,
+                            outcome: crate::async_op::AsyncOutcome::AgentPartial {
+                                text: asm.text.clone(),
+                            },
+                        });
+                    }
+                });
+                if status == 0 || !(200..300).contains(&status) {
+                    (err, status)
+                } else {
+                    (asm.into_body(), status)
+                }
+            } else {
+                http.send_configured("POST", &url, Some(&body), &cfg)
+            };
             let _ = tx.send(crate::async_op::AsyncOpResult {
                 ctrl_id,
                 generation,
                 outcome: crate::async_op::AsyncOutcome::AgentReply { status, body },
             });
         });
+    }
+
+    /// A streamed Ask's reply so far: `PartialReply` holds it, `ReplyPiece`
+    /// what is new since the last `onPartialReply` (what a Viewer's
+    /// `AppendToMessage` wants), and `onPartialReply` fires. The Ask stays in
+    /// flight — `Busy` stays 1 — and its timeout restarts, because text is
+    /// still arriving.
+    fn agent_partial(&mut self, obj: &str, text: String) {
+        if let Some(op) = self.async_pending.get_mut(obj) {
+            op.started_at = std::time::Instant::now();
+        }
+        let before = self.obj_get(obj, "PartialReply");
+        let piece = text.strip_prefix(before.as_str()).unwrap_or(&text).to_owned();
+        self.obj_set(obj, "ReplyPiece", piece);
+        self.obj_set(obj, "PartialReply", text);
+        self.queue_control_event(obj, "onPartialReply");
     }
 
     /// Read one delivered `Ask` onto its control and raise the event it earned.
@@ -22535,6 +22598,91 @@ mod queued_event_spelling_tests {
         // One question at a time: the second Ask is ignored, not raced.
         i.agent_ask("Agent-Helper", "again");
         assert_eq!(i.async_pending.len(), 1);
+    }
+
+    /// `StreamReply` shows the reply while it arrives: `PartialReply` grows and
+    /// `onPartialReply` fires, then `onResponse` fires ONCE with the whole
+    /// text, exactly as an unstreamed Ask ends. Served by a local socket that
+    /// writes an OpenAI-style SSE stream in three timed pieces.
+    #[test]
+    fn a_streamed_ask_shows_the_reply_while_it_arrives() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut sock, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 8192];
+            let mut got = Vec::new();
+            // Headers and the JSON body; the body ends the request.
+            while !String::from_utf8_lossy(&got).contains("\"stream\":true") {
+                let n = sock.read(&mut buf).unwrap();
+                assert!(n > 0, "the request must ask for a stream");
+                got.extend_from_slice(&buf[..n]);
+            }
+            sock.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n")
+                .unwrap();
+            for piece in ["COBOL ", "streams ", "fine."] {
+                let line = format!("data: {{\"choices\":[{{\"delta\":{{\"content\":\"{piece}\"}}}}]}}\n\n");
+                sock.write_all(line.as_bytes()).unwrap();
+                sock.flush().unwrap();
+                std::thread::sleep(std::time::Duration::from_millis(250));
+            }
+            sock.write_all(b"data: [DONE]\n\n").unwrap();
+        });
+
+        let mut i = interp();
+        i.set_control_ids(["Agent-Helper"]);
+        i.obj_set("Agent-Helper", "AgentURL", format!("http://127.0.0.1:{port}/v1/chat/completions"));
+        i.obj_set("Agent-Helper", "AgentAPI", "Custom".into());
+        i.obj_set("Agent-Helper", "TimeoutSeconds", "10".into());
+        i.obj_set("Agent-Helper", "StreamReply", "true".into());
+        i.agent_ask("Agent-Helper", "hello");
+
+        let mut partials = Vec::new();
+        let mut pieces = String::new();
+        let mut responses = 0;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while responses == 0 && std::time::Instant::now() < deadline {
+            i.drain_async_ops();
+            while let Some((_, ev)) = i.async_dispatch_queue.pop_front() {
+                match ev.as_str() {
+                    "onPartialReply" => {
+                        pieces.push_str(&i.obj_get("Agent-Helper", "ReplyPiece"));
+                        partials.push(i.obj_get("Agent-Helper", "PartialReply"));
+                        assert_eq!(&pieces, partials.last().unwrap(), "the pieces add up");
+                    }
+                    "onResponse" => responses += 1,
+                    "onError" => panic!("{}", i.obj_get("Agent-Helper", "LastError")),
+                    _ => {}
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        server.join().unwrap();
+        assert_eq!(responses, 1, "onResponse fires once, at the end");
+        assert_eq!(i.obj_get("Agent-Helper", "LastReply"), "COBOL streams fine.");
+        assert!(partials.len() >= 2, "the reply was shown on the way: {partials:?}");
+        assert!(
+            partials.windows(2).all(|w| w[1].starts_with(&w[0]) && w[1].len() > w[0].len()),
+            "each partial extends the last: {partials:?}"
+        );
+        assert!("COBOL streams fine.".starts_with(partials.last().unwrap().as_str()));
+    }
+
+    /// The retired `Stream`, seeded TRUE on every older AgentObject, does not
+    /// switch streaming on — only `StreamReply` does.
+    #[test]
+    fn the_retired_stream_switch_does_not_stream() {
+        let mut i = interp();
+        i.set_control_ids(["Agent-Helper"]);
+        i.obj_set("Agent-Helper", "AgentURL", "http://127.0.0.1:1/v1/chat/completions".into());
+        i.obj_set("Agent-Helper", "Stream", "true".into());
+        i.obj_set("Agent-Helper", "Verbose", "true".into());
+        let (tx, rx) = std::sync::mpsc::channel();
+        i.display_tx = Some(tx);
+        i.agent_ask("Agent-Helper", "hello");
+        let log = rx.try_iter().collect::<Vec<_>>().join("\n");
+        assert!(log.contains("\"stream\":false"), "{log}");
     }
 
     /// `SetModel` changes the model the next `Ask` sends. It wrote `Model`,

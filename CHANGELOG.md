@@ -8,6 +8,25 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.241] — 2026-09-26
+
+### Feature — an AgentObject can show its reply while it arrives
+
+- **`StreamReply`** (new, default false): `Ask` requests a streamed reply
+  (OpenAI-compatible and Anthropic SSE, Ollama NDJSON) and, up to ten times a
+  second, writes `PartialReply` (the text so far) and `ReplyPiece` (what is new)
+  and fires the new **`onPartialReply`**. The Ask ends exactly as before —
+  `onResponse` once, with the whole text — because the finished stream is
+  assembled into an ordinary reply and read by the same code.
+- Streamed, `TimeoutSeconds` is a silence limit: each piece restarts it. An Ask
+  that offers tools is never streamed.
+- The retired `Stream`, seeded true on every older form, stays a no-op — a new
+  name keeps existing forms from streaming on their own.
+- HTTP bridge: `post_streaming` (per-read timeout, lines handed over as they
+  arrive). Tests: the three provider stream shapes, an error inside a stream,
+  and an end-to-end Ask against a local SSE socket. KB, hover help (six
+  languages), designer checkbox (`lbl_stream_reply`) and Guide updated.
+
 ## [PowerRustCOBOL 1.70.240] — 2026-09-26
 
 ### Feature — a Responsive MenuBar spans the running window

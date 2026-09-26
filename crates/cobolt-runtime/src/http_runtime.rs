@@ -318,6 +318,15 @@ impl HttpClient {
     ) -> (String, u16) {
         (HTTP_NOT_LINKED.to_owned(), 0)
     }
+    pub fn post_streaming(
+        &self,
+        _url: &str,
+        _body: &str,
+        _cfg: &RequestConfig,
+        _on_line: &mut dyn FnMut(&str),
+    ) -> (String, u16) {
+        (HTTP_NOT_LINKED.to_owned(), 0)
+    }
 }
 
 #[cfg(feature = "http")]
@@ -526,6 +535,74 @@ impl HttpClient {
                 (body, code)
             }
             Err(e) => (format!("HTTP {method} error: {e}"), 0),
+        }
+    }
+
+    /// POST `body` and hand a 2xx response to `on_line` one line at a time, as
+    /// it arrives — a streamed (SSE or NDJSON) reply.
+    ///
+    /// Returns `(String::new(), status)` once a 2xx stream has ended; any other
+    /// status returns its whole body, and a transport failure returns status 0
+    /// with the error, exactly like [`Self::send_configured`].
+    ///
+    /// `cfg.timeout_ms` bounds the connection and each silence between two
+    /// reads — not the whole call, which lasts as long as the reply does.
+    pub fn post_streaming(
+        &self,
+        url: &str,
+        body: &str,
+        cfg: &RequestConfig,
+        on_line: &mut dyn FnMut(&str),
+    ) -> (String, u16) {
+        use std::io::BufRead;
+        let url = url.trim();
+        let mut builder = ureq::AgentBuilder::new();
+        if cfg.timeout_ms > 0 {
+            let t = std::time::Duration::from_millis(cfg.timeout_ms);
+            builder = builder.timeout_connect(t).timeout_read(t);
+        }
+        if !cfg.follow_redirects {
+            builder = builder.redirects(0);
+        }
+        let connector = if cfg.verify_tls {
+            tls_connector()
+        } else {
+            permissive_tls_connector()
+        };
+        if let Some(connector) = connector {
+            builder = builder.tls_connector(connector);
+        }
+        let headers = self.merged_headers(cfg);
+        let mut req = builder.build().post(url);
+        for (k, v) in &headers {
+            if !k.eq_ignore_ascii_case("content-type") {
+                req = req.set(k.as_str(), v.as_str());
+            }
+        }
+        let content_type = headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
+            .map(|(_, v)| v.as_str())
+            .unwrap_or("application/json");
+        match req.set("Content-Type", content_type).send_string(body) {
+            Ok(resp) => {
+                let status = resp.status();
+                let mut reader = std::io::BufReader::new(resp.into_reader());
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line) {
+                        Ok(0) => break,
+                        Ok(_) => on_line(line.trim_end_matches(['\r', '\n'])),
+                        Err(e) => {
+                            return (format!("HTTP POST error: the stream broke off — {e}"), 0)
+                        }
+                    }
+                }
+                (String::new(), status)
+            }
+            Err(ureq::Error::Status(code, resp)) => (body_of(resp), code),
+            Err(e) => (format!("HTTP POST error: {e}"), 0),
         }
     }
 

@@ -244,6 +244,102 @@ pub fn parse_reply(status: u16, body: &str) -> Result<String, String> {
     ))
 }
 
+/// `body` (from [`body_for`]) asking for a STREAMED reply.
+pub fn streaming_body(body: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(body) {
+        Ok(mut v) => {
+            v["stream"] = serde_json::Value::Bool(true);
+            v.to_string()
+        }
+        Err(_) => body.to_owned(),
+    }
+}
+
+/// Reads a streamed reply line by line and assembles it.
+///
+/// The three shapes: OpenAI-compatible SSE (`data: {"choices":[{"delta":…}]}`
+/// ending in `data: [DONE]`), Anthropic SSE (`content_block_delta` events,
+/// usage in `message_start` / `message_delta`), and Ollama's native NDJSON
+/// (`{"message":{"content":…},"done":false}`). Every line is tried against
+/// every shape, as [`parse_reply`] does, so a `Custom` endpoint works too.
+#[derive(Debug, Default)]
+pub struct StreamAssembler {
+    /// The reply so far.
+    pub text: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    /// A provider error met inside the stream.
+    pub error: Option<String>,
+}
+
+impl StreamAssembler {
+    /// Take one line. True when it added text to the reply.
+    pub fn feed(&mut self, line: &str) -> bool {
+        let line = line.trim();
+        let payload = match line.strip_prefix("data:") {
+            Some(rest) => rest.trim(),
+            // SSE comments, `event:` names and blank separators carry nothing
+            // the `data:` line after them does not repeat.
+            None if line.starts_with('{') => line,
+            None => return false,
+        };
+        if payload.is_empty() || payload == "[DONE]" {
+            return false;
+        }
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(payload) else {
+            return false;
+        };
+        if let Some(text) = provider_error(&json) {
+            self.error.get_or_insert(text);
+            return false;
+        }
+        let num = |p: &str| json.pointer(p).and_then(serde_json::Value::as_u64);
+        if let Some(n) = num("/usage/prompt_tokens")
+            .or_else(|| num("/usage/input_tokens"))
+            .or_else(|| num("/message/usage/input_tokens"))
+            .or_else(|| num("/prompt_eval_count"))
+        {
+            self.input_tokens = n;
+        }
+        if let Some(n) = num("/usage/completion_tokens")
+            .or_else(|| num("/usage/output_tokens"))
+            .or_else(|| num("/eval_count"))
+        {
+            self.output_tokens = n;
+        }
+        let piece = [
+            json.pointer("/choices/0/delta/content"),
+            json.pointer("/delta/text"),
+            json.pointer("/message/content"),
+            json.pointer("/response"),
+        ]
+        .into_iter()
+        .flatten()
+        .find_map(|v| v.as_str());
+        match piece {
+            Some(p) if !p.is_empty() => {
+                self.text.push_str(p);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The finished stream as a whole, non-streamed reply document, so it is
+    /// read by the same [`parse_reply`] and usage code as any other reply.
+    pub fn into_body(self) -> String {
+        match self.error {
+            Some(e) => serde_json::json!({ "error": e }).to_string(),
+            None => serde_json::json!({
+                "message": { "content": self.text },
+                "prompt_eval_count": self.input_tokens,
+                "eval_count": self.output_tokens,
+            })
+            .to_string(),
+        }
+    }
+}
+
 /// A provider's own error text, wherever it puts it.
 fn provider_error(json: &serde_json::Value) -> Option<String> {
     let node = json.get("error")?;
@@ -269,6 +365,61 @@ fn clip(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Each provider's stream assembles into the reply and usage a
+    /// non-streamed call would have returned.
+    #[test]
+    fn a_streamed_reply_assembles_in_every_provider_shape() {
+        let openai = [
+            r#"data: {"choices":[{"delta":{"role":"assistant"}}]}"#,
+            "",
+            r#"data: {"choices":[{"delta":{"content":"Hel"}}]}"#,
+            r#"data: {"choices":[{"delta":{"content":"lo"}}],"usage":{"prompt_tokens":7,"completion_tokens":2}}"#,
+            "data: [DONE]",
+        ];
+        let anthropic = [
+            "event: message_start",
+            r#"data: {"type":"message_start","message":{"usage":{"input_tokens":7}}}"#,
+            "event: content_block_delta",
+            r#"data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hel"}}"#,
+            r#"data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"lo"}}"#,
+            r#"data: {"type":"message_delta","usage":{"output_tokens":2}}"#,
+            "data: {\"type\":\"message_stop\"}",
+        ];
+        let ollama = [
+            r#"{"message":{"role":"assistant","content":"Hel"},"done":false}"#,
+            r#"{"message":{"role":"assistant","content":"lo"},"done":false}"#,
+            r#"{"message":{"role":"assistant","content":""},"done":true,"prompt_eval_count":7,"eval_count":2}"#,
+        ];
+        for lines in [&openai[..], &anthropic[..], &ollama[..]] {
+            let mut a = StreamAssembler::default();
+            let grew = lines.iter().filter(|l| a.feed(l)).count();
+            assert_eq!(grew, 2, "{lines:?}");
+            assert_eq!((a.text.as_str(), a.input_tokens, a.output_tokens), ("Hello", 7, 2));
+            let body = a.into_body();
+            assert_eq!(parse_reply(200, &body), Ok("Hello".to_string()));
+            let u = crate::agent_tools::usage_from_body(&body);
+            assert_eq!((u.input, u.output), (7, 2));
+        }
+    }
+
+    /// An error inside a stream fails the Ask with the provider's own words.
+    #[test]
+    fn an_error_inside_a_stream_is_the_failure() {
+        let mut a = StreamAssembler::default();
+        a.feed(r#"data: {"choices":[{"delta":{"content":"Hi"}}]}"#);
+        a.feed(r#"data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#);
+        assert_eq!(parse_reply(200, &a.into_body()), Err("HTTP 200: Overloaded".to_string()));
+    }
+
+    #[test]
+    fn a_streaming_body_asks_for_a_stream() {
+        let req = AskRequest { model: "m".into(), prompt: "q".into(), ..Default::default() };
+        for p in [Protocol::OpenAiChat, Protocol::OllamaChat, Protocol::Anthropic] {
+            let v: serde_json::Value = serde_json::from_str(&streaming_body(&body_for(&req, p))).unwrap();
+            assert_eq!(v["stream"], serde_json::Value::Bool(true), "{p:?}");
+        }
+    }
 
     /// A path in `AgentEndpoint` joins `AgentURL`'s origin; a full URL stands
     /// (property audit, 2026-09-26).

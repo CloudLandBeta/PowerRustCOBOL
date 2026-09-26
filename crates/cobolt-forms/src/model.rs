@@ -3491,7 +3491,9 @@ impl ControlType {
                 "onEnabledChanged",
                 "onLoad",
             ],
-            ControlType::AgentObject => &["onResponse", "onError", "onToolCall", "onModelChanged"],
+            ControlType::AgentObject => {
+                &["onResponse", "onPartialReply", "onError", "onToolCall", "onModelChanged"]
+            }
             ControlType::KnowledgeBase => {
                 &["onProgress", "onIndexed", "onSearchComplete", "onBusy", "onError"]
             }
@@ -5412,8 +5414,11 @@ impl Control {
                 );
                 props.insert("Temperature".into(), PropValue::Int(70)); // stored as int 0-100 (0.0-1.0)
                 props.insert("MaximumTokens".into(), PropValue::Int(1024));
-                // `Stream` is retired: every request asks for a whole reply
-                // (property audit, 2026-09-26).
+                // `Stream` is retired (property audit, 2026-09-26): it was
+                // seeded true and never read, so every older form carries it.
+                // `StreamReply` is the real, opt-in switch — a new name, so no
+                // existing form starts streaming on its own.
+                props.insert("StreamReply".into(), PropValue::Bool(false));
                 props.insert("TimeoutSeconds".into(), PropValue::Int(30));
                 // Target controls — comma-sep list of IDs this agent is allowed to modify
                 // `TargetControls` is retired: an agent never writes a control
@@ -10882,7 +10887,7 @@ mod tests {
         assert_eq!(ControlType::Timer.supported_events(), &["onTick"]);
         assert_eq!(
             ControlType::AgentObject.supported_events(),
-            &["onResponse", "onError", "onToolCall", "onModelChanged"]
+            &["onResponse", "onPartialReply", "onError", "onToolCall", "onModelChanged"]
         );
         // RestClient / SqlDatabase / IndexedFile gain the uniform async lifecycle
         // events onComplete/onError/onCancelled/onTimeout (skipping any the
