@@ -4896,6 +4896,14 @@ pub fn property_reference_for(control: &str, name: &str) -> Option<(&'static str
             "pixels 0-64",
             "The width of the splitter's frame. The panes are inset by it (2 pixels at least), so a wide frame is never covered by the panes and what they hold; with BorderStyle None the inset is 2.",
         )),
+        ("NumericUpDown", "ReadOnly") => Some((
+            BOOL_DOMAIN,
+            "The operator cannot change the value — no drag, wheel or arrow key moves it — but it stays shown and focusable. COBOL still sets it.",
+        )),
+        ("ProgressBar", "ShowValue") => Some((
+            BOOL_DOMAIN,
+            "Draws the progress as a PERCENTAGE of the range (e.g. `45%`), centred on the bar — not the raw Value.",
+        )),
         ("Viewer", "Format") => Some((
             "one of: `Text` | `Markdown` | `Image` | `Pdf` | `HtmlSubset` (runtime-set)",
             "The format the runtime detected for the loaded document, from its extension and content; written on every load. Setting it does not change how the document is decoded.",
@@ -5059,10 +5067,10 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             "Current value. A DateTimePicker always stores ISO, whatever Format displays, so a COBOL handler reading Value gets one shape; which halves are present follows Format (a Time picker stores the time alone).",
         ),
 
-        "Step" => ("integer > 0", "Increment applied by arrows / Increment()/Decrement()."),
-        "LargeChange" => ("integer > 0", "Page Up/Down increment."),
-        "DecimalPlaces" => ("0-6", "Fractional digits displayed."),
-        "ThousandsSeparator" => (BOOL_DOMAIN, "Shows a thousands separator."),
+        "Step" => ("number > 0", "How far one step moves the value: the ↑/↓ keys on a NumericUpDown, ←/→/↑/↓ on a Slider, the wheel, and the Increment()/Decrement() methods — which stop at Minimum and Maximum. A fractional Step (0.5) steps in fractions."),
+        "LargeChange" => ("number > 0 (default 20)", "Slider: how far Page Up / Page Down move the value while the slider has the keyboard (the arrows move by Step; Home / End go to Minimum / Maximum)."),
+        "DecimalPlaces" => ("0-6", "NumericUpDown: how many fractional digits the field shows and writes into Value — never fewer than Step carries, so a Step of 0.25 is always visible."),
+        "ThousandsSeparator" => (BOOL_DOMAIN, "NumericUpDown: groups the whole part in thousands with a comma (12,345.50). Display only; Value stays a plain number."),
         "BarColor" => (
             COLOR_DOMAIN,
             "Filled-portion color of the progress bar (how far it has travelled). The \
@@ -5081,19 +5089,19 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         ),
         "ShowValue" => (BOOL_DOMAIN, "Draws the numeric value on the control."),
         "TickFrequency" => ("integer > 0 (value units)", "Draw a tick every N units."),
-        "TickStyle" => ("one of: `None` | `Top` | `Bottom` | `Both`", "Where slider ticks are drawn."),
+        "TickStyle" => ("one of: `None` | `Top` | `Bottom` | `Both`", "Where slider ticks are drawn. On a vertical slider `Top` is the left side and `Bottom` the right."),
         "TrackColor" => (COLOR_DOMAIN, "The part still to travel: a Slider's rail from Value to Maximum, a Knob's arc from Value round to Maximum. Outranks the Appearance BackgroundColor; left at its default the active theme paints."),
         "ThumbColor" => (COLOR_DOMAIN, "Slider knob color. Outranks the Appearance ForegroundColor; left at its default the active theme paints."),
         "FaceColor" => (COLOR_DOMAIN, "Knob dial face — the round body the indicator turns over. Empty (the default) leaves it to the theme. The rim's own fill is this colour lightened, so a face colour carries the whole dial."),
         "RimColor" => (COLOR_DOMAIN, "Knob rim and inner ring — the two outlines around the dial face. Empty (the default) leaves them to the theme."),
 
         // ── Date/time ──
-        "Format" => ("one of: `Short` | `Long` | `Time` | `Custom`", "Which halves of a date-time the picker edits and shows. `Short`/`Long` are the date alone: the popup is a calendar. `Time` is the time alone: the popup is an hour/minute clock. `Custom` is decided by CustomFormat's own letters. It never changes how Value is stored — that is always ISO."),
-        "CustomFormat" => ("format pattern, e.g. `dd/MM/yyyy HH:mm`", "Pattern used when Format = `Custom`. Its letters decide what the popup offers: `y`/`M`/`d` ask for a calendar, `H`/`h`/`m` for a clock, both for both. Case matters here and nowhere else on this control — `M` is the month, `m` the minute. A pattern naming neither falls back to a date."),
-        "ShowUpDown" => (BOOL_DOMAIN, "Spinner arrows instead of a drop-down calendar."),
+        "Format" => ("one of: `Short` | `Long` | `Time` | `Custom`", "Which halves of a date-time the picker edits and how it shows them. `Short` shows the date as `YYYY-MM-DD`; `Long` as a long date (`Thursday, 3 September 2026`); both are the date alone and the popup is a calendar. `Time` is the time alone: the popup is an hour/minute clock. `Custom` is decided by CustomFormat's own letters. It never changes how Value is stored — that is always ISO."),
+        "CustomFormat" => ("format pattern, e.g. `dd/MM/yyyy HH:mm`", "Pattern used when Format = `Custom`: the field SHOWS the value laid out through it — `yyyy` `yy` `MMMM` `MMM` `MM` `M` `dddd` `ddd` `dd` `d` `HH` `H` `hh` `h` `mm` `m` `tt`, anything else as written — and an empty field shows the pattern as its hint. Its letters also decide what the popup offers: `y`/`M`/`d` ask for a calendar, `H`/`h`/`m` for a clock, both for both. Case matters here and nowhere else on this control — `M` is the month, `m` the minute. A pattern naming neither falls back to a date."),
+        "ShowUpDown" => (BOOL_DOMAIN, "▲▼ steppers instead of the popup: ▲ / ▼, the ↑ / ↓ keys while the picker has the keyboard, or the wheel over it step the DAY (the minute, on a time-only picker), within MinimumDate..MaximumDate."),
 
-        "MinimumDate" => ("date string or empty", "Earliest selectable date."),
-        "MaximumDate" => ("date string or empty", "Latest selectable date."),
+        "MinimumDate" => ("`YYYY-MM-DD` or empty", "Earliest date the operator can pick: earlier days are dimmed and refuse a click, and a stepped or committed date never goes below it. A Value set from COBOL is kept as written."),
+        "MaximumDate" => ("`YYYY-MM-DD` or empty", "Latest date the operator can pick: later days are dimmed and refuse a click, and a stepped or committed date never goes above it. A Value set from COBOL is kept as written."),
 
         // ── Lists ──
         "Items" => (

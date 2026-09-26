@@ -6679,6 +6679,51 @@ fn render_interactive(
                 }
             }
 
+            // The keyboard, while the slider has it: ← ↓ / → ↑ move by `Step`,
+            // Page Down / Page Up by `LargeChange`, Home / End to the ends. The
+            // slider was drag-only, and `LargeChange` was read by nothing
+            // (property audit, 2026-09-26). A key is a finished change, so it
+            // raises onValueChanged at once.
+            if resp.drag_started() || resp.clicked() {
+                resp.request_focus();
+            }
+            let mut key_moved = false;
+            if enabled && resp.has_focus() {
+                let large = sv(ctrl, "LargeChange").parse::<f32>().unwrap_or(step * 10.0).max(step);
+                let delta = ui.input_mut(|i| {
+                    let mut d = 0.0_f32;
+                    let mut take = |k: egui::Key| i.consume_key(egui::Modifiers::NONE, k);
+                    if take(egui::Key::ArrowRight) | take(egui::Key::ArrowUp) {
+                        d += step;
+                    }
+                    if take(egui::Key::ArrowLeft) | take(egui::Key::ArrowDown) {
+                        d -= step;
+                    }
+                    if take(egui::Key::PageUp) {
+                        d += large;
+                    }
+                    if take(egui::Key::PageDown) {
+                        d -= large;
+                    }
+                    if take(egui::Key::Home) {
+                        d = f32::NEG_INFINITY;
+                    }
+                    if take(egui::Key::End) {
+                        d = f32::INFINITY;
+                    }
+                    d
+                });
+                if delta != 0.0 {
+                    let to = if delta.is_infinite() {
+                        if delta > 0.0 { max_v } else { min_v }
+                    } else {
+                        ((display_val + delta) / step).round() * step
+                    };
+                    display_val = to.clamp(min_v, max_v);
+                    key_moved = (display_val - cur).abs() > 1e-5;
+                }
+            }
+
             let mut drawn = ctrl.clone();
             drawn.properties.insert(
                 "Value".to_owned(),
@@ -6698,6 +6743,10 @@ fn render_interactive(
                 if dirty {
                     out.events.push(UiEvent::ev(id, "onValueChanged"));
                 }
+                ui.data_mut(|d| d.insert_temp(slider_dirty_id, false));
+            }
+            if key_moved {
+                out.events.push(UiEvent::ev(id, "onValueChanged"));
                 ui.data_mut(|d| d.insert_temp(slider_dirty_id, false));
             }
         }
@@ -6743,6 +6792,13 @@ fn render_interactive(
                 let wheel = ui.input(|i| i.smooth_scroll_delta.y);
                 if wheel.abs() > 0.1 {
                     moved = (moved + wheel.signum() * step).clamp(min_v, max_v);
+                }
+            }
+            // A double-click returns the knob to its `DefaultValue` — the
+            // reset every hardware-style knob offers. Nothing read it.
+            if enabled && resp.double_clicked() {
+                if let Ok(d) = sv(ctrl, "DefaultValue").trim().parse::<f32>() {
+                    moved = d.clamp(min_v, max_v);
                 }
             }
             // Snap to the step so a drag lands on values a handler can compare.
@@ -7247,25 +7303,39 @@ fn render_interactive(
 
             let resp = ui.interact(screen, ctrl_id, Sense::click_and_drag());
             focus_keyboard_events(ui, &resp, id, out, &bound);
+            // `ReadOnly`: shown, focusable, and never changed by the operator —
+            // it took drags and the wheel regardless (property audit,
+            // 2026-09-26). COBOL still sets it.
+            let editable = enabled && !prop_bool(ctrl, "ReadOnly", false);
+            if resp.clicked() {
+                resp.request_focus();
+            }
             let mut moved = val;
-            if enabled && resp.dragged() {
+            if editable && resp.dragged() {
                 // One step per four pixels, the way a spinner's drag behaves.
                 let d = resp.drag_delta();
                 moved = (val + (d.x - d.y) as f64 / 4.0 * step).clamp(min, max);
             }
-            if enabled && resp.hovered() {
+            if editable && resp.hovered() {
                 let wheel = ui.input(|i| i.smooth_scroll_delta.y);
                 if wheel.abs() > 0.1 {
                     moved = (moved + wheel.signum() as f64 * step).clamp(min, max);
                 }
             }
+            // ↑ / ↓ step by `Step` while the field has the keyboard, as its
+            // documentation always said; nothing handled them.
+            if editable && resp.has_focus() {
+                let (up, down) = ui.input_mut(|i| {
+                    (
+                        i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp),
+                        i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
+                    )
+                });
+                moved = (moved + (f64::from(u8::from(up)) - f64::from(u8::from(down))) * step).clamp(min, max);
+            }
             let snapped = (min + ((moved - min) / step).round() * step).clamp(min, max);
-            if enabled && (snapped - val).abs() > f64::EPSILON {
-                let s = if step.fract().abs() > f64::EPSILON {
-                    format!("{snapped:.2}")
-                } else {
-                    format!("{snapped:.0}")
-                };
+            if editable && (snapped - val).abs() > f64::EPSILON {
+                let s = format!("{snapped:.*}", paint::numeric_updown_places(ctrl));
                 out.prop_updates
                     .push((id.to_owned(), "Value".to_owned(), s.clone()));
                 out.events.push(UiEvent::change(id, &s));
@@ -8145,7 +8215,73 @@ fn render_interactive(
                         },
                     }
                 });
-            if resp.clicked() && enabled {
+            // `MinimumDate` / `MaximumDate`: days outside them are dimmed and
+            // cannot be picked, and whatever is committed lands inside them.
+            // Both were read by nothing (property audit, 2026-09-26).
+            let bounds = paint::dt_bounds(ctrl);
+            if paint::dt_show_up_down(ctrl) {
+                // `ShowUpDown`: no popup. ▲ / ▼ (or the arrow keys while the
+                // picker has the keyboard, or the wheel over it) step the day —
+                // the minute, on a time-only picker. It was read by nothing.
+                cal.open = false;
+                let (up_r, down_r) = paint::dt_up_down_rects(screen);
+                let mut delta = 0i32;
+                if enabled {
+                    if resp.clicked() {
+                        resp.request_focus();
+                        if let Some(p) = resp.interact_pointer_pos() {
+                            if up_r.contains(p) {
+                                delta += 1;
+                            } else if down_r.contains(p) {
+                                delta -= 1;
+                            }
+                        }
+                    }
+                    if resp.has_focus() {
+                        let (up, down) = ui.input_mut(|i| {
+                            (
+                                i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp),
+                                i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown),
+                            )
+                        });
+                        delta += i32::from(up) - i32::from(down);
+                    }
+                    if resp.hovered() {
+                        // One step per wheel event, whatever its unit: a
+                        // notch and a trackpad flick are both one nudge.
+                        let wheel: f32 = ui.input(|i| {
+                            i.events
+                                .iter()
+                                .filter_map(|e| match e {
+                                    egui::Event::MouseWheel { delta, .. } => Some(delta.y.signum()),
+                                    _ => None,
+                                })
+                                .sum()
+                        });
+                        if wheel > 0.0 {
+                            delta += 1;
+                        } else if wheel < 0.0 {
+                            delta -= 1;
+                        }
+                    }
+                }
+                if delta != 0 {
+                    let (date, time) = if parts.date {
+                        let from = val_date.unwrap_or((cal.year, cal.month, 1));
+                        let to = paint::clamp_date(paint::step_date(from, delta), bounds);
+                        (Some(to), val_time.or(Some((cal.hour, cal.minute))))
+                    } else {
+                        let (h, m) = val_time.unwrap_or((cal.hour, cal.minute));
+                        let t = ((h * 60 + m) as i32 + delta).rem_euclid(24 * 60) as u32;
+                        (None, Some((t / 60, t % 60)))
+                    };
+                    let value = paint::format_dt_value(date, time, parts);
+                    if value != val {
+                        out.prop_updates.push((id.to_owned(), "Value".to_owned(), value.clone()));
+                        out.events.push(UiEvent::change(id, &value));
+                    }
+                }
+            } else if resp.clicked() && enabled {
                 cal.open = !cal.open;
             }
 
@@ -8255,15 +8391,19 @@ fn render_interactive(
                                         ),
                                     vec2(paint::CAL_CELL, paint::CAL_CELL),
                                 );
+                                let in_range =
+                                    paint::date_in_bounds((cal.year, cal.month, day), bounds);
+                                let ink = if in_range { white } else { dim.gamma_multiply(0.5) };
                                 if ui
                                     .put(
                                         cell,
                                         egui::Button::new(
-                                            egui::RichText::new(format!("{day}")).color(white),
+                                            egui::RichText::new(format!("{day}")).color(ink),
                                         )
                                         .frame(false),
                                     )
                                     .clicked()
+                                    && in_range
                                 {
                                     picked = Some(day);
                                 }
@@ -8364,7 +8504,8 @@ fn render_interactive(
                         // time still has to write SOME day once the operator
                         // touches the clock; the month on screen is the one
                         // they are looking at.
-                        .or(Some((cal.year, cal.month, 1)));
+                        .or(Some((cal.year, cal.month, 1)))
+                        .map(|d| paint::clamp_date(d, bounds));
                     paint::format_dt_value(date, Some((cal.hour, cal.minute)), parts)
                 };
                 if let Some(day) = picked {
@@ -21529,6 +21670,133 @@ mod tests {
         assert_eq!(lit("Row"), 2, "Row: both cells of the row");
         assert_eq!(lit("Column"), 3, "Column: the column in all three rows");
         println!("\n  DataGrid SelectionMode -- Cell lights 1 cell, Row 2 (the row), Column 3 (the column)\n");
+    }
+
+    fn key_ev(key: egui::Key) -> Event {
+        Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() }
+    }
+
+    /// Property audit, 2026-09-26 (group 5): the DateTimePicker's display,
+    /// bounds and steppers, as pure functions first.
+    #[test]
+    fn a_datetimepicker_formats_bounds_and_steps_dates() {
+        use crate::paint::{clamp_date, date_in_bounds, display_dt_for, format_dt_pattern, step_date};
+        let d = Some((2026, 9, 3));
+        let t = Some((14, 5));
+        assert_eq!(format_dt_pattern("dd/MM/yyyy HH:mm", d, t), "03/09/2026 14:05");
+        assert_eq!(format_dt_pattern("dddd, d MMMM yyyy", d, None), "Thursday, 3 September 2026");
+        assert_eq!(format_dt_pattern("MMM d, yy h:mm tt", d, t), "Sep 3, 26 2:05 PM");
+        let mut c = Control::new("DT", ControlType::DateTimePicker, 0, 0);
+        c.set_prop("Format", crate::PropValue::String("Long".into()));
+        assert_eq!(display_dt_for(&c, "2026-09-03"), "Thursday, 3 September 2026");
+        c.set_prop("Format", crate::PropValue::String("Custom".into()));
+        c.set_prop("CustomFormat", crate::PropValue::String("dd.MM.yyyy".into()));
+        assert_eq!(display_dt_for(&c, "2026-09-03"), "03.09.2026");
+        c.set_prop("Format", crate::PropValue::String("Short".into()));
+        assert_eq!(display_dt_for(&c, "2026-09-03"), "2026-09-03", "Short stays ISO");
+        assert_eq!(step_date((2026, 1, 31), 1), (2026, 2, 1));
+        assert_eq!(step_date((2026, 1, 1), -1), (2025, 12, 31));
+        assert_eq!(step_date((2024, 2, 28), 1), (2024, 2, 29));
+        let b = (Some((2026, 9, 10)), Some((2026, 9, 20)));
+        assert!(!date_in_bounds((2026, 9, 5), b) && date_in_bounds((2026, 9, 10), b));
+        assert_eq!(clamp_date((2026, 10, 1), b), (2026, 9, 20));
+        println!("\n  DateTimePicker -- dd/MM/yyyy HH:mm, Long, MMM/tt patterns; day steps across month, year and leap day; bounds dim and clamp\n");
+    }
+
+    /// Driven: a day before `MinimumDate` refuses the click, one inside it is
+    /// taken; with `ShowUpDown` the ▲ steps the day and no popup opens.
+    #[test]
+    fn a_datetimepicker_honours_its_bounds_and_its_steppers() {
+        let mut dt = ctrl("DT", ControlType::DateTimePicker, 20, 20, 200, 24);
+        dt.set_prop("Value", crate::PropValue::String("2026-09-15".into()));
+        dt.set_prop("MinimumDate", crate::PropValue::String("2026-09-10".into()));
+        let field = pos2(80.0, 32.0);
+        let first_wd = crate::paint::day_of_week(2026, 9, 1);
+        let day_at = |day: u32| {
+            let idx = first_wd + day - 1;
+            pos2(
+                20.0 + (idx % 7) as f32 * crate::paint::CAL_CELL + crate::paint::CAL_CELL / 2.0,
+                44.0 + 2.0 + crate::paint::CAL_GRID_Y + (idx / 7) as f32 * crate::paint::CAL_CELL + crate::paint::CAL_CELL / 2.0,
+            )
+        };
+        let pick = |day: u32| {
+            let mut f = click_at(field, 0.0);
+            f.extend(click_at(day_at(day), 0.3));
+            f.push((0.6, vec![]));
+            let (_, o) = drive(std::slice::from_ref(&dt), f);
+            o.get("DT").and_then(|p| p.get("Value")).cloned()
+        };
+        assert_eq!(pick(5), None, "the 5th is before MinimumDate");
+        assert_eq!(pick(12).as_deref(), Some("2026-09-12"));
+
+        let mut spin = dt.clone();
+        spin.set_prop("ShowUpDown", crate::PropValue::Bool(true));
+        spin.set_prop("Value", crate::PropValue::String("2026-09-30".into()));
+        let (up, _) = crate::paint::dt_up_down_rects(Rect::from_min_size(pos2(20.0, 20.0), Vec2::new(200.0, 24.0)));
+        let mut f = click_at(up.center(), 0.0);
+        f.push((0.2, vec![]));
+        let (events, o) = drive(std::slice::from_ref(&spin), f);
+        assert_eq!(o.get("DT").and_then(|p| p.get("Value")).map(String::as_str), Some("2026-10-01"));
+        assert!(names(&events).contains(&"onChange"));
+        println!("\n  DateTimePicker -- the 5th (before MinimumDate) refused, the 12th taken; ShowUpDown ▲ steps 30 Sep to 1 Oct\n");
+    }
+
+    /// NumericUpDown: DecimalPlaces and ThousandsSeparator shape the display,
+    /// a fractional value is no longer shown as 0, ↑ steps it, and ReadOnly
+    /// refuses the operator.
+    #[test]
+    fn a_numeric_updown_shows_places_and_groups_and_respects_readonly() {
+        let mut n = ctrl("NUD", ControlType::NumericUpDown, 20, 20, 120, 24);
+        n.set_prop("Maximum", crate::PropValue::Int(100000));
+        n.set_prop("Value", crate::PropValue::String("12345.5".into()));
+        n.set_prop("DecimalPlaces", crate::PropValue::Int(2));
+        n.set_prop("ThousandsSeparator", crate::PropValue::Bool(true));
+        assert_eq!(crate::paint::numeric_updown_text(&n), "12,345.50");
+        n.set_prop("ThousandsSeparator", crate::PropValue::Bool(false));
+        n.set_prop("DecimalPlaces", crate::PropValue::Int(0));
+        n.set_prop("Step", crate::PropValue::String("0.5".into()));
+        assert_eq!(crate::paint::numeric_updown_text(&n), "12345.5", "never fewer places than Step");
+
+        let spot = pos2(60.0, 32.0);
+        let mut f = click_at(spot, 0.0);
+        f.push((0.2, vec![key_ev(egui::Key::ArrowUp)]));
+        f.push((0.3, vec![]));
+        let (_, o) = drive(std::slice::from_ref(&n), f.clone());
+        assert_eq!(o.get("NUD").and_then(|p| p.get("Value")).map(String::as_str), Some("12346.0"));
+        n.set_prop("ReadOnly", crate::PropValue::Bool(true));
+        let (_, o) = drive(std::slice::from_ref(&n), f);
+        assert!(o.get("NUD").and_then(|p| p.get("Value")).is_none(), "ReadOnly: the key changes nothing");
+        println!("\n  NumericUpDown -- 12,345.50 with places and groups; ↑ steps 12345.5 by 0.5; ReadOnly refuses it\n");
+    }
+
+    /// Slider: Page Up moves by LargeChange (the seeded 20) once it has the
+    /// keyboard, landing on the Step grid as a drag does.
+    #[test]
+    fn a_slider_takes_page_up_by_large_change() {
+        let mut sl = ctrl("SL", ControlType::Slider, 20, 20, 220, 30);
+        sl.set_prop("Value", crate::PropValue::String("10".into()));
+        let thumb_free = pos2(200.0, 35.0);
+        let mut f = click_at(thumb_free, 0.0);
+        f.push((0.2, vec![key_ev(egui::Key::PageUp)]));
+        f.push((0.3, vec![]));
+        let (events, o) = drive(std::slice::from_ref(&sl), f);
+        assert_eq!(o.get("SL").and_then(|p| p.get("Value")).map(String::as_str), Some("30"));
+        assert!(names(&events).contains(&"onValueChanged"));
+        println!("\n  Slider -- Page Up moves 10 to 30 (LargeChange 20) and raises onValueChanged\n");
+    }
+
+    /// Knob: a double-click returns it to DefaultValue.
+    #[test]
+    fn a_knob_double_click_returns_to_its_default() {
+        let mut k = ctrl("KN", ControlType::Knob, 20, 20, 100, 100);
+        k.set_prop("Value", crate::PropValue::String("80".into()));
+        k.set_prop("DefaultValue", crate::PropValue::Int(50));
+        let c = pos2(70.0, 60.0);
+        let mut f = click_at(c, 0.0);
+        f.extend(click_at(c, 0.15));
+        f.push((0.4, vec![]));
+        let (_, o) = drive(std::slice::from_ref(&k), f);
+        assert_eq!(o.get("KN").and_then(|p| p.get("Value")).map(String::as_str), Some("50"));
     }
 
     /// The four TextBox input properties are honoured. All were seeded, shown in

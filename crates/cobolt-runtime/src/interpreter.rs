@@ -14775,28 +14775,37 @@ impl Interpreter {
                 none
             }
             "GETVALUE" => val(self.obj_get(obj, "Value")),
-            "INCREMENT" => {
-                let st = parse_i(self.obj_get(obj, "Step"));
-                let st = if st == 0 { 1 } else { st };
-                let v = parse_i(self.obj_get(obj, "Value"));
-                self.obj_set(obj, "Value", (v + st).to_string());
+            // Step, clamped to Minimum..Maximum — it ran straight past both,
+            // and in whole numbers only, so a Step of 0.5 did nothing
+            // (property audit, 2026-09-26).
+            "INCREMENT" | "DECREMENT" => {
+                let num = |s: String| s.trim().parse::<f64>().ok();
+                let st = num(self.obj_get(obj, "Step"))
+                    .filter(|s| *s != 0.0)
+                    .map(f64::abs)
+                    .unwrap_or(1.0);
+                let v = num(self.obj_get(obj, "Value")).unwrap_or(0.0);
+                let mut n = if m == "INCREMENT" { v + st } else { v - st };
+                if let Some(lo) = num(self.obj_get(obj, "Minimum")) {
+                    n = n.max(lo);
+                }
+                if let Some(hi) = num(self.obj_get(obj, "Maximum")) {
+                    n = n.min(hi);
+                }
+                self.obj_set(obj, "Value", format_step_number(n));
                 none
             }
-            "DECREMENT" => {
-                let st = parse_i(self.obj_get(obj, "Step"));
-                let st = if st == 0 { 1 } else { st };
-                let v = parse_i(self.obj_get(obj, "Value"));
-                self.obj_set(obj, "Value", (v - st).to_string());
-                none
-            }
+            // Back to the control's `DefaultValue` when it has one (a Knob),
+            // otherwise to its Minimum.
             "RESET" => {
-                let min = self.obj_get(obj, "Minimum");
-                let m2 = if min.trim().is_empty() {
-                    "0".to_string()
+                let default = self.obj_get(obj, "DefaultValue");
+                let back = if !default.trim().is_empty() {
+                    default
                 } else {
-                    min
+                    let min = self.obj_get(obj, "Minimum");
+                    if min.trim().is_empty() { "0".to_string() } else { min }
                 };
-                self.obj_set(obj, "Value", m2);
+                self.obj_set(obj, "Value", back);
                 none
             }
             // ── Items (list / combo) ──
@@ -18365,6 +18374,17 @@ fn collect_quals(of: &Expr) -> Vec<String> {
 
 // ── Member-access chain support (spec 011) ──────────────────────────────────
 
+/// A stepped value as a control property: whole numbers without a fraction,
+/// others with their digits and no trailing zeros.
+fn format_step_number(n: f64) -> String {
+    if n.fract() == 0.0 {
+        format!("{}", n as i64)
+    } else {
+        let s = format!("{n:.6}");
+        s.trim_end_matches('0').trim_end_matches('.').to_owned()
+    }
+}
+
 /// One lowered segment of an [`Expr::Member`] chain (arguments evaluated).
 struct MemberSeg {
     member: String,
@@ -20390,6 +20410,35 @@ MAIN.
             vec![("AA".to_owned(), 1.0), ("BB".to_owned(), 2.0), ("CC".to_owned(), 3.0)],
             "a chart: category and value per occurrence"
         );
+    }
+
+    /// Increment/Decrement stop at Maximum/Minimum and step fractions;
+    /// Reset returns a control to its DefaultValue when it has one.
+    #[test]
+    fn increment_clamps_and_reset_prefers_the_default() {
+        let parsed = parse(tokenize("IDENTIFICATION DIVISION.\nPROGRAM-ID. T.\nPROCEDURE DIVISION.\nMAIN.\n    STOP RUN.\n", SourceFormat::Free));
+        let mut interp = Interpreter::new(parsed.program.expect("parses"));
+        interp.seed_objects([
+            (
+                "NUD".to_owned(),
+                "NumericUpDown".to_owned(),
+                vec![("Value".to_owned(), "9".to_owned()), ("Maximum".to_owned(), "10".to_owned()), ("Minimum".to_owned(), "0".to_owned()), ("Step".to_owned(), "5".to_owned())],
+            ),
+            (
+                "KN".to_owned(),
+                "Knob".to_owned(),
+                vec![("Value".to_owned(), "1.5".to_owned()), ("Step".to_owned(), "0.5".to_owned()), ("DefaultValue".to_owned(), "50".to_owned())],
+            ),
+        ]);
+        interp.exec_method("NUD", "Increment", &[]);
+        assert_eq!(interp.obj_get("NUD", "Value"), "10", "stops at Maximum");
+        interp.obj_set("NUD", "Value", "2".into());
+        interp.exec_method("NUD", "Decrement", &[]);
+        assert_eq!(interp.obj_get("NUD", "Value"), "0", "stops at Minimum");
+        interp.exec_method("KN", "Increment", &[]);
+        assert_eq!(interp.obj_get("KN", "Value"), "2", "a fractional step");
+        interp.exec_method("KN", "Reset", &[]);
+        assert_eq!(interp.obj_get("KN", "Value"), "50", "Reset goes to DefaultValue");
     }
 
     /// A COBOL write of a DataGrid's FrozenColumns / FrozenRows /

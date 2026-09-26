@@ -2622,6 +2622,34 @@ for forms that set them.
 > from a track bar: the "done" side carries the colour, and the side still to
 > travel stays neutral.
 
+#### Slider and NumericUpDown from the keyboard
+
+Click either control (or Tab to it) and it takes the keyboard:
+
+
+| Key                  | Slider                        | NumericUpDown        |
+| -------------------- | ----------------------------- | -------------------- |
+| ↑ / →                | up by `Step`                  | ↑ up by `Step`       |
+| ↓ / ←                | down by `Step`                | ↓ down by `Step`     |
+| Page Up / Page Down  | up / down by `LargeChange`    | —                    |
+| Home / End           | to `Minimum` / `Maximum`      | —                    |
+
+Every move stays within `Minimum..Maximum` and lands on the `Step` grid, as a
+drag does — so with the Slider's seeded `Step` of 10, a `LargeChange` of 25
+lands on the nearest multiple of 10. A key is a finished change: the Slider
+raises `onValueChanged` at once, not only when a drag ends. The
+`Increment()` / `Decrement()` methods stop at `Minimum` and `Maximum` too, and
+step in fractions when `Step` is fractional.
+
+A **NumericUpDown** shows its value with `DecimalPlaces` digits (never fewer
+than `Step` carries, so a `Step` of 0.25 is always visible) and, with
+`ThousandsSeparator` on, grouped in thousands — `12,345.50`. `Value` itself stays
+a plain number. With `ReadOnly` on, the operator cannot change it by drag, wheel
+or key; it is still shown and focusable, and your program still sets it.
+
+On a **vertical** Slider, `TickStyle` `Top` puts the ticks on the left and
+`Bottom` on the right.
+
 #### Styling a ProgressBar
 
 A progress bar reports where `Value` sits between `Minimum` and `Maximum`.
@@ -2657,11 +2685,14 @@ it is born rounded, at `10`. The frame itself answers to the same `BorderStyle`,
 
 **Knob** is a rotary dial the user drags to set a numeric `Value` within
 `Minimum..Maximum` (default 0-100). Properties: `Step` (increment for
-`Increment()`/`Decrement()`), `DefaultValue` (what a reset returns to),
-`Accent` (the colour of the arc and the indicator — any colour, from the
-properties pane's picker), `Bipolar` (the fill grows from the centre
-outward instead of from `Minimum`), `ShowValue` (draws the numeric readout),
-and `Label` (a caption under the dial).
+`Increment()`/`Decrement()`, which stop at `Minimum` and `Maximum`),
+`DefaultValue` (what a **double-click** on the knob, or `Reset()` from COBOL,
+returns it to), `Accent` (the colour of the arc and the indicator — any colour,
+from the properties pane's picker), `Bipolar` (the arc fills from the top of the
+dial — the middle of the range — toward the value, either way: a pan or
+balance control), `ShowValue` (draws the numeric readout), and `Label` (a
+caption centred under the dial, below the readout; the dial shrinks to make
+room).
 
 Three more properties paint the dial itself, which the theme used to own
 outright: `FaceColor` (the round face the indicator turns over), `RimColor`
@@ -3823,16 +3854,22 @@ a calendar, a clock, or both — is decided by its **`Format`** property, and th
 same property decides what the field displays.
 
 
-| `Format`        | The popup offers                | The field shows |
-| --------------- | ------------------------------- | --------------- |
-| `Short`, `Long` | a month calendar                | the date        |
-| `Time`          | an hour/minute clock            | the time        |
-| `Custom`        | whatever `CustomFormat` asks for | the same halves |
+| `Format`   | The popup offers                 | The field shows                               |
+| ---------- | -------------------------------- | --------------------------------------------- |
+| `Short`    | a month calendar                 | the date, `2026-09-03`                        |
+| `Long`     | a month calendar                 | a long date, `Thursday, 3 September 2026`     |
+| `Time`     | an hour/minute clock             | the time, `09:30`                             |
+| `Custom`   | whatever `CustomFormat` asks for | the value laid out through `CustomFormat`     |
 
-Under `Custom`, the pattern's own letters decide: `y`, `M` or `d` ask for a
-calendar, `H`, `h` or `m` for a clock, and a pattern with both — the usual
-`dd/MM/yyyy HH:mm` — gets both. **Case matters here and nowhere else on this
-control**: `M` is the month, `m` is the minute.
+Under `Custom`, the pattern does two jobs. Its letters decide the popup: `y`,
+`M` or `d` ask for a calendar, `H`, `h` or `m` for a clock, and a pattern with
+both — the usual `dd/MM/yyyy HH:mm` — gets both. And the field **shows** the
+value through it: `yyyy`/`yy`, `MMMM`/`MMM`/`MM`/`M` (month name, short name,
+number), `dddd`/`ddd`/`dd`/`d` (weekday name, short name, day), `HH`/`H`
+(24-hour), `hh`/`h` (12-hour), `mm`/`m` and `tt` (AM/PM); anything else is
+printed as written. An empty field shows the pattern itself as its hint.
+**Case matters here and nowhere else on this control**: `M` is the month, `m`
+is the minute. Month and weekday names are English.
 
 **`Value` is always ISO**, whatever `Format` displays:
 
@@ -3882,8 +3919,20 @@ day click closes it, as it always has.
 > exactly as you set it, not blanked. It is your data, and hiding it would look
 > like the control had lost it.
 >
+**Limits.** `MinimumDate` and `MaximumDate` (`YYYY-MM-DD`, empty = no limit)
+bound what the operator can pick: days outside them are dimmed in the calendar
+and refuse a click, and a stepped or committed date never leaves them. A
+`Value` your program writes is kept exactly as written.
+
+**Steppers instead of a popup.** Turn `ShowUpDown` on and the field carries ▲▼
+at its right edge and opens no popup: ▲ / ▼, the ↑ / ↓ keys while the picker
+has the keyboard, or the mouse wheel over it move the **day** — the **minute**
+on a time-only picker — one at a time, across months and years, within the
+limits. Each step writes `Value` and fires `onChange`.
+
 > ⚠️ **Caveat.** `MinimumDate` / `MaximumDate` bound the date only. There is no
-> minimum or maximum *time*.
+> minimum or maximum *time*. Before 1.70.234 neither limit, `ShowUpDown` nor
+> the display side of `Long` and `CustomFormat` did anything.
 
 📷 Screenshot needed — `datetimepicker-clock.png`
 *Place a DateTimePicker on a form, set `Format` to `Custom` and `CustomFormat`

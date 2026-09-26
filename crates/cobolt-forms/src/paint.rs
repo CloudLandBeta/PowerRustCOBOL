@@ -3423,7 +3423,13 @@ fn draw_control_body(
                     let tick_color =
                         Color32::from_rgba_premultiplied(140, 145, 165, (80.0 * alpha_mul) as u8);
                     let tick_len = 5.0;
-                    if tick_st == "Left" || tick_st == "Both" {
+                    // A vertical slider's `Top` is its LEFT side and `Bottom`
+                    // its right. The test was for `Left`, which is not one of
+                    // the offered values, so `Top` drew on the right exactly
+                    // like `Bottom` (property audit, 2026-09-26).
+                    let left_side = matches!(tick_st.as_str(), "Top" | "Left" | "Both");
+                    let right_side = matches!(tick_st.as_str(), "Bottom" | "Right" | "Both");
+                    if left_side {
                         painter.line_segment(
                             [
                                 Pos2::new(cx - track_half_w - tick_len, ty),
@@ -3432,7 +3438,7 @@ fn draw_control_body(
                             Stroke::new(1.0, tick_color),
                         );
                     }
-                    if tick_st != "Left" || tick_st == "Both" {
+                    if right_side {
                         painter.line_segment(
                             [
                                 Pos2::new(cx + track_half_w + 1.0, ty),
@@ -5216,8 +5222,18 @@ fn draw_control_body(
                 .map(|v| v.as_str().to_owned())
                 .unwrap_or_default();
             let parts = dt_parts(ctrl);
-            let shown = display_dt(&raw, parts);
-            let empty = if parts.date && parts.time {
+            let shown = display_dt_for(ctrl, &raw);
+            let pattern = ctrl
+                .get_prop("CustomFormat")
+                .map(|v| v.as_str().trim().to_owned())
+                .unwrap_or_default();
+            let custom = ctrl
+                .get_prop("Format")
+                .is_some_and(|v| v.as_str().trim().eq_ignore_ascii_case("Custom"));
+            // The empty field's hint is the pattern the value will be shown in.
+            let empty = if custom && !pattern.is_empty() {
+                pattern.as_str()
+            } else if parts.date && parts.time {
                 "DD/MM/YYYY HH:MM"
             } else if parts.time {
                 "HH:MM"
@@ -5226,12 +5242,14 @@ fn draw_control_body(
             };
             // 🕐 for a clock, 📅 for a calendar — the glyph says which popup
             // the field opens, so a `Format = Time` picker stops advertising a
-            // calendar it does not show.
-            let glyph = if parts.date { "📅" } else { "🕐" };
-            if shown.is_empty() {
-                format!("{glyph} {empty}")
+            // calendar it does not show. A `ShowUpDown` picker opens none: it
+            // carries its ▲▼ instead (drawn below).
+            let text = if shown.is_empty() { empty.to_owned() } else { shown };
+            if dt_show_up_down(ctrl) {
+                text
             } else {
-                format!("{glyph} {shown}")
+                let glyph = if parts.date { "📅" } else { "🕐" };
+                format!("{glyph} {text}")
             }
         }
 
@@ -5239,8 +5257,7 @@ fn draw_control_body(
             // The value alone, centred in its field — the face the preview and
             // the running form show. The canvas used to letter "▲▼" into the
             // caption, so the RAD drew a control that existed nowhere else.
-            let v = ctrl.get_prop("Value").map(|v| v.as_i64()).unwrap_or(0);
-            format!("{v}")
+            numeric_updown_text(ctrl)
         }
         CT::PictureBox => {
             let image_path = ctrl
@@ -6333,6 +6350,26 @@ fn draw_control_body(
                     x += w + 18.0;
                 }
             }
+        }
+    }
+
+    // ── A `ShowUpDown` DateTimePicker's ▲▼, on every surface ────────────────
+    if matches!(ctrl.control_type, CT::DateTimePicker)
+        && dt_show_up_down(ctrl)
+        && !matches!(*caption_mode, CaptionMode::Skip)
+    {
+        let ink = Color32::from_rgba_premultiplied(label_color.r(), label_color.g(), label_color.b(), a)
+            .gamma_multiply(0.8);
+        let (up, down) = dt_up_down_rects(rect);
+        for (r, pointing_up) in [(up, true), (down, false)] {
+            let c = r.center();
+            let (w, h) = (7.0_f32, 4.0_f32);
+            let pts = if pointing_up {
+                vec![Pos2::new(c.x - w / 2.0, c.y + h / 2.0), Pos2::new(c.x + w / 2.0, c.y + h / 2.0), Pos2::new(c.x, c.y - h / 2.0)]
+            } else {
+                vec![Pos2::new(c.x - w / 2.0, c.y - h / 2.0), Pos2::new(c.x + w / 2.0, c.y - h / 2.0), Pos2::new(c.x, c.y + h / 2.0)]
+            };
+            painter.add(egui::Shape::convex_polygon(pts, ink, Stroke::NONE));
         }
     }
 
@@ -7837,6 +7874,179 @@ pub fn display_dt(raw: &str, parts: DtParts) -> String {
         return raw.to_owned();
     }
     format_dt_value(date, time, parts)
+}
+
+/// How many fractional digits a NumericUpDown shows and writes: its
+/// `DecimalPlaces` (0-6), and never fewer than its `Step` carries — a Step of
+/// 0.25 on a 0-place field would otherwise step invisibly.
+pub fn numeric_updown_places(ctrl: &Control) -> usize {
+    let declared = ctrl.get_prop("DecimalPlaces").map(|v| v.as_i64()).unwrap_or(0).clamp(0, 6) as usize;
+    let step = ctrl.get_prop("Step").map(|v| v.as_str().trim().to_owned()).unwrap_or_default();
+    let step_places = step.split_once('.').map(|(_, f)| f.trim_end_matches('0').len()).unwrap_or(0);
+    declared.max(step_places.min(6))
+}
+
+/// What a NumericUpDown's field shows: `Value` with `DecimalPlaces` digits,
+/// and grouped in thousands when `ThousandsSeparator` is on. The value was
+/// read as a whole number — so 2.5 showed as 0 — and neither property was
+/// read at all (property audit, 2026-09-26).
+pub fn numeric_updown_text(ctrl: &Control) -> String {
+    let raw = ctrl.get_prop("Value").map(|v| v.as_str().trim().to_owned()).unwrap_or_default();
+    let v = raw.parse::<f64>().unwrap_or(0.0);
+    let text = format!("{v:.*}", numeric_updown_places(ctrl));
+    if !ctrl.get_prop("ThousandsSeparator").map(|v| v.as_bool()).unwrap_or(false) {
+        return text;
+    }
+    let (sign, digits) = text.strip_prefix('-').map_or(("", text.as_str()), |d| ("-", d));
+    let (int, frac) = digits.split_once('.').map_or((digits, None), |(i, f)| (i, Some(f)));
+    let mut grouped = String::new();
+    for (i, c) in int.chars().enumerate() {
+        if i > 0 && (int.len() - i) % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(c);
+    }
+    match frac {
+        Some(f) => format!("{sign}{grouped}.{f}"),
+        None => format!("{sign}{grouped}"),
+    }
+}
+
+/// A DateTimePicker's `MinimumDate` and `MaximumDate`, as dates. Empty or
+/// unreadable is no bound.
+pub fn dt_bounds(ctrl: &Control) -> (Option<(i32, u32, u32)>, Option<(i32, u32, u32)>) {
+    let read = |k: &str| ctrl.get_prop(k).and_then(|v| parse_ymd(v.as_str()));
+    (read("MinimumDate"), read("MaximumDate"))
+}
+
+/// Whether `d` lies within the bounds (inclusive). Dates compare as
+/// (year, month, day) tuples.
+pub fn date_in_bounds(
+    d: (i32, u32, u32),
+    bounds: (Option<(i32, u32, u32)>, Option<(i32, u32, u32)>),
+) -> bool {
+    bounds.0.is_none_or(|lo| d >= lo) && bounds.1.is_none_or(|hi| d <= hi)
+}
+
+/// `d` moved into the bounds, if it lies outside them.
+pub fn clamp_date(
+    d: (i32, u32, u32),
+    bounds: (Option<(i32, u32, u32)>, Option<(i32, u32, u32)>),
+) -> (i32, u32, u32) {
+    let d = bounds.0.map_or(d, |lo| d.max(lo));
+    bounds.1.map_or(d, |hi| d.min(hi))
+}
+
+/// `d` moved by `delta` days, across months and years.
+pub fn step_date(d: (i32, u32, u32), delta: i32) -> (i32, u32, u32) {
+    let (mut y, mut m, mut day) = (d.0, d.1.clamp(1, 12), d.2.max(1) as i32);
+    day = day.min(days_in_month(y, m) as i32) + delta;
+    while day < 1 {
+        if m == 1 {
+            m = 12;
+            y -= 1;
+        } else {
+            m -= 1;
+        }
+        day += days_in_month(y, m) as i32;
+    }
+    while day > days_in_month(y, m) as i32 {
+        day -= days_in_month(y, m) as i32;
+        if m == 12 {
+            m = 1;
+            y += 1;
+        } else {
+            m += 1;
+        }
+    }
+    (y, m, day as u32)
+}
+
+const WEEKDAYS: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/// Lay a date and time out through a pattern: `yyyy` `yy` `MMMM` `MMM` `MM`
+/// `M` `dddd` `ddd` `dd` `d` `HH` `H` `hh` `h` `mm` `m` `tt`, anything else
+/// as written. A token whose half is missing is left out.
+pub fn format_dt_pattern(pattern: &str, date: Option<(i32, u32, u32)>, time: Option<(u32, u32)>) -> String {
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        let mut n = 1;
+        while i + n < chars.len() && chars[i + n] == c {
+            n += 1;
+        }
+        let piece = match (c, date, time) {
+            ('y', Some((y, _, _)), _) => Some(if n <= 2 { format!("{:02}", y.rem_euclid(100)) } else { format!("{y:04}") }),
+            ('M', Some((_, m, _)), _) => Some(match n {
+                1 => m.to_string(),
+                2 => format!("{m:02}"),
+                3 => MONTHS[(m.clamp(1, 12) - 1) as usize][..3].to_owned(),
+                _ => MONTHS[(m.clamp(1, 12) - 1) as usize].to_owned(),
+            }),
+            ('d', Some((y, m, d)), _) => Some(match n {
+                1 => d.to_string(),
+                2 => format!("{d:02}"),
+                3 => WEEKDAYS[day_of_week(y, m, d) as usize][..3].to_owned(),
+                _ => WEEKDAYS[day_of_week(y, m, d) as usize].to_owned(),
+            }),
+            ('H', _, Some((h, _))) => Some(if n == 1 { h.to_string() } else { format!("{h:02}") }),
+            ('h', _, Some((h, _))) => {
+                let h12 = if h % 12 == 0 { 12 } else { h % 12 };
+                Some(if n == 1 { h12.to_string() } else { format!("{h12:02}") })
+            }
+            ('m', _, Some((_, mi))) => Some(if n == 1 { mi.to_string() } else { format!("{mi:02}") }),
+            ('t', _, Some((h, _))) => Some(if h < 12 { "AM" } else { "PM" }.to_owned()),
+            ('y' | 'M' | 'd' | 'H' | 'h' | 'm' | 't', _, _) => Some(String::new()),
+            _ => None,
+        };
+        match piece {
+            Some(p) => out.push_str(&p),
+            None => out.extend(std::iter::repeat_n(c, n)),
+        }
+        i += n;
+    }
+    out.trim().to_owned()
+}
+
+/// What a DateTimePicker's field shows: [`display_dt`] for `Short` and
+/// `Time`, a long date for `Long` (`Thursday, 3 September 2026`), and the
+/// value laid out through `CustomFormat` for `Custom`. `Format` used to decide
+/// only which halves were editable — the field always printed ISO, so `Long`
+/// read exactly like `Short` and a custom pattern changed nothing on screen
+/// (property audit, 2026-09-26). `Value` itself stays ISO.
+pub fn display_dt_for(ctrl: &Control, raw: &str) -> String {
+    let parts = dt_parts(ctrl);
+    let format = ctrl.get_prop("Format").map(|v| v.as_str().trim().to_owned()).unwrap_or_default();
+    let pattern = ctrl.get_prop("CustomFormat").map(|v| v.as_str().trim().to_owned()).unwrap_or_default();
+    let (date, time) = (parse_ymd(raw.trim()), parse_hm(raw.trim()));
+    if raw.trim().is_empty() || (date.is_none() && time.is_none()) {
+        return display_dt(raw, parts);
+    }
+    if format.eq_ignore_ascii_case("Custom") && !pattern.is_empty() {
+        return format_dt_pattern(&pattern, date.filter(|_| parts.date), time.filter(|_| parts.time));
+    }
+    if format.eq_ignore_ascii_case("Long") && date.is_some() {
+        return format_dt_pattern("dddd, d MMMM yyyy", date, None);
+    }
+    display_dt(raw, parts)
+}
+
+/// A DateTimePicker with `ShowUpDown`: ▲▼ steppers instead of a popup.
+pub fn dt_show_up_down(ctrl: &Control) -> bool {
+    ctrl.get_prop("ShowUpDown").map(|v| v.as_bool()).unwrap_or(false)
+}
+
+/// Where a `ShowUpDown` picker's ▲ and ▼ sit: the right 18 points of the
+/// field, top half and bottom half.
+pub fn dt_up_down_rects(rect: egui::Rect) -> (egui::Rect, egui::Rect) {
+    let x0 = (rect.max.x - 18.0).max(rect.min.x);
+    let mid = rect.center().y;
+    (
+        egui::Rect::from_min_max(Pos2::new(x0, rect.min.y), Pos2::new(rect.max.x, mid)),
+        egui::Rect::from_min_max(Pos2::new(x0, mid), rect.max),
+    )
 }
 
 /// Write a `Value` back in the canonical form, carrying only the halves
@@ -13865,7 +14075,12 @@ fn stroke_arc(
 /// widget this replaced picked one of three fixed pixel sizes and ignored the
 /// designed rect entirely, which is why the canvas and the preview disagreed.)
 pub fn knob_layout(rect: egui::Rect, show_value: bool, value_h: f32) -> (Pos2, f32, f32) {
-    let reserved = if show_value { value_h + 4.0 } else { 0.0 };
+    knob_layout_with(rect, if show_value { value_h + 4.0 } else { 0.0 })
+}
+
+/// [`knob_layout`] with `reserved` points kept free under the dial for the
+/// value and the `Label`.
+pub fn knob_layout_with(rect: egui::Rect, reserved: f32) -> (Pos2, f32, f32) {
     let dial_h = (rect.height() - reserved).max(8.0);
     let radius = (rect.width().min(dial_h) * 0.5 - 2.0).max(6.0);
     let center = Pos2::new(rect.center().x, rect.top() + dial_h * 0.5);
@@ -13920,7 +14135,17 @@ pub fn draw_knob(painter: &egui::Painter, rect: egui::Rect, ctrl: &Control, alph
         .map(|v| v.as_bool())
         .unwrap_or(true);
     let fsize = ctrl_font_size(ctrl);
-    let (center, radius, value_y) = knob_layout(rect, show_value, fsize * 1.3);
+    // `Label`, a caption under the dial (below the value when that shows): it
+    // was seeded and never drawn (property audit, 2026-09-26). The dial gives
+    // up the line it needs.
+    let label = ctrl
+        .get_prop("Label")
+        .map(|v| v.as_str().trim().to_owned())
+        .unwrap_or_default();
+    let line_h = fsize * 1.3;
+    let reserved = if show_value { line_h + 4.0 } else { 0.0 }
+        + if label.is_empty() { 0.0 } else { line_h + 2.0 };
+    let (center, radius, value_y) = knob_layout_with(rect, reserved);
 
     // Proportions taken from the dial the preview draws, expressed against the
     // arc radius so every knob keeps the same look at any size.
@@ -13933,7 +14158,20 @@ pub fn draw_knob(painter: &egui::Painter, rect: egui::Rect, ctrl: &Control, alph
     let ind_w = (radius * 0.071).max(1.2);
 
     // Sweep: 270°, opening at the bottom — 135° round to 405°.
-    stroke_arc(painter, center, radius, arc_stroke, 135.0, 270.0, frac, accent, track);
+    //
+    // `Bipolar`: the arc fills from the TOP of the sweep (the middle of the
+    // range) toward the value, either way — a pan or balance control. It was
+    // read by nothing and the arc always grew from Minimum.
+    let bipolar = ctrl.get_prop("Bipolar").map(|v| v.as_bool()).unwrap_or(false);
+    if bipolar {
+        stroke_arc(painter, center, radius, arc_stroke, 135.0, 270.0, 0.0, accent, track);
+        let sweep = 270.0 * (frac - 0.5);
+        if sweep.abs() > 0.5 {
+            stroke_arc(painter, center, radius, arc_stroke, 270.0, sweep, 1.0, accent, Color32::TRANSPARENT);
+        }
+    } else {
+        stroke_arc(painter, center, radius, arc_stroke, 135.0, 270.0, frac, accent, track);
+    }
 
     let rim_fill = alpha_color(lighten(face, 0.12));
     painter.circle(center, rim_r, rim_fill, Stroke::new(1.0, rim));
@@ -13976,6 +14214,30 @@ pub fn draw_knob(painter: &egui::Painter, rect: egui::Rect, ctrl: &Control, alph
             Pos2::new(rect.center().x, value_y),
             egui::Align2::CENTER_TOP,
             format_knob_value(ctrl, val),
+            font,
+            Color32::from_rgba_premultiplied(colour.r(), colour.g(), colour.b(), a),
+        );
+    }
+    if !label.is_empty() {
+        let fg = ctrl
+            .get_prop("ForegroundColor")
+            .map(|v| parse_color(v.as_str()))
+            .filter(|c| c.a() > 0)
+            .unwrap_or(Color32::from_rgb(230, 230, 230));
+        let tone = control_surface_tone(painter.ctx(), ctrl, parse_color(crate::model::DEFAULT_BACKGROUND_COLOR));
+        let colour = caret_color(tone, fg);
+        let font = crate::fonts::font_id(
+            painter.ctx(),
+            &ctrl.get_prop("FontName").map(|v| v.as_str().to_owned()).unwrap_or_default(),
+            fsize,
+        );
+        let y = if show_value { value_y + line_h + 2.0 } else { value_y };
+        styled_text(
+            painter,
+            ctrl,
+            Pos2::new(rect.center().x, y),
+            egui::Align2::CENTER_TOP,
+            &label,
             font,
             Color32::from_rgba_premultiplied(colour.r(), colour.g(), colour.b(), a),
         );

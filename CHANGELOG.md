@@ -8,6 +8,33 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.234] — 2026-09-26
+
+### Fix — value-control properties that did nothing or half of it (audit group 5 of 8)
+
+The findings on DateTimePicker, NumericUpDown, Slider, ProgressBar and Knob.
+
+- **DateTimePicker** — `MinimumDate` / `MaximumDate` dim and refuse days
+  outside them and clamp every commit; `ShowUpDown` replaces the popup with
+  ▲▼ steppers (buttons, ↑/↓, wheel; day, or minute on a time-only picker),
+  drawn on the canvas too; `Long` shows a long date and `Custom` shows the
+  value through `CustomFormat` (`paint::format_dt_pattern`), with the pattern
+  as the empty field's hint. `Value` stays ISO.
+- **NumericUpDown** — `DecimalPlaces` and `ThousandsSeparator` shape the
+  display (a fractional value used to show as 0: the painter read it as a
+  whole number); ↑/↓ step it; `ReadOnly` refuses drag, wheel and keys.
+- **Slider** — keyboard: arrows by `Step`, Page Up/Down by `LargeChange`,
+  Home/End to the ends, raising `onValueChanged`; vertical `TickStyle` `Top`
+  draws on the left (it tested for `Left`, not an offered value).
+- **Knob** — `Bipolar` fills from the middle; `Label` is drawn under the dial;
+  a double-click returns to `DefaultValue`.
+- **Runtime** — `Increment()` / `Decrement()` stop at Minimum/Maximum and step
+  fractions; `Reset()` returns to `DefaultValue` when the control has one.
+- **KB** — Step, LargeChange, DecimalPlaces, ThousandsSeparator, TickStyle,
+  ShowUpDown, Min/MaximumDate, Format, CustomFormat, per-type NumericUpDown
+  `ReadOnly` and ProgressBar `ShowValue` (a percentage). `chunked.data`
+  regenerated; Properties-pane explanations updated in six languages.
+
 ## [PowerRustCOBOL 1.70.233] — 2026-09-26
 
 ### Fix — bar, menu and splitter properties that did nothing or half of it (audit group 4 of 8)
