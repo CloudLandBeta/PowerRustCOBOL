@@ -8820,7 +8820,30 @@ fn render_interactive(
             } else {
                 row_h
             };
-            let frozen_rows_height = row_h * frozen_rows as f32;
+            // `RowHeightOverrides`: a height for chosen DATA rows, carried by
+            // the row wherever sorting or filtering shows it. Every other row
+            // is `row_h`. With none set the scrollable run stays uniform and
+            // takes the layout's original arithmetic.
+            let row_overrides = crate::datagrid::parse_row_height_overrides(&sv(
+                ctrl,
+                crate::datagrid::ROW_HEIGHT_OVERRIDES_PROP,
+            ));
+            let display_heights: Vec<f32> = if row_overrides.is_empty() {
+                Vec::new()
+            } else {
+                displayed_row_indices
+                    .iter()
+                    .map(|r| row_overrides.get(r).copied().unwrap_or(row_h))
+                    .collect()
+            };
+            let frozen_geo = crate::datagrid::RowGeometry::new(
+                frozen_rows,
+                row_h,
+                display_heights.get(..frozen_rows).unwrap_or(&[]),
+            );
+            let scroll_heights: Vec<f32> =
+                display_heights.get(frozen_rows..).map(<[f32]>::to_vec).unwrap_or_default();
+            let frozen_rows_height = frozen_geo.total();
             let scrollable_row_count = displayed_row_indices.len().saturating_sub(frozen_rows);
 
             // The grid's own radius, lifted to a rounded parent's arc on any
@@ -9022,6 +9045,7 @@ fn render_interactive(
                 row_count: scrollable_row_count,
                 columns: column_measures.clone(),
                 row_height: row_h,
+                row_heights: scroll_heights.clone(),
                 header_height: band_h,
                 frozen_columns,
                 frozen_rows: 0,
@@ -9091,6 +9115,7 @@ fn render_interactive(
                 row_count: scrollable_row_count,
                 columns: column_measures.clone(),
                 row_height: row_h,
+                row_heights: scroll_heights.clone(),
                 header_height: band_h,
                 frozen_columns,
                 frozen_rows: 0,
@@ -9355,17 +9380,16 @@ fn render_interactive(
                     }
 
                     if display_row >= frozen_rows {
+                        // Scroll just enough to show the whole row, measured
+                        // by each row's own height.
                         let scroll_row = display_row - frozen_rows;
-                        let visible_rows = (((body_rect.height() - frozen_rows_height).max(row_h)
-                            / row_h)
-                            .floor() as usize)
-                            .max(1);
-                        if scroll_row < layout.first_row {
-                            scroll_y = scroll_row as f32 * row_h;
-                        } else if scroll_row >= layout.first_row + visible_rows {
-                            scroll_y = ((scroll_row + 1) as f32 * row_h
-                                - (body_rect.height() - frozen_rows_height))
-                                .max(0.0);
+                        let view_h = (body_rect.height() - frozen_rows_height).max(row_h);
+                        let top = layout.rows.top(scroll_row);
+                        let bottom = top + layout.rows.height(scroll_row);
+                        if top < scroll_y {
+                            scroll_y = top;
+                        } else if bottom > scroll_y + view_h {
+                            scroll_y = (bottom - view_h).max(0.0);
                         }
                     }
 
@@ -9387,6 +9411,7 @@ fn render_interactive(
                         row_count: scrollable_row_count,
                         columns: column_measures.clone(),
                         row_height: row_h,
+                        row_heights: scroll_heights.clone(),
                         header_height: band_h,
                         frozen_columns,
                         frozen_rows: 0,
@@ -9445,7 +9470,7 @@ fn render_interactive(
                 let mut row_handles = Vec::new();
                 row_handles.push((None, screen.min.y + layout.header_rect.max_y()));
                 for frozen_row in 0..frozen_rows {
-                    let edge_y = body_rect.min.y + row_h * (frozen_row + 1) as f32;
+                    let edge_y = body_rect.min.y + frozen_geo.top(frozen_row + 1);
                     if edge_y > body_rect.min.y && edge_y < body_rect.max.y {
                         row_handles.push((Some(frozen_row), edge_y));
                     }
@@ -9453,7 +9478,7 @@ fn render_interactive(
                 let scroll_rows_min_y = (body_rect.min.y + frozen_rows_height).min(body_rect.max.y);
                 for r in layout.first_row..layout.last_row_exclusive {
                     let display_row = frozen_rows + r;
-                    let edge_y = scroll_rows_min_y + row_h * (r + 1) as f32 - scroll_y;
+                    let edge_y = scroll_rows_min_y + layout.rows.top(r + 1) - scroll_y;
                     if edge_y > body_rect.min.y && edge_y < body_rect.max.y {
                         row_handles.push((Some(display_row), edge_y));
                     }
@@ -9473,12 +9498,29 @@ fn render_interactive(
                             .output_mut(|o| o.cursor_icon = egui::CursorIcon::ResizeVertical);
                     }
                     if resp.dragged() {
-                        let new_height = (row_h + resp.drag_delta().y).clamp(14.0, 120.0);
-                        out.prop_updates.push((
-                            id.to_owned(),
-                            "RowHeight".to_owned(),
-                            format!("{:.0}", new_height),
-                        ));
+                        // A row with a height of its own is resized alone;
+                        // any other edge resizes every row, as it always has.
+                        let own = row_index
+                            .and_then(|d| displayed_row_indices.get(d))
+                            .filter(|r| row_overrides.contains_key(r));
+                        if let Some(&data_row) = own {
+                            let (lo, hi) = crate::datagrid::ROW_HEIGHT_OVERRIDE_RANGE;
+                            let mut map = row_overrides.clone();
+                            let h = map[&data_row];
+                            map.insert(data_row, (h + resp.drag_delta().y).clamp(lo, hi));
+                            out.prop_updates.push((
+                                id.to_owned(),
+                                crate::datagrid::ROW_HEIGHT_OVERRIDES_PROP.to_owned(),
+                                crate::datagrid::format_row_height_overrides(&map),
+                            ));
+                        } else {
+                            let new_height = (row_h + resp.drag_delta().y).clamp(14.0, 120.0);
+                            out.prop_updates.push((
+                                id.to_owned(),
+                                "RowHeight".to_owned(),
+                                format!("{:.0}", new_height),
+                            ));
+                        }
                     }
                 }
             }
@@ -9856,19 +9898,20 @@ fn render_interactive(
             let selection_mode = sv(ctrl, "SelectionMode").trim().to_ascii_lowercase();
             let mut rows_to_draw = Vec::new();
             for display_row in 0..frozen_rows {
-                let y = body_rect.min.y + row_h * display_row as f32;
-                rows_to_draw.push((display_row, y, false));
+                let y = body_rect.min.y + frozen_geo.top(display_row);
+                rows_to_draw.push((display_row, y, frozen_geo.height(display_row), false));
             }
             for layout_row in layout.first_row..layout.last_row_exclusive {
                 let display_row = frozen_rows + layout_row;
                 if display_row >= displayed_row_indices.len() {
                     continue;
                 }
-                let y = scroll_body_rect.min.y + row_h * layout_row as f32 - scroll_y;
-                if y + row_h < scroll_body_rect.min.y || y > scroll_body_rect.max.y {
+                let y = scroll_body_rect.min.y + layout.rows.top(layout_row) - scroll_y;
+                let h = layout.rows.height(layout_row);
+                if y + h < scroll_body_rect.min.y || y > scroll_body_rect.max.y {
                     continue;
                 }
-                rows_to_draw.push((display_row, y, true));
+                rows_to_draw.push((display_row, y, h, true));
             }
             // Confine the grid's own opaque fills to its rounded shape at the two
             // BOTTOM corners (the header owns the rounded top corners). A fill that
@@ -9892,7 +9935,9 @@ fn render_interactive(
                     painter.rect_filled(sub, 0.0, color);
                 }
             };
-            for (display_row, y, scroll_clipped) in rows_to_draw {
+            for (display_row, y, row_h, scroll_clipped) in rows_to_draw {
+                // `row_h` is THIS row's height from here on — every rect below
+                // is measured from it.
                 let Some(&row_index) = displayed_row_indices.get(display_row) else {
                     continue;
                 };
@@ -21711,6 +21756,29 @@ mod tests {
         assert!(bob.min.x > bob_plain.min.x + 10.0, "the gutter pushes the columns right");
         assert!(!plain.texts.iter().any(|p| p.text == "3"), "off: no numbers");
         println!("\n  DataGrid ShowRowNumbers -- 1, 2, 3 painted left of the cells; the first column moves right to make room\n");
+    }
+
+    /// `RowHeightOverrides`: a row with a height of its own pushes every row
+    /// below it down by the difference, and keeps its height when the grid
+    /// is sorted — it belongs to the data row, not the position.
+    #[test]
+    fn a_datagrid_row_takes_its_own_height_and_keeps_it_when_sorted() {
+        let y_of = |extra: &[(&str, &str)], t: &str| -> f32 {
+            let painted = drive_painted(&[audit_grid(extra)], vec![(0.0, vec![]), (0.05, vec![])]);
+            painted.texts.iter().find(|p| p.text == t).map(|p| p.ink.center().y).expect("painted")
+        };
+        let uniform = (y_of(&[], "ann"), y_of(&[], "Cid"));
+        // Row 1 (Bob) is 62 tall instead of 22: the rows below move 40 down.
+        let tall = (y_of(&[("RowHeightOverrides", "1=62")], "ann"), y_of(&[("RowHeightOverrides", "1=62")], "Cid"));
+        assert!((tall.0 - uniform.0 - 40.0).abs() < 1.0, "ann moves down 40: {uniform:?} → {tall:?}");
+        assert!((tall.1 - uniform.1 - 40.0).abs() < 1.0, "Cid moves down 40: {uniform:?} → {tall:?}");
+        // Filtered to Cid alone, data row 3 is shown FIRST — and is still 62
+        // tall: its text sits 20 lower (half the extra 40) than a plain row's.
+        let only_cid = [("ColumnFilters", "Name=Cid")];
+        let plain = y_of(&only_cid, "Cid");
+        let own = y_of(&[("ColumnFilters", "Name=Cid"), ("RowHeightOverrides", "3=62")], "Cid");
+        assert!((own - plain - 20.0).abs() < 1.0, "the height follows data row 3: {plain} → {own}");
+        println!("\n  DataGrid RowHeightOverrides -- row 1 at 62pt pushes rows 2 and 3 down by 40; filtered, row 3 keeps its 62pt\n");
     }
 
     /// `SelectionMode`: a click highlights the cell alone (`Cell`), its whole

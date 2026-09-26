@@ -5248,7 +5248,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "GridBackgroundPattern" => ("one of: `None` | `Stripes` | `Dots` | `Cross` | `X` | `X Dots` | `O`", "Procedural background pattern."),
         "RowBackgroundPattern" => ("one of: `None` | `Stripes` | `Dots` | `Cross` | `X` | `X Dots` | `O`", "Per-row background pattern."),
         "SelectionMode" => ("one of: `Row` (default) | `Cell` | `Column`", "What a click on a cell highlights: its whole row (`Row`), the cell alone (`Cell`) or its whole column (`Column`). Ctrl+C copies what is highlighted — the cell, the row's cells joined by `CSVDelimiter`, or the column's values in the rows shown, one per line. `onCellClick` reports the cell either way."),
-        "RowHeightOverrides" => ("retired", "**Retired.** A grid's rows are uniform — `RowHeight` sets them all — and no surface ever read per-row heights. It is no longer seeded or shown; a value saved in an older form is kept and ignored."),
+        "RowHeightOverrides" => ("`row=height` pairs separated by `;` — rows numbered from 1 (e.g. `1=40;8=64`); empty = every row is `RowHeight`", "DataGrid: rows with a height of their own, 14–400 points; every other row stays `RowHeight`. The row is the DATA row, so a height stays with its row when the grid is sorted or filtered, and `Sort`, `DeleteRow` and `ClearRows` carry it along. Set it in the grid's settings, or from COBOL with `SetRowHeight(row, pixels)` (0 pixels hands the row back to `RowHeight`). Dragging the lower edge of such a row resizes that row alone; dragging any other row edge still resizes every row."),
         "AllowSorting" => (BOOL_DOMAIN, "A click on a column title sorts the rows shown by that column — ascending, then descending on the next click — and a ▲/▼ marks it. A column declared numeric, or whose every value is a number, sorts by value (9 before 100); any other sorts as text, ignoring case. Display order only: `Rows` keeps its order, and a click still reports each row's own index. A column whose settings turn sorting off is not sorted. `onColumnClick` fires either way. The `Sort` method, by contrast, reorders `Rows` itself."),
         "AllowColumnResize" => (BOOL_DOMAIN, "Drag header edges to resize."),
         "AutoFitColumns" => (
@@ -6068,7 +6068,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("ClearFilters()", "Drop all column filters."),
             ("FreezeColumns(count: Integer)", "Freeze the first N columns."),
             ("FreezeRows(count: Integer)", "Freeze the first N rows."),
-            ("SetRowHeight(pixels: Integer)", "Set the uniform row height."),
+            ("SetRowHeight(pixels: Integer)", "Set the uniform row height. With two arguments, `SetRowHeight(row, pixels)`, gives one row (numbered from 1) its own height in `RowHeightOverrides`; 0 pixels hands it back to the uniform one."),
             ("SetColumnWidth(column: Integer, pixels: Integer)", "Set one column's width."),
             ("GetSelectedText() → String", "Text of the current selection."),
             ("CopySelection()", "Copy the selection to the clipboard."),

@@ -5066,8 +5066,9 @@ impl Control {
                 // content (a spreadsheet-style freeze cue).
                 props.insert("FrozenShadow".into(), PropValue::Bool(true));
                 props.insert("GridLineStyle".into(), PropValue::String("Solid".into()));
-                // `RowHeightOverrides` is retired: rows are uniform and nothing
-                // ever read per-row heights (property audit, 2026-09-25).
+                // Per-row heights, `row=height` with rows numbered from 1
+                // (`datagrid::parse_row_height_overrides`). Empty = uniform.
+                props.insert("RowHeightOverrides".into(), PropValue::String("".into()));
                 props.insert("ColumnFilters".into(), PropValue::String("".into()));
                 props.insert("SelectableText".into(), PropValue::Bool(true));
             }
@@ -10239,6 +10240,7 @@ mod tests {
             "FrozenRows",
             "GridLineStyle",
             "RowBackgroundPattern",
+            "RowHeightOverrides",
             "SelectableText",
             "ShowColumnFilters",
             "ShowCSVExportButton",

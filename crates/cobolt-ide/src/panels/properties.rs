@@ -4975,6 +4975,10 @@ impl PropertiesPanel {
                                 ui.end_row();
                                 datagrid_advanced_int_modal_row(ui, id, "RowHeight", "Row height", ctrl, action, 14..=120, 22);
                                 ui.end_row();
+                                // `row=height` pairs, rows numbered from 1 —
+                                // e.g. `1=40;8=64`.
+                                datagrid_text_modal_row(ui, id, "RowHeightOverrides", "Row heights", ctrl, action, "");
+                                ui.end_row();
                                 datagrid_advanced_int_modal_row(ui, id, "FrozenColumns", "Frozen columns", ctrl, action, 0..=100, 0);
                                 ui.end_row();
                                 datagrid_advanced_int_modal_row(ui, id, "FrozenRows", "Frozen rows", ctrl, action, 0..=100, 0);

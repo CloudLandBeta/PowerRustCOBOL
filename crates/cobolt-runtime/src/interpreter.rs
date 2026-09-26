@@ -13253,6 +13253,21 @@ impl Interpreter {
         self.obj_set(control_id, "Rows", value);
     }
 
+    /// Move each per-row height to where its row now is (`None` drops it).
+    fn remap_row_heights(&mut self, obj: &str, to: impl Fn(usize) -> Option<usize>) {
+        let key = cobolt_forms::datagrid::ROW_HEIGHT_OVERRIDES_PROP;
+        let text = self.obj_get(obj, key);
+        if text.trim().is_empty() {
+            return;
+        }
+        let map: std::collections::BTreeMap<usize, f32> =
+            cobolt_forms::datagrid::parse_row_height_overrides(&text)
+                .into_iter()
+                .filter_map(|(r, h)| to(r).map(|n| (n, h)))
+                .collect();
+        self.obj_set(obj, key, cobolt_forms::datagrid::format_row_height_overrides(&map));
+    }
+
     fn datagrid_cell_index(value: &str) -> Option<usize> {
         let n = value.trim().parse::<usize>().ok()?;
         if n == 0 {
@@ -15332,24 +15347,40 @@ impl Interpreter {
                     if row < rows.len() {
                         rows.remove(row);
                         self.set_datagrid_rows(obj, &rows);
+                        // The rows below move up, and their heights with them.
+                        self.remap_row_heights(obj, |r| match r.cmp(&row) {
+                            std::cmp::Ordering::Less => Some(r),
+                            std::cmp::Ordering::Equal => None,
+                            std::cmp::Ordering::Greater => Some(r - 1),
+                        });
                     }
                 }
                 none
             }
             "CLEARROWS" => {
                 self.obj_set(obj, "Rows", String::new());
+                self.remap_row_heights(obj, |_| None);
                 none
             }
             "SORT" => {
                 if let Some(col) = Self::datagrid_cell_index(&arg(0)) {
-                    let mut rows = self.datagrid_rows(obj);
-                    rows.sort_by(|left, right| {
-                        left.get(col)
+                    let rows = self.datagrid_rows(obj);
+                    let mut order: Vec<usize> = (0..rows.len()).collect();
+                    order.sort_by(|&l, &r| {
+                        rows[l]
+                            .get(col)
                             .map(String::as_str)
                             .unwrap_or("")
-                            .cmp(right.get(col).map(String::as_str).unwrap_or(""))
+                            .cmp(rows[r].get(col).map(String::as_str).unwrap_or(""))
                     });
-                    self.set_datagrid_rows(obj, &rows);
+                    let sorted: Vec<Vec<String>> = order.iter().map(|&i| rows[i].clone()).collect();
+                    self.set_datagrid_rows(obj, &sorted);
+                    // Each row's own height travels with it.
+                    let mut new_pos = vec![0; order.len()];
+                    for (pos, &old) in order.iter().enumerate() {
+                        new_pos[old] = pos;
+                    }
+                    self.remap_row_heights(obj, |r| new_pos.get(r).copied());
                 }
                 none
             }
@@ -15373,6 +15404,25 @@ impl Interpreter {
             "FREEZEROWS" => {
                 self.obj_set(obj, "_RuntimeFrozenRows", arg(0));
                 self.obj_set(obj, "FrozenRows", arg(0));
+                none
+            }
+            // `SetRowHeight(pixels)` sets every row; `SetRowHeight(row, pixels)`
+            // one row (`RowHeightOverrides`), and 0 pixels hands that row back
+            // to the uniform height.
+            "SETROWHEIGHT" if !arg(1).trim().is_empty() => {
+                if let Some(row) = Self::datagrid_cell_index(&arg(0)) {
+                    let px = arg(1).trim().parse::<f32>().unwrap_or(0.0);
+                    let key = cobolt_forms::datagrid::ROW_HEIGHT_OVERRIDES_PROP;
+                    let mut map =
+                        cobolt_forms::datagrid::parse_row_height_overrides(&self.obj_get(obj, key));
+                    if px > 0.0 {
+                        let (lo, hi) = cobolt_forms::datagrid::ROW_HEIGHT_OVERRIDE_RANGE;
+                        map.insert(row, px.clamp(lo, hi));
+                    } else {
+                        map.remove(&row);
+                    }
+                    self.obj_set(obj, key, cobolt_forms::datagrid::format_row_height_overrides(&map));
+                }
                 none
             }
             "SETROWHEIGHT" => {
@@ -20806,6 +20856,36 @@ MAIN.
         assert_eq!(interp.env.get_string("WS-ROW").map(|s| s.trim().to_owned()).as_deref(), Some("row-one"));
         interp.exec_method("DB-1", "Fetch", &[]);
         assert_eq!(interp.env.get_string("WS-ROW").map(|s| s.trim().to_owned()).as_deref(), Some(""), "spaces once the rows run out");
+    }
+
+    /// `SetRowHeight(row, pixels)` gives one row its own height; the height
+    /// stays with its row through `Sort` and `DeleteRow`, 0 pixels hands the
+    /// row back, `ClearRows` drops them all, and `SetRowHeight(pixels)` is
+    /// still every row's.
+    #[test]
+    fn a_grid_row_keeps_its_own_height_through_sort_and_delete() {
+        let mut interp = Interpreter::new(
+            parse(tokenize("IDENTIFICATION DIVISION.\nPROGRAM-ID. T.\nPROCEDURE DIVISION.\n    STOP RUN.\n", SourceFormat::Free))
+                .program
+                .expect("parses"),
+        );
+        interp.seed_objects([("DG-1".to_owned(), "DataGrid".to_owned(), vec![])]);
+        let s = |x: &str| CobolValue::from_str(x, x.len());
+        interp.obj_set("DG-1", "Rows", "c\nb\na".into());
+        interp.exec_method("DG-1", "SetRowHeight", &[s("1"), s("60")]); // "c"
+        interp.exec_method("DG-1", "SetRowHeight", &[s("2"), s("40")]); // "b"
+        assert_eq!(interp.obj_get("DG-1", "RowHeightOverrides"), "1=60;2=40");
+        interp.exec_method("DG-1", "Sort", &[s("1")]); // a, b, c
+        assert_eq!(interp.obj_get("DG-1", "RowHeightOverrides"), "2=40;3=60", "heights follow their rows");
+        interp.exec_method("DG-1", "DeleteRow", &[s("2")]); // a, c
+        assert_eq!(interp.obj_get("DG-1", "RowHeightOverrides"), "2=60");
+        interp.exec_method("DG-1", "SetRowHeight", &[s("2"), s("0")]);
+        assert_eq!(interp.obj_get("DG-1", "RowHeightOverrides"), "");
+        interp.exec_method("DG-1", "SetRowHeight", &[s("1"), s("30")]);
+        interp.exec_method("DG-1", "ClearRows", &[]);
+        assert_eq!(interp.obj_get("DG-1", "RowHeightOverrides"), "");
+        interp.exec_method("DG-1", "SetRowHeight", &[s("28")]);
+        assert_eq!(interp.obj_get("DG-1", "RowHeight"), "28", "one argument is every row");
     }
 
     /// `Mode = Async` on a SqlDatabase (spec 032): `Query` / `Execute` return

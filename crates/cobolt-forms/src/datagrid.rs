@@ -172,6 +172,10 @@ pub struct DataGridLayoutInput {
     pub row_count: usize,
     pub columns: Vec<DataGridColumnMeasure>,
     pub row_height: f32,
+    /// One height per row, for a grid whose rows differ
+    /// (`RowHeightOverrides`). Empty — the usual case — means every row is
+    /// `row_height`, laid out exactly as before per-row heights existed.
+    pub row_heights: Vec<f32>,
     pub header_height: f32,
     pub frozen_columns: usize,
     pub frozen_rows: usize,
@@ -197,6 +201,93 @@ pub struct DataGridLayout {
     pub frozen_rows: usize,
     pub frozen_columns: Vec<DataGridLayoutColumn>,
     pub scrollable_columns: Vec<DataGridLayoutColumn>,
+    /// Where each scrollable row starts, relative to the body's top at
+    /// scroll 0.
+    pub rows: RowGeometry,
+}
+
+/// The property holding per-row heights: `row=height` pairs, the row being
+/// the DATA row numbered from 1 as COBOL numbers it (`GetCellValue(1, …)` is
+/// the first row), so a sorted or filtered grid keeps each height with its
+/// row. Separated by `;`, `,` or new lines — e.g. `1=40;8=64`. The parsed map
+/// is keyed by the 0-based index into `Rows`.
+pub const ROW_HEIGHT_OVERRIDES_PROP: &str = "RowHeightOverrides";
+
+/// The range a per-row height is kept in: the uniform `RowHeight`'s floor,
+/// and room for a row several lines tall.
+pub const ROW_HEIGHT_OVERRIDE_RANGE: (f32, f32) = (14.0, 400.0);
+
+/// Read `RowHeightOverrides` into 0-based data-row indices. Malformed pairs,
+/// and row 0, are skipped.
+pub fn parse_row_height_overrides(text: &str) -> std::collections::BTreeMap<usize, f32> {
+    text.split([';', ',', '\n'])
+        .filter_map(|pair| {
+            let (row, height) = pair.split_once('=')?;
+            let row = row.trim().parse::<usize>().ok()?.checked_sub(1)?;
+            let height = height.trim().parse::<f32>().ok()?;
+            (height > 0.0).then(|| {
+                (row, height.clamp(ROW_HEIGHT_OVERRIDE_RANGE.0, ROW_HEIGHT_OVERRIDE_RANGE.1))
+            })
+        })
+        .collect()
+}
+
+/// Write `RowHeightOverrides`, in row order.
+pub fn format_row_height_overrides(map: &std::collections::BTreeMap<usize, f32>) -> String {
+    map.iter()
+        .map(|(row, h)| format!("{}={}", row + 1, h.round() as i64))
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
+/// Where each of a run of rows starts, when they need not share a height.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct RowGeometry {
+    /// `tops[i]` is row i's top; one extra entry holds the total height.
+    tops: Vec<f32>,
+}
+
+impl RowGeometry {
+    /// `count` rows, row i `heights[i]` tall when given (and positive),
+    /// otherwise `base`.
+    pub fn new(count: usize, base: f32, heights: &[f32]) -> Self {
+        let base = base.max(1.0);
+        let mut tops = Vec::with_capacity(count + 1);
+        let mut y = 0.0;
+        tops.push(0.0);
+        for i in 0..count {
+            y += heights.get(i).copied().filter(|h| *h > 0.0).unwrap_or(base).max(1.0);
+            tops.push(y);
+        }
+        Self { tops }
+    }
+
+    pub fn len(&self) -> usize {
+        self.tops.len().saturating_sub(1)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Row `i`'s top; past the last row, the total height.
+    pub fn top(&self, i: usize) -> f32 {
+        self.tops.get(i).or(self.tops.last()).copied().unwrap_or(0.0)
+    }
+
+    pub fn height(&self, i: usize) -> f32 {
+        self.top(i + 1) - self.top(i)
+    }
+
+    pub fn total(&self) -> f32 {
+        self.top(self.len())
+    }
+
+    /// The row whose span holds `y`; `len()` when `y` is past the last row.
+    pub fn index_at(&self, y: f32) -> usize {
+        // The first top strictly greater than y, minus one.
+        self.tops.partition_point(|t| *t <= y).saturating_sub(1).min(self.len())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -285,7 +376,8 @@ impl DataGridLayout {
         };
 
         let explicit_frozen = input.frozen_columns.min(normalized_columns.len());
-        let total_rows_height = input.row_count as f32 * row_height;
+        let rows = RowGeometry::new(input.row_count, row_height, &input.row_heights);
+        let total_rows_height = rows.total();
         let total_columns_width = normalized_columns.iter().map(|c| c.width).sum::<f32>();
         let frozen_columns_width = normalized_columns
             .iter()
@@ -301,11 +393,19 @@ impl DataGridLayout {
         let scroll_x = input.scroll_x.clamp(0.0, max_scroll_x);
         let scroll_y = input.scroll_y.clamp(0.0, max_scroll_y);
 
-        let first_visible = (scroll_y / row_height).floor().max(0.0) as usize;
+        let (first_visible, last_row_exclusive) = if input.row_heights.is_empty() {
+            let first_visible = (scroll_y / row_height).floor().max(0.0) as usize;
+            let visible_capacity = (body_height / row_height).ceil().max(0.0) as usize;
+            (
+                first_visible,
+                (first_visible + visible_capacity + input.row_buffer + 1).min(input.row_count),
+            )
+        } else {
+            let first_visible = rows.index_at(scroll_y);
+            let last_visible = rows.index_at(scroll_y + body_height);
+            (first_visible, (last_visible + input.row_buffer + 1).min(input.row_count))
+        };
         let first_row = first_visible.saturating_sub(input.row_buffer);
-        let visible_capacity = (body_height / row_height).ceil().max(0.0) as usize;
-        let last_row_exclusive =
-            (first_visible + visible_capacity + input.row_buffer + 1).min(input.row_count);
         let frozen_rows = input.frozen_rows.min(input.row_count);
 
         let mut frozen_columns = Vec::new();
@@ -359,6 +459,7 @@ impl DataGridLayout {
             frozen_rows,
             frozen_columns,
             scrollable_columns,
+            rows,
         }
     }
 
@@ -398,7 +499,7 @@ impl DataGridLayout {
         &self,
         x: f32,
         y: f32,
-        row_height: f32,
+        _row_height: f32,
         handle_radius: f32,
     ) -> Option<DataGridRowResizeHit> {
         if x < self.viewport.x || x > self.viewport.max_x() {
@@ -418,7 +519,7 @@ impl DataGridLayout {
         let first = self.first_row;
         let last = self.last_row_exclusive;
         for row_index in first..last {
-            let edge_y = self.body_rect.y + row_height * (row_index + 1) as f32 - self.scroll_y;
+            let edge_y = self.body_rect.y + self.rows.top(row_index + 1) - self.scroll_y;
             if edge_y < self.body_rect.y || edge_y > self.body_rect.max_y() {
                 continue;
             }
@@ -437,6 +538,44 @@ impl DataGridLayout {
 mod tests {
     use super::*;
 
+    /// `RowHeightOverrides` numbers rows from 1, as COBOL does, and survives
+    /// a round trip; junk is skipped, heights are kept in range.
+    #[test]
+    fn row_height_overrides_read_and_write() {
+        let m = parse_row_height_overrides("1=40; 8=64,junk,0=50\n3=2000");
+        assert_eq!(m.into_iter().collect::<Vec<_>>(), vec![(0, 40.0), (2, 400.0), (7, 64.0)]);
+        let m = parse_row_height_overrides("1=40;8=64");
+        assert_eq!(format_row_height_overrides(&m), "1=40;8=64");
+    }
+
+    /// Rows of different heights: tops accumulate, a y finds its row, and the
+    /// layout scrolls and culls by them.
+    #[test]
+    fn rows_of_different_heights_lay_out_by_their_own_heights() {
+        let g = RowGeometry::new(4, 20.0, &[0.0, 60.0]);
+        assert_eq!((g.top(0), g.top(1), g.top(2), g.top(3), g.total()), (0.0, 20.0, 80.0, 100.0, 120.0));
+        assert_eq!((g.index_at(19.9), g.index_at(20.0), g.index_at(79.0), g.index_at(500.0)), (0, 1, 1, 4));
+        let mut heights = vec![20.0; 100];
+        heights[50] = 300.0;
+        let layout = DataGridLayout::compute(&DataGridLayoutInput {
+            width: 200.0,
+            height: 220.0,
+            row_count: 100,
+            columns: vec![DataGridColumnMeasure::new(200.0)],
+            row_height: 20.0,
+            row_heights: heights,
+            header_height: 20.0,
+            frozen_columns: 0,
+            frozen_rows: 0,
+            scroll_x: 0.0,
+            scroll_y: 50.0 * 20.0 + 10.0,
+            row_buffer: 0,
+        });
+        assert_eq!(layout.total_rows_height, 99.0 * 20.0 + 300.0);
+        assert_eq!(layout.first_row, 50, "inside the tall row");
+        assert_eq!(layout.last_row_exclusive, 51, "which fills the whole body");
+    }
+
     #[test]
     fn datagrid_layout_virtualizes_large_row_sets_023() {
         let layout = DataGridLayout::compute(&DataGridLayoutInput {
@@ -445,6 +584,7 @@ mod tests {
             row_count: 100_000,
             columns: vec![DataGridColumnMeasure::new(120.0); 6],
             row_height: 20.0,
+            row_heights: Vec::new(),
             header_height: 24.0,
             frozen_columns: 0,
             frozen_rows: 0,
@@ -469,6 +609,7 @@ mod tests {
             row_count: 3,
             columns: vec![DataGridColumnMeasure::new(80.0); 2],
             row_height: 24.0,
+            row_heights: Vec::new(),
             header_height: 30.0,
             frozen_columns: 0,
             frozen_rows: 0,
@@ -497,6 +638,7 @@ mod tests {
                 DataGridColumnMeasure::new(120.0),
             ],
             row_height: 20.0,
+            row_heights: Vec::new(),
             header_height: 24.0,
             frozen_columns: 1,
             frozen_rows: 1,
@@ -526,6 +668,7 @@ mod tests {
             row_count: 100_000,
             columns: vec![DataGridColumnMeasure::new(128.0); 12],
             row_height: 24.0,
+            row_heights: Vec::new(),
             header_height: 24.0,
             frozen_columns: 2,
             frozen_rows: 1,
@@ -557,6 +700,7 @@ mod tests {
                 DataGridColumnMeasure::new(120.0),
             ],
             row_height: 18.0,
+            row_heights: Vec::new(),
             header_height: 24.0,
             frozen_columns: 1,
             frozen_rows: 0,
@@ -590,6 +734,7 @@ mod tests {
                 DataGridColumnMeasure::new(140.0),
             ],
             row_height: 22.0,
+            row_heights: Vec::new(),
             header_height: 24.0,
             frozen_columns: 1,
             frozen_rows: 0,
@@ -614,6 +759,7 @@ mod tests {
             row_count: 20,
             columns: vec![DataGridColumnMeasure::new(100.0); 3],
             row_height: 20.0,
+            row_heights: Vec::new(),
             header_height: 24.0,
             frozen_columns: 0,
             frozen_rows: 0,

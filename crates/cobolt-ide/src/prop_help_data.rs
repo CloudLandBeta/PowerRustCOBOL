@@ -1450,12 +1450,12 @@ pub static PROP_HELP: &[PropHelp] = &[
         "Hauteur de chaque ligne en points, 14-120 (22 par défaut). Faire glisser le bord d'une ligne la modifie quand AllowRowResize est actif.",
     ] },
     PropHelp { ty: "DataGrid", prop: "RowHeightOverrides", text: [
-        "Retired: the rows of a grid are uniform (RowHeight sets them all) and per-row heights were never applied. Kept only from older forms and ignored.",
-        "Retirada: las filas de la cuadrícula son uniformes (RowHeight las fija todas) y nunca se aplicaron alturas por fila. Solo se conserva de formularios antiguos y se ignora.",
-        "Aposentada: as linhas da grade são uniformes (RowHeight define todas) e alturas por linha nunca foram aplicadas. Mantida só em formulários antigos e ignorada.",
-        "廃止：グリッドの行は均一で（RowHeight ですべて設定）、行ごとの高さは一度も適用されていません。古いフォームから引き継がれるだけで無視されます。",
-        "已停用：网格各行高度一致（由 RowHeight 统一设置），逐行高度从未生效。仅保留于旧窗体中且被忽略。",
-        "Retirée : les lignes de la grille sont uniformes (RowHeight les règle toutes) et les hauteurs par ligne n'ont jamais été appliquées. Conservée depuis d'anciens formulaires et ignorée.",
+        "Rows with their own height, as row=height pairs with rows numbered from 1, e.g. 1=40;8=64 (14-400). A height stays with its row when sorted or filtered. Empty: every row is RowHeight.",
+        "Filas con altura propia, como pares fila=altura con filas numeradas desde 1, p. ej. 1=40;8=64 (14-400). La altura sigue a su fila al ordenar o filtrar. Vacío: todas usan RowHeight.",
+        "Linhas com altura própria, como pares linha=altura com linhas numeradas a partir de 1, ex. 1=40;8=64 (14-400). A altura acompanha a linha ao ordenar ou filtrar. Vazio: todas usam RowHeight.",
+        "独自の高さを持つ行。行=高さ の組（行は 1 から数える）で、例 1=40;8=64（14～400）。並べ替えや絞り込みでも高さは行に付いていきます。空欄ならすべて RowHeight。",
+        "拥有自身高度的行，写成 行=高度 对（行号从 1 开始），例如 1=40;8=64（14-400）。排序或筛选时高度随行移动。留空则所有行均为 RowHeight。",
+        "Lignes ayant leur propre hauteur, en paires ligne=hauteur numérotées à partir de 1, ex. 1=40;8=64 (14-400). La hauteur suit sa ligne au tri ou au filtrage. Vide : toutes valent RowHeight.",
     ] },
     PropHelp { ty: "DataGrid", prop: "Rows", text: [
         "Cell data: one row per line, cells separated by TAB. Usually filled at run time from COBOL or a data binding.",

@@ -8,6 +8,24 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.243] — 2026-09-26
+
+### Feature — a DataGrid row can have a height of its own
+
+- **`RowHeightOverrides`** is back and real: `row=height` pairs, rows numbered
+  from 1 as COBOL numbers them (`1=40;8=64`, 14–400 points); every other row is
+  `RowHeight`. The height belongs to the DATA row, so it stays with its row when
+  the grid is sorted or filtered. Always seeded empty, so no older form changes.
+- **`SetRowHeight(row, pixels)`** sets one row (0 hands it back);
+  `SetRowHeight(pixels)` still sets every row. `Sort`, `DeleteRow` and
+  `ClearRows` carry the heights along. Dragging the edge of a row with its own
+  height resizes that row alone.
+- Layout: `datagrid::RowGeometry` (prefix sums) positions, culls, scrolls into
+  view and places the resize grips by each row's height; a grid with no
+  overrides keeps the original arithmetic exactly. A "Row heights" field in the
+  grid's settings. Tests: parsing, geometry and culling, the painted rows, and
+  the runtime methods. KB, hover help and Guide updated.
+
 ## [PowerRustCOBOL 1.70.242] — 2026-09-26
 
 ### Feature — an asynchronous SqlDatabase

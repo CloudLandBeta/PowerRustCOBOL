@@ -2546,14 +2546,21 @@ background/foreground).
   button is hidden even with `ShowCSVExportButton` on. The `ExportCSV` method
   and the generated `<id>-EXPORT-CSV` paragraph work either way.
 - `RowHeight` is the height of every row, 14–120 points; dragging a row edge
-  writes it. Rows are uniform — the old `RowHeightOverrides` promised per-row
-  heights, was never read, and is retired. So is the grid's `ReadOnly`: there is
-  no in-cell editing for it to block.
+  writes it. **A row can have a height of its own** — a note row, a row that
+  holds two lines — through **`RowHeightOverrides`**: `row=height` pairs, rows
+  numbered from 1 as everywhere else in COBOL (`1=40;8=64`, 14–400 points),
+  set in the grid's settings or with `SetRowHeight(row, pixels)`. The height
+  belongs to the data row, so it stays with its row when the grid is sorted or
+  filtered, and `Sort`, `DeleteRow` and `ClearRows` carry it along; dragging
+  the edge of such a row resizes that row alone. The grid's `ReadOnly` is
+  retired: there is no in-cell editing for it to block.
 
 ```cobol
       *> Freeze the key column and filter to one city, from COBOL.
            MOVE 1        TO DG-CUSTOMERS::FrozenColumns
            MOVE "City=Rio" TO DG-CUSTOMERS::ColumnFilters
+      *> Give the third row room for a two-line note; 0 hands it back.
+           INVOKE DG-CUSTOMERS::SetRowHeight(3, 44)
 ```
 
 > **Note.** A write of `FrozenColumns`, `FrozenRows`, `ColumnFilters`,
