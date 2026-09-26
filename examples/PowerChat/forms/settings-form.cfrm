@@ -626,6 +626,10 @@
       *>   What each group holds, under its button. Model selection and Agents
       *>   wait for a model provider: without a connection they have nothing
       *>   to choose from (operator, 2026-09-25).
+      *>   The main form owns the menu, which opens once an agent has a model:
+      *>   it re-reads the settings now instead of when Chat is next clicked
+      *>   (operator, 2026-09-26).
+           INVOKE super::"PC-REFRESH"()
            MOVE "KB-LOCATION" TO WS-SET-NAME
            CALL "PC-SETTING-GET"
            IF WS-SET-VALUE = SPACES
@@ -1432,8 +1436,10 @@
        DATA DIVISION.
        PROCEDURE DIVISION.
       *>   Read a rag-settings.xml back: the folder, each model (added or
-      *>   replaced) and each agent. No key travels in the file, so the models
-      *>   that need one are named afterwards.
+      *>   replaced) and each agent. The export never writes a key, but a
+      *>   file may carry one - key="..." on a <model>, added by hand - and it
+      *>   is stored in the key store like one typed in Model providers. The
+      *>   models still without a key are named afterwards.
            CALL "COBOL-OPEN-FILE-DIALOG" USING T-IMPORT-TITLE "XML|xml" WS-XML-PATH
            IF WS-XML-PATH = SPACES
                EXIT PROGRAM
@@ -1494,11 +1500,18 @@
                                ELSE
                                    MOVE 5 TO MDL-RANK
                                END-IF
+                               MOVE "key" TO WS-XNAME
+                               CALL "PC-XML-ATTR"
+                               MOVE WS-XVAL TO WS-KEY
                                IF MDL-NAME NOT = SPACES
                                    WRITE MODEL-REC
                                        INVALID KEY REWRITE MODEL-REC
                                    END-WRITE
                                    CALL "COBOL-MODEL-SET" USING MDL-NAME MDL-API MDL-URL MDL-MODEL
+                                   IF WS-KEY NOT = SPACES
+                                       CALL "COBOL-KEY-SET" USING MDL-NAME WS-KEY WS-STATUS
+                                       MOVE SPACES TO WS-KEY
+                                   END-IF
                                    ADD 1 TO WS-IMPORTED
                                    MOVE MDL-API TO WS-PROV-ID
                                    CALL "PC-PROVIDER-LABEL"

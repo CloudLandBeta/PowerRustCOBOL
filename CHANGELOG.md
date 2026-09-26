@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.256] — 2026-09-26
+
+### Examples — PowerChat: the menu opens at once; an import can carry keys
+
+- The side menu stayed shut after every agent had a model, until **Chat** was
+  clicked: only the main form re-checks it, on load and on `onActivate`. The
+  RAG settings pane now asks it to right after every change —
+  `INVOKE super::"PC-REFRESH"()` (working since 1.70.255).
+- RAG settings **Import** stores a `key="…"` found on a `<model>` with
+  `COBOL-KEY-SET`, so a file prepared by hand can bring its keys. **Export**
+  still never writes one (spec 076 R6: a program never reads a key back).
+- Guide (PowerChat's settings-form row) updated; the form's regenerated COBOL
+  passes `rcrun check`.
+
 ## [PowerRustCOBOL 1.70.255] — 2026-09-26
 
 ### Fix — `super::"<Procedure>"()` ran nothing
