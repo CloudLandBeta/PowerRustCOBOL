@@ -8,6 +8,23 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.255] — 2026-09-26
+
+### Fix — `super::"<Procedure>"()` ran nothing
+
+- The Guide and the KB said a form can run one of its loader's own
+  procedures with `INVOKE super::"RecalcTotals"()`, "dispatched at run time";
+  the supervisor refused every such name with "windowHandler has no method".
+  A procedure-shaped name now becomes `HostAction::CallProcedure` on the
+  target form: the caller is answered at once, and the target's interpreter
+  runs the procedure (as `CALL` would) the next time it waits for an event —
+  the reserved request never reaches the program's event loop. An unknown name
+  is reported in the target's output. Works for the root, a child window and a
+  ContentPane occupant, so in `rcrun run-form` and a built application alike.
+- Tests: the call surfaces on the parent (`test_super_receiver`), and a called
+  procedure runs inside `COBOL-WAIT-EVENT` while the loop sees only the next
+  real event. Guide and KB describe the real behaviour.
+
 ## [PowerRustCOBOL 1.70.254] — 2026-09-26
 
 ### Fix — the AI-setup invite kept saying nothing was configured

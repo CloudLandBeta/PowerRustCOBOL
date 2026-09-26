@@ -4625,8 +4625,14 @@ opened it, on both paths — a menu load and `OpenFormSync` / `OpenFormAsync`.
   retitles the opener's window; `BackgroundColor`/`Transparency` repaint its
   backdrop, `Width`/`Height` resize it and `X`/`Y` move it (a shell
   application's window belongs to the shell: there only the backdrop changes).
-- **Form-specific procedures use parentheses** — `super::"RecalcTotals"()` — and
-  dispatch at run time.
+- **Form-specific procedures use parentheses** — `INVOKE super::"RecalcTotals"()` —
+  and run one of the PARENT's own procedures (a paragraph or user procedure of
+  its program, as `CALL "RecalcTotals"` would there). The call is answered at
+  once and the procedure runs when the parent next waits for an event — so it
+  returns nothing, and its effects are seen by the parent, not by the caller.
+  Use it to tell the form that loaded you that something changed (a settings
+  pane asking the main form to re-check its menu). A name the parent has no
+  procedure for is reported in its program output and nothing runs.
 - **`super` can be NULL**: in the main form, and in an async-opened form whose
   opener has closed (a child never keeps its opener alive). Referencing a NULL
   `super` raises the standard runtime error.

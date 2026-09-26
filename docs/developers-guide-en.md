@@ -11556,8 +11556,23 @@ Rules to expect:
   surface (Name, Title, Width, Height, X, Y, WindowState, FullScreen,
   TitleVisible, CanMinimize, CanMaximize, FormState, FormFormat,
   BackgroundColor, Transparency, PreventReset) — a typo like `super::Widht` fails the
-  build at any depth. Form-specific procedures use parentheses
-  (`super::"RecalcTotals"()`) and dispatch at run time.
+  build at any depth.
+- **Running a procedure of the form that loaded you** — `INVOKE
+  super::"RecalcTotals"()`. The name is one of the *parent's* own procedures (a
+  paragraph or user procedure of its program), and it runs there exactly as
+  `CALL "RecalcTotals"` would. The call is answered at once and the procedure
+  runs the next time the parent waits for an event, so it returns nothing to
+  you; what it changes, it changes on the parent. This is how a form in the
+  ContentPane tells the main form that something changed:
+
+  ```cobol
+      *> in the settings pane, after the agents were saved
+           INVOKE super::"PC-MENU-STATE"().
+  ```
+
+  A name the parent has no procedure for is reported in its program output and
+  nothing runs. ⚠️ Until 1.70.255 this was documented and refused at run time
+  with "windowHandler has no method".
 - **`super` can be NULL**: in the main form, and in an async-opened form
   whose opener has closed (the child never keeps its opener alive).
   Referencing a NULL `super` raises the standard runtime error.

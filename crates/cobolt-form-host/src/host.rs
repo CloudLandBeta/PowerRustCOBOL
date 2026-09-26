@@ -3294,6 +3294,28 @@ impl FormHost {
                             body.apply_form_window_update(ctx, &u, vp);
                         }
                     }
+                    // `super::"<Procedure>"()` — another form asked this one
+                    // to run a procedure of its own. It reaches the target's
+                    // interpreter as a reserved event, which runs it the next
+                    // time it waits; the program's event loop never sees it.
+                    HostAction::CallProcedure { handle, name } => {
+                        let target = if handle == ROOT_HANDLE {
+                            Some(&mut self.root)
+                        } else if let Some(c) = self.children.iter_mut().find(|c| c.handle == handle) {
+                            Some(&mut c.body)
+                        } else {
+                            self.occupants.values_mut().find(|o| o.handle == handle).map(|o| &mut o.body)
+                        };
+                        if let Some(body) = target {
+                            body.send_event(
+                                FormEvent::new(
+                                    body.form_object.clone(),
+                                    cobolt_runtime::form_host::FormSupervisor::CALL_PROCEDURE_EVENT,
+                                )
+                                .with_value(name),
+                            );
+                        }
+                    }
                     // 049 R44 — surfaced for the SHELL host, which applies it
                     // to its MenuPane and persists it (R9). A classic window
                     // host takes it nowhere.

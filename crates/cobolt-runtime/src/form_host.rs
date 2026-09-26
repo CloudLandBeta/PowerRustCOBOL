@@ -152,6 +152,17 @@ pub enum FileDialogKind {
     Folder,
 }
 
+/// A COBOL procedure name: letters, digits and hyphens, starting with a
+/// letter or digit — what `super::"<Procedure>"()` may name.
+pub fn is_procedure_name(name: &str) -> bool {
+    let n = name.trim();
+    !n.is_empty()
+        && n.len() <= 30
+        && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        && !n.starts_with('-')
+        && !n.ends_with('-')
+}
+
 /// One window-affecting decision for the GUI host to execute.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostAction {
@@ -186,6 +197,11 @@ pub enum HostAction {
         key: String,
         value: String,
     },
+    /// `super::"<Procedure>"()` / `handle::"<Procedure>"()`: run one of the
+    /// target form's OWN procedures (the Guide's "form-specific procedures
+    /// dispatch at run time"). Fire-and-forget: the caller is answered at
+    /// once and the target runs it the next time it waits for an event.
+    CallProcedure { handle: String, name: String },
     /// 049 R44 — COBOL drove the MenuPane state
     /// (`super::<menu-id>::Collapse()`/`Open()`). PANE-WIDE by decision
     /// (spec Q10). The shell applies it and persists it (R9).
@@ -493,6 +509,11 @@ impl FormSupervisor {
         }]
     }
 
+    /// The event a form's interpreter receives to run one of its procedures
+    /// (`HostAction::CallProcedure`). Reserved: the generated event loop never
+    /// sees it.
+    pub const CALL_PROCEDURE_EVENT: &'static str = "__CALL-PROCEDURE__";
+
     fn handle_method(
         &mut self,
         handle: &str,
@@ -630,6 +651,13 @@ impl FormSupervisor {
                     value,
                 }]
             }
+            // Not a windowHandler method: one of the target form's own
+            // procedures, which only that form's program knows — so it is
+            // handed over by name and resolved there.
+            other if is_procedure_name(other) => vec![HostAction::CallProcedure {
+                handle: handle.to_string(),
+                name: other.to_string(),
+            }],
             other => {
                 let _ = reply.send(Err(format!(
                     "windowHandler has no method \u{201c}{other}\u{201d}"

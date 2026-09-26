@@ -578,3 +578,86 @@ fn unbound_super_raises_the_null_error() {
     let _ = host.join();
     println!("049 R32 shape — unbound super: read, write and method all raise 'super is NULL' (3/3)");
 }
+
+/// `super::"<Procedure>"()` — the Guide's "form-specific procedures dispatch
+/// at run time", which the supervisor used to refuse as "windowHandler has no
+/// method". A procedure-shaped name now becomes a CallProcedure on the
+/// PARENT, answered at once; a name no procedure could have still errors.
+#[test]
+fn super_procedure_call_reaches_the_parent_as_a_call() {
+    let (req_tx, host) = spawn_host();
+    let child_src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SETTINGS-FORM.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-T PIC X(12).
+       PROCEDURE DIVISION.
+           INVOKE super::"PC-MENU-STATE"().
+           DISPLAY "AFTER-CALL".
+           STOP RUN.
+"#;
+    let (display, run) = run_form(
+        child_src,
+        req_tx.clone(),
+        "W1",
+        "SETTINGS-FORM",
+        Some(ROOT_HANDLE),
+        vec![],
+    );
+    run.expect("the call is answered, not refused");
+    assert!(display.iter().any(|l| l.contains("AFTER-CALL")), "{display:?}");
+    drop(req_tx);
+    let actions = host.join().expect("host thread");
+    assert!(
+        actions.iter().any(|a| matches!(
+            a,
+            HostAction::CallProcedure { handle, name }
+                if handle == ROOT_HANDLE && name == "PC-MENU-STATE"
+        )),
+        "the call must target the PARENT by name: {actions:?}"
+    );
+    assert!(cobolt_runtime::form_host::is_procedure_name("PC-MENU-STATE"));
+    assert!(!cobolt_runtime::form_host::is_procedure_name("Bad Name!"));
+    println!("super::\"PC-MENU-STATE\"() — surfaced as CallProcedure on W0; the child ran on");
+}
+
+/// The receiving half: a form asked to run a procedure runs it while it
+/// waits — and its event loop never sees the request, only the next real
+/// event. An unknown name is reported in the output, not a crash.
+#[test]
+fn a_called_procedure_runs_while_the_form_waits() {
+    use cobolt_runtime::FormEvent;
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CHAT-FORM.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-EV  PIC X(30).
+       01 WS-CTL PIC X(30).
+       PROCEDURE DIVISION.
+       MAIN-LOOP.
+           CALL "COBOL-WAIT-EVENT" USING WS-EV WS-CTL
+           DISPLAY "EVENT=" WS-EV
+           STOP RUN.
+       PC-MENU-STATE.
+           DISPLAY "MENU-CHECKED".
+"#;
+    let (event_tx, event_rx) = mpsc::channel();
+    let (state_tx, _state_rx) = mpsc::channel();
+    let (display_tx, display_rx) = mpsc::channel();
+    let mut interp = Interpreter::new_with_channels(program(src), event_rx, state_tx, display_tx);
+    let call = FormSupervisor::CALL_PROCEDURE_EVENT;
+    event_tx.send(FormEvent::new("CHAT-FORM", call).with_value("NO-SUCH-PROC")).unwrap();
+    event_tx.send(FormEvent::new("CHAT-FORM", call).with_value("PC-MENU-STATE")).unwrap();
+    event_tx.send(FormEvent::new("BTN-SEND", "onClick")).unwrap();
+    interp.run().expect("runs");
+    let out: Vec<String> = display_rx.try_iter().collect();
+    let at = |needle: &str| out.iter().position(|l| l.contains(needle));
+    assert!(at("MENU-CHECKED").is_some(), "{out:?}");
+    assert!(at("EVENT=onClick").is_some(), "the loop sees the click: {out:?}");
+    assert!(at("MENU-CHECKED") < at("EVENT=onClick"), "run while waiting, before the click: {out:?}");
+    assert!(!out.iter().any(|l| l.contains("EVENT=__CALL")), "the request is never an event: {out:?}");
+    assert!(at("NO-SUCH-PROC").is_some(), "an unknown name is reported: {out:?}");
+    println!("a called procedure ran inside COBOL-WAIT-EVENT; the loop saw only onClick");
+}

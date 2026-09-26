@@ -3690,6 +3690,10 @@ impl Interpreter {
                     Self::DEBUG_WAIT_POLL_MS
                 };
                 match rx.recv_timeout(std::time::Duration::from_millis(poll)) {
+                    Ok(ev) if ev.event_id == crate::form_host::FormSupervisor::CALL_PROCEDURE_EVENT => {
+                        self.run_called_procedure(&ev);
+                        continue;
+                    }
                     Ok(ev) => return WaitOutcome::Ui(ev),
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -3698,10 +3702,41 @@ impl Interpreter {
                 }
             } else {
                 match rx.recv() {
+                    Ok(ev) if ev.event_id == crate::form_host::FormSupervisor::CALL_PROCEDURE_EVENT => {
+                        self.run_called_procedure(&ev);
+                        continue;
+                    }
                     Ok(ev) => return WaitOutcome::Ui(ev),
                     Err(_) => return WaitOutcome::Disconnected,
                 }
             }
+        }
+    }
+
+    /// Another form asked this one to run one of its procedures —
+    /// `super::"<Procedure>"()` (the event's value names it). Run while this
+    /// form waits, as `CALL "<Procedure>"` would, and never shown to the
+    /// program's own event loop. An unknown name, or a procedure that fails,
+    /// is reported in the program's output and the form keeps running.
+    fn run_called_procedure(&mut self, ev: &FormEvent) {
+        if let Some(c) = &self.event_pending {
+            let _ = c.fetch_update(
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+                |v| if v > 0 { Some(v - 1) } else { None },
+            );
+        }
+        self.drain_input();
+        let name = ev.value.trim().to_ascii_uppercase();
+        let Some(stmts) = self.para_map.get(&name).cloned() else {
+            self.agent_log(format!(
+                "super::\"{name}\"(): this form has no procedure named {name} — nothing was run"
+            ));
+            return;
+        };
+        match self.exec_stmts(&stmts) {
+            Ok(()) | Err(RuntimeError::GoBack) => {}
+            Err(e) => self.agent_log(format!("super::\"{name}\"(): {e}")),
         }
     }
 
