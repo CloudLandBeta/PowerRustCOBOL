@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.257] — 2026-09-26
+
+### Fix — a project whose agents all had models was told to set up its AI
+
+- Opening PowerChat — every agent on its own `ollama_cloud` model, no project
+  default model — showed "Set up the AI for this project". The top-level default
+  (which the direct AI surfaces and the setup check read) is seeded from the
+  agents, Grace first; that seeding sat at the end of the spec-048 profile
+  migration, AFTER its "nothing to migrate" early return, so an
+  already-migrated project never got a default. It now runs on every project
+  open, and the config is saved only when it changed (`seed_default_model`).
+  Test `a_migrated_project_whose_agents_have_models_needs_no_setup`.
+
 ## [PowerRustCOBOL 1.70.256] — 2026-09-26
 
 ### Examples — PowerChat: the menu opens at once; an import can carry keys

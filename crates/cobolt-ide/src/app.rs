@@ -5848,6 +5848,18 @@ impl CoboltApp {
         // has to drop is named, because a key that quietly disappeared is a
         // support call nobody can answer.
         self.migrate_model_profiles(&mut db);
+        // The direct AI surfaces — and the "set up the AI" check — read the
+        // top-level model, which only the agents can supply now (spec 048 T4).
+        // On EVERY open: this sat at the end of the migration, after its
+        // "nothing to migrate" early return, so an already-migrated project
+        // whose agents all had models opened with no default model and was
+        // told to set up its AI (operator, 2026-09-26: PowerChat).
+        if seed_default_model(&mut self.llm, &db) {
+            if let Err(error) = self.llm.save() {
+                self.output
+                    .push_status(format!("Could not save model providers: {error}"));
+            }
+        }
     }
 
     /// Run the spec 048 profiles→providers migration and report it (R24–R27).
@@ -5889,9 +5901,7 @@ impl CoboltApp {
                  now has no model."
             ));
         }
-        // The direct AI surfaces read the top-level model, which profiles used
-        // to seed (spec 048 T4).
-        self.llm.ensure_default_model_from_agents(db);
+        // (The default model is seeded by the caller, on every open.)
         if let Err(error) = self.llm.save() {
             self.output
                 .push_status(format!("Could not save model providers: {error}"));
@@ -18579,6 +18589,15 @@ fn ai_setup_needed_for(
     !grace_ready
 }
 
+/// Give the project a top-level default model from its agents when it has
+/// none (Grace's first, else any agent's, else a configured provider's first
+/// model). True when it changed, so the caller saves only then.
+fn seed_default_model(llm: &mut crate::llm::LlmConfig, db: &crate::agents_db::AgentsDb) -> bool {
+    let before = (llm.provider.clone(), llm.model.clone());
+    llm.ensure_default_model_from_agents(db);
+    before != (llm.provider.clone(), llm.model.clone())
+}
+
 /// Everything the invite asks for is in place: a model, and a model for EVERY
 /// enabled agent — Grace, the judge and the specialists alike.
 fn ai_setup_complete_for(
@@ -21108,6 +21127,36 @@ mod ai_setup_invite_tests {
         llm.model_profiles = vec![profile("d9566a66", "ollama_cloud", "gemma4:31b")];
         let agents = vec![agent("Grace", "orchestrator", false, Some("d9566a66"), "")];
         assert!(ai_setup_needed_for(&llm, &agents));
+    }
+
+    /// PowerChat's shape: an already-migrated project (no profiles) whose
+    /// agents each carry their own provider and model, opened with an empty
+    /// top-level default. It must NOT be told to set up its AI — the default
+    /// is seeded from Grace on open, migration or not (operator, 2026-09-26).
+    #[test]
+    fn a_migrated_project_whose_agents_have_models_needs_no_setup() {
+        let dir = std::env::temp_dir().join(format!("prc-ai-open-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut llm = LlmConfig::load_defaults_for_test();
+        llm.provider.clear();
+        llm.model.clear();
+        llm.model_profiles.clear();
+        llm.ensure_provider_config("ollama_cloud");
+        let mut db = crate::agents_db::AgentsDb::load(&dir);
+        db.ensure_fixed_agents(&llm);
+        for a in db.agents.iter_mut() {
+            a.model_profile = None;
+            a.no_model = false;
+            a.provider = "ollama_cloud".into();
+            a.model = "gemma4:31b".into();
+        }
+        assert!(ai_setup_needed_for(&llm, &db.agents), "the bug: no default model yet");
+        assert!(seed_default_model(&mut llm, &db), "seeded, so the caller saves");
+        assert_eq!((llm.provider.as_str(), llm.model.as_str()), ("ollama_cloud", "gemma4:31b"));
+        assert!(!ai_setup_needed_for(&llm, &db.agents), "no invite once seeded");
+        assert!(!seed_default_model(&mut llm, &db), "a second open changes nothing");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The invite says setup is DONE only when every enabled agent has a
