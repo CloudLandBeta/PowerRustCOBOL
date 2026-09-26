@@ -15749,14 +15749,14 @@ impl CoboltApp {
 
             // Advance all playing animations
             if dt > 0.0 {
-                let anim_meta: std::collections::HashMap<String, u64> = d
+                let anim_meta: std::collections::HashMap<String, (u64, cobolt_forms::model::AnimRepeat)> = d
                     .form
                     .controls
                     .iter()
                     .flat_map(|c| {
                         c.animations
                             .iter()
-                            .map(move |a| (format!("{}:{}", c.id, a.name), a.duration_ms))
+                            .map(move |a| (format!("{}:{}", c.id, a.name), (a.duration_ms, a.repeat.clone())))
                     })
                     .collect();
                 let mut need_repaint = false;
@@ -15772,16 +15772,21 @@ impl CoboltApp {
                         need_repaint = true;
                         continue;
                     }
-                    let dur = anim_meta.get(key).copied().unwrap_or(400) as f32 / 1000.0;
-                    if dur <= 0.0 {
-                        state.stop();
-                        continue;
-                    }
-                    state.t += dt / dur;
-                    if state.t >= 1.0 {
-                        state.t = 1.0;
-                        state.playing = false;
-                    }
+                    let (dur_ms, repeat) = anim_meta
+                        .get(key)
+                        .cloned()
+                        .unwrap_or((400, cobolt_forms::model::AnimRepeat::Once));
+                    // The engine's own step: Loop / PingPong / Count repeat in
+                    // the preview exactly as in the running form.
+                    cobolt_forms::anim::advance_clock(
+                        &mut state.t,
+                        &mut state.forward,
+                        &mut state.loops,
+                        &mut state.playing,
+                        &repeat,
+                        dur_ms as f32 / 1000.0,
+                        dt,
+                    );
                     need_repaint = true;
                 }
                 if need_repaint {

@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.264] — 2026-09-26
+
+### Fix — an animation's Loop did not repeat in the designer
+
+- The designer canvas and its form preview each advanced animations with a
+  clock of their own that stopped every animation after one pass, whatever its
+  `Repeat` said — so Loop, PingPong and Count never repeated there, while the
+  running form (the engine) did. The engine's step is now one shared function,
+  `anim::advance_clock`, and all three surfaces step through it. Test
+  `the_shared_clock_repeats_as_the_repeat_says`.
+
 ## [PowerRustCOBOL 1.70.263] — 2026-09-26
 
 ### Fix — border properties did nothing under Neumorphic; CheckBox spacing

@@ -52,6 +52,57 @@ fn zoomout_scale(t: f32) -> f32 {
 ///
 /// `AnimKind::None` does not count: it plays nothing, so hiding the control
 /// would simply lose it for the length of the entrance.
+/// Move one animation's clock on by `dt` seconds of a `dur_s`-second pass,
+/// honouring its `repeat`: `Once` rests at the end, `Loop` starts over,
+/// `PingPong` turns round, `Count(n)` plays n passes. THE one implementation —
+/// the running form's engine and the designer's canvas and preview all step
+/// through it, so a loop cannot work in one and not the other (the designer's
+/// two clocks stopped every animation after one pass; operator, 2026-09-26).
+pub fn advance_clock(
+    t: &mut f32,
+    forward: &mut bool,
+    loops: &mut u32,
+    playing: &mut bool,
+    repeat: &AnimRepeat,
+    dur_s: f32,
+    dt: f32,
+) {
+    if dur_s <= 0.0 {
+        *t = 1.0;
+        *playing = false;
+        return;
+    }
+    let step = dt / dur_s;
+    if *forward {
+        *t += step;
+    } else {
+        *t -= step;
+    }
+    if *t >= 1.0 || *t <= 0.0 {
+        let overshoot_high = *t >= 1.0;
+        *t = t.clamp(0.0, 1.0);
+        *loops = loops.saturating_add(1);
+        match repeat {
+            AnimRepeat::Once => {
+                // Rest at the end state (t = 1) — the animated control's
+                // designed position for every entrance effect.
+                *t = 1.0;
+                *playing = false;
+            }
+            AnimRepeat::Loop => *t = 0.0,
+            AnimRepeat::PingPong => *forward = !overshoot_high,
+            AnimRepeat::Count(n) => {
+                if *loops >= (*n).max(1) {
+                    *t = 1.0;
+                    *playing = false;
+                } else {
+                    *t = 0.0;
+                }
+            }
+        }
+    }
+}
+
 pub fn has_load_animation(ctrl: &Control) -> bool {
     ctrl.animations.iter().any(|a| {
         matches!(a.trigger, AnimTrigger::OnFormLoad | AnimTrigger::OnShow)
@@ -321,39 +372,15 @@ impl AnimRuntime {
                 state.playing = false;
                 continue;
             }
-            let step = dt / dur;
-            if state.forward {
-                state.t += step;
-            } else {
-                state.t -= step;
-            }
-            if state.t >= 1.0 || state.t <= 0.0 {
-                let overshoot_high = state.t >= 1.0;
-                state.t = state.t.clamp(0.0, 1.0);
-                state.loops = state.loops.saturating_add(1);
-                match state.def.repeat {
-                    AnimRepeat::Once => {
-                        // Rest at the end state (t = 1) — the animated control's
-                        // designed position for every entrance effect.
-                        state.t = 1.0;
-                        state.playing = false;
-                    }
-                    AnimRepeat::Loop => {
-                        state.t = 0.0;
-                    }
-                    AnimRepeat::PingPong => {
-                        state.forward = !overshoot_high;
-                    }
-                    AnimRepeat::Count(n) => {
-                        if state.loops >= n.max(1) {
-                            state.t = 1.0;
-                            state.playing = false;
-                        } else {
-                            state.t = 0.0;
-                        }
-                    }
-                }
-            }
+            advance_clock(
+                &mut state.t,
+                &mut state.forward,
+                &mut state.loops,
+                &mut state.playing,
+                &state.def.repeat,
+                dur,
+                dt,
+            );
         }
         running
     }
@@ -380,6 +407,27 @@ impl AnimRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The one clock every surface steps through: Loop keeps playing and starts
+    /// over, PingPong turns round, Once rests at the end. The designer's two
+    /// clocks used to stop every animation after one pass (operator,
+    /// 2026-09-26: "animation loop does not work").
+    #[test]
+    fn the_shared_clock_repeats_as_the_repeat_says() {
+        let run = |repeat: AnimRepeat| {
+            let (mut t, mut fwd, mut loops, mut playing) = (0.0, true, 0u32, true);
+            for _ in 0..3 {
+                advance_clock(&mut t, &mut fwd, &mut loops, &mut playing, &repeat, 1.0, 0.6);
+            }
+            (t, fwd, loops, playing)
+        };
+        let (t, _, loops, playing) = run(AnimRepeat::Loop);
+        assert!(playing && loops == 1 && t < 1.0, "Loop starts over: t={t} loops={loops}");
+        let (_, fwd, _, playing) = run(AnimRepeat::PingPong);
+        assert!(playing && !fwd, "PingPong turns round");
+        let (t, _, _, playing) = run(AnimRepeat::Once);
+        assert!(!playing && t == 1.0, "Once rests at the end");
+    }
     use crate::ControlType;
 
     fn ctrl_with(anim: AnimationDef) -> Control {

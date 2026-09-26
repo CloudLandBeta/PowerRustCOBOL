@@ -6811,14 +6811,14 @@ impl DesignerPanel {
         if dt > 0.0 {
             let mut need_repaint = false;
             // Collect animation definitions: key -> (duration_ms, delay_ms)
-            let anim_meta: HashMap<String, (u64, u64)> = self
+            let anim_meta: HashMap<String, (u64, AnimRepeat)> = self
                 .form
                 .controls
                 .iter()
                 .flat_map(|c| {
                     c.animations
                         .iter()
-                        .map(move |a| (format!("{}:{}", c.id, a.name), (a.duration_ms, a.delay_ms)))
+                        .map(move |a| (format!("{}:{}", c.id, a.name), (a.duration_ms, a.repeat.clone())))
                 })
                 .collect();
 
@@ -6837,16 +6837,21 @@ impl DesignerPanel {
                     continue; // don't advance t yet
                 }
 
-                let dur = anim_meta.get(key).map(|(d, _)| *d).unwrap_or(400) as f32 / 1000.0;
-                if dur <= 0.0 {
-                    state.stop();
-                    continue;
-                }
-                state.t += dt / dur;
-                if state.t >= 1.0 {
-                    state.t = 1.0;
-                    state.playing = false;
-                }
+                let (dur_ms, repeat) = anim_meta
+                    .get(key)
+                    .cloned()
+                    .unwrap_or((400, AnimRepeat::Once));
+                // The engine's own step, so Loop / PingPong / Count repeat here
+                // exactly as they do in the running form.
+                cobolt_forms::anim::advance_clock(
+                    &mut state.t,
+                    &mut state.forward,
+                    &mut state.loops,
+                    &mut state.playing,
+                    &repeat,
+                    dur_ms as f32 / 1000.0,
+                    dt,
+                );
                 need_repaint = true;
             }
             if need_repaint {
