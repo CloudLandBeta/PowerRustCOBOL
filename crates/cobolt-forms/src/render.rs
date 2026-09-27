@@ -2559,7 +2559,7 @@ fn render_form_inner(
     draw_deferred_groupbox_captions(&painter, input, &out);
     draw_deferred_tabcontrol_tabs(&painter, input, &out);
     if interactive {
-        paint_focus_ring(ui, &painter, controls, &tab_targets, &out);
+        paint_focus_ring(ui, &painter, input, controls, &tab_targets, &out);
     }
 
     clear_radio_group_siblings(input, controls, &mut out);
@@ -2927,6 +2927,7 @@ const FOCUS_PULSE_SECS: f64 = 6.4;
 fn paint_focus_ring(
     ui: &egui::Ui,
     painter: &egui::Painter,
+    input: &RenderInput<'_>,
     controls: &[Control],
     targets: &[TabTarget],
     out: &RenderOutput,
@@ -2939,13 +2940,30 @@ fn paint_focus_ring(
     let Some(target) = targets.iter().find(|t| t.focus_id == focused && !t.is_label) else {
         return;
     };
-    let Some(rect) = out.control_rects.get(&target.ctrl_id) else {
+    let Some(&rect) = out.control_rects.get(&target.ctrl_id) else {
         return;
     };
-    let radius = controls
-        .iter()
-        .find(|c| c.id == target.ctrl_id)
-        .map_or(0.0, crate::paint::corner_radius);
+    // Live: the tab the keyboard just moved to, not the one designed.
+    let live = controls.iter().find(|c| c.id == target.ctrl_id).map(|c| input.state.live(c));
+    let ctrl = live.as_ref();
+    let mut radius = ctrl.map_or(0.0, crate::paint::corner_radius);
+    // A TabControl's focus is its selected tab: the ring goes round that tab,
+    // not the whole control, so focus and selection read as one place.
+    let rect = match ctrl.filter(|c| c.control_type == ControlType::TabControl) {
+        Some(c) => {
+            let sel = c.get_prop("SelectedTab").map(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
+            let mut sized = c.clone();
+            sized.rect = crate::model::Rect::new(0, 0, rect.width().round() as i32, rect.height().round() as i32);
+            match crate::paint::tabcontrol_tab_rects(rect.min, &sized).get(sel) {
+                Some(tab) => {
+                    radius = 8.0_f32.min(tab.height() * 0.5);
+                    *tab
+                }
+                None => rect,
+            }
+        }
+        None => rect,
+    };
     let ring = focus_ring();
     if !ring.enabled {
         return;
@@ -11037,26 +11055,64 @@ fn render_interactive(
         CT::TabControl => {
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
             let selected = sv(ctrl, "SelectedTab").parse::<usize>().unwrap_or(0);
-            for (i, tr) in paint::tabcontrol_tab_rects(screen.min, ctrl)
-                .into_iter()
-                .enumerate()
-            {
-                if ui
-                    .interact(tr, ctrl_id.with(("tab", i)), Sense::click())
-                    .clicked()
-                    && enabled
-                {
-                    out.prop_updates
-                        .push((id.to_owned(), "SelectedTab".to_owned(), i.to_string()));
-                    out.events.push(UiEvent::ev(id, "onChange"));
-                    // spec 021 T12: every tab click, plus the change event only
-                    // when the selection actually moved.
-                    out.events
-                        .push(UiEvent::with_value(id, "onTabClick", &i.to_string()));
-                    if i != selected {
-                        out.events
-                            .push(UiEvent::with_value(id, "onTabChanged", &i.to_string()));
+            let tabs = paint::tabcontrol_tab_rects(screen.min, ctrl);
+            // The control's keyboard stop: what the form's tab order focuses
+            // (`tab_focus_id`). Registered over the strip BEFORE the tabs, so
+            // a click still lands on the tab itself (egui keeps the widget
+            // interacted last), and the tab then hands this the focus.
+            let strip = tabs.iter().copied().reduce(|a, b| a.union(b));
+            let focus = strip.map(|r| ui.interact(r, ctrl_id, Sense::focusable_noninteractive()));
+            let mut pick: Option<usize> = None;
+            for (i, tr) in tabs.iter().enumerate() {
+                if ui.interact(*tr, ctrl_id.with(("tab", i)), Sense::click()).clicked() && enabled {
+                    pick = Some(i);
+                    ui.memory_mut(|m| m.request_focus(ctrl_id));
+                }
+            }
+            if enabled && !tabs.is_empty() && focus.as_ref().is_some_and(|f| f.has_focus()) {
+                // Claim the arrows, Home and End, as the radio group does —
+                // otherwise egui spends the arrows on its own focus walk.
+                ui.memory_mut(|m| {
+                    m.set_focus_lock_filter(
+                        ctrl_id,
+                        egui::EventFilter {
+                            horizontal_arrows: true,
+                            vertical_arrows: true,
+                            ..Default::default()
+                        },
+                    );
+                });
+                // Along the strip: ← / → on top or bottom, ↑ / ↓ on a side.
+                let (back_key, next_key) = match ctrl.tab_position().as_str() {
+                    "left" | "right" => (egui::Key::ArrowUp, egui::Key::ArrowDown),
+                    _ => (egui::Key::ArrowLeft, egui::Key::ArrowRight),
+                };
+                let last = tabs.len() - 1;
+                let cur = selected.min(last);
+                ui.input_mut(|i| {
+                    if i.consume_key(egui::Modifiers::NONE, back_key) {
+                        pick = Some(cur.saturating_sub(1));
+                    } else if i.consume_key(egui::Modifiers::NONE, next_key) {
+                        pick = Some((cur + 1).min(last));
+                    } else if i.consume_key(egui::Modifiers::NONE, egui::Key::Home) {
+                        pick = Some(0);
+                    } else if i.consume_key(egui::Modifiers::NONE, egui::Key::End) {
+                        pick = Some(last);
                     }
+                });
+            }
+            // A click and a key choose a tab the same way, with the same events.
+            if let Some(i) = pick {
+                out.prop_updates
+                    .push((id.to_owned(), "SelectedTab".to_owned(), i.to_string()));
+                out.events.push(UiEvent::ev(id, "onChange"));
+                // spec 021 T12: every tab click, plus the change event only
+                // when the selection actually moved.
+                out.events
+                    .push(UiEvent::with_value(id, "onTabClick", &i.to_string()));
+                if i != selected {
+                    out.events
+                        .push(UiEvent::with_value(id, "onTabChanged", &i.to_string()));
                 }
             }
         }
@@ -20787,6 +20843,53 @@ mod tests {
             Some(egui::CursorIcon::ResizeHorizontal)
         );
         assert_eq!(cursor_icon_for("Help"), Some(egui::CursorIcon::Help));
+    }
+
+    /// A TabControl is a keyboard stop: Tab reaches it, and while it has the
+    /// focus the arrows along its strip, Home and End change the selected tab
+    /// exactly as a click would — `SelectedTab`, `onTabClick`, and
+    /// `onTabChanged` when the selection moved. On a side strip the arrows are
+    /// ↑ / ↓ (operator, 2026-09-27).
+    #[test]
+    fn the_keyboard_walks_a_tab_control() {
+        let key = |k: Key| Event::Key {
+            key: k,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::default(),
+        };
+        for (pos, back, next) in [("Top", Key::ArrowLeft, Key::ArrowRight), ("Left", Key::ArrowUp, Key::ArrowDown)] {
+            let tabs = [ctrlp(
+                "TAB-1",
+                ControlType::TabControl,
+                0,
+                0,
+                400,
+                240,
+                &[("Tabs", "One\nTwo\nThree"), ("TabPosition", pos), ("SelectedTab", "0")],
+            )];
+            let mut frames = vec![(0.0, vec![]), (1.0, vec![tab_key(false, true)]), (2.0, vec![tab_key(false, false)])];
+            for (i, k) in [next, next, next, back, Key::Home, Key::End, back].into_iter().enumerate() {
+                frames.push((3.0 + i as f64, vec![key(k)]));
+                frames.push((3.5 + i as f64, vec![]));
+            }
+            let (evs, map) = drive(&tabs, frames);
+            let changed: Vec<&str> = evs
+                .iter()
+                .filter(|e| e.event == "onTabChanged")
+                .filter_map(|e| e.value.as_deref())
+                .collect();
+            // → 1, → 2, → (already last: a click's onTabClick, no change),
+            // ← 1, Home 0, End 2, ← 1.
+            assert_eq!(changed, ["1", "2", "1", "0", "2", "1"], "{pos}: {:?}", names(&evs));
+            assert_eq!(evs.iter().filter(|e| e.event == "onTabClick").count(), 7, "{pos}");
+            assert_eq!(
+                map.get("TAB-1").and_then(|m| m.get("SelectedTab")).map(String::as_str),
+                Some("1"),
+                "{pos}"
+            );
+        }
     }
 
     #[test]

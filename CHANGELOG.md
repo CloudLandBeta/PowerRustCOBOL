@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.274] — 2026-09-27
+
+### Fix — a TabControl could not be used from the keyboard
+
+- A TabControl was not in the form's tab order (`ControlType::is_tab_stop`
+  never listed it) and its strip listened only to the mouse. It is now a tab
+  stop: Tab lands on it, the focus ring goes round the selected tab, and
+  ← / → (↑ / ↓ on a side strip), Home and End change the selected tab exactly
+  as a click does — `SelectedTab`, `onTabClick`, `onTabChanged` when it moved.
+  The arrows are claimed with egui's focus-lock filter, as the radio group's
+  are, so they are not spent on egui's own focus walk. Clicking a tab gives the
+  control the focus. Test `the_keyboard_walks_a_tab_control` (top and side
+  strips). Guide: *Tab order and the Enter key*.
+
 ## [PowerRustCOBOL 1.70.273] — 2026-09-27
 
 ### Fix — a TabControl's tabs overlapped the page by 2 px

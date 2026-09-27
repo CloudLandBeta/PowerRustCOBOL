@@ -1797,8 +1797,15 @@ could be walked with Enter but not with Tab.
 
 **Who takes part.** Controls that can take the keyboard — Button, TextBox,
 CheckBox, RadioButton, ListBox, ComboBox, DataGrid, DateTimePicker,
-NumericUpDown, TreeView, Slider — and **Label**. At run time only the visible,
-enabled ones are visited.
+NumericUpDown, TreeView, Slider, TabControl — and **Label**. At run time only
+the visible, enabled ones are visited.
+
+**A TabControl on the keyboard.** Tab lands on its selected tab, which wears the
+focus ring. Then ← / → (↑ / ↓ when the strip is on the left or right) move to
+the previous or next tab, and Home / End to the first or last — each one
+selects that tab exactly as a click does, raising `onTabClick` and, when the
+selection moved, `onTabChanged`. Clicking a tab also gives the TabControl the
+focus.
 
 **Labels never keep the focus.** A Label is numbered so the order reads the way
 the form does, but when Tab, Enter or a click reaches it, it raises

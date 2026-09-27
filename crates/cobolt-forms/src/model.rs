@@ -6940,6 +6940,7 @@ impl ControlType {
                 | ControlType::NumericUpDown
                 | ControlType::TreeView
                 | ControlType::Slider
+                | ControlType::TabControl
                 | ControlType::Custom { .. }
         )
     }
