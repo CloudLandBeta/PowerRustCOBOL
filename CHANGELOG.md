@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.299] — 2026-09-27
+
+### Fix — the KnowledgeBase's new progress properties are known to the IDE
+
+- 1.70.297 added `ProgressPassage`, `ProgressPassages` and `PassageCount` to
+  the KnowledgeBase but not to its run-time property list
+  (`cobolt-forms/src/model.rs`, `runtime_property_names_for`), so the IDE's
+  handler lint would reject a correct `KB-1::PassageCount` and the System KB
+  did not print them with the control. Listed now; `chunked.data`
+  regenerated. Found by `every_runtime_only_property_is_listed_for_some_control`
+  while adding `ToolKind` in 1.70.298 — that test reads only properties
+  documented as "runtime-only", which is why it did not see these.
+
 ## [PowerRustCOBOL 1.70.298] — 2026-09-27
 
 ### Feature — a chat status bubble: Viewer `ReplaceMessage`/`RemoveMessage`, AgentObject `onToolUse`

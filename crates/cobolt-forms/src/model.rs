@@ -1471,6 +1471,12 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
         "ProgressDocument",
         "ProgressCurrent",
         "ProgressTotal",
+        // Passage by passage while a document is embedded, and how many an
+        // update stored (1.70.297) — listed, or the handler lint rejects a
+        // correct `KB-1::PassageCount` and the KB never prints them.
+        "ProgressPassage",
+        "ProgressPassages",
+        "PassageCount",
         "AddedCount",
         "UpdatedCount",
         "RemovedCount",
