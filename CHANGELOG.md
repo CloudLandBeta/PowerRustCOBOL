@@ -8,6 +8,36 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.282] — 2026-09-27
+
+### Fix — a form's `COPY` was never expanded; in Working-Storage it failed the check
+
+- Only `rcrun run` / `rcrun check` expanded `COPY` / `REPLACE`. Every path that
+  reads a **form's** program tokenized it raw: the IDE's form check (which
+  gates Run and Build), `rcrun run-form` and the forms it opens, and the
+  compiled application (`build_core`, main program and every form). A
+  copybook's items therefore never arrived; in Working-Storage the handlers
+  using them failed as "not declared", while a `COPY` in File-Control or File
+  Section went unnoticed. The IDE's own Check of an open file and its
+  in-process runner/debugger had the same gap.
+- One rule for all of them, in the lexer: `preprocess_program(source,
+  program, format)` expands only when the program holds a real directive (the
+  preprocessor's own scan — a comment or a `::Copy` call is not one), so a
+  program without `COPY` is tokenized exactly as before, every line in place.
+  Copybooks are looked for beside the program, then from the project's folder
+  (`copybook_bases`: the nearest one with a `*.project.toml` or `cobolt.toml`) —
+  a form's program lives in `generated/`, which the developer never writes in.
+  A nested `COPY` looks beside its copybook first, then where its parent did.
+- Tests `a_forms_copybooks_arrive_in_every_block` (FILE-CONTROL, FILE SECTION,
+  WORKING-STORAGE, a handler's WORKING-STORAGE and PROCEDURE DIVISION, all
+  with `COPY "txt\…"`), `a_generated_program_finds_the_projects_copybooks`,
+  `only_a_real_directive_is_one`. NIST: SM 16/16 executed clean and 0 compile
+  failures; every finished module unchanged (NC 95/95, SQ 85/85, IX 41/41,
+  RL 34/34, ST 39/39, IC 25/25, IF 45/45). NIST never caught this — its
+  harness expands copybooks itself, and none of its programs is a form.
+- Known: after a `COPY`, reported line numbers are those of the expanded
+  program. Guide: *Copybook paths in `COPY`*.
+
 ## [PowerRustCOBOL 1.70.281] — 2026-09-27
 
 ### Fix — PowerChat: choosing the topic of a new conversation opens the chat

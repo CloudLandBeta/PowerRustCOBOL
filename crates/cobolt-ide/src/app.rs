@@ -506,7 +506,7 @@ fn first_form_error_with_origin(
     form: &Form,
 ) -> Option<FormCodeError> {
     use crate::runner::{DiagOrigin, DiagSeverity};
-    let (diags, src, map) = CoboltApp::validate_form_source_full(form);
+    let (diags, src, map) = CoboltApp::validate_form_source_full(form, gen_path);
     let d = diags.iter().find(|d| d.severity == DiagSeverity::Error)?;
     let entry = GenMapEntry {
         cfrm: cfrm.to_path_buf(),
@@ -3879,23 +3879,45 @@ impl CoboltApp {
     /// the interpreter runs (spec 017) — keeps every event handler and the shared
     /// WORKING-STORAGE in one scope, so a data item defined by one handler never
     /// false-flags another.
-    fn validate_form_source(form: &Form) -> Vec<crate::runner::DiagMsg> {
-        Self::validate_form_source_full(form).0
+    fn validate_form_source(form: &Form, program: &std::path::Path) -> Vec<crate::runner::DiagMsg> {
+        Self::validate_form_source_full(form, program).0
     }
 
     /// [`Self::validate_form_source`], keeping the generated source and its
     /// [`cobolt_codegen::SourceMap`] — one generation serves the diagnostics,
     /// the quoted line, and the click-through origin (spec 053).
+    ///
+    /// `program` is where the form's program is (or will be) written: its
+    /// COPY directives are expanded from there and from the project's folder,
+    /// exactly as Run Form and a build expand them. This check parsed the
+    /// generated text raw, so a copybook's items were "not declared" and
+    /// Run/Build were refused (operator, 2026-09-27).
     fn validate_form_source_full(
         form: &Form,
+        program: &std::path::Path,
     ) -> (Vec<crate::runner::DiagMsg>, String, cobolt_codegen::SourceMap) {
         use crate::runner::{DiagMsg, DiagSeverity};
         // Spec 044 R20 — the service wrapper allows registered External Crates.
         use crate::external_crates_service::analyze_project as analyze;
         // Generated form source is always free-form.
         let (src, map) = cobolt_codegen::generate_with_map(form);
-        let parse_result = parse(tokenize(&src, SourceFormat::Free));
         let mut diags = Vec::new();
+        let tokens = match cobolt_lexer::preprocess_program(&src, program, SourceFormat::Free) {
+            Some(exp) => {
+                for e in &exp.errors {
+                    diags.push(DiagMsg {
+                        line: 0,
+                        col: 0,
+                        message: format!("copybook error: {e}"),
+                        severity: DiagSeverity::Error,
+                        origin: None,
+                    });
+                }
+                tokenize(&exp.text, SourceFormat::Free)
+            }
+            None => tokenize(&src, SourceFormat::Free),
+        };
+        let parse_result = parse(tokens);
         for d in &parse_result.diagnostics {
             use cobolt_parser::Severity as PSev;
             diags.push(DiagMsg::plain(
@@ -3938,12 +3960,12 @@ impl CoboltApp {
         report: bool,
     ) -> Option<FormCodeError> {
         use crate::runner::RunMsg;
+        let gen_path = self.generated_cbl_path(cfrm_path);
         if report {
-            for d in &Self::validate_form_source(form) {
+            for d in &Self::validate_form_source(form, &gen_path) {
                 self.output.push_msg(&RunMsg::Diagnostic(d.clone()));
             }
         }
-        let gen_path = self.generated_cbl_path(cfrm_path);
         let first_error = first_form_error_with_origin(cfrm_path, &gen_path, form);
         self.set_element_status(
             cfrm_path,
@@ -4026,7 +4048,16 @@ impl CoboltApp {
             SourceFormat::Free
         };
 
-        let tokens = tokenize(&source, fmt);
+        // COPY / REPLACE, as `rcrun check` expands them (operator, 2026-09-27).
+        let tokens = match cobolt_lexer::preprocess_program(&source, &path, fmt) {
+            Some(exp) => {
+                for e in &exp.errors {
+                    self.output.push_status(format!("copybook error: {e}"));
+                }
+                tokenize(&exp.text, SourceFormat::Free)
+            }
+            None => tokenize(&source, fmt),
+        };
         let parse_result = parse(tokens);
 
         // Spec 053 R10: a diagnostic against a generated form `.cbl` names the
@@ -21004,13 +21035,63 @@ mod manifest_name_tests {
         }
     }
 
+    /// A form's program is generated into `<project>/generated/`, and its
+    /// COPY directives resolve from there and from the project's folder — in
+    /// EVERY block the developer writes: FILE-CONTROL, FILE SECTION,
+    /// WORKING-STORAGE, and a handler's own WORKING-STORAGE and PROCEDURE
+    /// DIVISION. The handler uses an item from each, so a copybook that did not
+    /// arrive shows as "not declared". Before, the form check parsed the
+    /// generated text raw and refused Run/Build (operator, 2026-09-27).
+    #[test]
+    fn a_forms_copybooks_arrive_in_every_block() {
+        use crate::runner::DiagSeverity;
+        let root = std::env::temp_dir().join(format!("prc-form-copy-{}", std::process::id()));
+        let txt = root.join("txt");
+        std::fs::create_dir_all(&txt).unwrap();
+        std::fs::write(root.join("T.project.toml"), "").unwrap();
+        std::fs::write(
+            txt.join("Sel.cpy"),
+            "           SELECT CUST-FILE ASSIGN TO \"cust.dat\"\n               ORGANIZATION IS INDEXED\n               ACCESS MODE IS DYNAMIC\n               RECORD KEY IS CUST-ID.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            txt.join("Fd.cpy"),
+            "       FD  CUST-FILE IS GLOBAL.\n       01  CUST-REC.\n           05 CUST-ID   PIC 9(5).\n           05 CUST-NAME PIC X(20).\n",
+        )
+        .unwrap();
+        std::fs::write(txt.join("Padrao.ws"), "       01 WS-PADRAO GLOBAL PIC X(20).\n").unwrap();
+        std::fs::write(txt.join("Local.ws"), "       01 WS-LOCAL PIC 9(3).\n").unwrap();
+        std::fs::write(txt.join("Body.cpy"), "           MOVE 1 TO WS-LOCAL\n").unwrap();
+
+        let mut f = form_with_onload(
+            "       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n       COPY \"txt\\Local.ws\".\n       PROCEDURE DIVISION.\n       COPY \"txt\\Body.cpy\".\n           MOVE WS-PADRAO TO CUST-NAME\n           MOVE WS-LOCAL TO CUST-ID.",
+        );
+        f.cobol_structure.file_control = "       COPY \"txt\\Sel.cpy\".".into();
+        f.cobol_structure.file_section = "       COPY \"txt\\Fd.cpy\".".into();
+        f.user_ws_source = "       COPY \"txt\\Padrao.ws\".".into();
+
+        let program = root.join("generated").join("t.cbl");
+        let diags = CoboltApp::validate_form_source(&f, &program);
+        let errors: Vec<_> = diags.iter().filter(|d| d.severity == DiagSeverity::Error).collect();
+        std::fs::remove_dir_all(&root).ok();
+        assert!(errors.is_empty(), "every block's copybook arrives: {errors:?}");
+
+        // And the same form with no project around it cannot find them: the
+        // check says which copybook, instead of blaming the handler.
+        let lost = CoboltApp::validate_form_source(&f, std::path::Path::new("/nowhere/generated/t.cbl"));
+        assert!(
+            lost.iter().any(|d| d.severity == DiagSeverity::Error && d.message.contains("copybook not found")),
+            "{lost:?}"
+        );
+    }
+
     #[test]
     fn validate_form_source_passes_clean_handler() {
         use crate::runner::DiagSeverity;
         let f = form_with_onload(
             "       ENVIRONMENT DIVISION.\n       PROCEDURE DIVISION.\n           CONTINUE.",
         );
-        let diags = CoboltApp::validate_form_source(&f);
+        let diags = CoboltApp::validate_form_source(&f, std::path::Path::new("generated/f.cbl"));
         assert!(
             !diags.iter().any(|d| d.severity == DiagSeverity::Error),
             "a clean handler must not report an error: {diags:?}"
@@ -21026,7 +21107,7 @@ mod manifest_name_tests {
         let f = form_with_onload(
             "       ENVIRONMENT DIVISION.\n       PROCEDURE DIVISION.\n           DISPLAY \"x\" ).",
         );
-        let diags = CoboltApp::validate_form_source(&f);
+        let diags = CoboltApp::validate_form_source(&f, std::path::Path::new("generated/f.cbl"));
         assert!(
             diags.iter().any(|d| d.severity == DiagSeverity::Error),
             "a syntactically broken handler must report an error: {diags:?}"

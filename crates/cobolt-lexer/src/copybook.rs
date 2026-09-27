@@ -30,11 +30,76 @@ pub struct CopyExpansion {
 /// relative to `base_dir`. `format` is the source format of the program (and of
 /// the copybooks); fixed-form text is flattened to free form.
 pub fn expand_copybooks(source: &str, base_dir: &Path, format: SourceFormat) -> CopyExpansion {
+    expand_copybooks_in(source, &[base_dir.to_path_buf()], format)
+}
+
+/// [`expand_copybooks`] with several base folders, tried in order: a copybook
+/// is the first match under any of them.
+pub fn expand_copybooks_in(source: &str, bases: &[PathBuf], format: SourceFormat) -> CopyExpansion {
     let mut errors = Vec::new();
     let mut stack: Vec<PathBuf> = Vec::new();
     let flat = flatten(source, format);
-    let text = expand_text(&flat, base_dir, format, &mut errors, &mut stack, 0);
+    let text = expand_text(&flat, bases, format, &mut errors, &mut stack, 0);
     CopyExpansion { text, errors }
+}
+
+/// [`expand_copybooks`] for the program in the file at `program`: copybooks
+/// are looked for beside the program first, then from its project's folder
+/// ([`copybook_bases`]).
+pub fn expand_copybooks_for(source: &str, program: &Path, format: SourceFormat) -> CopyExpansion {
+    expand_copybooks_in(source, &copybook_bases(program), format)
+}
+
+/// Does `source` hold a `COPY` or `REPLACE` directive? The preprocessor's own
+/// scan decides, so a comment or a `::Copy` method call is not one.
+pub fn has_directives(source: &str, format: SourceFormat) -> bool {
+    let flat = flatten(source, format);
+    let toks = scan(&flat);
+    toks.iter().enumerate().any(|(i, t)| {
+        t.kind == PKind::Word
+            && (eqi(&t.text, "REPLACE")
+                || (eqi(&t.text, "COPY") && !(i > 0 && toks[i - 1].kind == PKind::ColonColon)))
+    })
+}
+
+/// The program in the file at `program`, ready to tokenize: expanded when it
+/// holds a directive (then it is free form, and `Some`), untouched otherwise
+/// (`None` — tokenize the original in its own format, so a program without a
+/// COPY keeps every line where it was).
+pub fn preprocess_program(source: &str, program: &Path, format: SourceFormat) -> Option<CopyExpansion> {
+    has_directives(source, format).then(|| expand_copybooks_for(source, program, format))
+}
+
+/// Where the program in the file at `program` looks for its copybooks: the
+/// folder it is in, then the project's own folder — the nearest one above it
+/// holding a `*.project.toml` or a `cobolt.toml`.
+///
+/// A form's program is GENERATED into `<project>/generated/`, a folder the
+/// developer never writes in, so `COPY "txt/Padrao.ws"` in a form's
+/// Working-Storage has to find `<project>/txt/` (operator, 2026-09-27). Before
+/// this a form's program was not expanded at all when it ran, and a plain
+/// program found only what sat beside it.
+pub fn copybook_bases(program: &Path) -> Vec<PathBuf> {
+    let mut bases = Vec::new();
+    let dir = program.parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."));
+    bases.push(dir.clone());
+    let is_project = |d: &Path| {
+        std::fs::read_dir(d).is_ok_and(|mut it| {
+            it.any(|e| {
+                e.ok().is_some_and(|e| {
+                    let n = e.file_name();
+                    let n = n.to_string_lossy();
+                    n.ends_with(".project.toml") || n == "cobolt.toml"
+                })
+            })
+        })
+    };
+    if let Some(root) = dir.ancestors().find(|d| !d.as_os_str().is_empty() && is_project(d)) {
+        if root != dir.as_path() {
+            bases.push(root.to_path_buf());
+        }
+    }
+    bases
 }
 
 fn flatten(source: &str, format: SourceFormat) -> String {
@@ -187,7 +252,7 @@ fn eqi(a: &str, b: &str) -> bool {
 #[allow(clippy::too_many_arguments)]
 fn expand_text(
     text: &str,
-    base_dir: &Path,
+    bases: &[PathBuf],
     format: SourceFormat,
     errors: &mut Vec<String>,
     stack: &mut Vec<PathBuf>,
@@ -239,15 +304,17 @@ fn expand_text(
             out.push_str(&apply_pairs(&text[prev_end..t.start], &active));
             match parse_copy(&toks, i, text) {
                 Some((name, library, replacing, end_idx, end_byte)) => {
-                    // A qualified COPY looks in `base_dir/<library>/` first,
-                    // falling back to the flat directory.
-                    let lib_dir = library.as_deref().map(|l| base_dir.join(l));
-                    let dir = match &lib_dir {
-                        Some(d) if d.is_dir() => d.as_path(),
-                        _ => base_dir,
-                    };
+                    // A qualified COPY looks in `<base>/<library>/` first,
+                    // falling back to the flat directory — for each base.
+                    let dirs: Vec<PathBuf> = bases
+                        .iter()
+                        .flat_map(|b| {
+                            let lib = library.as_deref().map(|l| b.join(l)).filter(|d| d.is_dir());
+                            lib.into_iter().chain(std::iter::once(b.clone()))
+                        })
+                        .collect();
                     let copy =
-                        load_and_expand(&name, &replacing, dir, format, errors, stack, depth);
+                        load_and_expand(&name, &replacing, &dirs, format, errors, stack, depth);
                     out.push_str(&apply_pairs(&copy, &active));
                     out.push('\n');
                     prev_end = end_byte;
@@ -463,7 +530,7 @@ fn parse_replace(
 fn load_and_expand(
     name: &str,
     replacing: &[(String, String)],
-    base_dir: &Path,
+    dirs: &[PathBuf],
     format: SourceFormat,
     errors: &mut Vec<String>,
     stack: &mut Vec<PathBuf>,
@@ -473,7 +540,7 @@ fn load_and_expand(
         errors.push(format!("COPY nesting too deep at '{name}'"));
         return String::new();
     }
-    let path = match resolve(name, base_dir) {
+    let path = match dirs.iter().find_map(|d| resolve(name, d)) {
         Some(p) => p,
         None => {
             errors.push(format!("copybook not found: '{name}'"));
@@ -517,11 +584,11 @@ fn load_and_expand(
     let replaced = apply_pairs(&flat, replacing);
     // Recursively expand nested COPY/REPLACE inside this copybook.
     stack.push(canon);
-    let child_dir = path
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| base_dir.to_path_buf());
-    let expanded = expand_text(&replaced, &child_dir, format, errors, stack, depth + 1);
+    // A nested COPY looks beside the copybook first, then where its parent
+    // looked.
+    let mut child_dirs: Vec<PathBuf> = path.parent().map(Path::to_path_buf).into_iter().collect();
+    child_dirs.extend(dirs.iter().filter(|d| Some(d.as_path()) != path.parent()).cloned());
+    let expanded = expand_text(&replaced, &child_dirs, format, errors, stack, depth + 1);
     stack.pop();
     expanded
 }
@@ -713,6 +780,35 @@ mod tests {
             assert!(r.errors.is_empty(), "{src}: {:?}", r.errors);
             assert!(r.text.contains("01 WS-PADRAO PIC X(20)."), "{src}: {}", r.text);
         }
+    }
+
+    /// A program generated into `<project>/generated/` finds a copybook in
+    /// `<project>/txt/`: it looks beside itself, then from the project's
+    /// folder (the nearest one with a `*.project.toml`).
+    #[test]
+    fn a_generated_program_finds_the_projects_copybooks() {
+        let root = tmp().join("project-bases");
+        std::fs::create_dir_all(root.join("txt")).unwrap();
+        std::fs::create_dir_all(root.join("generated")).unwrap();
+        std::fs::write(root.join("Demo.project.toml"), "").unwrap();
+        write(&root.join("txt"), "Padrao.ws", "01 WS-PADRAO PIC X(20).\n");
+        let program = root.join("generated").join("form.cbl");
+        assert_eq!(copybook_bases(&program), vec![root.join("generated"), root.clone()]);
+        let r = preprocess_program("       COPY \"txt\\Padrao.ws\".\n", &program, SourceFormat::Free)
+            .expect("a COPY is a directive");
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        assert!(r.text.contains("01 WS-PADRAO PIC X(20)."), "{}", r.text);
+    }
+
+    /// Only a real directive triggers expansion — so a program without one
+    /// is tokenized as it is, every line where it was.
+    #[test]
+    fn only_a_real_directive_is_one() {
+        assert!(has_directives("       COPY X.\n", SourceFormat::Free));
+        assert!(has_directives("       REPLACE ==A== BY ==B==.\n", SourceFormat::Free));
+        assert!(!has_directives("      *> COPY X.\n           DISPLAY \"COPY\".\n", SourceFormat::Free));
+        assert!(!has_directives("           MOVE Grid::Copy() TO X.\n", SourceFormat::Free));
+        assert!(preprocess_program("           DISPLAY \"A\".\n", Path::new("x.cbl"), SourceFormat::Free).is_none());
     }
 
     #[test]

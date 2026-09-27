@@ -59,7 +59,10 @@ pub mod token;
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
 
-pub use copybook::{expand_copybooks, CopyExpansion};
+pub use copybook::{
+    copybook_bases, expand_copybooks, expand_copybooks_for, expand_copybooks_in, has_directives,
+    preprocess_program, CopyExpansion,
+};
 pub use lexer::{tokenize, tokenize_with_comments, LexError, Lexer};
 pub use source::SourceFormat;
 pub use span::{LineIndex, Span, SpannedToken};

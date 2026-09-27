@@ -88,10 +88,10 @@ fn main() {
 // ── Commands ──────────────────────────────────────────────────────────────────
 
 /// Expand COPY / REPLACE directives, resolving copybooks next to the source
-/// file. Returns free-form text ready to tokenize; copybook errors are printed.
+/// file, then from its project's folder (`cobolt_lexer::copybook_bases`).
+/// Returns free-form text ready to tokenize; copybook errors are printed.
 fn expand_copy(path: &PathBuf, source: &str, fmt: SourceFormat) -> String {
-    let base = path.parent().unwrap_or_else(|| std::path::Path::new("."));
-    let expansion = cobolt_lexer::expand_copybooks(source, base, fmt);
+    let expansion = cobolt_lexer::expand_copybooks_for(source, path, fmt);
     if std::env::var_os("COBOLT_DUMP_EXPANSION").is_some() {
         eprintln!("=== EXPANSION BEGIN ===\n{}\n=== EXPANSION END ===", expansion.text);
     }

@@ -1517,7 +1517,16 @@ fn build_core(
     let (main_rel, main_src) = &sources[0];
     report(0.18, &format!("Tokenizing {main_rel}…"));
     let fmt = detect_format(main_src);
-    let tokens = tokenize(main_src, fmt);
+    // COPY / REPLACE, exactly as `rcrun run` and Run Form expand them.
+    let tokens = match cobolt_lexer::preprocess_program(main_src, &project_dir.join(main_rel), fmt) {
+        Some(exp) => {
+            if let Some(e) = exp.errors.first() {
+                return Err(CompilerError::Parse { file: main_rel.clone(), message: format!("copybook error: {e}") });
+            }
+            tokenize(&exp.text, SourceFormat::Free)
+        }
+        None => tokenize(main_src, fmt),
+    };
     report(0.24, &format!("Parsing {main_rel}…"));
     let parse_result = parse(tokens);
 
@@ -1768,7 +1777,19 @@ fn build_core(
         };
         // `parse_from`, not `parse`: continue the block numbering rather than
         // restarting it, so this form's blocks get ids of their own.
-        let pr = cobolt_parser::parse_from(tokenize(&src, detect_format(&src)), block_id_base);
+        // COPY / REPLACE, as Run Form expands them (operator, 2026-09-27).
+        let fmt = detect_format(&src);
+        let tokens = match cobolt_lexer::preprocess_program(&src, &cbl, fmt) {
+            Some(exp) => {
+                if let Some(e) = exp.errors.first() {
+                    log(&format!("⚠️  form {id}: copybook error: {e} — omitted"));
+                    continue;
+                }
+                tokenize(&exp.text, cobolt_lexer::SourceFormat::Free)
+            }
+            None => tokenize(&src, fmt),
+        };
+        let pr = cobolt_parser::parse_from(tokens, block_id_base);
         let program_ok = pr
             .diagnostics
             .iter()

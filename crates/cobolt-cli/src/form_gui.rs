@@ -295,7 +295,18 @@ pub fn cmd_run_form(args: &[String]) {
         }
     };
     let fmt = SourceFormat::detect(&source);
-    let tokens = tokenize(&source, fmt);
+    // COPY / REPLACE, as `rcrun run` expands them: a form's program was
+    // tokenized raw, so a copybook's items never arrived and the handlers
+    // using them failed as undeclared (operator, 2026-09-27).
+    let tokens = match cobolt_lexer::preprocess_program(&source, &cbl_path, fmt) {
+        Some(exp) => {
+            for e in &exp.errors {
+                eprintln!("run-form: {}: copybook error: {e}", cbl_path.display());
+            }
+            tokenize(&exp.text, SourceFormat::Free)
+        }
+        None => tokenize(&source, fmt),
+    };
     let parse_result = parse(tokens);
     let mut hard_errors = false;
     for d in &parse_result.diagnostics {
@@ -593,7 +604,16 @@ pub fn cmd_run_form(args: &[String]) {
         })?;
         let src = std::fs::read_to_string(&cbl)
             .map_err(|e| format!("{}: {e}", cbl.display()))?;
-        let pr = parse(tokenize(&src, SourceFormat::detect(&src)));
+        let fmt = SourceFormat::detect(&src);
+        let pr = parse(match cobolt_lexer::preprocess_program(&src, &cbl, fmt) {
+            Some(exp) => {
+                if let Some(e) = exp.errors.first() {
+                    return Err(format!("{}: copybook error: {e}", cbl.display()));
+                }
+                tokenize(&exp.text, SourceFormat::Free)
+            }
+            None => tokenize(&src, fmt),
+        });
         if pr
             .diagnostics
             .iter()

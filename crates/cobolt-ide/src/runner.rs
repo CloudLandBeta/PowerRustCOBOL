@@ -307,7 +307,17 @@ impl Runner {
 fn run_pipeline(file_name: String, source: String, tx: Sender<RunMsg>, stop_flag: Arc<AtomicBool>) {
     // ── Lex ──────────────────────────────────────────────────────────────────
     let fmt = detect_format(&source);
-    let tokens = tokenize(&source, fmt);
+    // COPY / REPLACE, as `rcrun run` expands them: from the file's folder,
+    // then the project's (operator, 2026-09-27).
+    let tokens = match cobolt_lexer::preprocess_program(&source, std::path::Path::new(&file_name), fmt) {
+        Some(exp) => {
+            for e in &exp.errors {
+                let _ = tx.send(RunMsg::Output(format!("copybook error: {e}")));
+            }
+            tokenize(&exp.text, cobolt_lexer::SourceFormat::Free)
+        }
+        None => tokenize(&source, fmt),
+    };
 
     // ── Parse ────────────────────────────────────────────────────────────────
     let parse_result = parse(tokens);
@@ -584,7 +594,16 @@ fn run_debug_pipeline(
     dbg_log(&format!("pipeline: detected format={fmt:?}"));
     let _ = run_tx.send(RunMsg::Output(format!("[DBG] format={fmt:?}")));
 
-    let tokens = tokenize(&source, fmt);
+    // COPY / REPLACE, as `rcrun run` expands them.
+    let tokens = match cobolt_lexer::preprocess_program(&source, std::path::Path::new(&file_name), fmt) {
+        Some(exp) => {
+            for e in &exp.errors {
+                let _ = run_tx.send(RunMsg::Output(format!("copybook error: {e}")));
+            }
+            tokenize(&exp.text, cobolt_lexer::SourceFormat::Free)
+        }
+        None => tokenize(&source, fmt),
+    };
     dbg_log("pipeline: tokenize done");
     let _ = run_tx.send(RunMsg::Output("[DBG] tokenize done".to_owned()));
 

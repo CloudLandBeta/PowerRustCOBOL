@@ -7266,7 +7266,8 @@ fresh `OPEN`, or a successful `START`, establishes a record again.
 ### Copybook paths in `COPY`
 
 `COPY` takes the copybook as a word (`COPY CUSTREC.`) or as a literal, and the
-literal may carry a folder relative to the source file that holds the `COPY`.
+literal may carry a folder. It is looked for **beside the program first, then
+from the project's folder** — the one holding the project's `.project.toml`.
 If no file matches the name exactly, the extensions `.cpy`, `.cbl`, `.cob`,
 `.cpb` and `.cobol` are tried in turn:
 
@@ -7279,7 +7280,25 @@ If no file matches the name exactly, the extensions `.cpy`, `.cbl`, `.cob`,
 Both lines name the same file. A backslash is read as a folder separator on
 **every** platform, so sources brought over from Windows (the PowerCOBOL
 habit) compile unchanged on macOS and Linux. A copybook that itself contains
-`COPY` resolves its names from its own folder.
+`COPY` resolves its names from its own folder first.
+
+**In a form**, write the path from the project's folder: a form's program is
+generated into the project's `generated/` folder, which you never write in, so
+`COPY "txt\Padrao.ws"` finds `<project>/txt/Padrao.ws`. It works in every
+block you write — FILE-CONTROL, FILE SECTION, WORKING-STORAGE, and a handler's
+own WORKING-STORAGE and PROCEDURE DIVISION — under the form check, **Run
+Form** and a built application alike.
+
+> **Note — `GLOBAL` travels with the copybook.** A form's event handlers are
+> programs nested inside the form's program, and they see only the form items
+> declared `GLOBAL` (`01 WS-PADRAO GLOBAL PIC X(20).`, `FD CUST-FILE IS
+> GLOBAL.`). A copybook copied into the form's WORKING-STORAGE or FILE SECTION
+> follows the same rule, so declare its items `GLOBAL` when a handler uses them.
+
+> ⚠️ **Caveat — line numbers after a `COPY`.** A copied copybook occupies its
+> own lines, so an error or a breakpoint reported after a `COPY` is numbered
+> in the expanded program, further down than the line you wrote by the
+> copybook's length.
 
 ### Where a relative `ASSIGN` path starts
 
