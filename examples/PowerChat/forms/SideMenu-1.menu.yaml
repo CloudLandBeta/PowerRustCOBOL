@@ -1,14 +1,14 @@
 menu:
+- id: newc
+  label: New conversation
+  type: action
+  icon: plus
+  enabled: true
 - id: chat
   label: Chat
   type: action
   icon: chat
   action: home
-  enabled: true
-- id: newc
-  label: New conversation
-  type: action
-  icon: plus
   enabled: true
 - id: tpcs
   label: Topics
@@ -40,4 +40,4 @@ menu:
   icon: gear
   action: open-form:settings-form
   enabled: true
-hash: 2efcfab8a356bf7584ab7f241bb3cea31eff915aa3583aeb12861434dbb898d1
+hash: 8b48e3c2da4247e75b23d6f7cbd33417fb94604eca0475a776be8cbe632a803b

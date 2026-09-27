@@ -574,6 +574,10 @@
                END-READ
            END-PERFORM
            CLOSE TOPICS-FILE
+      *>   The chat's menu turns Chat and New conversation on only while a
+      *>   topic exists: tell it the list may have changed (the first topic
+      *>   saved, the last one deleted), or it waits until it is shown again.
+           INVOKE super::"PC-REFRESH"()
 ]]></Event>
     <Event name="PC-NEXT-IMPORT" paragraph="PC-NEXT-IMPORT"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.

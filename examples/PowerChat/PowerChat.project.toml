@@ -30,7 +30,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 destination_folder = "PowerChat"
 debug_compilation = true
-built_with_version = "1.70.278"
+built_with_version = "1.70.279"
 
 [files]
 sources = ["src/main.cbl"]
@@ -46,6 +46,7 @@ forms = [
     "forms/model-form.cfrm",
     "forms/agents-form.cfrm",
     "forms/confirm-form.cfrm",
+    "forms/pick-form.cfrm",
     "forms/welcome-form.cfrm",
 ]
 assets = [
@@ -72,6 +73,7 @@ generated = [
     "generated/model-form.cbl",
     "generated/agents-form.cbl",
     "generated/confirm-form.cbl",
+    "generated/pick-form.cbl",
     "generated/welcome-form.cbl",
 ]
 indexed = []

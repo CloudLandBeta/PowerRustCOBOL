@@ -88,6 +88,20 @@
        01 WS-FILE-NOTE       GLOBAL PIC X(300).
        01 WS-FAILED          GLOBAL PIC 9(3).
        01 WS-RESULT          GLOBAL PIC X(30).
+      *>   New conversation's topic picker (PICK-FORM): the ids behind the
+      *>   names it shows, the preselected one and its answer.
+       01 WS-PICK-COUNT      GLOBAL PIC 9(4) VALUE 0.
+       01 WS-PICK-IDS        GLOBAL.
+          05 WS-PICK-ID      PIC X(16) OCCURS 200.
+       01 WS-PICK-LIST       GLOBAL PIC X(8400).
+       01 WS-PICK-PTR        GLOBAL PIC 9(5).
+       01 WS-PICK-SEL        GLOBAL PIC 9(4).
+       01 WS-PICK-ANSWER     GLOBAL PIC X(10).
+       01 WS-PICK-N          GLOBAL PIC S9(4).
+      *>   Whether any topic exists (the menu), and how many sources - KB
+      *>   documents plus data files - the current topic has (the prompt).
+       01 WS-HAS-TOPIC       GLOBAL PIC X VALUE "N".
+       01 WS-SOURCES         GLOBAL PIC 9(5) VALUE 0.
       *>   The interface texts (spec 071 R44): one row per text, one column
       *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
       *>   only the values are translated.
@@ -270,8 +284,29 @@
           05 FILLER PIC X(120) VALUE "Premiers pas".
           05 FILLER PIC X(120) VALUE "はじめに".
           05 FILLER PIC X(120) VALUE "入门".
+      *>   PICK-TOPIC
+          05 FILLER PIC X(120) VALUE "Choose the topic for the new conversation".
+          05 FILLER PIC X(120) VALUE "Escolha o tópico da nova conversa".
+          05 FILLER PIC X(120) VALUE "Elige el tema de la nueva conversación".
+          05 FILLER PIC X(120) VALUE "Choisissez le sujet de la nouvelle conversation".
+          05 FILLER PIC X(120) VALUE "新しい会話のトピックを選んでください".
+          05 FILLER PIC X(120) VALUE "请选择新对话的主题".
+      *>   PICK-START
+          05 FILLER PIC X(120) VALUE "Start".
+          05 FILLER PIC X(120) VALUE "Iniciar".
+          05 FILLER PIC X(120) VALUE "Iniciar".
+          05 FILLER PIC X(120) VALUE "Commencer".
+          05 FILLER PIC X(120) VALUE "開始".
+          05 FILLER PIC X(120) VALUE "开始".
+      *>   PICK-CANCEL
+          05 FILLER PIC X(120) VALUE "Cancel".
+          05 FILLER PIC X(120) VALUE "Cancelar".
+          05 FILLER PIC X(120) VALUE "Cancelar".
+          05 FILLER PIC X(120) VALUE "Annuler".
+          05 FILLER PIC X(120) VALUE "キャンセル".
+          05 FILLER PIC X(120) VALUE "取消".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 25.
+          05 PC-TEXT-ROW     OCCURS 28.
              10 PC-TEXT      PIC X(120) OCCURS 6.
       *>   The texts in the current language, by name.
        01 PC-TEXTS-NOW       GLOBAL.
@@ -300,8 +335,11 @@
           05 T-SEND PIC X(120).
           05 T-STATUS PIC X(120).
           05 T-MENU-WELC PIC X(120).
+          05 T-PICK-TOPIC PIC X(120).
+          05 T-PICK-START PIC X(120).
+          05 T-PICK-CANCEL PIC X(120).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(120) OCCURS 25.
+          05 PC-TEXT-NOW     PIC X(120) OCCURS 28.
       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
        01 WS-FMT             GLOBAL PIC X(120).
        01 WS-ARG1            GLOBAL PIC X(300).
@@ -678,6 +716,27 @@
                MOVE WS-A TO WS-FROM
                IF WS-A = WS-ORCH
                    MOVE WS-TOPIC-PROMPT TO WS-TEXT
+      *>           No documents and no data files: the answer to "what can
+      *>           you do" is that it cannot yet answer about the user's
+      *>           data, and where to give it some (operator, 2026-09-27).
+      *>           The menu names go in the user's language.
+                   IF WS-SOURCES = 0 AND WS-CUR-TOPIC NOT = SPACES
+                       MOVE SPACES TO WS-TEXT
+                       STRING FUNCTION TRIM(WS-TOPIC-PROMPT) X"0A" X"0A"
+                           "This topic has no documents and no data files yet, "
+                           "so you have no source for the user's own information. "
+                           "When the user asks what you can do, or asks anything "
+                           "specific about their data, say so plainly: until they "
+                           "upload a file ('"
+                           FUNCTION TRIM(T-DOCS-TITLE)
+                           "' in the menu) or connect an indexed data file ('"
+                           FUNCTION TRIM(T-FILES-TITLE)
+                           "' in the menu), you cannot answer specific questions "
+                           "about their data. Never invent any. "
+                           "Answer in the user's language."
+                           DELIMITED BY SIZE INTO WS-TEXT
+                       END-STRING
+                   END-IF
                ELSE
                    MOVE WS-AG-ROLE(WS-A) TO WS-TEXT
                END-IF
@@ -812,6 +871,11 @@
            MOVE TOP-PROMPT TO WS-TOPIC-PROMPT
            MOVE WS-CUR-TOPIC TO KB-1::Collection
            CALL "PC-REGISTER-FILES"
+      *>   What the agents can draw on for this topic: its documents and the
+      *>   data files that registered. None, and PC-ELECT tells the
+      *>   orchestrator to say so rather than guess.
+           MOVE KB-1::ListDocuments() TO WS-SOURCES
+           ADD WS-REG-COUNT TO WS-SOURCES
            CALL "PC-ELECT"
 ]]></Event>
     <Event name="PC-ASK" paragraph="PC-ASK"><![CDATA[       ENVIRONMENT DIVISION.
@@ -985,6 +1049,70 @@
                WHEN OTHER
                    CONTINUE
            END-EVALUATE
+]]></Event>
+    <Event name="PC-PICK-TOPIC" paragraph="PC-PICK-TOPIC"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   New conversation: the user chooses its topic first (operator,
+      *>   2026-09-27). The topics go to PICK-FORM by name, the current one
+      *>   preselected; the one chosen becomes the current topic and a fresh
+      *>   conversation starts in it. Cancel changes nothing.
+           MOVE 0 TO WS-PICK-COUNT WS-PICK-SEL
+           MOVE SPACES TO WS-PICK-LIST
+           MOVE 1 TO WS-PICK-PTR
+           OPEN I-O TOPICS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TOPICS-FILE
+               CLOSE TOPICS-FILE
+               OPEN I-O TOPICS-FILE
+           END-IF
+           MOVE LOW-VALUES TO TOP-ID
+           MOVE "N" TO WS-EOF
+           START TOPICS-FILE KEY IS >= TOP-ID
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y" OR WS-PICK-COUNT = 200
+               READ TOPICS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       ADD 1 TO WS-PICK-COUNT
+                       MOVE TOP-ID TO WS-PICK-ID(WS-PICK-COUNT)
+                       IF TOP-ID = WS-CUR-TOPIC
+                           COMPUTE WS-PICK-SEL = WS-PICK-COUNT - 1
+                       END-IF
+                       IF WS-PICK-COUNT > 1
+                           STRING X"0A" DELIMITED BY SIZE
+                               INTO WS-PICK-LIST WITH POINTER WS-PICK-PTR
+                           END-STRING
+                       END-IF
+                       STRING FUNCTION TRIM(TOP-NAME) DELIMITED BY SIZE
+                           INTO WS-PICK-LIST WITH POINTER WS-PICK-PTR
+                       END-STRING
+               END-READ
+           END-PERFORM
+           CLOSE TOPICS-FILE
+           IF WS-PICK-COUNT = 0
+               MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(T-OPEN-TOPIC-MENU)) TO WS-OK
+               EXIT PROGRAM
+           END-IF
+           INVOKE ME::"SetProperty"("PickTitle", T-PICK-TOPIC)
+           INVOKE ME::"SetProperty"("PickOk", T-PICK-START)
+           INVOKE ME::"SetProperty"("PickCancel", T-PICK-CANCEL)
+           INVOKE ME::"SetProperty"("PickItems", WS-PICK-LIST)
+           INVOKE ME::"SetProperty"("PickSelected", WS-PICK-SEL)
+           INVOKE ME::"SetProperty"("PickAnswer", "0")
+           INVOKE ME::"OpenFormSync"("PICK-FORM")
+           INVOKE ME::"GetProperty"("PickAnswer") RETURNING WS-PICK-ANSWER
+           MOVE FUNCTION NUMVAL(WS-PICK-ANSWER) TO WS-PICK-N
+           IF WS-PICK-N < 1 OR WS-PICK-N > WS-PICK-COUNT
+               EXIT PROGRAM
+           END-IF
+           MOVE "CUR-TOPIC" TO WS-SET-NAME
+           MOVE WS-PICK-ID(WS-PICK-N) TO WS-SET-VALUE
+           CALL "PC-SETTING-PUT"
+           CALL "PC-LOAD-TOPIC"
+           CALL "PC-NEW-CONV"
+           CALL "PC-LIST-CONVS"
 ]]></Event>
     <Event name="PC-NEW-CONV" paragraph="PC-NEW-CONV"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -1270,11 +1398,41 @@
            ELSE
                MOVE "0" TO WS-OK
            END-IF
-           MOVE SideMenu-1::SetItemEnabled("newc", WS-OK) TO WS-ITEM
            MOVE SideMenu-1::SetItemEnabled("tpcs", WS-OK) TO WS-ITEM
            MOVE SideMenu-1::SetItemEnabled("docs", WS-OK) TO WS-ITEM
            MOVE SideMenu-1::SetItemEnabled("fils", WS-OK) TO WS-ITEM
            MOVE SideMenu-1::SetItemEnabled("prmt", WS-OK) TO WS-ITEM
+      *>   Chat and New conversation need a topic to talk about as well: with
+      *>   none created they stay off, and Topics is where to make one. The
+      *>   Topics form calls PC-REFRESH after a save, so they come on at once.
+           MOVE "N" TO WS-HAS-TOPIC
+           OPEN I-O TOPICS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TOPICS-FILE
+               CLOSE TOPICS-FILE
+               OPEN I-O TOPICS-FILE
+           END-IF
+           MOVE LOW-VALUES TO TOP-ID
+           START TOPICS-FILE KEY IS >= TOP-ID
+               INVALID KEY CONTINUE
+               NOT INVALID KEY
+                   READ TOPICS-FILE NEXT RECORD
+                       AT END CONTINUE
+                       NOT AT END MOVE "Y" TO WS-HAS-TOPIC
+                   END-READ
+           END-START
+           CLOSE TOPICS-FILE
+           IF WS-HAS-TOPIC = "Y"
+               MOVE "1" TO WS-OK
+           ELSE
+               MOVE "0" TO WS-OK
+           END-IF
+           MOVE SideMenu-1::SetItemEnabled("chat", WS-OK) TO WS-ITEM
+      *>   A new conversation needs a model to answer in it, too.
+           IF WS-CONFIGURED NOT = "Y"
+               MOVE "0" TO WS-OK
+           END-IF
+           MOVE SideMenu-1::SetItemEnabled("newc", WS-OK) TO WS-ITEM
 ]]></Event>
     <Event name="PC-REFRESH" paragraph="PC-REFRESH"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -1331,7 +1489,7 @@
                WHEN OTHER MOVE "en" TO WS-LANG
                           MOVE 1 TO WS-LANG-IX
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 25
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 28
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
            MOVE FUNCTION TRIM(T-HINT-ASK) TO Txt-Input::HintText
@@ -1473,7 +1631,7 @@
                WHEN "chat"
                    CONTINUE
                WHEN "newc"
-                   CALL "PC-NEW-CONV"
+                   CALL "PC-PICK-TOPIC"
                WHEN OTHER
                    IF WS-ITEM(1:1) = "c"
                        CALL "PC-OPEN-CONV"

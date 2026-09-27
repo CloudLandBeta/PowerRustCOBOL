@@ -8,6 +8,29 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.280] — 2026-09-27
+
+### Fix — PowerChat: New conversation, the menu without topics, and a bot with no sources
+
+- **New conversation did nothing** visible: it only emptied the viewer. It now
+  asks which topic to talk about — a new generic dialog, `pick-form`
+  (`PickItems` / `PickSelected` in, `PickAnswer` out, like `confirm-form`) —
+  makes it the current topic and starts a fresh conversation in it. Cancel
+  changes nothing.
+- **Chat and New conversation are disabled while no topic exists** (New
+  conversation also needs a model). The Topics form now refreshes the chat's
+  menu whenever its list changes (`super::"PC-REFRESH"`), so saving the first
+  topic turns them on at once.
+- **A topic with no documents and no data files**: the orchestrator's system
+  prompt now tells it to say, when asked what it can do or about the user's
+  data, that it cannot answer specific questions until a file is uploaded
+  (Documents) or an indexed data file is connected (Data files) — menu names
+  in the user's language — and never to invent any. The count is the topic
+  collection's `ListDocuments()` plus the data files that registered.
+- The picker's three texts in all six languages. "New conversation" stays at
+  the top of the menu, where the operator moved it. All three forms pass
+  `rcrun check`. Guide: the PowerChat form table.
+
 ## [PowerRustCOBOL 1.70.279] — 2026-09-27
 
 ### Fix — Tab walks a TabControl's tabs; the focus is a dashed border inside the tab
