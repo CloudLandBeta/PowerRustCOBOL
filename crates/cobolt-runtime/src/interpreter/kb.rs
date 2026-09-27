@@ -186,7 +186,7 @@ impl Interpreter {
                 max_files: num("ArchiveMaximumFiles", 10_000) as usize,
                 max_depth: num("ArchiveMaximumDepth", 3).min(u64::from(u8::MAX)) as u8,
             },
-            models_dir: app_base().join("assets").join("models"),
+            models_dir: cobolt_kb::model::app_models_dir(&app_base()),
         }
     }
 

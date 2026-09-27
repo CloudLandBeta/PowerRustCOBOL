@@ -43,7 +43,9 @@ examples/*/data/*.redb
 examples/*/data/*.sqlite
 examples/*/data/*chunked.data
 # The application Knowledge Base's semantic model (~470 MB), fetched by the
-# running app into <app>/assets/models - never part of the source.
+# running app into <app>/models (older apps: <app>/assets/models) - never
+# part of the source.
+examples/*/models/
 examples/*/assets/models/
 
 # Editor backups of a form — the .cfrm beside them IS the source.

@@ -229,6 +229,20 @@ pub fn cmd_run_form(args: &[String]) {
         if let Some(dir) = anchor {
             cobolt_forms::assets::set_base(dir);
         }
+        // A KnowledgeBase with `Embedder = Builtin` looks for its model beside
+        // the application first — but Run Form is the IDE running a project,
+        // and the IDE already holds the very same model for Grace
+        // (`~/PowerRustCOBOL/data/models`, `cobolt-agents`' `ide_data_dir`).
+        // Point the runtime at it rather than download 470 MB a second time
+        // into the project (operator, 2026-09-27). Never over a host's choice.
+        if std::env::var_os(cobolt_runtime::kb_models_env()).is_none() {
+            if let Some(home) = std::env::var_os("HOME") {
+                let ide_models = PathBuf::from(home).join("PowerRustCOBOL/data/models");
+                if cobolt_runtime::kb_model_is_cached(&ide_models) {
+                    std::env::set_var(cobolt_runtime::kb_models_env(), &ide_models);
+                }
+            }
+        }
     }
     // Before anything is loaded, parsed or drawn: may this form start at all?
     // `--designer` is passed by the IDE, and by nothing that ships.

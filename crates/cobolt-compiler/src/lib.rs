@@ -2368,6 +2368,12 @@ fn build_core(
             log(&format!("⚠️  Could not copy assets/ to the destination folder: {e}"));
         }
     }
+    // An application that links the built-in semantic model ships it, in
+    // `models/` beside `assets/` — where its KnowledgeBase looks first — so it
+    // embeds offline from its first run (operator, 2026-09-27).
+    if features.kb_semantic {
+        deliver_builtin_model(&project_dir, &dest_path, &log);
+    }
     let data_src = project_dir.join("data");
     if data_src.is_dir() {
         if let Err(e) = copy_delivery_data(&data_src, &dest_path.join("data")) {
@@ -3857,6 +3863,50 @@ fn copy_delivery_assets(src: &Path, dst: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// The built-in model's folder and files — `cobolt_kb::model`'s `MODEL_NAME`
+/// and `MODEL_FILES`, named again here because the compiler does not link the
+/// Knowledge Base.
+const BUILTIN_MODEL_FOLDER: &str = "multilingual-e5-small";
+const BUILTIN_MODEL_FILES: [&str; 3] = ["config.json", "tokenizer.json", "model.safetensors"];
+
+/// Put the built-in model into `<dest>/models`, from the first place that
+/// holds all of it: the project's `models/`, its older `assets/models`, or the
+/// IDE's own copy (`~/PowerRustCOBOL/data/models`, the one Grace embeds
+/// with — the same model). Files already delivered are never overwritten.
+/// Found nowhere: the build still succeeds, and says the application will
+/// fetch the model on first use (`FetchModel`).
+fn deliver_builtin_model(project_dir: &Path, dest_path: &Path, log: &dyn Fn(&str)) {
+    let holds = |d: &Path| {
+        BUILTIN_MODEL_FILES
+            .iter()
+            .all(|f| d.join(BUILTIN_MODEL_FOLDER).join(f).is_file())
+    };
+    let ide = std::env::var_os("HOME").map(|h| PathBuf::from(h).join("PowerRustCOBOL/data/models"));
+    let source = [
+        Some(project_dir.join("models")),
+        Some(project_dir.join("assets").join("models")),
+        ide,
+    ]
+    .into_iter()
+    .flatten()
+    .find(|d| holds(d));
+    let target = dest_path.join("models").join(BUILTIN_MODEL_FOLDER);
+    match source {
+        Some(src) => match copy_missing(&src.join(BUILTIN_MODEL_FOLDER), &target) {
+            Ok(()) => log(&format!(
+                "   built-in semantic model → {} (from {})",
+                target.display(),
+                src.display()
+            )),
+            Err(e) => log(&format!("⚠️  Could not copy the built-in semantic model: {e}")),
+        },
+        None => log(
+            "⚠️  The built-in semantic model is not on this machine: the application \
+             will fetch it (~470 MB) the first time its Knowledge Base asks (FetchModel)",
+        ),
+    }
 }
 
 /// Copy the files of `src` that `dst` does not have yet; never overwrite.
@@ -5362,7 +5412,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         // ── KnowledgeBase (spec 068) ──
         "Location" => ("folder path", "KnowledgeBase: the folder holding its collections. Relative paths are the application's folder, so the default `assets/KB` is `<app>/assets/KB`. May be a folder on another machine in the LAN."),
         "Collection" => ("collection name", "KnowledgeBase: the collection its document and search methods act on — a folder under `Location` holding `documents/` and its index."),
-        "Embedder" => ("one of: `Lexical` | `Endpoint` | `Builtin`", "KnowledgeBase: how text becomes vectors. `Lexical` (built in, matches words), `Endpoint` (an embedding model on a server), `Builtin` (the semantic model inside the application, linked only when the project sets `[rag] embedder = \"builtin\"`)."),
+        "Embedder" => ("one of: `Lexical` | `Endpoint` | `Builtin`", "KnowledgeBase: how text becomes vectors. `Lexical` (built in, matches words), `Endpoint` (an embedding model on a server), `Builtin` (the semantic model inside the application, linked only when the project sets `[rag] embedder = \"builtin\"`; the build then ships the model in `models/` beside `assets/`, so the application embeds offline from its first run)."),
         "EmbeddingURL" => ("HTTP(S) URL", "KnowledgeBase (Endpoint): the embedding server's base URL; `/api/embed` (Ollama) or `/embeddings` (OpenAI-style) is added."),
         "EmbeddingAPI" => ("one of: `Ollama` | `OpenAI` | `LMStudio` | `Custom`", "KnowledgeBase (Endpoint): the server's wire format — Ollama's, or the OpenAI-style one every other choice uses."),
         "EmbeddingModel" => ("model id string", "KnowledgeBase (Endpoint): the embedding model requested, e.g. `nomic-embed-text`."),
@@ -6241,7 +6291,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("GetResultHeading(n: Integer) → String", "The n-th hit's section: `document › heading › sub-heading`."),
             ("GetResultPassage(n: Integer) → String", "The n-th hit's text — a split section comes back whole."),
             ("GetResultScore(n: Integer) → String", "The n-th hit's score (higher is closer), four decimals."),
-            ("FetchModel() → Boolean (0/1)", "ASYNCHRONOUS: fetch the built-in model (~470 MB) into `<app>/assets/models`, once per installation; `onProgress` then `onIndexed`."),
+            ("FetchModel() → Boolean (0/1)", "ASYNCHRONOUS: fetch the built-in model (~470 MB) into `<app>/models` (beside `assets/`), once per installation; `onProgress` then `onIndexed`. A no-op when the model is already there — a build that links it ships it in `models/`, and an older `<app>/assets/models` copy is used as found."),
             ("Cancel()", "Stop the running operation; what it already committed stays."),
         ],
         "RestClient" => vec![
@@ -10891,6 +10941,33 @@ mod knowledge_base_build_tests {
         assert!(!dst.join("KB/legal/collection.kbindex").exists(), "an index is never copied");
         assert_eq!(read("models/multilingual-e5-small/config.json"), "delivered config", "never overwritten");
         assert_eq!(read("models/multilingual-e5-small/tokenizer.json"), "tokenizer", "a missing file is added");
+        let _ = std::fs::remove_dir_all(&project);
+        let _ = std::fs::remove_dir_all(&dist);
+    }
+
+    /// Operator (2026-09-27): an application that links the built-in model
+    /// ships it in `models/`, beside `assets/`. The project's own copy is
+    /// preferred, and a delivered file is never overwritten.
+    #[test]
+    fn a_builtin_model_ships_beside_assets() {
+        let project = scratch("model-project");
+        let dist = scratch("model-dist");
+        for f in BUILTIN_MODEL_FILES {
+            write(&project.join("models").join(BUILTIN_MODEL_FOLDER).join(f), &format!("project {f}"));
+        }
+        write(&dist.join("models").join(BUILTIN_MODEL_FOLDER).join("config.json"), "delivered config");
+        let lines = std::cell::RefCell::new(Vec::<String>::new());
+        deliver_builtin_model(&project, &dist, &|m| lines.borrow_mut().push(m.to_string()));
+
+        let read = |f: &str| {
+            std::fs::read_to_string(dist.join("models").join(BUILTIN_MODEL_FOLDER).join(f)).unwrap_or_default()
+        };
+        assert_eq!(read("tokenizer.json"), "project tokenizer.json", "shipped beside assets/");
+        assert_eq!(read("model.safetensors"), "project model.safetensors");
+        assert_eq!(read("config.json"), "delivered config", "a delivered file is never overwritten");
+        assert!(!dist.join("assets").exists(), "not inside assets/");
+        assert!(lines.borrow().iter().any(|l| l.contains("built-in semantic model →")), "{:?}", lines.borrow());
+        println!("builtin model delivery — 3 files from the project's models/ into dist/models, 1 kept as delivered");
         let _ = std::fs::remove_dir_all(&project);
         let _ = std::fs::remove_dir_all(&dist);
     }

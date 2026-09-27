@@ -10283,9 +10283,15 @@ background; on a network share such watching is unreliable.
   embedder = "builtin"
   ```
 
-  The model (about 470 MB) is fetched once per installation into
-  `<app>/assets/models` with `FetchModel()`, and shared by every user of that
-  installation.
+  Building such an application **ships the model** (about 470 MB) in a
+  `models/` folder beside `assets/` in the destination folder, so it embeds
+  offline from its first run. The build takes it from the project's own
+  `models/` folder, or from the copy PowerRustCOBOL AI already keeps for its
+  assistant. When neither exists, the build says so, and the application
+  fetches it once per installation with `FetchModel()`. The application
+  looks for it in `<app>/models`, then in `<app>/assets/models`, where older
+  applications kept it. Every user of that installation shares it. Run Form
+  uses the IDE's own copy, so running from the IDE downloads nothing.
 
 `SearchMode` tells you how a search was scored. When the chosen embedder cannot
 be used — the server is down, the model not fetched yet, or the collection was
@@ -10329,7 +10335,7 @@ you allow is visible to every agent in the application.
 >   deleting it — its documents may be the only copy your users have.
 > - Rebuilding your application never overwrites what your users own: a
 >   collection that already exists in the delivered `assets/KB` is left alone,
->   and `assets/models` only gains missing files. A collection you ship in
+>   and `models` only gains missing files. A collection you ship in
 >   `assets/KB/<name>/documents` is copied only where it does not exist yet.
 > - An application installed in a read-only folder cannot keep its
 >   Knowledge Base under `assets/KB`; set `Location` to a writable folder.

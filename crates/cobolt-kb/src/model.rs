@@ -8,8 +8,10 @@
 //! R23a).
 //!
 //! The model is `intfloat/multilingual-e5-small`: about 470 MB, cached **per
-//! application** in the application's own folder (`<app>/assets/models/`),
-//! shared by every user of that installation. It is fetched only when the
+//! application** in the application's own folder — `<app>/models/`, beside
+//! `assets/`, which is where a build that links the model puts it
+//! (operator, 2026-09-27) — shared by every user of that installation. See
+//! [`app_models_dir`] for every place it is looked for. It is fetched only when the
 //! application asks, never on start-up. Each file is written as `<file>.part`
 //! and renamed when complete, so another user of the installation never sees
 //! half a file. This module needs no model code, so fetching works in any
@@ -28,7 +30,30 @@ const MODEL_NAME: &str = "multilingual-e5-small";
 pub(crate) const MODEL_FILES: [&str; 3] = ["config.json", "tokenizer.json", "model.safetensors"];
 const HF_RESOLVE_BASE: &str = "https://huggingface.co";
 
-/// The model's folder inside `models_dir` (`<app>/assets/models`).
+/// The variable a host sets to a folder that already holds the model — Run
+/// Form points it at the IDE's own copy, so running from the IDE never
+/// downloads the model a second time.
+pub const MODELS_ENV: &str = "COBOL_KB_MODELS";
+
+/// Where an application's built-in model is: the first of these that holds
+/// every model file —
+///
+/// 1. `$COBOL_KB_MODELS`, when a host set it;
+/// 2. `<app>/models` — beside `assets/`, where a build puts it;
+/// 3. `<app>/assets/models` — where applications kept it before.
+///
+/// None holds it: `<app>/models`, which is where `FetchModel` then puts it.
+pub fn app_models_dir(app: &Path) -> PathBuf {
+    let own = app.join("models");
+    let from_env = std::env::var_os(MODELS_ENV).map(PathBuf::from);
+    [from_env, Some(own.clone()), Some(app.join("assets").join("models"))]
+        .into_iter()
+        .flatten()
+        .find(|d| model_is_cached(d))
+        .unwrap_or(own)
+}
+
+/// The model's folder inside `models_dir` (see [`app_models_dir`]).
 pub fn model_dir(models_dir: &Path) -> PathBuf {
     models_dir.join(MODEL_NAME)
 }
@@ -72,6 +97,28 @@ pub fn fetch_model(
 mod tests {
     use super::*;
     use std::sync::Mutex;
+
+    /// Operator (2026-09-27): a build puts the model in `models/`, beside
+    /// `assets/`, and the application must find it there — while one that
+    /// kept it in `assets/models` still finds it.
+    #[test]
+    fn the_model_is_found_beside_assets_or_where_it_used_to_be() {
+        let plant = |d: &Path| {
+            let m = model_dir(d);
+            std::fs::create_dir_all(&m).unwrap();
+            for f in MODEL_FILES {
+                std::fs::write(m.join(f), b"x").unwrap();
+            }
+        };
+        let app = tempfile::tempdir().unwrap();
+        let app = app.path();
+        assert_eq!(app_models_dir(app), app.join("models"), "nothing yet: fetched into models/");
+        plant(&app.join("assets").join("models"));
+        assert_eq!(app_models_dir(app), app.join("assets").join("models"), "the old place still works");
+        plant(&app.join("models"));
+        assert_eq!(app_models_dir(app), app.join("models"), "beside assets/ wins");
+        println!("model lookup — empty → models/; assets/models only → assets/models; both → models/");
+    }
 
     struct Files(Mutex<Vec<String>>);
     impl Transport for Files {

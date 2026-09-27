@@ -8,6 +8,33 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.291] — 2026-09-27
+
+### Fix — the built-in semantic model ships with the application
+
+- **A build that links the model ships it** (`cobolt-compiler`,
+  `deliver_builtin_model`): with `[rag] embedder = "builtin"`, the model goes
+  into `<destination>/models/multilingual-e5-small/`, beside `assets/`, taken
+  from the project's `models/`, its older `assets/models`, or the copy the IDE
+  keeps for Grace (`~/PowerRustCOBOL/data/models` — the same model). Delivered
+  files are never overwritten. Not found anywhere: the build says so, and the
+  application fetches it on first use. Before, nothing shipped it, so every
+  installation downloaded 470 MB before it could embed (operator,
+  2026-09-27).
+- **The application finds it there** (`cobolt_kb::model::app_models_dir`):
+  `$COBOL_KB_MODELS` when a host sets it, then `<app>/models`, then
+  `<app>/assets/models` where older applications kept it; `FetchModel()`
+  downloads into `<app>/models`.
+- **Run Form uses the IDE's copy** (`rcrun`, `form_gui.rs`): it points
+  `COBOL_KB_MODELS` at `~/PowerRustCOBOL/data/models` when that holds the
+  model, so running from the IDE never downloads it a second time.
+- System KB (`FetchModel`, `Embedder`) and the Developer's Guide's
+  KnowledgeBase section updated; `chunked.data` regenerated. `.gitignore`:
+  `examples/*/models/`.
+- Tests: `the_model_is_found_beside_assets_or_where_it_used_to_be`,
+  `a_builtin_model_ships_beside_assets`. cobolt-kb 29/0, cobolt-compiler
+  (lib) 144/0, cobolt-runtime (kb-semantic) 1080/0, cobolt-cli 8/0.
+
 ## [PowerRustCOBOL 1.70.290] — 2026-09-27
 
 ### Fix — PowerChat: documents are embedded, not only indexed by words

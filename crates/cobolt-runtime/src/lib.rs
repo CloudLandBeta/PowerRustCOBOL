@@ -62,6 +62,20 @@ pub mod interpreter;
 pub mod kb_transport;
 #[cfg(feature = "kb")]
 pub(crate) mod kb_runtime;
+
+/// The variable naming a folder that already holds the built-in model, which
+/// a KnowledgeBase then uses before looking beside the application — for a
+/// host that has the model elsewhere (Run Form: the IDE's own copy).
+#[cfg(feature = "kb")]
+pub fn kb_models_env() -> &'static str {
+    cobolt_kb::model::MODELS_ENV
+}
+
+/// Whether `models_dir` holds every file of the built-in model.
+#[cfg(feature = "kb")]
+pub fn kb_model_is_cached(models_dir: &std::path::Path) -> bool {
+    cobolt_kb::model::model_is_cached(models_dir)
+}
 pub mod maps_bridge;
 /// Spec 065 — the indexed-file tool served over MCP.
 pub mod mcp_tool;
