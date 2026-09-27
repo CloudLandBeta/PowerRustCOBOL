@@ -47,7 +47,11 @@ opens inside the window, in the content pane beside the menu.
    **New folder** (inside the one selected), select it, and drop Word,
    PowerPoint, Excel, PDF, Markdown or text files on the zone: they land in
    that folder and are indexed, with a progress panel. **Delete** removes a
-   document, or a folder once nothing is left in it.
+   document, or a folder once nothing is left in it. To **move** a document,
+   select it and press **Move**, then select the folder it goes to (or a
+   document already in that folder) and press **Move here** — or press **To
+   the top level**. The copy is indexed before the original is removed, and a
+   document of the same name already there is never overwritten.
 4. **Data files** — register indexed files for the topic by path (local, a
    network path, or `smb://`), each with its `.cidx`. They are only ever read.
 5. **Prompt** — keep versions of the topic's system prompt; save a new one or
@@ -64,7 +68,7 @@ Portuguese, Spanish, French, Japanese and Chinese, at once.
 |---|---|
 | `chat-form` (main) | The menu (designed in `forms/SideMenu-1.menu.yaml`, relabelled in the current language, shut until an agent has a model), the welcome screen, the conversation, three agents (`AGENT-1`…`AGENT-3`) with their election and orchestration, and the topic's Knowledge Base (`KB-1`); this month's token totals |
 | `topics-form` | Create and open topics; install and remove the sample topics (`samples/`) |
-| `documents-form` | The topic's documents as a folder tree: folders, add, delete, refresh |
+| `documents-form` | The topic's documents as a folder tree: folders, add, move, delete, refresh |
 | `settings-form` | The Knowledge Base folder, the IDE's providers, the model list and its keys, the connection test, XML export and import |
 | `files-form` | The topic's registered indexed files |
 | `prompts-form` | Versions of the topic's system prompt |
