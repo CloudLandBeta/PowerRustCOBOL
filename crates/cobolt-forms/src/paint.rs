@@ -6742,10 +6742,6 @@ fn is_legacy_groupbox_generated_caption(value: &str) -> bool {
     !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit())
 }
 
-/// How far a tab's fill runs into the page it joins: over the page's rim, so
-/// no line is left between a tab and its page.
-const TAB_SEAM: f32 = 2.0;
-
 /// The TabControl page's corners: the control's own rounding, except the
 /// corner where the first tab joins the page, which is square — the tab's
 /// straight side continues the page's edge there, so the two read as one
@@ -6850,25 +6846,16 @@ pub fn draw_tabcontrol_tabs(painter: &egui::Painter, origin: Pos2, ctrl: &Contro
         }
         let ink = if active { active_ink } else { inactive_ink };
         let rad = cr8(8.0_f32.min(tr.height() * 0.5).min(tr.width() * 0.5));
-        let (face, round) = match position.as_str() {
-            "bottom" => (
-                egui::Rect::from_min_max(tr.min - Vec2::new(0.0, TAB_SEAM), tr.max),
-                egui::CornerRadius { nw: 0, ne: 0, sw: rad, se: rad },
-            ),
-            "left" => (
-                egui::Rect::from_min_max(tr.min, tr.max + Vec2::new(TAB_SEAM, 0.0)),
-                egui::CornerRadius { nw: rad, ne: 0, sw: rad, se: 0 },
-            ),
-            "right" => (
-                egui::Rect::from_min_max(tr.min - Vec2::new(TAB_SEAM, 0.0), tr.max),
-                egui::CornerRadius { nw: 0, ne: rad, sw: 0, se: rad },
-            ),
-            _ => (
-                egui::Rect::from_min_max(tr.min, tr.max + Vec2::new(0.0, TAB_SEAM)),
-                egui::CornerRadius { nw: rad, ne: rad, sw: 0, se: 0 },
-            ),
+        // The tab ends exactly at the page's edge. It used to run 2 px over
+        // it to hide the page's rim, which showed as the tab spilling into the
+        // frame (operator, 2026-09-27).
+        let round = match position.as_str() {
+            "bottom" => egui::CornerRadius { nw: 0, ne: 0, sw: rad, se: rad },
+            "left" => egui::CornerRadius { nw: rad, ne: 0, sw: rad, se: 0 },
+            "right" => egui::CornerRadius { nw: 0, ne: rad, sw: 0, se: rad },
+            _ => egui::CornerRadius { nw: rad, ne: rad, sw: 0, se: 0 },
         };
-        painter.rect_filled(face, round, fill.gamma_multiply(alpha_mul));
+        painter.rect_filled(*tr, round, fill.gamma_multiply(alpha_mul));
         styled_text(
             painter,
             ctrl,
@@ -18073,7 +18060,7 @@ mod theme_render_tests {
 
     /// Painted: the selected tab is filled with `ActiveTabColor` in white text,
     /// the others with a tone of the page; a tab's outer corners are rounded
-    /// and the side it shares with the page is straight, running over the
+    /// and the side it shares with the page is straight, ending exactly at
     /// page's rim — no stroke anywhere in the strip; and the page's corner
     /// where the first tab joins is square, its other three rounded.
     #[test]
@@ -18125,7 +18112,13 @@ mod theme_render_tests {
                 .unwrap_or_else(|| panic!("{pos}: the active tab is blue"));
             assert!(active.rect.contains_rect(tabs[1]), "{pos}");
             let page = tabcontrol_page_rect(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 240.0)), &c);
-            assert!(active.rect.intersects(page), "{pos}: the tab runs into the page");
+            // Flush, never over: the tab's fill stops at the page's edge.
+            assert_eq!(active.rect, tabs[1], "{pos}: the fill is the tab's own rect");
+            assert!(
+                active.rect.intersect(page).area() == 0.0,
+                "{pos}: the tab does not overlap the page: {:?} vs {page:?}",
+                active.rect
+            );
             let cr = active.corner_radius;
             let (outer, inner) = match pos {
                 "Top" => ([cr.nw, cr.ne], [cr.sw, cr.se]),

@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.273] — 2026-09-27
+
+### Fix — a TabControl's tabs overlapped the page by 2 px
+
+- Each tab's fill ran 2 px past the strip into the page (meant to hide the
+  page's rim), which showed as the tab spilling over the frame's edge — below
+  the strip on top, above it on the bottom, and the same sideways. A tab now
+  ends exactly at the page's edge on all four sides. Test
+  `the_active_tab_flows_into_the_page` asserts the fill is the tab's own rect
+  and does not overlap the page.
+- Also carries the operator's edits to PowerChat's Files form.
+
 ## [PowerRustCOBOL 1.70.272] — 2026-09-26
 
 ### Feature — TabControl: a tab strip that flows into its page
