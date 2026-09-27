@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.278] — 2026-09-27
+
+### Fix — a chat message with an accented character crashed the form
+
+- Sending `olá` in PowerChat crashed the running form: "start byte index 26
+  is not a char boundary; it is inside 'á'". The conversation reader added in
+  1.70.270 (`viewer::div_body_len`) walked the stream one byte at a time but
+  sliced it as a string, which panics inside any multi-byte character — every
+  non-ASCII message in five of the six languages. It now compares bytes; a tag
+  is ASCII, so nothing is lost. Test
+  `the_published_stream_reads_back_message_by_message` now carries text in all
+  six languages, the crashing message first.
+- Also carries the operator's pending PowerChat edits.
+
 ## [PowerRustCOBOL 1.70.277] — 2026-09-27
 
 ### Fix — a flaky `assets` test

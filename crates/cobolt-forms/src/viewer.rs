@@ -1929,19 +1929,24 @@ pub fn parse_conversation_html(html: &str) -> Vec<StreamMessage> {
 
 /// Length of a `<div>`'s body, up to (not including) the `</div>` that closes
 /// it, counting nested divs. `None` when it is never closed.
+///
+/// Scanned as BYTES: stepping one byte at a time and slicing the `str` there
+/// panicked on the first multi-byte character — `olá` crashed the chat
+/// (operator, 2026-09-27). A tag is ASCII, so a byte compare finds every one,
+/// and the index returned always sits on a `<`, a character boundary.
 fn div_body_len(body: &str) -> Option<usize> {
     let lower = body.to_ascii_lowercase();
     let bytes = lower.as_bytes();
     let mut depth = 1usize;
     let mut i = 0;
     while i < bytes.len() {
-        if lower[i..].starts_with("</div") {
+        if bytes[i..].starts_with(b"</div") {
             depth -= 1;
             if depth == 0 {
                 return Some(i);
             }
             i += 5;
-        } else if lower[i..].starts_with("<div")
+        } else if bytes[i..].starts_with(b"<div")
             && matches!(bytes.get(i + 4), Some(b' ' | b'>' | b'\t' | b'\n' | b'\r' | b'/'))
         {
             depth += 1;
@@ -6271,6 +6276,16 @@ mod conversation_tests {
             msgs[2]
         );
         assert!(texts(&msgs[3].blocks[0]).iter().any(|t| t.0 == "reply" && t.2), "{:?}", msgs[3]);
+        // Text in every language the IDE ships, the accented one first — the
+        // exact message that crashed the chat.
+        let mut c = Conversation::new();
+        for text in ["olá", "¿qué tal?", "très bien", "こんにちは", "你好", "naïve **ünïcödé**"] {
+            c.append(AppendMode::Markdown, text);
+        }
+        c.append(AppendMode::Html, "<div><p>Olá <b>você</b></p></div>");
+        let back = parse_conversation_html(&c.to_html());
+        assert_eq!(back.len(), 7, "{back:?}");
+        assert!(back.iter().all(|m| !m.blocks.is_empty()), "{back:?}");
         // Not framed at all: read as one HTML document, as before.
         let loose = parse_conversation_html("<p>hello</p>");
         assert_eq!(loose.len(), 1);
