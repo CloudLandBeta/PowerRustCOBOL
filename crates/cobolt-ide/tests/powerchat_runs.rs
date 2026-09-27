@@ -1366,3 +1366,42 @@ fn powerchat_previews_a_document_in_a_modal_window() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Operator (2026-09-27): "I also need feedback when … deleting a file".
+/// Delete says what it is doing while it runs, and names what it removed.
+#[test]
+fn powerchat_confirms_a_deleted_document_by_name() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let root = std::env::temp_dir().join(format!(
+        "prc-071-delete-{}",
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let data = root.join("data");
+    let kb = root.join("KB");
+    let docs = kb.join("HR").join("documents");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::create_dir_all(&docs).unwrap();
+    plant_model(&root, false);
+    std::fs::write(docs.join("leave.md"), "# Leave\nTwenty days.").unwrap();
+    std::fs::write(docs.join("travel.md"), "# Travel\nTrains.").unwrap();
+    std::env::set_var("POWERCHAT_DATA", &data);
+    seed_settings(&data, &[("CUR-TOPIC", "HR"), ("KB-LOCATION", &kb.display().to_string())]);
+    let t = Instant::now();
+
+    let mut s = Session::start("documents-form.cfrm");
+    s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Added 2,"));
+    s.events
+        .send(FormEvent::new("Trv-Docs", "onNodeSelect").with_value("travel.md\t2\t1\t0".to_string()))
+        .unwrap();
+    s.click("Btn-Delete");
+    let doing = s.wait_for("Lbl-Progress", "Caption", |v| v == "Removing travel.md from the Knowledge Base...");
+    s.wait_for("Trv-Docs", "Items", |v| v == "leave.md");
+    let done = s.wait_for("Lbl-Status", "Caption", |v| v == "Deleted: travel.md - removed from the Knowledge Base.");
+    s.quit();
+    assert!(!docs.join("travel.md").exists());
+    println!(
+        "\n  ── 071 PowerChat, deleting a document ───────────────────\n  while: {doing:?}\n  after: {done:?} — {:.0} ms\n",
+        t.elapsed().as_secs_f64() * 1000.0
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}

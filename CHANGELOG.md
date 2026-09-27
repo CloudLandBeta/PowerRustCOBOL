@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.300] — 2026-09-27
+
+### Fix — PowerChat: deleting a document says what it is doing, and what it removed
+
+- Deleting a document showed nothing while it ran and ended on the generic
+  "Added 0, updated 0, removed 1, skipped 0." (operator, 2026-09-27: "I also
+  need feedback when … deleting a file"). The progress line now reads
+  "Removing <document> from the Knowledge Base..." and the status line ends on
+  "Deleted: <document> - removed from the Knowledge Base.". Two texts in six
+  languages.
+- Test: `powerchat_confirms_a_deleted_document_by_name`.
+
 ## [PowerRustCOBOL 1.70.299] — 2026-09-27
 
 ### Fix — the KnowledgeBase's new progress properties are known to the IDE

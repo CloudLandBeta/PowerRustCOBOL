@@ -337,8 +337,22 @@
           05 FILLER PIC X(70) VALUE "&1 passages indexés.".
           05 FILLER PIC X(70) VALUE "&1 件の断片を索引化しました。".
           05 FILLER PIC X(70) VALUE "已索引 &1 个片段。".
+      *>   REMOVING
+          05 FILLER PIC X(70) VALUE "Removing &1 from the Knowledge Base...".
+          05 FILLER PIC X(70) VALUE "Removendo &1 da base de conhecimento...".
+          05 FILLER PIC X(70) VALUE "Quitando &1 de la base de conocimiento...".
+          05 FILLER PIC X(70) VALUE "Retrait de &1 de la base de connaissances...".
+          05 FILLER PIC X(70) VALUE "&1 をナレッジベースから削除中...".
+          05 FILLER PIC X(70) VALUE "正在从知识库移除 &1...".
+      *>   DOC-REMOVED
+          05 FILLER PIC X(70) VALUE "Deleted: &1 - removed from the Knowledge Base.".
+          05 FILLER PIC X(70) VALUE "Excluído: &1 - removido da base de conhecimento.".
+          05 FILLER PIC X(70) VALUE "Eliminado: &1 - quitado de la base de conocimiento.".
+          05 FILLER PIC X(70) VALUE "Supprimé : &1 - retiré de la base de connaissances.".
+          05 FILLER PIC X(70) VALUE "削除しました: &1（ナレッジベースから除外）".
+          05 FILLER PIC X(70) VALUE "已删除：&1（已从知识库移除）".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 44.
+          05 PC-TEXT-ROW     OCCURS 46.
              10 PC-TEXT      PIC X(70) OCCURS 6.
       *>   The texts in the current language, by name.
        01 PC-TEXTS-NOW       GLOBAL.
@@ -386,8 +400,10 @@
           05 T-EMBED-BAR PIC X(70).
           05 T-KB-EMBEDDED PIC X(70).
           05 T-KB-PASSAGES PIC X(70).
+          05 T-REMOVING PIC X(70).
+          05 T-DOC-REMOVED PIC X(70).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(70) OCCURS 44.
+          05 PC-TEXT-NOW     PIC X(70) OCCURS 46.
       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
        01 WS-FMT             GLOBAL PIC X(70).
        01 WS-ARG1            GLOBAL PIC X(300).
@@ -454,6 +470,8 @@
        01 WS-PASSAGE         GLOBAL PIC 9(9).
        01 WS-DOC-CUR         GLOBAL PIC 9(9).
        01 WS-DOC-TOT         GLOBAL PIC 9(9).
+      *>   A document being deleted, named in the confirmation.
+       01 WS-DELETING        GLOBAL PIC X(260) VALUE SPACES.
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -805,7 +823,7 @@
                WHEN OTHER MOVE "en" TO WS-LANG
                           MOVE 1 TO WS-LANG-IX
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 44
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 46
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
            MOVE FUNCTION TRIM(T-DOCS-TITLE) TO Lbl-Title::Caption
@@ -1426,6 +1444,13 @@ Node 2</Property>
                MOVE KB-D::DeleteDocument(FUNCTION TRIM(WS-SEL-PATH)) TO WS-OK
                IF WS-OK NOT = "1"
                    MOVE KB-D::LastError TO Lbl-Status::Caption
+               ELSE
+      *>           Said while it happens, and confirmed by name when done.
+                   MOVE WS-SEL-PATH TO WS-DELETING
+                   MOVE T-REMOVING TO WS-FMT
+                   MOVE WS-SEL-PATH TO WS-ARG1
+                   CALL "PC-FMT"
+                   MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Progress::Caption
                END-IF
                EXIT PROGRAM
            END-IF
@@ -2330,6 +2355,18 @@ Node 2</Property>
                EXIT PROGRAM
            END-IF
            CALL "PC-PROGRESS-IDLE"
+      *>   A document deleted: say which, and that it left the index.
+           IF WS-DELETING NOT = SPACES
+      *>       The tree first: PC-LIST-DOCS formats its own count line.
+               MOVE SPACES TO WS-SEL-KIND WS-SEL-PATH
+               CALL "PC-LIST-DOCS"
+               MOVE T-DOC-REMOVED TO WS-FMT
+               MOVE WS-DELETING TO WS-ARG1
+               CALL "PC-FMT"
+               MOVE SPACES TO WS-DELETING
+               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
            IF WS-MOVE-STEP = "D"
                MOVE SPACE TO WS-MOVE-STEP
                MOVE "D" TO WS-SEL-KIND
@@ -2430,6 +2467,7 @@ Node 2</Property>
        PROCEDURE DIVISION.
            CALL "PC-PROGRESS-IDLE"
            MOVE KB-D::LastError TO Lbl-Status::Caption
+           MOVE SPACES TO WS-DELETING
       *>   No model (no network, say): index anyway - by words, and the
       *>   summary says so. A failed rebuild leaves the text-only index.
            IF WS-KB-STEP = "M"
@@ -2451,6 +2489,7 @@ Node 2</Property>
        PROCEDURE DIVISION.
            CALL "PC-PROGRESS-IDLE"
            MOVE KB-D::LastError TO Lbl-Status::Caption
+           MOVE SPACES TO WS-DELETING
       *>   No model (no network, say): index anyway - by words, and the
       *>   summary says so. A failed rebuild leaves the text-only index.
            IF WS-KB-STEP = "M"
