@@ -9344,7 +9344,22 @@ fn render_interactive(
                 .ctx()
                 .memory(|m| m.data.get_temp::<DataGridCellSelection>(selection_id));
             if let Some(selected_cell) = selected_cell {
-                if ui.input(|i| i.key_pressed(egui::Key::C) && i.modifiers.command) {
+                // Copy as the platform delivers it: egui-winit turns
+                // Cmd/Ctrl+C into `Event::Copy` and swallows the key, so a
+                // check for the C key alone never fired on a real keyboard
+                // (operator, 2026-09-27: "fix the DataGrid copy too"). And
+                // only when THIS grid is being copied from — no other control
+                // holding the keyboard, and the grid focused or under the
+                // pointer — or a Copy in a text box would take the grid's cell.
+                let focus_id = ctrl_id.with("datagrid-focus");
+                let focus = ui.ctx().memory(|m| m.focused());
+                let ours = focus == Some(focus_id)
+                    || (focus.is_none() && ui.rect_contains_pointer(screen));
+                let copy_asked = ui.input(|i| {
+                    (i.modifiers.command && i.key_pressed(egui::Key::C))
+                        || i.events.iter().any(|e| matches!(e, egui::Event::Copy))
+                });
+                if ours && copy_asked {
                     let visible_source_columns: Vec<usize> = display_cols
                         .iter()
                         .map(|(source_index, _, _)| *source_index)
@@ -19670,11 +19685,21 @@ mod tests {
         controls: &[Control],
         frames: Vec<(f64, Vec<Event>)>,
     ) -> (Vec<UiEvent>, Map<String, Map<String, String>>) {
+        let (events, props, _) = drive_copying(controls, frames);
+        (events, props)
+    }
+
+    /// [`drive`], plus every text the frames put on the clipboard.
+    fn drive_copying(
+        controls: &[Control],
+        frames: Vec<(f64, Vec<Event>)>,
+    ) -> (Vec<UiEvent>, Map<String, Map<String, String>>, Vec<String>) {
         let ctx = egui::Context::default();
         ctx.set_fonts(egui::FontDefinitions::default());
         let active = ActiveTabs::new();
         let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
         let mut all: Vec<UiEvent> = Vec::new();
+        let mut copied: Vec<String> = Vec::new();
 
         for (i, (_time, evs)) in frames.into_iter().enumerate() {
             let mut input = egui::RawInput::default();
@@ -19699,7 +19724,7 @@ mod tests {
             let updates = RefCell::new(Vec::<(String, String, String)>::new());
             let events = RefCell::new(Vec::<UiEvent>::new());
             let st = MapState(&overrides);
-            ctx.run_ui(input, |root_ui| {
+            let mut full = ctx.run_ui(input, |root_ui| {
                 let ctx = root_ui.ctx().clone();
                 let ctx = &ctx;
                 egui::CentralPanel::default()
@@ -19719,13 +19744,18 @@ mod tests {
                         updates.borrow_mut().extend(out.prop_updates);
                         events.borrow_mut().extend(out.events);
                     });
-            }).textures_delta.clear();
+            });
+            full.textures_delta.clear();
+            copied.extend(full.platform_output.commands.iter().filter_map(|c| match c {
+                egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                _ => None,
+            }));
             for (id, k, v) in updates.into_inner() {
                 overrides.borrow_mut().entry(id).or_default().insert(k, v);
             }
             all.extend(events.into_inner());
         }
-        (all, overrides.into_inner())
+        (all, overrides.into_inner(), copied)
     }
 
 
@@ -22623,6 +22653,52 @@ mod tests {
             (t + 0.05, vec![press(p)]),
             (t + 0.10, vec![release(p)]),
         ]
+    }
+
+    /// **Cmd/Ctrl+C copies a DataGrid's selection** — operator, 2026-09-27:
+    /// "fix the DataGrid copy too". egui-winit delivers the shortcut as
+    /// `Event::Copy` and swallows the C key, so a grid that listened for the
+    /// key never copied. It copies only while it is the one being copied
+    /// from: with a text box focused, Copy belongs to the text box.
+    #[test]
+    fn a_datagrid_copies_its_selected_cell() {
+        let bob = pos2(100.0, 53.0);
+        let copy = |frames: &mut Vec<(f64, Vec<Event>)>, t: f64| frames.push((t, vec![Event::Copy]));
+
+        let mut frames = click_at(bob, 0.0);
+        copy(&mut frames, 0.20);
+        frames.push((0.25, vec![]));
+        let (_, _, copied) = drive_copying(&[audit_grid(&[])], frames);
+        assert!(copied.iter().any(|t| t.contains("Bob")), "Copy on a selected cell copies it: {copied:?}");
+
+        // The key itself, for an integration that delivers it.
+        let mut frames = click_at(bob, 0.0);
+        frames.push((0.20, vec![Event::Key {
+            key: egui::Key::C,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::COMMAND,
+        }]));
+        frames.push((0.25, vec![]));
+        let (_, _, by_key) = drive_copying(&[audit_grid(&[])], frames);
+        assert!(by_key.iter().any(|t| t.contains("Bob")), "Cmd/Ctrl+C as a key copies too: {by_key:?}");
+
+        // A text box holding the keyboard: its Copy is not the grid's.
+        let text = ctrlp("TXT", ControlType::TextBox, 20, 240, 200, 24, &[("Text", "typed words")]);
+        let field = pos2(60.0, 252.0);
+        let mut frames = click_at(bob, 0.0);
+        frames.extend(click_at(field, 0.20));
+        copy(&mut frames, 0.40);
+        frames.push((0.45, vec![]));
+        let (_, _, elsewhere) = drive_copying(&[audit_grid(&[]), text], frames);
+        assert!(
+            !elsewhere.iter().any(|t| t.contains("Bob")),
+            "Copy in a focused text box never copies the grid: {elsewhere:?}"
+        );
+        println!(
+            "DataGrid copy — Event::Copy {copied:?}; Cmd/Ctrl+C key {by_key:?}; with a text box focused {elsewhere:?}"
+        );
     }
 
     /// `AllowSorting`: a click on a column title orders the rows the grid

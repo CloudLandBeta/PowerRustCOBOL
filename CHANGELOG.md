@@ -8,6 +8,27 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.296] — 2026-09-27
+
+### Fix — DataGrid: Cmd/Ctrl+C copies the selected cell or row
+
+- **The keyboard copy never fired** (`cobolt-forms/src/render.rs`): the grid
+  copied its selection on a C key press with Command held, but egui-winit
+  turns Cmd/Ctrl+C into `Event::Copy` and swallows the key — the defect
+  1.70.292 fixed for the Viewer. It now copies on `Event::Copy` as well as
+  on the key, and only while it is the one being copied from: no other
+  control holding the keyboard, and the grid focused or under the pointer —
+  so a Copy in a text box never takes the grid's cell instead (operator,
+  2026-09-27: "fix the DataGrid copy too").
+- Test: `a_datagrid_copies_its_selected_cell` — the event and the key both
+  copy `Bob,30`; with a text box focused, nothing of the grid's; before the
+  fix the event copied nothing. The test helper `drive` gained
+  `drive_copying`, which also returns what reached the clipboard.
+  cobolt-forms (render,pdf,office) 1193/0.
+- Found alongside, not changed: a MenuBar accelerator of Ctrl/Cmd+C, X or V
+  has the same cause — those three arrive as Copy/Cut/Paste events — so such
+  a shortcut never fires.
+
 ## [PowerRustCOBOL 1.70.295] — 2026-09-27
 
 ### Feature — the Viewer opens Office files as their text; PowerChat's document preview
