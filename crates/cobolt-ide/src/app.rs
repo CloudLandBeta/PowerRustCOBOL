@@ -3913,7 +3913,7 @@ impl CoboltApp {
                         origin: None,
                     });
                 }
-                tokenize(&exp.text, SourceFormat::Free)
+                cobolt_lexer::tokenize_expansion(&exp)
             }
             None => tokenize(&src, SourceFormat::Free),
         };
@@ -4054,7 +4054,7 @@ impl CoboltApp {
                 for e in &exp.errors {
                     self.output.push_status(format!("copybook error: {e}"));
                 }
-                tokenize(&exp.text, SourceFormat::Free)
+                cobolt_lexer::tokenize_expansion(&exp)
             }
             None => tokenize(&source, fmt),
         };
@@ -21075,6 +21075,32 @@ mod manifest_name_tests {
         let errors: Vec<_> = diags.iter().filter(|d| d.severity == DiagSeverity::Error).collect();
         std::fs::remove_dir_all(&root).ok();
         assert!(errors.is_empty(), "every block's copybook arrives: {errors:?}");
+
+        // An error after a COPY is reported on the line where it is written in
+        // the generated program — not further down by the copybooks' length —
+        // so the click-through lands on it (operator, 2026-09-27).
+        {
+            let root = std::env::temp_dir().join(format!("prc-form-copy-lines-{}", std::process::id()));
+            std::fs::create_dir_all(root.join("txt")).unwrap();
+            std::fs::write(root.join("T.project.toml"), "").unwrap();
+            std::fs::write(
+                root.join("txt").join("Three.ws"),
+                "       01 WS-A GLOBAL PIC X.\n       01 WS-B GLOBAL PIC X.\n       01 WS-C GLOBAL PIC X.\n",
+            )
+            .unwrap();
+            let mut g = form_with_onload(
+                "       ENVIRONMENT DIVISION.\n       PROCEDURE DIVISION.\n           MOVE WS-A TO WS-NOT-THERE.",
+            );
+            g.user_ws_source = "       COPY \"txt\\Three.ws\".".into();
+            let (diags, src, _) = CoboltApp::validate_form_source_full(&g, &root.join("generated").join("t.cbl"));
+            std::fs::remove_dir_all(&root).ok();
+            let written = src.lines().position(|l| l.contains("WS-NOT-THERE")).unwrap() as u32 + 1;
+            let d = diags
+                .iter()
+                .find(|d| d.severity == DiagSeverity::Error && d.message.contains("WS-NOT-THERE"))
+                .unwrap_or_else(|| panic!("{diags:?}"));
+            assert_eq!(d.line, written, "the error's own line in the generated program");
+        }
 
         // And the same form with no project around it cannot find them: the
         // check says which copybook, instead of blaming the handler.

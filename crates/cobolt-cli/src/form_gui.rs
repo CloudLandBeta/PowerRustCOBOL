@@ -303,7 +303,7 @@ pub fn cmd_run_form(args: &[String]) {
             for e in &exp.errors {
                 eprintln!("run-form: {}: copybook error: {e}", cbl_path.display());
             }
-            tokenize(&exp.text, SourceFormat::Free)
+            cobolt_lexer::tokenize_expansion(&exp)
         }
         None => tokenize(&source, fmt),
     };
@@ -610,7 +610,7 @@ pub fn cmd_run_form(args: &[String]) {
                 if let Some(e) = exp.errors.first() {
                     return Err(format!("{}: copybook error: {e}", cbl.display()));
                 }
-                tokenize(&exp.text, SourceFormat::Free)
+                cobolt_lexer::tokenize_expansion(&exp)
             }
             None => tokenize(&src, fmt),
         });

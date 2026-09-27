@@ -1523,7 +1523,7 @@ fn build_core(
             if let Some(e) = exp.errors.first() {
                 return Err(CompilerError::Parse { file: main_rel.clone(), message: format!("copybook error: {e}") });
             }
-            tokenize(&exp.text, SourceFormat::Free)
+            cobolt_lexer::tokenize_expansion(&exp)
         }
         None => tokenize(main_src, fmt),
     };
@@ -1785,7 +1785,7 @@ fn build_core(
                     log(&format!("⚠️  form {id}: copybook error: {e} — omitted"));
                     continue;
                 }
-                tokenize(&exp.text, cobolt_lexer::SourceFormat::Free)
+                cobolt_lexer::tokenize_expansion(&exp)
             }
             None => tokenize(&src, fmt),
         };

@@ -314,7 +314,7 @@ fn run_pipeline(file_name: String, source: String, tx: Sender<RunMsg>, stop_flag
             for e in &exp.errors {
                 let _ = tx.send(RunMsg::Output(format!("copybook error: {e}")));
             }
-            tokenize(&exp.text, cobolt_lexer::SourceFormat::Free)
+            cobolt_lexer::tokenize_expansion(&exp)
         }
         None => tokenize(&source, fmt),
     };
@@ -600,7 +600,7 @@ fn run_debug_pipeline(
             for e in &exp.errors {
                 let _ = run_tx.send(RunMsg::Output(format!("copybook error: {e}")));
             }
-            tokenize(&exp.text, cobolt_lexer::SourceFormat::Free)
+            cobolt_lexer::tokenize_expansion(&exp)
         }
         None => tokenize(&source, fmt),
     };

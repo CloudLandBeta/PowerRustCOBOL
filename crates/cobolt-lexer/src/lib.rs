@@ -61,7 +61,7 @@ pub mod token;
 
 pub use copybook::{
     copybook_bases, expand_copybooks, expand_copybooks_for, expand_copybooks_in, has_directives,
-    preprocess_program, CopyExpansion,
+    preprocess_program, tokenize_expansion, CopyExpansion,
 };
 pub use lexer::{tokenize, tokenize_with_comments, LexError, Lexer};
 pub use source::SourceFormat;

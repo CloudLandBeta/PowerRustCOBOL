@@ -89,8 +89,9 @@ fn main() {
 
 /// Expand COPY / REPLACE directives, resolving copybooks next to the source
 /// file, then from its project's folder (`cobolt_lexer::copybook_bases`).
-/// Returns free-form text ready to tokenize; copybook errors are printed.
-fn expand_copy(path: &PathBuf, source: &str, fmt: SourceFormat) -> String {
+/// Returns the program's tokens, each on the line the developer wrote
+/// (`tokenize_expansion`); copybook errors are printed.
+fn expand_copy(path: &PathBuf, source: &str, fmt: SourceFormat) -> Vec<cobolt_lexer::SpannedToken> {
     let expansion = cobolt_lexer::expand_copybooks_for(source, path, fmt);
     if std::env::var_os("COBOLT_DUMP_EXPANSION").is_some() {
         eprintln!("=== EXPANSION BEGIN ===\n{}\n=== EXPANSION END ===", expansion.text);
@@ -98,17 +99,15 @@ fn expand_copy(path: &PathBuf, source: &str, fmt: SourceFormat) -> String {
     for e in &expansion.errors {
         eprintln!("{}: copybook error: {e}", path.display());
     }
-    expansion.text
+    cobolt_lexer::tokenize_expansion(&expansion)
 }
 
 fn cmd_run(args: &[String]) {
     let path = require_path(args, "run");
     let source = read_source(&path);
     let fmt = resolve_source_format(args, &source, &path);
-    let source = expand_copy(&path, &source, fmt);
-
     // COPY expansion flattens to free form.
-    let tokens = tokenize(&source, SourceFormat::Free);
+    let tokens = expand_copy(&path, &source, fmt);
     let parse_result = parse(tokens);
 
     // Print parser diagnostics.
@@ -297,9 +296,7 @@ fn cmd_check(args: &[String]) {
     let path = require_path(args, "check");
     let source = read_source(&path);
     let fmt = resolve_source_format(args, &source, &path);
-    let source = expand_copy(&path, &source, fmt);
-
-    let tokens = tokenize(&source, SourceFormat::Free);
+    let tokens = expand_copy(&path, &source, fmt);
     let parse_result = parse(tokens);
 
     let mut has_errors = false;

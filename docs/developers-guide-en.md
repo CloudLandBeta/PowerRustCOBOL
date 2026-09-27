@@ -7295,10 +7295,10 @@ Form** and a built application alike.
 > GLOBAL.`). A copybook copied into the form's WORKING-STORAGE or FILE SECTION
 > follows the same rule, so declare its items `GLOBAL` when a handler uses them.
 
-> ⚠️ **Caveat — line numbers after a `COPY`.** A copied copybook occupies its
-> own lines, so an error or a breakpoint reported after a `COPY` is numbered
-> in the expanded program, further down than the line you wrote by the
-> copybook's length.
+> **Note — line numbers stay yours.** Every line after a `COPY` keeps the
+> number you wrote — in an error, the debugger's current line and a
+> breakpoint. Something reported *inside* a copybook is reported on the line
+> of the `COPY` that brought it in.
 
 ### Where a relative `ASSIGN` path starts
 

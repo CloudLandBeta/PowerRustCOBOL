@@ -24,6 +24,63 @@ use crate::source::{flatten_fixed, flatten_fixed_strict, SourceFormat};
 pub struct CopyExpansion {
     pub text: String,
     pub errors: Vec<String>,
+    /// For each line of `text` (index 0 = line 1), the line of the ORIGINAL
+    /// program it came from. A copybook's lines all map to the line of the
+    /// `COPY` that brought them in, so every line after it keeps the number
+    /// the developer wrote. Empty = identity. Applied by [`tokenize_expansion`].
+    pub line_map: Vec<u32>,
+}
+
+/// Tokenize an expansion, each token's line put back where the developer
+/// wrote it ([`CopyExpansion::line_map`]). An expanded program used to report
+/// every line after a `COPY` further down by the copybook's length — errors,
+/// the debugger's current line, breakpoints (operator, 2026-09-27).
+pub fn tokenize_expansion(exp: &CopyExpansion) -> Vec<crate::SpannedToken> {
+    let mut toks = crate::tokenize(&exp.text, SourceFormat::Free);
+    if !exp.line_map.is_empty() {
+        for t in &mut toks {
+            if let Some(&l) = exp.line_map.get(t.span.line.saturating_sub(1) as usize) {
+                t.span.line = l;
+            }
+        }
+    }
+    toks
+}
+
+/// The expanded text being written, and where each of its lines came from.
+struct Out {
+    text: String,
+    /// Origin line of each output line; the last entry is the current line's.
+    map: Vec<u32>,
+}
+
+impl Out {
+    fn new() -> Self {
+        Self { text: String::new(), map: vec![1] }
+    }
+
+    /// Text from the original lines `first..=last`: each newline starts the
+    /// next original line (clamped, should a REPLACE have changed the count).
+    fn from_lines(&mut self, s: &str, first: u32, last: u32) {
+        let mut line = first;
+        for part in s.split_inclusive('\n') {
+            self.text.push_str(part);
+            if part.ends_with('\n') {
+                line = (line + 1).min(last.max(first));
+                self.map.push(line);
+            }
+        }
+    }
+
+    /// Text that all belongs to one original line — a copybook, at its `COPY`.
+    fn at_line(&mut self, s: &str, line: u32) {
+        for part in s.split_inclusive('\n') {
+            self.text.push_str(part);
+            if part.ends_with('\n') {
+                self.map.push(line);
+            }
+        }
+    }
 }
 
 /// Expand all `COPY` / `REPLACE` directives in `source`, resolving copybooks
@@ -39,8 +96,12 @@ pub fn expand_copybooks_in(source: &str, bases: &[PathBuf], format: SourceFormat
     let mut errors = Vec::new();
     let mut stack: Vec<PathBuf> = Vec::new();
     let flat = flatten(source, format);
-    let text = expand_text(&flat, bases, format, &mut errors, &mut stack, 0);
-    CopyExpansion { text, errors }
+    let (text, mut line_map) = expand_text_mapped(&flat, bases, format, &mut errors, &mut stack, 0);
+    // An expansion that moved nothing needs no map.
+    if line_map.iter().enumerate().all(|(i, &l)| l as usize == i + 1) {
+        line_map.clear();
+    }
+    CopyExpansion { text, errors, line_map }
 }
 
 /// [`expand_copybooks`] for the program in the file at `program`: copybooks
@@ -249,7 +310,6 @@ fn eqi(a: &str, b: &str) -> bool {
 
 // ── Expansion ─────────────────────────────────────────────────────────────
 
-#[allow(clippy::too_many_arguments)]
 fn expand_text(
     text: &str,
     bases: &[PathBuf],
@@ -258,8 +318,24 @@ fn expand_text(
     stack: &mut Vec<PathBuf>,
     depth: usize,
 ) -> String {
+    expand_text_mapped(text, bases, format, errors, stack, depth).0
+}
+
+/// [`expand_text`], with the origin line of every output line.
+#[allow(clippy::too_many_arguments)]
+fn expand_text_mapped(
+    text: &str,
+    bases: &[PathBuf],
+    format: SourceFormat,
+    errors: &mut Vec<String>,
+    stack: &mut Vec<PathBuf>,
+    depth: usize,
+) -> (String, Vec<u32>) {
     let toks = scan(text);
-    let mut out = String::new();
+    let newlines: Vec<usize> = text.bytes().enumerate().filter(|(_, b)| *b == b'\n').map(|(i, _)| i).collect();
+    // 1-based line of byte offset `b` in `text`.
+    let line_of = |b: usize| newlines.partition_point(|&n| n < b) as u32 + 1;
+    let mut out = Out::new();
     let mut prev_end = 0usize; // byte offset in `text` up to which we've emitted
     let mut active: Vec<(String, String)> = Vec::new(); // REPLACE pairs
     let mut i = 0usize;
@@ -282,8 +358,8 @@ fn expand_text(
         if t.kind == PKind::Word && eqi(&t.text, "EXEC") && is_exec_rust(&toks, i) {
             match exec_rust_end(&toks, i) {
                 Some((end_idx, end_byte)) => {
-                    out.push_str(&apply_pairs(&text[prev_end..t.start], &active));
-                    out.push_str(&text[t.start..end_byte]);
+                    out.from_lines(&apply_pairs(&text[prev_end..t.start], &active), line_of(prev_end), line_of(t.start));
+                    out.from_lines(&text[t.start..end_byte], line_of(t.start), line_of(end_byte));
                     prev_end = end_byte;
                     i = end_idx + 1;
                 }
@@ -301,7 +377,7 @@ fn expand_text(
                 continue;
             }
             // Emit the gap before COPY (REPLACE-rewritten).
-            out.push_str(&apply_pairs(&text[prev_end..t.start], &active));
+            out.from_lines(&apply_pairs(&text[prev_end..t.start], &active), line_of(prev_end), line_of(t.start));
             match parse_copy(&toks, i, text) {
                 Some((name, library, replacing, end_idx, end_byte)) => {
                     // A qualified COPY looks in `<base>/<library>/` first,
@@ -315,8 +391,10 @@ fn expand_text(
                         .collect();
                     let copy =
                         load_and_expand(&name, &replacing, &dirs, format, errors, stack, depth);
-                    out.push_str(&apply_pairs(&copy, &active));
-                    out.push('\n');
+                    // The whole copybook sits on the COPY's line; what follows
+                    // the directive resumes on the line it ends on.
+                    out.at_line(&apply_pairs(&copy, &active), line_of(t.start));
+                    out.at_line("\n", line_of(end_byte));
                     prev_end = end_byte;
                     i = end_idx + 1;
                 }
@@ -331,7 +409,7 @@ fn expand_text(
                 i += 1;
                 continue;
             }
-            out.push_str(&apply_pairs(&text[prev_end..t.start], &active));
+            out.from_lines(&apply_pairs(&text[prev_end..t.start], &active), line_of(prev_end), line_of(t.start));
             match parse_replace(&toks, i, text) {
                 Some((pairs, end_idx, end_byte)) => {
                     active = pairs; // REPLACE … replaces the active set; OFF clears it
@@ -347,8 +425,8 @@ fn expand_text(
             i += 1;
         }
     }
-    out.push_str(&apply_pairs(&text[prev_end..], &active));
-    out
+    out.from_lines(&apply_pairs(&text[prev_end..], &active), line_of(prev_end), line_of(text.len()));
+    (out.text, out.map)
 }
 
 /// Is the `EXEC` at token `i` the start of an `EXEC RUST` block?
@@ -809,6 +887,47 @@ mod tests {
         assert!(!has_directives("      *> COPY X.\n           DISPLAY \"COPY\".\n", SourceFormat::Free));
         assert!(!has_directives("           MOVE Grid::Copy() TO X.\n", SourceFormat::Free));
         assert!(preprocess_program("           DISPLAY \"A\".\n", Path::new("x.cbl"), SourceFormat::Free).is_none());
+    }
+
+    /// After a COPY, every token keeps the line the developer wrote; the
+    /// copybook's own tokens report the line of the COPY that brought them
+    /// in. A multi-line COPY … REPLACING and a REPLACE directive, which leave
+    /// the output, move nothing either.
+    #[test]
+    fn line_numbers_after_a_copy_are_the_ones_written() {
+        let d = tmp().join("line-map");
+        std::fs::create_dir_all(&d).unwrap();
+        write(&d, "THREE.cpy", "01 A PIC X.\n01 B PIC X.\n01 C PIC X.\n");
+        write(&d, "TAG.cpy", "01 :P:-X PIC X.\n01 :P:-Y PIC X.\n");
+        let src = [
+            "WORKING-STORAGE SECTION.",    // 1
+            "COPY THREE.",                 // 2
+            "01 AFTER-ONE PIC X.",         // 3
+            "COPY TAG REPLACING",          // 4
+            "    ==:P:== BY ==WS==.",      // 5
+            "01 AFTER-TWO PIC X.",         // 6
+            "REPLACE ==OLD== BY ==NEW==.", // 7
+            "01 OLD PIC X.",               // 8
+            "01 LAST-ONE PIC X.",          // 9
+        ]
+        .join("\n");
+        let r = expand_copybooks(&src, &d, SourceFormat::Free);
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        let toks = tokenize_expansion(&r);
+        let line_of = |word: &str| {
+            toks.iter()
+                .find(|t| format!("{:?}", t.token).contains(word))
+                .map(|t| t.span.line)
+                .unwrap_or_else(|| panic!("no {word} in {}", r.text))
+        };
+        assert_eq!(line_of("\"B\""), 2, "a copybook's token: the COPY's line");
+        assert_eq!(line_of("AFTER-ONE"), 3);
+        assert_eq!(line_of("WS-Y"), 4, "REPLACING applied; the COPY's first line");
+        assert_eq!(line_of("AFTER-TWO"), 6);
+        assert_eq!(line_of("\"NEW\""), 8, "REPLACE applied, line kept");
+        assert_eq!(line_of("LAST-ONE"), 9);
+        // No directive at all: no map, lines untouched.
+        assert!(expand_copybooks("01 X PIC X.\n01 Y PIC X.\n", &d, SourceFormat::Free).line_map.is_empty());
     }
 
     #[test]

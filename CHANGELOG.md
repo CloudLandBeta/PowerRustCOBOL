@@ -8,6 +8,26 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.283] — 2026-09-27
+
+### Fix — line numbers after a `COPY` are the ones the developer wrote
+
+- A copybook's lines pushed every later line down: an error, the debugger's
+  current line and a breakpoint after a `COPY` were numbered in the expanded
+  program (`rcrun check` reported line 12 for an error written on line 8 after
+  a three-line copybook). The expansion now records, for each of its lines,
+  the original line it came from (`CopyExpansion::line_map`), and
+  `tokenize_expansion` puts every token back on it. A copybook's own tokens
+  report the line of the `COPY` that brought them in; a multi-line
+  `COPY … REPLACING` or a `REPLACE`, which leave the output, move nothing.
+  Every expanding path uses it: `rcrun run` / `check`, Run Form and the forms
+  it opens, the compiled application, the IDE's form check, its Check and its
+  in-process runner and debugger.
+- Tests `line_numbers_after_a_copy_are_the_ones_written` (lexer) and, in
+  `a_forms_copybooks_arrive_in_every_block`, a form error after a `COPY`
+  reported on its own line of the generated program. NIST unchanged: SM 16/16,
+  every finished module 100 %. Guide: the caveat is replaced by the rule.
+
 ## [PowerRustCOBOL 1.70.282] — 2026-09-27
 
 ### Fix — a form's `COPY` was never expanded; in Working-Storage it failed the check
