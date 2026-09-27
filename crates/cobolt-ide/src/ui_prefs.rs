@@ -35,6 +35,11 @@ pub struct UiPrefs {
     /// default, and what an older `ui.toml` reads as) means "not asked yet",
     /// which is what makes the *first* run the first run.
     pub rust_check_done: bool,
+    /// The first-run model-provider question (Ollama) has been settled — Ollama
+    /// was found or installed, or the developer chose another provider. Asked
+    /// after the Rust question, once per machine; false (the default, and what
+    /// an older `ui.toml` reads as) means "not asked yet".
+    pub ollama_check_done: bool,
     /// The IDE Walkthrough has been shown on this machine (spec 059 R9).
     ///
     /// Machine-level, beside `rust_check_done` and for the same reason: a tour
@@ -137,6 +142,18 @@ pub fn mark_rust_check_done() {
     prefs.save();
 }
 
+/// Has the first-run Ollama question already been settled?
+pub fn ollama_check_done() -> bool {
+    UiPrefs::load().ollama_check_done
+}
+
+/// Settle it, so it is never asked again.
+pub fn mark_ollama_check_done() {
+    let mut prefs = UiPrefs::load();
+    prefs.ollama_check_done = true;
+    prefs.save();
+}
+
 /// Has the IDE Walkthrough already been shown on this machine? (Spec 059 R7.)
 pub fn walkthrough_shown() -> bool {
     UiPrefs::load().walkthrough_shown
@@ -206,6 +223,7 @@ mod tests {
             beautify_verbs: "capitalize".into(),
             beautify_align_comments: true,
             rust_check_done: true,
+            ollama_check_done: true,
             walkthrough_shown: true,
             workspace_root: "/opt/powerrustcobol-sdk".into(),
         };
@@ -233,6 +251,7 @@ mod tests {
     fn an_older_prefs_file_has_not_been_asked_yet() {
         let older: UiPrefs = toml::from_str("language = \"fr\"\n").unwrap();
         assert!(!older.rust_check_done);
+        assert!(!older.ollama_check_done, "an older ui.toml has not been asked about Ollama");
         assert!(
             !older.walkthrough_shown,
             "a ui.toml written before the Walkthrough existed must read as \

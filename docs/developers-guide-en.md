@@ -245,6 +245,47 @@ used to surface — **Build** reports the same thing in the same words rather th
 the compiler's own output. Everything else keeps working meanwhile: the Form
 Designer, the editor, **Run**, and the debugger never needed a linker.
 
+### A model provider for the AI: Ollama
+
+Without a **model provider** PowerRustCOBOL AI keeps only its basic functions —
+the Form Designer, the editor, **Run** and the debugger. Grace, the agents, the
+COBOL proficiency tests and code generation all need a language model to run
+on. **Ollama** is the simplest way to get one: it runs models on your own
+computer and also reaches larger models in the Ollama cloud. It is a
+recommendation, not a requirement — any other provider will do, set up at any
+time in the **Model Providers Manager**.
+
+So the last first-run question, after the Rust one, is about Ollama. When the
+IDE does not find it on the machine, it explains why a provider is needed,
+shows the recommended setup and the exact command it would run, and offers
+**Install Ollama** — which runs Ollama's own installer — or **Not now**. The
+question is asked once per machine.
+
+| Platform | What **Install Ollama** does |
+|---|---|
+| **Windows** | Downloads `OllamaSetup.exe` from ollama.com and runs it |
+| **macOS** | Downloads `Ollama.dmg` from ollama.com and opens it — drag Ollama to Applications and start it once |
+| **Linux** | Runs the official `install.sh` through `pkexec`, which asks for the administrator's password in a window. Without `pkexec` the dialog shows the command to run in a terminal |
+
+The installers carry the same step: the last screen of the Windows `.msi` has
+an **Install Ollama** button, the macOS `.dmg` holds an **Install Ollama** item
+beside the application, and the `.deb` and `.rpm` print the command when they
+finish.
+
+**Recommended setup:**
+
+| Agents | Model | Where it runs |
+|---|---|---|
+| Grace and the Proficiency Judge | `gemma4:e2b` | Locally — `ollama pull gemma4:e2b` |
+| Every other agent, the pedantic reviewers included | `gemma4:31b` | The Ollama cloud — an ollama.com account and API key, added in the Model Providers Manager as **Ollama Cloud** |
+
+> **Note — a reviewer may share its agent's model.** A pedantic companion is
+> independent through its own prompt and its own separate call, so it may run
+> on the same model as the agent it reviews.
+
+> **Note** — Grace and the Judge on the same model shows an informational note
+> in the Agents Manager; it does not stop anything.
+
 ---
 
 ## 4. Your first application: Hello, Form

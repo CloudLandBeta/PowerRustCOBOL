@@ -493,6 +493,17 @@ jobs:
               <CustomAction Id="OpenPrereqPage" BinaryKey="WixCA" DllEntry="WixShellExec"
                             Impersonate="yes" Return="ignore" />
 
+              <!-- A model provider for the AI (operator, 2026-09-27): without
+                   one, Grace and the agents have nothing to run on. The button
+                   runs OLLAMA'S OWN installer - downloaded from ollama.com and
+                   started as the user, who then goes through its window - the
+                   same thing the IDE's first-run question offers on every
+                   platform. asyncNoWait: this setup finishes without waiting
+                   for the download. Kept ASCII like everything in this file. -->
+              <CustomAction Id="InstallOllama" Directory="TARGETDIR" Impersonate="yes"
+                            Return="asyncNoWait"
+                            ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command &quot;$f = Join-Path $env:TEMP 'OllamaSetup.exe'; Invoke-WebRequest -UseBasicParsing 'https://ollama.com/download/OllamaSetup.exe' -OutFile $f; Start-Process -FilePath $f&quot;" />
+
               <!-- Put the example project somewhere the developer can build it.
                    A build WRITES INTO the project folder - the compiler's first
                    step after compiling is create_dir(project_dir/bin), and
@@ -614,12 +625,12 @@ jobs:
                   <Control Id="Title" Type="Text" X="18" Y="88" Width="150" Height="26"
                            Transparent="yes" NoPrefix="yes"
                            Text="{\PrcTitle}Installation complete" />
-                  <Control Id="Description" Type="Text" X="18" Y="116" Width="152" Height="90"
+                  <Control Id="Description" Type="Text" X="18" Y="116" Width="152" Height="114"
                            Transparent="yes" NoPrefix="yes"
-                           Text="{\PrcBody}To BUILD applications you also need two things Rust requires: the Visual Studio Build Tools with the &quot;Desktop development with C++&quot; workload, and Rust itself from https://rustup.rs.  Designing forms, editing code and running programs work without either." />
+                           Text="{\PrcBody}BUILD also needs the Visual Studio Build Tools (&quot;Desktop development with C++&quot;) and Rust from https://rustup.rs.  The AI needs a model provider: Ollama is the simplest, any other will do.  Suggested: gemma4:e2b locally for Grace and the Judge, gemma4:31b in the Ollama cloud for the other agents." />
                   <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
-                  <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
-                           Disabled="yes" Text="!(loc.WixUIBack)" />
+                  <!-- No Back: it was always disabled on this last screen, and its
+                       place on the strip now holds Install Ollama. -->
                   <!-- A button, not a checkbox. A CheckBox control cannot carry
                        `Transparent`/`NoPrefix` - those are Text-only attributes,
                        and candle rejects them outright (CNDL0004, run 19) - so on
@@ -638,11 +649,16 @@ jobs:
                        set, the condition is false, and the button does nothing
                        at all when pressed. 1.65.113 said it had removed this
                        along with the checkbox; it removed the checkbox.
-                       Width is 150, not 120: the label is 25 characters and a
-                       fixed-size MSI button cannot grow to fit its own text. -->
-                  <Control Id="Prereq" Type="PushButton" X="18" Y="243" Width="150" Height="17"
-                           Text="Build Tools download page">
+                       A fixed-size MSI button cannot grow to fit its own text,
+                       so each width here is its label's (~6 units a character):
+                       100 for "Build Tools page", 104 for "Install Ollama". -->
+                  <Control Id="Prereq" Type="PushButton" X="18" Y="243" Width="100" Height="17"
+                           Text="Build Tools page">
                     <Publish Event="DoAction" Value="OpenPrereqPage">1</Publish>
+                  </Control>
+                  <Control Id="Ollama" Type="PushButton" X="124" Y="243" Width="104" Height="17"
+                           Text="Install Ollama">
+                    <Publish Event="DoAction" Value="InstallOllama">1</Publish>
                   </Control>
                   <Control Id="Finish" Type="PushButton" X="236" Y="243" Width="56" Height="17"
                            Default="yes" Cancel="yes" Text="!(loc.WixUIFinish)">
@@ -742,6 +758,28 @@ jobs:
           ln -s /Applications "$stage/Applications"
           cp LICENSE NOTICE THIRD_PARTY_NOTICES.md README.md "$stage/"
           cp dist/art/dmg-background.png "$stage/.background/background.png"
+          # A model provider for the AI (operator, 2026-09-27): a double-click
+          # runs Ollama's OWN installer - downloads Ollama.dmg from ollama.com
+          # and opens it - the same step the IDE offers on its first run. A
+          # .command is what Finder opens in Terminal; its extension is hidden
+          # below so the icon reads "Install Ollama".
+          cat > "$stage/Install Ollama.command" <<'OLLAMA'
+          #!/bin/sh
+          # Install Ollama, the model provider PowerRustCOBOL AI's agents run on.
+          set -e
+          f="${TMPDIR:-/tmp}/Ollama.dmg"
+          echo "Downloading Ollama from ollama.com ..."
+          curl -fL -o "$f" https://ollama.com/download/Ollama.dmg
+          open "$f"
+          echo
+          echo "Drag Ollama to Applications and start it once. Suggested models:"
+          echo "  gemma4:e2b locally for Grace and the Judge:  ollama pull gemma4:e2b"
+          echo "  gemma4:31b in the Ollama cloud for the other agents (an ollama.com"
+          echo "  API key, added in PowerRustCOBOL's Model Providers Manager)."
+          OLLAMA
+          chmod 0755 "$stage/Install Ollama.command"
+          SetFile -a E "$stage/Install Ollama.command" 2>/dev/null \
+            || echo "::warning::SetFile unavailable; Install Ollama shows its .command extension"
 
           # Built writable first: the window layout below is Finder state that
           # has to be written INTO the image, and a compressed image is
@@ -787,6 +825,7 @@ jobs:
               set background picture of opts to file ".background:background.png"
               set position of item "PowerRustCOBOL.app" of container window to {250, 400}
               set position of item "Applications" of container window to {500, 400}
+              set position of item "Install Ollama.command" of container window to {375, 632}
               set position of item "LICENSE" of container window to {980, 660}
               set position of item "NOTICE" of container window to {980, 660}
               set position of item "THIRD_PARTY_NOTICES.md" of container window to {980, 660}
@@ -1008,6 +1047,16 @@ jobs:
           install Rust for you. Installing build-essential is left to you: it is
           a system package, and apt is already in your hands.
 
+          The AI - Grace and the agents - needs a model provider. Ollama is the
+          simplest (any other provider will do):
+
+            curl -fsSL https://ollama.com/install.sh | sh
+
+          Suggested models: gemma4:e2b locally for Grace and the Proficiency
+          Judge (ollama pull gemma4:e2b), and gemma4:31b in the Ollama cloud for
+          every other agent, the pedantic reviewers included. PowerRustCOBOL
+          offers to install Ollama the first time it starts, too.
+
           MSG
           fi
           exit 0
@@ -1131,6 +1180,16 @@ jobs:
           PowerRustCOBOL checks both the first time it starts and offers to
           install Rust for you. The development tools are left to you: they are
           system packages, and dnf is already in your hands.
+
+          The AI - Grace and the agents - needs a model provider. Ollama is the
+          simplest (any other provider will do):
+
+            curl -fsSL https://ollama.com/install.sh | sh
+
+          Suggested models: gemma4:e2b locally for Grace and the Proficiency
+          Judge (ollama pull gemma4:e2b), and gemma4:31b in the Ollama cloud for
+          every other agent, the pedantic reviewers included. PowerRustCOBOL
+          offers to install Ollama the first time it starts, too.
 
           MSG
           exit 0

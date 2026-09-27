@@ -321,8 +321,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── .dmg volume window — 1100 × 800 ──────────────────────────────────────
     // Dark edge to edge, matching the .msi. The only light left is the shelf
-    // the two icons stand on, sized to their positions in the workflow's
-    // AppleScript (250,400) and (500,400) plus the label Finder draws beneath.
+    // the icons stand on, sized to their positions in the workflow's
+    // AppleScript (250,400) and (500,400) — and (375,632) for Install Ollama —
+    // plus the label Finder draws beneath each.
     {
         let (w, h) = (1100u32, 800u32);
         let split = Split {
@@ -338,6 +339,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Between the two icon slots, so the chevron lands in the gap rather
         // than under a label.
         chevron(&mut img, 375, 398, 26, 5.0);
+        // A second, smaller shelf below the chevron for "Install Ollama"
+        // (operator, 2026-09-27): the workflow puts it at (375, 632), and like
+        // the two above it needs light under the label Finder draws dark.
+        shelf(&mut img, 248, 528, 504, 744, 26.0);
         place(&mut img, &mascot, x, y, fig_w, fig_h);
         img.save(out.join("dmg-background.png"))?;
         println!("dmg-background.png {w}×{h}, mascot {fig_w}×{fig_h} at ({x},{y}) — dark, mascot right");

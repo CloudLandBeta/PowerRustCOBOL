@@ -8,6 +8,32 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.285] — 2026-09-27
+
+### Feature — Ollama at the end of setup: a model provider one click away
+
+- **First run, every platform** (`ollama_setup.rs`): after the Rust question,
+  a machine without Ollama is asked once. The dialog explains that without a
+  model provider PowerRustCOBOL AI keeps only its basic functions, that any
+  provider will do, and recommends **gemma4:e2b** locally for Grace and the
+  Proficiency Judge and **gemma4:31b** in the Ollama cloud for every other
+  agent, the pedantic reviewers included. It shows the exact command and
+  offers **Install Ollama**, which runs Ollama's own installer — Windows:
+  downloads and runs `OllamaSetup.exe`; macOS: downloads and opens
+  `Ollama.dmg`; Linux: `install.sh` through `pkexec` (the command to run
+  shown instead when there is no `pkexec`) — or **Not now**. Remembered per
+  machine (`ui_prefs::ollama_check_done`). The AI-setup invitation waits for
+  the first-run questions. Twelve texts in all six languages.
+- **Installers:** the `.msi`'s last screen gains **Install Ollama** (a custom
+  action that downloads and starts `OllamaSetup.exe`; the always-disabled Back
+  button made room) and says why; the `.dmg` holds an **Install Ollama** item
+  on a second light shelf of the window art; the `.deb` and `.rpm` print the
+  install command and the recommended models when they finish. Validated
+  here: the workflow parses, every installer step passes `bash -n`, and the
+  generated `product.wxs` is well-formed — the installers themselves are
+  built and run only by CI.
+- Guide: *A model provider for the AI: Ollama* (§3).
+
 ## [PowerRustCOBOL 1.70.284] — 2026-09-27
 
 ### Fix — a pedantic companion may use its agent's own model

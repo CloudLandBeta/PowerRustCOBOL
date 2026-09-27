@@ -967,6 +967,9 @@ pub struct CoboltApp {
     /// The first-run Rust question, present only while it is unanswered. A
     /// machine that can already build never raises it — see [`crate::toolchain`].
     toolchain_prompt: Option<crate::toolchain::FirstRunPrompt>,
+    /// The first-run model-provider question (see [`crate::ollama_setup`]),
+    /// shown once the Rust question has closed.
+    ollama_prompt: Option<crate::ollama_setup::FirstRunPrompt>,
     /// Project-structure upgrades due on the open project, offered once per
     /// open. Empty = the project is current (or the developer said Not now).
     project_upgrades: Vec<&'static dyn crate::project_upgrade::ProjectUpgrade>,
@@ -2109,6 +2112,7 @@ impl CoboltApp {
             walkthrough_shown: crate::ui_prefs::walkthrough_shown(),
             had_project_last_frame: false,
             toolchain_prompt: None,
+            ollama_prompt: None,
             project_upgrades: Vec::new(),
             doc_viewer: Default::default(),
             debug: crate::debug_settings::DebugSettings::load(),
@@ -2184,6 +2188,14 @@ impl CoboltApp {
             match crate::toolchain::FirstRunPrompt::for_status(toolchain) {
                 Some(prompt) => app.toolchain_prompt = Some(prompt),
                 None => crate::ui_prefs::mark_rust_check_done(),
+            }
+        }
+        // The last first-run question: a model provider. Only a machine
+        // without Ollama is asked, and only until it is answered.
+        if !crate::ui_prefs::ollama_check_done() {
+            match crate::ollama_setup::FirstRunPrompt::when_missing() {
+                Some(prompt) => app.ollama_prompt = Some(prompt),
+                None => crate::ui_prefs::mark_ollama_check_done(),
             }
         }
         app
@@ -11991,6 +12003,11 @@ impl CoboltApp {
         if !self.ai_setup_modal {
             return;
         }
+        // The first-run questions go first — a model provider before the
+        // agents that use it; the invite waits, unpainted, until they close.
+        if self.toolchain_prompt.is_some() || self.ollama_prompt.is_some() {
+            return;
+        }
         // A manager opened from here takes over the screen: keep the invite alive
         // but unpainted while it is up (the managers are drawn earlier in the frame,
         // so painting the invite too would put it on top). Closing the manager
@@ -12169,6 +12186,92 @@ impl CoboltApp {
         {
             ui.ctx()
                 .open_url(egui::OpenUrl::new_tab(download.url.to_owned()));
+        }
+    }
+
+    /// The first-run model-provider question (see [`crate::ollama_setup`]):
+    /// why a provider is needed, the recommended models, and Ollama one click
+    /// away. Waits for the Rust question, so the two never stack.
+    fn show_ollama_prompt(&mut self, ctx: &Context, tr: &Tr) {
+        use crate::ollama_setup::{Install, Method, Outcome, CLOUD_MODEL, LOCAL_MODEL};
+        if self.ollama_prompt.is_none() || self.toolchain_prompt.is_some() {
+            return;
+        }
+        let dim = self.current_theme().text_dim;
+        let method = crate::ollama_setup::method();
+        let prompt = self.ollama_prompt.as_mut().expect("presence checked above");
+        prompt.poll_install();
+        let (mut install, mut settle) = (false, false);
+        let two = |t: &str| t.replacen("{}", LOCAL_MODEL, 1).replacen("{}", CLOUD_MODEL, 1);
+        egui::Window::new(tr.ollama_title)
+            .id(egui::Id::new("ollama_first_run"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.set_max_width(560.0);
+                match &prompt.install {
+                    Some(Install::Running(_)) => {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(tr.ollama_installing);
+                        });
+                        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+                    }
+                    Some(Install::Finished(outcome)) => {
+                        match outcome {
+                            Outcome::Installed => ui.label(two(tr.ollama_installed)),
+                            Outcome::Handed => ui.label(two(tr.ollama_handed)),
+                            Outcome::Failed(detail) => {
+                                let r = ui.label(tr.ollama_failed);
+                                if !detail.is_empty() {
+                                    ui.add_space(6.0);
+                                    ui.label(egui::RichText::new(detail).monospace().size(11.0).color(dim));
+                                }
+                                r
+                            }
+                        };
+                        ui.add_space(12.0);
+                        if ui.button(tr.ollama_close).clicked() {
+                            settle = true;
+                        }
+                    }
+                    None => {
+                        ui.label(tr.ollama_why);
+                        ui.add_space(8.0);
+                        ui.label(two(tr.ollama_models));
+                        ui.add_space(12.0);
+                        // The command is shown before it is approved, and it is
+                        // the string `ollama_setup::method` runs.
+                        let (label, shown) = match &method {
+                            Method::Run { shown, .. } => (tr.ollama_command, shown.as_str()),
+                            Method::Manual { shown } => (tr.ollama_manual, shown.as_str()),
+                        };
+                        ui.label(egui::RichText::new(label).size(11.0).color(dim));
+                        ui.add_space(2.0);
+                        ui.add(
+                            egui::Label::new(egui::RichText::new(shown).monospace().size(11.0))
+                                .selectable(true)
+                                .wrap(),
+                        );
+                        ui.add_space(14.0);
+                        ui.horizontal(|ui| {
+                            if matches!(method, Method::Run { .. }) && ui.button(tr.ollama_install).clicked() {
+                                install = true;
+                            }
+                            if ui.button(tr.ollama_not_now).clicked() {
+                                settle = true;
+                            }
+                        });
+                    }
+                }
+            });
+        if install {
+            prompt.start_install();
+        }
+        if settle {
+            self.ollama_prompt = None;
+            crate::ui_prefs::mark_ollama_check_done();
         }
     }
 
@@ -12368,6 +12471,7 @@ impl CoboltApp {
         // layers fighting is the one way this feature can look broken on day
         // one. Holding `had_project_last_frame` false keeps the edge pending.
         let blocked = self.toolchain_prompt.is_some()
+            || self.ollama_prompt.is_some()
             || self.ai_setup_modal
             || self.build_modal_visible();
         if crate::panels::walkthrough::should_auto_start(
@@ -14493,6 +14597,7 @@ impl eframe::App for CoboltApp {
         self.show_sdk_location(ctx, &tr);
         self.show_project_upgrade_modal(ctx, &tr);
         self.show_toolchain_prompt(ctx, &tr);
+        self.show_ollama_prompt(ctx, &tr);
         self.show_ai_setup_modal(ctx, &tr);
         // External Crates (spec 044): the service mutates `cobolt.toml` on
         // disk; when an action finished, reload so the tree shows the pins
