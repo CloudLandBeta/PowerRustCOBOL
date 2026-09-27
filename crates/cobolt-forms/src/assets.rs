@@ -53,12 +53,18 @@ pub fn current_base() -> Option<PathBuf> {
 /// directory exactly as before, which keeps every pre-existing setup working
 /// and lets the caller's own "file not found" reporting stay in charge.
 pub fn resolve(stored: &str) -> PathBuf {
+    resolve_in(current_base().as_deref(), stored)
+}
+
+/// [`resolve`] against an explicit anchor — the whole rule, with no global in
+/// it, so it can be tested without racing other tests over the anchor.
+pub fn resolve_in(anchor: Option<&Path>, stored: &str) -> PathBuf {
     let trimmed = stored.trim();
     let p = Path::new(trimmed);
     if trimmed.is_empty() || p.is_absolute() {
         return p.to_path_buf();
     }
-    match current_base() {
+    match anchor {
         Some(dir) => {
             let joined = dir.join(p);
             if joined.exists() {
@@ -98,22 +104,37 @@ pub fn store(project_dir: &Path, abs: &Path) -> String {
 mod tests {
     use super::*;
 
+    // These call `resolve_in` with their own anchor. They used to call
+    // `set_base` + `resolve`, and the anchor is ONE global for the whole test
+    // binary: run in parallel, one test's anchor landed between another's
+    // `set_base` and its `resolve`, so "not under the anchor" was resolved
+    // against a temp folder that really held `assets/logo.png` (flaky,
+    // 2026-09-26/27). Only the wiring test below touches the global.
+
     #[test]
     fn an_absolute_path_is_left_alone() {
-        set_base("/proj");
-        assert_eq!(resolve("/elsewhere/logo.png"), PathBuf::from("/elsewhere/logo.png"));
+        assert_eq!(
+            resolve_in(Some(Path::new("/proj")), "/elsewhere/logo.png"),
+            PathBuf::from("/elsewhere/logo.png")
+        );
     }
 
     #[test]
     fn a_relative_path_that_is_not_under_the_anchor_keeps_the_old_behaviour() {
-        set_base("/nowhere-at-all");
-        assert_eq!(resolve("assets/logo.png"), PathBuf::from("assets/logo.png"));
+        assert_eq!(
+            resolve_in(Some(Path::new("/nowhere-at-all")), "assets/logo.png"),
+            PathBuf::from("assets/logo.png")
+        );
+    }
+
+    #[test]
+    fn a_relative_path_with_no_anchor_keeps_the_old_behaviour() {
+        assert_eq!(resolve_in(None, "assets/logo.png"), PathBuf::from("assets/logo.png"));
     }
 
     #[test]
     fn an_empty_path_stays_empty() {
-        set_base("/proj");
-        assert_eq!(resolve("   "), PathBuf::from(""));
+        assert_eq!(resolve_in(Some(Path::new("/proj")), "   "), PathBuf::from(""));
     }
 
     /// Storing mirrors the `.cidx` rule, including the forward slashes that
@@ -141,15 +162,19 @@ mod tests {
     }
 
     /// The anchor resolves a real file: written here rather than assumed,
-    /// because "exists" is the whole condition the fallback turns on.
+    /// because "exists" is the whole condition the fallback turns on. The one
+    /// test of this binary that sets the global anchor, so `resolve` is shown
+    /// to read what `set_base` wrote; its folder is per process, so two test
+    /// runs at once cannot share it either.
     #[test]
     fn a_relative_path_under_the_anchor_resolves_to_it() {
-        let dir = std::env::temp_dir().join("prc-assets-test");
+        let dir = std::env::temp_dir().join(format!("prc-assets-test-{}", std::process::id()));
         let sub = dir.join("assets");
         std::fs::create_dir_all(&sub).unwrap();
         let file = sub.join("logo.png");
         std::fs::write(&file, b"x").unwrap();
 
+        assert_eq!(resolve_in(Some(&dir), "assets/logo.png"), file);
         set_base(&dir);
         assert_eq!(resolve("assets/logo.png"), file);
 

@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.277] — 2026-09-27
+
+### Fix — a flaky `assets` test
+
+- `assets::tests::a_relative_path_that_is_not_under_the_anchor_keeps_the_old_behaviour`
+  failed now and then in a full run. The asset anchor is one global per
+  process, and the unit tests each set it and then resolved: run in parallel,
+  another test's anchor (a temp folder that really held `assets/logo.png`)
+  landed in between. The rule is now `assets::resolve_in(anchor, path)`, with
+  `resolve` a thin wrapper over the global; the unit tests call `resolve_in`
+  with their own anchor, and only one test touches the global, to prove the
+  wiring. Its temp folder is per process. No behaviour change. Verified: the
+  whole `cobolt-forms` library suite, 50 runs in a row, 0 failures.
+
 ## [PowerRustCOBOL 1.70.276] — 2026-09-27
 
 ### Fix — turning a TabControl's strip left or right left its controls under the tabs
