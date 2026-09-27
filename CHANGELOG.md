@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.281] — 2026-09-27
+
+### Fix — PowerChat: choosing the topic of a new conversation opens the chat
+
+- After **New conversation**'s topic is chosen, the chat is shown
+  (`SideMenu-1::ActivateItem("chat")`, what a click on the Chat row does), so
+  the user lands in the new conversation from wherever they were — Topics,
+  Documents, a settings page. Also carries the operator's pending PowerChat
+  data.
+
 ## [PowerRustCOBOL 1.70.280] — 2026-09-27
 
 ### Fix — PowerChat: New conversation, the menu without topics, and a bot with no sources

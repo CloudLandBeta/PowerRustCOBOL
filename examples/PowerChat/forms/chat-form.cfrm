@@ -1113,6 +1113,9 @@
            CALL "PC-LOAD-TOPIC"
            CALL "PC-NEW-CONV"
            CALL "PC-LIST-CONVS"
+      *>   The topic is chosen: show the chat, wherever the user was - what a
+      *>   click on the Chat row does (operator, 2026-09-27).
+           MOVE SideMenu-1::ActivateItem("chat") TO WS-ITEM
 ]]></Event>
     <Event name="PC-NEW-CONV" paragraph="PC-NEW-CONV"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
