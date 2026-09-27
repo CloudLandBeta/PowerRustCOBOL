@@ -11844,12 +11844,10 @@ fn folder_dialog_start_dir(typed: &str) -> Option<std::path::PathBuf> {
 /// A folder-valued property: the text field of [`text_row_hint`], plus a browse
 /// button that opens the OS folder picker and an `✕` that clears the choice.
 ///
-/// The chosen path is stored ABSOLUTE, deliberately. `dropzone::commit_files`
-/// does `PathBuf::from(destination)` with no project anchor, so a relative path
-/// would resolve against whatever directory the built program happens to be run
-/// from — which is not something a developer picking a folder in the designer
-/// can predict. The field stays editable, so a relative path can still be typed
-/// on purpose.
+/// The chosen path is stored ABSOLUTE, as the folder picked. A relative path,
+/// typed on purpose, starts at the application's folder when the program runs
+/// (`dropzone::destination_dir`) — the anchor a KnowledgeBase `Location` uses —
+/// and at the working directory only where no host set one.
 fn folder_row_hint(
     ui: &mut Ui,
     hints: &mut HintState,

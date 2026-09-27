@@ -8,6 +8,28 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.288] — 2026-09-27
+
+### Fix — FileDropZone: a relative DestinationFolder starts at the application's folder
+
+- **An upload landed in a folder nothing read** (`cobolt-forms/src/dropzone.rs`,
+  new `destination_dir`). `commit_files` — the one routine that copies a
+  dropped, browsed or committed file — took a relative `DestinationFolder`
+  from the process's working directory, while a KnowledgeBase `Location`
+  starts at the application's folder. Run from the IDE, `rcrun run-form`
+  works in the repository root, so PowerChat's `assets/KB/<topic>/documents`
+  meant `<repo>/assets/KB/...` for the zone and
+  `<repo>/examples/PowerChat/assets/KB/...` for the Knowledge Base: the file
+  was copied into a twin folder and never showed or indexed (operator,
+  2026-09-27, after 1.70.286). A relative destination now starts at the
+  application's folder (`assets::current_base`, which `rcrun run-form` and
+  compiled binaries both set); absolute paths are unchanged, and with no
+  application folder known it is the working directory, as before.
+- System KB (`DestinationFolder` in the property and control tables) and the
+  Developer's Guide's FileDropZone section say so — the Guide claimed the
+  opposite. `assets/knowledge/chunked.data` regenerated.
+- Test: `a_relative_destination_starts_at_the_application_folder`.
+
 ## [PowerRustCOBOL 1.70.287] — 2026-09-27
 
 ### Feature — PowerChat: move a document between folders

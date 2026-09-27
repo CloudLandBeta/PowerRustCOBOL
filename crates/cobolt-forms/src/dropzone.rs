@@ -224,6 +224,23 @@ impl CommitOutcome {
     }
 }
 
+/// Where a `DestinationFolder` is on disk. A relative one starts at the
+/// application's folder (`anchor`), exactly as a KnowledgeBase `Location`
+/// does, so a form that points its zone at `assets/KB/<topic>/documents` puts
+/// the file where its Knowledge Base reads it. Before this it started at the
+/// process's working directory, which `rcrun run-form` from the IDE puts at
+/// the repository root: the file was copied into a twin folder nothing read
+/// (operator, 2026-09-27 — PowerChat's Documents upload). Joined directly,
+/// never through `assets::resolve`, because the folder may not exist yet.
+/// No anchor (a bare interpreter): the working directory, as before.
+pub fn destination_dir(anchor: Option<&Path>, folder: &str) -> PathBuf {
+    let p = Path::new(folder.trim());
+    match anchor {
+        Some(base) if !p.is_absolute() => base.join(p),
+        _ => p.to_path_buf(),
+    }
+}
+
 /// Copy each of `paths` into `destination`, in order, one outcome per file.
 ///
 /// An empty `destination` copies nothing and reports every file `Copied` at its
@@ -240,7 +257,7 @@ pub fn commit_files(paths: &[String], destination: &str) -> Vec<CommitOutcome> {
             .map(|p| CommitOutcome::Copied(p.clone()))
             .collect();
     }
-    let dir = PathBuf::from(folder);
+    let dir = destination_dir(crate::assets::current_base().as_deref(), folder);
     if let Err(e) = std::fs::create_dir_all(&dir) {
         let reason = e.to_string();
         return paths
@@ -468,6 +485,34 @@ pub fn apply_drop(zone_id: &str, paths: &[String], rules: ZoneRules<'_>) -> Drop
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Operator (2026-09-27): PowerChat's upload copied the file into
+    /// `<repo>/assets/KB/...` while its Knowledge Base read
+    /// `<repo>/examples/PowerChat/assets/KB/...`. A relative destination
+    /// starts where a relative KB `Location` starts: the application's folder.
+    #[test]
+    fn a_relative_destination_starts_at_the_application_folder() {
+        let app = Path::new("/apps/PowerChat");
+        assert_eq!(
+            destination_dir(Some(app), "assets/KB/HR/documents"),
+            PathBuf::from("/apps/PowerChat/assets/KB/HR/documents"),
+            "relative: joined to the application's folder, even before it exists"
+        );
+        assert_eq!(
+            destination_dir(Some(app), "/data/inbox"),
+            PathBuf::from("/data/inbox"),
+            "absolute: exactly as written"
+        );
+        assert_eq!(
+            destination_dir(None, "assets/KB"),
+            PathBuf::from("assets/KB"),
+            "no application folder known: the working directory, as before"
+        );
+        println!(
+            "drop destination — relative 'assets/KB/HR/documents' under /apps/PowerChat → \
+             /apps/PowerChat/assets/KB/HR/documents; absolute kept; no anchor → cwd"
+        );
+    }
 
     #[test]
     fn a_filter_is_read_the_way_a_developer_writes_it() {

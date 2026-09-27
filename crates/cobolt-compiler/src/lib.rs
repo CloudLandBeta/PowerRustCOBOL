@@ -5592,7 +5592,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         ),
         "DestinationFolder" => (
             "local folder path (blank leaves files where they are)",
-            "Accepted files are copied here, the folder being created if needed; an existing name is never overwritten (`report.csv` becomes `report (2).csv`).",
+            "Accepted files are copied here, the folder being created if needed; an existing name is never overwritten (`report.csv` becomes `report (2).csv`). A RELATIVE path starts at the application's folder — the same place a KnowledgeBase `Location` starts — not at the directory the program was launched from, so `assets/KB/<collection>/documents` puts a file where that collection reads it.",
         ),
         "DroppedFiles" => (
             "newline-separated absolute paths (runtime-only, never a design-time default)",
@@ -6454,7 +6454,7 @@ Three design-time properties decide, and both routes in (drop and picker) obey t
 \n\
 - `AllowedExtensions` — `csv, xlsx`. Case-blind, dots optional. Blank accepts any file.\n\
 - `MaximumFileSizeKB` — largest file taken, in KB. `0` is no limit.\n\
-- `DestinationFolder` — accepted files are COPIED here (the folder is created if missing). An existing name is never overwritten: `report.csv` lands as `report (2).csv`. Blank leaves files where they are.\n\
+- `DestinationFolder` — accepted files are COPIED here (the folder is created if missing). An existing name is never overwritten: `report.csv` lands as `report (2).csv`. Blank leaves files where they are. A relative path starts at the application's folder, as a KnowledgeBase `Location` does.\n\
 \n\
 Accepted files appear in `DroppedFiles` — at their NEW path when a destination is set — and fire `onFilesDropped`. Refused files appear in `RejectedFiles`, one `path<TAB>reason` per line where reason is `extension` or `too-big`, and fire `onFilesRejected`. A drop of ten files where three are refused fires BOTH events. Nothing is refused silently.\n\
 \n\

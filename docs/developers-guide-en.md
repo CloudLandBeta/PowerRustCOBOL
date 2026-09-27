@@ -3846,10 +3846,12 @@ them, so a file is judged the same way however it arrived:
 
 The **Destination** row in the designer carries a **📂** button that opens your
 system's folder chooser, and an **✕** that clears the choice again. The chooser
-writes the folder back as an **absolute** path on purpose: a running form copies
-into `DestinationFolder` exactly as written, with no project folder implied, so
-a relative path would land wherever the program happened to be started from. You
-can still type a relative path by hand when that is what you want. Clearing the
+writes the folder back as an **absolute** path. You can type a relative path by
+hand instead — or set one from your COBOL at run time — and it starts at the
+**application's folder**, the same place a `KnowledgeBase` control's relative
+`Location` starts, never at the directory the program was launched from. So a
+zone pointed at `assets/KB/<collection>/documents` puts its files exactly where
+that collection's Knowledge Base looks for them. Clearing the
 row leaves the property **blank** rather than removing it — and blank is what
 "leave the files where they are" means.
 
