@@ -15858,6 +15858,31 @@ impl Interpreter {
                 }
                 none
             }
+            // A message's content REPLACED, keeping its id, role and place —
+            // a status bubble that follows the work and then becomes the
+            // answer (operator, 2026-09-27). And a message taken out.
+            "REPLACEMESSAGE" | "REPLACE-MESSAGE" => {
+                let id = arg(0);
+                let content = args.get(1).map(|v| v.as_display_string()).unwrap_or_default();
+                let mode = cobolt_forms::viewer::AppendMode::from_str(&arg(2));
+                if self.viewer_conversation(obj).replace_message(&id, mode, &content) {
+                    self.viewer_publish_conversation(obj);
+                } else {
+                    self.obj_set(obj, "LastError", format!("no conversation message with id {id:?}"));
+                    self.queue_control_event(obj, "onError");
+                }
+                none
+            }
+            "REMOVEMESSAGE" | "REMOVE-MESSAGE" => {
+                let id = arg(0);
+                if self.viewer_conversation(obj).remove_message(&id) {
+                    self.viewer_publish_conversation(obj);
+                } else {
+                    self.obj_set(obj, "LastError", format!("no conversation message with id {id:?}"));
+                    self.queue_control_event(obj, "onError");
+                }
+                none
+            }
             // ── §8.8's conversation management ──
             //
             // The ORDER matters and is tested: the pane is cleared FIRST,
@@ -19116,6 +19141,7 @@ fn is_known_method(name: &str) -> bool {
         // Viewer conversation mode (058 §8)
             | "APPENDHTML" | "APPEND-HTML" | "APPENDMARKDOWN" | "APPEND-MARKDOWN"
             | "APPENDRAW" | "APPEND-RAW" | "APPENDTOMESSAGE" | "APPEND-TO-MESSAGE"
+            | "REPLACEMESSAGE" | "REPLACE-MESSAGE" | "REMOVEMESSAGE" | "REMOVE-MESSAGE"
             | "JUMPTOLATEST" | "JUMP-TO-LATEST"
             | "NEWCONVERSATION" | "NEW-CONVERSATION"
             | "SELECTCONVERSATION" | "SELECT-CONVERSATION"
@@ -20000,6 +20026,31 @@ MAIN.
 
     /// §8.2's error path: a chunk for a message that never started is
     /// reported, never silently turned into a new message.
+    /// Operator (2026-09-27): a status bubble that follows the work and then
+    /// becomes the answer. `ReplaceMessage` keeps the id and the role;
+    /// `RemoveMessage` takes a message out; an unknown id is `onError`.
+    #[test]
+    fn a_message_is_replaced_or_removed_by_id() {
+        let mut interp = viewer_interp(&[]);
+        let v = |t: &str| CobolValue::from_str(t, t.len());
+        interp.exec_method("VWR-1", "APPENDMARKDOWN", &[v("How many days?"), v("user")]);
+        let id = interp.viewer_conversation("VWR-1").messages.last().unwrap().id.clone();
+        interp.exec_method("VWR-1", "APPENDMARKDOWN", &[v("*Thinking…*"), v("agent")]);
+        let status = interp.viewer_conversation("VWR-1").messages.last().unwrap().id.clone();
+        interp.exec_method("VWR-1", "REPLACEMESSAGE", &[v(&status), v("*Searching…*"), v("Markdown")]);
+        interp.exec_method("VWR-1", "REPLACEMESSAGE", &[v(&status), v("Twenty days."), v("Markdown")]);
+        let published = interp.obj_get("VWR-1", "_ConversationHtml");
+        let msgs = cobolt_forms::viewer::parse_conversation_html(&published);
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[1].id, status);
+        assert!(published.contains("Twenty days.") && !published.contains("Searching"), "{published}");
+        interp.exec_method("VWR-1", "REMOVEMESSAGE", &[v(&id)]);
+        assert_eq!(cobolt_forms::viewer::parse_conversation_html(&interp.obj_get("VWR-1", "_ConversationHtml")).len(), 1);
+        interp.exec_method("VWR-1", "REPLACEMESSAGE", &[v("m99"), v("x"), v("Raw")]);
+        assert!(queued_for(&interp, "VWR-1").iter().any(|e| e == "onError"), "an unknown id is reported");
+        assert!(interp.obj_get("VWR-1", "LastError").contains("m99"));
+    }
+
     #[test]
     fn a_chunk_for_an_unknown_message_is_reported_rather_than_invented() {
         let mut interp = viewer_interp(&[]);

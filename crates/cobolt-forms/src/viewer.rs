@@ -1871,6 +1871,32 @@ impl Conversation {
         true
     }
 
+    /// Replace an existing message's content, keeping its id, its role and
+    /// its place — what a status bubble needs to change from "Thinking…" to
+    /// "Searching…" and then BECOME the answer, instead of a new bubble per
+    /// step (operator, 2026-09-27). Only this message is laid out again.
+    /// `false` when no message carries that id.
+    pub fn replace_message(&mut self, id: &str, mode: AppendMode, content: &str) -> bool {
+        let mode = self.effective_mode(mode);
+        let Some(msg) = self.messages.iter_mut().find(|m| m.id == id) else {
+            return false;
+        };
+        let blocks = layout_chunk(mode, content);
+        msg.chunks = vec![MessageChunk { mode, content: content.to_string() }];
+        msg.last_chunk_block_count = blocks.len();
+        msg.blocks = blocks;
+        self.relayouts += 1;
+        true
+    }
+
+    /// Take a message out of the conversation. `false` when no message
+    /// carries that id.
+    pub fn remove_message(&mut self, id: &str) -> bool {
+        let before = self.messages.len();
+        self.messages.retain(|m| m.id != id);
+        before != self.messages.len()
+    }
+
     /// Every message's text, in arrival order — what Find searches and what
     /// a "is this conversation empty" check reads.
     pub fn text(&self) -> String {
@@ -6354,6 +6380,27 @@ mod conversation_tests {
     /// Markdown message is Markdown (its `**` is bold, not two asterisks), and
     /// two messages stay two blocks instead of one run-on paragraph
     /// (operator, 2026-09-26: "**Você:** hello**O agente 1…").
+    /// A status bubble changes in place and then becomes the answer; a
+    /// message can also be taken out. Neither touches the others.
+    #[test]
+    fn a_message_is_replaced_in_place_or_removed() {
+        let mut c = Conversation::new();
+        c.append_as(AppendMode::Markdown, "How many days?", MessageRole::User);
+        let status = c.append_as(AppendMode::Markdown, "*Thinking…*", MessageRole::Agent);
+        assert!(c.replace_message(&status, AppendMode::Markdown, "*Searching the Knowledge Base…*"));
+        assert!(c.replace_message(&status, AppendMode::Markdown, "Twenty **working** days."));
+        let msgs = parse_conversation_html(&c.to_html());
+        assert_eq!(msgs.len(), 2, "still one question and one answer");
+        assert_eq!(msgs[1].id, status, "same id");
+        assert_eq!(msgs[1].role, MessageRole::Agent, "same role");
+        let text = c.text();
+        assert!(text.contains("Twenty working days.") && !text.contains("Thinking") && !text.contains("Searching"), "{text}");
+        assert!(!c.replace_message("m99", AppendMode::Markdown, "x"), "an unknown id is refused");
+        assert!(c.remove_message(&status));
+        assert_eq!(parse_conversation_html(&c.to_html()).len(), 1);
+        assert!(!c.remove_message(&status), "gone already");
+    }
+
     #[test]
     fn the_published_stream_reads_back_message_by_message() {
         let mut c = Conversation::new();

@@ -326,8 +326,36 @@
           05 FILLER PIC X(120) VALUE "Il n'y a pas encore de conversation à enregistrer.".
           05 FILLER PIC X(120) VALUE "保存する会話はまだありません。".
           05 FILLER PIC X(120) VALUE "还没有可保存的对话。".
+      *>   ST-COORD
+          05 FILLER PIC X(120) VALUE "Coordinating the agents...".
+          05 FILLER PIC X(120) VALUE "Coordenando os agentes...".
+          05 FILLER PIC X(120) VALUE "Coordinando los agentes...".
+          05 FILLER PIC X(120) VALUE "Coordination des agents...".
+          05 FILLER PIC X(120) VALUE "エージェントを調整中...".
+          05 FILLER PIC X(120) VALUE "正在协调各个智能体...".
+      *>   ST-SEARCH-KB
+          05 FILLER PIC X(120) VALUE "Searching the Knowledge Base...".
+          05 FILLER PIC X(120) VALUE "Consultando a base de conhecimento...".
+          05 FILLER PIC X(120) VALUE "Consultando la base de conocimiento...".
+          05 FILLER PIC X(120) VALUE "Recherche dans la base de connaissances...".
+          05 FILLER PIC X(120) VALUE "ナレッジベースを検索中...".
+          05 FILLER PIC X(120) VALUE "正在检索知识库...".
+      *>   ST-READ-DATA
+          05 FILLER PIC X(120) VALUE "Reading the data files...".
+          05 FILLER PIC X(120) VALUE "Lendo os arquivos de dados...".
+          05 FILLER PIC X(120) VALUE "Leyendo los archivos de datos...".
+          05 FILLER PIC X(120) VALUE "Lecture des fichiers de données...".
+          05 FILLER PIC X(120) VALUE "データファイルを読み込み中...".
+          05 FILLER PIC X(120) VALUE "正在读取数据文件...".
+      *>   ST-COMPOSING
+          05 FILLER PIC X(120) VALUE "Preparing the answer...".
+          05 FILLER PIC X(120) VALUE "Preparando a resposta...".
+          05 FILLER PIC X(120) VALUE "Preparando la respuesta...".
+          05 FILLER PIC X(120) VALUE "Préparation de la réponse...".
+          05 FILLER PIC X(120) VALUE "回答を準備中...".
+          05 FILLER PIC X(120) VALUE "正在准备回答...".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 31.
+          05 PC-TEXT-ROW     OCCURS 35.
              10 PC-TEXT      PIC X(120) OCCURS 6.
       *>   The texts in the current language, by name.
        01 PC-TEXTS-NOW       GLOBAL.
@@ -362,8 +390,12 @@
           05 T-SAVE-PDF PIC X(120).
           05 T-PDF-SAVED PIC X(120).
           05 T-PDF-EMPTY PIC X(120).
+          05 T-ST-COORD PIC X(120).
+          05 T-ST-SEARCH-KB PIC X(120).
+          05 T-ST-READ-DATA PIC X(120).
+          05 T-ST-COMPOSING PIC X(120).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(120) OCCURS 31.
+          05 PC-TEXT-NOW     PIC X(120) OCCURS 35.
       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
        01 WS-FMT             GLOBAL PIC X(120).
        01 WS-ARG1            GLOBAL PIC X(300).
@@ -373,6 +405,13 @@
        01 WS-FMT-OUT         GLOBAL PIC X(1200).
        01 WS-CONFIGURED      GLOBAL PIC X VALUE "N".
        01 WS-SHOWN-TOPIC     GLOBAL PIC X(16) VALUE SPACES.
+      *>   The status bubble (operator, 2026-09-27): ONE agent message that
+      *>   says what is being done - thinking, coordinating the agents,
+      *>   searching the Knowledge Base, preparing the answer - and then
+      *>   BECOMES the answer. Its id, while it is on screen.
+       01 WS-STATUS-ID       GLOBAL PIC X(20) VALUE SPACES.
+       01 WS-STATUS-TEXT     GLOBAL PIC X(300).
+       01 WS-TOOL-KIND       GLOBAL PIC X(20).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -939,14 +978,59 @@
            END-READ
            CLOSE CONVS-FILE
 ]]></Event>
+    <Event name="PC-SAY-STATUS" paragraph="PC-SAY-STATUS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-STATUS-TEXT in: shown in the status bubble, in italics - made
+      *>   the first time, changed in place after that.
+           MOVE SPACES TO WS-MSG
+           STRING "*" FUNCTION TRIM(WS-STATUS-TEXT) "*"
+               DELIMITED BY SIZE INTO WS-MSG
+           IF WS-STATUS-ID = SPACES
+               MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "agent")
+                   TO WS-STATUS-ID
+           ELSE
+               MOVE Vwr-Chat::ReplaceMessage(FUNCTION TRIM(WS-STATUS-ID),
+                   FUNCTION TRIM(WS-MSG), "Markdown") TO WS-OK
+           END-IF
+           MOVE Vwr-Chat::JumpToLatest() TO WS-OK
+]]></Event>
+    <Event name="PC-SHOW-AGENT" paragraph="PC-SHOW-AGENT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-MSG in: the agent's message - the answer, or what went wrong.
+      *>   It takes the status bubble's place, so the bubble becomes it.
+           IF WS-STATUS-ID = SPACES
+               MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "agent") TO WS-OK
+           ELSE
+               MOVE Vwr-Chat::ReplaceMessage(FUNCTION TRIM(WS-STATUS-ID),
+                   FUNCTION TRIM(WS-MSG), "Markdown") TO WS-OK
+               MOVE SPACES TO WS-STATUS-ID
+           END-IF
+           MOVE Vwr-Chat::JumpToLatest() TO WS-OK
+]]></Event>
+    <Event name="PC-TOOL-USE" paragraph="PC-TOOL-USE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-TOOL-KIND in: an agent is using a tool the runtime answers -
+      *>   the Knowledge Base, or a registered data file.
+           IF WS-STAGE = "IDLE"
+               EXIT PROGRAM
+           END-IF
+           EVALUATE WS-TOOL-KIND
+               WHEN "KnowledgeBase" MOVE T-ST-SEARCH-KB TO WS-STATUS-TEXT
+               WHEN "IndexedFile" MOVE T-ST-READ-DATA TO WS-STATUS-TEXT
+               WHEN OTHER EXIT PROGRAM
+           END-EVALUATE
+           CALL "PC-SAY-STATUS"
+]]></Event>
     <Event name="PC-FINISH" paragraph="PC-FINISH"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
       *>   WS-REPLY in: the answer the user sees, kept as the next turn.
            MOVE "IDLE" TO WS-STAGE
            MOVE WS-REPLY TO WS-MSG
-           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "agent") TO WS-OK
-           MOVE Vwr-Chat::JumpToLatest() TO WS-OK
+           CALL "PC-SHOW-AGENT"
            MOVE "A" TO WS-ROLE
            MOVE WS-REPLY TO WS-TEXT
            CALL "PC-SAVE-TURN"
@@ -1023,6 +1107,8 @@
            MOVE WS-PENDING TO WS-ARG2
            CALL "PC-FMT"
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+           MOVE WS-FMT-OUT TO WS-STATUS-TEXT
+           CALL "PC-SAY-STATUS"
 ]]></Event>
     <Event name="PC-COMPOSE" paragraph="PC-COMPOSE"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -1049,6 +1135,8 @@
            MOVE "COMPOSE" TO WS-STAGE
            MOVE WS-ORCH TO WS-FROM
            CALL "PC-ASK"
+           MOVE T-ST-COMPOSING TO WS-STATUS-TEXT
+           CALL "PC-SAY-STATUS"
 ]]></Event>
     <Event name="PC-ON-REPLY" paragraph="PC-ON-REPLY"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -1516,7 +1604,7 @@
                WHEN OTHER MOVE "en" TO WS-LANG
                           MOVE 1 TO WS-LANG-IX
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 31
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 35
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
            MOVE FUNCTION TRIM(T-HINT-ASK) TO Txt-Input::HintText
@@ -1963,6 +2051,13 @@
            MOVE WS-ORCH TO WS-FROM
            CALL "PC-ASK"
            MOVE FUNCTION TRIM(T-THINKING) TO Lbl-Status::Caption
+           MOVE SPACES TO WS-STATUS-ID
+           IF WS-STAGE = "PLAN"
+               MOVE T-ST-COORD TO WS-STATUS-TEXT
+           ELSE
+               MOVE T-THINKING TO WS-STATUS-TEXT
+           END-IF
+           CALL "PC-SAY-STATUS"
 ]]></Event>
   </Control>
   <Control id="Btn-Pdf" type="Button" x="1004" y="20" w="172" h="36" tab-order="4" z-order="0" visible="true" enabled="true">
@@ -2083,7 +2178,7 @@
            MOVE SPACES TO WS-MSG
            STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
                DELIMITED BY SIZE INTO WS-MSG
-           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "agent") TO WS-OK
+           CALL "PC-SHOW-AGENT"
            MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
 ]]></Event>
     <Event name="onModelChanged" paragraph="AGENT-1--ONMODELCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2093,6 +2188,14 @@
            CALL "PC-HAND-MODELS"
            CALL "PC-ELECT"
            CALL "PC-STATUS"
+]]></Event>
+    <Event name="onToolUse" paragraph="AGENT-1--ONTOOLUSE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The agent is searching the Knowledge Base or a data file: the
+      *>   status bubble says so while it happens.
+           MOVE AGENT-1::ToolKind TO WS-TOOL-KIND
+           CALL "PC-TOOL-USE"
 ]]></Event>
   </Control>
   <Control id="AGENT-2" type="AgentObject" x="1200" y="80" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -2164,7 +2267,7 @@
            MOVE SPACES TO WS-MSG
            STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
                DELIMITED BY SIZE INTO WS-MSG
-           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "agent") TO WS-OK
+           CALL "PC-SHOW-AGENT"
            MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
 ]]></Event>
     <Event name="onModelChanged" paragraph="AGENT-2--ONMODELCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2174,6 +2277,14 @@
            CALL "PC-HAND-MODELS"
            CALL "PC-ELECT"
            CALL "PC-STATUS"
+]]></Event>
+    <Event name="onToolUse" paragraph="AGENT-2--ONTOOLUSE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The agent is searching the Knowledge Base or a data file: the
+      *>   status bubble says so while it happens.
+           MOVE AGENT-2::ToolKind TO WS-TOOL-KIND
+           CALL "PC-TOOL-USE"
 ]]></Event>
   </Control>
   <Control id="AGENT-3" type="AgentObject" x="1200" y="144" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -2245,7 +2356,7 @@
            MOVE SPACES TO WS-MSG
            STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
                DELIMITED BY SIZE INTO WS-MSG
-           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "agent") TO WS-OK
+           CALL "PC-SHOW-AGENT"
            MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
 ]]></Event>
     <Event name="onModelChanged" paragraph="AGENT-3--ONMODELCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2255,6 +2366,14 @@
            CALL "PC-HAND-MODELS"
            CALL "PC-ELECT"
            CALL "PC-STATUS"
+]]></Event>
+    <Event name="onToolUse" paragraph="AGENT-3--ONTOOLUSE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The agent is searching the Knowledge Base or a data file: the
+      *>   status bubble says so while it happens.
+           MOVE AGENT-3::ToolKind TO WS-TOOL-KIND
+           CALL "PC-TOOL-USE"
 ]]></Event>
   </Control>
   <Control id="KB-1" type="KnowledgeBase" x="1200" y="208" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">

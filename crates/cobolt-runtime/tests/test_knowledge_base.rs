@@ -395,6 +395,11 @@ fn an_agent_answers_from_a_collection_and_names_the_document() {
                        MOVE AGT-1::AllowKnowledgeBase("KB-1") TO WS-OK
                        DISPLAY "ALLOW=" WS-OK
                        MOVE AGT-1::Ask("How much annual leave do we get?") TO WS-TEXT
+                   WHEN "onToolUse"
+                       MOVE AGT-1::ToolKind TO WS-TEXT
+                       DISPLAY "TOOLKIND=" WS-TEXT
+                       MOVE AGT-1::ToolName TO WS-TEXT
+                       DISPLAY "TOOLNAME=" WS-TEXT
                    WHEN "onResponse"
                        MOVE AGT-1::LastReply TO WS-TEXT
                        DISPLAY "REPLY=" WS-TEXT
@@ -429,6 +434,12 @@ fn an_agent_answers_from_a_collection_and_names_the_document() {
     assert!(line(&out, "ERROR=").is_empty(), "{out:#?}");
     assert_eq!(line(&out, "ALLOW="), vec!["1"]);
     assert_eq!(line(&out, "REPLY="), vec!["Twenty working days, per leave.md."]);
+    // Operator (2026-09-27): the program is told the model is searching the
+    // Knowledge Base, before the answer — a chat can say so while it happens.
+    assert_eq!(line(&out, "TOOLKIND="), vec!["KnowledgeBase"], "{out:#?}");
+    assert_eq!(line(&out, "TOOLNAME="), vec!["kb_kb_1_hr"]);
+    let order: Vec<&String> = out.iter().filter(|l| l.starts_with("TOOLKIND=") || l.starts_with("REPLY=")).collect();
+    assert!(order[0].starts_with("TOOLKIND="), "onToolUse comes before the answer: {order:?}");
     let bodies = seen.lock().unwrap().clone();
     assert!(bodies[0].contains("kb_kb_1_hr"), "the tool is offered: {}", bodies[0]);
     assert!(

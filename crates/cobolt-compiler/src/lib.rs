@@ -5465,13 +5465,14 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "LastOutputTokens" => ("integer (runtime-only, read-only)", "AgentObject (spec 072): the output (completion) tokens the provider reported for the last `Ask`, summed over every tool round. 0 when the provider reports none."),
         "LastToolCallCount" => ("integer (runtime-only, read-only)", "AgentObject (spec 072): how many tool calls the model made during the last `Ask` — indexed-file searches and program-answered tools alike. 0 for a question that used no tools."),
         "ToolCallId" => ("text (runtime-only, read-only)", "AgentObject (spec 072): during `onToolCall`, the id of the call the program is asked to answer. Pass it to `SetToolResult(ToolCallId, text)`."),
-        "ToolName" => ("text (runtime-only, read-only)", "AgentObject (spec 072): during `onToolCall`, the name of the tool the model called — one the program declared with `AddTool`."),
+        "ToolName" => ("text (runtime-only, read-only)", "AgentObject (spec 072): during `onToolCall`, the name of the tool the model called — one the program declared with `AddTool`; during `onToolUse`, the runtime-answered tool it is using (a Knowledge Base collection's or an indexed file's)."),
         "RegisterResult" => ("text (runtime-only, read-only)", "AgentObject (spec 075): the outcome of the last `RegisterFile` — `MEMORY` (held in memory), `DISK` (read in place from disk, too large for memory), or the refusal code."),
         "RegisterMessage" => ("text (runtime-only, read-only)", "AgentObject (spec 075): the last `RegisterFile` outcome in English, naming the file (any smb:// password masked). Translate from `RegisterResult` for the user."),
         "RegisteredName" => ("text (runtime-only, read-only)", "AgentObject (spec 075): the name the last `RegisterFile` registered the file under — the one to pass to `UnregisterFile`; empty when refused."),
         "RegisterFileBytes" => ("integer (runtime-only, read-only)", "AgentObject (spec 075): the size of the file the last `RegisterFile` examined, in bytes."),
         "RegisterLimitBytes" => ("integer (runtime-only, read-only)", "AgentObject (spec 075): the limit the file was compared with — the project limit, or half the free memory when that decided a refusal."),
-        "ToolArguments" => ("JSON object text (runtime-only, read-only)", "AgentObject (spec 072): during `onToolCall`, the arguments the model sent, as a JSON object whose keys are the parameter names declared with `AddToolParameter`. Every value is a string."),
+        "ToolKind" => ("`KnowledgeBase` | `IndexedFile` (runtime-only, read-only)", "AgentObject: during `onToolUse`, which kind of runtime-answered tool the model is using."),
+        "ToolArguments" => ("JSON object text (runtime-only, read-only)", "AgentObject (spec 072): during `onToolCall` (and `onToolUse`), the arguments the model sent, as a JSON object whose keys are the parameter names declared with `AddToolParameter`. Every value is a string."),
 
         // ── RestClient ──
         "ModelEntry" => (
@@ -5966,6 +5967,7 @@ fn event_reference(name: &str) -> &'static str {
         "onPartialReply" => "AgentObject with `StreamReply` on: more of the reply arrived — `PartialReply` holds the text so far and `ReplyPiece` what is new since the last one (at most ten times a second); `onResponse` still ends the Ask with the whole text",
         "onModelChanged" => "AgentObject (spec 076): the model-list entry this agent last used (`ModelEntry`) was changed or withdrawn — by this form or any other in the application; re-read your settings or choose another entry",
         "onToolCall" => "the model called a tool the program declared with `AddTool` — read `ToolCallId` / `ToolName` / `ToolArguments`, answer with `SetToolResult`; a handler that sets nothing sends an empty result",
+        "onToolUse" => "the model is using a tool the RUNTIME answers itself — a Knowledge Base search (`ToolKind` = `KnowledgeBase`) or a registered indexed file (`ToolKind` = `IndexedFile`); `ToolName` and `ToolArguments` say which and with what. Raised before the tool runs, while the model is still working — for showing \"searching the Knowledge Base…\"; nothing to answer, the result goes straight to the model",
         "onError" => "the operation failed (message in `LastError`)",
         "onTimeout" => "the async operation exceeded its timeout",
         "onComplete" => "the async operation finished successfully",
@@ -6220,6 +6222,14 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             (
                 "AppendToMessage(messageId: String, content: String, mode: String)",
                 "Conversation mode. Extend a message already on screen, by its own id — what a streamed reply arriving a token at a time needs. `mode` is `Html`, `Markdown` or `Raw`. Consecutive chunks in the same mode are merged before layout, so a reply arriving word by word is one block rather than hundreds. An id no message carries raises `onError` rather than silently minting a new message.",
+            ),
+            (
+                "ReplaceMessage(messageId: String, content: String, mode: String)",
+                "Conversation mode. REPLACE a message's content, keeping its id, its role and its place — `mode` as for `AppendToMessage`. What a status bubble needs: append it once (`AppendMarkdown(\"*Thinking…*\", \"agent\")` returns its id), change it as the work moves on, and finally replace it with the answer, so the reader sees one bubble that becomes the reply rather than a trail of status messages. Only that message is laid out again. An unknown id sets `LastError` and raises `onError`.",
+            ),
+            (
+                "RemoveMessage(messageId: String)",
+                "Conversation mode. Take a message out of the conversation. An unknown id sets `LastError` and raises `onError`.",
             ),
             (
                 "NewConversation()",
@@ -7429,6 +7439,7 @@ fn methods_reference_doc() -> String {
                 ("FindNext() / FindPrevious()", "Move between matches, wrapping at both ends. No matches is a no-op, not an error."),
                 ("FindClose()", "Close the Find bar."),
                 ("AppendHtml(content) / AppendMarkdown(content) / AppendRaw(content: String), each with an optional role", "Conversation mode: add a message in that mode. Raw is shown literally — markup inside it is displayed, never interpreted. Only the new message is laid out. A second argument `\"user\"` or `\"agent\"` draws the message in a chat bubble — the user's on the right, the agent's on the left — coloured by `UserBubbleColor`/`UserBubbleTextColor` and `AgentBubbleColor`/`AgentBubbleTextColor`."),
+                ("ReplaceMessage(messageId: String, content: String, mode: String) / RemoveMessage(messageId: String)", "Replace a message's content in place (same id, role and place) — a status bubble that becomes the answer — or take a message out. Unknown id → `onError`."),
                 ("AppendToMessage(messageId: String, content: String, mode: String)", "Extend a message already on screen, by id — what a streamed reply needs. `mode` is `Html`, `Markdown` or `Raw`."),
                 ("NewConversation()", "File the open conversation into history, clear the pane, raise `onConversationCreated`. A no-op on an already-empty pane."),
                 ("SelectConversation(id: String)", "Make a past conversation current and raise `onConversationSelected` — your cue to send its content back with the Append methods. The control caches none of it."),

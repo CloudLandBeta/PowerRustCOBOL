@@ -8,6 +8,43 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.298] — 2026-09-27
+
+### Feature — a chat status bubble: Viewer `ReplaceMessage`/`RemoveMessage`, AgentObject `onToolUse`
+
+- **Viewer `ReplaceMessage(id, content, mode)` / `RemoveMessage(id)`**: a
+  conversation message's content replaced in place — same id, role and place,
+  only that message laid out again — or the message taken out; an unknown id
+  is `onError`. What a status bubble needs to change as the work moves on and
+  then BECOME the answer. `Conversation::replace_message` /
+  `remove_message` in `cobolt-forms`.
+- **AgentObject `onToolUse`**: raised when the model uses a tool the RUNTIME
+  answers — a Knowledge Base search (`ToolKind` = `KnowledgeBase`) or a
+  registered indexed file (`IndexedFile`) — with `ToolName` and
+  `ToolArguments`, before the tool runs. Those tools never reached any
+  handler, so a program could not tell the model was searching
+  (`onToolCall` stays for the tools the program declares).
+- **PowerChat:** one status bubble per question, in the agent's colour and in
+  italics — "Thinking..." (one agent) or "Coordinating the agents..."
+  (several), then "Working: N task(s) across M agent(s)...", "Searching the
+  Knowledge Base..." / "Reading the data files..." whenever an agent does,
+  "Preparing the answer..." — and then the bubble becomes the answer, or the
+  error (operator, 2026-09-27: "a balloon showing the status"). Four texts in
+  six languages.
+- System KB (Viewer methods, `onToolUse`, `ToolKind`, `ToolName`) and the
+  Developer's Guide (Viewer conversations; agents using tools) updated;
+  `chunked.data` regenerated.
+- Tests: `a_message_is_replaced_in_place_or_removed` (cobolt-forms),
+  `a_message_is_replaced_or_removed_by_id` (runtime),
+  `an_agent_answers_from_a_collection_and_names_the_document` now checks
+  `onToolUse` (`KnowledgeBase`, `kb_kb_1_hr`) arrives before the answer.
+  PowerChat's chat program regenerates and compiles; the bubble is not played
+  end to end — `powerchat_settings_topics_documents_and_chat`, the one test
+  that asks a question, stops at stale first-run expectations (Chat now waits
+  for a topic since 1.70.280; the welcome screen is its own form), and is left
+  for its own repair. cobolt-forms (render,pdf,office) 1194/0, cobolt-runtime
+  (lib) 355/0, test_knowledge_base 6/0, cobolt-compiler (lib) 145/0.
+
 ## [PowerRustCOBOL 1.70.297] — 2026-09-27
 
 ### Fix — a Knowledge Base update shows its chunking and embedding, and confirms them

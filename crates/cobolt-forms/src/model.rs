@@ -1452,6 +1452,8 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
         "ToolCallId",
         "ToolName",
         "ToolArguments",
+        // `onToolUse` — which kind of runtime-answered tool is in use.
+        "ToolKind",
         // Spec 075 — the outcome of the last `RegisterFile`.
         "RegisterResult",
         "RegisterMessage",
@@ -3550,7 +3552,7 @@ impl ControlType {
                 "onLoad",
             ],
             ControlType::AgentObject => {
-                &["onResponse", "onPartialReply", "onError", "onToolCall", "onModelChanged"]
+                &["onResponse", "onPartialReply", "onError", "onToolCall", "onToolUse", "onModelChanged"]
             }
             ControlType::KnowledgeBase => {
                 &["onProgress", "onIndexed", "onSearchComplete", "onBusy", "onError"]
@@ -11045,7 +11047,7 @@ mod tests {
         assert_eq!(ControlType::Timer.supported_events(), &["onTick"]);
         assert_eq!(
             ControlType::AgentObject.supported_events(),
-            &["onResponse", "onPartialReply", "onError", "onToolCall", "onModelChanged"]
+            &["onResponse", "onPartialReply", "onError", "onToolCall", "onToolUse", "onModelChanged"]
         );
         // RestClient / SqlDatabase / IndexedFile gain the uniform async lifecycle
         // events onComplete/onError/onCancelled/onTimeout (skipping any the

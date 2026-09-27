@@ -5073,6 +5073,24 @@ rather than starting a new one:
        INVOKE VWR-1::AppendToMessage(WS-MESSAGE-ID, WS-PIECE, "Raw")
 ```
 
+A message can also be **replaced** — same id, same bubble, same place — or
+taken out. That is how a chat shows what it is doing without leaving a trail:
+one status bubble that changes as the work moves on and finally *becomes* the
+answer.
+
+```cobol
+       INVOKE VWR-1::AppendMarkdown("*Thinking...*", "agent")
+           RETURNING WS-STATUS-ID
+      *> ... later, as the work moves on:
+       INVOKE VWR-1::ReplaceMessage(WS-STATUS-ID,
+           "*Preparing the answer...*", "Markdown")
+      *> ... and when the answer arrives:
+       INVOKE VWR-1::ReplaceMessage(WS-STATUS-ID, WS-ANSWER, "Markdown")
+```
+
+`RemoveMessage(id)` takes a message out. Either method raises `onError` for an
+id the conversation does not hold.
+
 > **Note — the view follows only if the reader is already at the end.** If your
 > operator has scrolled up to re-read something, new content does **not** yank
 > them back down; a quiet indicator appears instead, and following resumes by
@@ -10177,6 +10195,25 @@ on every agent except the one doing the tool work.
 >   model.
 > - An allowed file is visible to **every** agent in the application. Allow
 >   only files whose contents any of your agents may repeat to its user.
+
+**Knowing when the agent searches — `onToolUse`.** The tools the runtime
+answers itself never reach `onToolCall`: a Knowledge Base search, a registered
+indexed file. `onToolUse` tells you they are being used, before they run,
+while the model is still working. `ToolKind` is `KnowledgeBase` or
+`IndexedFile`, and `ToolName` and `ToolArguments` say which tool and with what.
+There is nothing to answer: the result goes straight to the model. It is what
+a chat needs to say "searching the Knowledge Base…" while it happens.
+
+```cobol
+       PROGRAM-ID. AGENT-1--ONTOOLUSE.
+       PROCEDURE DIVISION.
+           MOVE AGENT-1::ToolKind TO WS-KIND
+           IF WS-KIND = "KnowledgeBase"
+               INVOKE VWR-1::ReplaceMessage(WS-STATUS-ID,
+                   "*Searching the documents...*", "Markdown")
+           END-IF
+           .
+```
 
 ### Your users' documents: the KnowledgeBase control
 

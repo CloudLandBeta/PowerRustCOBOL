@@ -249,6 +249,23 @@ impl Interpreter {
         }
     }
 
+    /// Tell the program that the model is using one of the tools the runtime
+    /// answers itself — a Knowledge Base search, a registered indexed file —
+    /// which no program handler sees otherwise (`onToolCall` is for the tools
+    /// the program declared and answers). A chat can say "searching the
+    /// Knowledge Base…" while it happens (operator, 2026-09-27). Raised
+    /// before the tool runs; the answer still goes straight to the model.
+    fn announce_tool_use(&mut self, obj: &str, call: &ToolCall, kind: &str) {
+        self.obj_set(obj, "ToolName", call.name.clone());
+        self.obj_set(
+            obj,
+            "ToolArguments",
+            call.arguments.as_ref().map(|a| a.to_string()).unwrap_or_default(),
+        );
+        self.obj_set(obj, "ToolKind", kind.to_string());
+        self.queue_control_event(obj, "onToolUse");
+    }
+
     /// Answer the pending calls in order until one needs the program, or all
     /// are answered — then send the next round.
     fn tool_loop_advance(&mut self, obj: &str) {
@@ -277,6 +294,7 @@ impl Interpreter {
             } else if declared {
                 None
             } else if self.kb_tool_is(&call.name) {
+                self.announce_tool_use(obj, &call, "KnowledgeBase");
                 // Spec 068 — a KnowledgeBase collection. Answered here, or on a
                 // worker when the query needs the embedding server.
                 match self.kb_tool_search(obj, &call) {
@@ -290,6 +308,7 @@ impl Interpreter {
                     }
                 }
             } else {
+                self.announce_tool_use(obj, &call, "IndexedFile");
                 // A consultable indexed file (spec 065), read-only.
                 let r = self
                     .mcp_tools
