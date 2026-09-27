@@ -5981,6 +5981,42 @@ impl DesignerPanel {
                     }
                 }
             }
+            // Moving a TabControl's strip moves its page: the controls on it
+            // follow (and the control grows if they no longer fit), in the
+            // same undo step as the property (operator, 2026-09-27).
+            "TabPosition"
+                if self
+                    .form
+                    .find_control(ctrl_id)
+                    .is_some_and(|c| c.control_type == ControlType::TabControl) =>
+            {
+                let Some(idx) = self.form.controls.iter().position(|c| c.id == ctrl_id) else {
+                    return;
+                };
+                let reflow = cobolt_forms::containers::reflow_for_tab_position(
+                    &self.form.controls,
+                    idx,
+                    value.as_str(),
+                );
+                let tab = &self.form.controls[idx];
+                let mut cmds = vec![Cmd::SetProperty {
+                    id: ctrl_id.to_owned(),
+                    key: key.to_owned(),
+                    old: tab.properties.get(key).cloned(),
+                    new: value,
+                }];
+                if let Some((w, h)) = reflow.size {
+                    let old_rect = tab.rect;
+                    let mut new_rect = old_rect;
+                    new_rect.w = w;
+                    new_rect.h = h;
+                    cmds.push(Cmd::ResizeControl { id: ctrl_id.to_owned(), old_rect, new_rect });
+                }
+                if !reflow.moves.is_empty() {
+                    cmds.push(Cmd::MoveMany { moves: reflow.moves });
+                }
+                self.apply(Cmd::Batch { cmds });
+            }
             // Struct-backed flags, routed through the undo stack like any other
             // property (they mutated directly before — audit, 2026-07-28).
             // `apply_structural_prop` maps them onto the struct fields on
@@ -18248,6 +18284,43 @@ mod text_align_tests {
         assert_eq!(d.form.theme, None);
         d.undo();
         assert_eq!(d.form.theme.as_deref(), Some("elegance"));
+    }
+
+    /// Turning a TabControl's strip to the left moves the controls on its page
+    /// out from under the tabs and grows the control when they no longer fit —
+    /// and one undo puts the strip, the controls and the size back together
+    /// (operator, 2026-09-27).
+    #[test]
+    fn a_tab_strip_turned_left_takes_its_page_along() {
+        let mut d = DesignerPanel::new(Form::new("F", "T", 1000, 600));
+        let mut tab = Control::new("TAB", ControlType::TabControl, 24, 24);
+        tab.rect.w = 500;
+        tab.rect.h = 300;
+        tab.set_prop("Tabs", PropValue::String("Browse\nCreate/Update".into()));
+        tab.set_prop("TabPosition", PropValue::String("Top".into()));
+        let page = tab.content_rect();
+        let mut grid = Control::new("GRID", ControlType::DataGrid, page.x + 8, page.y + 40);
+        grid.rect.w = 480;
+        grid.rect.h = 200;
+        grid.parent = Some("TAB".into());
+        grid.tab = Some(0);
+        d.form.controls.push(tab.clone());
+        d.form.controls.push(grid.clone());
+
+        d.set_property("TAB", "TabPosition", PropValue::String("Left".into()));
+        let t = d.form.find_control("TAB").unwrap().clone();
+        let g = d.form.find_control("GRID").unwrap().clone();
+        let page = t.content_rect();
+        assert!(g.rect.x >= page.x && g.rect.y >= page.y, "off the strip: {:?} page {page:?}", g.rect);
+        assert!(g.rect.x + g.rect.w <= page.x + page.w, "inside the page: {:?} page {page:?}", g.rect);
+        assert!(t.rect.w > 500, "the control grew to hold it");
+
+        d.undo();
+        let t = d.form.find_control("TAB").unwrap();
+        let g = d.form.find_control("GRID").unwrap();
+        assert_eq!(t.tab_position(), "top");
+        assert_eq!((t.rect.w, t.rect.h), (500, 300), "size restored");
+        assert_eq!(g.rect, grid.rect, "position restored");
     }
 
     /// Visible / Enabled / TabOrder mutated struct fields directly and were

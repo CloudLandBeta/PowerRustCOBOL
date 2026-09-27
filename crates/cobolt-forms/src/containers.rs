@@ -335,6 +335,75 @@ pub fn resolve_drop_target(
     DropTarget::Form
 }
 
+/// What a TabControl's contents need when its tab strip moves to another side:
+/// the controls to move (`id, old x, old y, new x, new y`) and, when the
+/// content no longer fits, the TabControl's new `(w, h)`.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TabReflow {
+    pub moves: Vec<(String, i32, i32, i32, i32)>,
+    pub size: Option<(i32, i32)>,
+}
+
+/// Lay a TabControl's contents out for its strip on `position` (`Top`,
+/// `Bottom`, `Left`, `Right`).
+///
+/// Coordinates are form-absolute, so moving the strip moves the page out from
+/// under the controls on it: a strip turned to the left leaves them sitting
+/// under the tabs (operator, 2026-09-27). Three steps, the content moving as
+/// one block so its own layout is never disturbed:
+///
+/// 1. every descendant keeps its offset from the page's corner;
+/// 2. anything still above or left of the page (placed before the strip moved)
+///    brings the whole block in by as much as it needs;
+/// 3. content past the page's far edge grows the TabControl by the overflow
+///    plus the margin the content keeps on the near side, so it sits inside
+///    the page with the same room on both sides.
+pub fn reflow_for_tab_position(controls: &[Control], tab_idx: usize, position: &str) -> TabReflow {
+    let Some(tab) = controls.get(tab_idx).filter(|c| c.control_type == ControlType::TabControl) else {
+        return TabReflow::default();
+    };
+    let descendants = collect_descendants(controls, tab_idx);
+    if descendants.is_empty() {
+        return TabReflow::default();
+    }
+    let old_page = tab.content_rect();
+    let mut moved = tab.clone();
+    moved.set_prop("TabPosition", crate::PropValue::String(position.to_owned()));
+    let page = moved.content_rect();
+    let children: Vec<&Control> = controls
+        .iter()
+        .filter(|c| c.parent.as_deref().is_some_and(|p| p.eq_ignore_ascii_case(&tab.id)))
+        .collect();
+    // 1. The same offset from the page's corner.
+    let (mut dx, mut dy) = (page.x - old_page.x, page.y - old_page.y);
+    // 2. Nothing before the page's near edges.
+    let min_x = children.iter().map(|c| c.rect.x + dx).min().unwrap_or(page.x);
+    let min_y = children.iter().map(|c| c.rect.y + dy).min().unwrap_or(page.y);
+    dx += (page.x - min_x).max(0);
+    dy += (page.y - min_y).max(0);
+    // 3. Room for what reaches past the far edges.
+    let margin_x = (children.iter().map(|c| c.rect.x + dx).min().unwrap_or(page.x) - page.x).clamp(0, 24);
+    let margin_y = (children.iter().map(|c| c.rect.y + dy).min().unwrap_or(page.y) - page.y).clamp(0, 24);
+    let max_x = children.iter().map(|c| c.rect.x + dx + c.rect.w).max().unwrap_or(0);
+    let max_y = children.iter().map(|c| c.rect.y + dy + c.rect.h).max().unwrap_or(0);
+    let grow_w = (max_x + margin_x - (page.x + page.w)).max(0);
+    let grow_h = (max_y + margin_y - (page.y + page.h)).max(0);
+    TabReflow {
+        moves: if dx == 0 && dy == 0 {
+            Vec::new()
+        } else {
+            descendants
+                .iter()
+                .map(|&i| {
+                    let r = controls[i].rect;
+                    (controls[i].id.clone(), r.x, r.y, r.x + dx, r.y + dy)
+                })
+                .collect()
+        },
+        size: (grow_w > 0 || grow_h > 0).then(|| (tab.rect.w + grow_w, tab.rect.h + grow_h)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -501,4 +570,67 @@ mod tests {
             }
         );
     }
+
+    /// The strip moves, the content follows: turned to the left, the page's
+    /// contents move right by the strip's width and keep their layout; a
+    /// block that then reaches past the page's right edge grows the
+    /// TabControl; turned back to the top, they return (operator, 2026-09-27).
+    #[test]
+    fn the_contents_follow_the_tab_strip() {
+        let mut tab = ctrl("Tabs", ControlType::TabControl, 20, 20, 500, 300, None);
+        tab.set_prop("Tabs", crate::PropValue::String("Browse\nCreate/Update".into()));
+        tab.set_prop("TabPosition", crate::PropValue::String("Top".into()));
+        let page_top = tab.content_rect();
+        let mut grid = ctrl("Grid", ControlType::DataGrid, page_top.x + 8, page_top.y + 40, 460, 150, Some("Tabs"));
+        grid.tab = Some(0);
+        let mut new_btn = ctrl("New", ControlType::Button, page_top.x + 380, page_top.y + 8, 88, 28, Some("Tabs"));
+        new_btn.tab = Some(0);
+        let controls = vec![tab.clone(), grid.clone(), new_btn.clone()];
+
+        let r = reflow_for_tab_position(&controls, 0, "Left");
+        let mut left = tab.clone();
+        left.set_prop("TabPosition", crate::PropValue::String("Left".into()));
+        let page = left.content_rect();
+        let at = |id: &str| r.moves.iter().find(|m| m.0 == id).map(|m| (m.3, m.4)).expect(id);
+        // Same offset from the page's corner, so the layout is kept.
+        assert_eq!(at("Grid"), (page.x + 8, page.y + 40));
+        assert_eq!(at("New").0 - at("Grid").0, 372, "the block moves as one");
+        // 8 + 460 wide no longer fits beside the strip: the control grows by
+        // the overflow plus the 8 px the grid keeps on its left.
+        let (w, h) = r.size.expect("grows");
+        assert_eq!(h, 300, "tall enough already");
+        let mut grown = left.clone();
+        grown.rect.w = w;
+        let gp = grown.content_rect();
+        assert_eq!(
+            gp.x + gp.w,
+            at("Grid").0 + 460 + 8,
+            "grown just enough: the grid keeps 8 px on both sides"
+        );
+
+        // Content left under a side strip (placed before the strip moved) is
+        // brought in: here the strip is already Left and the grid sits at the
+        // old, top-strip position.
+        let mut already = left.clone();
+        already.rect.w = w;
+        let stuck = vec![already, grid.clone(), new_btn.clone()];
+        let r = reflow_for_tab_position(&stuck, 0, "Left");
+        let gx = r.moves.iter().find(|m| m.0 == "Grid").map(|m| m.3).expect("moved in");
+        assert!(gx >= gp.x, "no longer under the strip: {gx} vs page {}", gp.x);
+
+        // A right strip: the content moves to the left of it.
+        let r = reflow_for_tab_position(&controls, 0, "Right");
+        let mut right = tab.clone();
+        right.set_prop("TabPosition", crate::PropValue::String("Right".into()));
+        if let Some((w, _)) = r.size {
+            right.rect.w = w;
+        }
+        let rp = right.content_rect();
+        let gx = r.moves.iter().find(|m| m.0 == "Grid").map(|m| m.3).expect("moved");
+        assert!(gx >= rp.x && gx + 460 <= rp.x + rp.w, "inside the page left of the strip: {gx} {rp:?}");
+
+        // No children, nothing to do.
+        assert_eq!(reflow_for_tab_position(&[tab], 0, "Left"), TabReflow::default());
+    }
+
 }

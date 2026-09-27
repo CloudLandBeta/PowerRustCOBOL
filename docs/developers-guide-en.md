@@ -2276,6 +2276,14 @@ TabControl page, and so on).
   the tabs are stacked, all as wide as the widest, and their titles stay
   horizontal.
 
+  Changing `TabPosition` in the designer takes the page's contents along: the
+  controls keep their place relative to the page's corner, so turning the
+  strip to the left moves them right, out from under the tabs. Anything that
+  would still sit under the strip is brought in, and if the contents then
+  reach past the far side the TabControl grows just enough to hold them, with
+  the same margin on both sides. One **Undo** puts the strip, the controls and
+  the size back.
+
   | Property | What it sets |
   |---|---|
   | `ActiveTabColor` | Fill of the selected tab (blue to start with) |

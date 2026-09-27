@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.276] — 2026-09-27
+
+### Fix — turning a TabControl's strip left or right left its controls under the tabs
+
+- Coordinates are form-absolute, so moving the strip moved the page out from
+  under its controls: a DataGrid laid out for a top strip sat under a left
+  strip. Changing `TabPosition` in the designer now takes the page's contents
+  along (`containers::reflow_for_tab_position`): every descendant keeps its
+  offset from the page's corner; anything still before the page's near edge
+  brings the block in; content past the far edge grows the TabControl by the
+  overflow plus the margin it keeps on the near side. The property, the moves
+  and the resize are one undo step. Tests
+  `the_contents_follow_the_tab_strip`,
+  `a_tab_strip_turned_left_takes_its_page_along`. Guide: *TabControl pages*.
+
 ## [PowerRustCOBOL 1.70.275] — 2026-09-27
 
 ### Fix — a TabControl child's shadow leaked over a side tab strip
