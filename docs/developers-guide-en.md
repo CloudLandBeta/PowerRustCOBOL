@@ -2259,10 +2259,33 @@ TabControl page, and so on).
 - **TabControl pages** — each tab owns its own set of children. Click a tab in
   the designer to edit that page; only the selected tab's controls are shown and
   interactive, at design time and at run time.
-  The selected tab's header is painted in `ActiveTabColor`, and its title in
-  `ActiveTabForegroundColor` — leave that one empty and the title keeps the
-  `ForegroundColor` every other tab uses. Both can be changed from COBOL:
+
+  **How the tabs look.** The tabs sit edge to edge in a strip on the side
+  `TabPosition` names, and the strip joins the page with no gap: a tab's outer
+  corners are rounded, the side it shares with the page is straight, and the
+  selected tab flows into the page with no line between them. The page's
+  corner where the first tab joins is square, so tab and page read as one
+  outline; its other three corners follow `CornerRadius`. On the left or right
+  the tabs are stacked, all as wide as the widest, and their titles stay
+  horizontal.
+
+  | Property | What it sets |
+  |---|---|
+  | `ActiveTabColor` | Fill of the selected tab (blue to start with) |
+  | `ActiveTabForegroundColor` | Its title's colour |
+  | `InactiveTabColor` | Fill of the other tabs |
+  | `InactiveTabForegroundColor` | Their titles' colour |
+  | `TabPadding` | Space between a title and its tab's left and right edges; each tab is as wide as its title plus this |
+
+  Leave a colour empty and it is chosen for you: the other tabs take a tone a
+  step off the page, and each title takes whichever colour reads on its tab
+  (white on the default blue). Every colour can be changed from COBOL, e.g.
   `MOVE "#FFFFFFFF" TO TAB-1::ActiveTabForegroundColor`.
+
+  > ⚠️ **Caveat — `TabPadding` changed meaning at 1.70.272.** It used to be
+  > the gap between tabs; it is now the room inside each one. A form that set
+  > it to `0` to close the gap now gets tabs with no room around their titles —
+  > set it back to about 16.
 
 Deleting a container deletes the controls inside it. A control keeps its unique
 id wherever it lives, so `control::property` access and event bindings are

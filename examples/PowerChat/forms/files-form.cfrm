@@ -923,7 +923,7 @@ Create/Update</Property>
     <Property name="TabPosition">Top</Property>
     <Property name="SelectedTab">0</Property>
     <Property name="ActiveTabColor">#2C6FD2FF</Property>
-    <Property name="TabPadding">0</Property>
+    <Property name="TabPadding">16</Property>
     <Property name="HScroll">false</Property>
     <Property name="VScroll">false</Property>
     <Property name="CornerRadius">10</Property>

@@ -7160,21 +7160,17 @@ impl PropertiesPanel {
                     action,
                     "#2C6FD2FF",
                 );
-                // Empty = the ink the other tabs use, so the swatch shows that.
-                let other_tabs_ink = ctrl
-                    .get_prop("ForegroundColor")
-                    .map(|v| v.as_str().trim().to_owned())
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or_else(|| cobolt_forms::model::DEFAULT_FOREGROUND_COLOR.to_owned());
-                color_prop_row_default(
-                    ui,
-                    id,
-                    "ActiveTabForegroundColor",
-                    "Active tab text color",
-                    ctrl,
-                    action,
-                    &other_tabs_ink,
-                );
+                // An empty colour is derived by the painter; the swatch shows
+                // what it derives, so it tells the truth about an unset one.
+                let painted = cobolt_forms::paint::tabcontrol_tab_colors(ui.ctx(), ctrl);
+                let hex = |c: Color32| color32_to_hex(c);
+                for (key, label, derived) in [
+                    ("ActiveTabForegroundColor", "Active tab text color", painted.active_ink),
+                    ("InactiveTabColor", "Inactive tab color", painted.inactive_fill),
+                    ("InactiveTabForegroundColor", "Inactive tab text color", painted.inactive_ink),
+                ] {
+                    color_prop_row_default(ui, id, key, label, ctrl, action, &hex(derived));
+                }
                 int_row_inline(ui, id, "TabPadding", "Tab padding", ctrl, action, 0..=64);
                 // Container behaviour (spec 012).
                 bool_row_inline(ui, id, "HScroll", "H-Scroll", ctrl, action);

@@ -4593,6 +4593,11 @@ fn draw_control_body(
     // card/background is cut by the parent shape and never bleeds past its rounded
     // corner (spec 017). Equals `corner` on all four corners when free-standing.
     let frame_round = control_border_rounding(ctrl, frame_rect, corner);
+    let frame_round = if matches!(ctrl.control_type, CT::TabControl) {
+        tabcontrol_panel_rounding(ctrl, frame_round)
+    } else {
+        frame_round
+    };
 
     let is_label = matches!(ctrl.control_type, CT::Label);
 
@@ -6737,59 +6742,151 @@ fn is_legacy_groupbox_generated_caption(value: &str) -> bool {
     !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit())
 }
 
-/// Draw a TabControl tab strip as top chrome. Renderers may defer this until
-/// after children are drawn so child clipping can use the whole rounded interior
-/// while tab titles stay above the clipped content.
+/// How far a tab's fill runs into the page it joins: over the page's rim, so
+/// no line is left between a tab and its page.
+const TAB_SEAM: f32 = 2.0;
+
+/// The TabControl page's corners: the control's own rounding, except the
+/// corner where the first tab joins the page, which is square — the tab's
+/// straight side continues the page's edge there, so the two read as one
+/// contour.
+pub fn tabcontrol_panel_rounding(ctrl: &Control, round: egui::CornerRadius) -> egui::CornerRadius {
+    let has_tabs = ctrl.get_prop("Tabs").is_some_and(|v| v.as_str().lines().next().is_some());
+    if !has_tabs {
+        return round;
+    }
+    let mut r = round;
+    match ctrl.tab_position().as_str() {
+        "bottom" => r.sw = 0,
+        "right" => r.ne = 0,
+        _ => r.nw = 0,
+    }
+    r
+}
+
+/// The four colours of a TabControl's tabs, as painted.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TabColors {
+    pub active_fill: Color32,
+    pub active_ink: Color32,
+    pub inactive_fill: Color32,
+    pub inactive_ink: Color32,
+}
+
+/// What a TabControl's tabs are painted with: each property the developer
+/// set, and for each one left empty the colour the painter derives —
+/// `InactiveTabColor` a step off the page's own surface, each text colour
+/// whichever reads on its tab. The one resolution, shared by the painter and
+/// the Properties pane's swatches.
+pub fn tabcontrol_tab_colors(ctx: &egui::Context, ctrl: &Control) -> TabColors {
+    let chosen = |key: &str| {
+        ctrl.get_prop(key)
+            .map(|v| v.as_str().trim().to_owned())
+            .filter(|s| !s.is_empty())
+            .map(|s| parse_color(&s))
+    };
+    let is_neumorphic = glass_config_applies(ctx) && active_glass_style(ctx).is_neumorphic();
+    let active_fill = chosen("ActiveTabColor").unwrap_or(Color32::from_rgb(44, 111, 210));
+    let inactive_fill = chosen("InactiveTabColor").unwrap_or_else(|| {
+        let page = user_background_color(ctrl).unwrap_or(if is_neumorphic {
+            NEUMORPHIC_DEFAULT_SURFACE
+        } else {
+            control_colors(&ctrl.control_type, false).0
+        });
+        // A step off the page, so an unselected tab is still a tab.
+        if relative_luminance(page) > 0.5 {
+            page.lerp_to_gamma(Color32::from_rgba_premultiplied(0, 0, 0, page.a()), 0.06)
+        } else {
+            page.lerp_to_gamma(Color32::from_rgba_premultiplied(page.a(), page.a(), page.a(), page.a()), 0.10)
+        }
+    });
+    TabColors {
+        active_fill,
+        active_ink: readable_ink_on(chosen("ActiveTabForegroundColor"), Color32::WHITE, active_fill),
+        inactive_fill,
+        inactive_ink: readable_ink_on(
+            chosen("InactiveTabForegroundColor"),
+            resolve_label_ink(ctx, ctrl, is_neumorphic, inactive_fill, Color32::BLACK),
+            inactive_fill,
+        ),
+    }
+}
+
+/// Draw a TabControl's tab strip: tabs edge to edge, each flowing into the
+/// page it sits on — its outer corners rounded, the side it shares with the
+/// page straight and without a line. The selected tab is filled with
+/// `ActiveTabColor`; the others with `InactiveTabColor` (empty = a tone of the
+/// page's own surface). Text is centred, in `ActiveTabForegroundColor` /
+/// `InactiveTabForegroundColor` (empty = whichever reads on the fill). A tab
+/// under the pointer takes a faint tint of the active colour; it does not
+/// change which tab is selected.
+///
+/// Renderers may defer this until after children are drawn, so the tabs stay
+/// chrome above clipped page content.
 pub fn draw_tabcontrol_tabs(painter: &egui::Painter, origin: Pos2, ctrl: &Control, alpha_mul: f32) {
     if !matches!(ctrl.control_type, ControlType::TabControl) {
         return;
     }
-
     let tab_rects = tabcontrol_tab_rects(origin, ctrl);
     if tab_rects.is_empty() {
         return;
     }
-
+    let ctx = painter.ctx();
     let tabs: Vec<String> = ctrl
         .get_prop("Tabs")
         .map(|v| v.as_str().lines().map(|s| s.to_string()).collect())
         .unwrap_or_default();
-    let sel = ctrl
-        .get_prop("SelectedTab")
-        .map(|v| v.as_i64())
-        .unwrap_or(0)
-        .max(0) as usize;
-    let active_color = ctrl
-        .get_prop("ActiveTabColor")
-        .map(|v| parse_color(v.as_str()))
-        .unwrap_or(Color32::from_rgb(44, 111, 210));
-    let active_ink = ctrl
-        .get_prop("ActiveTabForegroundColor")
-        .map(|v| v.as_str().trim().to_owned())
-        .filter(|s| !s.is_empty());
-    for (i, (t, tr)) in tabs.iter().zip(tab_rects.iter()).enumerate() {
+    let sel = ctrl.get_prop("SelectedTab").map(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
+    let TabColors { active_fill, active_ink, inactive_fill, inactive_ink } = tabcontrol_tab_colors(ctx, ctrl);
+    let font_name = ctrl.get_prop("FontName").map(|v| v.as_str().to_owned()).unwrap_or_default();
+    let font_id = crate::fonts::font_id(ctx, &font_name, ctrl_font_size(ctrl));
+    let hover = ctx.pointer_hover_pos();
+    let position = ctrl.tab_position();
+    for (i, (label, tr)) in tabs.iter().zip(tab_rects.iter()).enumerate() {
         let active = i == sel;
-        let mut tab = Control::new(format!("{}__tab_{}", ctrl.id, i), ControlType::Button, 0, 0);
-        tab.rect =
-            crate::model::Rect::new(0, 0, tr.width().round() as i32, tr.height().round() as i32);
-        tab.properties = ctrl.properties.clone();
-        tab.set_prop("Caption", PropValue::String(t.to_owned()));
-        tab.set_prop("CornerRadius", PropValue::Int(4));
-        tab.set_prop("BorderStyle", PropValue::String("Single".into()));
-        tab.set_prop("BorderWidth", PropValue::Int(1));
-        if active {
-            tab.set_prop(
-                "BackgroundColor",
-                PropValue::String(color_to_hex(active_color)),
-            );
-            if let Some(ink) = &active_ink {
-                tab.set_prop("ForegroundColor", PropValue::String(ink.clone()));
-            }
+        let mut fill = if active { active_fill } else { inactive_fill };
+        if !active && hover.is_some_and(|p| tr.contains(p)) {
+            fill = fill.lerp_to_gamma(active_fill, 0.12);
         }
-        draw_control(painter, tr.min, &tab, active, true, alpha_mul, 1.0, None);
+        let ink = if active { active_ink } else { inactive_ink };
+        let rad = cr8(8.0_f32.min(tr.height() * 0.5).min(tr.width() * 0.5));
+        let (face, round) = match position.as_str() {
+            "bottom" => (
+                egui::Rect::from_min_max(tr.min - Vec2::new(0.0, TAB_SEAM), tr.max),
+                egui::CornerRadius { nw: 0, ne: 0, sw: rad, se: rad },
+            ),
+            "left" => (
+                egui::Rect::from_min_max(tr.min, tr.max + Vec2::new(TAB_SEAM, 0.0)),
+                egui::CornerRadius { nw: rad, ne: 0, sw: rad, se: 0 },
+            ),
+            "right" => (
+                egui::Rect::from_min_max(tr.min - Vec2::new(TAB_SEAM, 0.0), tr.max),
+                egui::CornerRadius { nw: 0, ne: rad, sw: 0, se: rad },
+            ),
+            _ => (
+                egui::Rect::from_min_max(tr.min, tr.max + Vec2::new(0.0, TAB_SEAM)),
+                egui::CornerRadius { nw: rad, ne: rad, sw: 0, se: 0 },
+            ),
+        };
+        painter.rect_filled(face, round, fill.gamma_multiply(alpha_mul));
+        styled_text(
+            painter,
+            ctrl,
+            tr.center(),
+            egui::Align2::CENTER_CENTER,
+            label,
+            font_id.clone(),
+            ink.gamma_multiply(alpha_mul),
+        );
     }
 }
 
+/// Where each tab of a TabControl sits, in the order of `Tabs`: edge to edge
+/// along the strip, the strip flush against the page (`tabcontrol_page_rect`).
+/// Top/bottom tabs are as wide as their labels (`Control::tab_width`); a side
+/// strip's tabs are stacked and all as wide as the widest, so each one's
+/// joined edge meets the page. A tab that would overrun the control is left
+/// out. The same rects serve painting and clicking, on every surface.
 pub fn tabcontrol_tab_rects(origin: Pos2, ctrl: &Control) -> Vec<egui::Rect> {
     if !matches!(ctrl.control_type, ControlType::TabControl) {
         return Vec::new();
@@ -6802,78 +6899,35 @@ pub fn tabcontrol_tab_rects(origin: Pos2, ctrl: &Control) -> Vec<egui::Rect> {
         origin,
         Vec2::new(ctrl.rect.w.max(0) as f32, ctrl.rect.h.max(0) as f32),
     );
-    let strip_h = ctrl.tab_strip_height().max(0) as f32;
-    let strip_w = ctrl.tab_strip_extent().max(0) as f32;
-    let gap = ctrl.tab_padding().max(0) as f32;
-    let pos = ctrl.tab_position();
+    let tab_h = ctrl.tab_strip_height().max(0) as f32;
+    let strip = ctrl.tab_strip_extent().max(0) as f32;
     let mut out = Vec::new();
-    match pos.as_str() {
-        "bottom" => {
+    match ctrl.tab_position().as_str() {
+        pos @ ("left" | "right") => {
+            let x = if pos == "left" { rect.min.x } else { rect.max.x - strip };
+            let mut y = rect.min.y;
+            for _ in tabs {
+                if y + tab_h > rect.max.y {
+                    break;
+                }
+                out.push(egui::Rect::from_min_size(Pos2::new(x, y), Vec2::new(strip, tab_h)));
+                y += tab_h;
+            }
+        }
+        pos => {
+            let y = if pos == "bottom" { rect.max.y - tab_h } else { rect.min.y };
             let mut x = rect.min.x;
-            let y = rect.max.y - strip_h;
             for tab in tabs {
-                let w = tab_width(&tab);
+                let w = ctrl.tab_width(&tab) as f32;
                 if x + w > rect.max.x {
                     break;
                 }
-                out.push(egui::Rect::from_min_size(
-                    Pos2::new(x, y),
-                    Vec2::new(w, strip_h),
-                ));
-                x += w + gap;
-            }
-        }
-        "left" => {
-            let mut y = rect.min.y;
-            for _ in tabs {
-                if y + strip_h > rect.max.y {
-                    break;
-                }
-                out.push(egui::Rect::from_min_size(
-                    Pos2::new(rect.min.x, y),
-                    Vec2::new(strip_w - gap, strip_h),
-                ));
-                y += strip_h + gap;
-            }
-        }
-        "right" => {
-            let mut y = rect.min.y;
-            let x = rect.max.x - strip_w;
-            for _ in tabs {
-                if y + strip_h > rect.max.y {
-                    break;
-                }
-                out.push(egui::Rect::from_min_size(
-                    Pos2::new(x, y),
-                    Vec2::new(strip_w - gap, strip_h),
-                ));
-                y += strip_h + gap;
-            }
-        }
-        _ => {
-            let mut x = rect.min.x;
-            for tab in tabs {
-                let w = tab_width(&tab);
-                if x + w > rect.max.x {
-                    break;
-                }
-                out.push(egui::Rect::from_min_size(
-                    Pos2::new(x, rect.min.y),
-                    Vec2::new(w, strip_h),
-                ));
-                x += w + gap;
+                out.push(egui::Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, tab_h)));
+                x += w;
             }
         }
     }
     out
-}
-
-fn tab_width(tab: &str) -> f32 {
-    (tab.chars().count() as f32 * 7.0 + 18.0).clamp(40.0, 160.0)
-}
-
-fn color_to_hex(c: Color32) -> String {
-    format!("#{:02X}{:02X}{:02X}{:02X}", c.r(), c.g(), c.b(), c.a())
 }
 
 pub fn tabcontrol_page_rect(rect: egui::Rect, ctrl: &Control) -> egui::Rect {
@@ -17551,7 +17605,7 @@ mod toggle_surface_tests {
     }
 
     /// `ActiveTabForegroundColor` inks the selected tab's title and no other;
-    /// left empty, every tab keeps the same ink (operator, 2026-09-26).
+    /// left empty, the title takes whichever ink reads on the active fill.
     #[test]
     fn the_active_tab_title_takes_its_own_ink() {
         let titles = |ink: &str| -> Vec<(String, Color32)> {
@@ -17588,8 +17642,11 @@ mod toggle_surface_tests {
         let set = titles("#FF0000FF");
         assert_eq!(ink_of(&set, "Two"), Color32::from_rgb(255, 0, 0), "{set:?}");
         assert_ne!(ink_of(&set, "One"), Color32::from_rgb(255, 0, 0), "{set:?}");
+        // Left empty, each tab's text is chosen to read on its fill: white on
+        // the blue active tab, the control's ForegroundColor on the others.
         let unset = titles("");
-        assert_eq!(ink_of(&unset, "One"), ink_of(&unset, "Two"), "{unset:?}");
+        assert_eq!(ink_of(&unset, "Two"), Color32::WHITE, "{unset:?}");
+        assert_eq!(ink_of(&unset, "One"), Color32::from_rgb(0, 0x37, 0x58), "{unset:?}");
     }
 
     /// Under Neumorphic a `Single` border is the developer's own flat line —
@@ -17962,51 +18019,133 @@ mod theme_render_tests {
         }
     }
 
+    /// The tab strip, on every side (operator, 2026-09-26): tabs edge to edge
+    /// with no gap, the strip flush against the page with no gap, a top/bottom
+    /// tab as wide as its label, a side strip's tabs stacked and equally wide
+    /// so every joined edge meets the page.
     #[test]
-    fn tabcontrol_tab_rects_obey_tab_position() {
+    fn tabs_sit_edge_to_edge_and_flush_against_the_page() {
         let mut ctrl = Control::new("Tabs", ControlType::TabControl, 0, 0);
-        ctrl.rect.w = 300;
-        ctrl.rect.h = 200;
-        ctrl.set_prop("Tabs", PropValue::String("Tab1\nTab2".into()));
-
-        ctrl.set_prop("TabPosition", PropValue::String("Top".into()));
-        let top = tabcontrol_tab_rects(Pos2::ZERO, &ctrl);
-        assert_eq!(top[0].min, Pos2::new(0.0, 0.0));
-
-        ctrl.set_prop("TabPosition", PropValue::String("Bottom".into()));
-        let bottom = tabcontrol_tab_rects(Pos2::ZERO, &ctrl);
-        assert_eq!(bottom[0].min.y, 174.0);
-
-        ctrl.set_prop("TabPosition", PropValue::String("Left".into()));
-        let left = tabcontrol_tab_rects(Pos2::ZERO, &ctrl);
-        assert_eq!(left[0].min, Pos2::new(0.0, 0.0));
-        assert!(left[0].width() > left[0].height());
-        assert_eq!(left[1].min.y, 33.0);
-
-        ctrl.set_prop("TabPosition", PropValue::String("Right".into()));
-        let right = tabcontrol_tab_rects(Pos2::ZERO, &ctrl);
-        assert!(right[0].min.x > 200.0);
-        assert_eq!(right[0].min.y, 0.0);
+        ctrl.rect.w = 400;
+        ctrl.rect.h = 240;
+        ctrl.set_prop("Tabs", PropValue::String("Browse\nCreate/Update\nX".into()));
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 240.0));
+        let h = ctrl.tab_strip_height() as f32;
+        for pos in ["Top", "Bottom", "Left", "Right"] {
+            ctrl.set_prop("TabPosition", PropValue::String(pos.into()));
+            let tabs = tabcontrol_tab_rects(Pos2::ZERO, &ctrl);
+            let page = tabcontrol_page_rect(rect, &ctrl);
+            assert_eq!(tabs.len(), 3, "{pos}");
+            for t in &tabs {
+                assert_eq!(t.height(), h, "{pos}: one height for every tab");
+            }
+            match pos {
+                "Top" | "Bottom" => {
+                    assert_eq!(tabs[0].min.x, 0.0, "{pos}: the strip starts at the page's edge");
+                    for w in tabs.windows(2) {
+                        assert_eq!(w[0].max.x, w[1].min.x, "{pos}: no gap between tabs");
+                    }
+                    assert!(tabs[1].width() > tabs[0].width(), "{pos}: sized to the label");
+                    assert!(tabs[0].width() > tabs[2].width(), "{pos}: sized to the label");
+                    if pos == "Top" {
+                        assert_eq!(tabs[0].max.y, page.min.y, "Top: flush with the page");
+                    } else {
+                        assert_eq!(tabs[0].min.y, page.max.y, "Bottom: flush with the page");
+                        assert_eq!(tabs[0].max.y, 240.0);
+                    }
+                }
+                _ => {
+                    assert_eq!(tabs[0].min.y, 0.0, "{pos}: the strip starts at the page's edge");
+                    for w in tabs.windows(2) {
+                        assert_eq!(w[0].max.y, w[1].min.y, "{pos}: stacked, no gap");
+                        assert_eq!(w[0].width(), w[1].width(), "{pos}: one width");
+                    }
+                    assert!(tabs[0].width() >= ctrl.tab_width("Create/Update") as f32);
+                    if pos == "Left" {
+                        assert_eq!(tabs[0].max.x, page.min.x, "Left: flush with the page");
+                    } else {
+                        assert_eq!(tabs[0].min.x, page.max.x, "Right: flush with the page");
+                    }
+                }
+            }
+        }
     }
 
+    /// Painted: the selected tab is filled with `ActiveTabColor` in white text,
+    /// the others with a tone of the page; a tab's outer corners are rounded
+    /// and the side it shares with the page is straight, running over the
+    /// page's rim — no stroke anywhere in the strip; and the page's corner
+    /// where the first tab joins is square, its other three rounded.
     #[test]
-    fn tabcontrol_page_rect_reserves_navbar_space() {
-        let mut ctrl = Control::new("Tabs", ControlType::TabControl, 0, 0);
-        ctrl.rect.w = 300;
-        ctrl.rect.h = 200;
-        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(300.0, 200.0));
-
-        ctrl.set_prop("TabPosition", PropValue::String("Top".into()));
-        assert_eq!(tabcontrol_page_rect(rect, &ctrl).min.y, 33.0);
-
-        ctrl.set_prop("TabPosition", PropValue::String("Bottom".into()));
-        assert_eq!(tabcontrol_page_rect(rect, &ctrl).max.y, 167.0);
-
-        ctrl.set_prop("TabPosition", PropValue::String("Left".into()));
-        assert!(tabcontrol_page_rect(rect, &ctrl).min.x > 0.0);
-
-        ctrl.set_prop("TabPosition", PropValue::String("Right".into()));
-        assert!(tabcontrol_page_rect(rect, &ctrl).max.x < 300.0);
+    fn the_active_tab_flows_into_the_page() {
+        for (pos, joined) in [("Top", 0usize), ("Bottom", 2), ("Left", 0), ("Right", 1)] {
+            let mut c = Control::new("TAB-1", ControlType::TabControl, 0, 0);
+            c.rect = crate::model::Rect::new(0, 0, 400, 240);
+            c.set_prop("Tabs", PropValue::String("Browse\nCreate/Update".into()));
+            c.set_prop("SelectedTab", PropValue::Int(1));
+            c.set_prop("TabPosition", PropValue::String(pos.into()));
+            c.set_prop("CornerRadius", PropValue::Int(16));
+            let ctx = egui::Context::default();
+            let mut full = ctx.run_ui(egui::RawInput::default(), |ui| {
+                draw_tabcontrol_tabs(ui.painter(), Pos2::ZERO, &c, 1.0);
+            });
+            full.textures_delta.clear();
+            let (mut fills, mut strokes, mut texts) = (Vec::new(), 0, Vec::new());
+            fn walk(
+                sh: &egui::Shape,
+                fills: &mut Vec<egui::epaint::RectShape>,
+                strokes: &mut usize,
+                texts: &mut Vec<(String, egui::Rect, Color32)>,
+            ) {
+                match sh {
+                    egui::Shape::Vec(v) => v.iter().for_each(|x| walk(x, fills, strokes, texts)),
+                    egui::Shape::Rect(r) => {
+                        if r.stroke.width > 0.0 {
+                            *strokes += 1;
+                        }
+                        fills.push(r.clone());
+                    }
+                    egui::Shape::LineSegment { .. } | egui::Shape::Path(_) => *strokes += 1,
+                    egui::Shape::Text(t) => texts.push((
+                        t.galley.text().to_owned(),
+                        t.visual_bounding_rect(),
+                        t.override_text_color
+                            .or_else(|| t.galley.job.sections.first().map(|s| s.format.color))
+                            .unwrap_or(Color32::TRANSPARENT),
+                    )),
+                    _ => {}
+                }
+            }
+            full.shapes.iter().for_each(|cs| walk(&cs.shape, &mut fills, &mut strokes, &mut texts));
+            assert_eq!(strokes, 0, "{pos}: no outline in the strip");
+            let tabs = tabcontrol_tab_rects(Pos2::ZERO, &c);
+            let active = fills
+                .iter()
+                .find(|r| r.fill == Color32::from_rgb(44, 111, 210))
+                .unwrap_or_else(|| panic!("{pos}: the active tab is blue"));
+            assert!(active.rect.contains_rect(tabs[1]), "{pos}");
+            let page = tabcontrol_page_rect(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 240.0)), &c);
+            assert!(active.rect.intersects(page), "{pos}: the tab runs into the page");
+            let cr = active.corner_radius;
+            let (outer, inner) = match pos {
+                "Top" => ([cr.nw, cr.ne], [cr.sw, cr.se]),
+                "Bottom" => ([cr.sw, cr.se], [cr.nw, cr.ne]),
+                "Left" => ([cr.nw, cr.sw], [cr.ne, cr.se]),
+                _ => ([cr.ne, cr.se], [cr.nw, cr.sw]),
+            };
+            assert!(outer.iter().all(|r| *r > 0) && inner == [0, 0], "{pos}: {cr:?}");
+            let inactive = fills.iter().find(|r| r.rect.contains_rect(tabs[0])).expect("inactive tab");
+            assert_ne!(inactive.fill, active.fill, "{pos}");
+            let label = texts.iter().find(|t| t.0 == "Create/Update").expect("label");
+            assert_eq!(label.2, Color32::WHITE, "{pos}: white on blue");
+            assert!((label.1.center().x - tabs[1].center().x).abs() < 1.5, "{pos}: centred");
+            assert!(tabs[1].contains_rect(label.1), "{pos}: the label fits its tab");
+            let round = tabcontrol_panel_rounding(&c, egui::CornerRadius::same(16));
+            let corners = [round.nw, round.ne, round.sw, round.se];
+            for (k, r) in corners.iter().enumerate() {
+                assert_eq!(*r == 0, k == joined, "{pos}: page corners {round:?}");
+            }
+        }
     }
 
     #[test]
@@ -24845,15 +24984,22 @@ mod elegance_baseline_tests {
         // fixture's area chart shows its two sample series of five points, so
         // exactly ten circles, the same ten under both themes and all four
         // styles — one control, not the seam.
+        //
+        // **Every row fell at 1.70.272**, by a different amount per style: a
+        // TabControl's tabs used to be whole Buttons — styled face, relief,
+        // shadow rings, each as many shapes as that style paints for a button
+        // — and are now one fill and one label each (the tab-strip redesign).
+        // Nothing else in that change paints; the fixture's TabControl is the
+        // whole move.
         let expected: [(&str, GS, usize); 8] = [
-            ("liquid-glass", GS::Classic, 655),
-            ("asset-pack", GS::Classic, 665),
-            ("liquid-glass", GS::Enhanced, 755),
-            ("asset-pack", GS::Enhanced, 739),
-            ("liquid-glass", GS::Neumorphic, 609),
-            ("asset-pack", GS::Neumorphic, 637),
-            ("liquid-glass", GS::NeumorphicDark, 609),
-            ("asset-pack", GS::NeumorphicDark, 637),
+            ("liquid-glass", GS::Classic, 640),
+            ("asset-pack", GS::Classic, 646),
+            ("liquid-glass", GS::Enhanced, 731),
+            ("asset-pack", GS::Enhanced, 721),
+            ("liquid-glass", GS::Neumorphic, 604),
+            ("asset-pack", GS::Neumorphic, 618),
+            ("liquid-glass", GS::NeumorphicDark, 604),
+            ("asset-pack", GS::NeumorphicDark, 618),
         ];
         // (The Neumorphic rows fell by 36 / 24 at 1.70.263: a `Single` border
         // is one flat stroke there now, where it was the multi-stroke relief —

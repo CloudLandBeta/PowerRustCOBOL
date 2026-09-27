@@ -488,8 +488,9 @@ mod tests {
             resolve_drop_target(&c, 100, 10, 1, &active),
             DropTarget::Form
         );
+        // Inside the tab strip (26 px tall; the page starts right below it).
         assert_eq!(
-            resolve_drop_target(&c, 100, 30, 1, &active),
+            resolve_drop_target(&c, 100, 20, 1, &active),
             DropTarget::Form
         );
         assert_eq!(

@@ -8,6 +8,34 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.272] — 2026-09-26
+
+### Feature — TabControl: a tab strip that flows into its page
+
+- The tabs sit **edge to edge** and the strip joins the page with **no gap**,
+  on all four `TabPosition` sides. A tab's outer corners are rounded; the side
+  it shares with the page is straight and runs over the page's rim, so the
+  selected tab flows into the page with no line between them. The page's
+  corner where the first tab joins is square (`paint::tabcontrol_panel_rounding`),
+  its other three follow `CornerRadius`. Side strips stack their tabs, all as
+  wide as the widest, titles horizontal.
+- Tabs are sized to their titles (`Control::tab_width`), one height from the
+  font (`tab_strip_height`), titles centred. Tabs are painted flat — one fill
+  and one label, no bevel or shadow — by `draw_tabcontrol_tabs`, no longer as
+  Buttons; hovering an unselected tab tints it faintly.
+- New properties **InactiveTabColor** and **InactiveTabForegroundColor**.
+  Every tab colour left empty is derived (`paint::tabcontrol_tab_colors`, the
+  one resolution the painter and the Properties swatches share): the inactive
+  fill a step off the page's surface, each title whichever reads on its tab —
+  so `ActiveTabForegroundColor` empty now means white on the default blue.
+- ⚠️ **`TabPadding` changed meaning**: it was the gap between tabs; it is now
+  the room between a title and its tab's edges (default 16, was 7). The
+  example forms that had set it to 0 are set to 16.
+- KB, hover help (six languages), regenerated `chunked.data`, Guide
+  (*TabControl pages*). Tests `tabs_sit_edge_to_edge_and_flush_against_the_page`,
+  `the_active_tab_flows_into_the_page`; the elegance baseline re-blessed (the
+  tabs are fewer shapes than the Buttons were).
+
 ## [PowerRustCOBOL 1.70.271] — 2026-09-26
 
 ### Feature — Viewer conversations as chat bubbles

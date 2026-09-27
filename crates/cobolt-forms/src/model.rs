@@ -5125,7 +5125,11 @@ impl Control {
                 // The selected tab's title ink. Empty = the ForegroundColor
                 // every other tab uses.
                 props.insert("ActiveTabForegroundColor".into(), PropValue::String(String::new()));
-                props.insert("TabPadding".into(), PropValue::Int(7));
+                // Every other tab. Empty = a tone of the page's own surface,
+                // and text chosen to read on it.
+                props.insert("InactiveTabColor".into(), PropValue::String(String::new()));
+                props.insert("InactiveTabForegroundColor".into(), PropValue::String(String::new()));
+                props.insert("TabPadding".into(), PropValue::Int(16));
                 // Container behaviour (spec 012).
                 props.insert("HScroll".into(), PropValue::Bool(false));
                 props.insert("VScroll".into(), PropValue::Bool(false));
@@ -6241,21 +6245,62 @@ impl Control {
             .unwrap_or_else(|| "top".to_string())
     }
 
-    pub fn tab_strip_height(&self) -> i32 {
-        26
+    /// The tab font's size — the control's `FontSize`.
+    fn tab_font_size(&self) -> f32 {
+        self.get_prop("FontSize").map(|v| v.as_i64() as f32).unwrap_or(11.0).clamp(6.0, 96.0)
     }
 
+    /// Height of one tab: its label's line plus even padding above and below,
+    /// never less than 26 (what every tab measured before labels set it).
+    pub fn tab_strip_height(&self) -> i32 {
+        ((self.tab_font_size() * 1.3 + 10.0).round() as i32).max(26)
+    }
+
+    /// The space between a tab's label and its left and right edges.
+    ///
+    /// Until 1.70.272 this was the GAP between neighbouring tabs and between
+    /// the strip and the page; tabs now sit edge to edge and flow into the
+    /// page, so the one spacing a tab has left is inside it.
     pub fn tab_padding(&self) -> i32 {
         self.get_prop("TabPadding")
             .map(|v| v.as_i64())
-            .unwrap_or(7)
+            .unwrap_or(16)
             .clamp(0, 64) as i32
     }
 
-    pub fn tab_content_top_inset(&self) -> i32 {
-        self.tab_strip_height() + self.tab_padding()
+    /// How wide `label` sets in the tab font — an estimate by character class,
+    /// because the model has no font to measure with and the geometry it feeds
+    /// (the page area children are laid out in) must not depend on one. Wide
+    /// enough that a label never outgrows its tab.
+    pub fn tab_label_width(&self, label: &str) -> i32 {
+        let fs = self.tab_font_size();
+        let em: f32 = label
+            .chars()
+            .map(|c| match c {
+                c if (c as u32) >= 0x2E80 => 1.0,
+                'i' | 'l' | 'j' | 'I' | '.' | ',' | ':' | ';' | '\'' | '|' | '!' => 0.3,
+                'f' | 't' | 'r' | ' ' | '(' | ')' | '/' | '-' => 0.4,
+                'm' | 'w' | 'M' | 'W' => 0.85,
+                c if c.is_uppercase() => 0.68,
+                _ => 0.56,
+            })
+            .sum();
+        (em * fs).ceil() as i32
     }
 
+    /// Width of the tab that shows `label`: the label plus `TabPadding` on
+    /// each side.
+    pub fn tab_width(&self, label: &str) -> i32 {
+        (self.tab_label_width(label) + 2 * self.tab_padding()).max(40)
+    }
+
+    pub fn tab_content_top_inset(&self) -> i32 {
+        self.tab_strip_height()
+    }
+
+    /// How much of the control the tab strip takes, measured across it: the
+    /// tab height on top/bottom, the widest tab on left/right (a side strip's
+    /// tabs are all that wide, so their joined edges line up with the page).
     pub fn tab_strip_extent(&self) -> i32 {
         match self.tab_position().as_str() {
             "left" | "right" => {
@@ -6263,11 +6308,7 @@ impl Control {
                     .get_prop("Tabs")
                     .map(|v| v.as_str())
                     .unwrap_or_default();
-                tabs.lines()
-                    .map(|t| (t.chars().count() as i32 * 7 + 18).clamp(56, 160))
-                    .max()
-                    .unwrap_or(80)
-                    + self.tab_padding().max(0)
+                tabs.lines().map(|t| self.tab_width(t)).max().unwrap_or(80)
             }
             _ => self.tab_content_top_inset(),
         }
@@ -10126,11 +10167,14 @@ mod tests {
                 "content_rect must inset for chrome"
             );
             if is_tab {
-                assert_eq!(c.get_prop("TabPadding").unwrap().as_i64(), 7);
+                // TabPadding is the room inside a tab; the strip joins the
+                // page with no gap, so the page starts where the tabs end.
+                assert_eq!(c.get_prop("TabPadding").unwrap().as_i64(), 16);
                 assert_eq!(c.get_prop("ActiveTabColor").unwrap().as_str(), "#2C6FD2FF");
-                assert_eq!(c.tab_strip_height(), 26);
-                assert_eq!(c.tab_content_top_inset(), 33);
-                assert_eq!(cr.y, c.rect.y + 35);
+                let h = c.tab_strip_height();
+                assert!(h >= 26, "{h}");
+                assert_eq!(c.tab_content_top_inset(), h);
+                assert_eq!(cr.y, c.rect.y + h + 2);
             }
         }
         // A non-container keeps a plain content_rect and gains no container props.
@@ -10149,11 +10193,14 @@ mod tests {
         c.rect.w = 300;
         c.rect.h = 200;
 
+        // The strip joins the page with no gap: the page begins right where
+        // the tabs end (plus the 2 px border inset every container has).
+        let h = c.tab_strip_height();
         c.set_prop("TabPosition", PropValue::String("Top".into()));
-        assert_eq!(c.content_rect(), Rect::new(12, 55, 296, 163));
+        assert_eq!(c.content_rect(), Rect::new(12, 20 + h + 2, 296, 200 - h - 4));
 
         c.set_prop("TabPosition", PropValue::String("Bottom".into()));
-        assert_eq!(c.content_rect(), Rect::new(12, 22, 296, 163));
+        assert_eq!(c.content_rect(), Rect::new(12, 22, 296, 200 - h - 4));
 
         c.set_prop("TabPosition", PropValue::String("Left".into()));
         let left = c.content_rect();
