@@ -4808,7 +4808,12 @@ fn viewer_view_interactive(
             i.modifiers.command,
             i.key_pressed(egui::Key::Escape),
             i.key_pressed(egui::Key::A),
-            i.key_pressed(egui::Key::C),
+            // Copy as the platform delivers it: egui-winit turns Cmd/Ctrl+C
+            // into `Event::Copy` and swallows the key, so a check for the C
+            // key alone never fired on a real keyboard (operator, 2026-09-27:
+            // "I must be able to select and copy the text in the chat").
+            (i.modifiers.command && i.key_pressed(egui::Key::C))
+                || i.events.iter().any(|e| matches!(e, egui::Event::Copy)),
             vw::KeyScrollInput {
                 down_held: i.key_down(egui::Key::ArrowDown),
                 up_held: i.key_down(egui::Key::ArrowUp),
@@ -5334,7 +5339,7 @@ fn viewer_view_interactive(
             if command && keys_select_all {
                 selection = Some(vw::TextSelection::all(&lengths));
             }
-            if command && keys_copy {
+            if keys_copy {
                 copy_now(ui, selection);
             }
         }
@@ -15302,6 +15307,84 @@ mod tests {
                 .any(|c| (c.r(), c.g(), c.b()) == (target.r(), target.g(), target.b())),
             "an untouched toolbar must stay frameless; got {fills:?}"
         );
+    }
+
+    /// **A chat's text selects and copies** — operator, 2026-09-27: "I must
+    /// be able to select and copy the text in the chat". The chat is a Viewer
+    /// in `Streamed` layout; this drags across an agent's message and presses
+    /// Cmd/Ctrl+C the way a real keyboard delivers it — egui-winit turns it
+    /// into `Event::Copy` and swallows the key, which is why a check for the
+    /// C key alone never copied — then reads what reached the clipboard.
+    #[test]
+    fn a_streamed_viewer_selects_and_copies_its_text() {
+        const REPLY: &str = "Employees get twenty working days of annual leave";
+        let mut conv = crate::viewer::Conversation::new();
+        conv.append_as(crate::viewer::AppendMode::Markdown, "How many days?", crate::viewer::MessageRole::User);
+        conv.append_as(crate::viewer::AppendMode::Markdown, REPLY, crate::viewer::MessageRole::Agent);
+        let mut viewer = ctrl("VWR", ControlType::Viewer, 10, 10, 560, 360);
+        viewer.set_prop("Layout", crate::PropValue::String("Streamed".into()));
+        viewer.set_prop("_ConversationHtml", crate::PropValue::String(conv.to_html()));
+        let controls = vec![viewer];
+
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+        let screen = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 400.0));
+        let mut frame = |events: Vec<egui::Event>| {
+            let raw = egui::RawInput { screen_rect: Some(screen), events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |root_ui| {
+                egui::CentralPanel::default().show_inside(root_ui, |ui| {
+                    ui.set_min_size(Vec2::new(600.0, 400.0));
+                    let input = RenderInput {
+                        controls: &controls,
+                        state: &DesignedVisibility,
+                        form_size: Vec2::new(600.0, 400.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Default::default(),
+                    };
+                    render_form(ui, &input);
+                });
+            });
+            out.textures_delta.clear();
+            out
+        };
+        let copied = |out: &egui::FullOutput| -> String {
+            out.platform_output
+                .commands
+                .iter()
+                .filter_map(|c| match c {
+                    egui::OutputCommand::CopyText(t) => Some(t.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        frame(Vec::new());
+        frame(Vec::new());
+        // Where the reply was laid down: the run carrying its text.
+        let painted = crate::paint::viewer_measurements(&ctx, "VWR", 0).expect("the viewer painted");
+        let run = painted
+            .text_runs
+            .iter()
+            .find(|r| r.galley.job.text.contains("twenty"))
+            .unwrap_or_else(|| panic!("the reply must be laid down as a run; runs: {}", painted.text_runs.len()));
+        let press = run.rect.left_center() + Vec2::new(2.0, 0.0);
+        let release = run.rect.right_center() - Vec2::new(2.0, 0.0);
+        let button = |pos: egui::Pos2, pressed: bool| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        frame(vec![egui::Event::PointerMoved(press), button(press, true)]);
+        frame(vec![egui::Event::PointerMoved(press + Vec2::new(20.0, 0.0))]);
+        frame(vec![egui::Event::PointerMoved(release)]);
+        frame(vec![egui::Event::PointerMoved(release), button(release, false)]);
+
+        let by_event = copied(&frame(vec![egui::Event::Copy]));
+        println!("streamed viewer — dragged across the reply, Cmd/Ctrl+C (Event::Copy) copied {by_event:?}");
+        assert!(by_event.contains("twenty working days"), "Cmd/Ctrl+C must copy the selection: {by_event:?}");
     }
 
     /// **A Label's text selects and copies** — operator, 2026-08-22: a caption

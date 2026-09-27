@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.292] — 2026-09-27
+
+### Fix — Viewer: Cmd/Ctrl+C copies the selected text
+
+- **Selecting worked; copying never did** (`cobolt-forms/src/render.rs`).
+  The Viewer copied its selection only on a C key press with Command held,
+  but egui-winit turns Cmd/Ctrl+C into `Event::Copy` and swallows the key,
+  so on a real keyboard the check never fired — in every layout, the chat's
+  `Streamed` conversation included (operator, 2026-09-27: "I must be able to
+  select and copy the text in the chat"). It now copies on `Event::Copy` as
+  well as on the key. The right-click menu's Copy was unaffected.
+- Test: `a_streamed_viewer_selects_and_copies_its_text` — drags across an
+  agent's reply in a `Streamed` Viewer and reads the clipboard; before the
+  fix it received nothing. cobolt-forms (render) 1187/0.
+
 ## [PowerRustCOBOL 1.70.291] — 2026-09-27
 
 ### Fix — the built-in semantic model ships with the application
