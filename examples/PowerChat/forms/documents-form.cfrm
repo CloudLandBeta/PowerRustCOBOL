@@ -351,8 +351,64 @@
           05 FILLER PIC X(70) VALUE "Supprimé : &1 - retiré de la base de connaissances.".
           05 FILLER PIC X(70) VALUE "削除しました: &1（ナレッジベースから除外）".
           05 FILLER PIC X(70) VALUE "已删除：&1（已从知识库移除）".
+      *>   REPLACE-Q
+          05 FILLER PIC X(70) VALUE "&1 already exists in this folder. Replace it?".
+          05 FILLER PIC X(70) VALUE "&1 já existe nesta pasta. Substituir?".
+          05 FILLER PIC X(70) VALUE "&1 ya existe en esta carpeta. ¿Reemplazarlo?".
+          05 FILLER PIC X(70) VALUE "&1 existe déjà dans ce dossier. Le remplacer ?".
+          05 FILLER PIC X(70) VALUE "&1 は既にあります。置き換えますか？".
+          05 FILLER PIC X(70) VALUE "&1 已存在于此文件夹。要替换吗？".
+      *>   REPLACE-YES
+          05 FILLER PIC X(70) VALUE "Replace".
+          05 FILLER PIC X(70) VALUE "Substituir".
+          05 FILLER PIC X(70) VALUE "Reemplazar".
+          05 FILLER PIC X(70) VALUE "Remplacer".
+          05 FILLER PIC X(70) VALUE "置き換える".
+          05 FILLER PIC X(70) VALUE "替换".
+      *>   REPLACE-NO
+          05 FILLER PIC X(70) VALUE "Keep the old one".
+          05 FILLER PIC X(70) VALUE "Manter o antigo".
+          05 FILLER PIC X(70) VALUE "Conservar el anterior".
+          05 FILLER PIC X(70) VALUE "Garder l'ancien".
+          05 FILLER PIC X(70) VALUE "古いものを残す".
+          05 FILLER PIC X(70) VALUE "保留旧文件".
+      *>   UP-SENDING
+          05 FILLER PIC X(70) VALUE "Adding &1 to the Knowledge Base...".
+          05 FILLER PIC X(70) VALUE "Adicionando &1 à base de conhecimento...".
+          05 FILLER PIC X(70) VALUE "Añadiendo &1 a la base de conocimiento...".
+          05 FILLER PIC X(70) VALUE "Ajout de &1 à la base de connaissances...".
+          05 FILLER PIC X(70) VALUE "&1 をナレッジベースに追加中...".
+          05 FILLER PIC X(70) VALUE "正在将 &1 加入知识库...".
+      *>   UP-ADDED
+          05 FILLER PIC X(70) VALUE "Added: &1.".
+          05 FILLER PIC X(70) VALUE "Adicionado: &1.".
+          05 FILLER PIC X(70) VALUE "Añadido: &1.".
+          05 FILLER PIC X(70) VALUE "Ajouté : &1.".
+          05 FILLER PIC X(70) VALUE "追加しました: &1".
+          05 FILLER PIC X(70) VALUE "已添加：&1。".
+      *>   UP-UPDATED
+          05 FILLER PIC X(70) VALUE "Updated: &1.".
+          05 FILLER PIC X(70) VALUE "Atualizado: &1.".
+          05 FILLER PIC X(70) VALUE "Actualizado: &1.".
+          05 FILLER PIC X(70) VALUE "Mis à jour : &1.".
+          05 FILLER PIC X(70) VALUE "更新しました: &1".
+          05 FILLER PIC X(70) VALUE "已更新：&1。".
+      *>   UP-KEPT
+          05 FILLER PIC X(70) VALUE "Not replaced: &1.".
+          05 FILLER PIC X(70) VALUE "Não substituído: &1.".
+          05 FILLER PIC X(70) VALUE "No reemplazado: &1.".
+          05 FILLER PIC X(70) VALUE "Non remplacé : &1.".
+          05 FILLER PIC X(70) VALUE "置き換えませんでした: &1".
+          05 FILLER PIC X(70) VALUE "未替换：&1。".
+      *>   UP-SUMMARY
+          05 FILLER PIC X(70) VALUE "&1 added, &2 updated, &3 not replaced.".
+          05 FILLER PIC X(70) VALUE "&1 adicionado(s), &2 atualizado(s), &3 não substituído(s).".
+          05 FILLER PIC X(70) VALUE "&1 añadido(s), &2 actualizado(s), &3 no reemplazado(s).".
+          05 FILLER PIC X(70) VALUE "&1 ajouté(s), &2 mis à jour, &3 non remplacé(s).".
+          05 FILLER PIC X(70) VALUE "追加 &1、更新 &2、置き換えなし &3。".
+          05 FILLER PIC X(70) VALUE "新增 &1，更新 &2，未替换 &3。".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 46.
+          05 PC-TEXT-ROW     OCCURS 54.
              10 PC-TEXT      PIC X(70) OCCURS 6.
       *>   The texts in the current language, by name.
        01 PC-TEXTS-NOW       GLOBAL.
@@ -402,8 +458,16 @@
           05 T-KB-PASSAGES PIC X(70).
           05 T-REMOVING PIC X(70).
           05 T-DOC-REMOVED PIC X(70).
+          05 T-REPLACE-Q PIC X(70).
+          05 T-REPLACE-YES PIC X(70).
+          05 T-REPLACE-NO PIC X(70).
+          05 T-UP-SENDING PIC X(70).
+          05 T-UP-ADDED PIC X(70).
+          05 T-UP-UPDATED PIC X(70).
+          05 T-UP-KEPT PIC X(70).
+          05 T-UP-SUMMARY PIC X(70).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(70) OCCURS 46.
+          05 PC-TEXT-NOW     PIC X(70) OCCURS 54.
       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
        01 WS-FMT             GLOBAL PIC X(70).
        01 WS-ARG1            GLOBAL PIC X(300).
@@ -472,6 +536,30 @@
        01 WS-DOC-TOT         GLOBAL PIC 9(9).
       *>   A document being deleted, named in the confirmation.
        01 WS-DELETING        GLOBAL PIC X(260) VALUE SPACES.
+      *>   Uploads (operator, 2026-09-27: ask, then replace). The zone copies
+      *>   nothing; each dropped file is queued with where it goes, asked
+      *>   about when that name is taken, and imported in turn.
+       01 WS-UP-N            GLOBAL PIC 9(3) VALUE 0.
+       01 WS-UP-I            GLOBAL PIC 9(3) VALUE 0.
+       01 WS-UP-CUR          GLOBAL PIC 9(3) VALUE 0.
+       01 WS-UP-STEP         GLOBAL PIC X VALUE SPACE.
+       01 WS-UP-ADDED        GLOBAL PIC 9(3) VALUE 0.
+       01 WS-UP-UPDATED      GLOBAL PIC 9(3) VALUE 0.
+       01 WS-UP-KEPT         GLOBAL PIC 9(3) VALUE 0.
+       01 WS-UP-QUEUE        GLOBAL.
+          05 WS-UP-ITEM      OCCURS 50.
+             10 WS-UP-SRC    PIC X(400).
+             10 WS-UP-DEST   PIC X(260).
+      *>      "Q" queued, "K" kept (not replaced), "D" done.
+             10 WS-UP-STATE  PIC X.
+       01 WS-UP-ALL          GLOBAL PIC X(8000).
+       01 WS-UP-LEN          GLOBAL PIC 9(5).
+       01 WS-UP-PT           GLOBAL PIC 9(5).
+       01 WS-UP-ONE          GLOBAL PIC X(400).
+       01 WS-UP-NAME         GLOBAL PIC X(260).
+       01 WS-UP-ANSWER       GLOBAL PIC X(4).
+       01 WS-UP-QUESTION     GLOBAL PIC X(400).
+       01 WS-UP-COUNT        GLOBAL PIC 9(9).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -802,7 +890,8 @@
                STRING FUNCTION TRIM(WS-DOCS-DIR) "/" FUNCTION TRIM(WS-FOLDER)
                    DELIMITED BY SIZE INTO WS-LINE
            END-IF
-           MOVE WS-LINE TO Drop-Docs::DestinationFolder
+      *>   The zone copies nothing itself (uploads are imported, asking
+      *>   first when a name is taken): WS-FOLDER is where they go.
 ]]></Event>
     <Event name="PC-TEXTS" paragraph="PC-TEXTS"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -823,7 +912,7 @@
                WHEN OTHER MOVE "en" TO WS-LANG
                           MOVE 1 TO WS-LANG-IX
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 46
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 54
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
            MOVE FUNCTION TRIM(T-DOCS-TITLE) TO Lbl-Title::Caption
@@ -840,6 +929,49 @@
            MOVE WS-DOC-TYPES TO WS-ARG1
            CALL "PC-FMT"
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Types::Caption
+]]></Event>
+    <Event name="PC-UP-NEXT" paragraph="PC-UP-NEXT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Import the next queued upload; when none is left, the summary.
+      *>   Busy with something else: stay queued - onIndexed calls back.
+           IF WS-UP-STEP NOT = SPACE
+               EXIT PROGRAM
+           END-IF
+           MOVE 0 TO WS-UP-CUR
+           PERFORM VARYING WS-UP-I FROM 1 BY 1
+                   UNTIL WS-UP-I > WS-UP-N OR WS-UP-CUR > 0
+               IF WS-UP-STATE(WS-UP-I) = "Q"
+                   MOVE WS-UP-I TO WS-UP-CUR
+               END-IF
+           END-PERFORM
+           IF WS-UP-CUR = 0
+               IF WS-UP-N > 1
+                   MOVE T-UP-SUMMARY TO WS-FMT
+                   MOVE WS-UP-ADDED TO WS-KB1
+                   MOVE WS-KB1 TO WS-ARG1
+                   MOVE WS-UP-UPDATED TO WS-KB1
+                   MOVE WS-KB1 TO WS-ARG2
+                   MOVE WS-UP-KEPT TO WS-KB1
+                   MOVE WS-KB1 TO WS-ARG3
+                   CALL "PC-FMT"
+                   MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               END-IF
+               MOVE 0 TO WS-UP-N
+               EXIT PROGRAM
+           END-IF
+           MOVE SPACES TO KB-D::SearchModeReason
+           MOVE KB-D::ImportDocument(FUNCTION TRIM(WS-UP-SRC(WS-UP-CUR)),
+               FUNCTION TRIM(WS-UP-DEST(WS-UP-CUR))) TO WS-OK
+           IF WS-OK NOT = "1"
+      *>       Another update is running: this one waits for its end.
+               EXIT PROGRAM
+           END-IF
+           MOVE "U" TO WS-UP-STEP
+           MOVE T-UP-SENDING TO WS-FMT
+           MOVE WS-UP-DEST(WS-UP-CUR) TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Progress::Caption
 ]]></Event>
     <Event name="PC-PREVIEW" paragraph="PC-PREVIEW"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -1342,7 +1474,71 @@ Node 2</Property>
     <Event name="onFilesDropped" paragraph="DROP-DOCS--ONFILESDROPPED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-           CALL "PC-KB-REFRESH"
+      *>   Each accepted file (DroppedFiles, at its own path - the zone
+      *>   copies nothing) goes into the selected folder under its own name.
+      *>   A name already there is asked about first: replace, or keep.
+           MOVE Drop-Docs::DroppedFiles TO WS-UP-ALL
+           MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-UP-ALL)) TO WS-UP-LEN
+           MOVE 1 TO WS-UP-PT
+           IF WS-UP-N = 0
+               MOVE 0 TO WS-UP-ADDED WS-UP-UPDATED WS-UP-KEPT
+           END-IF
+           PERFORM UNTIL WS-UP-PT > WS-UP-LEN OR WS-UP-N = 50
+               MOVE SPACES TO WS-UP-ONE
+               UNSTRING WS-UP-ALL DELIMITED BY X"0A" INTO WS-UP-ONE
+                   WITH POINTER WS-UP-PT
+               END-UNSTRING
+               IF WS-UP-ONE NOT = SPACES
+                   MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-UP-ONE)) TO WS-L
+                   MOVE 0 TO WS-P
+                   PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
+                       IF WS-UP-ONE(WS-K:1) = "/" OR WS-UP-ONE(WS-K:1) = "\"
+                           MOVE WS-K TO WS-P
+                       END-IF
+                   END-PERFORM
+                   MOVE SPACES TO WS-UP-NAME
+                   MOVE WS-UP-ONE(WS-P + 1:WS-L - WS-P) TO WS-UP-NAME
+                   ADD 1 TO WS-UP-N
+                   MOVE WS-UP-ONE TO WS-UP-SRC(WS-UP-N)
+                   MOVE SPACES TO WS-UP-DEST(WS-UP-N)
+                   IF WS-FOLDER = SPACES
+                       MOVE FUNCTION TRIM(WS-UP-NAME) TO WS-UP-DEST(WS-UP-N)
+                   ELSE
+                       STRING FUNCTION TRIM(WS-FOLDER) "/" FUNCTION TRIM(WS-UP-NAME)
+                           DELIMITED BY SIZE INTO WS-UP-DEST(WS-UP-N)
+                   END-IF
+                   MOVE "Q" TO WS-UP-STATE(WS-UP-N)
+                   MOVE "N" TO WS-FOUND
+                   PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-NODE-N
+                       IF WS-NODE-KIND(WS-J) = "D"
+                          AND WS-NODE-PATH(WS-J) = WS-UP-DEST(WS-UP-N)
+                           MOVE "Y" TO WS-FOUND
+                       END-IF
+                   END-PERFORM
+                   IF WS-FOUND = "Y"
+                       MOVE T-REPLACE-Q TO WS-FMT
+                       MOVE WS-UP-DEST(WS-UP-N) TO WS-ARG1
+                       CALL "PC-FMT"
+                       MOVE WS-FMT-OUT TO WS-UP-QUESTION
+                       INVOKE ME::"SetProperty"("ConfirmText", WS-UP-QUESTION)
+                       INVOKE ME::"SetProperty"("ConfirmYes", T-REPLACE-YES)
+                       INVOKE ME::"SetProperty"("ConfirmNo", T-REPLACE-NO)
+                       INVOKE ME::"SetProperty"("ConfirmAnswer", "N")
+                       INVOKE ME::"OpenFormSync"("CONFIRM-FORM")
+                       INVOKE ME::"GetProperty"("ConfirmAnswer")
+                           RETURNING WS-UP-ANSWER
+                       IF WS-UP-ANSWER(1:1) NOT = "Y"
+                           MOVE "K" TO WS-UP-STATE(WS-UP-N)
+                           ADD 1 TO WS-UP-KEPT
+                           MOVE T-UP-KEPT TO WS-FMT
+                           MOVE WS-UP-DEST(WS-UP-N) TO WS-ARG1
+                           CALL "PC-FMT"
+                           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+                       END-IF
+                   END-IF
+               END-IF
+           END-PERFORM
+           CALL "PC-UP-NEXT"
 ]]></Event>
     <Event name="onFilesRejected" paragraph="DROP-DOCS--ONFILESREJECTED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -2338,6 +2534,51 @@ Node 2</Property>
                CALL "PC-KB-REFRESH"
                EXIT PROGRAM
            END-IF
+      *>   An upload imported: say which, and whether it was new; then the
+      *>   next one.
+           IF WS-UP-STEP = "U"
+               MOVE SPACE TO WS-UP-STEP
+               MOVE "D" TO WS-UP-STATE(WS-UP-CUR)
+               CALL "PC-PROGRESS-IDLE"
+               CALL "PC-LIST-DOCS"
+               MOVE KB-D::UpdatedCount TO WS-NUM-TEXT
+               COMPUTE WS-UP-COUNT = FUNCTION NUMVAL(WS-NUM-TEXT)
+               IF WS-UP-COUNT > 0
+                   MOVE T-UP-UPDATED TO WS-FMT
+                   ADD 1 TO WS-UP-UPDATED
+               ELSE
+                   MOVE T-UP-ADDED TO WS-FMT
+                   ADD 1 TO WS-UP-ADDED
+               END-IF
+               MOVE WS-UP-DEST(WS-UP-CUR) TO WS-ARG1
+               CALL "PC-FMT"
+               MOVE WS-FMT-OUT TO WS-LINE
+               MOVE KB-D::PassageCount TO WS-NUM-TEXT
+               COMPUTE WS-PASSAGES = FUNCTION NUMVAL(WS-NUM-TEXT)
+               MOVE WS-PASSAGES TO WS-KB1
+               MOVE KB-D::SearchMode TO WS-NUM-TEXT
+               IF WS-NUM-TEXT = "Semantic"
+                   MOVE T-KB-EMBEDDED TO WS-FMT
+               ELSE
+                   MOVE T-KB-PASSAGES TO WS-FMT
+               END-IF
+               MOVE WS-KB1 TO WS-ARG1
+               CALL "PC-FMT"
+               MOVE WS-LINE TO WS-ARG2
+               MOVE SPACES TO WS-LINE
+               STRING FUNCTION TRIM(WS-ARG2) " " FUNCTION TRIM(WS-FMT-OUT)
+                   DELIMITED BY SIZE INTO WS-LINE
+               IF WS-REJECT-MSG NOT = SPACES
+                   MOVE WS-LINE TO WS-ARG2
+                   MOVE SPACES TO WS-LINE
+                   STRING FUNCTION TRIM(WS-ARG2) " " FUNCTION TRIM(WS-REJECT-MSG)
+                       DELIMITED BY SIZE INTO WS-LINE
+                   MOVE SPACES TO WS-REJECT-MSG
+               END-IF
+               MOVE WS-LINE TO Lbl-Status::Caption
+               CALL "PC-UP-NEXT"
+               EXIT PROGRAM
+           END-IF
       *>   A move's copy is indexed: now the original goes. Its own onIndexed
       *>   lists the tree and reports the move.
            IF WS-MOVE-STEP = "I"
@@ -2461,6 +2702,10 @@ Node 2</Property>
            END-IF
            MOVE WS-LINE TO Lbl-Status::Caption
            CALL "PC-LIST-DOCS"
+      *>   Uploads that arrived while this update ran go now.
+           IF WS-UP-N > 0
+               CALL "PC-UP-NEXT"
+           END-IF
 ]]></Event>
     <Event name="onBusy" paragraph="KB-D--ONBUSY"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -2468,6 +2713,11 @@ Node 2</Property>
            CALL "PC-PROGRESS-IDLE"
            MOVE KB-D::LastError TO Lbl-Status::Caption
            MOVE SPACES TO WS-DELETING
+           IF WS-UP-STEP = "U"
+               MOVE SPACE TO WS-UP-STEP
+               MOVE "D" TO WS-UP-STATE(WS-UP-CUR)
+               CALL "PC-UP-NEXT"
+           END-IF
       *>   No model (no network, say): index anyway - by words, and the
       *>   summary says so. A failed rebuild leaves the text-only index.
            IF WS-KB-STEP = "M"
@@ -2490,6 +2740,11 @@ Node 2</Property>
            CALL "PC-PROGRESS-IDLE"
            MOVE KB-D::LastError TO Lbl-Status::Caption
            MOVE SPACES TO WS-DELETING
+           IF WS-UP-STEP = "U"
+               MOVE SPACE TO WS-UP-STEP
+               MOVE "D" TO WS-UP-STATE(WS-UP-CUR)
+               CALL "PC-UP-NEXT"
+           END-IF
       *>   No model (no network, say): index anyway - by words, and the
       *>   summary says so. A failed rebuild leaves the text-only index.
            IF WS-KB-STEP = "M"

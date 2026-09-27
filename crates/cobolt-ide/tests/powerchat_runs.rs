@@ -40,6 +40,10 @@ struct Session {
     /// The forms the program opened with `OpenFormSync`, by id — each one
     /// answered at once, as if the operator had closed it.
     opened: Receiver<String>,
+    /// What the operator answers in `CONFIRM-FORM` (`Y`/`N`); empty closes
+    /// it without answering. Written back the way the real dialog's
+    /// `super::"SetProperty"` arrives: on the caller's own form object.
+    confirm: Arc<Mutex<String>>,
 }
 
 impl Session {
@@ -88,9 +92,14 @@ impl Session {
             .collect();
         let (events, event_rx) = mpsc::channel::<FormEvent>();
         let (input, input_rx) = mpsc::channel::<StateUpdate>();
+        let input_for_dialogs = input.clone();
         let (state_tx, state) = mpsc::channel::<StateUpdate>();
         let (display_tx, display) = mpsc::channel::<String>();
         let (opened_tx, opened) = mpsc::channel::<String>();
+        let confirm = Arc::new(Mutex::new(String::new()));
+        let confirm_answer = confirm.clone();
+        // The form's own object, as `set_form_host` below names it.
+        let form_object = "FORM".to_string();
         let err_tx = display_tx.clone();
         let handle = thread::spawn(move || {
             let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
@@ -100,6 +109,7 @@ impl Session {
                 interp.set_designed_menu(id, def);
             }
             let mut _closed = None;
+            let answer_to = input_for_dialogs;
             {
                 use cobolt_runtime::form_host::{FormRequest, ROOT_HANDLE};
                 let (req_tx, req_rx) = mpsc::channel::<FormRequest>();
@@ -114,6 +124,10 @@ impl Session {
                                 let _ = reply.send(answers.next().flatten());
                             }
                             FormRequest::OpenForm { form_id, reply, .. } => {
+                                let answer = confirm_answer.lock().unwrap().clone();
+                                if form_id.eq_ignore_ascii_case("CONFIRM-FORM") && !answer.is_empty() {
+                                    let _ = answer_to.send(StateUpdate::new(&form_object, "ConfirmAnswer", &answer));
+                                }
                                 let _ = opened_tx.send(form_id);
                                 let _ = reply.send(None);
                             }
@@ -126,7 +140,7 @@ impl Session {
                 let _ = err_tx.send(format!("RUN ENDED WITH ERROR: {e:?}"));
             }
         });
-        Session { events, input, state, display, seen: Vec::new(), handle: Some(handle), opened }
+        Session { events, input, state, display, seen: Vec::new(), handle: Some(handle), opened, confirm }
     }
 
     fn type_into(&self, ctrl: &str, text: &str) {
@@ -1047,6 +1061,9 @@ fn powerchat_documents_take_every_readable_type_and_say_why_others_are_refused()
     // The label is written with the texts, then the zone takes the same list.
     let label = s.wait_for("Lbl-Types", "Caption", |v| v.starts_with("Accepted types:"));
     let filter = s.wait_for("Drop-Docs", "AllowedExtensions", |v| !v.trim().is_empty());
+    // The update the form runs when it opens, over and done — as a person
+    // would see it — before anything is dropped.
+    s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Added 0,"));
 
     // Every type the Knowledge Base reads is taken; nothing else is.
     let readable = [
@@ -1084,11 +1101,19 @@ fn powerchat_documents_take_every_readable_type_and_say_why_others_are_refused()
     s.wait_for("Lbl-Status", "Caption", |v| {
         v == "Not added - this type of file cannot be read: photo.png, old.doc"
     });
-    std::fs::write(docs.join("policy.md"), "# Policy\nTwenty days.").unwrap();
+    // The readable one, from outside the topic: the zone hands its own path
+    // over and the form imports it.
+    let outside = root.join("Downloads");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("policy.md"), "# Policy\nTwenty days.").unwrap();
+    s.input
+        .send(StateUpdate::new("Drop-Docs", "DroppedFiles", &outside.join("policy.md").display().to_string()))
+        .unwrap();
     s.events.send(FormEvent::new("Drop-Docs", "onFilesDropped")).unwrap();
     s.wait_for("Lbl-Status", "Caption", |v| {
-        v.starts_with("Added 1,") && v.ends_with("Not added - this type of file cannot be read: photo.png, old.doc")
+        v.starts_with("Added: policy.md.") && v.ends_with("Not added - this type of file cannot be read: photo.png, old.doc")
     });
+    assert!(docs.join("policy.md").is_file(), "imported into the topic's documents");
     s.quit();
 
     println!("\n  ── 071 PowerChat, what the Documents zone accepts ───────");
@@ -1401,6 +1426,65 @@ fn powerchat_confirms_a_deleted_document_by_name() {
     assert!(!docs.join("travel.md").exists());
     println!(
         "\n  ── 071 PowerChat, deleting a document ───────────────────\n  while: {doing:?}\n  after: {done:?} — {:.0} ms\n",
+        t.elapsed().as_secs_f64() * 1000.0
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Operator (2026-09-27): an upload whose name is already in the folder asks
+/// first — replace, or keep — and every upload says what it did.
+#[test]
+fn powerchat_asks_before_replacing_an_uploaded_document() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let root = std::env::temp_dir().join(format!(
+        "prc-071-upload-{}",
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let data = root.join("data");
+    let kb = root.join("KB");
+    let docs = kb.join("HR").join("documents");
+    let outside = root.join("Downloads");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::create_dir_all(&docs).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    plant_model(&root, false);
+    std::fs::write(docs.join("leave.md"), "# Leave\nTwenty days.").unwrap();
+    std::fs::write(outside.join("leave.md"), "# Leave\nTwenty-five days from 2027.").unwrap();
+    std::fs::write(outside.join("travel.md"), "# Travel\nTrains under four hours.").unwrap();
+    std::env::set_var("POWERCHAT_DATA", &data);
+    seed_settings(&data, &[("CUR-TOPIC", "HR"), ("KB-LOCATION", &kb.display().to_string())]);
+    let drop = |s: &Session, files: &[&std::path::Path]| {
+        let list: Vec<String> = files.iter().map(|p| p.display().to_string()).collect();
+        s.input.send(StateUpdate::new("Drop-Docs", "DroppedFiles", &list.join("\n"))).unwrap();
+        s.events.send(FormEvent::new("Drop-Docs", "onFilesDropped")).unwrap();
+    };
+    let t = Instant::now();
+    let mut s = Session::start("documents-form.cfrm");
+    s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Added 1,"));
+
+    // A new document: added, no question.
+    drop(&s, &[&outside.join("travel.md")]);
+    let added = s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Added: travel.md."));
+    assert!(s.opened.try_recv().is_err(), "nothing to ask about a new name");
+    assert!(docs.join("travel.md").is_file());
+
+    // The same name, and the operator keeps the old one.
+    *s.confirm.lock().unwrap() = "N".into();
+    drop(&s, &[&outside.join("leave.md")]);
+    let kept = s.wait_for("Lbl-Status", "Caption", |v| v == "Not replaced: leave.md.");
+    assert_eq!(s.opened.recv_timeout(Duration::from_secs(30)).unwrap().to_ascii_uppercase(), "CONFIRM-FORM");
+    assert_eq!(std::fs::read_to_string(docs.join("leave.md")).unwrap(), "# Leave\nTwenty days.", "kept as it was");
+
+    // The same name, and the operator replaces it: updated and re-indexed.
+    *s.confirm.lock().unwrap() = "Y".into();
+    drop(&s, &[&outside.join("leave.md")]);
+    let updated = s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Updated: leave.md."));
+    assert_eq!(s.opened.recv_timeout(Duration::from_secs(30)).unwrap().to_ascii_uppercase(), "CONFIRM-FORM");
+    assert!(std::fs::read_to_string(docs.join("leave.md")).unwrap().contains("Twenty-five"), "replaced");
+    assert!(!docs.join("leave (2).md").exists(), "never a second copy");
+    s.quit();
+    println!(
+        "\n  ── 071 PowerChat, uploading ─────────────────────────────\n  new: {added:?}\n  keep: {kept:?}\n  replace: {updated:?} — {:.0} ms\n",
         t.elapsed().as_secs_f64() * 1000.0
     );
     let _ = std::fs::remove_dir_all(&root);

@@ -8,6 +8,30 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.301] — 2026-09-27
+
+### Feature — PowerChat: an upload whose name is taken asks first, and every upload says what it did
+
+- The drop zone no longer copies (it still judges the file types): each
+  accepted file is queued with where it goes — the selected folder and its
+  own name — and imported in turn with `ImportDocument`, which writes it into
+  the topic's documents and indexes that file alone, with the chunking and
+  embedding bars. A name already in that folder opens the confirmation dialog
+  first — **Replace** updates the document and indexes it again, **Keep the
+  old one** leaves it untouched. Before, a same-named upload landed beside the
+  original as "name (2).ext" (operator, 2026-09-27: "ask, then replace").
+- Each file ends on "Added: <document>." or "Updated: <document>." with the
+  passage sentence, "Not replaced: <document>." when kept, and a summary when
+  several were dropped. A drop while another update runs waits for it.
+  Eight texts in six languages.
+- Tests: `powerchat_asks_before_replacing_an_uploaded_document` (new: added,
+  no question; same name + Keep: untouched; same name + Replace: updated, no
+  "(2)" copy) — the harness's stand-in form host now answers `CONFIRM-FORM`
+  the way the dialog does, on the caller's own form object.
+  `powerchat_documents_take_every_readable_type_and_say_why_others_are_refused`
+  drops from outside the topic, as an upload now works, and waits for the
+  form's opening update before dropping.
+
 ## [PowerRustCOBOL 1.70.300] — 2026-09-27
 
 ### Fix — PowerChat: deleting a document says what it is doing, and what it removed

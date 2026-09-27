@@ -46,7 +46,10 @@ opens inside the window, in the content pane beside the menu.
 3. **Documents** — the topic's documents as a folder tree. Make a folder with
    **New folder** (inside the one selected), select it, and drop Word,
    PowerPoint, Excel, PDF, Markdown or text files on the zone: they land in
-   that folder and are indexed, with a progress panel. The zone takes exactly
+   that folder and are indexed — a bar for the chunking and one for the
+   embedding, and a line saying what each file became. A file whose name is
+   already in that folder is asked about first: replace it (the document is
+   updated and indexed again) or keep the old one. The zone takes exactly
    what the Knowledge Base can read — listed under the form — and refuses
    anything else, naming the file and saying why. Documents are embedded with
    the built-in semantic model (`multilingual-e5-small`, the one Grace uses):
