@@ -5297,6 +5297,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "TabPosition" => ("one of: `Top` | `Bottom` | `Left` | `Right`", "Edge the tab strip sits on."),
         "SelectedTab" => ("0-based tab index", "Currently active tab. The operator clicking a tab header writes this, and writing it from COBOL turns the page exactly as a click does — the page a running form shows is always this value, never the one the form was designed with."),
         "ActiveTabColor" => (COLOR_DOMAIN, "Highlight color of the active tab."),
+        "ActiveTabForegroundColor" => (COLOR_DOMAIN, "Text color of the active tab's title. Empty (the default) = the same `ForegroundColor` as the other tabs. Settable from COBOL: `MOVE \"#FFFFFFFF\" TO TAB-1::ActiveTabForegroundColor`."),
         "TabPadding" => ("integer 0-64 (default 7)", "The GAP between neighbouring tab headers, and between the tab strip and the page area beside it. The padding inside a header is fixed; this does not change it."),
 
         // ── MenuBar ──

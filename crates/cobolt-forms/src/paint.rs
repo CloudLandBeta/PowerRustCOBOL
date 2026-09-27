@@ -6763,6 +6763,10 @@ pub fn draw_tabcontrol_tabs(painter: &egui::Painter, origin: Pos2, ctrl: &Contro
         .get_prop("ActiveTabColor")
         .map(|v| parse_color(v.as_str()))
         .unwrap_or(Color32::from_rgb(44, 111, 210));
+    let active_ink = ctrl
+        .get_prop("ActiveTabForegroundColor")
+        .map(|v| v.as_str().trim().to_owned())
+        .filter(|s| !s.is_empty());
     for (i, (t, tr)) in tabs.iter().zip(tab_rects.iter()).enumerate() {
         let active = i == sel;
         let mut tab = Control::new(format!("{}__tab_{}", ctrl.id, i), ControlType::Button, 0, 0);
@@ -6778,6 +6782,9 @@ pub fn draw_tabcontrol_tabs(painter: &egui::Painter, origin: Pos2, ctrl: &Contro
                 "BackgroundColor",
                 PropValue::String(color_to_hex(active_color)),
             );
+            if let Some(ink) = &active_ink {
+                tab.set_prop("ForegroundColor", PropValue::String(ink.clone()));
+            }
         }
         draw_control(painter, tr.min, &tab, active, true, alpha_mul, 1.0, None);
     }
@@ -17416,6 +17423,48 @@ mod toggle_surface_tests {
         let mut cb = Control::new("chk", ControlType::CheckBox, 0, 0);
         cb.rect = crate::model::Rect { x: 0, y: 0, w: 160, h: 24 };
         cb
+    }
+
+    /// `ActiveTabForegroundColor` inks the selected tab's title and no other;
+    /// left empty, every tab keeps the same ink (operator, 2026-09-26).
+    #[test]
+    fn the_active_tab_title_takes_its_own_ink() {
+        let titles = |ink: &str| -> Vec<(String, Color32)> {
+            let mut c = Control::new("TAB-1", ControlType::TabControl, 0, 0);
+            c.rect = crate::model::Rect::new(0, 0, 400, 200);
+            c.set_prop("Tabs", PropValue::String("One\nTwo".into()));
+            c.set_prop("SelectedTab", PropValue::Int(1));
+            c.set_prop("ForegroundColor", PropValue::String("#003758FF".into()));
+            c.set_prop("ActiveTabForegroundColor", PropValue::String(ink.into()));
+            let ctx = egui::Context::default();
+            let mut full = ctx.run_ui(egui::RawInput::default(), |ui| {
+                draw_tabcontrol_tabs(ui.painter(), Pos2::ZERO, &c, 1.0);
+            });
+            full.textures_delta.clear();
+            fn walk(sh: &egui::Shape, out: &mut Vec<(String, Color32)>) {
+                match sh {
+                    egui::Shape::Vec(v) => v.iter().for_each(|x| walk(x, out)),
+                    egui::Shape::Text(t) => out.push((
+                        t.galley.text().to_owned(),
+                        t.override_text_color
+                            .or_else(|| t.galley.job.sections.first().map(|s| s.format.color))
+                            .unwrap_or(Color32::TRANSPARENT),
+                    )),
+                    _ => {}
+                }
+            }
+            let mut out = Vec::new();
+            full.shapes.iter().for_each(|cs| walk(&cs.shape, &mut out));
+            out
+        };
+        let ink_of = |v: &[(String, Color32)], t: &str| {
+            v.iter().find(|(s, _)| s == t).map(|(_, c)| *c).expect(t)
+        };
+        let set = titles("#FF0000FF");
+        assert_eq!(ink_of(&set, "Two"), Color32::from_rgb(255, 0, 0), "{set:?}");
+        assert_ne!(ink_of(&set, "One"), Color32::from_rgb(255, 0, 0), "{set:?}");
+        let unset = titles("");
+        assert_eq!(ink_of(&unset, "One"), ink_of(&unset, "Two"), "{unset:?}");
     }
 
     /// Under Neumorphic a `Single` border is the developer's own flat line —

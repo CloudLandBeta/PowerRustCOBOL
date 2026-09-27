@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.268] — 2026-09-26
+
+### Feature — TabControl: ActiveTabForegroundColor
+
+- New TabControl property **ActiveTabForegroundColor** ("Active tab text
+  color" in the Properties pane): the ink of the selected tab's title. Empty
+  (the default) keeps the `ForegroundColor` every other tab uses. One painter
+  (`paint::draw_tabcontrol_tabs`) serves the designer and the running form, and
+  it can be set from COBOL (`MOVE "#FFFFFFFF" TO TAB-1::ActiveTabForegroundColor`).
+  System KB entry + regenerated `chunked.data`, hover help in six languages,
+  Guide note under *TabControl pages*. Test
+  `the_active_tab_title_takes_its_own_ink`.
+
 ## [PowerRustCOBOL 1.70.267] — 2026-09-26
 
 ### Fix — an animation's Count always played three passes

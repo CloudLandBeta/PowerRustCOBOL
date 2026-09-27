@@ -5089,6 +5089,14 @@ pub static PROP_HELP: &[PropHelp] = &[
         "当前选中选项卡标题的背景色。默认为蓝色 #2C6FD2。",
         "Couleur de fond de l'en-tête de l'onglet sélectionné. Par défaut : bleu #2C6FD2.",
     ] },
+    PropHelp { ty: "TabControl", prop: "ActiveTabForegroundColor", text: [
+        "Text colour of the selected tab's title. Empty (the default) = the same colour as the other tabs.",
+        "Color del texto del título de la pestaña seleccionada. Vacío (predeterminado) = el mismo color que las demás pestañas.",
+        "Cor do texto do título da aba selecionada. Vazio (padrão) = a mesma cor das outras abas.",
+        "選択中のタブ見出しの文字色。空(既定)のときは他のタブと同じ色。",
+        "当前选中选项卡标题的文字颜色。为空(默认)时与其他选项卡颜色相同。",
+        "Couleur du texte du titre de l'onglet sélectionné. Vide (par défaut) = la même couleur que les autres onglets.",
+    ] },
     PropHelp { ty: "TabControl", prop: "HScroll", text: [
         "Horizontal scrolling of the pages' controls when they reach past the page area. Default off.",
         "Desplazamiento horizontal de los controles de las páginas cuando sobrepasan el área de página. Desactivado por defecto.",

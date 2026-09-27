@@ -5122,6 +5122,9 @@ impl Control {
                     "ActiveTabColor".into(),
                     PropValue::String("#2C6FD2FF".into()),
                 );
+                // The selected tab's title ink. Empty = the ForegroundColor
+                // every other tab uses.
+                props.insert("ActiveTabForegroundColor".into(), PropValue::String(String::new()));
                 props.insert("TabPadding".into(), PropValue::Int(7));
                 // Container behaviour (spec 012).
                 props.insert("HScroll".into(), PropValue::Bool(false));

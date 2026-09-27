@@ -2259,6 +2259,10 @@ TabControl page, and so on).
 - **TabControl pages** — each tab owns its own set of children. Click a tab in
   the designer to edit that page; only the selected tab's controls are shown and
   interactive, at design time and at run time.
+  The selected tab's header is painted in `ActiveTabColor`, and its title in
+  `ActiveTabForegroundColor` — leave that one empty and the title keeps the
+  `ForegroundColor` every other tab uses. Both can be changed from COBOL:
+  `MOVE "#FFFFFFFF" TO TAB-1::ActiveTabForegroundColor`.
 
 Deleting a container deletes the controls inside it. A control keeps its unique
 id wherever it lives, so `control::property` access and event bindings are
