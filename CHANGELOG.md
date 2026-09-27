@@ -8,6 +8,24 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.303] — 2026-09-27
+
+### Fix — PowerChat: a document added while the chat is open is used by the next question
+
+- The chat counted the topic's sources (documents and registered data files)
+  only when the topic LOADED, and with none the election told the
+  orchestrator "this topic has no documents — say so plainly". A document
+  uploaded while the chat was open (the Documents screen is a pane of the same
+  window, so coming back does not reload the topic) left that count at 0, and
+  the orchestrator answered "the internal documents were not provided" with
+  the policy sitting in the index (operator, 2026-09-27). The sources are now
+  counted again before each question (`PC-COUNT-SOURCES`), and when the count
+  crosses zero either way the election runs again and sets the agents'
+  instructions afresh — whatever added or removed the documents.
+- Test: `powerchat_counts_a_document_added_while_the_chat_is_open` — the
+  orchestrator's instructions say "no documents" before, and no longer at the
+  question after a document arrives; without the fix it times out.
+
 ## [PowerRustCOBOL 1.70.302] — 2026-09-27
 
 ### Fix — PowerChat: a question, and an answer, is no longer cut at 2,000 characters

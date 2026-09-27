@@ -107,6 +107,7 @@
       *>   documents plus data files - the current topic has (the prompt).
        01 WS-HAS-TOPIC       GLOBAL PIC X VALUE "N".
        01 WS-SOURCES         GLOBAL PIC 9(5) VALUE 0.
+       01 WS-SOURCES-WAS     GLOBAL PIC 9(5) VALUE 0.
       *>   The interface texts (spec 071 R44): one row per text, one column
       *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
       *>   only the values are translated.
@@ -953,6 +954,29 @@
            MOVE KB-1::ListDocuments() TO WS-SOURCES
            ADD WS-REG-COUNT TO WS-SOURCES
            CALL "PC-ELECT"
+]]></Event>
+    <Event name="PC-COUNT-SOURCES" paragraph="PC-COUNT-SOURCES"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The topic's sources counted again, before each question. They were
+      *>   counted only when the topic loaded, so a document uploaded while
+      *>   the chat was open left the orchestrator told "this topic has no
+      *>   documents - say so", and it did (operator, 2026-09-27: "not
+      *>   provided the internal documents", with the policy in the index).
+      *>   When the count crosses zero, either way, the agents' instructions
+      *>   are set again.
+           MOVE WS-SOURCES TO WS-SOURCES-WAS
+           MOVE KB-1::ListDocuments() TO WS-SOURCES
+           ADD WS-REG-COUNT TO WS-SOURCES
+           IF WS-SOURCES-WAS = 0
+               IF WS-SOURCES > 0
+                   CALL "PC-ELECT"
+               END-IF
+           ELSE
+               IF WS-SOURCES = 0
+                   CALL "PC-ELECT"
+               END-IF
+           END-IF
 ]]></Event>
     <Event name="PC-ASK" paragraph="PC-ASK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -2097,6 +2121,7 @@
            IF WS-STAGE NOT = "IDLE"
                EXIT PROGRAM
            END-IF
+           CALL "PC-COUNT-SOURCES"
            CALL "PC-START-CONV"
            MOVE "U" TO WS-ROLE
            MOVE WS-QUESTION TO WS-TEXT

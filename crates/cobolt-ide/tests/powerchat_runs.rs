@@ -1574,3 +1574,73 @@ fn powerchat_reopens_a_long_question_whole() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// One indexed file written from COBOL: `fields` is its record's 05-levels,
+/// `key` its RECORD KEY, `writes` the MOVEs and WRITEs.
+fn seed_indexed(path: &Path, fields: &str, key: &str, writes: &str) {
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. SEEDIDX.\n       ENVIRONMENT DIVISION.\n       INPUT-OUTPUT SECTION.\n       FILE-CONTROL.\n           SELECT F ASSIGN TO \"{}\"\n               ORGANIZATION IS INDEXED\n               ACCESS MODE IS DYNAMIC\n               RECORD KEY IS {key}\n               FILE STATUS IS WS-FS\n               STORAGE MODE IS DISK.\n       DATA DIVISION.\n       FILE SECTION.\n       FD  F.\n       01  R.\n{fields}       WORKING-STORAGE SECTION.\n       01 WS-FS PIC XX.\n       PROCEDURE DIVISION.\n           OPEN OUTPUT F\n{writes}           CLOSE F\n           STOP RUN.\n",
+        path.display()
+    );
+    let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(&src, cobolt_lexer::SourceFormat::Free));
+    Interpreter::new(parsed.program.expect("the seeding program parses")).run().expect("seeded");
+}
+
+/// Operator (2026-09-27): a document uploaded while the chat was open, and
+/// the answer was "the internal documents were not provided". The sources
+/// were counted only when the topic loaded, so the orchestrator stayed told
+/// "this topic has no documents — say so". They are counted again before
+/// each question, and the instructions set again when that count moves off 0.
+#[test]
+fn powerchat_counts_a_document_added_while_the_chat_is_open() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let root = std::env::temp_dir().join(format!(
+        "prc-071-sources-{}",
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let data = root.join("data");
+    let kb = root.join("KB");
+    let docs = kb.join("HR").join("documents");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::create_dir_all(&docs).unwrap();
+    plant_model(&root, false);
+    std::env::set_var("POWERCHAT_DATA", &data);
+    seed_settings(&data, &[
+        ("CUR-TOPIC", "HR"),
+        ("KB-LOCATION", &kb.display().to_string()),
+        ("AGENT-1-ENTRY", "Local"),
+    ]);
+    seed_indexed(
+        &data.join("topics.idx"),
+        "           05 TOP-ID PIC X(16).\n           05 TOP-NAME PIC X(40).\n           05 TOP-PROMPT PIC X(1000).\n           05 TOP-CREATED PIC X(14).\n           05 TOP-SAMPLE PIC X.\n",
+        "TOP-ID",
+        "           MOVE \"HR\" TO TOP-ID\n           MOVE \"HR\" TO TOP-NAME\n           MOVE \"You answer HR questions.\" TO TOP-PROMPT\n           WRITE R\n",
+    );
+    seed_indexed(
+        &data.join("models.idx"),
+        "           05 MDL-NAME PIC X(30).\n           05 MDL-API PIC X(12).\n           05 MDL-URL PIC X(200).\n           05 MDL-MODEL PIC X(80).\n           05 MDL-TOOLS PIC X.\n           05 MDL-RANK PIC 9.\n",
+        "MDL-NAME",
+        "           MOVE \"Local\" TO MDL-NAME\n           MOVE \"ollama\" TO MDL-API\n           MOVE \"http://127.0.0.1:9/api\" TO MDL-URL\n           MOVE \"test-model\" TO MDL-MODEL\n           MOVE \"Y\" TO MDL-TOOLS\n           MOVE 5 TO MDL-RANK\n           WRITE R\n",
+    );
+    let t = Instant::now();
+    let mut s = Session::start("chat-form.cfrm");
+    let before = s.wait_for("AGENT-1", "SystemPrompt", |v| v.contains("You answer HR questions."));
+    assert!(before.contains("has no documents"), "no documents yet, and told so: {before}");
+
+    // A document arrives while the chat is open — Documents, another user,
+    // a copy into the folder — and a question is asked.
+    std::fs::write(docs.join("contracts.md"), "# Contracts\nApproved templates live in Orbita.").unwrap();
+    s.type_into("Txt-Input", "How do I write a new contract?");
+    s.click("Btn-Send");
+    let after = s.wait_for("AGENT-1", "SystemPrompt", |v| {
+        v.contains("You answer HR questions.") && !v.contains("has no documents")
+    });
+    s.quit();
+    println!(
+        "\n  ── 071 PowerChat, sources counted per question ──────────\n  before: {:?}…\n  after:  {:?} — {:.0} ms\n",
+        before.chars().take(90).collect::<String>(),
+        after.trim(),
+        t.elapsed().as_secs_f64() * 1000.0
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
