@@ -8,6 +8,36 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.295] — 2026-09-27
+
+### Feature — the Viewer opens Office files as their text; PowerChat's document preview
+
+- **Viewer:** Word, PowerPoint, Excel and OpenDocument files (`.docx`,
+  `.pptx`, `.xlsx`, `.odt`, `.ods`, `.odp` and their macro/template
+  variants) open as their TEXT — converted to Markdown by the Knowledge
+  Base's own converter (`cobolt-docs`), so headings, lists and tables
+  survive; page layout, fonts and pictures do not. Recognised by content
+  first, so a misnamed file still opens; `Format` reads `Markdown`. One helper
+  (`viewer::markdown_text`) feeds every reader — the renderer, the live
+  form's decoding session and `SaveAsPdf` — so paging, Find and Save as PDF
+  work on them too. Before, the Viewer refused them as unsupported.
+- **Linked where it is used:** an `office` feature in `cobolt-forms`,
+  `cobolt-runtime` and `cobolt-form-host` (default on — rcrun, the IDE and
+  tests keep it); a built application links it when a form has a Viewer.
+- **PowerChat:** a **Preview** button beside Delete, and a double-click on a
+  document, open the new `preview-form` — a modal window with a Viewer in
+  page layout, titled with the document's path, and a Close button — on the
+  selected document; nothing chosen, or a folder, says what to do instead.
+  Three texts in six languages. The manifest lists the form, and the
+  main-form seal is renewed.
+- System KB (Viewer) and the Developer's Guide's format table updated;
+  `chunked.data` regenerated.
+- Tests: `a_word_document_opens_as_its_text`,
+  `powerchat_previews_a_document_in_a_modal_window` (the harness's stand-in
+  form host now answers `OpenFormSync`). cobolt-forms (render,pdf,office)
+  1192/0, cobolt-form-host 156/0, cobolt-runtime 1081/0, cobolt-compiler
+  (lib) 145/0.
+
 ## [PowerRustCOBOL 1.70.294] — 2026-09-27
 
 ### Feature — TreeView `AllowDrag` / `onNodeDrop`, and dragging documents in PowerChat

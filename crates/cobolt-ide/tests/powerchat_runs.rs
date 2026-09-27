@@ -37,6 +37,9 @@ struct Session {
     display: Receiver<String>,
     seen: Vec<StateUpdate>,
     handle: Option<JoinHandle<()>>,
+    /// The forms the program opened with `OpenFormSync`, by id — each one
+    /// answered at once, as if the operator had closed it.
+    opened: Receiver<String>,
 }
 
 impl Session {
@@ -87,6 +90,7 @@ impl Session {
         let (input, input_rx) = mpsc::channel::<StateUpdate>();
         let (state_tx, state) = mpsc::channel::<StateUpdate>();
         let (display_tx, display) = mpsc::channel::<String>();
+        let (opened_tx, opened) = mpsc::channel::<String>();
         let err_tx = display_tx.clone();
         let handle = thread::spawn(move || {
             let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
@@ -96,17 +100,24 @@ impl Session {
                 interp.set_designed_menu(id, def);
             }
             let mut _closed = None;
-            if let Some(answers) = dialogs {
+            {
                 use cobolt_runtime::form_host::{FormRequest, ROOT_HANDLE};
                 let (req_tx, req_rx) = mpsc::channel::<FormRequest>();
                 let (closed_tx, closed_rx) = mpsc::channel::<String>();
                 _closed = Some(closed_tx);
                 interp.set_form_host(req_tx, ROOT_HANDLE, "FORM", closed_rx);
                 thread::spawn(move || {
-                    let mut answers = answers.into_iter();
+                    let mut answers = dialogs.unwrap_or_default().into_iter();
                     while let Ok(req) = req_rx.recv() {
-                        if let FormRequest::FileDialog { reply, .. } = req {
-                            let _ = reply.send(answers.next().flatten());
+                        match req {
+                            FormRequest::FileDialog { reply, .. } => {
+                                let _ = reply.send(answers.next().flatten());
+                            }
+                            FormRequest::OpenForm { form_id, reply, .. } => {
+                                let _ = opened_tx.send(form_id);
+                                let _ = reply.send(None);
+                            }
+                            _ => {}
                         }
                     }
                 });
@@ -115,7 +126,7 @@ impl Session {
                 let _ = err_tx.send(format!("RUN ENDED WITH ERROR: {e:?}"));
             }
         });
-        Session { events, input, state, display, seen: Vec::new(), handle: Some(handle) }
+        Session { events, input, state, display, seen: Vec::new(), handle: Some(handle), opened }
     }
 
     fn type_into(&self, ctrl: &str, text: &str) {
@@ -1277,6 +1288,67 @@ fn powerchat_drags_a_document_into_a_folder_in_the_tree() {
     println!(
         "\n  ── 071 PowerChat, dragging in the Documents tree ────────\n  \
          travel.md → Policies, → top level (moved, indexed, originals deleted); a folder refused — {:.0} ms\n",
+        t.elapsed().as_secs_f64() * 1000.0
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Operator (2026-09-27): "I need a preview of the document (use the preview
+/// control in a modal window)". Preview — or a double-click on a document —
+/// opens PREVIEW-FORM modally on that document; a folder is not previewed.
+#[test]
+fn powerchat_previews_a_document_in_a_modal_window() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let root = std::env::temp_dir().join(format!(
+        "prc-071-preview-{}",
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let data = root.join("data");
+    let kb = root.join("KB");
+    let docs = kb.join("HR").join("documents");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::create_dir_all(docs.join("Policies")).unwrap();
+    plant_model(&root, false);
+    std::fs::write(docs.join("Policies/leave.md"), "# Leave\nTwenty working days a year.").unwrap();
+    std::env::set_var("POWERCHAT_DATA", &data);
+    seed_settings(&data, &[("CUR-TOPIC", "HR"), ("KB-LOCATION", &kb.display().to_string())]);
+    let node = |label: &str, index: usize, level: usize| format!("{label}\t{index}\t{level}\t0");
+    let t = Instant::now();
+
+    let mut s = Session::start("documents-form.cfrm");
+    s.wait_for("Trv-Docs", "Items", |v| v == "Policies\n  leave.md");
+    s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Added 1,"));
+
+    // Nothing chosen: Preview says what to do, and opens nothing.
+    s.click("Btn-Preview");
+    s.wait_for("Lbl-Status", "Caption", |v| v == "Pick a document in the tree to preview it.");
+    assert!(s.opened.try_recv().is_err(), "no preview without a document");
+
+    // A double-click on the document opens the preview on it.
+    s.events
+        .send(FormEvent::new("Trv-Docs", "onNodeDblClick").with_value(node("leave.md", 2, 2)))
+        .unwrap();
+    let opened = s.opened.recv_timeout(Duration::from_secs(30)).expect("the preview opens");
+    assert_eq!(opened.to_ascii_uppercase(), "PREVIEW-FORM");
+
+    // So does the button, with the document selected.
+    s.events
+        .send(FormEvent::new("Trv-Docs", "onNodeSelect").with_value(node("leave.md", 2, 2)))
+        .unwrap();
+    s.click("Btn-Preview");
+    let again = s.opened.recv_timeout(Duration::from_secs(30)).expect("Preview opens it too");
+    assert_eq!(again.to_ascii_uppercase(), "PREVIEW-FORM");
+
+    // A folder is not a document.
+    s.events
+        .send(FormEvent::new("Trv-Docs", "onNodeDblClick").with_value(node("Policies", 1, 1)))
+        .unwrap();
+    s.settle();
+    assert!(s.opened.try_recv().is_err(), "a folder opens no preview");
+    s.quit();
+    println!(
+        "\n  ── 071 PowerChat, document preview ──────────────────────\n  \
+         double-click and Preview open PREVIEW-FORM on the document; nothing chosen and a folder open nothing — {:.0} ms\n",
         t.elapsed().as_secs_f64() * 1000.0
     );
     let _ = std::fs::remove_dir_all(&root);

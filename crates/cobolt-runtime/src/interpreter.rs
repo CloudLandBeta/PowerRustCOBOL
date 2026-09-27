@@ -14262,7 +14262,9 @@ impl Interpreter {
                 std::fs::write(dest, &bytes).map_err(|e| format!("could not write the PDF: {e}"))
             }
             ViewerFormat::Markdown | ViewerFormat::Text => {
-                cobolt_forms::viewer_pdf::markdown_to_pdf(&String::from_utf8_lossy(&bytes), &title, dest)
+                let hint = (!source.trim().is_empty()).then(|| source.trim().to_string());
+                let text = cobolt_forms::viewer::markdown_text(hint.as_deref(), &bytes);
+                cobolt_forms::viewer_pdf::markdown_to_pdf(&text, &title, dest)
             }
             other => Err(format!(
                 "Save as PDF takes a conversation, a Markdown or text document, or a PDF — not {}",

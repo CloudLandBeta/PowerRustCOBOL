@@ -288,8 +288,29 @@
           05 FILLER PIC X(70) VALUE "Seuls les documents se déplacent : glissez-en un sur un dossier.".
           05 FILLER PIC X(70) VALUE "移動できるのは文書だけです。".
           05 FILLER PIC X(70) VALUE "只能移动文档，请拖到文件夹上。".
+      *>   PREVIEW
+          05 FILLER PIC X(70) VALUE "Preview".
+          05 FILLER PIC X(70) VALUE "Visualizar".
+          05 FILLER PIC X(70) VALUE "Vista previa".
+          05 FILLER PIC X(70) VALUE "Aperçu".
+          05 FILLER PIC X(70) VALUE "プレビュー".
+          05 FILLER PIC X(70) VALUE "预览".
+      *>   PICK-DOC-TO-PREVIEW
+          05 FILLER PIC X(70) VALUE "Pick a document in the tree to preview it.".
+          05 FILLER PIC X(70) VALUE "Escolha um documento na árvore para visualizá-lo.".
+          05 FILLER PIC X(70) VALUE "Elige un documento del árbol para verlo.".
+          05 FILLER PIC X(70) VALUE "Choisissez un document dans l'arbre pour l'afficher.".
+          05 FILLER PIC X(70) VALUE "プレビューする文書を選んでください。".
+          05 FILLER PIC X(70) VALUE "请在树中选择要预览的文档。".
+      *>   CLOSE
+          05 FILLER PIC X(70) VALUE "Close".
+          05 FILLER PIC X(70) VALUE "Fechar".
+          05 FILLER PIC X(70) VALUE "Cerrar".
+          05 FILLER PIC X(70) VALUE "Fermer".
+          05 FILLER PIC X(70) VALUE "閉じる".
+          05 FILLER PIC X(70) VALUE "关闭".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 37.
+          05 PC-TEXT-ROW     OCCURS 40.
              10 PC-TEXT      PIC X(70) OCCURS 6.
       *>   The texts in the current language, by name.
        01 PC-TEXTS-NOW       GLOBAL.
@@ -330,8 +351,11 @@
           05 T-REINDEXING PIC X(70).
           05 T-WORDS-ONLY PIC X(70).
           05 T-DRAG-DOCS-ONLY PIC X(70).
+          05 T-PREVIEW PIC X(70).
+          05 T-PICK-DOC-TO-PREVIEW PIC X(70).
+          05 T-CLOSE PIC X(70).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(70) OCCURS 37.
+          05 PC-TEXT-NOW     PIC X(70) OCCURS 40.
       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
        01 WS-FMT             GLOBAL PIC X(70).
        01 WS-ARG1            GLOBAL PIC X(300).
@@ -743,12 +767,13 @@
                WHEN OTHER MOVE "en" TO WS-LANG
                           MOVE 1 TO WS-LANG-IX
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 37
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 40
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
            MOVE FUNCTION TRIM(T-DOCS-TITLE) TO Lbl-Title::Caption
            MOVE FUNCTION TRIM(T-DROP-HINT) TO Drop-Docs::Hint
            MOVE FUNCTION TRIM(T-DELETE) TO Btn-Delete::Caption
+           MOVE FUNCTION TRIM(T-PREVIEW) TO Btn-Preview::Caption
            MOVE FUNCTION TRIM(T-REFRESH) TO Btn-Refresh::Caption
            MOVE FUNCTION TRIM(T-NEW-FOLDER) TO Btn-NewFolder::Caption
            MOVE FUNCTION TRIM(T-FOLDER-HINT) TO Txt-Folder::HintText
@@ -759,6 +784,22 @@
            MOVE WS-DOC-TYPES TO WS-ARG1
            CALL "PC-FMT"
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Types::Caption
+]]></Event>
+    <Event name="PC-PREVIEW" paragraph="PC-PREVIEW"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The selected document, shown in PREVIEW-FORM (a modal window).
+           IF WS-SEL-IX = 0 OR WS-SEL-KIND NOT = "D"
+               MOVE FUNCTION TRIM(T-PICK-DOC-TO-PREVIEW) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           MOVE SPACES TO WS-LINE
+           STRING FUNCTION TRIM(WS-DOCS-DIR) "/" FUNCTION TRIM(WS-SEL-PATH)
+               DELIMITED BY SIZE INTO WS-LINE
+           INVOKE ME::"SetProperty"("PreviewPath", WS-LINE)
+           INVOKE ME::"SetProperty"("PreviewTitle", WS-SEL-PATH)
+           INVOKE ME::"SetProperty"("PreviewClose", T-CLOSE)
+           INVOKE ME::"OpenFormSync"("PREVIEW-FORM")
 ]]></Event>
     <Event name="PC-KB-REFRESH" paragraph="PC-KB-REFRESH"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -1128,6 +1169,27 @@ Node 2</Property>
            CALL "PC-FMT"
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
 ]]></Event>
+    <Event name="onNodeDblClick" paragraph="TRV-DOCS--ONNODEDBLCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01 CONTROL-NODE-DATA.
+           05 CONTROL-NODE                 PIC X(256).
+           05 CONTROL-NODE-INDEX           PIC S9(4) COMP-5.
+           05 CONTROL-NODE-LEVEL           PIC S9(4) COMP-5.
+           05 CONTROL-NODE-CHECKED         PIC 9.
+
+       PROCEDURE DIVISION USING CONTROL-NODE-DATA.
+      *>   A double-click on a document previews it.
+           IF CONTROL-NODE-INDEX > 0 AND CONTROL-NODE-INDEX NOT > WS-NODE-N
+               MOVE CONTROL-NODE-INDEX TO WS-J
+               MOVE WS-NODE-KIND(WS-J) TO WS-SEL-KIND
+               MOVE WS-NODE-PATH(WS-J) TO WS-SEL-PATH
+               CALL "PC-SELECT-SYNC"
+               IF WS-SEL-KIND = "D"
+                   CALL "PC-PREVIEW"
+               END-IF
+           END-IF
+]]></Event>
     <Event name="onNodeDrop" paragraph="TRV-DOCS--ONNODEDROP"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        LINKAGE SECTION.
@@ -1269,7 +1331,7 @@ Node 2</Property>
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
 ]]></Event>
   </Control>
-  <Control id="Btn-Delete" type="Button" x="680" y="224" w="376" h="32" tab-order="3" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Delete" type="Button" x="680" y="224" w="184" h="32" tab-order="3" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Delete</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -1358,6 +1420,53 @@ Node 2</Property>
            MOVE WS-GONE TO WS-ARG1
            CALL "PC-FMT"
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+]]></Event>
+  </Control>
+  <Control id="Btn-Preview" type="Button" x="872" y="224" w="184" h="32" tab-order="9" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Preview</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">false</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IconPath"></Property>
+    <Event name="onClick" paragraph="BTN-PREVIEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-PREVIEW"
 ]]></Event>
   </Control>
   <Control id="Btn-Refresh" type="Button" x="680" y="272" w="376" h="32" tab-order="4" z-order="0" visible="true" enabled="true">

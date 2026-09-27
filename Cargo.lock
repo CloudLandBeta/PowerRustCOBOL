@@ -1536,6 +1536,7 @@ version = "0.2.0"
 dependencies = [
  "arboard",
  "cobolt-ast",
+ "cobolt-docs",
  "cobolt-media",
  "egui",
  "egui-elegance",
@@ -1561,6 +1562,7 @@ dependencies = [
  "tl",
  "toml",
  "ureq",
+ "zip 8.6.0",
 ]
 
 [[package]]

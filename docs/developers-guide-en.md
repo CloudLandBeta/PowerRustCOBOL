@@ -4779,7 +4779,7 @@ for some formats.
 | PDF | Its text, its basic line and rectangle drawing, its page sizes, its page breaks, and Find over all of it | A faithful picture of a complex page; unusual embedded font encodings; forms; annotations; a scanned page beyond the image it embeds |
 | HTML | A **subset**: block and inline layout, common typography, colours, borders, tables, images | CSS grid, flex, animation and transforms; JavaScript; floats beyond the simple case. **It is not a browser** |
 | Video | Nothing — out of scope. Animated GIF, WebP and APNG are covered above as images | Any format needing an external codec |
-| Word, Excel, PowerPoint | Nothing — out of scope | — |
+| Word, PowerPoint, Excel, OpenDocument | Their **text**, as Markdown: headings, lists and tables kept; page layout, fonts and pictures not | The Knowledge Base's own converter — a document reads the same here as the chat reads it |
 
 > **Note — where the boundary shows.** A format's limits are visible rather
 > than silent. A Mermaid diagram the Viewer does not draw says so, by name,

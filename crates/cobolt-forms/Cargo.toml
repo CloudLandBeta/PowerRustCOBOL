@@ -48,6 +48,11 @@ mermaid-rs-renderer = "0.2"
 # `render` — because the RUNTIME writes it, and the runtime links this crate
 # without egui. Version matched to cobolt-ide's own pin.
 genpdf = { version = "0.2", default-features = false, optional = true }
+# The Viewer opening Word, PowerPoint, Excel and OpenDocument files as their
+# text (operator 2026-09-27): the Knowledge Base's own converter, so a
+# document reads the same in the Viewer as the chat reads it. Behind `office`
+# — it carries a spreadsheet reader a Viewer-free application never needs.
+cobolt-docs = { path = "../cobolt-docs", optional = true }
 # The Viewer's HTML subset (spec 058, T21). **`tl`, not `html5ever`** —
 # plan.md §4 chose html5ever and explicitly flagged this crate as the
 # fallback "for implementation-time reconsideration". Reconsidered, and
@@ -85,8 +90,11 @@ arboard     = { version = "3.6", optional = true }
 
 [features]
 pdf = ["dep:genpdf", "dep:fontdb"]
+office = ["dep:cobolt-docs"]
 render = ["dep:egui", "dep:fontdb", "dep:skrifa", "dep:cobolt-media", "dep:image", "dep:resvg", "dep:egui-elegance", "dep:ureq", "dep:native-tls", "dep:arboard"]
 
 [dev-dependencies]
+# The Viewer's Office tests build a Word document in memory.
+zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
 pretty_assertions = { workspace = true }
 tempfile = "3"

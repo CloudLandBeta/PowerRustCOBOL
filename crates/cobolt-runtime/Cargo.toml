@@ -16,7 +16,7 @@ repository.workspace   = true
 [features]
 # Everything the interpreter has always had. Nothing in this workspace turns it
 # off — `rcrun`, the IDE and every test keep the full surface.
-default = ["sql", "http", "maps", "kb", "smb", "pdf"]
+default = ["sql", "http", "maps", "kb", "smb", "pdf", "office"]
 
 # The SQL bridge: `COBOL-OPEN-DB` and its five companions, over SQLite,
 # PostgreSQL and MySQL.
@@ -73,6 +73,10 @@ smb = ["dep:smb2", "dep:tokio"]
 # handling every Viewer-free program can do without; the compiler turns it on
 # when a form has a Viewer.
 pdf = ["cobolt-forms/pdf"]
+
+# The Viewer opening Word, PowerPoint, Excel and OpenDocument files as their
+# text. Pure Rust; on when a form has a Viewer, like `pdf`.
+office = ["cobolt-forms/office"]
 
 [dependencies]
 # Free memory, for the fit test of a registered file (spec 075 R18); the

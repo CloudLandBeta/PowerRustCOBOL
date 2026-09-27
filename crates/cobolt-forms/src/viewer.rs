@@ -114,6 +114,11 @@ pub enum DocumentSource {
 /// `path_hint` is `None` for a `LoadBytes` document with no filename at all
 /// — content is then the only signal available.
 pub fn detect_format(path_hint: Option<&str>, bytes: &[u8]) -> Option<ViewerFormat> {
+    // An Office or OpenDocument package is shown as its TEXT, laid out as
+    // Markdown — see [`markdown_text`].
+    if is_office_package(path_hint, bytes) {
+        return Some(ViewerFormat::Markdown);
+    }
     if let Some(fmt) = sniff_content(bytes) {
         return Some(fmt);
     }
@@ -129,6 +134,54 @@ pub fn detect_format(path_hint: Option<&str>, bytes: &[u8]) -> Option<ViewerForm
     } else {
         None
     }
+}
+
+/// The extensions of the Office and OpenDocument packages the Viewer reads.
+const OFFICE_EXTENSIONS: [&str; 22] = [
+    "docx", "docm", "dotx", "dotm", "pptx", "pptm", "potx", "potm", "ppsx", "ppsm", "xlsx",
+    "xlsm", "xltx", "xltm", "odt", "ott", "odm", "oth", "ods", "ots", "odp", "otp",
+];
+
+/// Is this a Word, PowerPoint, Excel or OpenDocument file — a zip package the
+/// Viewer shows as its text (operator, 2026-09-27)? `head` is the start of the
+/// file: an Office package names its `[Content_Types].xml` there, and an
+/// OpenDocument its `mimetype`. Always `false` in a build without `office`.
+pub fn is_office_package(path_hint: Option<&str>, head: &[u8]) -> bool {
+    if !cfg!(feature = "office") || !head.starts_with(b"PK\x03\x04") {
+        return false;
+    }
+    let has = |needle: &[u8]| head.windows(needle.len()).any(|w| w == needle);
+    has(b"[Content_Types].xml")
+        || has(b"mimetypeapplication/vnd.oasis.opendocument")
+        || path_hint
+            .and_then(extension_of)
+            .is_some_and(|e| OFFICE_EXTENSIONS.contains(&e.as_str()))
+}
+
+/// The text a `Markdown`-format document shows. For an Office or OpenDocument
+/// package that is its content converted to Markdown by the Knowledge Base's
+/// own converter — headings, lists and tables kept, layout and pictures not —
+/// or, when the file cannot be read, a line saying why. Anything else is its
+/// own bytes, as text.
+pub fn markdown_text(path_hint: Option<&str>, bytes: &[u8]) -> String {
+    #[cfg(feature = "office")]
+    if is_office_package(path_hint, &bytes[..bytes.len().min(4096)]) {
+        let name = path_hint.unwrap_or("document");
+        return match cobolt_docs::convert(name, bytes, &cobolt_docs::Limits::default()) {
+            Ok(converted) => converted
+                .parts
+                .into_iter()
+                .map(|p| match p.name {
+                    Some(n) => format!("## {n}\n\n{}", p.markdown),
+                    None => p.markdown,
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n"),
+            Err(skip) => format!("*{}*", skip.message),
+        };
+    }
+    let _ = path_hint;
+    String::from_utf8_lossy(bytes).into_owned()
 }
 
 fn extension_of(path: &str) -> Option<String> {
@@ -4051,6 +4104,60 @@ impl<T: Copy + PartialEq> SettleWatch<T> {
 
     pub fn current(&self) -> T {
         self.current
+    }
+}
+
+/// Operator (2026-09-27): the document preview shows Word, PowerPoint, Excel
+/// and OpenDocument files as their text.
+#[cfg(all(test, feature = "office"))]
+mod office_tests {
+    use super::*;
+    use std::io::Write;
+
+    fn docx() -> Vec<u8> {
+        const W: &str = r#"xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main""#;
+        let para = |style: Option<&str>, text: &str| {
+            let ppr = style.map(|s| format!(r#"<w:pPr><w:pStyle w:val="{s}"/></w:pPr>"#)).unwrap_or_default();
+            format!(r#"<w:p>{ppr}<w:r><w:t>{text}</w:t></w:r></w:p>"#)
+        };
+        let body = [para(Some("Heading1"), "Leave policy"), para(None, "Every employee earns twenty days.")].concat();
+        let document = format!(r#"<?xml version="1.0"?><w:document {W}><w:body>{body}</w:body></w:document>"#);
+        let styles = format!(
+            r#"<?xml version="1.0"?><w:styles {W}><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:pPr><w:outlineLvl w:val="0"/></w:pPr></w:style></w:styles>"#
+        );
+        zip_of(&[
+            ("[Content_Types].xml", br#"<?xml version="1.0"?><Types/>"#.as_slice()),
+            ("word/document.xml", document.as_bytes()),
+            ("word/styles.xml", styles.as_bytes()),
+        ])
+    }
+
+    fn zip_of(members: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        for (name, data) in members {
+            w.start_file(*name, opts).unwrap();
+            w.write_all(data).unwrap();
+        }
+        w.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn a_word_document_opens_as_its_text() {
+        let bytes = docx();
+        let head = &bytes[..bytes.len().min(4096)];
+        assert_eq!(detect_format(Some("policy.docx"), head), Some(ViewerFormat::Markdown));
+        assert_eq!(detect_format(None, head), Some(ViewerFormat::Markdown), "by content, with no name to go on");
+        assert_eq!(detect_format(Some("policy.bin"), head), Some(ViewerFormat::Markdown), "a misnamed one too");
+        let text = markdown_text(Some("policy.docx"), &bytes);
+        assert!(text.contains("# Leave policy"), "the heading survives as a heading: {text:?}");
+        assert!(text.contains("twenty days"), "{text:?}");
+        let doc = parse_markdown(&text);
+        println!("docx → Viewer: {} bytes → {} chars of Markdown, blocks {:?}", bytes.len(), text.len(), doc.count_by_kind());
+
+        // A zip that is not an Office package is not mistaken for one.
+        let plain = zip_of(&[("notes.txt", b"just notes".as_slice())]);
+        assert!(!is_office_package(Some("notes.zip"), &plain[..plain.len().min(4096)]));
     }
 }
 

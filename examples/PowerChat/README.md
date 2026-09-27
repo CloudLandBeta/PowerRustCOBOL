@@ -53,7 +53,9 @@ opens inside the window, in the content pane beside the menu.
    the first time Documents opens it fetches the model (~470 MB, once per
    installation, with a progress line), and a topic indexed before that is
    rebuilt once, on its own. With no model it still indexes, by words, and
-   says so. **Delete** removes a
+   says so. **Preview** — or a double-click on a document — shows it in a
+   window: Markdown, text, HTML and PDF as they are, Word, PowerPoint, Excel
+   and OpenDocument files as their text. **Delete** removes a
    document, or a folder once nothing is left in it. To **move** a document,
    drag it onto a folder in the tree (onto empty space for the top level),
    or select it and press **Move**, then select the folder it goes to (or a
@@ -79,10 +81,11 @@ Portuguese, Spanish, French, Japanese and Chinese, at once.
 |---|---|
 | `chat-form` (main) | The menu (designed in `forms/SideMenu-1.menu.yaml`, relabelled in the current language, shut until an agent has a model), the welcome screen, the conversation, three agents (`AGENT-1`…`AGENT-3`) with their election and orchestration, and the topic's Knowledge Base (`KB-1`); this month's token totals |
 | `topics-form` | Create and open topics; install and remove the sample topics (`samples/`) |
-| `documents-form` | The topic's documents as a folder tree: folders, add, move, delete, refresh |
+| `documents-form` | The topic's documents as a folder tree: folders, add, move (button or drag), preview, delete, refresh |
 | `settings-form` | The Knowledge Base folder, the IDE's providers, the model list and its keys, the connection test, XML export and import |
 | `files-form` | The topic's registered indexed files |
 | `prompts-form` | Versions of the topic's system prompt |
+| `preview-form` | A document shown in a modal window, opened from `documents-form` |
 
 PowerChat's own data is seven indexed files in `data/` (see `data/README.md`),
 opened `I-O` and committed as each change is made. Every behaviour is data: no

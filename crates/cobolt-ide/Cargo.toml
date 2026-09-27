@@ -32,7 +32,7 @@ cobolt-stdlib   = { path = "../cobolt-stdlib" }
 chrono      = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 # Form designer
-cobolt-forms    = { path = "../cobolt-forms", features = ["render"] }
+cobolt-forms    = { path = "../cobolt-forms", features = ["render", "office"] }
 cobolt-codegen  = { path = "../cobolt-codegen" }
 cobolt-indexed  = { path = "../cobolt-indexed" }
 

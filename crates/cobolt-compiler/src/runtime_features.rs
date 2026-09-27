@@ -94,6 +94,9 @@ pub struct RuntimeFeatures {
     /// The Viewer's `SaveAsPdf` — genpdf and font discovery. Pure Rust; on
     /// for any form with a Viewer.
     pub pdf: bool,
+    /// The Viewer opening Word, PowerPoint, Excel and OpenDocument files as
+    /// their text (`cobolt-docs`). Pure Rust; on for any form with a Viewer.
+    pub office: bool,
 }
 
 impl RuntimeFeatures {
@@ -107,6 +110,7 @@ impl RuntimeFeatures {
             kb_semantic: false,
             smb: true,
             pdf: true,
+            office: true,
         }
     }
 
@@ -120,6 +124,7 @@ impl RuntimeFeatures {
             kb_semantic: self.kb_semantic || other.kb_semantic,
             smb: self.smb || other.smb,
             pdf: self.pdf || other.pdf,
+            office: self.office || other.office,
         }
     }
 
@@ -149,6 +154,9 @@ impl RuntimeFeatures {
         }
         if self.pdf {
             names.push("\"pdf\"");
+        }
+        if self.office {
+            names.push("\"office\"");
         }
         names.join(", ")
     }
@@ -188,6 +196,7 @@ pub fn scan_forms<'a>(forms: impl IntoIterator<Item = &'a cobolt_forms::Form>) -
             }
             if ctrl.control_type == cobolt_forms::ControlType::Viewer {
                 found.pdf = true;
+                found.office = true;
             }
         }
     }
@@ -254,6 +263,7 @@ fn scan_rust(source: &str) -> RuntimeFeatures {
         kb_semantic: false,
         smb: source.contains("smb_source") || source.contains("registered_file"),
         pdf: source.contains("viewer_pdf"),
+        office: source.contains("cobolt_docs"),
     }
 }
 
@@ -436,7 +446,7 @@ mod tests {
         let all = RuntimeFeatures::all();
         assert!(all.sql && all.http && all.maps && all.kb);
         assert!(!all.kb_semantic, "the built-in model is never part of \"everything\"");
-        assert_eq!(all.as_toml_features(), "\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\"");
+        assert_eq!(all.as_toml_features(), "\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\", \"office\"");
     }
 
     /// A Maps control is reached by method call on a control id, which the AST
@@ -481,6 +491,7 @@ mod tests {
         let f = scan_forms([&viewer]);
         assert!(f.pdf);
         assert!(f.as_toml_features().contains("\"pdf\""));
+        assert!(f.office, "…and opens Office files as their text");
         let plain = form_with(cobolt_forms::ControlType::Button);
         assert!(!scan_forms([&plain]).pdf, "no Viewer, no PDF writer");
     }
@@ -545,7 +556,7 @@ mod tests {
 
         let full = crate::base_dependency_block(dir, false, RuntimeFeatures::all());
         assert!(
-            full.contains("features = [\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\"]"),
+            full.contains("features = [\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\", \"office\"]"),
             "a program that reaches everything asks for everything:\n{full}"
         );
 

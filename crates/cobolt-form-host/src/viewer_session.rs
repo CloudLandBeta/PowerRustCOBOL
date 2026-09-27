@@ -138,7 +138,7 @@ fn open_document_for_paint(
             (ViewerPageContent::Text(text), count)
         }
         ViewerFormat::Markdown => {
-            let raw = String::from_utf8_lossy(&bytes).into_owned();
+            let raw = viewer::markdown_text(Some(source), &bytes);
             let parsed = viewer::parse_markdown(&raw);
             (ViewerPageContent::Markdown { raw, doc: parsed }, 1)
         }

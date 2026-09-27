@@ -8927,7 +8927,7 @@ pub(crate) fn viewer_first_page_content(
             ViewerPageContent::Text(text)
         }
         crate::viewer::ViewerFormat::Markdown => {
-            let raw = String::from_utf8_lossy(&bytes).into_owned();
+            let raw = crate::viewer::markdown_text(Some(source), &bytes);
             let doc = crate::viewer::parse_markdown(&raw);
             ViewerPageContent::Markdown { raw, doc }
         }

@@ -47,6 +47,7 @@ forms = [
     "forms/agents-form.cfrm",
     "forms/confirm-form.cfrm",
     "forms/pick-form.cfrm",
+    "forms/preview-form.cfrm",
     "forms/welcome-form.cfrm",
 ]
 assets = [
@@ -74,6 +75,7 @@ generated = [
     "generated/agents-form.cbl",
     "generated/confirm-form.cbl",
     "generated/pick-form.cbl",
+    "generated/preview-form.cbl",
     "generated/welcome-form.cbl",
 ]
 indexed = []
@@ -113,7 +115,7 @@ focus-ring = true
 focus-ring-color = ""
 focus-ring-pulse = false
 main-form = "CHAT-FORM"
-main-form-seal = "9b5b539389a10566c2fe5809763fdd93f420136662c4e3af8e66634ec0b611ec"
+main-form-seal = "d95f013ec516e4d009e626b8b9a403e14f821d6be6da4201e8567c5e68b32983"
 
 [ai]
 schema_version = 1
