@@ -48,7 +48,12 @@ opens inside the window, in the content pane beside the menu.
    PowerPoint, Excel, PDF, Markdown or text files on the zone: they land in
    that folder and are indexed, with a progress panel. The zone takes exactly
    what the Knowledge Base can read — listed under the form — and refuses
-   anything else, naming the file and saying why. **Delete** removes a
+   anything else, naming the file and saying why. Documents are embedded with
+   the built-in semantic model (`multilingual-e5-small`, the one Grace uses):
+   the first time Documents opens it fetches the model (~470 MB, once per
+   installation, with a progress line), and a topic indexed before that is
+   rebuilt once, on its own. With no model it still indexes, by words, and
+   says so. **Delete** removes a
    document, or a folder once nothing is left in it. To **move** a document,
    select it and press **Move**, then select the folder it goes to (or a
    document already in that folder) and press **Move here** — or press **To

@@ -8,6 +8,35 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.290] — 2026-09-27
+
+### Fix — PowerChat: documents are embedded, not only indexed by words
+
+- **Atualizar indexed without embedding** (operator, 2026-09-27). All three
+  KnowledgeBase controls (`documents-form`, `chat-form`, `topics-form`) had
+  `Embedder = Lexical`, so a document was only ever indexed by its words. They
+  now use `Builtin` — `multilingual-e5-small`, the model Grace embeds with —
+  and the manifest sets `[rag] embedder = "builtin"` so a built PowerChat links
+  it; Run Form already carried it.
+- **Documents fetches the model, then refreshes.** On open it calls
+  `FetchModel()` (a no-op once the model is in `<app>/assets/models`),
+  showing the download in the progress line, and refreshes when it ends. A
+  failed fetch still refreshes.
+- **A collection indexed the old way is rebuilt once, on its own**: the
+  Knowledge Base reports it was indexed with another embedder, and the form
+  calls `Reindex()`.
+- **R18 — never degrade silently**: when search is by words only, the status
+  line says so and why. `SearchModeReason` is cleared before each update so an
+  old warning cannot outlive a clean one. Refresh, drop and open share one
+  `PC-KB-REFRESH`. Three texts in all six languages.
+- `.gitignore`: `examples/*/assets/models/` — the 470 MB model is never
+  source.
+- Test: `powerchat_documents_embed_with_the_builtin_model` — no usable model:
+  indexed and says so (191 ms); with the real model, a lexical collection is
+  rebuilt with embeddings and no warning (1867 ms). The PowerChat tests plant
+  a model under a temporary application folder, so none downloads; the
+  `cobolt-ide` tests link `kb-semantic` (dev-dependency only).
+
 ## [PowerRustCOBOL 1.70.289] — 2026-09-27
 
 ### Fix — PowerChat: Documents takes every readable type, and says why it refuses the rest

@@ -1555,7 +1555,7 @@
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
     <Property name="Location">assets/KB</Property>
-    <Property name="Embedder">Lexical</Property>
+    <Property name="Embedder">Builtin</Property>
     <Property name="EmbeddingURL">http://localhost:11434</Property>
     <Property name="EmbeddingAPI">Ollama</Property>
     <Property name="EmbeddingModel">nomic-embed-text</Property>

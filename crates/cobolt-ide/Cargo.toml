@@ -130,3 +130,7 @@ tempfile = "3"
 # type (spec 042 R2). The IDE itself is not a form host and takes no runtime
 # dependency on it — Run Form talks to it through the rcrun child process.
 cobolt-form-host = { path = "../cobolt-form-host" }
+# Test-only: PowerChat's Knowledge Base embeds with the built-in model, as Run
+# Form (rcrun) and a built PowerChat do; the tests that play it need the same.
+# Resolver 2 keeps this feature out of the IDE's own build.
+cobolt-runtime = { path = "../cobolt-runtime", features = ["kb-semantic"] }

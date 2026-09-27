@@ -41,19 +41,32 @@ struct Session {
 
 impl Session {
     fn start(form_file: &str) -> Session {
-        Session::launch(form_file, None)
+        Session::launch(form_file, None, None)
+    }
+
+    /// Like [`Session::start`], with the designed form changed first — the
+    /// way a test runs a control under a setting the shipped form does not use.
+    fn start_tweaked(form_file: &str, tweak: fn(&mut cobolt_forms::Form)) -> Session {
+        Session::launch(form_file, None, Some(tweak))
     }
 
     /// Like [`Session::start`], with a stand-in form host that answers the
     /// program's native file dialogs from `answers`, in order (`None` = the
     /// operator cancelled).
     fn start_with_dialogs(form_file: &str, answers: Vec<Option<String>>) -> Session {
-        Session::launch(form_file, Some(answers))
+        Session::launch(form_file, Some(answers), None)
     }
 
-    fn launch(form_file: &str, dialogs: Option<Vec<Option<String>>>) -> Session {
+    fn launch(
+        form_file: &str,
+        dialogs: Option<Vec<Option<String>>>,
+        tweak: Option<fn(&mut cobolt_forms::Form)>,
+    ) -> Session {
         let path = project().join("forms").join(form_file);
-        let form = cobolt_forms::load_form(&path).unwrap();
+        let mut form = cobolt_forms::load_form(&path).unwrap();
+        if let Some(tweak) = tweak {
+            tweak(&mut form);
+        }
         let stem = path.file_stem().unwrap().to_string_lossy().to_string();
         let src = std::fs::read_to_string(project().join("generated").join(format!("{stem}.cbl"))).unwrap();
         let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(&src, cobolt_lexer::SourceFormat::Free));
@@ -276,6 +289,7 @@ fn powerchat_settings_topics_documents_and_chat() {
     let kb = root.join("KB");
     std::fs::create_dir_all(&data).unwrap();
     std::fs::create_dir_all(&kb).unwrap();
+    plant_model(&root, false);
     std::env::set_var("POWERCHAT_DATA", &data);
     cobolt_runtime::key_store::set_key_store(Arc::new(cobolt_runtime::key_store::MemoryKeyStore::default()));
     let (url, requests) = model_server();
@@ -848,6 +862,32 @@ fn powerchat_settings_topics_documents_and_chat() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// PowerChat's Knowledge Base embeds with the built-in model, fetched into
+/// `<app>/assets/models` when Documents opens. A test must never download
+/// 470 MB: the application's folder is pointed at `root`, and the model is
+/// planted there — the REAL one, linked from the IDE's cache, when `real` and
+/// the cache exists; otherwise stand-in files, which make the fetch a no-op
+/// and leave the model unloadable, so indexing is by words only (R18).
+/// Answers whether the real model was planted.
+fn plant_model(root: &Path, real: bool) -> bool {
+    cobolt_forms::assets::set_base(root);
+    let dir = root.join("assets/models/multilingual-e5-small");
+    std::fs::create_dir_all(&dir).unwrap();
+    let files = ["config.json", "tokenizer.json", "model.safetensors"];
+    let cache = std::env::var_os("HOME")
+        .map(|h| PathBuf::from(h).join("PowerRustCOBOL/data/models/multilingual-e5-small"));
+    if let Some(cache) = cache.filter(|c| real && files.iter().all(|f| c.join(f).is_file())) {
+        for f in files {
+            std::os::unix::fs::symlink(cache.join(f), dir.join(f)).unwrap();
+        }
+        return true;
+    }
+    for f in files {
+        std::fs::write(dir.join(f), b"not a model").unwrap();
+    }
+    false
+}
+
 /// Seed PowerChat's settings file the way the RAG settings and Topics forms
 /// leave it: the Knowledge Base folder and the open topic.
 fn seed_settings(data: &Path, pairs: &[(&str, &str)]) {
@@ -883,6 +923,7 @@ fn powerchat_moves_a_document_between_folders() {
     let docs = kb.join("HR").join("documents");
     std::fs::create_dir_all(&data).unwrap();
     std::fs::create_dir_all(&docs).unwrap();
+    plant_model(&root, false);
     std::fs::write(docs.join("leave-policy.md"), "# Leave\nTwenty working days a year.").unwrap();
     std::fs::write(docs.join("travel.md"), "# Travel\nBook trains under four hours.").unwrap();
     std::env::set_var("POWERCHAT_DATA", &data);
@@ -986,6 +1027,7 @@ fn powerchat_documents_take_every_readable_type_and_say_why_others_are_refused()
     let docs = kb.join("HR").join("documents");
     std::fs::create_dir_all(&data).unwrap();
     std::fs::create_dir_all(&docs).unwrap();
+    plant_model(&root, false);
     std::env::set_var("POWERCHAT_DATA", &data);
     seed_settings(&data, &[("CUR-TOPIC", "HR"), ("KB-LOCATION", &kb.display().to_string())]);
     let t = Instant::now();
@@ -1043,5 +1085,77 @@ fn powerchat_documents_take_every_readable_type_and_say_why_others_are_refused()
     println!("  {} readable names taken, {} unreadable refused", readable.len(), unreadable.len());
     println!("  label: {label}");
     println!("  refusal named with its reason, and kept after the indexing summary — {:.0} ms\n", t.elapsed().as_secs_f64() * 1000.0);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Operator (2026-09-27): "Atualizar não processou o documento (não fez o
+/// embedding)". PowerChat indexed by words only (`Embedder` Lexical). It now
+/// embeds with the built-in model, and a collection indexed the old way is
+/// rebuilt once, on its own, so its documents get vectors. Without a usable
+/// model it still indexes, and says search is by words only (R18).
+#[test]
+fn powerchat_documents_embed_with_the_builtin_model() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let root = std::env::temp_dir().join(format!(
+        "prc-071-embed-{}",
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let data = root.join("data");
+    let kb = root.join("KB");
+    let docs = kb.join("HR").join("documents");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::create_dir_all(&docs).unwrap();
+    std::fs::write(docs.join("leave.md"), "# Annual leave\nEmployees get twenty working days of paid leave a year.").unwrap();
+    std::env::set_var("POWERCHAT_DATA", &data);
+    seed_settings(&data, &[("CUR-TOPIC", "HR"), ("KB-LOCATION", &kb.display().to_string())]);
+    let mut report = Vec::new();
+
+    // No usable model: indexed all the same, and the status says how.
+    let t = Instant::now();
+    plant_model(&root, false);
+    let mut s = Session::start("documents-form.cfrm");
+    let status = s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Added"));
+    s.quit();
+    assert!(status.starts_with("Added 1,"), "{status}");
+    assert!(status.contains("Search is by words only:"), "R18 — never degrade silently: {status}");
+    report.push(format!("no model: indexed, and says so ({status}) — {:.0} ms", t.elapsed().as_secs_f64() * 1000.0));
+
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::create_dir_all(&docs).unwrap();
+    std::fs::write(docs.join("leave.md"), "# Annual leave\nEmployees get twenty working days of paid leave a year.").unwrap();
+    seed_settings(&data, &[("CUR-TOPIC", "HR"), ("KB-LOCATION", &kb.display().to_string())]);
+    if !plant_model(&root, true) {
+        println!("built-in model not cached on this machine — the embedding half is skipped");
+        let _ = std::fs::remove_dir_all(&root);
+        return;
+    }
+
+    // The collection as PowerChat left it before: indexed by words.
+    let t = Instant::now();
+    let mut s = Session::start_tweaked("documents-form.cfrm", |f| {
+        let kb = f.controls.iter_mut().find(|c| c.id == "KB-D").unwrap();
+        kb.set_prop("Embedder", cobolt_forms::PropValue::String("Lexical".into()));
+    });
+    let status = s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Added"));
+    s.quit();
+    assert!(status.starts_with("Added 1,") && !status.contains("words only"), "{status}");
+    report.push(format!("lexical index made the old way — {:.0} ms", t.elapsed().as_secs_f64() * 1000.0));
+
+    // Opened as shipped: noticed, rebuilt once, embedded — and no warning.
+    let t = Instant::now();
+    let mut s = Session::start("documents-form.cfrm");
+    s.wait_for("Lbl-Progress", "Caption", |v| v == "Rebuilding the Knowledge Base with the semantic model...");
+    let status = s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Added"));
+    s.quit();
+    assert!(status.starts_with("Added 1,"), "the rebuild indexes the document again: {status}");
+    assert!(!status.contains("words only"), "embedded, so no words-only warning: {status}");
+    report.push(format!("rebuilt with the built-in model, no warning ({status}) — {:.0} ms", t.elapsed().as_secs_f64() * 1000.0));
+
+    println!("\n  ── 071 PowerChat, embedding with the built-in model ─────");
+    for r in &report {
+        println!("  {r}");
+    }
+    println!();
     let _ = std::fs::remove_dir_all(&root);
 }

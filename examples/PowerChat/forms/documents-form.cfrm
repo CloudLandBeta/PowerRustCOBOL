@@ -260,8 +260,29 @@
           05 FILLER PIC X(70) VALUE "Non ajouté : ce type de fichier ne peut pas être lu : &1".
           05 FILLER PIC X(70) VALUE "追加しません（読めない形式）: &1".
           05 FILLER PIC X(70) VALUE "未添加：无法读取此类文件：&1".
+      *>   MODEL-FETCH
+          05 FILLER PIC X(70) VALUE "Downloading the semantic model: &1 - &2 of &3 KB".
+          05 FILLER PIC X(70) VALUE "Baixando o modelo semântico: &1 - &2 de &3 KB".
+          05 FILLER PIC X(70) VALUE "Descargando el modelo semántico: &1 - &2 de &3 KB".
+          05 FILLER PIC X(70) VALUE "Téléchargement du modèle sémantique : &1 - &2 sur &3 Ko".
+          05 FILLER PIC X(70) VALUE "意味モデルをダウンロード中: &1 - &2 / &3 KB".
+          05 FILLER PIC X(70) VALUE "正在下载语义模型：&1 - &2 / &3 KB".
+      *>   REINDEXING
+          05 FILLER PIC X(70) VALUE "Rebuilding the Knowledge Base with the semantic model...".
+          05 FILLER PIC X(70) VALUE "Reconstruindo a base de conhecimento com o modelo semântico...".
+          05 FILLER PIC X(70) VALUE "Reconstruyendo la base de conocimiento con el modelo semántico...".
+          05 FILLER PIC X(70) VALUE "Reconstruction de la base avec le modèle sémantique...".
+          05 FILLER PIC X(70) VALUE "意味モデルでナレッジベースを再構築中...".
+          05 FILLER PIC X(70) VALUE "正在用语义模型重建知识库...".
+      *>   WORDS-ONLY
+          05 FILLER PIC X(70) VALUE "Search is by words only: &1".
+          05 FILLER PIC X(70) VALUE "A busca é só por palavras: &1".
+          05 FILLER PIC X(70) VALUE "La búsqueda es solo por palabras: &1".
+          05 FILLER PIC X(70) VALUE "Recherche par mots seulement : &1".
+          05 FILLER PIC X(70) VALUE "語句のみで検索します: &1".
+          05 FILLER PIC X(70) VALUE "仅按词语搜索：&1".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 33.
+          05 PC-TEXT-ROW     OCCURS 36.
              10 PC-TEXT      PIC X(70) OCCURS 6.
       *>   The texts in the current language, by name.
        01 PC-TEXTS-NOW       GLOBAL.
@@ -298,8 +319,11 @@
           05 T-MOVED PIC X(70).
           05 T-ACCEPTED-TYPES PIC X(70).
           05 T-REJECTED-TYPE PIC X(70).
+          05 T-MODEL-FETCH PIC X(70).
+          05 T-REINDEXING PIC X(70).
+          05 T-WORDS-ONLY PIC X(70).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(70) OCCURS 33.
+          05 PC-TEXT-NOW     PIC X(70) OCCURS 36.
       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
        01 WS-FMT             GLOBAL PIC X(70).
        01 WS-ARG1            GLOBAL PIC X(300).
@@ -353,6 +377,13 @@
       *>   Files refused by the last drop, named for the status line; kept
       *>   until the indexing summary that follows has shown them too.
        01 WS-REJECT-MSG      GLOBAL PIC X(400) VALUE SPACES.
+      *>   The Knowledge Base's own work in flight: "M" fetching the semantic
+      *>   model, "R" rebuilding a collection indexed with another embedder.
+       01 WS-KB-STEP         GLOBAL PIC X VALUE SPACE.
+       01 WS-MODE-WHY        GLOBAL PIC X(400) VALUE SPACES.
+       01 WS-TALLY           GLOBAL PIC 9(4).
+       01 WS-KB1             GLOBAL PIC Z(8)9.
+       01 WS-KB2             GLOBAL PIC Z(8)9.
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -704,7 +735,7 @@
                WHEN OTHER MOVE "en" TO WS-LANG
                           MOVE 1 TO WS-LANG-IX
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 33
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 36
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
            MOVE FUNCTION TRIM(T-DOCS-TITLE) TO Lbl-Title::Caption
@@ -720,6 +751,20 @@
            MOVE WS-DOC-TYPES TO WS-ARG1
            CALL "PC-FMT"
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Types::Caption
+]]></Event>
+    <Event name="PC-KB-REFRESH" paragraph="PC-KB-REFRESH"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Bring the index up to date with the folder. SearchModeReason is
+      *>   only written when there is something to say, so it is cleared
+      *>   first: an old warning must not outlive a clean update.
+           MOVE SPACES TO KB-D::SearchModeReason
+           MOVE KB-D::Refresh() TO WS-OK
+           IF WS-OK NOT = "1"
+               MOVE KB-D::LastError TO Lbl-Status::Caption
+           ELSE
+               MOVE FUNCTION TRIM(T-KB-UPDATING) TO Lbl-Progress::Caption
+           END-IF
 ]]></Event>
     <Event name="PC-MOVE-UI" paragraph="PC-MOVE-UI"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -878,10 +923,12 @@
            STRING FUNCTION TRIM(WS-KB-LOCATION) "/" FUNCTION TRIM(WS-CUR-TOPIC)
                   "/documents" DELIMITED BY SIZE INTO WS-DOCS-DIR
            CALL "PC-LIST-DOCS"
-      *>   Pick up whatever changed in the folder since the last run (R16).
-           MOVE KB-D::Refresh() TO WS-OK
+      *>   The semantic model first - fetched once per installation, a quick
+      *>   no-op after that - then pick up whatever changed in the folder
+      *>   since the last run (R16). onIndexed runs the refresh after it.
+           MOVE KB-D::FetchModel() TO WS-OK
            IF WS-OK = "1"
-               MOVE FUNCTION TRIM(T-KB-UPDATING) TO Lbl-Progress::Caption
+               MOVE "M" TO WS-KB-STEP
            END-IF
 ]]></Event>
     <Event name="PC-LANG-NOW" paragraph="PC-LANG-NOW"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1114,12 +1161,7 @@ Node 2</Property>
     <Event name="onFilesDropped" paragraph="DROP-DOCS--ONFILESDROPPED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-           MOVE KB-D::Refresh() TO WS-OK
-           IF WS-OK NOT = "1"
-               MOVE KB-D::LastError TO Lbl-Status::Caption
-           ELSE
-               MOVE FUNCTION TRIM(T-KB-UPDATING) TO Lbl-Progress::Caption
-           END-IF
+           CALL "PC-KB-REFRESH"
 ]]></Event>
     <Event name="onFilesRejected" paragraph="DROP-DOCS--ONFILESREJECTED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -1304,12 +1346,7 @@ Node 2</Property>
     <Event name="onClick" paragraph="BTN-REFRESH--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-           MOVE KB-D::Refresh() TO WS-OK
-           IF WS-OK NOT = "1"
-               MOVE KB-D::LastError TO Lbl-Status::Caption
-           ELSE
-               MOVE FUNCTION TRIM(T-KB-UPDATING) TO Lbl-Progress::Caption
-           END-IF
+           CALL "PC-KB-REFRESH"
 ]]></Event>
   </Control>
   <Control id="Lbl-Count" type="Label" x="24" y="328" w="456" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
@@ -1801,7 +1838,7 @@ Node 2</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
     <Property name="Location">assets/KB</Property>
-    <Property name="Embedder">Lexical</Property>
+    <Property name="Embedder">Builtin</Property>
     <Property name="EmbeddingURL">http://localhost:11434</Property>
     <Property name="EmbeddingAPI">Ollama</Property>
     <Property name="EmbeddingModel">nomic-embed-text</Property>
@@ -1824,6 +1861,20 @@ Node 2</Property>
        PROCEDURE DIVISION.
       *>   The progress strip (R16a): which document, how many of how many.
       *>   The strip is always on the form; it is empty while nothing indexes.
+      *>   Fetching the model counts kilobytes of one file, not documents.
+           IF WS-KB-STEP = "M"
+               MOVE KB-D::ProgressCurrent TO WS-KB1
+               MOVE KB-D::ProgressTotal TO WS-KB2
+               MOVE KB-D::ProgressTotal TO Prg-Index::Maximum
+               MOVE KB-D::ProgressCurrent TO Prg-Index::Value
+               MOVE T-MODEL-FETCH TO WS-FMT
+               MOVE KB-D::ProgressDocument TO WS-ARG1
+               MOVE WS-KB1 TO WS-ARG2
+               MOVE WS-KB2 TO WS-ARG3
+               CALL "PC-FMT"
+               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Progress::Caption
+               EXIT PROGRAM
+           END-IF
            MOVE KB-D::ProgressCurrent TO WS-N1
            MOVE KB-D::ProgressTotal TO WS-N2
            MOVE KB-D::ProgressTotal TO Prg-Index::Maximum
@@ -1838,6 +1889,13 @@ Node 2</Property>
     <Event name="onIndexed" paragraph="KB-D--ONINDEXED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
+      *>   The model is here (or was already): now the folder.
+           IF WS-KB-STEP = "M"
+               MOVE SPACE TO WS-KB-STEP
+               CALL "PC-PROGRESS-IDLE"
+               CALL "PC-KB-REFRESH"
+               EXIT PROGRAM
+           END-IF
       *>   A move's copy is indexed: now the original goes. Its own onIndexed
       *>   lists the tree and reports the move.
            IF WS-MOVE-STEP = "I"
@@ -1873,6 +1931,22 @@ Node 2</Property>
                CALL "PC-MOVE-UI"
                EXIT PROGRAM
            END-IF
+      *>   A collection indexed with another embedder (the lexical one, before
+      *>   PowerChat used the semantic model) is only stored as text: rebuild
+      *>   it once, so its documents get their vectors.
+           MOVE KB-D::SearchModeReason TO WS-MODE-WHY
+           MOVE 0 TO WS-TALLY
+           INSPECT WS-MODE-WHY TALLYING WS-TALLY FOR ALL "another embedder"
+           IF WS-TALLY > 0 AND WS-KB-STEP = SPACE
+               MOVE SPACES TO KB-D::SearchModeReason
+               MOVE KB-D::Reindex() TO WS-OK
+               IF WS-OK = "1"
+                   MOVE "R" TO WS-KB-STEP
+                   MOVE FUNCTION TRIM(T-REINDEXING) TO Lbl-Progress::Caption
+                   EXIT PROGRAM
+               END-IF
+           END-IF
+           MOVE SPACE TO WS-KB-STEP
            MOVE KB-D::AddedCount TO WS-N1
            MOVE KB-D::UpdatedCount TO WS-N2
            MOVE KB-D::RemovedCount TO WS-N3
@@ -1894,6 +1968,16 @@ Node 2</Property>
                STRING FUNCTION TRIM(WS-ARG2) " " FUNCTION TRIM(WS-FMT-OUT)
                    DELIMITED BY SIZE INTO WS-LINE
            END-IF
+      *>   R18: never degrade silently - say when search is by words only.
+           IF WS-MODE-WHY NOT = SPACES
+               MOVE T-WORDS-ONLY TO WS-FMT
+               MOVE WS-MODE-WHY TO WS-ARG1
+               CALL "PC-FMT"
+               MOVE WS-LINE TO WS-ARG2
+               MOVE SPACES TO WS-LINE
+               STRING FUNCTION TRIM(WS-ARG2) " " FUNCTION TRIM(WS-FMT-OUT)
+                   DELIMITED BY SIZE INTO WS-LINE
+           END-IF
            IF WS-REJECT-MSG NOT = SPACES
                MOVE WS-LINE TO WS-ARG2
                MOVE SPACES TO WS-LINE
@@ -1909,6 +1993,13 @@ Node 2</Property>
        PROCEDURE DIVISION.
            CALL "PC-PROGRESS-IDLE"
            MOVE KB-D::LastError TO Lbl-Status::Caption
+      *>   No model (no network, say): index anyway - by words, and the
+      *>   summary says so. A failed rebuild leaves the text-only index.
+           IF WS-KB-STEP = "M"
+               MOVE SPACE TO WS-KB-STEP
+               CALL "PC-KB-REFRESH"
+           END-IF
+           MOVE SPACE TO WS-KB-STEP
       *>   A move stops where it failed: before the delete, the original
       *>   is untouched; the tree shows what is really there.
            IF WS-MOVE-STEP NOT = SPACE
@@ -1923,6 +2014,13 @@ Node 2</Property>
        PROCEDURE DIVISION.
            CALL "PC-PROGRESS-IDLE"
            MOVE KB-D::LastError TO Lbl-Status::Caption
+      *>   No model (no network, say): index anyway - by words, and the
+      *>   summary says so. A failed rebuild leaves the text-only index.
+           IF WS-KB-STEP = "M"
+               MOVE SPACE TO WS-KB-STEP
+               CALL "PC-KB-REFRESH"
+           END-IF
+           MOVE SPACE TO WS-KB-STEP
       *>   A move stops where it failed: before the delete, the original
       *>   is untouched; the tree shows what is really there.
            IF WS-MOVE-STEP NOT = SPACE

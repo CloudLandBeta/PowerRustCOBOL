@@ -81,6 +81,12 @@ indexed = []
 [runtime]
 fixed_format = false
 
+# The application Knowledge Base embeds with the built-in semantic model
+# (multilingual-e5-small, the same one Grace uses), so a built PowerChat
+# links it. Run Form already carries it.
+[rag]
+embedder = "builtin"
+
 [ide]
 theme = "neumorphic-cobalt"
 background_image = ""
