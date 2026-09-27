@@ -7204,6 +7204,24 @@ fresh `OPEN`, or a successful `START`, establishes a record again.
 > `01 CUST-STATUS. 03 CS-1 PIC X. 03 CS-2 PIC X.` — as well as an ordinary
 > `PIC XX`. Both receive the code.
 
+### Copybook paths in `COPY`
+
+`COPY` takes the copybook as a word (`COPY CUSTREC.`) or as a literal, and the
+literal may carry a folder relative to the source file that holds the `COPY`.
+If no file matches the name exactly, the extensions `.cpy`, `.cbl`, `.cob`,
+`.cpb` and `.cobol` are tried in turn:
+
+```cobol
+       WORKING-STORAGE SECTION.
+       COPY "txt\Padrao.ws".
+       COPY "txt/Padrao.ws".
+```
+
+Both lines name the same file. A backslash is read as a folder separator on
+**every** platform, so sources brought over from Windows (the PowerCOBOL
+habit) compile unchanged on macOS and Linux. A copybook that itself contains
+`COPY` resolves its names from its own folder.
+
 ### Where a relative `ASSIGN` path starts
 
 `SELECT SETTINGS-FILE ASSIGN TO "data/settings.idx"` — or the same path held in

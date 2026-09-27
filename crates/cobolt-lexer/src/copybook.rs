@@ -528,8 +528,16 @@ fn load_and_expand(
 
 /// Resolve a copybook name to a file path under `base_dir`, trying common
 /// extensions. Quotes around a literal name are stripped.
+///
+/// A `\` in the name is a folder separator on every platform: sources written
+/// on Windows (`COPY "txt\Padrao.ws"`, the PowerCOBOL habit) otherwise found
+/// nothing on macOS and Linux, where `\` is an ordinary file-name character
+/// (operator, 2026-09-26). `/` is a separator on Windows too, so one spelling
+/// serves all three.
 fn resolve(name: &str, base_dir: &Path) -> Option<PathBuf> {
     let name = name.trim_matches(|c| c == '"' || c == '\'');
+    let name = name.replace('\\', "/");
+    let name = name.as_str();
     let exts = [
         "", ".cpy", ".CPY", ".cbl", ".CBL", ".cob", ".COB", ".cpb", ".cobol",
     ];
@@ -691,6 +699,20 @@ mod tests {
         assert!(r.errors.is_empty(), "{:?}", r.errors);
         assert!(r.text.contains("01 WS-NAME PIC X(10)."));
         assert!(!r.text.to_uppercase().contains("COPY REC"));
+    }
+
+    /// A Windows path in the literal (`\`) finds the copybook in a subfolder
+    /// on every platform, exactly as `/` does.
+    #[test]
+    fn a_backslash_path_finds_the_copybook() {
+        let d = tmp().join("backslash");
+        std::fs::create_dir_all(d.join("txt")).unwrap();
+        write(&d.join("txt"), "Padrao.ws", "01 WS-PADRAO PIC X(20).\n");
+        for src in ["       COPY \"txt\\Padrao.ws\".\n", "       COPY \"txt/Padrao.ws\".\n"] {
+            let r = expand_copybooks(src, &d, SourceFormat::Free);
+            assert!(r.errors.is_empty(), "{src}: {:?}", r.errors);
+            assert!(r.text.contains("01 WS-PADRAO PIC X(20)."), "{src}: {}", r.text);
+        }
     }
 
     #[test]

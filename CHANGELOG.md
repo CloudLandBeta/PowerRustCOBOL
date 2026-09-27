@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.269] — 2026-09-26
+
+### Fix — `COPY "txt\Padrao.ws"` found nothing on macOS and Linux
+
+- A backslash in a `COPY` literal is now a folder separator on every platform.
+  Sources written on Windows (`COPY "txt\Padrao.ws"`) failed with
+  `copybook not found` on macOS and Linux, where `\` is an ordinary file-name
+  character; `/` already worked. Test `a_backslash_path_finds_the_copybook`.
+  Guide: new section *Copybook paths in `COPY`* (§13).
+
 ## [PowerRustCOBOL 1.70.268] — 2026-09-26
 
 ### Feature — TabControl: ActiveTabForegroundColor
