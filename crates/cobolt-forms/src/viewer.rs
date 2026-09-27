@@ -1810,6 +1810,108 @@ impl Conversation {
     }
 }
 
+/// One message of a conversation as the window receives it: the stream
+/// [`Conversation::to_html`] published, read back.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct StreamMessage {
+    pub id: String,
+    pub blocks: Vec<Block>,
+}
+
+const STREAM_MESSAGE_OPEN: &str = "<div data-message=\"";
+const STREAM_MARKDOWN_OPEN: &str = "<div data-markdown=\"1\">";
+
+/// Read `_ConversationHtml` back into its messages — the inverse of
+/// [`Conversation::to_html`], and the only reader of its framing.
+///
+/// The window used to hand the whole stream to [`parse_html`], which knows
+/// nothing of that framing: a Markdown message arrives as ESCAPED text inside
+/// `<div data-markdown>`, so it showed as its literal source (`**You:**`), and
+/// a `<div>` is not a block boundary, so every message ran into one paragraph
+/// (operator, 2026-09-26). Here each message is laid out on its own, each
+/// Markdown chunk through [`parse_markdown`], each HTML or raw chunk through
+/// [`parse_html`] (a raw chunk is a `<pre>`, which it maps to a code block).
+///
+/// A stream that is not framed — or whose HTML chunk left a `<div>` unclosed —
+/// is read as one HTML document from that point on, never dropped.
+pub fn parse_conversation_html(html: &str) -> Vec<StreamMessage> {
+    let mut out = Vec::new();
+    let mut rest = html;
+    loop {
+        let Some(start) = rest.find(STREAM_MESSAGE_OPEN) else { break };
+        let after = &rest[start + STREAM_MESSAGE_OPEN.len()..];
+        let Some(id_end) = after.find('"') else { break };
+        let id = unescape_html(&after[..id_end]);
+        let Some(tag_end) = after[id_end..].find('>') else { break };
+        let inner_start = id_end + tag_end + 1;
+        let Some(inner_len) = div_body_len(&after[inner_start..]) else { break };
+        let inner = &after[inner_start..inner_start + inner_len];
+        out.push(StreamMessage { id, blocks: message_blocks(inner) });
+        rest = &after[inner_start + inner_len + "</div>".len()..];
+    }
+    if !rest.trim().is_empty() {
+        out.push(StreamMessage { id: String::new(), blocks: parse_html(rest).blocks });
+    }
+    out
+}
+
+/// Length of a `<div>`'s body, up to (not including) the `</div>` that closes
+/// it, counting nested divs. `None` when it is never closed.
+fn div_body_len(body: &str) -> Option<usize> {
+    let lower = body.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
+    let mut depth = 1usize;
+    let mut i = 0;
+    while i < bytes.len() {
+        if lower[i..].starts_with("</div") {
+            depth -= 1;
+            if depth == 0 {
+                return Some(i);
+            }
+            i += 5;
+        } else if lower[i..].starts_with("<div")
+            && matches!(bytes.get(i + 4), Some(b' ' | b'>' | b'\t' | b'\n' | b'\r' | b'/'))
+        {
+            depth += 1;
+            i += 4;
+        } else {
+            i += 1;
+        }
+    }
+    None
+}
+
+/// One message's chunks, laid out each in the mode it arrived as.
+fn message_blocks(inner: &str) -> Vec<Block> {
+    let mut blocks = Vec::new();
+    let mut rest = inner;
+    while !rest.is_empty() {
+        let (html_part, md) = match rest.find(STREAM_MARKDOWN_OPEN) {
+            Some(i) => (&rest[..i], Some(&rest[i + STREAM_MARKDOWN_OPEN.len()..])),
+            None => (rest, None),
+        };
+        if !html_part.trim().is_empty() {
+            blocks.extend(parse_html(html_part).blocks);
+        }
+        let Some(md) = md else { break };
+        // A Markdown chunk's text is escaped, so its body holds no tag and
+        // the first `</div>` closes it.
+        let end = md.find("</div>").unwrap_or(md.len());
+        blocks.extend(parse_markdown(&unescape_html(&md[..end])).blocks);
+        rest = md.get(end + "</div>".len()..).unwrap_or("");
+    }
+    blocks
+}
+
+/// The inverse of [`escape_html`].
+fn unescape_html(text: &str) -> String {
+    text.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
+}
+
 /// One chunk's derived layout, in the mode it arrived as.
 fn layout_chunk(mode: AppendMode, content: &str) -> Vec<Block> {
     match mode {
@@ -6063,6 +6165,45 @@ mod html_tests {
 #[cfg(test)]
 mod conversation_tests {
     use super::*;
+
+    /// The window reads the published stream back message by message: a
+    /// Markdown message is Markdown (its `**` is bold, not two asterisks), and
+    /// two messages stay two blocks instead of one run-on paragraph
+    /// (operator, 2026-09-26: "**Você:** hello**O agente 1…").
+    #[test]
+    fn the_published_stream_reads_back_message_by_message() {
+        let mut c = Conversation::new();
+        c.append(AppendMode::Markdown, "**You:** hello");
+        c.append(AppendMode::Html, "<div><p>Hi <b>there</b></p></div>");
+        c.append(AppendMode::Raw, "<b>raw & kept</b>");
+        let id = c.append(AppendMode::Markdown, "stream");
+        c.append_to_message(&id, AppendMode::Markdown, "ed *reply*");
+        let msgs = parse_conversation_html(&c.to_html());
+        assert_eq!(msgs.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["m1", "m2", "m3", "m4"]);
+        let texts = |b: &Block| match b {
+            Block::Paragraph { content } => content
+                .iter()
+                .filter_map(|i| match i {
+                    Inline::Text { text, style } => Some((text.clone(), style.strong, style.emphasis)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            other => panic!("expected a paragraph, got {other:?}"),
+        };
+        assert_eq!(texts(&msgs[0].blocks[0])[0], ("You:".into(), true, false), "{:?}", msgs[0]);
+        assert_eq!(msgs[0].blocks.len(), 1);
+        assert!(texts(&msgs[1].blocks[0]).iter().any(|t| t.0 == "there" && t.1), "{:?}", msgs[1]);
+        assert!(
+            matches!(&msgs[2].blocks[..], [Block::CodeBlock { text, .. }] if text == "<b>raw & kept</b>"),
+            "a raw chunk stays literal: {:?}",
+            msgs[2]
+        );
+        assert!(texts(&msgs[3].blocks[0]).iter().any(|t| t.0 == "reply" && t.2), "{:?}", msgs[3]);
+        // Not framed at all: read as one HTML document, as before.
+        let loose = parse_conversation_html("<p>hello</p>");
+        assert_eq!(loose.len(), 1);
+        assert_eq!(loose[0].blocks.len(), 1);
+    }
 
     // ── T24: auto-follow (§8.3, AC15, AC18) ─────────────────────────────
 

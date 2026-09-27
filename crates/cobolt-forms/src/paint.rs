@@ -8932,7 +8932,13 @@ pub(crate) fn viewer_conversation_content(
     if let Some(hit) = ctx.memory(|m| m.data.get_temp::<Arc<ViewerPageContent>>(id)) {
         return Some(hit);
     }
-    let doc = crate::viewer::parse_html(html);
+    // Each message on its own, each chunk in the mode it arrived as — never
+    // the whole stream through the HTML walker (see `parse_conversation_html`).
+    let blocks = crate::viewer::parse_conversation_html(html)
+        .into_iter()
+        .flat_map(|m| m.blocks)
+        .collect();
+    let doc = crate::viewer::LayoutDocument { blocks };
     let arc = Arc::new(ViewerPageContent::Markdown { raw: html.to_string(), doc });
     ctx.memory_mut(|m| m.data.insert_temp(id, arc.clone()));
     Some(arc)

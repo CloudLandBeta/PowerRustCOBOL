@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.270] — 2026-09-26
+
+### Fix — a Viewer conversation showed Markdown as source, all in one line
+
+- In a `Streamed` Viewer, `AppendMarkdown` messages appeared as their literal
+  source (`**You:** hello`) and every message ran into the previous one. The
+  window read the published stream (`_ConversationHtml`) as one HTML page, but
+  a Markdown message travels in it as escaped text and a message's `<div>` is
+  no block boundary. The stream is now read back message by message, each
+  chunk in the mode it was appended with (`viewer::parse_conversation_html`,
+  the inverse of `Conversation::to_html`). Test
+  `the_published_stream_reads_back_message_by_message`.
+
 ## [PowerRustCOBOL 1.70.269] — 2026-09-26
 
 ### Fix — `COPY "txt\Padrao.ws"` found nothing on macOS and Linux
