@@ -64,7 +64,10 @@ opens inside the window, in the content pane beside the menu.
 5. **Prompt** — keep versions of the topic's system prompt; save a new one or
    bring an older one back (it asks first).
 6. **Chat** — ask. Past conversations are listed in the menu; pick one to
-   continue it.
+   continue it. Select any part of the conversation and copy it with
+   Cmd/Ctrl+C (or the right-click menu). **Save as PDF** writes the
+   conversation as a PDF with its formatting — headings, bold, lists, tables,
+   code — to where you choose in the system's Save panel.
 
 The flags at the foot of the menu switch the interface between English,
 Portuguese, Spanish, French, Japanese and Chinese, at once.

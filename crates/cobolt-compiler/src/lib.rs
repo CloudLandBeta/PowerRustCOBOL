@@ -6189,6 +6189,10 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
                 "Write the document's ORIGINAL BYTES to `path`, unmodified — a copy, never a rendered or re-encoded document. Called with NO argument it asks the operator instead: the platform's own Save panel opens, with R18.1's proposed filename in the box — the document's own name when it came from a `Source`, and otherwise the first three words of its content plus the extension its `Format` implies. Dismissing the panel writes nothing and raises `onSaveCancelled`, which is not an error. The toolbar's Save As button is the same request. This matters most for a PDF, where the Viewer reads the file's structure in order to paint it and could so easily save that reading instead; it saves the FILE. From COBOL the path you give is always the path written: the proposed default filename is the interactive dialog's convenience, not this method's contract. Raises `onSaveComplete`, or `onError` with `LastError` set.",
             ),
             (
+                "SaveAsPdf(path: String)",
+                "Write what the Viewer shows as a PDF, with its formatting: under `Layout = Streamed` the CONVERSATION — every message, the user's set in and in the user's ink, headings, bold and italic, lists and task lists, tables, quotes and code in a monospaced face — otherwise a Markdown or text document laid out the same way; a PDF document is copied as it stands, and any other format raises `onError` saying what the method takes. Called with NO argument it asks the operator, through the same Save panel as `SaveAs()`, proposing `conversation.pdf` (or the document's own name as `.pdf`) and offering the PDF type; dismissing it writes nothing and raises `onSaveCancelled`. Fonts are the machine's own and embedded whole, so a PDF is a few megabytes; an image appears as its alt text and a Mermaid diagram as its source. Raises `onSaveComplete`, or `onError` with `LastError` set.",
+            ),
+            (
                 "Print()",
                 "Hand the document to the operating system's own print path — its dialog and its spooler. The Viewer implements no printing of its own. `onPrintComplete` or `onPrintCancelled` follows, from what the OS reported: only its dialog knows whether the user went through with it.",
             ),
@@ -7411,6 +7415,7 @@ fn methods_reference_doc() -> String {
             &[
                 ("LoadBytes(data: String)", "Open a document from bytes instead of a path; the format is resolved from the content."),
                 ("SaveAs(path: String)", "Write the source's ORIGINAL bytes to `path` — a copy, never a re-encode. `onSaveComplete`, or `onError` with `LastError`."),
+                ("SaveAsPdf(path: String)", "Write the conversation (`Streamed`) or a Markdown/text document as a PDF with its formatting; no argument opens the Save panel with `conversation.pdf` proposed. `onSaveComplete`, `onSaveCancelled`, or `onError` with `LastError`."),
                 ("Print()", "Hand the document to the OS print path. `onPrintComplete`/`onPrintCancelled` — from what the OS reported."),
                 ("Find(text: String)", "Open the Find bar and search for `text`."),
                 ("FindNext() / FindPrevious()", "Move between matches, wrapping at both ends. No matches is a no-op, not an error."),

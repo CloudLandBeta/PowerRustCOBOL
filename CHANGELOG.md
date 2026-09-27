@@ -8,6 +8,40 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.293] — 2026-09-27
+
+### Feature — Viewer `SaveAsPdf`, and PowerChat's Save as PDF
+
+- **`SaveAsPdf([path])`** (Viewer): what the Viewer shows, as a PDF with its
+  formatting — under `Layout = Streamed` the conversation (the user's
+  messages set in and in the user's ink), otherwise a Markdown or text
+  document; a PDF document is copied as it stands. Headings at their sizes,
+  bold and italic in the font's real faces, lists and task lists, tables with
+  their header row, quotes, code in a monospaced face; an image as its alt
+  text, a Mermaid diagram as its source, a link as its text and address. With
+  no path it opens the same Save panel as `SaveAs()`, proposing
+  `conversation.pdf` and offering the PDF type; the events are `SaveAs`'s.
+  New module `cobolt-forms/src/viewer_pdf.rs` (genpdf, the machine's own
+  fonts, a monospaced family embedded only when there is code).
+- **Linked where it is used:** a `pdf` feature in `cobolt-forms`,
+  `cobolt-runtime` and `cobolt-form-host` (default on — rcrun, the IDE and
+  tests keep it); a built application links it when a form has a Viewer.
+- **PowerChat:** a **Save as PDF** button above the chat (the topic line is
+  narrower to make room); the status line confirms the save, says so in the
+  interface's language when there is no conversation yet, and shows any other
+  error. Three texts in all six languages.
+- ⚠️ Fonts are embedded whole (genpdf does not subset): about 3.5 MB for a
+  conversation, 6 MB when it holds code.
+- System KB (Viewer method tables) and the Developer's Guide (Saving and
+  printing) updated; `chunked.data` regenerated.
+- Tests: `a_conversation_saves_as_a_pdf_with_its_formatting`,
+  `prose_alone_embeds_only_the_body_font`,
+  `an_empty_conversation_is_refused_with_a_reason`,
+  `save_as_pdf_writes_the_conversation_as_a_pdf`, `a_viewer_links_the_pdf_writer`,
+  `powerchat_saves_the_conversation_as_a_pdf`. cobolt-forms (render,pdf)
+  1190/0, cobolt-form-host 156/0, cobolt-runtime (lib) 354/0, cobolt-compiler
+  (lib) 145/0.
+
 ## [PowerRustCOBOL 1.70.292] — 2026-09-27
 
 ### Fix — Viewer: Cmd/Ctrl+C copies the selected text

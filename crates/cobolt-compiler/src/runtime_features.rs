@@ -91,6 +91,9 @@ pub struct RuntimeFeatures {
     /// Spec 075 — `smb://` addresses for files an `AgentObject` registers by
     /// path. Pure Rust (`smb2`); on for any form with an `AgentObject`.
     pub smb: bool,
+    /// The Viewer's `SaveAsPdf` — genpdf and font discovery. Pure Rust; on
+    /// for any form with a Viewer.
+    pub pdf: bool,
 }
 
 impl RuntimeFeatures {
@@ -103,6 +106,7 @@ impl RuntimeFeatures {
             kb: true,
             kb_semantic: false,
             smb: true,
+            pdf: true,
         }
     }
 
@@ -115,6 +119,7 @@ impl RuntimeFeatures {
             kb: self.kb || other.kb,
             kb_semantic: self.kb_semantic || other.kb_semantic,
             smb: self.smb || other.smb,
+            pdf: self.pdf || other.pdf,
         }
     }
 
@@ -141,6 +146,9 @@ impl RuntimeFeatures {
         }
         if self.smb {
             names.push("\"smb\"");
+        }
+        if self.pdf {
+            names.push("\"pdf\"");
         }
         names.join(", ")
     }
@@ -177,6 +185,9 @@ pub fn scan_forms<'a>(forms: impl IntoIterator<Item = &'a cobolt_forms::Form>) -
             }
             if ctrl.control_type == cobolt_forms::ControlType::AgentObject {
                 found.smb = true;
+            }
+            if ctrl.control_type == cobolt_forms::ControlType::Viewer {
+                found.pdf = true;
             }
         }
     }
@@ -242,6 +253,7 @@ fn scan_rust(source: &str) -> RuntimeFeatures {
         kb: source.contains("cobolt_kb"),
         kb_semantic: false,
         smb: source.contains("smb_source") || source.contains("registered_file"),
+        pdf: source.contains("viewer_pdf"),
     }
 }
 
@@ -424,7 +436,7 @@ mod tests {
         let all = RuntimeFeatures::all();
         assert!(all.sql && all.http && all.maps && all.kb);
         assert!(!all.kb_semantic, "the built-in model is never part of \"everything\"");
-        assert_eq!(all.as_toml_features(), "\"sql\", \"http\", \"maps\", \"kb\", \"smb\"");
+        assert_eq!(all.as_toml_features(), "\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\"");
     }
 
     /// A Maps control is reached by method call on a control id, which the AST
@@ -459,6 +471,18 @@ mod tests {
         assert!(f.as_toml_features().contains("\"smb\""));
         let plain = form_with(cobolt_forms::ControlType::Button);
         assert!(!scan_forms([&plain]).smb, "no AgentObject, no SMB client");
+    }
+
+    /// A Viewer can save what it shows as a PDF, so its form links the PDF
+    /// writer; a form without one does not (operator, 2026-09-27).
+    #[test]
+    fn a_viewer_links_the_pdf_writer() {
+        let viewer = form_with(cobolt_forms::ControlType::Viewer);
+        let f = scan_forms([&viewer]);
+        assert!(f.pdf);
+        assert!(f.as_toml_features().contains("\"pdf\""));
+        let plain = form_with(cobolt_forms::ControlType::Button);
+        assert!(!scan_forms([&plain]).pdf, "no Viewer, no PDF writer");
     }
 
     /// A WebSearch control rides the same client.
@@ -521,7 +545,7 @@ mod tests {
 
         let full = crate::base_dependency_block(dir, false, RuntimeFeatures::all());
         assert!(
-            full.contains("features = [\"sql\", \"http\", \"maps\", \"kb\", \"smb\"]"),
+            full.contains("features = [\"sql\", \"http\", \"maps\", \"kb\", \"smb\", \"pdf\"]"),
             "a program that reaches everything asks for everything:\n{full}"
         );
 

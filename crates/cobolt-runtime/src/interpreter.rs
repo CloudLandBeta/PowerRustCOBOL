@@ -2779,6 +2779,9 @@ impl Interpreter {
     const VIEWER_SAVE_AS_ASK: &'static str = "_SaveAsAsk";
     const VIEWER_SAVE_AS_REQUEST: &'static str = "_SaveAsRequest";
     const VIEWER_SAVE_AS_ANSWER: &'static str = "_SaveAsAnswer";
+    /// Set while the Save As panel is open for `SaveAsPdf()`, so its answer
+    /// writes a PDF rather than the document's own bytes.
+    const VIEWER_SAVE_AS_PDF: &'static str = "_SaveAsPdf";
 
     /// Spec 058 R19/R20 — Print and Share, in the same three pseudo-properties
     /// each, and for the same reason: only the runtime holds the document, and
@@ -2847,6 +2850,7 @@ impl Interpreter {
             self.run_datagrid_csv_export(&obj);
         }
         for obj in save_asks {
+            self.obj_set(&obj, Self::VIEWER_SAVE_AS_PDF, String::new());
             let suggested = self.viewer_suggested_filename(&obj);
             self.obj_set(&obj, Self::VIEWER_SAVE_AS_REQUEST, suggested);
         }
@@ -2928,11 +2932,18 @@ impl Interpreter {
         // than a repeat of this one.
         self.obj_set(obj, Self::VIEWER_SAVE_AS_REQUEST, String::new());
         self.obj_set(obj, Self::VIEWER_SAVE_AS_ANSWER, String::new());
+        let as_pdf = self.obj_get(obj, Self::VIEWER_SAVE_AS_PDF).trim() == "1";
+        self.obj_set(obj, Self::VIEWER_SAVE_AS_PDF, String::new());
         if path.trim().is_empty() {
             self.report_viewer_os_outcome(obj, ViewerOsAction::Save, false);
             return;
         }
-        match self.viewer_save_as(obj, path) {
+        let written = if as_pdf {
+            self.viewer_save_as_pdf(obj, path)
+        } else {
+            self.viewer_save_as(obj, path)
+        };
+        match written {
             Ok(()) => self.report_viewer_os_outcome(obj, ViewerOsAction::Save, true),
             Err(e) => {
                 self.obj_set(obj, "LastError", e);
@@ -14194,6 +14205,68 @@ impl Interpreter {
     /// came from, which is what makes AC6 true by construction rather than
     /// by a re-encoder being careful. A `LoadBytes` document writes the
     /// bytes COBOL supplied.
+    /// The name the Save as PDF panel opens with: `conversation.pdf` for a
+    /// conversation, else the document's own proposed name as a `.pdf`.
+    fn viewer_suggested_pdf_name(&self, obj: &str) -> String {
+        if !self.obj_get(obj, "_ConversationHtml").trim().is_empty()
+            || self.obj_get(obj, "Layout").trim().eq_ignore_ascii_case("Streamed")
+        {
+            return "conversation.pdf".to_string();
+        }
+        let name = self.viewer_suggested_filename(obj);
+        let stem = name.rsplit_once('.').map(|(s, _)| s).filter(|s| !s.is_empty()).unwrap_or(&name);
+        format!("{stem}.pdf")
+    }
+
+    /// `SaveAsPdf` — the conversation a `Streamed` Viewer holds, or its
+    /// Markdown or text document, laid out as a PDF at `path`; a PDF document
+    /// is copied as it stands. Other formats say what the method takes.
+    #[cfg(feature = "pdf")]
+    fn viewer_save_as_pdf(&mut self, obj: &str, path: &str) -> Result<(), String> {
+        use cobolt_forms::viewer::ViewerFormat;
+        let dest = std::path::Path::new(path.trim());
+        if dest.as_os_str().is_empty() {
+            return Err("no destination path".to_string());
+        }
+        let title = dest
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Document")
+            .to_string();
+        // A `Streamed` Viewer shows its conversation and nothing else — an
+        // empty one is "the conversation is empty", not "no document".
+        let html = self.obj_get(obj, "_ConversationHtml");
+        if !html.trim().is_empty() || self.obj_get(obj, "Layout").trim().eq_ignore_ascii_case("Streamed") {
+            return cobolt_forms::viewer_pdf::conversation_to_pdf(&html, &title, dest);
+        }
+        let source = self.obj_get(obj, "Source");
+        let bytes: Vec<u8> = if !source.trim().is_empty() {
+            let resolved = cobolt_forms::assets::resolve(source.trim());
+            std::fs::read(&resolved).map_err(|e| format!("could not read document: {e}"))?
+        } else if let Some(b) = self.viewer_bytes.get(obj) {
+            b.clone()
+        } else {
+            return Err("no document loaded".to_string());
+        };
+        match ViewerFormat::from_str(&self.obj_get(obj, "Format")) {
+            ViewerFormat::Pdf => {
+                std::fs::write(dest, &bytes).map_err(|e| format!("could not write the PDF: {e}"))
+            }
+            ViewerFormat::Markdown | ViewerFormat::Text => {
+                cobolt_forms::viewer_pdf::markdown_to_pdf(&String::from_utf8_lossy(&bytes), &title, dest)
+            }
+            other => Err(format!(
+                "Save as PDF takes a conversation, a Markdown or text document, or a PDF — not {}",
+                other.as_str()
+            )),
+        }
+    }
+
+    #[cfg(not(feature = "pdf"))]
+    fn viewer_save_as_pdf(&mut self, _obj: &str, _path: &str) -> Result<(), String> {
+        Err("this application was built without Save as PDF".to_string())
+    }
+
     fn viewer_save_as(&mut self, obj: &str, path: &str) -> Result<(), String> {
         let dest = path.trim();
         if dest.is_empty() {
@@ -15666,10 +15739,32 @@ impl Interpreter {
             "SAVEAS" => {
                 let path = arg(0);
                 if path.trim().is_empty() {
+                    self.obj_set(obj, Self::VIEWER_SAVE_AS_PDF, String::new());
                     let suggested = self.viewer_suggested_filename(obj);
                     self.obj_set(obj, Self::VIEWER_SAVE_AS_REQUEST, suggested);
                 } else {
                     match self.viewer_save_as(obj, &path) {
+                        Ok(()) => self.report_viewer_os_outcome(obj, ViewerOsAction::Save, true),
+                        Err(e) => {
+                            self.obj_set(obj, "LastError", e);
+                            self.queue_control_event(obj, "onError");
+                        }
+                    }
+                }
+                none
+            }
+            // The document — or, in `Streamed`, the conversation — laid out
+            // as a PDF with its formatting (operator, 2026-09-27). With no
+            // path it asks the operator, through the very Save As panel
+            // `SaveAs()` uses; a flag says which of the two the answer is for.
+            "SAVEASPDF" | "SAVE-AS-PDF" => {
+                let path = arg(0);
+                if path.trim().is_empty() {
+                    self.obj_set(obj, Self::VIEWER_SAVE_AS_PDF, "1".to_string());
+                    let suggested = self.viewer_suggested_pdf_name(obj);
+                    self.obj_set(obj, Self::VIEWER_SAVE_AS_REQUEST, suggested);
+                } else {
+                    match self.viewer_save_as_pdf(obj, &path) {
                         Ok(()) => self.report_viewer_os_outcome(obj, ViewerOsAction::Save, true),
                         Err(e) => {
                             self.obj_set(obj, "LastError", e);
@@ -19004,7 +19099,7 @@ fn is_known_method(name: &str) -> bool {
         // Viewer (058) — same rule as Snackbar's above: an unlisted name
         // parses its parens as a collection subscript, so `VWR-1::Print()`
         // would silently mean "element … of Print".
-            | "LOADBYTES" | "SAVEAS" | "PRINT" | "SHARE"
+            | "LOADBYTES" | "SAVEAS" | "SAVEASPDF" | "SAVE-AS-PDF" | "PRINT" | "SHARE"
             | "FIND" | "FINDNEXT" | "FIND-NEXT" | "FINDPREVIOUS" | "FIND-PREVIOUS"
             | "FINDCLOSE" | "FIND-CLOSE"
         // Viewer conversation mode (058 §8)
@@ -20184,6 +20279,55 @@ MAIN.
     /// content from anywhere but a subsequent host-supplied append call."
     /// The optional second argument of the Append methods says who a message
     /// is from; it reaches the published stream, which is what the window
+    /// Operator (2026-09-27): a Save as PDF for the conversation, through
+    /// the platform's own save panel. `SaveAsPdf(path)` writes it at once;
+    /// `SaveAsPdf()` asks with `conversation.pdf` proposed, and the answer
+    /// writes a PDF — never the plain Save As copy.
+    #[cfg(feature = "pdf")]
+    #[test]
+    fn save_as_pdf_writes_the_conversation_as_a_pdf() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut interp = viewer_interp(&[("Layout", "Streamed")]);
+        let say = |interp: &mut Interpreter, text: &str, role: &str| {
+            interp.exec_method(
+                "VWR-1",
+                "APPENDMARKDOWN",
+                &[CobolValue::from_str(text, text.len()), CobolValue::from_str(role, role.len())],
+            );
+        };
+        say(&mut interp, "**Você:** quantos dias?", "user");
+        say(&mut interp, "## Férias\n\nSão **vinte** dias úteis.\n\n| Grau | Dias |\n|---|---|\n| A | 20 |", "assistant");
+
+        let direct = dir.path().join("direct.pdf");
+        let t = std::time::Instant::now();
+        interp.exec_method("VWR-1", "SAVEASPDF", &[CobolValue::from_str(direct.to_str().unwrap(), 260)]);
+        let ms = t.elapsed().as_secs_f64() * 1000.0;
+        let bytes = std::fs::read(&direct).expect("SaveAsPdf(path) writes the file");
+        assert_eq!(&bytes[..5], b"%PDF-");
+        assert!(queued_for(&interp, "VWR-1").iter().any(|e| e == "onSaveComplete"));
+
+        let _ = interp.exec_method("VWR-1", "SAVEASPDF", &[]);
+        assert_eq!(interp.obj_get("VWR-1", "_SaveAsRequest"), "conversation.pdf", "the panel proposes conversation.pdf");
+        let chosen = dir.path().join("chosen.pdf");
+        interp.run_viewer_save_as_answer("VWR-1", chosen.to_str().unwrap());
+        let chosen_bytes = std::fs::read(&chosen).expect("answering the panel writes the PDF");
+        assert_eq!(&chosen_bytes[..5], b"%PDF-", "the answer to SaveAsPdf() is a PDF");
+        assert_eq!(interp.obj_get("VWR-1", "_SaveAsPdf"), "", "the flag is spent");
+
+        // A dismissed panel is a cancellation, and a plain SaveAs() afterwards
+        // is a plain Save As again.
+        let _ = interp.exec_method("VWR-1", "SAVEASPDF", &[]);
+        interp.run_viewer_save_as_answer("VWR-1", "");
+        assert!(queued_for(&interp, "VWR-1").iter().any(|e| e == "onSaveCancelled"));
+        let _ = interp.exec_method("VWR-1", "SAVEAS", &[]);
+        assert_eq!(interp.obj_get("VWR-1", "_SaveAsPdf"), "", "SaveAs() is never a PDF");
+        println!(
+            "SaveAsPdf — 2 messages (heading, bold, table, accents): direct {} bytes in {ms:.0} ms; via the panel {} bytes; dismissed → onSaveCancelled",
+            bytes.len(),
+            chosen_bytes.len()
+        );
+    }
+
     /// draws the chat bubbles from. Without it nothing changes.
     #[test]
     fn an_append_with_a_role_publishes_it() {

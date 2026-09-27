@@ -16,7 +16,7 @@ repository.workspace   = true
 [features]
 # Everything the interpreter has always had. Nothing in this workspace turns it
 # off — `rcrun`, the IDE and every test keep the full surface.
-default = ["sql", "http", "maps", "kb", "smb"]
+default = ["sql", "http", "maps", "kb", "smb", "pdf"]
 
 # The SQL bridge: `COBOL-OPEN-DB` and its five companions, over SQLite,
 # PostgreSQL and MySQL.
@@ -67,6 +67,12 @@ kb-semantic = ["kb", "cobolt-kb/semantic"]
 # only so an application without an AgentObject does not carry tokio's
 # networking; the compiler turns it on when a form has one.
 smb = ["dep:smb2", "dep:tokio"]
+
+# The Viewer's `SaveAsPdf` — a document or a conversation written out as a PDF
+# with its formatting. Pure Rust (genpdf). Separable because it embeds font
+# handling every Viewer-free program can do without; the compiler turns it on
+# when a form has a Viewer.
+pdf = ["cobolt-forms/pdf"]
 
 [dependencies]
 # Free memory, for the fit test of a registered file (spec 075 R18); the

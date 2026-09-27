@@ -1159,3 +1159,69 @@ fn powerchat_documents_embed_with_the_builtin_model() {
     println!();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Operator (2026-09-27): "a function to save the file in PDF form, keeping
+/// the formatting done during the conversation (a Save as PDF button, and the
+/// OS's dialog to choose the destination)". The button asks the platform's
+/// Save panel — `conversation.pdf` proposed — and the answer writes a PDF.
+#[test]
+fn powerchat_saves_the_conversation_as_a_pdf() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let root = std::env::temp_dir().join(format!(
+        "prc-071-pdf-{}",
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let data = root.join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    plant_model(&root, false);
+    std::env::set_var("POWERCHAT_DATA", &data);
+    let t = Instant::now();
+
+    let mut s = Session::start("chat-form.cfrm");
+    let caption = s.wait_for("Btn-Pdf", "Caption", |v| !v.trim().is_empty());
+    assert_eq!(caption, "Save as PDF");
+    s.settle();
+
+    // Nothing said yet: the button says so, in the interface's language.
+    s.click("Btn-Pdf");
+    let _ = s.wait_for("Vwr-Chat", "_SaveAsRequest", |v| !v.trim().is_empty());
+    s.input
+        .send(StateUpdate::new("Vwr-Chat", "_SaveAsAnswer", &root.join("empty.pdf").display().to_string()))
+        .unwrap();
+    s.events.send(FormEvent::new("Txt-Input", "onGotFocus")).unwrap();
+    s.wait_for("Lbl-Status", "Caption", |v| v == "There is no conversation to save yet.");
+    assert!(!root.join("empty.pdf").exists(), "nothing is written for nothing");
+
+    // A conversation, as the chat's own appends leave it.
+    let mut conv = cobolt_forms::viewer::Conversation::new();
+    conv.append_as(cobolt_forms::viewer::AppendMode::Markdown, "**You:** how many days?", cobolt_forms::viewer::MessageRole::User);
+    conv.append_as(
+        cobolt_forms::viewer::AppendMode::Markdown,
+        "**Agent 1:** Employees get **twenty** working days.\n\n- full time: 20\n- part time: pro rata",
+        cobolt_forms::viewer::MessageRole::Agent,
+    );
+    s.input.send(StateUpdate::new("Vwr-Chat", "_ConversationHtml", &conv.to_html())).unwrap();
+    s.click("Btn-Pdf");
+    let asked = s.wait_for("Vwr-Chat", "_SaveAsRequest", |v| !v.trim().is_empty());
+    assert_eq!(asked, "conversation.pdf", "the Save panel proposes conversation.pdf");
+
+    // The operator picks a folder and a name in the panel.
+    let chosen = root.join("chosen").join("my-chat.pdf");
+    std::fs::create_dir_all(chosen.parent().unwrap()).unwrap();
+    s.input
+        .send(StateUpdate::new("Vwr-Chat", "_SaveAsAnswer", &chosen.display().to_string()))
+        .unwrap();
+    s.events.send(FormEvent::new("Txt-Input", "onGotFocus")).unwrap();
+    s.wait_for("Lbl-Status", "Caption", |v| v == "The conversation was saved as a PDF.");
+    s.quit();
+    let bytes = std::fs::read(&chosen).expect("the PDF is where the panel said");
+    assert_eq!(&bytes[..5], b"%PDF-");
+    println!(
+        "\n  ── 071 PowerChat, Save as PDF ───────────────────────────\n  \
+         button → Save panel (conversation.pdf proposed) → {} ({} bytes), status confirmed — {:.0} ms\n",
+        chosen.display(),
+        bytes.len(),
+        t.elapsed().as_secs_f64() * 1000.0
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}

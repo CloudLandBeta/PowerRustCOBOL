@@ -1112,6 +1112,13 @@ impl FormBody {
         }
         let suggested = Path::new(suggested);
         let mut spec = crate::file_dialog::DialogSpec::save();
+        // `SaveAsPdf()` proposes a `.pdf`: the panel offers that type.
+        if suggested
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+        {
+            spec = spec.filter("PDF", &["pdf"]);
+        }
         if let Some(name) = suggested.file_name().and_then(|n| n.to_str()) {
             spec = spec.file_name(name);
         }

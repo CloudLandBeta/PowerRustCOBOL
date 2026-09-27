@@ -43,6 +43,11 @@ lopdf = { version = "0.26", default-features = false, features = ["nom_parser"] 
 # Version matched to cobolt-ide's own pin so the two never resolve to
 # different releases.
 mermaid-rs-renderer = "0.2"
+# The Viewer's Save as PDF (`SaveAsPdf`, operator 2026-09-27): a document or a
+# conversation written out as a PDF with its formatting. Behind `pdf` — not
+# `render` — because the RUNTIME writes it, and the runtime links this crate
+# without egui. Version matched to cobolt-ide's own pin.
+genpdf = { version = "0.2", default-features = false, optional = true }
 # The Viewer's HTML subset (spec 058, T21). **`tl`, not `html5ever`** —
 # plan.md §4 chose html5ever and explicitly flagged this crate as the
 # fallback "for implementation-time reconsideration". Reconsidered, and
@@ -79,6 +84,7 @@ native-tls  = { version = "0.2", optional = true }
 arboard     = { version = "3.6", optional = true }
 
 [features]
+pdf = ["dep:genpdf", "dep:fontdb"]
 render = ["dep:egui", "dep:fontdb", "dep:skrifa", "dep:cobolt-media", "dep:image", "dep:resvg", "dep:egui-elegance", "dep:ureq", "dep:native-tls", "dep:arboard"]
 
 [dev-dependencies]

@@ -4936,6 +4936,32 @@ is raised, because the operator did exactly what they meant to.
            .
 ```
 
+**`SaveAsPdf` keeps the formatting.** `SaveAs` copies the document's own
+bytes. `SaveAsPdf` lays out what the Viewer *shows* as a PDF instead. Under
+`Layout = Streamed` that is the conversation, which has no file to copy at
+all. Headings keep their sizes, bold and italic use the font's real faces,
+lists and task lists keep their numbers and boxes, tables keep their header
+row and frame, and code stays in a monospaced face. The user's own messages
+are set in, in the user's ink, the way their bubbles are. Outside a
+conversation it takes a Markdown or text document the same way, copies a PDF
+as it stands, and raises `onError` for anything else.
+
+```cobol
+       PROGRAM-ID. BTN-PDF--ONCLICK.
+       PROCEDURE DIVISION.
+           INVOKE VWR-CHAT::SaveAsPdf()
+           .
+```
+
+With no argument the same Save panel opens, proposing `conversation.pdf` and
+offering the PDF type. With a path, that path is written. The events are
+`SaveAs`'s: `onSaveComplete`, `onSaveCancelled`, `onError`.
+
+> ⚠️ **Caveat — a PDF carries its fonts.** They are your machine's own, and
+> they are embedded whole, so even a short conversation makes a PDF of a few
+> megabytes, and more when it holds code. An image in a message appears as its
+> alt text, and a Mermaid diagram as its source.
+
 > **Note — what `Print` does, and what its events mean.** A platform takes a
 > *file*, so a document opened from a `Source` is handed over as it stands, and
 > one given to `LoadBytes` is written out first — under the same proposed name
