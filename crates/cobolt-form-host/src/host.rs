@@ -1788,16 +1788,40 @@ impl FormBody {
                 // Browsing goes through the SAME intake as a drop — the zone's
                 // extensions, size limit and destination folder — so a file is
                 // judged by one set of rules however it arrived.
+                // The zone AS IT IS NOW: a value the COBOL set at run time wins
+                // over the designed one. Reading only the design dropped every
+                // picked file on the floor when the form set DestinationFolder
+                // itself — the file was "accepted" with nowhere to go
+                // (operator, 2026-09-27 — PowerChat's Documents upload). The
+                // drag-drop path in the renderer already reads the live control.
                 let ctrl = self.controls.iter().find(|c| c.id == id);
+                let live = self.state.get(&id);
                 let prop = |key: &str| -> String {
-                    ctrl.and_then(|c| c.get_prop(key))
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_default()
+                    live.and_then(|s| {
+                        s.props
+                            .iter()
+                            .find(|(k, _)| k.eq_ignore_ascii_case(key))
+                            .map(|(_, v)| v.clone())
+                    })
+                    .or_else(|| {
+                        ctrl.and_then(|c| c.get_prop(key))
+                            .map(|v| v.as_str().to_owned())
+                    })
+                    .unwrap_or_default()
                 };
                 let bool_prop = |key: &str, default: bool| -> bool {
-                    ctrl.and_then(|c| c.get_prop(key))
-                        .map(|v| v.as_bool())
-                        .unwrap_or(default)
+                    match live.and_then(|s| {
+                        s.props
+                            .iter()
+                            .find(|(k, _)| k.eq_ignore_ascii_case(key))
+                            .map(|(_, v)| v.clone())
+                    }) {
+                        Some(v) => cobolt_forms::PropValue::String(v).as_bool(),
+                        None => ctrl
+                            .and_then(|c| c.get_prop(key))
+                            .map(|v| v.as_bool())
+                            .unwrap_or(default),
+                    }
                 };
                 // `apply_drop` also decides whether this copies now or only stages
                 // for the form to confirm — the same answer the drag-drop path gets.
@@ -8234,6 +8258,69 @@ mod parity {
                 snackbars: Default::default(),
                 viewer_sessions: Default::default(),
         }
+    }
+
+    /// Operator (2026-09-27): PowerChat's Documents upload — "I can select the
+    /// file, but it does not get processed nor even appear in the folder". The
+    /// form sets the zone's `DestinationFolder` from COBOL at run time; the
+    /// click-to-browse intake read only the DESIGNED value (blank), so the
+    /// picked file was accepted with nowhere to go and never copied. The
+    /// live value must win, exactly as it does on the drag-drop path.
+    #[test]
+    fn a_browsed_file_goes_to_the_destination_the_cobol_set() {
+        let (ev_tx, ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let mut body = timer_body(ev_tx, input_tx, Arc::new(AtomicUsize::new(0)));
+        // Designed with NO destination — PowerChat's documents-form exactly.
+        let zone = cobolt_forms::Control::new(
+            "DROP-BROWSE-LIVE",
+            cobolt_forms::ControlType::FileDropZone,
+            0,
+            0,
+        );
+        body.controls.push(zone);
+
+        let root = std::env::temp_dir().join(format!(
+            "fdz-browse-live-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("picked.txt");
+        std::fs::write(&source, b"hello").unwrap();
+        let dest = root.join("documents").join("Policies");
+        // What `MOVE ... TO Drop-Docs::DestinationFolder` leaves in the state.
+        body.state_entry_mut("DROP-BROWSE-LIVE")
+            .set("DestinationFolder", dest.display().to_string());
+
+        crate::file_dialog::answer_for_test(
+            "filedropzone:DROP-BROWSE-LIVE",
+            Some(source.clone()),
+        );
+        let ctx = egui::Context::default();
+        let mut full = ctx.run_ui(Default::default(), |ui| {
+            let ctx2 = ui.ctx().clone();
+            body.run_platform_requests(&ctx2, &[], &[], &[], None, None);
+        });
+        full.textures_delta.clear();
+
+        let copied = dest.join("picked.txt");
+        assert!(
+            copied.is_file(),
+            "the picked file lands in the folder the COBOL set, not nowhere"
+        );
+        assert_eq!(std::fs::read(&copied).unwrap(), b"hello");
+        let fired: Vec<String> = ev_rx.try_iter().map(|e| e.event_id).collect();
+        assert!(
+            fired.iter().any(|e| e == "onFilesDropped"),
+            "onFilesDropped fires so the form can index it — got {fired:?}"
+        );
+        println!(
+            "browse intake — designed DestinationFolder blank, live one set: \
+             1 file picked, 1 copied to {}, onFilesDropped fired",
+            dest.display()
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// Operator (2026-08-23): "copy, paste are doing nothing". Two defects in

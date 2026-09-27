@@ -120,6 +120,15 @@ pub fn begin(ctx: &egui::Context, key: &str, spec: DialogSpec) {
     pending().lock().unwrap().insert(key.to_owned(), rx);
 }
 
+/// Test hook: behave as if a dialog under `key` had just closed with `answer`,
+/// so a test can drive what happens next without an OS dialog.
+#[cfg(test)]
+pub fn answer_for_test(key: &str, answer: Option<PathBuf>) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let _ = tx.send(answer);
+    pending().lock().unwrap().insert(key.to_owned(), rx);
+}
+
 /// Poll a dialog started under `key`:
 /// * `Some(Some(path))` — the user picked a file,
 /// * `Some(None)` — the user cancelled,

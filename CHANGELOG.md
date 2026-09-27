@@ -8,6 +8,23 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.286] — 2026-09-27
+
+### Fix — FileDropZone: a file chosen by clicking goes where the form said
+
+- **Click-to-browse ignored a destination set at run time**
+  (`cobolt-form-host/src/host.rs`, `run_platform_requests`). The picked file
+  went through the zone's intake with its *designed* `AllowedExtensions`,
+  `MaximumFileSizeKB`, `DestinationFolder`, `StageOnly` and
+  `FileListControl` — so a form that sets `DestinationFolder` from COBOL (as
+  PowerChat's **Documents** does, to the selected folder) had the file
+  accepted with nowhere to go: nothing was copied, nothing appeared in the
+  folder, and the refresh that followed found nothing to index. The live value
+  now wins over the designed one, as it already did for a drag-and-drop.
+  Reaches `rcrun run-form`, embedded forms and compiled binaries alike — they
+  share this host.
+- Test: `a_browsed_file_goes_to_the_destination_the_cobol_set`.
+
 ## [PowerRustCOBOL 1.70.285] — 2026-09-27
 
 ### Feature — Ollama at the end of setup: a model provider one click away
