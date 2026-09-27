@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="DOCUMENTS-FORM" title="PowerChat" width="1080" height="472" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed" form-format="Embedded">
+<Form name="DOCUMENTS-FORM" title="PowerChat" width="1080" height="512" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed" form-format="Embedded">
   <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -246,8 +246,22 @@
           05 FILLER PIC X(70) VALUE "&1 déplacé vers &2.".
           05 FILLER PIC X(70) VALUE "&1 を &2 へ移動しました。".
           05 FILLER PIC X(70) VALUE "已将 &1 移到 &2。".
+      *>   ACCEPTED-TYPES
+          05 FILLER PIC X(70) VALUE "Accepted types: &1".
+          05 FILLER PIC X(70) VALUE "Tipos aceitos: &1".
+          05 FILLER PIC X(70) VALUE "Tipos aceptados: &1".
+          05 FILLER PIC X(70) VALUE "Types acceptés : &1".
+          05 FILLER PIC X(70) VALUE "対応する形式: &1".
+          05 FILLER PIC X(70) VALUE "支持的类型：&1".
+      *>   REJECTED-TYPE
+          05 FILLER PIC X(70) VALUE "Not added - this type of file cannot be read: &1".
+          05 FILLER PIC X(70) VALUE "Não adicionado - este tipo de arquivo não pode ser lido: &1".
+          05 FILLER PIC X(70) VALUE "No añadido: este tipo de archivo no se puede leer: &1".
+          05 FILLER PIC X(70) VALUE "Non ajouté : ce type de fichier ne peut pas être lu : &1".
+          05 FILLER PIC X(70) VALUE "追加しません（読めない形式）: &1".
+          05 FILLER PIC X(70) VALUE "未添加：无法读取此类文件：&1".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 31.
+          05 PC-TEXT-ROW     OCCURS 33.
              10 PC-TEXT      PIC X(70) OCCURS 6.
       *>   The texts in the current language, by name.
        01 PC-TEXTS-NOW       GLOBAL.
@@ -282,8 +296,10 @@
           05 T-MOVE-SAME PIC X(70).
           05 T-MOVE-EXISTS PIC X(70).
           05 T-MOVED PIC X(70).
+          05 T-ACCEPTED-TYPES PIC X(70).
+          05 T-REJECTED-TYPE PIC X(70).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(70) OCCURS 31.
+          05 PC-TEXT-NOW     PIC X(70) OCCURS 33.
       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
        01 WS-FMT             GLOBAL PIC X(70).
        01 WS-ARG1            GLOBAL PIC X(300).
@@ -330,6 +346,13 @@
        01 WS-MOVE-DEST       GLOBAL PIC X(260) VALUE SPACES.
        01 WS-MOVE-TO         GLOBAL PIC X(260) VALUE SPACES.
        01 WS-MOVE-STEP       GLOBAL PIC X VALUE SPACE.
+      *>   What the Knowledge Base can read, and so all the zone accepts: the
+      *>   zone's filter AND the list the form shows. One list, both uses.
+       01 WS-DOC-TYPES       GLOBAL PIC X(300) VALUE
+           ".md .markdown .txt .text .log .html .htm .xhtml .csv .tsv .tab .pdf .docx .docm .dotx .dotm .pptx .pptm .potx .potm .ppsx .ppsm .xlsx .xlsm .xltx .xltm .odt .ott .odm .oth .ods .ots .odp .otp .zip .tar .gz .tgz".
+      *>   Files refused by the last drop, named for the status line; kept
+      *>   until the indexing summary that follows has shown them too.
+       01 WS-REJECT-MSG      GLOBAL PIC X(400) VALUE SPACES.
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -681,7 +704,7 @@
                WHEN OTHER MOVE "en" TO WS-LANG
                           MOVE 1 TO WS-LANG-IX
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 31
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 33
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
            MOVE FUNCTION TRIM(T-DOCS-TITLE) TO Lbl-Title::Caption
@@ -693,6 +716,10 @@
            MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
            MOVE FUNCTION TRIM(T-MOVE-TOP) TO Btn-MoveTop::Caption
            CALL "PC-MOVE-UI"
+           MOVE T-ACCEPTED-TYPES TO WS-FMT
+           MOVE WS-DOC-TYPES TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Types::Caption
 ]]></Event>
     <Event name="PC-MOVE-UI" paragraph="PC-MOVE-UI"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -812,6 +839,8 @@
       *>   What the form shows: run on load, and again when it comes back.
            CALL "PC-PATHS"
            CALL "PC-TEXTS"
+      *>   The zone refuses whatever the Knowledge Base could not read.
+           MOVE WS-DOC-TYPES TO Drop-Docs::AllowedExtensions
            MOVE "CUR-TOPIC" TO WS-SET-NAME
            CALL "PC-SETTING-GET"
            MOVE WS-SET-VALUE(1:16) TO WS-CUR-TOPIC
@@ -1091,6 +1120,53 @@ Node 2</Property>
            ELSE
                MOVE FUNCTION TRIM(T-KB-UPDATING) TO Lbl-Progress::Caption
            END-IF
+]]></Event>
+    <Event name="onFilesRejected" paragraph="DROP-DOCS--ONFILESREJECTED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 LK-ALL             PIC X(4000).
+       01 LK-ONE             PIC X(400).
+       01 LK-PATH            PIC X(400).
+       01 LK-NAMES           PIC X(300).
+       01 LK-LEN             PIC 9(4).
+       01 LK-PT              PIC 9(4).
+       01 LK-OUT             PIC 9(4).
+       PROCEDURE DIVISION.
+      *>   RejectedFiles: one "path<TAB>reason" line per refused file. Name
+      *>   each one and say why, so nothing is refused without a word.
+           MOVE Drop-Docs::RejectedFiles TO LK-ALL
+           MOVE FUNCTION LENGTH(FUNCTION TRIM(LK-ALL)) TO LK-LEN
+           MOVE SPACES TO LK-NAMES
+           MOVE 1 TO LK-PT
+           MOVE 1 TO LK-OUT
+           PERFORM UNTIL LK-PT > LK-LEN
+               MOVE SPACES TO LK-ONE LK-PATH
+               UNSTRING LK-ALL DELIMITED BY X"0A" INTO LK-ONE
+                   WITH POINTER LK-PT
+               END-UNSTRING
+               UNSTRING LK-ONE DELIMITED BY X"09" INTO LK-PATH
+               END-UNSTRING
+               IF LK-PATH NOT = SPACES
+                   MOVE FUNCTION LENGTH(FUNCTION TRIM(LK-PATH)) TO WS-L
+                   MOVE 0 TO WS-P
+                   PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
+                       IF LK-PATH(WS-K:1) = "/" OR LK-PATH(WS-K:1) = "\"
+                           MOVE WS-K TO WS-P
+                       END-IF
+                   END-PERFORM
+                   IF LK-OUT > 1
+                       STRING ", " DELIMITED BY SIZE
+                           INTO LK-NAMES WITH POINTER LK-OUT
+                   END-IF
+                   STRING LK-PATH(WS-P + 1:WS-L - WS-P) DELIMITED BY SIZE
+                       INTO LK-NAMES WITH POINTER LK-OUT
+               END-IF
+           END-PERFORM
+           MOVE T-REJECTED-TYPE TO WS-FMT
+           MOVE LK-NAMES TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE WS-FMT-OUT TO WS-REJECT-MSG
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
 ]]></Event>
   </Control>
   <Control id="Btn-Delete" type="Button" x="680" y="224" w="376" h="32" tab-order="3" z-order="0" visible="true" enabled="true">
@@ -1659,6 +1735,44 @@ Node 2</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
+  <Control id="Lbl-Types" type="Label" x="24" y="456" w="1032" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="Caption"></Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
   <Control id="KB-D" type="KnowledgeBase" x="1000" y="8" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -1779,6 +1893,13 @@ Node 2</Property>
                MOVE SPACES TO WS-LINE
                STRING FUNCTION TRIM(WS-ARG2) " " FUNCTION TRIM(WS-FMT-OUT)
                    DELIMITED BY SIZE INTO WS-LINE
+           END-IF
+           IF WS-REJECT-MSG NOT = SPACES
+               MOVE WS-LINE TO WS-ARG2
+               MOVE SPACES TO WS-LINE
+               STRING FUNCTION TRIM(WS-ARG2) " " FUNCTION TRIM(WS-REJECT-MSG)
+                   DELIMITED BY SIZE INTO WS-LINE
+               MOVE SPACES TO WS-REJECT-MSG
            END-IF
            MOVE WS-LINE TO Lbl-Status::Caption
            CALL "PC-LIST-DOCS"

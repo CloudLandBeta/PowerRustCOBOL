@@ -968,3 +968,80 @@ fn powerchat_moves_a_document_between_folders() {
     println!("  4 moves tried (2 made, 2 refused) in {:.0} ms\n", total.elapsed().as_secs_f64() * 1000.0);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Operator (2026-09-27): "make sure that any supported document can be
+/// uploaded. Also place a label with valid extensions. Reject any extension
+/// not supported, and tell the user why". The zone's filter is the Knowledge
+/// Base's own list of readable types, the form shows that list, and a refused
+/// file is named with the reason — still shown after the indexing summary.
+#[test]
+fn powerchat_documents_take_every_readable_type_and_say_why_others_are_refused() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let root = std::env::temp_dir().join(format!(
+        "prc-071-types-{}",
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let data = root.join("data");
+    let kb = root.join("KB");
+    let docs = kb.join("HR").join("documents");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::create_dir_all(&docs).unwrap();
+    std::env::set_var("POWERCHAT_DATA", &data);
+    seed_settings(&data, &[("CUR-TOPIC", "HR"), ("KB-LOCATION", &kb.display().to_string())]);
+    let t = Instant::now();
+
+    let mut s = Session::start("documents-form.cfrm");
+    // The label is written with the texts, then the zone takes the same list.
+    let label = s.wait_for("Lbl-Types", "Caption", |v| v.starts_with("Accepted types:"));
+    let filter = s.wait_for("Drop-Docs", "AllowedExtensions", |v| !v.trim().is_empty());
+
+    // Every type the Knowledge Base reads is taken; nothing else is.
+    let readable = [
+        "a.md", "a.markdown", "a.txt", "a.text", "a.log", "a.html", "a.htm", "a.xhtml", "a.csv",
+        "a.tsv", "a.tab", "a.pdf", "a.docx", "a.docm", "a.dotx", "a.dotm", "a.pptx", "a.pptm",
+        "a.potx", "a.potm", "a.ppsx", "a.ppsm", "a.xlsx", "a.xlsm", "a.xltx", "a.xltm", "a.odt",
+        "a.ott", "a.odm", "a.oth", "a.ods", "a.ots", "a.odp", "a.otp", "a.zip", "a.tar",
+        "a.tar.gz", "a.tgz", "UPPER.PDF",
+    ];
+    let unreadable = ["a.png", "a.jpg", "a.exe", "a.doc", "a.ppt", "a.xls", "a.rtf", "a.mp4", "noext"];
+    let judge = |p: &str| cobolt_forms::dropzone::judge(&filter, 0, p, &|_| None);
+    for p in readable {
+        assert!(judge(p).is_ok(), "{p} is readable, so the zone takes it (filter {filter:?})");
+        let ext = p.rsplit('.').next().unwrap().to_ascii_lowercase();
+        assert!(label.contains(&format!(".{ext}")), "the label lists .{ext}: {label}");
+    }
+    for p in unreadable {
+        assert_eq!(
+            judge(p),
+            Err(cobolt_forms::dropzone::Rejection::Extension),
+            "{p} cannot be read, so the zone refuses it"
+        );
+    }
+
+    // A drop of two files, one refused: the refusal is named with its reason,
+    // and it survives the indexing summary that the accepted one triggers.
+    s.input
+        .send(StateUpdate::new(
+            "Drop-Docs",
+            "RejectedFiles",
+            "/Users/me/Desktop/photo.png\textension\n/Users/me/old.doc\textension",
+        ))
+        .unwrap();
+    s.events.send(FormEvent::new("Drop-Docs", "onFilesRejected")).unwrap();
+    s.wait_for("Lbl-Status", "Caption", |v| {
+        v == "Not added - this type of file cannot be read: photo.png, old.doc"
+    });
+    std::fs::write(docs.join("policy.md"), "# Policy\nTwenty days.").unwrap();
+    s.events.send(FormEvent::new("Drop-Docs", "onFilesDropped")).unwrap();
+    s.wait_for("Lbl-Status", "Caption", |v| {
+        v.starts_with("Added 1,") && v.ends_with("Not added - this type of file cannot be read: photo.png, old.doc")
+    });
+    s.quit();
+
+    println!("\n  ── 071 PowerChat, what the Documents zone accepts ───────");
+    println!("  filter set by the form: {} types", cobolt_forms::dropzone::parse_extensions(&filter).len());
+    println!("  {} readable names taken, {} unreadable refused", readable.len(), unreadable.len());
+    println!("  label: {label}");
+    println!("  refusal named with its reason, and kept after the indexing summary — {:.0} ms\n", t.elapsed().as_secs_f64() * 1000.0);
+    let _ = std::fs::remove_dir_all(&root);
+}

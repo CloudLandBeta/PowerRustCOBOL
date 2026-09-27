@@ -46,7 +46,9 @@ opens inside the window, in the content pane beside the menu.
 3. **Documents** — the topic's documents as a folder tree. Make a folder with
    **New folder** (inside the one selected), select it, and drop Word,
    PowerPoint, Excel, PDF, Markdown or text files on the zone: they land in
-   that folder and are indexed, with a progress panel. **Delete** removes a
+   that folder and are indexed, with a progress panel. The zone takes exactly
+   what the Knowledge Base can read — listed under the form — and refuses
+   anything else, naming the file and saying why. **Delete** removes a
    document, or a folder once nothing is left in it. To **move** a document,
    select it and press **Move**, then select the folder it goes to (or a
    document already in that folder) and press **Move here** — or press **To

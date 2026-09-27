@@ -8,6 +8,25 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.289] — 2026-09-27
+
+### Fix — PowerChat: Documents takes every readable type, and says why it refuses the rest
+
+- The Documents drop zone had no `AllowedExtensions`, so it took any file —
+  and a type the Knowledge Base cannot read was copied in only to be skipped
+  at indexing. The form now holds ONE list of the 38 extensions the Knowledge
+  Base reads (Markdown and text, HTML, CSV/TSV, PDF, Word, PowerPoint, Excel,
+  OpenDocument, and zip/tar/gz archives of them), sets it as the zone's
+  filter when it opens, and shows it in a new **Accepted types** line along
+  the bottom of the form (the form grows 40 px to hold it).
+- A refused file — dropped or chosen with browse — is named in the status
+  line with the reason ("Not added - this type of file cannot be read:
+  photo.png, old.doc"), handled in the zone's `onFilesRejected`. When the same
+  drop also brought readable files, the note is kept after the indexing
+  summary replaces the status line. Two texts in all six languages.
+- Test: `powerchat_documents_take_every_readable_type_and_say_why_others_are_refused`
+  (39 readable names taken, 9 unreadable refused).
+
 ## [PowerRustCOBOL 1.70.288] — 2026-09-27
 
 ### Fix — FileDropZone: a relative DestinationFolder starts at the application's folder
