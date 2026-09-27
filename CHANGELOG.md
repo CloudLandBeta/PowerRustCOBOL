@@ -8,6 +8,25 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.279] — 2026-09-27
+
+### Fix — Tab walks a TabControl's tabs; the focus is a dashed border inside the tab
+
+- **Tab / Shift+Tab** on a focused TabControl now make the next / previous
+  tab the active one, exactly as a click would (`SelectedTab`, `onTabClick`,
+  `onTabChanged`); Tab on the last tab and Shift+Tab on the first leave the
+  control as before. The form's traversal (`resolve_tab_traversal`) decides
+  it, since it reads Tab before any control runs: each tab-order target now
+  carries a TabControl's `(selected, count)`. One helper, `select_tab`, serves
+  the click, the arrows and Tab.
+- **The focus cue** on a tab is a 1 px dashed border inset 3 px inside the
+  selected tab, in the tab's own title colour — the colour already chosen to
+  read on its fill — instead of the ring around the whole control.
+- Tests `tab_and_shift_tab_walk_the_tabs`,
+  `a_focused_tab_wears_an_inner_dashed_border`. Guide: *Tab order and the
+  Enter key*.
+- Also carries the operator's pending PowerChat edits.
+
 ## [PowerRustCOBOL 1.70.278] — 2026-09-27
 
 ### Fix — a chat message with an accented character crashed the form

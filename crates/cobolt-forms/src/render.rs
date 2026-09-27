@@ -1200,6 +1200,19 @@ fn shadow_room(outer: Rect, parent: &Control) -> Rect {
     }
 }
 
+/// Make tab `to` of TabControl `id` the active one, exactly as a click on it
+/// does — whether a click, an arrow key or Tab chose it.
+fn select_tab(out: &mut RenderOutput, id: &str, to: usize, from: usize) {
+    out.prop_updates.push((id.to_owned(), "SelectedTab".to_owned(), to.to_string()));
+    out.events.push(UiEvent::ev(id, "onChange"));
+    // spec 021 T12: every tab click, plus the change event only when the
+    // selection actually moved.
+    out.events.push(UiEvent::with_value(id, "onTabClick", &to.to_string()));
+    if to != from {
+        out.events.push(UiEvent::with_value(id, "onTabChanged", &to.to_string()));
+    }
+}
+
 fn draw_deferred_tabcontrol_tabs(
     painter: &egui::Painter,
     input: &RenderInput<'_>,
@@ -2257,6 +2270,9 @@ fn render_form_inner(
         out.events.push(UiEvent::ev(label, "onGotFocus"));
     }
     let tab_focus_request = tab_step.focus;
+    if let Some((id, to, from)) = &tab_step.select_tab {
+        select_tab(&mut out, id, *to, *from);
+    }
     // An Enter that moved the focus has been spent: it must not also press the
     // form's default button.
     let default_button_click = if interactive && !tab_step.by_enter {
@@ -2713,6 +2729,9 @@ struct TabTarget {
     announces: bool,
     /// Enter in this control moves on, as Tab does (`Control::enter_as_tab`).
     enter_as_tab: bool,
+    /// A TabControl's `(selected tab, tab count)`: Tab and Shift+Tab walk its
+    /// tabs before they leave it.
+    tabs: Option<(usize, usize)>,
 }
 
 struct DefaultButtonTarget {
@@ -2750,6 +2769,10 @@ fn collect_tab_targets(
                 is_label,
                 announces: is_label && live.events.iter().any(|e| e.event == "onGotFocus"),
                 enter_as_tab: live.enter_as_tab(),
+                tabs: (live.control_type == ControlType::TabControl).then(|| {
+                    let sel = live.get_prop("SelectedTab").map(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
+                    (sel, crate::paint::tabcontrol_tab_rects(egui::Pos2::ZERO, &live).len())
+                }),
             });
         }
         sequence += 1;
@@ -2961,24 +2984,34 @@ fn paint_focus_ring(
     // Live: the tab the keyboard just moved to, not the one designed.
     let live = controls.iter().find(|c| c.id == target.ctrl_id).map(|c| input.state.live(c));
     let ctrl = live.as_ref();
-    let mut radius = ctrl.map_or(0.0, crate::paint::corner_radius);
-    // A TabControl's focus is its selected tab: the ring goes round that tab,
-    // not the whole control, so focus and selection read as one place.
-    let rect = match ctrl.filter(|c| c.control_type == ControlType::TabControl) {
-        Some(c) => {
-            let sel = c.get_prop("SelectedTab").map(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
-            let mut sized = c.clone();
-            sized.rect = crate::model::Rect::new(0, 0, rect.width().round() as i32, rect.height().round() as i32);
-            match crate::paint::tabcontrol_tab_rects(rect.min, &sized).get(sel) {
-                Some(tab) => {
-                    radius = 8.0_f32.min(tab.height() * 0.5);
-                    *tab
-                }
-                None => rect,
+    let radius = ctrl.map_or(0.0, crate::paint::corner_radius);
+    // A TabControl's focus is its selected tab, marked INSIDE it: a 1 px
+    // dashed border in the tab's own title colour — the colour already chosen
+    // to read on that fill, so the mark is high-contrast on any theme
+    // (operator, 2026-09-27). Inset 3 px, inside the tab's 8 px corner arcs.
+    if let Some(c) = ctrl.filter(|c| c.control_type == ControlType::TabControl) {
+        let ring = focus_ring();
+        if !ring.enabled {
+            return;
+        }
+        let sel = c.get_prop("SelectedTab").map(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
+        let mut sized = c.clone();
+        sized.rect = crate::model::Rect::new(0, 0, rect.width().round() as i32, rect.height().round() as i32);
+        if let Some(tab) = crate::paint::tabcontrol_tab_rects(rect.min, &sized).get(sel) {
+            let ink = crate::paint::tabcontrol_tab_colors(ui.ctx(), c).active_ink;
+            let r = tab.shrink(3.0);
+            let stroke = egui::Stroke::new(1.0, ink);
+            for (a, b) in [
+                (r.left_top(), r.right_top()),
+                (r.right_top(), r.right_bottom()),
+                (r.right_bottom(), r.left_bottom()),
+                (r.left_bottom(), r.left_top()),
+            ] {
+                painter.extend(egui::Shape::dashed_line(&[a, b], stroke, 3.0, 2.0));
             }
         }
-        None => rect,
-    };
+        return;
+    }
     let ring = focus_ring();
     if !ring.enabled {
         return;
@@ -3025,6 +3058,8 @@ struct TabStep {
     labels: Vec<String>,
     /// The move was an Enter (`EnterAsTab`), which is then spent.
     by_enter: bool,
+    /// Tab stayed inside a TabControl: `(control, new tab, previous tab)`.
+    select_tab: Option<(String, usize, usize)>,
 }
 
 fn apply_pending_tab_focus(ui: &egui::Ui) {
@@ -3103,6 +3138,20 @@ fn resolve_tab_traversal(ui: &egui::Ui, targets: &mut Vec<TabTarget>) -> TabStep
         // and the control whose TabOrder was changed was skipped (operator,
         // 2026-09-23). The form owns Tab: cancel egui's move.
         ui.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
+        // A TabControl with a tab further along takes this Tab itself: the
+        // next (Shift+Tab: previous) tab becomes the active one, as a click
+        // would make it, and the focus stays on the control. Past its last
+        // tab (before its first) the walk leaves it as usual (operator,
+        // 2026-09-27).
+        if let Some(fi) = focused_idx {
+            if let Some((sel, count)) = targets[fi].tabs {
+                let to = if shift { sel.checked_sub(1) } else { (sel + 1 < count).then_some(sel + 1) };
+                if let Some(to) = to {
+                    step.select_tab = Some((targets[fi].ctrl_id.clone(), to, sel));
+                    return step;
+                }
+            }
+        }
         let remembered = ui
             .data(|d| d.get_temp::<egui::Id>(tab_memory_id()))
             .and_then(position);
@@ -11118,17 +11167,7 @@ fn render_interactive(
             }
             // A click and a key choose a tab the same way, with the same events.
             if let Some(i) = pick {
-                out.prop_updates
-                    .push((id.to_owned(), "SelectedTab".to_owned(), i.to_string()));
-                out.events.push(UiEvent::ev(id, "onChange"));
-                // spec 021 T12: every tab click, plus the change event only
-                // when the selection actually moved.
-                out.events
-                    .push(UiEvent::with_value(id, "onTabClick", &i.to_string()));
-                if i != selected {
-                    out.events
-                        .push(UiEvent::with_value(id, "onTabChanged", &i.to_string()));
-                }
+                select_tab(out, id, i, selected);
             }
         }
         CT::TreeView => {
@@ -20905,6 +20944,131 @@ mod tests {
                 "{pos}"
             );
         }
+    }
+
+    /// Tab walks a TabControl's tabs before it leaves it: each Tab makes the
+    /// next tab the active one, as a click would; past the last tab the focus
+    /// moves on; Shift+Tab walks back the same way (operator, 2026-09-27).
+    #[test]
+    fn tab_and_shift_tab_walk_the_tabs() {
+        let mut before = ctrlp("Before", ControlType::TextBox, 0, 0, 160, 24, &[("Text", "")]);
+        before.tab_order = 1;
+        let mut tabs = ctrlp(
+            "TAB-1",
+            ControlType::TabControl,
+            0,
+            40,
+            400,
+            200,
+            &[("Tabs", "One\nTwo\nThree"), ("SelectedTab", "0")],
+        );
+        tabs.tab_order = 2;
+        let mut after = ctrlp("After", ControlType::TextBox, 0, 260, 160, 24, &[("Text", "")]);
+        after.tab_order = 3;
+        let controls = [before, tabs, after];
+        let mut frames = vec![(0.0, vec![])];
+        let mut t = 1.0;
+        let mut push = |evs: Vec<Event>| {
+            frames.push((t, evs));
+            t += 1.0;
+        };
+        // Before → TabControl → Two → Three → After, type there,
+        // then Shift+Tab: → TabControl (Three) → Two.
+        for _ in 0..5 {
+            push(vec![tab_key(false, true)]);
+            push(vec![tab_key(false, false)]);
+        }
+        push(vec![Event::Text("A".to_owned())]);
+        for _ in 0..2 {
+            push(vec![tab_key(true, true)]);
+            push(vec![tab_key(true, false)]);
+        }
+        let (evs, map) = drive(&controls, frames);
+        let changed: Vec<&str> = evs
+            .iter()
+            .filter(|e| e.event == "onTabChanged")
+            .filter_map(|e| e.value.as_deref())
+            .collect();
+        assert_eq!(changed, ["1", "2", "1"], "{:?}", names(&evs));
+        assert_eq!(
+            map.get("After").and_then(|m| m.get("Text")).map(String::as_str),
+            Some("A"),
+            "past the last tab the focus moved on"
+        );
+        assert_eq!(
+            map.get("TAB-1").and_then(|m| m.get("SelectedTab")).map(String::as_str),
+            Some("1")
+        );
+    }
+
+    /// The focus on a tab is a 1 px DASHED border inside it, in the tab's
+    /// own title colour (high contrast on its fill) — not a ring around the
+    /// whole control (operator, 2026-09-27).
+    #[test]
+    fn a_focused_tab_wears_an_inner_dashed_border() {
+        let tabs = [ctrlp(
+            "TAB-1",
+            ControlType::TabControl,
+            0,
+            0,
+            400,
+            200,
+            &[("Tabs", "One\nTwo"), ("SelectedTab", "0")],
+        )];
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let active = ActiveTabs::new();
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let mut last = Vec::new();
+        for (i, evs) in [vec![], vec![tab_key(false, true)], vec![tab_key(false, false)], vec![], vec![]]
+            .into_iter()
+            .enumerate()
+        {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(1000.0, 800.0)));
+            input.focused = true;
+            input.time = Some(i as f64 * 0.05);
+            input.events = evs;
+            let st = MapState(&overrides);
+            let mut full = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                    let inp = RenderInput {
+                        controls: &tabs,
+                        state: &st,
+                        form_size: Vec2::new(400.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Backdrop::default(),
+                    };
+                    let _ = render_form(ui, &inp);
+                });
+            });
+            full.textures_delta.clear();
+            last = full.shapes;
+        }
+        let tab0 = crate::paint::tabcontrol_tab_rects(pos2(0.0, 0.0), &tabs[0])[0];
+        let ink = crate::paint::tabcontrol_tab_colors(&ctx, &tabs[0]).active_ink;
+        let (mut dashes, mut rings) = (Vec::new(), 0);
+        fn walk(s: &egui::Shape, dashes: &mut Vec<(Pos2, Pos2, egui::Stroke)>, rings: &mut usize) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|x| walk(x, dashes, rings)),
+                egui::Shape::LineSegment { points, stroke } => dashes.push((points[0], points[1], *stroke)),
+                egui::Shape::Rect(r) if r.stroke.width >= 2.0 && r.stroke.color == FocusRing::DEFAULT_COLOR => *rings += 1,
+                _ => {}
+            }
+        }
+        last.iter().for_each(|c| walk(&c.shape, &mut dashes, &mut rings));
+        let inside: Vec<_> = dashes
+            .iter()
+            .filter(|(a, b, st)| tab0.contains(*a) && tab0.contains(*b) && st.width == 1.0 && st.color == ink)
+            .collect();
+        assert!(inside.len() >= 8, "a dashed border inside the focused tab: {} dashes of {:?}", inside.len(), dashes.len());
+        assert!(
+            inside.iter().all(|(a, b, _)| tab0.shrink(2.5).contains(*a) && tab0.shrink(2.5).contains(*b)),
+            "inset, not on the tab's edge"
+        );
+        assert_eq!(rings, 0, "no ring around the whole control");
     }
 
     #[test]
