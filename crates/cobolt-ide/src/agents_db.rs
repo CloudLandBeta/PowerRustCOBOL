@@ -25,8 +25,8 @@
 //! IMMUTABLE (they name the folder and prompt file); API keys are asked per
 //! model and stored machine-global in [`crate::llm::LlmConfig::api_keys`],
 //! never in the project; a primary agent may name one pedantic companion,
-//! and that pair must use different models (unrelated agents may share
-//! models freely).
+//! and any agent may use any model — a companion its primary's own included
+//! (operator, 2026-09-27, lifting spec 028 R5's different-model rule).
 
 use std::path::{Path, PathBuf};
 
@@ -1035,22 +1035,6 @@ impl AgentsDb {
             }
         }
         self.save_all()
-    }
-
-    /// Spec 028 R5: a primary and ITS pedantic companion must use different
-    /// models. Returns the first violation as (primary, companion) names.
-    pub fn pair_rule_violation(&self) -> Option<(String, String)> {
-        for a in &self.agents {
-            if let Some(c) = a.companion.as_ref().and_then(|cid| self.by_id(cid)) {
-                if !a.model.trim().is_empty()
-                    && a.provider.trim() == c.provider.trim()
-                    && a.model.trim() == c.model.trim()
-                {
-                    return Some((a.name.clone(), c.name.clone()));
-                }
-            }
-        }
-        None
     }
 
     /// First enabled agent that needs a key but has none stored (for the
@@ -3753,29 +3737,6 @@ mod tests {
     }
 
     #[test]
-    fn pair_rule_only_binds_a_primary_to_its_own_companion() {
-        let proj = tmp_project();
-        let mut db = AgentsDb::load(&proj);
-        let a = db.create("Primary", "p").unwrap();
-        let b = db.create("Companion", "p").unwrap();
-        let c = db.create("Unrelated", "p").unwrap();
-        for (id, model) in [(&a, "m1"), (&b, "m1"), (&c, "m1")] {
-            let ag = db.agents.iter_mut().find(|x| &x.id == id).unwrap();
-            ag.provider = "prov".into();
-            ag.model = model.to_string();
-        }
-        // Same model everywhere but NO companion link: no violation.
-        assert!(db.pair_rule_violation().is_none());
-        // Link primary->companion with the same model: violation.
-        db.agents.iter_mut().find(|x| x.id == a).unwrap().companion = Some(b.clone());
-        assert!(db.pair_rule_violation().is_some());
-        // Different model on the companion: fine again (Unrelated still shares m1).
-        db.agents.iter_mut().find(|x| x.id == b).unwrap().model = "m2".into();
-        assert!(db.pair_rule_violation().is_none());
-        let _ = std::fs::remove_dir_all(proj);
-    }
-
-    #[test]
     fn companion_relationship_is_one_to_one_from_either_direction() {
         let proj = tmp_project();
         let mut db = AgentsDb::load(&proj);
@@ -3877,7 +3838,6 @@ mod tests {
         assert_eq!(pc.kind, AgentKind::Pedantic);
         assert_eq!(ev.companion.as_deref(), Some(pc.id.as_str()));
         assert!(pc.model.trim().is_empty());
-        assert!(db.pair_rule_violation().is_none());
         assert!(db.ensure_event_handler(&llm) == false, "idempotent");
         // The Version Control (Git) specialist is seeded with its prompt.
         let vc = db.by_name(VERSION_CONTROL).unwrap();
@@ -3899,7 +3859,6 @@ mod tests {
         assert_eq!(designer.model, "claude-sonnet-5");
         assert_eq!(designer.companion.as_deref(), Some(ped.id.as_str()));
         assert!(ped.model.trim().is_empty());
-        assert!(db.pair_rule_violation().is_none());
         // spec 030 R2: seeded agents declare the concrete tool names governance
         // recognises — VC gets git.run, the Form Designer gets the egui observers.
         assert!(

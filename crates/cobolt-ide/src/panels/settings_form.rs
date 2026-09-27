@@ -285,13 +285,6 @@ impl SettingsDraft {
         llm.reviewer_provider = self.llm_reviewer_provider.clone();
         llm.reviewer_endpoint = self.llm_reviewer_endpoint.clone();
         llm.reviewer_model = self.llm_reviewer_model.clone();
-        // Hard rule: the reviewer may not be the same provider+model pair as
-        // the primary. Persist nothing that violates it.
-        if llm.reviewer_provider.trim() == llm.provider.trim()
-            && llm.reviewer_model.trim() == llm.model.trim()
-        {
-            llm.reviewer_model.clear();
-        }
         if !self.llm_reviewer_provider.trim().is_empty()
             && !self.llm_reviewer_api_key.trim().is_empty()
         {
@@ -452,7 +445,6 @@ pub struct SettingsForm {
     /// chosen or the model list is refreshed. Empty until a provider is picked.
     pub available_models: Vec<String>,
     pub available_reviewer_models: Vec<String>,
-    reviewer_same_model_error: bool,
     /// 038 R6 — when Some, the effect preview is playing; the value is the
     /// `ctx.input(|i| i.time)` second it started (entrance → hold → exit).
     fx_preview_started: Option<f64>,
@@ -474,7 +466,6 @@ impl SettingsForm {
             splitter: 200.0,
             available_models: Vec::new(),
             available_reviewer_models: Vec::new(),
-            reviewer_same_model_error: false,
             fx_preview_started: None,
         }
     }
@@ -1288,54 +1279,42 @@ impl SettingsForm {
                                                 }
                                             });
                                         if self.draft.llm_reviewer_model != prev_m {
-                                            // Hard rule: not the same provider+model
-                                            // pair as the primary — reject and warn.
-                                            if self.draft.llm_reviewer_provider.trim()
-                                                == self.draft.llm_provider.trim()
-                                                && self.draft.llm_reviewer_model.trim()
-                                                    == self.draft.llm_model.trim()
-                                            {
-                                                self.draft.llm_reviewer_model = prev_m.clone();
-                                                self.reviewer_same_model_error = true;
-                                            } else {
-                                                self.reviewer_same_model_error = false;
-                                                // Per-model key stash/restore, same
-                                                // contract as the primary field.
-                                                let provider =
-                                                    self.draft.llm_reviewer_provider.clone();
-                                                if !prev_m.trim().is_empty() {
-                                                    let prev_slot = crate::llm::api_key_slot(
-                                                        &provider, &prev_m,
-                                                    );
-                                                    if self
-                                                        .draft
-                                                        .llm_reviewer_api_key
-                                                        .trim()
-                                                        .is_empty()
-                                                    {
-                                                        self.draft
-                                                            .llm_api_keys
-                                                            .remove(&prev_slot);
-                                                    } else {
-                                                        self.draft.llm_api_keys.insert(
-                                                            prev_slot,
-                                                            self.draft
-                                                                .llm_reviewer_api_key
-                                                                .clone(),
-                                                        );
-                                                    }
-                                                }
-                                                let slot = crate::llm::api_key_slot(
-                                                    &provider,
-                                                    &self.draft.llm_reviewer_model,
+                                            // Per-model key stash/restore, same
+                                            // contract as the primary field.
+                                            let provider =
+                                                self.draft.llm_reviewer_provider.clone();
+                                            if !prev_m.trim().is_empty() {
+                                                let prev_slot = crate::llm::api_key_slot(
+                                                    &provider, &prev_m,
                                                 );
-                                                self.draft.llm_reviewer_api_key = self
+                                                if self
                                                     .draft
-                                                    .llm_api_keys
-                                                    .get(&slot)
-                                                    .cloned()
-                                                    .unwrap_or_default();
+                                                    .llm_reviewer_api_key
+                                                    .trim()
+                                                    .is_empty()
+                                                {
+                                                    self.draft
+                                                        .llm_api_keys
+                                                        .remove(&prev_slot);
+                                                } else {
+                                                    self.draft.llm_api_keys.insert(
+                                                        prev_slot,
+                                                        self.draft
+                                                            .llm_reviewer_api_key
+                                                            .clone(),
+                                                    );
+                                                }
                                             }
+                                            let slot = crate::llm::api_key_slot(
+                                                &provider,
+                                                &self.draft.llm_reviewer_model,
+                                            );
+                                            self.draft.llm_reviewer_api_key = self
+                                                .draft
+                                                .llm_api_keys
+                                                .get(&slot)
+                                                .cloned()
+                                                .unwrap_or_default();
                                         }
                                         if ui
                                             .button(tr.settings_ai_refresh)
@@ -1353,13 +1332,6 @@ impl SettingsForm {
                                             .hint_text(tr.settings_ai_api_key),
                                         );
                                     });
-                                    if self.reviewer_same_model_error {
-                                        ui.label(
-                                            RichText::new(tr.settings_ai_reviewer_same)
-                                                .small()
-                                                .color(Color32::from_rgb(240, 120, 120)),
-                                        );
-                                    }
                                 });
                             });
                         });

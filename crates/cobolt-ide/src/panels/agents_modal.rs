@@ -344,7 +344,6 @@ impl AgentsModal {
                         ui.add_space(6.0);
                         // Compute the status message + colour once, so the
                         // footer layout is independent of which state fires.
-                        let violation = self.db.pair_rule_violation();
                         let missing = self.db.missing_key(llm);
                         // Spec 040 R10: a specialist standing on Grace's or the
                         // judge's model. Ranked above the key/reviewer warnings
@@ -364,13 +363,6 @@ impl AgentsModal {
                             (
                                 tr.agents_judge_shares_grace.to_string(),
                                 egui::Color32::from_rgb(169, 206, 236),
-                            )
-                        } else if let Some((p, c)) = &violation {
-                            (
-                                tr.agents_pair_rule
-                                    .replacen("{}", p, 1)
-                                    .replacen("{}", c, 1),
-                                egui::Color32::from_rgb(230, 192, 106),
                             )
                         } else if let Some(name) = &missing {
                             (
@@ -393,7 +385,6 @@ impl AgentsModal {
                                 egui::Color32::from_rgb(125, 214, 160),
                             )
                         };
-                        let can_commit = violation.is_none();
                         ui.horizontal(|ui| {
                             // Message in a bounded LEFT region that WRAPS (never
                             // clipped by the buttons); buttons pinned bottom-right.
@@ -417,7 +408,7 @@ impl AgentsModal {
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
                                     if ui
-                                        .add_enabled(can_commit, egui::Button::new(tr.btn_save_raw))
+                                        .add(egui::Button::new(tr.btn_save_raw))
                                         .clicked()
                                     {
                                         if self.apply(llm) {
@@ -426,10 +417,7 @@ impl AgentsModal {
                                         }
                                     }
                                     if ui
-                                        .add_enabled(
-                                            can_commit && self.dirty,
-                                            egui::Button::new(tr.btn_apply_raw),
-                                        )
+                                        .add_enabled(self.dirty, egui::Button::new(tr.btn_apply_raw))
                                         .clicked()
                                         && self.apply(llm)
                                     {

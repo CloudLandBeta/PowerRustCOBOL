@@ -8,6 +8,24 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.284] — 2026-09-27
+
+### Fix — a pedantic companion may use its agent's own model
+
+- The different-model rule (spec 028 R5) is lifted, by operator ruling: a
+  pedantic companion may run on the very model of the agent it reviews — its
+  independence is its own prompt and its own separate call. Removed wherever
+  it was enforced: `AgentsDb::pair_rule_violation` and the Agents Manager
+  warning that also disabled **Save** / **Apply**; the AI settings' reviewer
+  picker, which refused the primary's model; the save that silently cleared
+  it; and `LlmConfig::reviewer_configured`, which treated such a reviewer as
+  not configured. The two messages that stated the rule are gone from all six
+  languages; the reviewer hint now says any model will do. `model_separation`
+  (Grace's and the Judge's models are not a specialist's) is a different rule
+  and is unchanged.
+- Guide: the AI settings table and the pedantic-companion paragraph. The
+  System KB never carried the rule (its store regenerates unchanged).
+
 ## [PowerRustCOBOL 1.70.283] — 2026-09-27
 
 ### Fix — line numbers after a `COPY` are the ones the developer wrote

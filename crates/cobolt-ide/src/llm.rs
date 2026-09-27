@@ -111,9 +111,9 @@ pub struct LlmConfig {
     /// refuses that, and refuses it again at the moment of writing.
     #[serde(default)]
     pub credential_file: String,
-    /// Optional second model powering the **Pedantic Agent** (reviewer). When
-    /// configured it must differ from the primary provider+model pair; its
-    /// API key lives in [`Self::api_keys`] like any other model's.
+    /// Optional second model powering the **Pedantic Agent** (reviewer). It
+    /// may be any model, the primary's own included (operator, 2026-09-27);
+    /// its API key lives in [`Self::api_keys`] like any other model's.
     #[serde(default)]
     pub reviewer_provider: String,
     #[serde(default)]
@@ -550,12 +550,11 @@ impl LlmConfig {
     }
 
     /// Whether the optional reviewer (Pedantic Agent) model is usable: fully
-    /// configured AND different from the primary provider+model pair.
+    /// configured. The primary's own model is allowed — a reviewer's
+    /// independence is its prompt and its separate call, not a second model
+    /// (operator, 2026-09-27; it used to be refused).
     pub fn reviewer_configured(&self) -> bool {
-        !self.reviewer_provider.trim().is_empty()
-            && !self.reviewer_model.trim().is_empty()
-            && !(self.reviewer_provider.trim() == self.provider.trim()
-                && self.reviewer_model.trim() == self.model.trim())
+        !self.reviewer_provider.trim().is_empty() && !self.reviewer_model.trim().is_empty()
     }
 
     /// An [`LlmConfig`] view of the reviewer model (endpoint/key swapped in),
