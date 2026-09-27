@@ -57,6 +57,10 @@ pub enum AsyncOutcome {
         document: String,
         current: usize,
         total: usize,
+        /// While `document`'s passages are embedded: done, of `passages`.
+        /// Both 0 otherwise.
+        passage: usize,
+        passages: usize,
     },
     /// Spec 068 — an update (add, update, delete, refresh, reindex, fetching
     /// the model) finished.
@@ -68,6 +72,11 @@ pub enum AsyncOutcome {
         skipped: Vec<String>,
         /// Why documents were stored without vectors, when they were.
         note: String,
+        /// Passages this update indexed.
+        passages: usize,
+        /// `Semantic` or `Lexical` — how what this update stored is searched;
+        /// empty when it indexed nothing (fetching the model).
+        mode: String,
     },
     /// Spec 068 — a search finished.
     KbSearchDone {

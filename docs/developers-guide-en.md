@@ -10351,6 +10351,31 @@ vectors and still found by their words; the next `Refresh()` with a working
 embedder gives them vectors. Changing a collection's embedder takes a
 `Reindex()`.
 
+**Showing an update as it happens, and confirming it.** Embedding is where an
+update spends its time, so `onProgress` reports it passage by passage. While a
+document is being embedded, `ProgressPassages` holds how many passages it was
+split into and `ProgressPassage` how many are done, one batch of 16 at a
+time. After each document they are back to 0. When the update ends,
+`onIndexed` sets `PassageCount` and `SearchMode`, **every time**:
+`Semantic` confirms the passages carry embeddings, and `Lexical` means they
+were stored for word search, with `SearchModeReason` saying why.
+
+```cobol
+       PROGRAM-ID. KB-1--ONPROGRESS.
+       PROCEDURE DIVISION.
+           MOVE KB-1::ProgressPassages TO WS-PASSAGES
+           IF WS-PASSAGES NOT = SPACES AND WS-PASSAGES NOT = "0"
+               MOVE KB-1::ProgressPassages TO BAR-1::Maximum
+               MOVE KB-1::ProgressPassage  TO BAR-1::Value
+           END-IF
+           .
+       PROGRAM-ID. KB-1--ONINDEXED.
+       PROCEDURE DIVISION.
+           MOVE KB-1::PassageCount TO WS-PASSAGES
+           MOVE KB-1::SearchMode   TO WS-MODE
+           .
+```
+
 > 📷 Screenshot needed — `knowledgebase-properties.png`. Select a KnowledgeBase
 > on a form with `Embedder = Endpoint` and capture the properties pane showing
 > Location, Collection, Embedder, Configuration and EmbeddingModel.

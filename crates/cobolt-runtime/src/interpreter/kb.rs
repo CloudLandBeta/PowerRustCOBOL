@@ -94,27 +94,34 @@ impl Interpreter {
     pub(crate) fn kb_delivered(&mut self, obj: &str, outcome: AsyncOutcome) {
         let s = |k: &str, v: String| (k.to_string(), v);
         match outcome {
-            AsyncOutcome::KbProgress { document, current, total } => self.kb_raise(
+            AsyncOutcome::KbProgress { document, current, total, passage, passages } => self.kb_raise(
                 obj,
                 "onProgress",
                 vec![
                     s("ProgressDocument", document),
                     s("ProgressCurrent", current.to_string()),
                     s("ProgressTotal", total.to_string()),
+                    s("ProgressPassage", passage.to_string()),
+                    s("ProgressPassages", passages.to_string()),
                 ],
                 None,
             ),
-            AsyncOutcome::KbIndexed { added, updated, removed, skipped, note } => {
+            AsyncOutcome::KbIndexed { added, updated, removed, skipped, note, passages, mode } => {
                 let mut props = vec![
                     s("AddedCount", added.to_string()),
                     s("UpdatedCount", updated.to_string()),
                     s("RemovedCount", removed.to_string()),
                     s("SkippedCount", skipped.len().to_string()),
                     s("SkippedDocuments", skipped.join("; ")),
+                    s("PassageCount", passages.to_string()),
                     s("Busy", "0".into()),
                 ];
-                if !note.is_empty() {
-                    props.push(s("SearchMode", "Lexical".into()));
+                // Said on EVERY update that indexed something, the clean case
+                // included — a reason left over from an earlier update must
+                // not read as this one's (operator, 2026-09-27: no
+                // confirmation that the embedding was done).
+                if !mode.is_empty() {
+                    props.push(s("SearchMode", mode));
                     props.push(s("SearchModeReason", note));
                 }
                 self.kb_raise(obj, "onIndexed", props, None);

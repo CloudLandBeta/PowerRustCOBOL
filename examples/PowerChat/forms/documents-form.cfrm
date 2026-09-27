@@ -309,8 +309,36 @@
           05 FILLER PIC X(70) VALUE "Fermer".
           05 FILLER PIC X(70) VALUE "閉じる".
           05 FILLER PIC X(70) VALUE "关闭".
+      *>   CHUNK-BAR
+          05 FILLER PIC X(70) VALUE "Chunking: &1 of &2 documents".
+          05 FILLER PIC X(70) VALUE "Divisão em trechos: &1 de &2 documentos".
+          05 FILLER PIC X(70) VALUE "División en fragmentos: &1 de &2 documentos".
+          05 FILLER PIC X(70) VALUE "Découpage : &1 sur &2 documents".
+          05 FILLER PIC X(70) VALUE "断片化: &1 / &2 文書".
+          05 FILLER PIC X(70) VALUE "分块：&1 / &2 个文档".
+      *>   EMBED-BAR
+          05 FILLER PIC X(70) VALUE "Embeddings: &1 of &2 passages".
+          05 FILLER PIC X(70) VALUE "Embeddings: &1 de &2 trechos".
+          05 FILLER PIC X(70) VALUE "Embeddings: &1 de &2 fragmentos".
+          05 FILLER PIC X(70) VALUE "Embeddings : &1 sur &2 passages".
+          05 FILLER PIC X(70) VALUE "埋め込み: &1 / &2 断片".
+          05 FILLER PIC X(70) VALUE "嵌入：&1 / &2 个片段".
+      *>   KB-EMBEDDED
+          05 FILLER PIC X(70) VALUE "&1 passages embedded: semantic search.".
+          05 FILLER PIC X(70) VALUE "&1 trechos com embedding: busca semântica.".
+          05 FILLER PIC X(70) VALUE "&1 fragmentos con embedding: búsqueda semántica.".
+          05 FILLER PIC X(70) VALUE "&1 passages vectorisés : recherche sémantique.".
+          05 FILLER PIC X(70) VALUE "&1 件の断片を埋め込み済み（意味検索）。".
+          05 FILLER PIC X(70) VALUE "已嵌入 &1 个片段（语义搜索）。".
+      *>   KB-PASSAGES
+          05 FILLER PIC X(70) VALUE "&1 passages indexed.".
+          05 FILLER PIC X(70) VALUE "&1 trechos indexados.".
+          05 FILLER PIC X(70) VALUE "&1 fragmentos indexados.".
+          05 FILLER PIC X(70) VALUE "&1 passages indexés.".
+          05 FILLER PIC X(70) VALUE "&1 件の断片を索引化しました。".
+          05 FILLER PIC X(70) VALUE "已索引 &1 个片段。".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 40.
+          05 PC-TEXT-ROW     OCCURS 44.
              10 PC-TEXT      PIC X(70) OCCURS 6.
       *>   The texts in the current language, by name.
        01 PC-TEXTS-NOW       GLOBAL.
@@ -354,8 +382,12 @@
           05 T-PREVIEW PIC X(70).
           05 T-PICK-DOC-TO-PREVIEW PIC X(70).
           05 T-CLOSE PIC X(70).
+          05 T-CHUNK-BAR PIC X(70).
+          05 T-EMBED-BAR PIC X(70).
+          05 T-KB-EMBEDDED PIC X(70).
+          05 T-KB-PASSAGES PIC X(70).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(70) OCCURS 40.
+          05 PC-TEXT-NOW     PIC X(70) OCCURS 44.
       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
        01 WS-FMT             GLOBAL PIC X(70).
        01 WS-ARG1            GLOBAL PIC X(300).
@@ -416,6 +448,12 @@
        01 WS-TALLY           GLOBAL PIC 9(4).
        01 WS-KB1             GLOBAL PIC Z(8)9.
        01 WS-KB2             GLOBAL PIC Z(8)9.
+      *>   A number the Knowledge Base reports, as text and as a number.
+       01 WS-NUM-TEXT        GLOBAL PIC X(20).
+       01 WS-PASSAGES        GLOBAL PIC 9(9).
+       01 WS-PASSAGE         GLOBAL PIC 9(9).
+       01 WS-DOC-CUR         GLOBAL PIC 9(9).
+       01 WS-DOC-TOT         GLOBAL PIC 9(9).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -767,7 +805,7 @@
                WHEN OTHER MOVE "en" TO WS-LANG
                           MOVE 1 TO WS-LANG-IX
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 40
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 44
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
            MOVE FUNCTION TRIM(T-DOCS-TITLE) TO Lbl-Title::Caption
@@ -1007,6 +1045,11 @@
       *>   back to empty. It stays in its place on the form.
            MOVE SPACES TO Lbl-Progress::Caption
            MOVE 0 TO Prg-Index::Value
+           SET Prg-Index::Visible TO FALSE
+           SET Lbl-Chunk::Visible TO FALSE
+           SET Prg-Chunk::Visible TO FALSE
+           SET Lbl-Embed::Visible TO FALSE
+           SET Prg-Embed::Visible TO FALSE
 ]]></Event>
   </user-procedures>
   <form-events>
@@ -1858,7 +1901,7 @@ Node 2</Property>
            CALL "PC-MOVE-GO"
 ]]></Event>
   </Control>
-  <Control id="Lbl-Progress" type="Label" x="24" y="360" w="632" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Progress" type="Label" x="24" y="396" w="632" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption"></Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -1896,7 +1939,169 @@ Node 2</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Prg-Index" type="ProgressBar" x="24" y="376" w="616" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Prg-Index" type="ProgressBar" x="24" y="376" w="616" h="16" tab-order="0" z-order="0" visible="false" enabled="true">
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Minimum">0</Property>
+    <Property name="Maximum">100</Property>
+    <Property name="Value">0</Property>
+    <Property name="BarColor">#00AA00</Property>
+    <Property name="Orientation">Horizontal</Property>
+    <Property name="Style">Continuous</Property>
+    <Property name="BlockSize">0</Property>
+    <Property name="ShowValue">false</Property>
+    <Property name="BorderColor">#8C8CA0</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Lbl-Chunk" type="Label" x="24" y="354" w="300" h="20" tab-order="0" z-order="0" visible="false" enabled="true">
+    <Property name="Caption"></Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Prg-Chunk" type="ProgressBar" x="24" y="376" w="300" h="16" tab-order="0" z-order="0" visible="false" enabled="true">
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Minimum">0</Property>
+    <Property name="Maximum">100</Property>
+    <Property name="Value">0</Property>
+    <Property name="BarColor">#00AA00</Property>
+    <Property name="Orientation">Horizontal</Property>
+    <Property name="Style">Continuous</Property>
+    <Property name="BlockSize">0</Property>
+    <Property name="ShowValue">false</Property>
+    <Property name="BorderColor">#8C8CA0</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Lbl-Embed" type="Label" x="340" y="354" w="300" h="20" tab-order="0" z-order="0" visible="false" enabled="true">
+    <Property name="Caption"></Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+  </Control>
+  <Control id="Prg-Embed" type="ProgressBar" x="340" y="376" w="300" h="16" tab-order="0" z-order="0" visible="false" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -2034,6 +2239,7 @@ Node 2</Property>
                MOVE KB-D::ProgressTotal TO WS-KB2
                MOVE KB-D::ProgressTotal TO Prg-Index::Maximum
                MOVE KB-D::ProgressCurrent TO Prg-Index::Value
+               SET Prg-Index::Visible TO TRUE
                MOVE T-MODEL-FETCH TO WS-FMT
                MOVE KB-D::ProgressDocument TO WS-ARG1
                MOVE WS-KB1 TO WS-ARG2
@@ -2042,10 +2248,54 @@ Node 2</Property>
                MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Progress::Caption
                EXIT PROGRAM
            END-IF
+      *>   Two bars (operator, 2026-09-27): documents split into passages,
+      *>   and the passages of the document in hand given their embeddings.
+      *>   Each shows while its stage runs and goes when it reaches 100 %.
+           MOVE KB-D::ProgressCurrent TO WS-NUM-TEXT
+           COMPUTE WS-DOC-CUR = FUNCTION NUMVAL(WS-NUM-TEXT)
+           MOVE KB-D::ProgressTotal TO WS-NUM-TEXT
+           COMPUTE WS-DOC-TOT = FUNCTION NUMVAL(WS-NUM-TEXT)
+           MOVE KB-D::ProgressPassage TO WS-NUM-TEXT
+           COMPUTE WS-PASSAGE = FUNCTION NUMVAL(WS-NUM-TEXT)
+           MOVE KB-D::ProgressPassages TO WS-NUM-TEXT
+           COMPUTE WS-PASSAGES = FUNCTION NUMVAL(WS-NUM-TEXT)
+      *>   Chunking is done once the last document is split: when its
+      *>   embedding has begun, or when it is finished.
+           IF WS-DOC-TOT > 0 AND (WS-DOC-CUR < WS-DOC-TOT
+              OR (WS-PASSAGES > 0 AND WS-PASSAGE = 0))
+               MOVE WS-DOC-CUR TO WS-KB1
+               MOVE WS-DOC-TOT TO WS-KB2
+               MOVE T-CHUNK-BAR TO WS-FMT
+               MOVE WS-KB1 TO WS-ARG1
+               MOVE WS-KB2 TO WS-ARG2
+               CALL "PC-FMT"
+               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Chunk::Caption
+               MOVE WS-DOC-TOT TO Prg-Chunk::Maximum
+               MOVE WS-DOC-CUR TO Prg-Chunk::Value
+               SET Lbl-Chunk::Visible TO TRUE
+               SET Prg-Chunk::Visible TO TRUE
+           ELSE
+               SET Lbl-Chunk::Visible TO FALSE
+               SET Prg-Chunk::Visible TO FALSE
+           END-IF
+           IF WS-PASSAGES > 0 AND WS-PASSAGE < WS-PASSAGES
+               MOVE WS-PASSAGE TO WS-KB1
+               MOVE WS-PASSAGES TO WS-KB2
+               MOVE T-EMBED-BAR TO WS-FMT
+               MOVE WS-KB1 TO WS-ARG1
+               MOVE WS-KB2 TO WS-ARG2
+               CALL "PC-FMT"
+               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Embed::Caption
+               MOVE WS-PASSAGES TO Prg-Embed::Maximum
+               MOVE WS-PASSAGE TO Prg-Embed::Value
+               SET Lbl-Embed::Visible TO TRUE
+               SET Prg-Embed::Visible TO TRUE
+           ELSE
+               SET Lbl-Embed::Visible TO FALSE
+               SET Prg-Embed::Visible TO FALSE
+           END-IF
            MOVE KB-D::ProgressCurrent TO WS-N1
            MOVE KB-D::ProgressTotal TO WS-N2
-           MOVE KB-D::ProgressTotal TO Prg-Index::Maximum
-           MOVE KB-D::ProgressCurrent TO Prg-Index::Value
            MOVE T-KB-PROGRESS TO WS-FMT
            MOVE WS-N1 TO WS-ARG1
            MOVE WS-N2 TO WS-ARG2
@@ -2129,6 +2379,26 @@ Node 2</Property>
            IF WS-SKIPPED NOT = SPACES
                MOVE T-KB-SKIPPED TO WS-FMT
                MOVE WS-SKIPPED TO WS-ARG1
+               CALL "PC-FMT"
+               MOVE WS-LINE TO WS-ARG2
+               MOVE SPACES TO WS-LINE
+               STRING FUNCTION TRIM(WS-ARG2) " " FUNCTION TRIM(WS-FMT-OUT)
+                   DELIMITED BY SIZE INTO WS-LINE
+           END-IF
+      *>   What was stored, said outright: how many passages, and whether
+      *>   they carry embeddings (operator, 2026-09-27: no confirmation that
+      *>   the chunking and the embedding were done).
+           MOVE KB-D::PassageCount TO WS-NUM-TEXT
+           COMPUTE WS-PASSAGES = FUNCTION NUMVAL(WS-NUM-TEXT)
+           IF WS-PASSAGES > 0
+               MOVE WS-PASSAGES TO WS-KB1
+               MOVE KB-D::SearchMode TO WS-NUM-TEXT
+               IF WS-NUM-TEXT = "Semantic"
+                   MOVE T-KB-EMBEDDED TO WS-FMT
+               ELSE
+                   MOVE T-KB-PASSAGES TO WS-FMT
+               END-IF
+               MOVE WS-KB1 TO WS-ARG1
                CALL "PC-FMT"
                MOVE WS-LINE TO WS-ARG2
                MOVE SPACES TO WS-LINE

@@ -203,12 +203,15 @@ fn run_inner(
 ) -> Result<AsyncOutcome, KbError> {
     let mut last = Instant::now() - PROGRESS_EVERY;
     let mut progress = |p: &Progress| {
-        if p.current >= p.total || last.elapsed() >= PROGRESS_EVERY {
+        let passages_done = p.passages > 0 && p.passage >= p.passages;
+        if p.current >= p.total || passages_done || last.elapsed() >= PROGRESS_EVERY {
             last = Instant::now();
             send(AsyncOutcome::KbProgress {
                 document: p.document.clone(),
                 current: p.current,
                 total: p.total,
+                passage: p.passage,
+                passages: p.passages,
             });
         }
     };
@@ -220,12 +223,14 @@ fn run_inner(
                     document: file.to_string(),
                     current: (got / 1024) as usize,
                     total: total.map_or(0, |t| (t / 1024) as usize),
+                    passage: 0,
+                    passages: 0,
                 });
             }
         };
         cobolt_kb::model::fetch_model(&cfg.models_dir, &RuntimeTransport, &mut report, cancel)
             .map_err(KbError::Io)?;
-        return Ok(indexed(Outcome::default()));
+        return Ok(indexed(Outcome::default(), None));
     }
     if cfg.collection.trim().is_empty() {
         return Err(KbError::InvalidName(
@@ -268,10 +273,25 @@ fn run_inner(
     if cancel.load(Ordering::Relaxed) {
         return Err(KbError::Cancelled);
     }
-    Ok(indexed(outcome))
+    let lexical = matches!(cfg.embedder, EmbedderChoice::Lexical);
+    Ok(indexed(outcome, Some(lexical)))
 }
 
-fn indexed(o: Outcome) -> AsyncOutcome {
+/// `lexical`: whether this control's embedder is the lexical one — `None`
+/// when the operation indexed nothing (fetching the model), which leaves
+/// `SearchMode` as it was.
+fn indexed(o: Outcome, lexical: Option<bool>) -> AsyncOutcome {
+    let note = match (o.text_only, &o.embedder_error) {
+        (true, _) => "stored text-only: this collection was indexed with another embedder".to_string(),
+        (false, Some(e)) => format!("stored text-only for now: {e}"),
+        (false, None) if lexical == Some(true) => "this application uses the lexical embedder".to_string(),
+        (false, None) => String::new(),
+    };
+    let mode = match lexical {
+        None => String::new(),
+        Some(_) if note.is_empty() => "Semantic".to_string(),
+        Some(_) => "Lexical".to_string(),
+    };
     AsyncOutcome::KbIndexed {
         added: o.added,
         updated: o.updated,
@@ -282,11 +302,9 @@ fn indexed(o: Outcome) -> AsyncOutcome {
             // The code first, for a program to translate (spec 074 §6).
             .map(|(doc, skip)| format!("{doc}: {} ({})", skip.code, skip.message))
             .collect(),
-        note: match (o.text_only, o.embedder_error) {
-            (true, _) => "stored text-only: this collection was indexed with another embedder".into(),
-            (false, Some(e)) => format!("stored text-only for now: {e}"),
-            (false, None) => String::new(),
-        },
+        note,
+        passages: o.passages,
+        mode,
     }
 }
 

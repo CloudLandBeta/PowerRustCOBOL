@@ -199,7 +199,10 @@ fn a_program_indexes_refreshes_searches_and_deletes() {
         })
         .collect();
     assert!(!refresh_progress.is_empty(), "{out:#?}");
-    assert!(refresh_progress.windows(2).all(|w| w[0].0 < w[1].0), "{refresh_progress:?}");
+    // Never backwards. A document being embedded reports each batch of its
+    // passages under its own number, so the count may repeat — that is the
+    // document still going, not the update going back.
+    assert!(refresh_progress.windows(2).all(|w| w[0].0 <= w[1].0), "{refresh_progress:?}");
     let (last, total) = *refresh_progress.last().unwrap();
     assert_eq!(last, total);
     // travel, 30 memos, leave.md and photo.jpg are on disk; pay.md was deleted.

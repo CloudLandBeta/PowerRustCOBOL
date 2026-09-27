@@ -31,13 +31,22 @@ use crate::store::{store_err, Collection, KbError, Passage, Source, META, PASSAG
 /// Documents committed per write transaction.
 pub const BATCH: usize = 16;
 
-/// Where an update stands, reported after each document.
+/// Passages embedded per call, so a long document reports as it goes rather
+/// than only when it is done.
+pub const EMBED_BATCH: usize = 16;
+
+/// Where an update stands: after each document, and — while a document's
+/// passages are being embedded — after each batch of them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Progress {
     /// The document just handled, relative to the documents folder.
     pub document: String,
     pub current: usize,
     pub total: usize,
+    /// While `document` is being embedded: passages done, of `passages`.
+    /// Both 0 in a report made after a document is finished.
+    pub passage: usize,
+    pub passages: usize,
 }
 
 /// What an update did.
@@ -138,7 +147,16 @@ pub fn refresh(
                 return Err(KbError::Cancelled);
             }
             current += 1;
-            match prepare(name, path, bytes, embedder, converters, text_only) {
+            let mut on_passages = |passage: usize, passages: usize| {
+                progress(&Progress {
+                    document: name.clone(),
+                    current,
+                    total,
+                    passage,
+                    passages,
+                })
+            };
+            match prepare(name, path, bytes, embedder, converters, text_only, &mut on_passages) {
                 Ok((source, passages, embed_error, member_skips)) => {
                     // Documents inside an archive that could not be read,
                     // named through it (spec 074 R10).
@@ -158,6 +176,8 @@ pub fn refresh(
                 document: name.clone(),
                 current,
                 total,
+                passage: 0,
+                passages: 0,
             });
         }
         let record_stamp = !stamp_recorded
@@ -201,6 +221,8 @@ pub fn refresh(
                 document: name.clone(),
                 current,
                 total,
+                passage: 0,
+                passages: 0,
             });
         }
     }
@@ -334,6 +356,7 @@ fn prepare(
     embedder: &dyn Embedder,
     converters: &Converters,
     text_only: bool,
+    on_passages: &mut dyn FnMut(usize, usize),
 ) -> Result<Prepared, Skip> {
     let converted = converters.convert(path, bytes)?;
     let mut passages: Vec<Passage> = Vec::new();
@@ -356,17 +379,34 @@ fn prepare(
     let mut stamp = String::new();
     let mut embed_error = None;
     if !text_only && !passages.is_empty() {
-        let texts: Vec<&str> = passages.iter().map(|p| p.content.as_str()).collect();
-        match embedder.embed(&texts) {
-            Ok(vectors) => {
-                stamp = embedder.stamp();
-                for (p, v) in passages.iter_mut().zip(vectors) {
-                    p.vector = v;
-                    p.stamp = stamp.clone();
+        // In batches, reporting after each: a long document's embedding is
+        // most of an update's time, and a single call left the operator
+        // looking at "1 of 1" with no sign of life until it ended
+        // (operator, 2026-09-27). All or nothing, as before: a batch that
+        // fails leaves the WHOLE document text-only, never half-embedded.
+        let total = passages.len();
+        on_passages(0, total);
+        let mut vectors: Vec<Vec<f32>> = Vec::with_capacity(total);
+        for chunk in passages.chunks(EMBED_BATCH) {
+            let texts: Vec<&str> = chunk.iter().map(|p| p.content.as_str()).collect();
+            match embedder.embed(&texts) {
+                Ok(v) => {
+                    vectors.extend(v);
+                    on_passages(vectors.len().min(total), total);
+                }
+                // Stored text-only rather than dropped: still found lexically.
+                Err(e) => {
+                    embed_error = Some(e);
+                    break;
                 }
             }
-            // Stored text-only rather than dropped: still found lexically.
-            Err(e) => embed_error = Some(e),
+        }
+        if embed_error.is_none() && vectors.len() == total {
+            stamp = embedder.stamp();
+            for (p, v) in passages.iter_mut().zip(vectors) {
+                p.vector = v;
+                p.stamp = stamp.clone();
+            }
         }
     }
     let source = Source {
@@ -476,7 +516,13 @@ mod tests {
         std::fs::write(docs.join("doc03.md"), "# Doc 3\nChanged.").unwrap();
         std::fs::remove_file(docs.join("doc07.md")).unwrap();
         let mut seen = Vec::new();
-        let second = refresh(&c, &HashingEmbedder, &conv, Scope::All, &mut |p| seen.push(p.document.clone()), &cancel).unwrap();
+        // The reports made once a document is finished (passages 0) — a
+        // document being embedded also reports each batch of its passages.
+        let second = refresh(&c, &HashingEmbedder, &conv, Scope::All, &mut |p| {
+            if p.passages == 0 {
+                seen.push(p.document.clone())
+            }
+        }, &cancel).unwrap();
         assert_eq!((second.added, second.updated, second.removed), (1, 1, 1));
         seen.sort();
         assert_eq!(seen, vec!["doc03.md", "doc07.md", "new.md"], "only those three touched");
@@ -487,6 +533,29 @@ mod tests {
             "refresh: 20 documents / {} passages in {first_ms} ms; outside edits → 3 touched, 17 left alone",
             first.passages
         );
+    }
+
+    /// Operator (2026-09-27): no sign of the chunking and embedding while it
+    /// ran. A document's passages are embedded in batches, reported after
+    /// each — (0 of N) first, then up to (N of N) — then the document itself.
+    #[test]
+    fn a_long_document_reports_its_embedding_passage_by_passage() {
+        let root = tempfile::tempdir().unwrap();
+        let c = Collection::open(root.path(), "hr").unwrap();
+        let body: String = (1..=40).map(|i| format!("# Section {i}\nClause {i} says something.\n\n")).collect();
+        std::fs::write(c.documents_dir().join("policy.md"), body).unwrap();
+        let mut seen: Vec<(usize, usize)> = Vec::new();
+        let mut on = |p: &Progress| seen.push((p.passage, p.passages));
+        let out = refresh(&c, &HashingEmbedder, &Converters::default(), Scope::All, &mut on, &AtomicBool::new(false)).unwrap();
+        let n = out.passages;
+        assert!(n >= 40, "one passage per section at least: {n}");
+        let during: Vec<(usize, usize)> = seen.iter().copied().filter(|(_, of)| *of > 0).collect();
+        assert_eq!(during.first(), Some(&(0, n)), "chunked, embedding not begun: {during:?}");
+        assert_eq!(during.last(), Some(&(n, n)), "every passage embedded: {during:?}");
+        assert!(during.windows(2).all(|w| w[0].0 < w[1].0), "only ever forward: {during:?}");
+        assert_eq!(during.len(), 1 + n.div_ceil(EMBED_BATCH), "one report per batch of {EMBED_BATCH}");
+        assert_eq!(seen.last(), Some(&(0, 0)), "then the document itself, finished");
+        println!("embedding progress — {n} passages in batches of {EMBED_BATCH}: {during:?}");
     }
 
     #[test]

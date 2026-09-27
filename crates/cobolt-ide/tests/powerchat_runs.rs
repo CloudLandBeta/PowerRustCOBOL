@@ -1150,14 +1150,27 @@ fn powerchat_documents_embed_with_the_builtin_model() {
     });
     let status = s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Added"));
     s.quit();
-    assert!(status.starts_with("Added 1,") && !status.contains("words only"), "{status}");
+    assert!(status.starts_with("Added 1,"), "{status}");
+    assert!(status.contains("passages indexed."), "a lexical update says how many passages it stored: {status}");
+    assert!(
+        status.contains("Search is by words only: this application uses the lexical embedder"),
+        "R18 — and says it is by words only: {status}"
+    );
     report.push(format!("lexical index made the old way — {:.0} ms", t.elapsed().as_secs_f64() * 1000.0));
 
     // Opened as shipped: noticed, rebuilt once, embedded — and no warning.
     let t = Instant::now();
     let mut s = Session::start("documents-form.cfrm");
     s.wait_for("Lbl-Progress", "Caption", |v| v == "Rebuilding the Knowledge Base with the semantic model...");
+    // Two bars, one per stage, each gone at 100 % (operator, 2026-09-27):
+    // the documents split into passages, then the passages embedded.
+    let chunking = s.wait_for("Lbl-Chunk", "Caption", |v| v == "Chunking: 1 of 1 documents");
+    let embedding = s.wait_for("Lbl-Embed", "Caption", |v| v == "Embeddings: 0 of 1 passages");
+    s.wait_for("Prg-Chunk", "Visible", |v| v.eq_ignore_ascii_case("false"));
+    s.wait_for("Prg-Embed", "Visible", |v| v.eq_ignore_ascii_case("false"));
     let status = s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Added"));
+    assert!(status.contains("passages embedded: semantic search."), "the embedding is confirmed: {status}");
+    report.push(format!("bars while it ran: {chunking:?}, {embedding:?}; both hidden at 100 %"));
     s.quit();
     assert!(status.starts_with("Added 1,"), "the rebuild indexes the document again: {status}");
     assert!(!status.contains("words only"), "embedded, so no words-only warning: {status}");

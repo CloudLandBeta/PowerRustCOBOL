@@ -8,6 +8,39 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.297] — 2026-09-27
+
+### Fix — a Knowledge Base update shows its chunking and embedding, and confirms them
+
+- **The embedding ran unseen** (operator, 2026-09-27: "no progress, and no
+  confirmation that the chunking and the embedding were done"). `cobolt-kb`
+  embedded a document's passages in ONE call and reported per document, so a
+  single file showed "1 of 1" and nothing else while most of the time went.
+  It now embeds in batches of 16 (`EMBED_BATCH`) and reports after each —
+  `Progress` gained `passage`/`passages` — all or nothing as before: a failed
+  batch leaves the whole document text-only.
+- **The runtime passes it on:** `onProgress` sets `ProgressPassage` and
+  `ProgressPassages`; `onIndexed` sets `PassageCount` and, on every update that
+  indexed something, `SearchMode` (`Semantic`/`Lexical`) with
+  `SearchModeReason` — empty when semantic, so an old warning no longer
+  outlives a clean update; a KnowledgeBase using the lexical embedder says so.
+- **PowerChat Documents:** two progress bars side by side — **Chunking**
+  (documents split, k of N) and **Embeddings** (passages of the document in
+  hand, k of N) — each shown while its stage runs and hidden at 100 %; the old
+  bar is kept for the model download only. The summary now says what was
+  stored: "58 passages embedded: semantic search.", or "58 passages
+  indexed." followed by why search is by words only. Five texts in six
+  languages.
+- System KB (`ProgressPassage`, `ProgressPassages`, `PassageCount`,
+  `SearchMode`) and the Developer's Guide's KnowledgeBase section updated;
+  `chunked.data` regenerated.
+- Tests: `a_long_document_reports_its_embedding_passage_by_passage` (40
+  passages → 0, 16, 32, 40 of 40); `powerchat_documents_embed_with_the_builtin_model`
+  now follows both bars to 100 % and reads the confirmation. Two older tests
+  assumed one progress report per document and now read the document counter
+  as never going backwards. cobolt-kb 30/0, cobolt-runtime (lib) 354/0,
+  test_knowledge_base 6/0.
+
 ## [PowerRustCOBOL 1.70.296] — 2026-09-27
 
 ### Fix — DataGrid: Cmd/Ctrl+C copies the selected cell or row
