@@ -261,8 +261,13 @@ fn model_server() -> (String, Arc<Mutex<Vec<String>>>) {
     (format!("http://127.0.0.1:{port}/api/chat"), seen)
 }
 
+/// `POWERCHAT_DATA` is one per process and every test here sets it: they take
+/// turns, or one test's forms open the other's data.
+static POWERCHAT_DATA_LOCK: Mutex<()> = Mutex::new(());
+
 #[test]
 fn powerchat_settings_topics_documents_and_chat() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let root = std::env::temp_dir().join(format!(
         "prc-071-{}",
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
@@ -840,5 +845,126 @@ fn powerchat_settings_topics_documents_and_chat() {
         println!("  {r}");
     }
     println!("  total {:.0} ms, {} model requests\n", total.elapsed().as_secs_f64() * 1000.0, sent.len());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Seed PowerChat's settings file the way the RAG settings and Topics forms
+/// leave it: the Knowledge Base folder and the open topic.
+fn seed_settings(data: &Path, pairs: &[(&str, &str)]) {
+    let mut writes = String::new();
+    for (name, value) in pairs {
+        writes.push_str(&format!(
+            "           MOVE \"{name}\" TO SET-NAME\n           MOVE \"{value}\" TO SET-VALUE\n           WRITE SETTINGS-REC\n"
+        ));
+    }
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. SEED.\n       ENVIRONMENT DIVISION.\n       INPUT-OUTPUT SECTION.\n       FILE-CONTROL.\n           SELECT SETTINGS-FILE ASSIGN TO \"{}\"\n               ORGANIZATION IS INDEXED\n               ACCESS MODE IS DYNAMIC\n               RECORD KEY IS SET-NAME\n               FILE STATUS IS WS-FS\n               STORAGE MODE IS DISK.\n       DATA DIVISION.\n       FILE SECTION.\n       FD  SETTINGS-FILE.\n       01  SETTINGS-REC.\n           05 SET-NAME PIC X(20).\n           05 SET-VALUE PIC X(200).\n       WORKING-STORAGE SECTION.\n       01 WS-FS PIC XX.\n       PROCEDURE DIVISION.\n           OPEN OUTPUT SETTINGS-FILE\n{writes}           CLOSE SETTINGS-FILE\n           STOP RUN.\n",
+        data.join("settings.idx").display()
+    );
+    let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(&src, cobolt_lexer::SourceFormat::Free));
+    let program = parsed.program.expect("the seeding program parses");
+    Interpreter::new(program).run().expect("the settings are seeded");
+}
+
+/// Operator (2026-09-27): "make possible to move files between folders". A
+/// document is picked with Move, placed with Move here (or To the top level);
+/// the copy is indexed before the original is deleted, and a move onto the
+/// folder it is already in, or onto a document of the same name, changes
+/// nothing.
+#[test]
+fn powerchat_moves_a_document_between_folders() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let root = std::env::temp_dir().join(format!(
+        "prc-071-move-{}",
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let data = root.join("data");
+    let kb = root.join("KB");
+    let docs = kb.join("HR").join("documents");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::create_dir_all(&docs).unwrap();
+    std::fs::write(docs.join("leave-policy.md"), "# Leave\nTwenty working days a year.").unwrap();
+    std::fs::write(docs.join("travel.md"), "# Travel\nBook trains under four hours.").unwrap();
+    std::env::set_var("POWERCHAT_DATA", &data);
+    seed_settings(&data, &[("CUR-TOPIC", "HR"), ("KB-LOCATION", &kb.display().to_string())]);
+    let node = |label: &str, index: usize, level: usize| {
+        FormEvent::new("Trv-Docs", "onNodeSelect").with_value(format!("{label}\t{index}\t{level}\t0"))
+    };
+    let total = Instant::now();
+    let mut report: Vec<String> = Vec::new();
+
+    let mut s = Session::start("documents-form.cfrm");
+    s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Added 2,"));
+    s.type_into("Txt-Folder", "Policies");
+    s.click("Btn-NewFolder");
+    s.wait_for("Trv-Docs", "Items", |v| v == "Policies\tfolder\nleave-policy.md\ntravel.md");
+
+    // Nothing picked: Move asks for a document; a folder is not one.
+    s.events.send(node("Policies", 1, 1)).unwrap();
+    s.click("Btn-Move");
+    s.wait_for("Lbl-Status", "Caption", |v| v == "Pick the document to move in the tree first.");
+
+    // Into a folder.
+    let t = Instant::now();
+    s.events.send(node("travel.md", 3, 1)).unwrap();
+    s.click("Btn-Move");
+    // The button changes first, then the status says what to do next.
+    s.wait_for("Btn-Move", "Caption", |v| v == "Move here");
+    s.wait_for("Lbl-Status", "Caption", |v| v == "Moving travel.md: pick a folder, then press Move here.");
+    s.events.send(node("Policies", 1, 1)).unwrap();
+    s.wait_for("Lbl-Status", "Caption", |v| v == "Move here puts travel.md into Policies.");
+    s.click("Btn-Move");
+    // The tree is rebuilt, then the status reports the move.
+    s.wait_for("Trv-Docs", "Items", |v| v == "Policies\n  travel.md\nleave-policy.md");
+    s.wait_for("Lbl-Status", "Caption", |v| v == "Moved travel.md to Policies.");
+    assert!(docs.join("Policies/travel.md").is_file(), "the document is in its new folder");
+    assert!(!docs.join("travel.md").exists(), "and no longer where it was");
+    report.push(format!("travel.md → Policies (copied, indexed, original deleted) — {:.0} ms", t.elapsed().as_secs_f64() * 1000.0));
+
+    // Back to the top level.
+    let t = Instant::now();
+    s.events.send(node("travel.md", 2, 2)).unwrap();
+    s.click("Btn-Move");
+    s.wait_for("Btn-Move", "Caption", |v| v == "Move here");
+    s.click("Btn-MoveTop");
+    s.wait_for("Trv-Docs", "Items", |v| v == "Policies\tfolder\nleave-policy.md\ntravel.md");
+    s.wait_for("Lbl-Status", "Caption", |v| v == "Moved Policies/travel.md to the top level.");
+    assert!(docs.join("travel.md").is_file() && !docs.join("Policies/travel.md").exists());
+    report.push(format!("Policies/travel.md → top level — {:.0} ms", t.elapsed().as_secs_f64() * 1000.0));
+
+    // Onto the folder it is already in: nothing moves.
+    s.events.send(node("travel.md", 3, 1)).unwrap();
+    s.click("Btn-Move");
+    s.wait_for("Btn-Move", "Caption", |v| v == "Move here");
+    s.click("Btn-Move");
+    s.wait_for("Btn-Move", "Caption", |v| v == "Move");
+    s.wait_for("Lbl-Status", "Caption", |v| v == "The document is already in that folder.");
+    report.push("travel.md → its own folder: refused, nothing moved".to_string());
+
+    // Onto a document of the same name: nothing is overwritten.
+    std::fs::create_dir_all(docs.join("Policies")).unwrap();
+    std::fs::write(docs.join("Policies/travel.md"), "# Other\nA different travel note.").unwrap();
+    s.click("Btn-Refresh");
+    s.wait_for("Trv-Docs", "Items", |v| v == "Policies\n  travel.md\nleave-policy.md\ntravel.md");
+    s.events.send(node("travel.md", 4, 1)).unwrap();
+    s.click("Btn-Move");
+    s.wait_for("Btn-Move", "Caption", |v| v == "Move here");
+    s.events.send(node("Policies", 1, 1)).unwrap();
+    s.click("Btn-Move");
+    s.wait_for("Lbl-Status", "Caption", |v| v == "A document of that name is already there: Policies/travel.md.");
+    assert_eq!(
+        std::fs::read_to_string(docs.join("Policies/travel.md")).unwrap(),
+        "# Other\nA different travel note.",
+        "the document already there is untouched"
+    );
+    assert!(docs.join("travel.md").is_file(), "and the one not moved is still in place");
+    report.push("travel.md → Policies holding a travel.md: refused, neither file touched".to_string());
+    s.quit();
+
+    println!("\n  ── 071 PowerChat, moving documents between folders ──────");
+    for r in &report {
+        println!("  {r}");
+    }
+    println!("  4 moves tried (2 made, 2 refused) in {:.0} ms\n", total.elapsed().as_secs_f64() * 1000.0);
     let _ = std::fs::remove_dir_all(&root);
 }

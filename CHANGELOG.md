@@ -8,6 +8,26 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.287] — 2026-09-27
+
+### Feature — PowerChat: move a document between folders
+
+- **Documents** gains **Move** and **To the top level**
+  (`examples/PowerChat/forms/documents-form.cfrm`). Select a document and
+  press **Move**; the button becomes **Move here** and the status line says
+  where it will go as you select a folder (a selected document stands for its
+  own folder). **Move here** or **To the top level** carries it out through the
+  Knowledge Base: `ImportDocument` copies it into the new folder and indexes
+  it, and only then does `DeleteDocument` remove the original — a failure part
+  way leaves the original in place. A move onto the folder it is already in,
+  or onto a document of the same name, changes nothing and says so. Nine texts
+  in all six languages. No runtime change: it is written entirely in the
+  form's COBOL.
+- Test: `powerchat_moves_a_document_between_folders` (2 moves made, 2
+  refused). It takes a lock shared with
+  `powerchat_settings_topics_documents_and_chat`, since both set the
+  process-wide `POWERCHAT_DATA`.
+
 ## [PowerRustCOBOL 1.70.286] — 2026-09-27
 
 ### Fix — FileDropZone: a file chosen by clicking goes where the form said

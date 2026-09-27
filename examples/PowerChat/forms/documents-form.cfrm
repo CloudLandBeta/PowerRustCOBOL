@@ -183,8 +183,71 @@
           05 FILLER PIC X(70) VALUE "État".
           05 FILLER PIC X(70) VALUE "ステータス".
           05 FILLER PIC X(70) VALUE "状态".
+      *>   MOVE
+          05 FILLER PIC X(70) VALUE "Move".
+          05 FILLER PIC X(70) VALUE "Mover".
+          05 FILLER PIC X(70) VALUE "Mover".
+          05 FILLER PIC X(70) VALUE "Déplacer".
+          05 FILLER PIC X(70) VALUE "移動".
+          05 FILLER PIC X(70) VALUE "移动".
+      *>   MOVE-HERE
+          05 FILLER PIC X(70) VALUE "Move here".
+          05 FILLER PIC X(70) VALUE "Mover para cá".
+          05 FILLER PIC X(70) VALUE "Mover aquí".
+          05 FILLER PIC X(70) VALUE "Déplacer ici".
+          05 FILLER PIC X(70) VALUE "ここへ移動".
+          05 FILLER PIC X(70) VALUE "移到此处".
+      *>   MOVE-TOP
+          05 FILLER PIC X(70) VALUE "To the top level".
+          05 FILLER PIC X(70) VALUE "Para o nível principal".
+          05 FILLER PIC X(70) VALUE "Al nivel superior".
+          05 FILLER PIC X(70) VALUE "Au niveau supérieur".
+          05 FILLER PIC X(70) VALUE "最上位へ".
+          05 FILLER PIC X(70) VALUE "移到顶层".
+      *>   PICK-DOC-TO-MOVE
+          05 FILLER PIC X(70) VALUE "Pick the document to move in the tree first.".
+          05 FILLER PIC X(70) VALUE "Escolha primeiro na árvore o documento a mover.".
+          05 FILLER PIC X(70) VALUE "Primero elige en el árbol el documento a mover.".
+          05 FILLER PIC X(70) VALUE "Choisissez d'abord le document à déplacer.".
+          05 FILLER PIC X(70) VALUE "先に移動する文書を選んでください。".
+          05 FILLER PIC X(70) VALUE "请先在树中选择要移动的文档。".
+      *>   MOVE-PICK
+          05 FILLER PIC X(70) VALUE "Moving &1: pick a folder, then press Move here.".
+          05 FILLER PIC X(70) VALUE "Movendo &1: escolha uma pasta e clique em Mover para cá.".
+          05 FILLER PIC X(70) VALUE "Moviendo &1: elige una carpeta y pulsa Mover aquí.".
+          05 FILLER PIC X(70) VALUE "Déplacement de &1 : choisissez un dossier, puis Déplacer ici.".
+          05 FILLER PIC X(70) VALUE "&1 の移動先フォルダーを選んでください。".
+          05 FILLER PIC X(70) VALUE "移动 &1：请选择目标文件夹。".
+      *>   MOVE-INTO
+          05 FILLER PIC X(70) VALUE "Move here puts &1 into &2.".
+          05 FILLER PIC X(70) VALUE "Mover para cá coloca &1 em &2.".
+          05 FILLER PIC X(70) VALUE "Mover aquí lleva &1 a &2.".
+          05 FILLER PIC X(70) VALUE "Déplacer ici met &1 dans &2.".
+          05 FILLER PIC X(70) VALUE "&1 を &2 へ移動します。".
+          05 FILLER PIC X(70) VALUE "将把 &1 移到 &2。".
+      *>   MOVE-SAME
+          05 FILLER PIC X(70) VALUE "The document is already in that folder.".
+          05 FILLER PIC X(70) VALUE "O documento já está nessa pasta.".
+          05 FILLER PIC X(70) VALUE "El documento ya está en esa carpeta.".
+          05 FILLER PIC X(70) VALUE "Le document est déjà dans ce dossier.".
+          05 FILLER PIC X(70) VALUE "文書は既にそのフォルダーにあります。".
+          05 FILLER PIC X(70) VALUE "文档已在该文件夹中。".
+      *>   MOVE-EXISTS
+          05 FILLER PIC X(70) VALUE "A document of that name is already there: &1.".
+          05 FILLER PIC X(70) VALUE "Já existe um documento com esse nome lá: &1.".
+          05 FILLER PIC X(70) VALUE "Ya hay un documento con ese nombre allí: &1.".
+          05 FILLER PIC X(70) VALUE "Un document de ce nom s'y trouve déjà : &1.".
+          05 FILLER PIC X(70) VALUE "同名の文書が既にあります: &1".
+          05 FILLER PIC X(70) VALUE "该处已有同名文档：&1".
+      *>   MOVED
+          05 FILLER PIC X(70) VALUE "Moved &1 to &2.".
+          05 FILLER PIC X(70) VALUE "&1 movido para &2.".
+          05 FILLER PIC X(70) VALUE "&1 movido a &2.".
+          05 FILLER PIC X(70) VALUE "&1 déplacé vers &2.".
+          05 FILLER PIC X(70) VALUE "&1 を &2 へ移動しました。".
+          05 FILLER PIC X(70) VALUE "已将 &1 移到 &2。".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 22.
+          05 PC-TEXT-ROW     OCCURS 31.
              10 PC-TEXT      PIC X(70) OCCURS 6.
       *>   The texts in the current language, by name.
        01 PC-TEXTS-NOW       GLOBAL.
@@ -210,8 +273,17 @@
           05 T-DROP-INTO PIC X(70).
           05 T-TOP-LEVEL PIC X(70).
           05 T-STATUS PIC X(70).
+          05 T-MOVE PIC X(70).
+          05 T-MOVE-HERE PIC X(70).
+          05 T-MOVE-TOP PIC X(70).
+          05 T-PICK-DOC-TO-MOVE PIC X(70).
+          05 T-MOVE-PICK PIC X(70).
+          05 T-MOVE-INTO PIC X(70).
+          05 T-MOVE-SAME PIC X(70).
+          05 T-MOVE-EXISTS PIC X(70).
+          05 T-MOVED PIC X(70).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(70) OCCURS 22.
+          05 PC-TEXT-NOW     PIC X(70) OCCURS 31.
       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
        01 WS-FMT             GLOBAL PIC X(70).
        01 WS-ARG1            GLOBAL PIC X(300).
@@ -251,6 +323,13 @@
        01 WS-P               GLOBAL PIC 9(4).
        01 WS-DEPTH           GLOBAL PIC 9(4).
        01 WS-FOUND           GLOBAL PIC X.
+      *>   A document being moved: picked with Move, placed with Move here.
+      *>   The copy goes first; the original is deleted only once the copy
+      *>   is indexed (WS-MOVE-STEP "I", then "D"), so a failure never loses it.
+       01 WS-MOVE-SRC        GLOBAL PIC X(260) VALUE SPACES.
+       01 WS-MOVE-DEST       GLOBAL PIC X(260) VALUE SPACES.
+       01 WS-MOVE-TO         GLOBAL PIC X(260) VALUE SPACES.
+       01 WS-MOVE-STEP       GLOBAL PIC X VALUE SPACE.
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -602,7 +681,7 @@
                WHEN OTHER MOVE "en" TO WS-LANG
                           MOVE 1 TO WS-LANG-IX
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 22
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 31
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
            MOVE FUNCTION TRIM(T-DOCS-TITLE) TO Lbl-Title::Caption
@@ -612,6 +691,82 @@
            MOVE FUNCTION TRIM(T-NEW-FOLDER) TO Btn-NewFolder::Caption
            MOVE FUNCTION TRIM(T-FOLDER-HINT) TO Txt-Folder::HintText
            MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
+           MOVE FUNCTION TRIM(T-MOVE-TOP) TO Btn-MoveTop::Caption
+           CALL "PC-MOVE-UI"
+]]></Event>
+    <Event name="PC-MOVE-UI" paragraph="PC-MOVE-UI"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The Move button says what the next press does: pick the document,
+      *>   or place the one picked. "To the top level" only while one is.
+           IF WS-MOVE-SRC = SPACES OR WS-MOVE-STEP NOT = SPACE
+               MOVE FUNCTION TRIM(T-MOVE) TO Btn-Move::Caption
+               MOVE "false" TO Btn-MoveTop::Enabled
+           ELSE
+               MOVE FUNCTION TRIM(T-MOVE-HERE) TO Btn-Move::Caption
+               MOVE "true" TO Btn-MoveTop::Enabled
+           END-IF
+]]></Event>
+    <Event name="PC-MOVE-GO" paragraph="PC-MOVE-GO"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 LK-FILE            PIC X(260).
+       PROCEDURE DIVISION.
+      *>   WS-MOVE-SRC goes into folder WS-MOVE-TO (spaces: the top level).
+      *>   Step one copies it there through the Knowledge Base, which indexes
+      *>   the copy; onIndexed then deletes the original (step two).
+           MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-MOVE-SRC)) TO WS-L
+           MOVE 0 TO WS-P
+           PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
+               IF WS-MOVE-SRC(WS-K:1) = "/"
+                   MOVE WS-K TO WS-P
+               END-IF
+           END-PERFORM
+           MOVE SPACES TO LK-FILE
+           MOVE WS-MOVE-SRC(WS-P + 1:WS-L - WS-P) TO LK-FILE
+           MOVE SPACES TO WS-MOVE-DEST
+           IF WS-MOVE-TO = SPACES
+               MOVE FUNCTION TRIM(LK-FILE) TO WS-MOVE-DEST
+           ELSE
+               STRING FUNCTION TRIM(WS-MOVE-TO) "/" FUNCTION TRIM(LK-FILE)
+                   DELIMITED BY SIZE INTO WS-MOVE-DEST
+           END-IF
+           IF WS-MOVE-DEST = WS-MOVE-SRC
+               MOVE SPACES TO WS-MOVE-SRC
+               CALL "PC-MOVE-UI"
+               MOVE FUNCTION TRIM(T-MOVE-SAME) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+      *>   Never over another document: the copy would replace it.
+           MOVE "N" TO WS-FOUND
+           PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-NODE-N
+               IF WS-NODE-PATH(WS-J) = WS-MOVE-DEST
+                   MOVE "Y" TO WS-FOUND
+               END-IF
+           END-PERFORM
+           IF WS-FOUND = "Y"
+               MOVE T-MOVE-EXISTS TO WS-FMT
+               MOVE WS-MOVE-DEST TO WS-ARG1
+               CALL "PC-FMT"
+               MOVE SPACES TO WS-MOVE-SRC
+               CALL "PC-MOVE-UI"
+               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           MOVE SPACES TO WS-LINE
+           STRING FUNCTION TRIM(WS-DOCS-DIR) "/" FUNCTION TRIM(WS-MOVE-SRC)
+               DELIMITED BY SIZE INTO WS-LINE
+           MOVE KB-D::ImportDocument(FUNCTION TRIM(WS-LINE),
+               FUNCTION TRIM(WS-MOVE-DEST)) TO WS-OK
+           IF WS-OK NOT = "1"
+               MOVE SPACES TO WS-MOVE-SRC
+               CALL "PC-MOVE-UI"
+               MOVE KB-D::LastError TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           MOVE "I" TO WS-MOVE-STEP
+           CALL "PC-MOVE-UI"
+           MOVE FUNCTION TRIM(T-KB-UPDATING) TO Lbl-Progress::Caption
 ]]></Event>
     <Event name="PC-FMT" paragraph="PC-FMT"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -866,6 +1021,19 @@ Node 2</Property>
                MOVE WS-NODE-PATH(WS-J) TO WS-SEL-PATH
            END-IF
            CALL "PC-SELECT-SYNC"
+      *>   While a document waits to be moved, say where Move here puts it.
+           IF WS-MOVE-SRC NOT = SPACES AND WS-MOVE-STEP = SPACE
+               MOVE T-MOVE-INTO TO WS-FMT
+               MOVE WS-MOVE-SRC TO WS-ARG1
+               IF WS-FOLDER = SPACES
+                   MOVE T-TOP-LEVEL TO WS-ARG2
+               ELSE
+                   MOVE WS-FOLDER TO WS-ARG2
+               END-IF
+               CALL "PC-FMT"
+               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
            MOVE T-DROP-INTO TO WS-FMT
            IF WS-FOLDER = SPACES
                MOVE T-TOP-LEVEL TO WS-ARG1
@@ -1290,6 +1458,126 @@ Node 2</Property>
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
 ]]></Event>
   </Control>
+  <Control id="Btn-Move" type="Button" x="680" y="416" w="184" h="32" tab-order="7" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Move</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">false</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IconPath"></Property>
+    <Event name="onClick" paragraph="BTN-MOVE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   First press: the selected document is the one to move. Second
+      *>   press: it goes into the selected folder (or a document's folder).
+           IF WS-MOVE-STEP NOT = SPACE
+               MOVE FUNCTION TRIM(T-KB-UPDATING) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           IF WS-MOVE-SRC = SPACES
+               IF WS-SEL-IX = 0 OR WS-SEL-KIND NOT = "D"
+                   MOVE FUNCTION TRIM(T-PICK-DOC-TO-MOVE)
+                       TO Lbl-Status::Caption
+                   EXIT PROGRAM
+               END-IF
+               MOVE WS-SEL-PATH TO WS-MOVE-SRC
+               CALL "PC-MOVE-UI"
+               MOVE T-MOVE-PICK TO WS-FMT
+               MOVE WS-MOVE-SRC TO WS-ARG1
+               CALL "PC-FMT"
+               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           MOVE WS-FOLDER TO WS-MOVE-TO
+           CALL "PC-MOVE-GO"
+]]></Event>
+  </Control>
+  <Control id="Btn-MoveTop" type="Button" x="872" y="416" w="184" h="32" tab-order="8" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">To the top level</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">false</Property>
+    <Property name="ShadowBlurStrength">3</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IconPath"></Property>
+    <Event name="onClick" paragraph="BTN-MOVETOP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Place the document picked with Move at the top level.
+           IF WS-MOVE-SRC = SPACES OR WS-MOVE-STEP NOT = SPACE
+               EXIT PROGRAM
+           END-IF
+           MOVE SPACES TO WS-MOVE-TO
+           CALL "PC-MOVE-GO"
+]]></Event>
+  </Control>
   <Control id="Lbl-Progress" type="Label" x="24" y="360" w="632" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption"></Property>
     <Property name="BackgroundColor">#00000000</Property>
@@ -1436,7 +1724,41 @@ Node 2</Property>
     <Event name="onIndexed" paragraph="KB-D--ONINDEXED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
+      *>   A move's copy is indexed: now the original goes. Its own onIndexed
+      *>   lists the tree and reports the move.
+           IF WS-MOVE-STEP = "I"
+               MOVE KB-D::DeleteDocument(FUNCTION TRIM(WS-MOVE-SRC)) TO WS-OK
+               IF WS-OK = "1"
+                   MOVE "D" TO WS-MOVE-STEP
+                   EXIT PROGRAM
+               END-IF
+               MOVE SPACE TO WS-MOVE-STEP
+               MOVE SPACES TO WS-MOVE-SRC
+               CALL "PC-MOVE-UI"
+               CALL "PC-PROGRESS-IDLE"
+               MOVE KB-D::LastError TO Lbl-Status::Caption
+               CALL "PC-LIST-DOCS"
+               EXIT PROGRAM
+           END-IF
            CALL "PC-PROGRESS-IDLE"
+           IF WS-MOVE-STEP = "D"
+               MOVE SPACE TO WS-MOVE-STEP
+               MOVE "D" TO WS-SEL-KIND
+               MOVE WS-MOVE-DEST TO WS-SEL-PATH
+               CALL "PC-LIST-DOCS"
+               MOVE T-MOVED TO WS-FMT
+               MOVE WS-MOVE-SRC TO WS-ARG1
+               IF WS-MOVE-TO = SPACES
+                   MOVE T-TOP-LEVEL TO WS-ARG2
+               ELSE
+                   MOVE WS-MOVE-TO TO WS-ARG2
+               END-IF
+               CALL "PC-FMT"
+               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               MOVE SPACES TO WS-MOVE-SRC
+               CALL "PC-MOVE-UI"
+               EXIT PROGRAM
+           END-IF
            MOVE KB-D::AddedCount TO WS-N1
            MOVE KB-D::UpdatedCount TO WS-N2
            MOVE KB-D::RemovedCount TO WS-N3
@@ -1466,12 +1788,28 @@ Node 2</Property>
        PROCEDURE DIVISION.
            CALL "PC-PROGRESS-IDLE"
            MOVE KB-D::LastError TO Lbl-Status::Caption
+      *>   A move stops where it failed: before the delete, the original
+      *>   is untouched; the tree shows what is really there.
+           IF WS-MOVE-STEP NOT = SPACE
+               MOVE SPACE TO WS-MOVE-STEP
+               MOVE SPACES TO WS-MOVE-SRC
+               CALL "PC-MOVE-UI"
+               CALL "PC-LIST-DOCS"
+           END-IF
 ]]></Event>
     <Event name="onError" paragraph="KB-D--ONERROR"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
            CALL "PC-PROGRESS-IDLE"
            MOVE KB-D::LastError TO Lbl-Status::Caption
+      *>   A move stops where it failed: before the delete, the original
+      *>   is untouched; the tree shows what is really there.
+           IF WS-MOVE-STEP NOT = SPACE
+               MOVE SPACE TO WS-MOVE-STEP
+               MOVE SPACES TO WS-MOVE-SRC
+               CALL "PC-MOVE-UI"
+               CALL "PC-LIST-DOCS"
+           END-IF
 ]]></Event>
   </Control>
   <Control id="Tmr-Lang" type="Timer" x="1000" y="0" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
