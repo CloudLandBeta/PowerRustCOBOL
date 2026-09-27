@@ -1225,3 +1225,59 @@ fn powerchat_saves_the_conversation_as_a_pdf() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Operator (2026-09-27): "I can't move a document in the tree into a folder
+/// (in the tree, of course)". The Documents tree has `AllowDrag`: a document
+/// dropped on a folder moves into it, dropped on empty space moves to the top
+/// level, and a folder is not dragged anywhere.
+#[test]
+fn powerchat_drags_a_document_into_a_folder_in_the_tree() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let root = std::env::temp_dir().join(format!(
+        "prc-071-drag-{}",
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let data = root.join("data");
+    let kb = root.join("KB");
+    let docs = kb.join("HR").join("documents");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::create_dir_all(&docs).unwrap();
+    plant_model(&root, false);
+    std::fs::write(docs.join("leave-policy.md"), "# Leave\nTwenty working days a year.").unwrap();
+    std::fs::write(docs.join("travel.md"), "# Travel\nBook trains under four hours.").unwrap();
+    std::env::set_var("POWERCHAT_DATA", &data);
+    seed_settings(&data, &[("CUR-TOPIC", "HR"), ("KB-LOCATION", &kb.display().to_string())]);
+    // What the tree raises when a node is let go over another: the dragged
+    // node, then the target's index and label (0 and nothing: empty space).
+    let drop = |dragged: &str, index: usize, level: usize, target_index: usize, target: &str| {
+        FormEvent::new("Trv-Docs", "onNodeDrop")
+            .with_value(format!("{dragged}\t{index}\t{level}\t0\t{target_index}\t{target}"))
+    };
+    let t = Instant::now();
+
+    let mut s = Session::start("documents-form.cfrm");
+    s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Added 2,"));
+    s.type_into("Txt-Folder", "Policies");
+    s.click("Btn-NewFolder");
+    s.wait_for("Trv-Docs", "Items", |v| v == "Policies\tfolder\nleave-policy.md\ntravel.md");
+
+    s.events.send(drop("travel.md", 3, 1, 1, "Policies")).unwrap();
+    s.wait_for("Trv-Docs", "Items", |v| v == "Policies\n  travel.md\nleave-policy.md");
+    s.wait_for("Lbl-Status", "Caption", |v| v == "Moved travel.md to Policies.");
+    assert!(docs.join("Policies/travel.md").is_file() && !docs.join("travel.md").exists());
+
+    s.events.send(drop("travel.md", 2, 2, 0, "")).unwrap();
+    s.wait_for("Trv-Docs", "Items", |v| v == "Policies\tfolder\nleave-policy.md\ntravel.md");
+    s.wait_for("Lbl-Status", "Caption", |v| v == "Moved Policies/travel.md to the top level.");
+    assert!(docs.join("travel.md").is_file() && !docs.join("Policies/travel.md").exists());
+
+    s.events.send(drop("Policies", 1, 1, 2, "leave-policy.md")).unwrap();
+    s.wait_for("Lbl-Status", "Caption", |v| v == "Only documents move: drag a document onto a folder.");
+    s.quit();
+    println!(
+        "\n  ── 071 PowerChat, dragging in the Documents tree ────────\n  \
+         travel.md → Policies, → top level (moved, indexed, originals deleted); a folder refused — {:.0} ms\n",
+        t.elapsed().as_secs_f64() * 1000.0
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}

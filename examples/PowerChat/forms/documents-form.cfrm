@@ -281,8 +281,15 @@
           05 FILLER PIC X(70) VALUE "Recherche par mots seulement : &1".
           05 FILLER PIC X(70) VALUE "語句のみで検索します: &1".
           05 FILLER PIC X(70) VALUE "仅按词语搜索：&1".
+      *>   DRAG-DOCS-ONLY
+          05 FILLER PIC X(70) VALUE "Only documents move: drag a document onto a folder.".
+          05 FILLER PIC X(70) VALUE "Só documentos se movem: arraste um até uma pasta.".
+          05 FILLER PIC X(70) VALUE "Solo se mueven documentos: arrastra uno a una carpeta.".
+          05 FILLER PIC X(70) VALUE "Seuls les documents se déplacent : glissez-en un sur un dossier.".
+          05 FILLER PIC X(70) VALUE "移動できるのは文書だけです。".
+          05 FILLER PIC X(70) VALUE "只能移动文档，请拖到文件夹上。".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 36.
+          05 PC-TEXT-ROW     OCCURS 37.
              10 PC-TEXT      PIC X(70) OCCURS 6.
       *>   The texts in the current language, by name.
        01 PC-TEXTS-NOW       GLOBAL.
@@ -322,8 +329,9 @@
           05 T-MODEL-FETCH PIC X(70).
           05 T-REINDEXING PIC X(70).
           05 T-WORDS-ONLY PIC X(70).
+          05 T-DRAG-DOCS-ONLY PIC X(70).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(70) OCCURS 36.
+          05 PC-TEXT-NOW     PIC X(70) OCCURS 37.
       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
        01 WS-FMT             GLOBAL PIC X(70).
        01 WS-ARG1            GLOBAL PIC X(300).
@@ -735,7 +743,7 @@
                WHEN OTHER MOVE "en" TO WS-LANG
                           MOVE 1 TO WS-LANG-IX
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 36
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 37
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
            MOVE FUNCTION TRIM(T-DOCS-TITLE) TO Lbl-Title::Caption
@@ -1052,6 +1060,7 @@
   Child 2
 Node 2</Property>
     <Property name="AllowEdit">false</Property>
+    <Property name="AllowDrag">true</Property>
     <Property name="CheckBoxes">false</Property>
     <Property name="ShowLines">true</Property>
     <Property name="ShowRootLines">true</Property>
@@ -1118,6 +1127,55 @@ Node 2</Property>
            END-IF
            CALL "PC-FMT"
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+]]></Event>
+    <Event name="onNodeDrop" paragraph="TRV-DOCS--ONNODEDROP"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01 CONTROL-NODE-DATA.
+           05 CONTROL-NODE                 PIC X(256).
+           05 CONTROL-NODE-INDEX           PIC S9(4) COMP-5.
+           05 CONTROL-NODE-LEVEL           PIC S9(4) COMP-5.
+           05 CONTROL-NODE-CHECKED         PIC 9.
+           05 CONTROL-TARGET-INDEX         PIC S9(4) COMP-5.
+           05 CONTROL-TARGET-NODE          PIC X(256).
+
+       PROCEDURE DIVISION USING CONTROL-NODE-DATA.
+      *>   A document dragged onto a folder moves into it; onto a document,
+      *>   into that document's folder; onto empty space, to the top level.
+      *>   The move itself is the Move button's (PC-MOVE-GO): copy, index,
+      *>   then delete the original, never over a document of the same name.
+           IF CONTROL-NODE-INDEX < 1 OR CONTROL-NODE-INDEX > WS-NODE-N
+               EXIT PROGRAM
+           END-IF
+           IF WS-MOVE-STEP NOT = SPACE
+               MOVE FUNCTION TRIM(T-KB-UPDATING) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           MOVE CONTROL-NODE-INDEX TO WS-J
+           IF WS-NODE-KIND(WS-J) NOT = "D"
+               MOVE FUNCTION TRIM(T-DRAG-DOCS-ONLY) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           MOVE WS-NODE-PATH(WS-J) TO WS-MOVE-SRC
+           MOVE SPACES TO WS-MOVE-TO
+           IF CONTROL-TARGET-INDEX > 0 AND CONTROL-TARGET-INDEX NOT > WS-NODE-N
+               MOVE CONTROL-TARGET-INDEX TO WS-K1
+               IF WS-NODE-KIND(WS-K1) = "F"
+                   MOVE WS-NODE-PATH(WS-K1) TO WS-MOVE-TO
+               ELSE
+                   MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-NODE-PATH(WS-K1))) TO WS-L
+                   MOVE 0 TO WS-P
+                   PERFORM VARYING WS-K FROM 1 BY 1 UNTIL WS-K > WS-L
+                       IF WS-NODE-PATH(WS-K1)(WS-K:1) = "/"
+                           MOVE WS-K TO WS-P
+                       END-IF
+                   END-PERFORM
+                   IF WS-P > 1
+                       MOVE WS-NODE-PATH(WS-K1)(1:WS-P - 1) TO WS-MOVE-TO
+                   END-IF
+               END-IF
+           END-IF
+           CALL "PC-MOVE-GO"
 ]]></Event>
   </Control>
   <Control id="Drop-Docs" type="FileDropZone" x="672" y="48" w="392" h="144" tab-order="2" z-order="0" visible="true" enabled="true">

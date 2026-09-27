@@ -8,6 +8,39 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.294] — 2026-09-27
+
+### Feature — TreeView `AllowDrag` / `onNodeDrop`, and dragging documents in PowerChat
+
+- **`AllowDrag`** (TreeView, default false): pressing a node and moving
+  carries it — the node under the pointer is ringed, the label follows the
+  pointer, the tree scrolls near its top and bottom edges; the wheel still
+  scrolls. Letting go over another node fires **`onNodeDrop`** with the
+  dragged node in the four `CONTROL-NODE*` names and the target in two new
+  ones, `CONTROL-TARGET-INDEX` and `CONTROL-TARGET-NODE`; over the tree's
+  empty space the target index is 0. Outside the tree, or on the same node,
+  nothing fires. Off, a drag scrolls the tree exactly as before. The tree
+  moves nothing itself — the handler does, and rebuilds `Items`
+  (operator, 2026-09-27: "I can't move a document in the tree into a folder
+  (in the tree, of course)").
+- Where it lives: `cobolt-forms` (the gesture, `render.rs`; the event, its
+  LINKAGE group and the property default, `model.rs`), `cobolt-runtime`
+  (`bind_node_payload` binds the target only for a drop), the Properties
+  panel's **Allow drag**, its help in six languages, the System KB (property,
+  event, payload) and the Developer's Guide's TreeView section.
+- **PowerChat Documents:** the tree has `AllowDrag`. A document dropped on a
+  folder moves into it, on a document into that document's folder, on empty
+  space to the top level — through the Move button's own path (copy, index,
+  then delete the original; never over a same-named document). Dragging a
+  folder is refused with a message in six languages.
+- Tests: `a_tree_node_drags_onto_another_with_allow_drag` (onto a folder,
+  onto empty space, and nothing without `AllowDrag`),
+  `powerchat_drags_a_document_into_a_folder_in_the_tree`. cobolt-forms
+  (render,pdf) 1191/0, cobolt-runtime 1081/0, cobolt-compiler (lib) 145/0,
+  cobolt-ide (bin) 1268/1 — the one is
+  `every_document_ships_in_every_language`, red by design until the next
+  minor regenerates the Guide's translations.
+
 ## [PowerRustCOBOL 1.70.293] — 2026-09-27
 
 ### Feature — Viewer `SaveAsPdf`, and PowerChat's Save as PDF

@@ -3289,6 +3289,30 @@ designer canvas, the preview, Run Form and the compiled binary.
 >            MOVE CONTROL-NODE            TO WS-NEW-NAME
 >            PERFORM RENAME-DEPARTMENT.
 > ```
+>
+> **Dragging a node onto another — Allow drag (`AllowDrag`).** Off by
+> default, where a drag scrolls the tree. Turn it on and the operator presses
+> a node and carries it: the node under the pointer is ringed, the label
+> follows the pointer, and the tree scrolls when the pointer nears its top or
+> bottom edge (the wheel still scrolls). Letting go over another node fires
+> **`onNodeDrop`**. Its handler receives the dragged node in the usual four
+> names, plus two more: `CONTROL-TARGET-INDEX` (the node it was dropped on)
+> and `CONTROL-TARGET-NODE` (that node's label). Letting go over the tree's
+> empty space gives a target index of **0** and a blank label, which you may
+> read as "the top level". Letting go outside the tree, or back on the same
+> node, fires nothing. The tree moves nothing itself: your handler decides
+> what the drop means, does it, and rebuilds `Items`.
+>
+> ```cobol
+>        TRV-1--ONNODEDROP.
+>            IF CONTROL-TARGET-INDEX = 0
+>                MOVE SPACES TO WS-NEW-PARENT
+>            ELSE
+>                MOVE CONTROL-TARGET-NODE TO WS-NEW-PARENT
+>            END-IF
+>            MOVE CONTROL-NODE TO WS-MOVED
+>            PERFORM MOVE-ITEM.
+> ```
 
 **So are the highlights.** The colour behind a highlighted row is a property
 like any other, and there are two of them because a list highlights two

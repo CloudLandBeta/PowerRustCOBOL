@@ -5947,6 +5947,17 @@ fn datagrid_confined_fill_rects(screen: Rect, radius: f32, r: Rect) -> Vec<Rect>
 /// the column is declared numeric or every value in it reads as a number,
 /// otherwise as text, ignoring case. A value that is not a number sorts after
 /// the numbers.
+/// A TreeView node being dragged (`AllowDrag`): its row, the payload its
+/// node events carry, and its label for the ghost that follows the pointer.
+/// Kept whole from the moment it is picked up, because the row itself may
+/// scroll out of the laid-out rows while the drag goes on.
+#[derive(Clone, Debug, Default)]
+struct TreeDrag {
+    index: usize,
+    payload: String,
+    label: String,
+}
+
 /// A TreeView node being renamed in place (`AllowEdit`).
 #[derive(Clone, Debug, Default)]
 struct TreeRename {
@@ -11277,6 +11288,13 @@ fn render_interactive(
             let rename_id = ctrl_id.with("tv-rename");
             let mut renaming: Option<TreeRename> =
                 if allow_rename { ui.data(|d| d.get_temp(rename_id)) } else { None };
+            // `AllowDrag`: a drag that starts on a node carries that node, to
+            // be dropped on another (`onNodeDrop`); the wheel still scrolls.
+            // Off by default, so every existing tree keeps drag-to-scroll.
+            let allow_drag = enabled && prop_bool(ctrl, "AllowDrag", false);
+            let drag_id = ctrl_id.with("tv-drag");
+            let mut dragging: Option<TreeDrag> =
+                if allow_drag { ui.data(|d| d.get_temp(drag_id)) } else { None };
             for row in &rows {
                 // `click_and_drag`, so a DRAG anywhere on the tree scrolls it
                 // while a click still selects — egui already tells the two
@@ -11287,7 +11305,15 @@ fn render_interactive(
                     ctrl_id.with(("tv-node", row.index)),
                     Sense::click_and_drag(),
                 );
-                if scrollable && resp.dragged() {
+                if allow_drag {
+                    if resp.drag_started() {
+                        dragging = Some(TreeDrag {
+                            index: row.index,
+                            payload: node_payload(row, &checked_after),
+                            label: row.text.clone(),
+                        });
+                    }
+                } else if scrollable && resp.dragged() {
                     scroll -= resp.drag_delta().y;
                 }
                 if hot && resp.hovered() {
@@ -11449,6 +11475,60 @@ fn render_interactive(
                     scroll = crate::treeview::scroll_to_row(ctrl, screen, next, scroll);
                 }
             }
+            // ── Dropping a dragged node ─────────────────────────────────
+            //
+            // Let go over another node: `onNodeDrop`, carrying the dragged
+            // node and then the target's index and label. Over the tree's
+            // empty space: target index 0 — "no node", which a program may
+            // read as the top level. Outside the tree, or back on itself:
+            // nothing. Near the top or bottom edge the view scrolls, so a
+            // node can be carried to one the viewport does not show.
+            let mut drop_target: Option<usize> = None;
+            if let Some(drag) = dragging.clone() {
+                let (pointer, released) =
+                    ui.input(|i| (i.pointer.latest_pos(), !i.pointer.primary_down()));
+                let over = pointer.and_then(|p| rows.iter().find(|r| r.rect.contains(p)));
+                if released {
+                    if pointer.is_some_and(|p| screen.contains(p)) {
+                        let target = match over {
+                            Some(t) if t.index == drag.index => None,
+                            Some(t) => Some(format!("{}\t{}", t.index + 1, t.text)),
+                            None => Some("0\t".to_owned()),
+                        };
+                        if let Some(target) = target {
+                            out.events.push(UiEvent::with_value(
+                                id,
+                                "onNodeDrop",
+                                &format!("{}\t{target}", drag.payload),
+                            ));
+                        }
+                    }
+                    dragging = None;
+                } else {
+                    drop_target = over.filter(|t| t.index != drag.index).map(|t| t.index);
+                    if scrollable {
+                        if let Some(p) = pointer {
+                            const EDGE: f32 = 18.0;
+                            if p.y < screen.top() + EDGE {
+                                scroll -= 6.0;
+                            } else if p.y > screen.bottom() - EDGE {
+                                scroll += 6.0;
+                            }
+                        }
+                    }
+                    ui.ctx().request_repaint();
+                }
+            }
+            if allow_drag {
+                ui.data_mut(|d| match &dragging {
+                    Some(drag) => {
+                        d.insert_temp(drag_id, drag.clone());
+                    }
+                    None => {
+                        d.remove::<TreeDrag>(drag_id);
+                    }
+                });
+            }
             // One write, at the end, of whatever the wheel, the drag and the
             // keys left — held inside what there is to scroll, so a flick past
             // either end does not bank an offset the tree has to unwind later.
@@ -11467,6 +11547,29 @@ fn render_interactive(
                     alpha,
                 },
             );
+            // What a drag is doing, over the tree: a ring on the node it would
+            // land on, and the dragged label following the pointer.
+            if let Some(drag) = &dragging {
+                let ring = ui.visuals().selection.stroke.color;
+                if let Some(t) = drop_target.and_then(|i| rows.iter().find(|r| r.index == i)) {
+                    painter.rect_stroke(
+                        t.rect.shrink(1.0),
+                        3.0,
+                        egui::Stroke::new(2.0, ring),
+                        egui::StrokeKind::Inside,
+                    );
+                }
+                if let Some(p) = ui.input(|i| i.pointer.latest_pos()) {
+                    let font = sv(ctrl, "FontSize").parse::<f32>().unwrap_or(12.0).clamp(6.0, 72.0);
+                    painter.text(
+                        p + vec2(14.0, 6.0),
+                        egui::Align2::LEFT_TOP,
+                        &drag.label,
+                        egui::FontId::proportional(font),
+                        ring,
+                    );
+                }
+            }
             // The node being renamed, over its painted label. A node scrolled
             // or folded out of sight keeps its edit until it shows again.
             if let Some(mut edit) = renaming {
@@ -15306,6 +15409,85 @@ mod tests {
                 .iter()
                 .any(|c| (c.r(), c.g(), c.b()) == (target.r(), target.g(), target.b())),
             "an untouched toolbar must stay frameless; got {fills:?}"
+        );
+    }
+
+    /// **A TreeView node drags onto another** — operator, 2026-09-27: "I can't
+    /// move a document in the tree into a folder (in the tree, of course)".
+    /// With `AllowDrag`, pressing a node and letting go over another raises
+    /// `onNodeDrop` with the dragged node, then the target's index and label;
+    /// over empty space the target is index 0. Without it, a drag raises
+    /// nothing — it still scrolls, as it always did.
+    #[test]
+    fn a_tree_node_drags_onto_another_with_allow_drag() {
+        let run = |allow: bool, drop_on: &str| -> Vec<(String, Option<String>)> {
+            let mut tree = ctrl("TV", ControlType::TreeView, 10, 10, 300, 200);
+            tree.set_prop("Items", crate::PropValue::String("Policies\n  travel.md\nleave.md".into()));
+            tree.set_prop("AllowDrag", crate::PropValue::Bool(allow));
+            let controls = vec![tree.clone()];
+            let ctx = egui::Context::default();
+            let active = ActiveTabs::new();
+            let screen = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(400.0, 300.0));
+            let mut events = Vec::new();
+            let mut rects: HashMap<String, Rect> = HashMap::new();
+            let mut frame = |evs: Vec<egui::Event>, rects: &mut HashMap<String, Rect>, events: &mut Vec<(String, Option<String>)>| {
+                let raw = egui::RawInput { screen_rect: Some(screen), events: evs, ..Default::default() };
+                let mut out = ctx.run_ui(raw, |root_ui| {
+                    egui::CentralPanel::default().show_inside(root_ui, |ui| {
+                        ui.set_min_size(Vec2::new(400.0, 300.0));
+                        let input = RenderInput {
+                            controls: &controls,
+                            state: &DesignedVisibility,
+                            form_size: Vec2::new(400.0, 300.0),
+                            glass: true,
+                            mode: RenderMode::Interactive,
+                            active_tabs: &active,
+                            backdrop: Default::default(),
+                        };
+                        let o = render_form(ui, &input);
+                        *rects = o.control_rects;
+                        events.extend(o.events.into_iter().map(|e| (e.event, e.value)));
+                    });
+                });
+                out.textures_delta.clear();
+            };
+            frame(Vec::new(), &mut rects, &mut events);
+            let at = *rects.get("TV").expect("the tree is drawn");
+            let rows = crate::treeview::layout_at(&tree, at, 0.0);
+            let row = |label: &str| rows.iter().find(|r| r.text == label).unwrap().rect;
+            let from = row("leave.md").left_center() + Vec2::new(40.0, 0.0);
+            let to = if drop_on.is_empty() {
+                pos2(at.center().x, at.bottom() - 10.0)
+            } else {
+                row(drop_on).left_center() + Vec2::new(40.0, 0.0)
+            };
+            let button = |pos: egui::Pos2, pressed: bool| egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: Default::default(),
+            };
+            events.clear();
+            frame(vec![egui::Event::PointerMoved(from), button(from, true)], &mut rects, &mut events);
+            frame(vec![egui::Event::PointerMoved(from + Vec2::new(0.0, -12.0))], &mut rects, &mut events);
+            frame(vec![egui::Event::PointerMoved(to)], &mut rects, &mut events);
+            frame(vec![egui::Event::PointerMoved(to), button(to, false)], &mut rects, &mut events);
+            frame(Vec::new(), &mut rects, &mut events);
+            events
+        };
+        let drops = |evs: &[(String, Option<String>)]| -> Vec<String> {
+            evs.iter().filter(|(e, _)| e == "onNodeDrop").filter_map(|(_, v)| v.clone()).collect()
+        };
+
+        let onto_folder = drops(&run(true, "Policies"));
+        assert_eq!(onto_folder, vec!["leave.md\t3\t1\t0\t1\tPolicies".to_string()], "dragged node, then the target");
+        let onto_space = drops(&run(true, ""));
+        assert_eq!(onto_space, vec!["leave.md\t3\t1\t0\t0\t".to_string()], "empty space: target index 0");
+        let without = drops(&run(false, "Policies"));
+        assert!(without.is_empty(), "no AllowDrag, no drop: {without:?}");
+        println!(
+            "tree drag — onto a folder {onto_folder:?}; onto empty space {onto_space:?}; without AllowDrag {} drops",
+            without.len()
         );
     }
 

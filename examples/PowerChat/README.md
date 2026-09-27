@@ -55,7 +55,8 @@ opens inside the window, in the content pane beside the menu.
    rebuilt once, on its own. With no model it still indexes, by words, and
    says so. **Delete** removes a
    document, or a folder once nothing is left in it. To **move** a document,
-   select it and press **Move**, then select the folder it goes to (or a
+   drag it onto a folder in the tree (onto empty space for the top level),
+   or select it and press **Move**, then select the folder it goes to (or a
    document already in that folder) and press **Move here** — or press **To
    the top level**. The copy is indexed before the original is removed, and a
    document of the same name already there is never overwritten.

@@ -2757,6 +2757,15 @@ impl Interpreter {
         self.env.set_str("CONTROL-NODE-INDEX", index);
         self.env.set_str("CONTROL-NODE-LEVEL", level);
         self.env.set_str("CONTROL-NODE-CHECKED", checked);
+        // `onNodeDrop` carries a SECOND node — the one the first was dropped
+        // on, index 0 for the tree's empty space. Bound only when present:
+        // only a drop handler declares these, and a name the program never
+        // declared would be created at its first value's width.
+        if let (Some(target_index), Some(target)) = (parts.next(), parts.next()) {
+            let target = if target_index.trim() == "0" { "" } else { target };
+            self.env.set_str("CONTROL-TARGET-INDEX", target_index);
+            self.env.set_str("CONTROL-TARGET-NODE", target);
+        }
     }
 
     /// The property the DataGrid's CSV button sets when it is pressed. Written

@@ -1542,6 +1542,19 @@ pub fn event_linkage(event: &str) -> (String, Vec<String>) {
     //
     // `CONTROL-NODE-CHECKED` is `0` on a tree with no boxes — the honest answer
     // to "is it ticked" for a node that cannot be.
+    // `onNodeDrop` hands over TWO nodes: the one dragged, in the four names
+    // every node event uses, and the one it was dropped ON — index 0 and no
+    // text when it was dropped on the tree's empty space.
+    if event.trim() == "onNodeDrop" {
+        let items = "       01 CONTROL-NODE-DATA.\n\
+             \x20          05 CONTROL-NODE                 PIC X(256).\n\
+             \x20          05 CONTROL-NODE-INDEX           PIC S9(4) COMP-5.\n\
+             \x20          05 CONTROL-NODE-LEVEL           PIC S9(4) COMP-5.\n\
+             \x20          05 CONTROL-NODE-CHECKED         PIC 9.\n\
+             \x20          05 CONTROL-TARGET-INDEX         PIC S9(4) COMP-5.\n\
+             \x20          05 CONTROL-TARGET-NODE          PIC X(256).\n";
+        return (items.to_string(), vec!["CONTROL-NODE-DATA".to_string()]);
+    }
     if is_node_event(event) {
         let items = "       01 CONTROL-NODE-DATA.\n\
              \x20          05 CONTROL-NODE                 PIC X(256).\n\
@@ -1565,6 +1578,7 @@ pub fn is_node_event(event: &str) -> bool {
             | "onNodeCollapse"
             | "onNodeExpand"
             | "onNodeRenamed"
+            | "onNodeDrop"
     )
 }
 
@@ -3402,6 +3416,8 @@ impl ControlType {
                 "onNodeExpand",
                 // `AllowEdit` — the operator renamed a node in place.
                 "onNodeRenamed",
+                // `AllowDrag` — the operator dropped one node onto another.
+                "onNodeDrop",
                 "onClick",
                 "onDblClick",
                 "onDoubleClick",
@@ -5311,6 +5327,9 @@ impl Control {
                 // In-place rename: a double-click on a label, or F2. Seeded
                 // false, as it always was, so no existing tree starts renaming.
                 props.insert("AllowEdit".into(), PropValue::Bool(false));
+                // Drag a node onto another (`onNodeDrop`). Seeded false, so
+                // every existing tree keeps drag-to-scroll.
+                props.insert("AllowDrag".into(), PropValue::Bool(false));
                 props.insert("CheckBoxes".into(), PropValue::Bool(false));
                 props.insert("ShowLines".into(), PropValue::Bool(true));
                 props.insert("ShowRootLines".into(), PropValue::Bool(true));

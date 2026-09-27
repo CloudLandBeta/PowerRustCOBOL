@@ -5329,6 +5329,14 @@ pub static PROP_HELP: &[PropHelp] = &[
         "允许操作员就地重命名节点：双击标签或按 F2，Enter 保留，Esc 取消。Items 会被改写并触发 onNodeRenamed。默认 false。",
         "Permet à l'opérateur de renommer un nœud sur place : double-clic sur le libellé ou F2, Entrée pour garder, Échap pour annuler. Items est réécrit et onNodeRenamed se déclenche. Faux par défaut.",
     ] },
+    PropHelp { ty: "TreeView", prop: "AllowDrag", text: [
+        "Lets the operator drag a node onto another: onNodeDrop fires with the dragged node and the target (index 0 for empty space). The wheel still scrolls; the tree scrolls near its edges while dragging. Default false, where a drag scrolls the tree.",
+        "Permite al operador arrastrar un nodo sobre otro: se dispara onNodeDrop con el nodo arrastrado y el destino (índice 0 si es espacio vacío). La rueda sigue desplazando; el árbol se desplaza cerca de los bordes al arrastrar. Predeterminado falso: arrastrar desplaza el árbol.",
+        "Permite ao operador arrastar um nó sobre outro: onNodeDrop dispara com o nó arrastado e o destino (índice 0 para espaço vazio). A roda continua rolando; a árvore rola perto das bordas durante o arraste. Padrão falso: arrastar rola a árvore.",
+        "オペレーターがノードを別のノードへドラッグできます。ドラッグしたノードとドロップ先（空白なら索引 0）を伴って onNodeDrop が発生します。ホイールでのスクロールはそのまま、ドラッグ中は端に近づくとスクロールします。既定は false（ドラッグでスクロール）。",
+        "允许操作员将节点拖到另一个节点上：触发 onNodeDrop，带有被拖动的节点和目标（空白处索引为 0）。滚轮仍可滚动；拖动时靠近边缘会自动滚动。默认 false：拖动即滚动树。",
+        "Permet à l'opérateur de glisser un nœud sur un autre : onNodeDrop se déclenche avec le nœud glissé et la cible (index 0 pour un espace vide). La molette défile toujours ; l'arbre défile près des bords pendant le glisser. Faux par défaut : glisser fait défiler l'arbre.",
+    ] },
     PropHelp { ty: "TreeView", prop: "BorderWidth", text: [
         "Thickness, in pixels, of the tree's frame border, drawn in BorderStyle and BorderColor. Default 1.",
         "Grosor, en píxeles, del borde del marco del árbol, dibujado con BorderStyle y BorderColor. Predeterminado 1.",
