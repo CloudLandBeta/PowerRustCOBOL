@@ -7923,6 +7923,14 @@ impl PropertiesPanel {
 
                 section_header(ui, tr.sec_viewer_conversation);
                 bool_row_inline(ui, id, "RenderAsHtml", "RenderAsHtml", ctrl, action);
+                for (key, label, builtin) in [
+                    ("UserBubbleColor", "User bubble", cobolt_forms::viewer::USER_BUBBLE_COLOR),
+                    ("UserBubbleTextColor", "User bubble text", cobolt_forms::viewer::BUBBLE_TEXT_COLOR),
+                    ("AgentBubbleColor", "Agent bubble", cobolt_forms::viewer::AGENT_BUBBLE_COLOR),
+                    ("AgentBubbleTextColor", "Agent bubble text", cobolt_forms::viewer::BUBBLE_TEXT_COLOR),
+                ] {
+                    color_prop_row_default(ui, id, key, label, ctrl, action, builtin);
+                }
                 ui.add_space(6.0);
             }
 

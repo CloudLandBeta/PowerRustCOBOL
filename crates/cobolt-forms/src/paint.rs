@@ -8934,14 +8934,125 @@ pub(crate) fn viewer_conversation_content(
     }
     // Each message on its own, each chunk in the mode it arrived as — never
     // the whole stream through the HTML walker (see `parse_conversation_html`).
-    let blocks = crate::viewer::parse_conversation_html(html)
-        .into_iter()
-        .flat_map(|m| m.blocks)
+    let blocks = viewer_conversation_messages(ctx, html)
+        .iter()
+        .flat_map(|m| m.blocks.clone())
         .collect();
     let doc = crate::viewer::LayoutDocument { blocks };
     let arc = Arc::new(ViewerPageContent::Markdown { raw: html.to_string(), doc });
     ctx.memory_mut(|m| m.data.insert_temp(id, arc.clone()));
     Some(arc)
+}
+
+/// The conversation's messages, each with its role — what the bubbles are
+/// drawn from. Memoized by the stream, like [`viewer_conversation_content`].
+pub(crate) fn viewer_conversation_messages(
+    ctx: &egui::Context,
+    html: &str,
+) -> Arc<Vec<crate::viewer::StreamMessage>> {
+    let id = egui::Id::new(("viewer-conversation-messages", html));
+    if let Some(hit) = ctx.memory(|m| m.data.get_temp::<Arc<Vec<crate::viewer::StreamMessage>>>(id)) {
+        return hit;
+    }
+    let arc = Arc::new(crate::viewer::parse_conversation_html(html));
+    ctx.memory_mut(|m| m.data.insert_temp(id, arc.clone()));
+    arc
+}
+
+/// A chat bubble's padding, its corner, the gap between two bubbles, and the
+/// share of the pane's width a bubble may take.
+const BUBBLE_PAD: egui::Vec2 = egui::vec2(12.0, 8.0);
+const BUBBLE_RADIUS: u8 = 12;
+const BUBBLE_GAP: f32 = 10.0;
+const BUBBLE_MAX_FRACTION: f32 = 0.75;
+
+/// A conversation whose messages carry roles, drawn as chat bubbles: the
+/// user's on the right, the agent's on the left, each as wide as its text
+/// (up to three quarters of the pane). A message with no role is drawn across
+/// the pane, exactly as before. Returns the height painted.
+///
+/// A bubble is sized before it is drawn: its blocks are laid out once on an
+/// invisible painter, and the widest text run gives the width. Blocks that
+/// are not running text (a table, a code block, a rule) fill their width, so
+/// a message holding one takes the full bubble width.
+fn paint_conversation_bubbles(
+    painter: &egui::Painter,
+    base: &BlockPaintCtx,
+    ctrl: &Control,
+    messages: &[crate::viewer::StreamMessage],
+    origin: egui::Pos2,
+    find: &mut TextMarks<'_>,
+    alpha_mul: f32,
+) -> f32 {
+    use crate::viewer::{Block, MessageRole};
+    let colour = |key: &str, builtin: &str| {
+        let v = ctrl.get_prop(key).map(|v| v.as_str().trim().to_owned()).unwrap_or_default();
+        parse_color(if v.is_empty() { builtin } else { &v })
+    };
+    let full = base.width;
+    let max_inner = (full * BUBBLE_MAX_FRACTION - 2.0 * BUBBLE_PAD.x).max(20.0);
+    let mut y = origin.y;
+    for m in messages {
+        let (fill, ink, right) = match m.role {
+            MessageRole::None => {
+                y += paint_blocks(painter, base, &m.blocks, egui::pos2(origin.x, y), find);
+                continue;
+            }
+            MessageRole::User => (
+                colour("UserBubbleColor", crate::viewer::USER_BUBBLE_COLOR),
+                colour("UserBubbleTextColor", crate::viewer::BUBBLE_TEXT_COLOR),
+                true,
+            ),
+            MessageRole::Agent => (
+                colour("AgentBubbleColor", crate::viewer::AGENT_BUBBLE_COLOR),
+                colour("AgentBubbleTextColor", crate::viewer::BUBBLE_TEXT_COLOR),
+                false,
+            ),
+        };
+        let ink = ink.gamma_multiply(alpha_mul);
+        let inner = BlockPaintCtx {
+            font_size: base.font_size,
+            text_ink: ink,
+            strong_ink: ink,
+            link_color: ink,
+            code_color: ink,
+            width: max_inner,
+        };
+        // Measure: the same layout, on a painter that draws nothing.
+        let mut probe_painter = painter.clone();
+        probe_painter.set_invisible();
+        let mut probe = TextMarks {
+            query: "",
+            case_sensitive: false,
+            highlight: false,
+            current: 0,
+            seen: 0,
+            alpha: find.alpha,
+            selection: None,
+            selection_fill: find.selection_fill,
+            selection_ink: find.selection_ink,
+            runs: Vec::new(),
+        };
+        let h = (paint_blocks(&probe_painter, &inner, &m.blocks, egui::Pos2::ZERO, &mut probe)
+            - VIEWER_BLOCK_SPACING)
+            .max(base.font_size);
+        let running_text = m
+            .blocks
+            .iter()
+            .all(|b| matches!(b, Block::Paragraph { .. } | Block::Heading { .. }));
+        let w = if running_text {
+            probe.runs.iter().map(|r| r.rect.max.x).fold(0.0_f32, f32::max).clamp(1.0, max_inner)
+        } else {
+            max_inner
+        };
+        let size = egui::vec2(w, h) + 2.0 * BUBBLE_PAD;
+        let x = if right { origin.x + full - size.x } else { origin.x };
+        let bubble = egui::Rect::from_min_size(egui::pos2(x, y), size);
+        painter.rect_filled(bubble, egui::CornerRadius::same(BUBBLE_RADIUS), fill.gamma_multiply(alpha_mul));
+        paint_blocks(painter, &inner, &m.blocks, bubble.min + BUBBLE_PAD, find);
+        y += size.y + BUBBLE_GAP;
+    }
+    (y - origin.y).max(0.0)
 }
 
 /// How many pages `source` has (T12: the card grid's and the filmstrip's
@@ -10320,7 +10431,15 @@ pub(crate) fn draw_viewer(
             selection_ink: Color32::WHITE,
             runs: Vec::new(),
         };
-        result.content_height = paint_blocks(&clip, &block_ctx, blocks, origin, &mut find)
+        let stream = st
+            .is_streamed()
+            .then(|| viewer_conversation_messages(ctx, &st.conversation_html))
+            .filter(|msgs| msgs.iter().any(|m| m.role != crate::viewer::MessageRole::None));
+        let painted = match &stream {
+            Some(msgs) => paint_conversation_bubbles(&clip, &block_ctx, ctrl, msgs, origin, &mut find, alpha_mul),
+            None => paint_blocks(&clip, &block_ctx, blocks, origin, &mut find),
+        };
+        result.content_height = painted
             + 2.0 * VIEWER_TEXT_INSET
             + font_size * VIEWER_TRAILING_LINE;
         result.text_runs = std::mem::take(&mut find.runs);
@@ -18644,6 +18763,69 @@ mod theme_render_tests {
         // document would produce one) must be dropped, not applied.
         full.textures_delta.clear();
         full.shapes.into_iter().map(|cs| cs.shape).collect()
+    }
+
+    /// A conversation with roles is a chat: the user's message in a green
+    /// bubble on the right, the agent's in a blue one on the left, both with
+    /// white text, each only as wide as its text (operator, 2026-09-26).
+    #[test]
+    fn a_conversation_with_roles_draws_chat_bubbles() {
+        use crate::viewer::{AppendMode, Conversation, MessageRole};
+        let rect = egui::Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(600.0, 400.0));
+        let mut conv = Conversation::new();
+        conv.append_as(AppendMode::Markdown, "hello", MessageRole::User);
+        conv.append_as(
+            AppendMode::Markdown,
+            "Hello! **How** can I help you today? This reply is long enough to wrap onto a second line of the bubble.",
+            MessageRole::Agent,
+        );
+        let ctx = egui::Context::default();
+        let ctrl = Control::new("V1", crate::model::ControlType::Viewer, 0, 0);
+        let content = ViewerPageContent::Text(String::new());
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(700.0, 500.0)));
+        let mut full = ctx.run_ui(input, |root| {
+            egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
+                let mut st = test_viewer_state(&content, "Streamed", 14.0);
+                st.conversation_html = conv.to_html();
+                draw_viewer(&ui.painter().clone(), rect, &ctrl, &st);
+            });
+        });
+        full.textures_delta.clear();
+        let (mut fills, mut texts) = (Vec::new(), Vec::new());
+        fn walk(s: &egui::Shape, fills: &mut Vec<(egui::Rect, Color32)>, texts: &mut Vec<(egui::Rect, String, Color32)>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, fills, texts)),
+                egui::Shape::Rect(r) => fills.push((r.rect, r.fill)),
+                egui::Shape::Text(t) => texts.push((
+                    t.visual_bounding_rect(),
+                    t.galley.text().to_owned(),
+                    t.override_text_color
+                        .or_else(|| t.galley.job.sections.first().map(|s| s.format.color))
+                        .unwrap_or(Color32::TRANSPARENT),
+                )),
+                _ => {}
+            }
+        }
+        full.shapes.iter().for_each(|cs| walk(&cs.shape, &mut fills, &mut texts));
+        let bubble = |c: &str| {
+            let want = parse_color(c);
+            fills.iter().find(|(_, f)| *f == want).map(|(r, _)| *r).unwrap_or_else(|| panic!("no {c} bubble: {fills:?}"))
+        };
+        let user = bubble(crate::viewer::USER_BUBBLE_COLOR);
+        let agent = bubble(crate::viewer::AGENT_BUBBLE_COLOR);
+        assert!(user.center().x > rect.center().x, "the user's bubble sits right: {user:?}");
+        assert!((rect.max.x - user.max.x) < 40.0, "flush with the right edge: {user:?}");
+        assert!(agent.center().x < rect.center().x, "the agent's bubble sits left: {agent:?}");
+        assert!(user.width() < 120.0, "a short message gets a short bubble: {user:?}");
+        assert!(agent.width() <= rect.width() * 0.8, "a bubble never spans the pane: {agent:?}");
+        assert!(agent.min.y > user.max.y, "one after the other: {user:?} {agent:?}");
+        let hello = texts.iter().find(|(_, t, _)| t == "hello").expect("the user's text");
+        assert!(user.contains_rect(hello.0), "the text is inside its bubble");
+        assert_eq!(hello.2, Color32::WHITE, "white on green");
+        let reply = texts.iter().find(|(_, t, _)| t.starts_with("Hello!")).expect("the agent's text");
+        assert!(!reply.1.contains("**"), "Markdown is rendered, not shown as source: {reply:?}");
+        assert!(agent.contains_rect(reply.0) && reply.2 == Color32::WHITE, "white, inside its bubble: {reply:?}");
     }
 
     /// **Spec 058 T35 / AC25** — "Streamed layout shows exactly one content

@@ -15698,34 +15698,39 @@ impl Interpreter {
             // valid markup.
             "APPENDHTML" | "APPEND-HTML" => {
                 let content = args.first().map(|v| v.as_display_string()).unwrap_or_default();
+                // The optional second argument says who the message is from —
+                // "user" or "agent" — and draws it in that one's bubble.
+                let role = cobolt_forms::viewer::MessageRole::from_str(&arg(1));
                 // RETURNS the new message's id, so the caller can extend
                 // it with `AppendToMessage` as a streamed reply arrives —
                 // without an id the streaming half of §8.2 is unusable.
                 let new_id = self
                     .viewer_conversation(obj)
-                    .append(cobolt_forms::viewer::AppendMode::Html, &content);
+                    .append_as(cobolt_forms::viewer::AppendMode::Html, &content, role);
                 self.viewer_publish_conversation(obj);
                 val(new_id)
             }
             "APPENDMARKDOWN" | "APPEND-MARKDOWN" => {
                 let content = args.first().map(|v| v.as_display_string()).unwrap_or_default();
+                let role = cobolt_forms::viewer::MessageRole::from_str(&arg(1));
                 // RETURNS the new message's id, so the caller can extend
                 // it with `AppendToMessage` as a streamed reply arrives —
                 // without an id the streaming half of §8.2 is unusable.
                 let new_id = self
                     .viewer_conversation(obj)
-                    .append(cobolt_forms::viewer::AppendMode::Markdown, &content);
+                    .append_as(cobolt_forms::viewer::AppendMode::Markdown, &content, role);
                 self.viewer_publish_conversation(obj);
                 val(new_id)
             }
             "APPENDRAW" | "APPEND-RAW" => {
                 let content = args.first().map(|v| v.as_display_string()).unwrap_or_default();
+                let role = cobolt_forms::viewer::MessageRole::from_str(&arg(1));
                 // RETURNS the new message's id, so the caller can extend
                 // it with `AppendToMessage` as a streamed reply arrives —
                 // without an id the streaming half of §8.2 is unusable.
                 let new_id = self
                     .viewer_conversation(obj)
-                    .append(cobolt_forms::viewer::AppendMode::Raw, &content);
+                    .append_as(cobolt_forms::viewer::AppendMode::Raw, &content, role);
                 self.viewer_publish_conversation(obj);
                 val(new_id)
             }
@@ -20177,6 +20182,31 @@ MAIN.
     /// conversation, removes the selected id from history, clears the pane,
     /// and raises `onConversationSelected(id)` — the control never repaints
     /// content from anywhere but a subsequent host-supplied append call."
+    /// The optional second argument of the Append methods says who a message
+    /// is from; it reaches the published stream, which is what the window
+    /// draws the chat bubbles from. Without it nothing changes.
+    #[test]
+    fn an_append_with_a_role_publishes_it() {
+        let mut interp = viewer_interp(&[]);
+        interp.exec_method(
+            "VWR-1",
+            "APPENDMARKDOWN",
+            &[CobolValue::from_str("hello", 5), CobolValue::from_str("user", 4)],
+        );
+        interp.exec_method(
+            "VWR-1",
+            "APPENDMARKDOWN",
+            &[CobolValue::from_str("Hi!", 3), CobolValue::from_str("assistant", 9)],
+        );
+        interp.exec_method("VWR-1", "APPENDMARKDOWN", &[CobolValue::from_str("note", 4)]);
+        let roles: Vec<_> = cobolt_forms::viewer::parse_conversation_html(&interp.obj_get("VWR-1", "_ConversationHtml"))
+            .into_iter()
+            .map(|m| m.role)
+            .collect();
+        use cobolt_forms::viewer::MessageRole::*;
+        assert_eq!(roles, [User, Agent, None]);
+    }
+
     #[test]
     fn select_conversation_swaps_current_into_history_and_takes_the_selected_one_out() {
         let mut interp = viewer_interp(&[]);

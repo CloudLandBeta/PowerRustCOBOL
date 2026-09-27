@@ -8,6 +8,25 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.271] — 2026-09-26
+
+### Feature — Viewer conversations as chat bubbles
+
+- `AppendHtml`, `AppendMarkdown` and `AppendRaw` take an optional second
+  argument, the message's role: `"user"` draws it in a bubble on the right,
+  `"agent"` (or `"assistant"`) in a bubble on the left, each as wide as its
+  text up to three quarters of the pane. A message without a role spans the
+  pane as before; `AppendToMessage` keeps the message's bubble. New Viewer
+  properties `UserBubbleColor` / `UserBubbleTextColor` (green / white) and
+  `AgentBubbleColor` / `AgentBubbleTextColor` (blue / white). The role travels
+  in the published stream as `data-role`. KB, hover help (six languages),
+  regenerated `chunked.data`, Guide (*Hosting a conversation*). Tests
+  `a_conversation_with_roles_draws_chat_bubbles`,
+  `an_append_with_a_role_publishes_it`.
+- PowerChat's chat uses them: the question in a green bubble on the right,
+  the reply in a blue one on the left, without the "You:" prefix.
+  Also carries the operator's pending PowerChat edits.
+
 ## [PowerRustCOBOL 1.70.270] — 2026-09-26
 
 ### Fix — a Viewer conversation showed Markdown as source, all in one line

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="CHAT-FORM" title="PowerChat" width="1350" height="800" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" main-form="true">
+<Form name="CHAT-FORM" title="PowerChat" width="1350" height="808" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" main-form="true">
   <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -857,7 +857,7 @@
       *>   WS-REPLY in: the answer the user sees, kept as the next turn.
            MOVE "IDLE" TO WS-STAGE
            MOVE WS-REPLY TO WS-MSG
-           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG)) TO WS-OK
+           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "agent") TO WS-OK
            MOVE Vwr-Chat::JumpToLatest() TO WS-OK
            MOVE "A" TO WS-ROLE
            MOVE WS-REPLY TO WS-TEXT
@@ -1241,14 +1241,12 @@
                            MOVE "Y" TO WS-EOF
                        ELSE
                            MOVE TRN-SEQ TO WS-SEQ
-                           MOVE SPACES TO WS-MSG
+                           MOVE TRN-TEXT TO WS-MSG
                            IF TRN-ROLE = "U"
-                               STRING "**" FUNCTION TRIM(T-YOU) ":** " FUNCTION TRIM(TRN-TEXT)
-                                   DELIMITED BY SIZE INTO WS-MSG
+                               MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "user") TO WS-OK
                            ELSE
-                               MOVE TRN-TEXT TO WS-MSG
+                               MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "agent") TO WS-OK
                            END-IF
-                           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG)) TO WS-OK
                        END-IF
                END-READ
            END-PERFORM
@@ -1415,7 +1413,7 @@
     <Event name="onClose" paragraph="CHAT-FORM--ONCLOSE">
     </Event>
   </form-events>
-  <Control id="SideMenu-1" type="SideMenu" x="0" y="0" w="264" h="800" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="SideMenu-1" type="SideMenu" x="0" y="0" w="264" h="808" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1630,7 +1628,7 @@
     <Property name="View2Source"></Property>
     <Property name="View2SearchText"></Property>
   </Control>
-  <Control id="Txt-Input" type="TextBox" x="288" y="676" w="768" h="104" tab-order="1" z-order="0" visible="true" enabled="true">
+  <Control id="Txt-Input" type="TextBox" x="288" y="660" w="768" h="104" tab-order="1" z-order="0" visible="true" enabled="true">
     <Property name="HintText">Ask about this topic</Property>
     <Property name="Multiline">true</Property>
     <Property name="ScrollBars">Vertical</Property>
@@ -1678,7 +1676,7 @@
     <Property name="Picture"></Property>
     <Property name="PasswordCharacter"></Property>
   </Control>
-  <Control id="Btn-Send" type="Button" x="1068" y="676" w="108" h="104" tab-order="2" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Send" type="Button" x="1068" y="660" w="108" h="104" tab-order="2" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Send</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -1741,10 +1739,8 @@
            MOVE "U" TO WS-ROLE
            MOVE WS-QUESTION TO WS-TEXT
            CALL "PC-SAVE-TURN"
-           MOVE SPACES TO WS-MSG
-           STRING "**" FUNCTION TRIM(T-YOU) ":** " FUNCTION TRIM(WS-QUESTION)
-               DELIMITED BY SIZE INTO WS-MSG
-           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG)) TO WS-OK
+           MOVE WS-QUESTION TO WS-MSG
+           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "user") TO WS-OK
            MOVE SPACES TO Txt-Input::Text
            CALL "PC-BUILD-PROMPT"
            MOVE WS-PROMPT TO WS-HISTORY
@@ -1835,7 +1831,7 @@
            MOVE SPACES TO WS-MSG
            STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
                DELIMITED BY SIZE INTO WS-MSG
-           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG)) TO WS-OK
+           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "agent") TO WS-OK
            MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
 ]]></Event>
     <Event name="onModelChanged" paragraph="AGENT-1--ONMODELCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1916,7 +1912,7 @@
            MOVE SPACES TO WS-MSG
            STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
                DELIMITED BY SIZE INTO WS-MSG
-           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG)) TO WS-OK
+           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "agent") TO WS-OK
            MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
 ]]></Event>
     <Event name="onModelChanged" paragraph="AGENT-2--ONMODELCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1997,7 +1993,7 @@
            MOVE SPACES TO WS-MSG
            STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
                DELIMITED BY SIZE INTO WS-MSG
-           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG)) TO WS-OK
+           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "agent") TO WS-OK
            MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
 ]]></Event>
     <Event name="onModelChanged" paragraph="AGENT-3--ONMODELCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2056,7 +2052,7 @@
     <Property name="ModelEntry"></Property>
     <Property name="EmbeddingAPIKey"></Property>
   </Control>
-  <Control id="SideMenu-1-Footer" type="Panel" x="0" y="728" w="264" h="72" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1">
+  <Control id="SideMenu-1-Footer" type="Panel" x="0" y="736" w="264" h="72" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1">
     <Property name="IsSideMenuFooter">true</Property>
     <Property name="HideBackground">true</Property>
     <Property name="BorderStyle">None</Property>

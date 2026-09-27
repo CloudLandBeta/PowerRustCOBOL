@@ -1239,7 +1239,7 @@
     <Property name="Picture"></Property>
     <Property name="PasswordCharacter"></Property>
   </Control>
-  <Control id="Txt-Prompt" type="TextBox" x="40" y="216" w="984" h="296" tab-order="4" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Txt-Prompt" type="TextBox" x="40" y="224" w="984" h="280" tab-order="4" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="HintText">What the assistant is for, how it should answer - the topic&apos;s system prompt</Property>
     <Property name="Multiline">true</Property>
     <Property name="ScrollBars">Vertical</Property>
@@ -1639,8 +1639,8 @@
 ]]></Event>
   </Control>
   <Control id="Tab-Crud" type="TabControl" x="24" y="56" w="1016" h="520" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#E1E6F8FF</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>

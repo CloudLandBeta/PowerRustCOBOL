@@ -5898,6 +5898,16 @@ impl Control {
                 // already follows.
                 props.insert("SplitPercent".into(), PropValue::Int(crate::viewer::SPLIT_DEFAULT_PCT));
                 props.insert("RenderAsHtml".into(), PropValue::Bool(true));
+                // Conversation bubbles: a message appended as "user" or
+                // "agent" is drawn in its own colour.
+                for (key, value) in [
+                    ("UserBubbleColor", crate::viewer::USER_BUBBLE_COLOR),
+                    ("UserBubbleTextColor", crate::viewer::BUBBLE_TEXT_COLOR),
+                    ("AgentBubbleColor", crate::viewer::AGENT_BUBBLE_COLOR),
+                    ("AgentBubbleTextColor", crate::viewer::BUBBLE_TEXT_COLOR),
+                ] {
+                    props.insert(key.into(), PropValue::String(value.into()));
+                }
                 props.insert("HistoryList".into(), PropValue::String("".into()));
                 props.insert("Progress".into(), PropValue::Int(0));
                 props.insert("LastError".into(), PropValue::String("".into()));

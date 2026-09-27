@@ -4912,6 +4912,23 @@ Three ways to append, and **you say which**, every time:
 | `AppendMarkdown` | Rendered as Markdown |
 | `AppendRaw` | Shown **literally** — markup inside it is displayed, never obeyed |
 
+**Chat bubbles.** Give an append a second argument saying who the message is
+from, and the conversation is drawn as a chat: `"user"` puts it in a bubble on
+the **right**, `"agent"` (or `"assistant"`) in a bubble on the **left**. Each
+bubble is as wide as its text, up to three quarters of the pane. A message
+appended without a role spans the pane as before — useful for a system note
+between the two voices.
+
+```cobol
+       INVOKE VWR-1::AppendMarkdown(WS-QUESTION, "user")
+       INVOKE VWR-1::AppendMarkdown(WS-ANSWER, "agent")
+```
+
+The colours are the Viewer's properties: `UserBubbleColor` /
+`UserBubbleTextColor` (green with white text to start with) and
+`AgentBubbleColor` / `AgentBubbleTextColor` (blue with white text). A message
+streamed in with `AppendToMessage` keeps the bubble it started in.
+
 A reply arriving a piece at a time extends the message already on screen,
 rather than starting a new one:
 

@@ -1600,6 +1600,44 @@ impl AppendMode {
     }
 }
 
+/// The bubble colours a Viewer starts with: the user's green, the agent's
+/// blue, both with white text.
+pub const USER_BUBBLE_COLOR: &str = "#2E7D32FF";
+pub const AGENT_BUBBLE_COLOR: &str = "#2C6FD2FF";
+pub const BUBBLE_TEXT_COLOR: &str = "#FFFFFFFF";
+
+/// Who a conversation message is from. It decides the bubble a message is
+/// drawn in: the user's on the right, the agent's on the left. `None` (the
+/// default, and every message appended without a role) is drawn as before,
+/// across the whole pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MessageRole {
+    #[default]
+    None,
+    User,
+    Agent,
+}
+
+impl MessageRole {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "",
+            Self::User => "user",
+            Self::Agent => "agent",
+        }
+    }
+
+    /// `user`, or `agent` (also `assistant`, the word most AI services use);
+    /// anything else is no role.
+    pub fn from_str(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "user" => Self::User,
+            "agent" | "assistant" => Self::Agent,
+            _ => Self::None,
+        }
+    }
+}
+
 /// One chunk exactly as it arrived (§8.5: "the rendering mode must be
 /// specified for each append operation rather than inferred").
 #[derive(Debug, Clone, PartialEq)]
@@ -1613,6 +1651,9 @@ pub struct MessageChunk {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConversationMessage {
     pub id: String,
+    /// Who it is from — set when the message is appended, kept by every chunk
+    /// streamed into it afterwards.
+    pub role: MessageRole,
     /// Every chunk this message is made of, in arrival order.
     pub chunks: Vec<MessageChunk>,
     /// The derived layout for this message alone.
@@ -1704,19 +1745,29 @@ impl Conversation {
     /// here when the caller does not supply one, and is **stable** for the
     /// life of the conversation.
     pub fn append(&mut self, mode: AppendMode, content: &str) -> String {
+        self.append_as(mode, content, MessageRole::None)
+    }
+
+    /// [`Self::append`], from `role` — the user or the agent.
+    pub fn append_as(&mut self, mode: AppendMode, content: &str, role: MessageRole) -> String {
         self.auto_id += 1;
         let id = format!("m{}", self.auto_id);
-        self.append_with_id(&id, mode, content);
+        self.append_with_id_as(&id, mode, content, role);
         id
     }
 
     /// Append a new message under a caller-chosen id.
     pub fn append_with_id(&mut self, id: &str, mode: AppendMode, content: &str) {
+        self.append_with_id_as(id, mode, content, MessageRole::None);
+    }
+
+    fn append_with_id_as(&mut self, id: &str, mode: AppendMode, content: &str, role: MessageRole) {
         let mode = self.effective_mode(mode);
         let blocks = layout_chunk(mode, content);
         self.relayouts += 1;
         self.messages.push(ConversationMessage {
             id: id.to_string(),
+            role,
             chunks: vec![MessageChunk { mode, content: content.to_string() }],
             last_chunk_block_count: blocks.len(),
             blocks,
@@ -1783,7 +1834,16 @@ impl Conversation {
     pub fn to_html(&self) -> String {
         let mut out = String::new();
         for msg in &self.messages {
-            out.push_str(&format!("<div data-message=\"{}\">", escape_html(&msg.id)));
+            match msg.role {
+                MessageRole::None => {
+                    out.push_str(&format!("<div data-message=\"{}\">", escape_html(&msg.id)))
+                }
+                role => out.push_str(&format!(
+                    "<div data-message=\"{}\" data-role=\"{}\">",
+                    escape_html(&msg.id),
+                    role.as_str()
+                )),
+            }
             for chunk in &msg.chunks {
                 match chunk.mode {
                     AppendMode::Html => out.push_str(&chunk.content),
@@ -1815,6 +1875,7 @@ impl Conversation {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StreamMessage {
     pub id: String,
+    pub role: MessageRole,
     pub blocks: Vec<Block>,
 }
 
@@ -1846,11 +1907,22 @@ pub fn parse_conversation_html(html: &str) -> Vec<StreamMessage> {
         let inner_start = id_end + tag_end + 1;
         let Some(inner_len) = div_body_len(&after[inner_start..]) else { break };
         let inner = &after[inner_start..inner_start + inner_len];
-        out.push(StreamMessage { id, blocks: message_blocks(inner) });
+        let attrs = &after[id_end..inner_start];
+        let role = attrs
+            .split("data-role=\"")
+            .nth(1)
+            .and_then(|r| r.split('"').next())
+            .map(MessageRole::from_str)
+            .unwrap_or_default();
+        out.push(StreamMessage { id, role, blocks: message_blocks(inner) });
         rest = &after[inner_start + inner_len + "</div>".len()..];
     }
     if !rest.trim().is_empty() {
-        out.push(StreamMessage { id: String::new(), blocks: parse_html(rest).blocks });
+        out.push(StreamMessage {
+            id: String::new(),
+            role: MessageRole::None,
+            blocks: parse_html(rest).blocks,
+        });
     }
     out
 }
