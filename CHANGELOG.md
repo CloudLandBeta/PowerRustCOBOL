@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.275] — 2026-09-27
+
+### Fix — a TabControl child's shadow leaked over a side tab strip
+
+- A control inside a TabControl whose strip is on the left or right cast its
+  shadow over the tabs, as a grey block beside the page. 1.70.265 let a
+  child's shadow spread into its container's padding, up to the container's
+  outer rect — and a TabControl's outer rect includes its strip. The bound is
+  now the page (`render::shadow_room`), on the running form and the designer
+  canvas alike; the page's padding stays available, so the 1.70.265 corner
+  cure holds. Test `a_shadow_stays_off_the_tab_strip` (all four sides; shown
+  to fail without the fix).
+
 ## [PowerRustCOBOL 1.70.274] — 2026-09-27
 
 ### Fix — a TabControl could not be used from the keyboard

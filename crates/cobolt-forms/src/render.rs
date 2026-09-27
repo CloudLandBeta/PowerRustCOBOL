@@ -1185,6 +1185,21 @@ fn draw_deferred_groupbox_captions(
     }
 }
 
+/// How far a child's shadow may spread inside `parent`, whose screen rect is
+/// `outer`: into the container's padding, up to its outer edge (1.70.265) —
+/// except a TabControl's tab strip, which is chrome, not room. There the bound
+/// is the page (`paint::tabcontrol_page_rect`); a child's shadow painted over
+/// a side strip showed as a grey block under the tabs (operator, 2026-09-27).
+fn shadow_room(outer: Rect, parent: &Control) -> Rect {
+    if parent.control_type == ControlType::TabControl {
+        let mut sized = parent.clone();
+        sized.rect = crate::model::Rect::new(0, 0, outer.width().round() as i32, outer.height().round() as i32);
+        crate::paint::tabcontrol_page_rect(outer, &sized)
+    } else {
+        outer
+    }
+}
+
 fn draw_deferred_tabcontrol_tabs(
     painter: &egui::Painter,
     input: &RenderInput<'_>,
@@ -2314,8 +2329,8 @@ fn render_form_inner(
         // rect (within what clips the container), not the content rect the
         // control itself is clipped to — see `paint::ShadowBoundsScope`.
         let shadow_bounds = controls[idx].parent.as_deref().and_then(|pid| {
-            let outer = out.control_rects.get(pid).copied()?;
             let pidx = controls.iter().position(|c| c.id.eq_ignore_ascii_case(pid))?;
+            let outer = shadow_room(out.control_rects.get(pid).copied()?, &input.state.live(&controls[pidx]));
             let pscroll = ancestor_auto_scroll_offset(scope, controls, pidx, ui.ctx());
             let pclip = match ancestor_clip_rect(controls, pidx, origin, pscroll, input.state) {
                 Some(c) => content_rect.intersect(c),
@@ -3192,8 +3207,8 @@ pub fn render_faces(
         // The drop shadow may fall into the container's padding, as in
         // `render_form` (`paint::ShadowBoundsScope`).
         let shadow_bounds = controls[idx].parent.as_deref().and_then(|pid| {
-            let outer = out.control_rects.get(pid).copied()?;
             let pidx = controls.iter().position(|c| c.id.eq_ignore_ascii_case(pid))?;
+            let outer = shadow_room(out.control_rects.get(pid).copied()?, &input.state.live(&controls[pidx]));
             let pclip = match containers::clip_rect(controls, pidx) {
                 Some(cm) => painter.clip_rect().intersect(Rect::from_min_size(
                     origin + Vec2::new(cm.x as f32, cm.y as f32),
@@ -22373,6 +22388,93 @@ mod tests {
             shadow_clips.iter().all(|c| tab_rect.expand(0.5).contains_rect(*c)),
             "and never past the TabControl itself: {shadow_clips:?}"
         );
+    }
+
+    /// …but never onto a TabControl's tab strip. With the strip on the left or
+    /// right, a child's shadow was allowed as far as the TabControl's outer
+    /// rect, which includes the strip, and showed as a grey block under the
+    /// tabs (operator, 2026-09-27). The bound is the page.
+    #[test]
+    fn a_shadow_stays_off_the_tab_strip() {
+        for pos in ["Left", "Right", "Top", "Bottom"] {
+            let mut tab = ctrlp("TAB", ControlType::TabControl, 24, 24, 920, 344, &[("TabPosition", pos), ("Tabs", "Browse\nCreate/Update")]);
+            tab.z_order = 0;
+            // Placed where the old, top-strip layout had it: across the strip.
+            let mut grid = ctrlp(
+                "DG",
+                ControlType::DataGrid,
+                28,
+                60,
+                900,
+                280,
+                &[
+                    ("ShadowEnabled", "true"),
+                    ("ShadowDirection", "SouthEast"),
+                    ("ShadowDistance", "7"),
+                    ("CornerRadius", "10"),
+                    ("Columns", "A:string"),
+                    ("ShowCSVExportButton", "false"),
+                ],
+            );
+            grid.parent = Some("TAB".into());
+            grid.tab = Some(0);
+            let page = crate::paint::tabcontrol_page_rect(
+                Rect::from_min_size(pos2(24.0, 24.0), Vec2::new(920.0, 344.0)),
+                &tab,
+            );
+            let controls = vec![tab, grid];
+            let ctx = egui::Context::default();
+            crate::paint::set_glass_style(&ctx, crate::model::GlassStyle::Neumorphic);
+            let active = ActiveTabs::new();
+            let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+            let mut shapes = Vec::new();
+            for i in 0..2 {
+                let mut input = egui::RawInput::default();
+                input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(976.0, 400.0)));
+                input.time = Some(i as f64 * 0.05);
+                let st = MapState(&overrides);
+                let mut full = ctx.run_ui(input, |root_ui| {
+                    egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                        let inp = RenderInput {
+                            controls: &controls,
+                            state: &st,
+                            form_size: Vec2::new(976.0, 400.0),
+                            glass: true,
+                            mode: RenderMode::Interactive,
+                            active_tabs: &active,
+                            backdrop: Backdrop::default(),
+                        };
+                        let _ = render_form(ui, &inp);
+                    });
+                });
+                full.textures_delta.clear();
+                shapes = full.shapes;
+            }
+            // The grid's shadow layers: translucent dark rects.
+            let mut shadow_clips = Vec::new();
+            fn walk(s: &egui::Shape, clip: Rect, out: &mut Vec<Rect>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|x| walk(x, clip, out)),
+                    egui::Shape::Rect(r)
+                        if r.fill.a() > 0 && r.fill.a() < 40 && r.fill.r() < 60 && r.rect.width() > 800.0 =>
+                    {
+                        out.push(clip)
+                    }
+                    _ => {}
+                }
+            }
+            for c in &shapes {
+                walk(&c.shape, c.clip_rect, &mut shadow_clips);
+            }
+            assert!(!shadow_clips.is_empty(), "{pos}: the grid casts a shadow");
+            for c in &shadow_clips {
+                let painted = c.intersect(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(976.0, 400.0)));
+                assert!(
+                    page.expand(0.5).contains_rect(painted),
+                    "{pos}: a shadow layer may paint outside the page, over the strip: clip {painted:?}, page {page:?}"
+                );
+            }
+        }
     }
 
     /// A row's action buttons: a Button column whose cell value is
