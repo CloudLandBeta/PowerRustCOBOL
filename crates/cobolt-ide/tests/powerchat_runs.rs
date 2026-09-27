@@ -1489,3 +1489,88 @@ fn powerchat_asks_before_replacing_an_uploaded_document() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Seed PowerChat's turns file: `(sequence, role, text)`, where a text
+/// `ALL:X` fills the whole 2,000-character record with `X`.
+fn seed_turns(data: &Path, conv: &str, turns: &[(u32, &str, &str)]) {
+    let mut writes = String::new();
+    for (seq, role, text) in turns {
+        let fill = match text.strip_prefix("ALL:") {
+            Some(ch) => format!("           MOVE ALL \"{ch}\" TO TRN-TEXT\n"),
+            None => format!("           MOVE \"{text}\" TO TRN-TEXT\n"),
+        };
+        writes.push_str(&format!(
+            "           MOVE \"{conv}\" TO TRN-CONV\n           MOVE {seq} TO TRN-SEQ\n           MOVE \"{role}\" TO TRN-ROLE\n{fill}           WRITE TURN-REC\n"
+        ));
+    }
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. SEEDTURNS.\n       ENVIRONMENT DIVISION.\n       INPUT-OUTPUT SECTION.\n       FILE-CONTROL.\n           SELECT TURNS-FILE ASSIGN TO \"{}\"\n               ORGANIZATION IS INDEXED\n               ACCESS MODE IS DYNAMIC\n               RECORD KEY IS TRN-KEY\n               FILE STATUS IS WS-FS\n               STORAGE MODE IS DISK.\n       DATA DIVISION.\n       FILE SECTION.\n       FD  TURNS-FILE.\n       01  TURN-REC.\n           05 TRN-KEY.\n              10 TRN-CONV PIC X(16).\n              10 TRN-SEQ PIC 9(5).\n           05 TRN-ROLE PIC X.\n           05 TRN-TEXT PIC X(2000).\n       WORKING-STORAGE SECTION.\n       01 WS-FS PIC XX.\n       PROCEDURE DIVISION.\n           OPEN OUTPUT TURNS-FILE\n{writes}           CLOSE TURNS-FILE\n           STOP RUN.\n",
+        data.join("turns.idx").display()
+    );
+    let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(&src, cobolt_lexer::SourceFormat::Free));
+    Interpreter::new(parsed.program.expect("the seeding program parses")).run().expect("turns seeded");
+}
+
+/// Operator (2026-09-27): "do not limit the size of the question". A turn
+/// longer than one TURNS-FILE record is kept over several — the first under
+/// its role, the rest in lower case — and a conversation reopened shows it
+/// whole; a turn saved the old way, in one record, reads as it always did.
+#[test]
+fn powerchat_reopens_a_long_question_whole() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let root = std::env::temp_dir().join(format!(
+        "prc-071-long-{}",
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let data = root.join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    plant_model(&root, false);
+    std::env::set_var("POWERCHAT_DATA", &data);
+    let conv = "2026092712000000";
+    seed_turns(&data, conv, &[
+        (1, "U", "A short question, saved the old way."),
+        (2, "A", "A short answer, saved the old way."),
+        (3, "U", "ALL:Q"),
+        (4, "u", "ALL:R"),
+        (5, "u", "and the tail of a 4,000-plus character question END-OF-QUESTION"),
+        (6, "A", "Answered."),
+    ]);
+    let t = Instant::now();
+    let mut s = Session::start("chat-form.cfrm");
+    s.settle();
+    s.menu(&format!("c{conv}"));
+    // The whole conversation: its last turn is there.
+    let html = s.wait_for("Vwr-Chat", "_ConversationHtml", |v| v.contains("END-OF-QUESTION") && v.contains("Answered."));
+    s.quit();
+    let msgs = cobolt_forms::viewer::parse_conversation_html(&html);
+    let texts: Vec<String> = msgs
+        .iter()
+        .map(|m| {
+            m.blocks
+                .iter()
+                .flat_map(|b| match b {
+                    cobolt_forms::viewer::Block::Paragraph { content }
+                    | cobolt_forms::viewer::Block::Heading { content, .. } => content.clone(),
+                    _ => Vec::new(),
+                })
+                .map(|i| match i {
+                    cobolt_forms::viewer::Inline::Text { text, .. } => text,
+                    cobolt_forms::viewer::Inline::Break { .. } => " ".to_string(),
+                    _ => String::new(),
+                })
+                .collect::<String>()
+        })
+        .collect();
+    assert_eq!(msgs.len(), 4, "four turns, not six records: {texts:?}");
+    let long = &texts[2];
+    assert!(long.contains(&"Q".repeat(2000)) && long.contains(&"R".repeat(2000)), "the pieces, joined");
+    assert!(long.contains(&format!("{}{}", "Q".repeat(2000), "R".repeat(2000))), "joined exactly, nothing between");
+    assert!(long.trim_end().ends_with("END-OF-QUESTION"), "to its last word");
+    assert!(texts[0].contains("saved the old way") && texts[3].contains("Answered."));
+    println!(
+        "\n  ── 071 PowerChat, a long question ───────────────────────\n  6 records → 4 turns; the long one {} characters, whole — {:.0} ms\n",
+        long.trim().chars().count(),
+        t.elapsed().as_secs_f64() * 1000.0
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}

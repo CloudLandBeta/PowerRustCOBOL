@@ -19,15 +19,20 @@
        01 WS-SEQ             GLOBAL PIC 9(5) VALUE 0.
        01 WS-ITEM            GLOBAL PIC X(40).
        01 WS-ROW-ID          GLOBAL PIC X(17).
-       01 WS-QUESTION        GLOBAL PIC X(2000).
-       01 WS-REPLY           GLOBAL PIC X(2000).
+      *>   A question - and an answer - is not cut short (operator,
+      *>   2026-09-27: "do not limit the size of the question"): 64,000
+      *>   characters each, the prompt built from them 256,000. A turn longer
+      *>   than a TURNS-FILE record is saved over several records (see
+      *>   PC-SAVE-TURN), so the file's layout does not change.
+       01 WS-QUESTION        GLOBAL PIC X(64000).
+       01 WS-REPLY           GLOBAL PIC X(64000).
        01 WS-ROLE            GLOBAL PIC X.
-       01 WS-TEXT            GLOBAL PIC X(2000).
-       01 WS-MSG             GLOBAL PIC X(2100).
+       01 WS-TEXT            GLOBAL PIC X(64000).
+       01 WS-MSG             GLOBAL PIC X(64100).
       *>   The conversation so far, sent with each question (R41). An
       *>   AgentObject remembers nothing between questions.
-       01 WS-PROMPT          GLOBAL PIC X(12000).
-       01 WS-PTR             GLOBAL PIC 9(5).
+       01 WS-PROMPT          GLOBAL PIC X(256000).
+       01 WS-PTR             GLOBAL PIC 9(6).
        01 WS-HISTORY-TURNS   GLOBAL PIC 9(3) VALUE 10.
        01 WS-FIRST-SEQ       GLOBAL PIC 9(5).
        01 WS-LINE            GLOBAL PIC X(300).
@@ -56,7 +61,7 @@
              10 WS-AG-RANK   PIC 9.
              10 WS-AG-ROLE   PIC X(1000).
              10 WS-AG-TASK   PIC X(2000).
-             10 WS-AG-RESULT PIC X(2000).
+             10 WS-AG-RESULT PIC X(64000).
              10 WS-AG-WAIT   PIC X.
        01 WS-N-AGENTS        GLOBAL PIC 9 VALUE 0.
        01 WS-N-TOOLS         GLOBAL PIC 9 VALUE 0.
@@ -70,7 +75,7 @@
        01 WS-STAGE           GLOBAL PIC X(8) VALUE "IDLE".
        01 WS-PENDING         GLOBAL PIC 9 VALUE 0.
        01 WS-TOPIC-PROMPT    GLOBAL PIC X(1000).
-       01 WS-HISTORY         GLOBAL PIC X(12000).
+       01 WS-HISTORY         GLOBAL PIC X(256000).
        01 WS-TASK-COUNT      GLOBAL PIC 9 VALUE 0.
        01 WS-TASKS           GLOBAL.
           05 WS-TASK         PIC X(500) OCCURS 3.
@@ -412,6 +417,14 @@
        01 WS-STATUS-ID       GLOBAL PIC X(20) VALUE SPACES.
        01 WS-STATUS-TEXT     GLOBAL PIC X(300).
        01 WS-TOOL-KIND       GLOBAL PIC X(20).
+      *>   Saving and reading a turn in 2,000-character pieces.
+       01 WS-PIECE-AT        GLOBAL PIC 9(6).
+       01 WS-PIECE-ROLE      GLOBAL PIC X.
+       01 WS-JOIN-PT         GLOBAL PIC 9(6).
+       01 WS-JOIN-ROLE       GLOBAL PIC X VALUE SPACE.
+       01 WS-JOIN            GLOBAL PIC X(64000).
+      *>   Where a joined turn goes: "P" the prompt, "V" the Viewer.
+       01 WS-JOIN-TO         GLOBAL PIC X VALUE SPACE.
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -1371,13 +1384,29 @@
                CLOSE TURNS-FILE
                OPEN I-O TURNS-FILE
            END-IF
-           MOVE WS-CUR-CONV TO TRN-CONV
-           MOVE WS-SEQ TO TRN-SEQ
-           MOVE WS-ROLE TO TRN-ROLE
-           MOVE WS-TEXT TO TRN-TEXT
-           WRITE TURN-REC
-               INVALID KEY REWRITE TURN-REC
-           END-WRITE
+      *>   A turn longer than one record goes over several, in order: the
+      *>   first under its role ("U"/"A"), the rest under the same letter in
+      *>   lower case - "this continues the turn before it". A file written
+      *>   before holds no lower-case role, and reads exactly as it did.
+           MOVE WS-ROLE TO WS-PIECE-ROLE
+           MOVE 1 TO WS-PIECE-AT
+           PERFORM UNTIL WS-PIECE-AT > 64000
+               IF WS-PIECE-AT > 1
+                   IF WS-TEXT(WS-PIECE-AT:2000) = SPACES
+                       EXIT PERFORM
+                   END-IF
+                   ADD 1 TO WS-SEQ
+                   MOVE FUNCTION LOWER-CASE(WS-ROLE) TO WS-PIECE-ROLE
+               END-IF
+               MOVE WS-CUR-CONV TO TRN-CONV
+               MOVE WS-SEQ TO TRN-SEQ
+               MOVE WS-PIECE-ROLE TO TRN-ROLE
+               MOVE WS-TEXT(WS-PIECE-AT:2000) TO TRN-TEXT
+               WRITE TURN-REC
+                   INVALID KEY REWRITE TURN-REC
+               END-WRITE
+               ADD 2000 TO WS-PIECE-AT
+           END-PERFORM
            COMMIT
            CLOSE TURNS-FILE
 ]]></Event>
@@ -1429,6 +1458,8 @@
            END-IF
            MOVE WS-CUR-CONV TO TRN-CONV
            MOVE WS-FIRST-SEQ TO TRN-SEQ
+           MOVE SPACE TO WS-JOIN-ROLE
+           MOVE "P" TO WS-JOIN-TO
            MOVE "N" TO WS-EOF
            START TURNS-FILE KEY IS >= TRN-KEY
                INVALID KEY MOVE "Y" TO WS-EOF
@@ -1440,21 +1471,62 @@
                        IF TRN-CONV NOT = WS-CUR-CONV
                            MOVE "Y" TO WS-EOF
                        ELSE
-                           IF TRN-ROLE = "U"
-                               STRING "User: " FUNCTION TRIM(TRN-TEXT) X"0A"
-                                   DELIMITED BY SIZE INTO WS-PROMPT
-                                   WITH POINTER WS-PTR
-                               END-STRING
-                           ELSE
-                               STRING "Assistant: " FUNCTION TRIM(TRN-TEXT) X"0A"
-                                   DELIMITED BY SIZE INTO WS-PROMPT
-                                   WITH POINTER WS-PTR
-                               END-STRING
-                           END-IF
+                           CALL "PC-JOIN-PIECE"
                        END-IF
                END-READ
            END-PERFORM
            CLOSE TURNS-FILE
+           MOVE "P" TO WS-JOIN-TO
+           CALL "PC-JOIN-FLUSH"
+]]></Event>
+    <Event name="PC-JOIN-PIECE" paragraph="PC-JOIN-PIECE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   One TURNS-FILE record read: a continuation ("u"/"a") extends the
+      *>   turn in hand - one with no turn before it, left by a history
+      *>   window that starts mid-turn, is skipped; anything else ends the
+      *>   turn in hand (PC-JOIN-FLUSH) and starts the next.
+           IF TRN-ROLE = "u" OR TRN-ROLE = "a"
+               IF WS-JOIN-ROLE NOT = SPACE
+                   STRING TRN-TEXT DELIMITED BY SIZE
+                       INTO WS-JOIN WITH POINTER WS-JOIN-PT
+                   END-STRING
+               END-IF
+               EXIT PROGRAM
+           END-IF
+           CALL "PC-JOIN-FLUSH"
+           MOVE SPACES TO WS-JOIN
+           MOVE 1 TO WS-JOIN-PT
+           STRING TRN-TEXT DELIMITED BY SIZE
+               INTO WS-JOIN WITH POINTER WS-JOIN-PT
+           END-STRING
+           MOVE TRN-ROLE TO WS-JOIN-ROLE
+]]></Event>
+    <Event name="PC-JOIN-FLUSH" paragraph="PC-JOIN-FLUSH"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The turn in hand, whole: into the prompt ("P") or the chat ("V").
+           IF WS-JOIN-ROLE = SPACE
+               EXIT PROGRAM
+           END-IF
+           IF WS-JOIN-TO = "P"
+               IF WS-JOIN-ROLE = "U"
+                   STRING "User: " FUNCTION TRIM(WS-JOIN) X"0A"
+                       DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
+                   END-STRING
+               ELSE
+                   STRING "Assistant: " FUNCTION TRIM(WS-JOIN) X"0A"
+                       DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
+                   END-STRING
+               END-IF
+           ELSE
+               IF WS-JOIN-ROLE = "U"
+                   MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-JOIN), "user") TO WS-OK
+               ELSE
+                   MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-JOIN), "agent") TO WS-OK
+               END-IF
+           END-IF
+           MOVE SPACE TO WS-JOIN-ROLE
 ]]></Event>
     <Event name="PC-OPEN-CONV" paragraph="PC-OPEN-CONV"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -1472,6 +1544,8 @@
            END-IF
            MOVE WS-CUR-CONV TO TRN-CONV
            MOVE 0 TO TRN-SEQ
+           MOVE SPACE TO WS-JOIN-ROLE
+           MOVE "V" TO WS-JOIN-TO
            MOVE "N" TO WS-EOF
            START TURNS-FILE KEY IS >= TRN-KEY
                INVALID KEY MOVE "Y" TO WS-EOF
@@ -1484,16 +1558,13 @@
                            MOVE "Y" TO WS-EOF
                        ELSE
                            MOVE TRN-SEQ TO WS-SEQ
-                           MOVE TRN-TEXT TO WS-MSG
-                           IF TRN-ROLE = "U"
-                               MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "user") TO WS-OK
-                           ELSE
-                               MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "agent") TO WS-OK
-                           END-IF
+                           CALL "PC-JOIN-PIECE"
                        END-IF
                END-READ
            END-PERFORM
            CLOSE TURNS-FILE
+           MOVE "V" TO WS-JOIN-TO
+           CALL "PC-JOIN-FLUSH"
 ]]></Event>
     <Event name="PC-MENU-STATE" paragraph="PC-MENU-STATE"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -1923,7 +1994,7 @@
     <Property name="HintText">Ask about this topic</Property>
     <Property name="Multiline">true</Property>
     <Property name="ScrollBars">Vertical</Property>
-    <Property name="MaximumLength">2000</Property>
+    <Property name="MaximumLength">0</Property>
     <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="ForegroundColor">#000F1DFF</Property>
     <Property name="ShadowEnabled">true</Property>

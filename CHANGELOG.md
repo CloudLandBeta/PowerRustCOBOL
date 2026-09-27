@@ -8,6 +8,28 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.302] — 2026-09-27
+
+### Fix — PowerChat: a question, and an answer, is no longer cut at 2,000 characters
+
+- The chat's input box stopped at 2,000 characters (`MaximumLength`), and the
+  question, the answer, each agent's result and every saved turn were held in
+  2,000-character fields — so a long question was cut, and so was a long
+  answer, silently (operator, 2026-09-27: "do not limit the size of the
+  question"). The box is now unlimited (`MaximumLength` 0); the question, the
+  answer and each agent's result hold 64,000 characters and the prompt built
+  from them 256,000 (its `STRING` pointer grew to six digits to reach it).
+- **Saved turns keep their file layout:** a turn longer than a `turns.idx`
+  record is written over consecutive records — the first under its role
+  (`U`/`A`), the rest in lower case (`u`/`a`, "continues the turn before
+  it") — and read back whole, both when a conversation is reopened and when
+  the history is sent to the model (`PC-JOIN-PIECE`, `PC-JOIN-FLUSH`). A file
+  written before holds no lower-case role and reads exactly as it did.
+- Test: `powerchat_reopens_a_long_question_whole` — six records (an old
+  one-record turn, a question over three records) reopen as four turns, the
+  long one whole to its last word (4,063 characters). Writing a long turn
+  runs only when a real question is answered and is not played by a test.
+
 ## [PowerRustCOBOL 1.70.301] — 2026-09-27
 
 ### Feature — PowerChat: an upload whose name is taken asks first, and every upload says what it did
