@@ -8,6 +8,33 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.334] — 2026-09-28
+
+### Fix — a program written in Windows-1252 runs, builds and opens in the editor
+
+1.70.333 read a Windows-1252 copybook. The operator asked for the same in the
+`.cbl` programs and in the editor, where such a program was refused by
+`rcrun` and by a build, and opened **empty** in the editor.
+
+- `cobolt_lexer`: `decode_source` returns the text and whether it was
+  Windows-1252. `read_source_file` reads a source, and
+  `encode_windows_1252` writes one back; it returns `None` for a character
+  Windows-1252 has no place for.
+- `rcrun` (`read_source`) and the binary compiler (the project's `main` and
+  `sources`) read through `read_source_file`.
+- The editor keeps the file's encoding on the tab (`EditorTab::windows_1252`).
+  It opens the file decoded, reloads it the same way, and **saves it back in
+  Windows-1252**, so PowerCOBOL still reads it. A character Windows-1252
+  cannot hold makes it save as UTF-8 rather than lose the character.
+- Tests: `copybook::tests::windows_1252_round_trips` (every Windows-1252 byte
+  decodes and encodes back; `日本` is refused);
+  `panels::editor::encoding_tests` (opens decoded, saves back byte for byte,
+  switches to UTF-8 for `日本`). `rcrun run` of a Windows-1252 program shows
+  its accents. Lexer 153/153, editor 58/58.
+- Developer's Guide: the note covers programs and the editor, plus a caveat:
+  text is UTF-8 at run time and `PIC X` counts bytes, so an accented letter
+  takes two.
+
 ## [PowerRustCOBOL 1.70.333] — 2026-09-28
 
 ### Fix — a copybook saved in Windows-1252 is read, not refused

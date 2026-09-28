@@ -679,10 +679,32 @@ fn load_and_expand(
 /// 0x80–0x9F, so a Latin-1 file reads the same; its five unassigned bytes
 /// keep their Latin-1 meaning.
 pub fn decode_source_bytes(bytes: Vec<u8>) -> String {
+    decode_source(bytes).0
+}
+
+/// [`decode_source_bytes`], and whether the bytes were Windows-1252 — what an
+/// editor needs to write the file back the way it came.
+pub fn decode_source(bytes: Vec<u8>) -> (String, bool) {
     match String::from_utf8(bytes) {
-        Ok(s) => s,
-        Err(e) => e.into_bytes().iter().map(|&b| windows_1252_char(b)).collect(),
+        Ok(s) => (s, false),
+        Err(e) => (e.into_bytes().iter().map(|&b| windows_1252_char(b)).collect(), true),
     }
+}
+
+/// Read a COBOL source file as text: UTF-8, or Windows-1252 when it is not.
+pub fn read_source_file(path: &Path) -> std::io::Result<String> {
+    std::fs::read(path).map(decode_source_bytes)
+}
+
+/// `text` as Windows-1252 bytes, or `None` when a character has no place in
+/// it — the caller then keeps UTF-8 rather than lose that character.
+pub fn encode_windows_1252(text: &str) -> Option<Vec<u8>> {
+    text.chars()
+        .map(|c| match c as u32 {
+            0..=0x7F | 0xA0..=0xFF => Some(c as u32 as u8),
+            _ => (0x80u8..=0x9F).find(|&b| windows_1252_char(b) == c),
+        })
+        .collect()
 }
 
 fn windows_1252_char(b: u8) -> char {
@@ -869,6 +891,19 @@ mod tests {
         assert!(r.errors.is_empty(), "{:?}", r.errors);
         assert!(r.text.contains("01 WS-NAME PIC X(10)."));
         assert!(!r.text.to_uppercase().contains("COPY REC"));
+    }
+
+    /// Windows-1252 decodes and encodes back to the same bytes; a character
+    /// it has no place for is refused, not replaced.
+    #[test]
+    fn windows_1252_round_trips() {
+        let bytes: Vec<u8> = (0x20u8..=0xFF).filter(|b| !(0x7F..=0xA0).contains(b)).chain([0x80, 0x96]).collect();
+        let (text, legacy) = decode_source(bytes.clone());
+        assert!(legacy);
+        assert_eq!(encode_windows_1252(&text).as_deref(), Some(bytes.as_slice()));
+        assert_eq!(encode_windows_1252("Ação € – ok").map(|b| decode_source(b).0).as_deref(), Some("Ação € – ok"));
+        assert_eq!(encode_windows_1252("日本"), None);
+        assert_eq!(decode_source("Ação".as_bytes().to_vec()), ("Ação".to_string(), false));
     }
 
     /// A copybook saved in Windows-1252 — accents one byte each, as

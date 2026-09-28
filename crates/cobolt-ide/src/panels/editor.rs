@@ -994,6 +994,10 @@ pub struct EditorTab {
     pub dirty: bool,
     /// RAD-generated code: shown in blue, never editable.
     pub read_only: bool,
+    /// The file on disk is Windows-1252 (a program written on Windows,
+    /// PowerCOBOL's habit): it is saved back the same way, so the editor
+    /// that made it still reads it.
+    pub windows_1252: bool,
 }
 
 impl EditorTab {
@@ -1003,7 +1007,20 @@ impl EditorTab {
             content,
             dirty: false,
             read_only: false,
+            windows_1252: false,
         }
+    }
+
+    /// Write the tab to its file, in the encoding it came in. A character
+    /// Windows-1252 cannot hold turns the file into UTF-8 rather than be lost.
+    fn write_to_disk(&mut self) -> std::io::Result<()> {
+        if self.windows_1252 {
+            if let Some(bytes) = cobolt_lexer::encode_windows_1252(&self.content) {
+                return std::fs::write(&self.path, bytes);
+            }
+            self.windows_1252 = false;
+        }
+        std::fs::write(&self.path, &self.content)
     }
     pub fn title(&self) -> String {
         let name = self
@@ -2056,9 +2073,12 @@ impl EditorPanel {
             self.tabs[idx].read_only = read_only;
             return;
         }
-        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        // A file that is not UTF-8 is Windows-1252: it opened EMPTY before.
+        let (content, windows_1252) =
+            std::fs::read(&path).map(cobolt_lexer::decode_source).unwrap_or_default();
         let mut tab = EditorTab::new(path, content);
         tab.read_only = read_only;
+        tab.windows_1252 = windows_1252;
         self.tabs.push(tab);
         self.active = self.tabs.len() - 1;
     }
@@ -2067,8 +2087,9 @@ impl EditorPanel {
     /// designer regenerated its COBOL). No-op if the file isn't open.
     pub fn reload_file(&mut self, path: &std::path::Path) {
         if let Some(tab) = self.tabs.iter_mut().find(|t| t.path == path) {
-            if let Ok(content) = std::fs::read_to_string(path) {
+            if let Ok((content, windows_1252)) = std::fs::read(path).map(cobolt_lexer::decode_source) {
                 tab.content = content;
+                tab.windows_1252 = windows_1252;
                 tab.dirty = false;
             }
         }
@@ -2088,7 +2109,7 @@ impl EditorPanel {
                 tab.content = trimmed;
             }
         }
-        std::fs::write(&tab.path, &tab.content)?;
+        tab.write_to_disk()?;
         tab.dirty = false;
         Ok(())
     }
@@ -2112,7 +2133,7 @@ impl EditorPanel {
                     tab.content = trimmed;
                 }
             }
-            std::fs::write(&tab.path, &tab.content)?;
+            tab.write_to_disk()?;
             tab.dirty = false;
         }
         Ok(())
@@ -6545,5 +6566,49 @@ mod breakpoint_tests {
         ed.toggle_breakpoint(9);
         assert_eq!(ed.breakpoints_for(&PathBuf::from("hand-written.cbl")), vec![9]);
         assert!(ed.breakpoints_for(&generated).is_empty());
+    }
+}
+
+/// A COBOL source written on Windows — Windows-1252, PowerCOBOL's habit —
+/// opens with its accents (it opened EMPTY before) and is saved back in
+/// Windows-1252, so the editor that made it still reads it; a character
+/// Windows-1252 cannot hold turns the file into UTF-8 rather than be lost.
+#[cfg(test)]
+mod encoding_tests {
+    use super::*;
+
+    #[test]
+    fn a_windows_1252_source_opens_and_saves_back_the_same_way() {
+        let dir = std::env::temp_dir().join(format!("prc-editor-cp1252-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("acento.cbl");
+        // "      *> Configuração – ok" in Windows-1252: ç ã and the en dash one byte each.
+        let mut bytes = b"      *> Configura".to_vec();
+        bytes.extend_from_slice(&[0xE7, 0xE3]);
+        bytes.extend_from_slice(b"o ");
+        bytes.push(0x96);
+        bytes.extend_from_slice(b" ok\n");
+        std::fs::write(&path, &bytes).unwrap();
+
+        let mut ed = EditorPanel::new();
+        ed.open_file_ro(path.clone(), false);
+        assert_eq!(ed.tabs[0].content, "      *> Configuração – ok\n", "decoded, not empty");
+        assert!(ed.tabs[0].windows_1252);
+
+        ed.tabs[0].content.push_str("      *> Ação\n");
+        ed.tabs[0].dirty = true;
+        ed.save_active().unwrap();
+        let mut expected = bytes.clone();
+        expected.extend_from_slice(b"      *> A");
+        expected.extend_from_slice(&[0xE7, 0xE3]);
+        expected.extend_from_slice(b"o\n");
+        assert_eq!(std::fs::read(&path).unwrap(), expected, "saved back in Windows-1252");
+
+        ed.tabs[0].content.push_str("      *> 日本\n");
+        ed.save_active().unwrap();
+        let saved = std::fs::read(&path).unwrap();
+        assert!(String::from_utf8(saved).unwrap().contains("Ação\n      *> 日本"), "UTF-8 rather than lose 日本");
+        assert!(!ed.tabs[0].windows_1252);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

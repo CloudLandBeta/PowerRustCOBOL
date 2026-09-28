@@ -931,8 +931,10 @@ fn resolve_indexed_log_format(args: &[String]) -> cobolt_runtime::indexed_log::L
         .unwrap_or(cobolt_runtime::indexed_log::LogFormat::Text)
 }
 
+/// A COBOL source as text — UTF-8, or Windows-1252 as a program written on
+/// Windows (PowerCOBOL) is saved.
 fn read_source(path: &PathBuf) -> String {
-    match std::fs::read_to_string(path) {
+    match cobolt_lexer::read_source_file(path) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("cobolt: cannot read '{}': {e}", path.display());

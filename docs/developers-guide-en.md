@@ -7626,11 +7626,22 @@ Both lines name the same file. A backslash is read as a folder separator on
 habit) compile unchanged on macOS and Linux. A copybook that itself contains
 `COPY` resolves its names from its own folder first.
 
-> **Note — the copybook's encoding.** A copybook saved as UTF-8 is read as
-> such. One that is not — saved by PowerCOBOL or another Windows editor in
-> **Windows-1252** (or Latin-1), where `ç`, `ã` or `é` is a single byte — is
-> read as Windows-1252, so its accents arrive intact. Single or double quotes
-> around the name are the same: `COPY 'txt/Padrao.ws'.`
+> **Note — sources written on Windows.** A program (`.cbl`) or a copybook
+> saved as UTF-8 is read as such. One that is not — saved by PowerCOBOL or
+> another Windows editor in **Windows-1252** (or Latin-1), where `ç`, `ã` or
+> `é` is a single byte — is read as Windows-1252, so its accents arrive intact:
+> by `rcrun`, by **Run** and **Build**, in every `COPY`. The editor opens such
+> a file with its accents and **saves it back in Windows-1252**, so the editor
+> that wrote it still reads it; only a character Windows-1252 has no place for
+> (Japanese or Chinese text, say) makes it save the file as UTF-8 instead.
+> Single or double quotes around a `COPY` name are the same:
+> `COPY 'txt/Padrao.ws'.`
+
+> ⚠️ **Caveat — an accented letter takes two bytes.** Text is held as UTF-8
+> at run time, whatever the file's encoding, and `PIC X(n)` counts bytes: `ç`,
+> `ã` or `é` takes two, `–` or `€` three. `PIC X(30) VALUE "Configuração
+> concluída – ok"` — 27 characters, 32 bytes — keeps only what fits in 30.
+> Leave room in fields that hold accented text.
 
 **In a form**, write the path from the project's folder: a form's program is
 generated into the project's `generated/` folder, which you never write in, so

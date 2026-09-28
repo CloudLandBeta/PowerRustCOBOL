@@ -1490,7 +1490,8 @@ fn build_core(
     let main_path = project_dir.join(&main_rel);
     sources.push((
         main_rel.clone(),
-        std::fs::read_to_string(&main_path)
+        // UTF-8, or Windows-1252 as a program written on Windows is saved.
+        cobolt_lexer::read_source_file(&main_path)
             .ctx(|| format!("read the main program '{}'", main_path.display()))?,
     ));
 
@@ -1503,7 +1504,7 @@ fn build_core(
         if abs.exists() {
             sources.push((
                 rel.clone(),
-                std::fs::read_to_string(&abs)
+                cobolt_lexer::read_source_file(&abs)
                     .ctx(|| format!("read the source '{}'", abs.display()))?,
             ));
         }
