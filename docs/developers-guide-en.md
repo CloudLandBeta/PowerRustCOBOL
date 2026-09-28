@@ -4777,7 +4777,7 @@ for some formats.
 | Mermaid diagrams inside a Markdown fence | Flowcharts and sequence diagrams | Class, state, gantt, ER and journey diagrams — **refused by name**, not half-drawn |
 | Images: PNG, JPEG, GIF, WebP, APNG, BMP, TIFF, SVG | All of them, animation included | — |
 | PDF | Its text, its basic line and rectangle drawing, its page sizes, its page breaks, and Find over all of it | A faithful picture of a complex page; unusual embedded font encodings; forms; annotations; a scanned page beyond the image it embeds |
-| HTML | A **subset**: block and inline layout, common typography, colours, borders, tables, images | CSS grid, flex, animation and transforms; JavaScript; floats beyond the simple case. **It is not a browser** |
+| HTML | A **subset**: block and inline layout, common typography, colours, borders, tables, images — **styled by the page's own CSS** (see *HTML and its CSS* below) | CSS **layout** — grid, flex, floats, positioning; animation and transforms; `@media`; anything fetched; JavaScript. **It is not a browser** |
 | Video | Nothing — out of scope. Animated GIF, WebP and APNG are covered above as images | Any format needing an external codec |
 | Word, PowerPoint, Excel, OpenDocument | Their **text**, as Markdown: headings, lists and tables kept; page layout, fonts and pictures not | The Knowledge Base's own converter — a document reads the same here as the chat reads it |
 
@@ -4787,6 +4787,52 @@ for some formats.
 > renderer cannot follow **loses its layout and keeps every word of its
 > content**, because losing the words would be the worse failure. A scanned PDF
 > with no text layer reports no text, rather than inventing some.
+
+#### HTML and its CSS
+
+An HTML document is drawn with **its own CSS applied** — the `<style>` blocks
+anywhere in it (its `<head>` included) and the `style="…"` on any element. The
+rules cascade the way you expect from a browser: the more specific selector
+wins, a later rule beats an earlier one, `!important` beats both, an element's
+own `style` beats every sheet rule, and colour and type pass down to what an
+element contains. Custom properties work too — `--primary: #667eea` on `:root`,
+`var(--primary)` wherever it is used, with a fallback if you give one.
+
+What the CSS can say, and be obeyed:
+
+| Area | Properties |
+|---|---|
+| Text | `color`, `font-size` (px, em, rem, %, pt, keywords), `font-weight`, `font-style`, `font-family` (a monospaced family is honoured; any other maps to the Viewer's own face), `font`, `text-decoration`, `text-transform`, `letter-spacing`, `line-height` |
+| Box | `background`/`background-color` — a colour or a `linear-gradient(…)`; `border` and each side's own (`border-left: 4px solid …`); `border-radius`; `padding`; `margin`, `margin: 0 auto` centring included; `width` (px or %); `max-width`; `box-shadow` |
+| Alignment | `text-align` — left, center, right |
+| Visibility | `display: none`, `visibility: hidden` |
+| Tables | every cell's background, padding, alignment and borders — a striped table written with `tr:nth-child(even)` stripes |
+| Inline | a `<span>`'s background shows as a highlight behind its text — a badge, a `<mark>` |
+
+The selectors: a tag, `.class`, `#id`, `*`, a descendant (`nav a`) or a child
+(`ul > li`), a comma-separated group, and `:first-child`, `:last-child`,
+`:only-child`, `:nth-child(…)`, `:nth-last-child(…)` and `:root`. Colours come
+in every form CSS writes them: `#rgb`, `#rrggbbaa`, `rgb()`/`rgba()`,
+`hsl()`/`hsla()` and all the named colours.
+
+> **Note — sizes follow the Viewer's zoom.** The CSS's 16 px is the Viewer's
+> base font size, and every length on the page is measured from it. Zoom and
+> `FontSize` scale a styled page as a whole — its padding and borders grow with
+> its text.
+
+> ⚠️ **Caveat — styling, not layout.** A layout the CSS builds out of
+> `display: flex`, `grid`, `float` or `position` is not built: the page's
+> blocks are stacked, in order, each in its own styled box. A two-column page
+> reads as one column. A rule this subset does not understand — `:hover`,
+> `::before`, an attribute selector, a sibling combinator — is skipped, never
+> guessed at, and a rule inside `@media` is skipped too (the pane is not a
+> phone). `width` counts the border and padding in, the way
+> `box-sizing: border-box` has it.
+
+> ⚠️ **Caveat — nothing is fetched.** `@import`, `<link rel="stylesheet">`,
+> `url(…)` backgrounds and web fonts are ignored. A viewer that loaded what a
+> page asked for would be a browser, with a browser's exposure. A page's
+> styles must be in the page.
 
 #### Layouts
 
@@ -4806,8 +4852,8 @@ text page up as willingly as a PDF does.
 **A document is black.** Its text is dark ink in every layout — `Raw`, `Web`,
 `Print`, `Page` and `Streamed` — and does not follow the form's theme, because a
 document is a document wherever it is shown. Only the document itself overrides
-that: a colour it states, such as `<font color="#E00000">` in the HTML subset, is
-the colour it gets.
+that: a colour it states — `<font color="#E00000">`, or its CSS — is the colour
+it gets.
 
 `FontSize` scales the text **independently of** `Zoom`, so a reader who wants
 bigger words does not have to magnify the whole page to get them.
@@ -7492,7 +7538,7 @@ What changes with `ORGANIZATION` is how the lines are **read**:
 |---|---|---|
 | `SEQUENTIAL` | plain text | **yes** — `ADVANCING PAGE` makes a page |
 | `MARKDOWN` | Markdown, rendered: headings, tables, emphasis | no |
-| `HTML` | HTML, rendered — the subset the Viewer draws, no CSS or scripts | no |
+| `HTML` | HTML, rendered — the subset the Viewer draws, styled by its CSS, no scripts | no |
 
 Each `WRITE` contributes one line, with trailing spaces removed. Leading and
 intervening spaces are kept, which is what a report's columns are made of.

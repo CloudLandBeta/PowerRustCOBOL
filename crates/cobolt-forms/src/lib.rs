@@ -57,6 +57,9 @@ pub mod xml;
 /// and seeks real files via plain `std::fs`, none of it `egui`. The live
 /// thread/cache lives in `cobolt-form-host::viewer_session` instead.
 pub mod viewer;
+/// The CSS the Viewer's HTML subset honours: a cascade for styling, never
+/// layout, and nothing fetched.
+pub mod css;
 /// The Viewer written out as a PDF — `SaveAsPdf`.
 #[cfg(feature = "pdf")]
 pub mod viewer_pdf;

@@ -623,6 +623,97 @@ pub struct TextStyle {
     /// carries one. `None` means "the theme's own ink", which is what every
     /// Markdown run means.
     pub color: Option<String>,
+    // ── What a page's CSS says about a run (`css`). Markdown sets none of
+    //    them, so a Markdown document paints exactly as it always has. ──
+    /// A highlight behind the run (`background` on an inline element).
+    pub background: Option<String>,
+    /// `Some(true)` underlines, `Some(false)` takes a link's underline away
+    /// (`text-decoration: none`), `None` keeps the convention.
+    pub underline: Option<bool>,
+    /// The font size in CSS pixels, set only where the page's CSS sized the
+    /// text — `None` keeps the Viewer's own size for the block (a heading's
+    /// scale included).
+    pub size: Option<f32>,
+    /// A monospaced family (`font-family: monospace`, `Courier`, …).
+    pub mono: bool,
+    /// `letter-spacing`, in CSS pixels.
+    pub letter_spacing: f32,
+    /// `line-height`, in CSS pixels.
+    pub line_height: Option<f32>,
+}
+
+/// `text-align`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextAlign {
+    Left,
+    Center,
+    Right,
+}
+
+/// A box's background: one colour, or a linear gradient.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Background {
+    Solid(String),
+    /// `angle` in CSS degrees (0 = towards the top, 90 = towards the right);
+    /// the stops as colour strings with their positions from 0 to 1.
+    Linear { angle: f32, stops: Vec<(String, f32)> },
+}
+
+/// `box-shadow`, in CSS pixels.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BoxShadow {
+    pub x: f32,
+    pub y: f32,
+    pub blur: f32,
+    pub spread: f32,
+    pub color: String,
+}
+
+/// What a page's CSS says about an element's BOX — the part of CSS the
+/// subset honours beyond text: its background, border, corners, padding,
+/// margins, width and shadow, and how its text is aligned. Lengths are CSS
+/// pixels; the painter scales them with the Viewer's own font size, so a
+/// page zooms as a whole. Sides are `[top, right, bottom, left]`.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct BoxStyle {
+    pub background: Option<Background>,
+    pub border_width: [f32; 4],
+    pub border_color: [Option<String>; 4],
+    pub radius: f32,
+    pub padding: [f32; 4],
+    pub margin: [f32; 4],
+    /// `margin-left` and `margin-right` both `auto`: the box is centred.
+    pub center: bool,
+    pub width: Option<f32>,
+    /// `width` as a share of the space available (0–1), when it was a percentage.
+    pub width_share: Option<f32>,
+    pub max_width: Option<f32>,
+    pub shadow: Option<BoxShadow>,
+    pub text_align: Option<TextAlign>,
+}
+
+impl BoxStyle {
+    /// True when there is anything here to draw or lay out — the only case in
+    /// which an element earns a box of its own.
+    pub fn is_visible(&self) -> bool {
+        *self != BoxStyle::default()
+    }
+}
+
+/// One table cell's CSS: its background, alignment, padding and border.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct CellStyle {
+    pub background: Option<Background>,
+    pub align: Option<TextAlign>,
+    pub padding: Option<[f32; 4]>,
+    pub border_width: [f32; 4],
+    pub border_color: [Option<String>; 4],
+}
+
+/// A table's cells' CSS, row by row — the header row first when there is one.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TableStyle {
+    pub cells: Vec<Vec<CellStyle>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -648,7 +739,17 @@ pub enum Block {
     CodeBlock { language: Option<String>, text: String },
     BlockQuote { blocks: Vec<Block> },
     List { ordered: bool, start: Option<u64>, items: Vec<ListItem> },
-    Table { alignments: Vec<TableAlignment>, header: Vec<Vec<Inline>>, rows: Vec<Vec<Vec<Inline>>> },
+    /// `style` is what a page's CSS said about the cells; `None` for every
+    /// Markdown table.
+    Table {
+        alignments: Vec<TableAlignment>,
+        header: Vec<Vec<Inline>>,
+        rows: Vec<Vec<Vec<Inline>>>,
+        style: Option<Box<TableStyle>>,
+    },
+    /// An HTML element whose CSS gave it a box (`css`): its content, laid out
+    /// inside that box's background, border, padding and margins.
+    Styled { style: Box<BoxStyle>, blocks: Vec<Block> },
     ThematicBreak,
     /// A ```` ```mermaid ```` fence (T20). Its own block rather than a
     /// `CodeBlock` with a language, so the painter never has to sniff a
@@ -687,12 +788,13 @@ impl MarkdownDocument {
                     Block::Mermaid { .. } => "Mermaid",
                     Block::FootnoteDefinition { .. } => "FootnoteDefinition",
                     Block::RawHtml(_) => "RawHtml",
+                    Block::Styled { .. } => "Styled",
                 };
                 *counts.entry(key).or_insert(0) += 1;
                 match b {
-                    Block::BlockQuote { blocks } | Block::FootnoteDefinition { blocks, .. } => {
-                        walk(blocks, counts)
-                    }
+                    Block::BlockQuote { blocks }
+                    | Block::FootnoteDefinition { blocks, .. }
+                    | Block::Styled { blocks, .. } => walk(blocks, counts),
                     Block::List { items, .. } => {
                         for item in items {
                             walk(&item.blocks, counts);
@@ -728,9 +830,9 @@ impl MarkdownDocument {
                     Block::Heading { content, .. } | Block::Paragraph { content, .. } => {
                         walk_inlines(content, out)
                     }
-                    Block::BlockQuote { blocks } | Block::FootnoteDefinition { blocks, .. } => {
-                        walk(blocks, out)
-                    }
+                    Block::BlockQuote { blocks }
+                    | Block::FootnoteDefinition { blocks, .. }
+                    | Block::Styled { blocks, .. } => walk(blocks, out),
                     Block::List { items, .. } => {
                         for item in items {
                             walk(&item.blocks, out);
@@ -940,7 +1042,7 @@ pub fn parse_markdown(text: &str) -> MarkdownDocument {
                 }
                 TagEnd::Table => {
                     if let Some(Frame::Table { alignments, header, rows }) = stack.pop() {
-                        push_block(&mut stack, &mut doc_blocks, Block::Table { alignments, header, rows });
+                        push_block(&mut stack, &mut doc_blocks, Block::Table { alignments, header, rows, style: None });
                     }
                 }
                 TagEnd::TableHead => {}
@@ -1000,6 +1102,7 @@ pub fn parse_markdown(text: &str) -> MarkdownDocument {
                         code: false,
                         link: link_stack.last().cloned(),
                         color: None,
+                        ..TextStyle::default()
                     };
                     buf.push(Inline::Text { text: t.to_string(), style });
                 }
@@ -1015,6 +1118,7 @@ pub fn parse_markdown(text: &str) -> MarkdownDocument {
                         code: true,
                         link: link_stack.last().cloned(),
                         color: None,
+                        ..TextStyle::default()
                     };
                     buf.push(Inline::Text { text: t.to_string(), style });
                 }
@@ -2310,6 +2414,12 @@ pub fn escape_html(text: &str) -> String {
 // grid/flex/animation/transform, JavaScript, floats beyond the simple case.
 // **Not a browser.**
 //
+// The page's own CSS STYLES it (operator, 2026-09-27): its `<style>` blocks
+// and `style` attributes are cascaded by `crate::css` as the walk goes, and
+// what they say reaches the model as run styles ([`TextStyle`]), CSS boxes
+// ([`Block::Styled`]) and cell styles ([`TableStyle`]). Layout stays the
+// subset's own: nothing here builds a flex row or a grid.
+//
 // plan.md §4's decision made concrete: HTML maps onto the **same** layout
 // primitives the Markdown walker produces — [`Block`] and [`Inline`] — so
 // this milestone's cost is "parse + map", not a second layout engine. Every
@@ -2359,12 +2469,83 @@ pub fn parse_html(html: &str) -> LayoutDocument {
         return LayoutDocument::default();
     };
     let parser = dom.parser();
-    let mut walker = HtmlWalker { parser, blocks: Vec::new(), inline: Vec::new() };
+    // Every `<style>` in the document, wherever it sits (a page's `<head>`
+    // included), in source order — its rules apply to this document only.
+    let mut sheet = crate::css::Stylesheet::default();
+    if let Some(styles) = dom.query_selector("style") {
+        for h in styles {
+            if let Some(tag) = h.get(parser).and_then(|n| n.as_tag()) {
+                sheet.extend(crate::css::Stylesheet::parse(&tag.inner_text(parser)));
+            }
+        }
+    }
+    let root_children: Vec<tl::NodeHandle> = dom
+        .children()
+        .iter()
+        .copied()
+        .filter(|h| h.get(parser).is_some_and(|n| n.as_tag().is_some()))
+        .collect();
+    let mut walker =
+        HtmlWalker { parser, blocks: Vec::new(), inline: Vec::new(), sheet, path: Vec::new(), root_children };
+    let cx = HtmlCx::root();
     for handle in dom.children() {
-        walker.node(*handle, &TextStyle::default());
+        walker.node(*handle, &cx);
     }
     walker.flush_paragraph();
     LayoutDocument { blocks: walker.blocks }
+}
+
+/// Elements that make a block of their own — the ones a CSS box can wrap.
+const HTML_BLOCK_TAGS: &[&str] = &[
+    "html", "body", "div", "section", "article", "header", "footer", "main", "nav", "aside", "p",
+    "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "ul", "ol", "li", "table", "figure",
+    "figcaption", "pre", "address", "center", "details", "summary", "dl", "dt", "dd", "hgroup",
+    "fieldset", "hr",
+];
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum TextTransform {
+    Upper,
+    Lower,
+    Capitalize,
+}
+
+/// What an element hands its children: the inherited half of CSS.
+#[derive(Clone)]
+struct HtmlCx {
+    text: TextStyle,
+    /// The computed font size, CSS pixels.
+    font_px: f32,
+    /// Whether the page's CSS sized the text here or above — only then does
+    /// a run carry an explicit size, so HTML without CSS keeps the Viewer's
+    /// own heading scale exactly as before.
+    size_authored: bool,
+    align: Option<TextAlign>,
+    transform: Option<TextTransform>,
+    vars: std::rc::Rc<std::collections::HashMap<String, String>>,
+}
+
+impl HtmlCx {
+    fn root() -> Self {
+        HtmlCx {
+            text: TextStyle::default(),
+            font_px: 16.0,
+            size_authored: false,
+            align: None,
+            transform: None,
+            vars: Default::default(),
+        }
+    }
+}
+
+/// One element on the path from the root, as selectors see it.
+struct ElemInfo {
+    name: String,
+    id: Option<String>,
+    classes: Vec<String>,
+    index: usize,
+    count: usize,
+    children: Vec<tl::NodeHandle>,
 }
 
 struct HtmlWalker<'a, 'p> {
@@ -2374,6 +2555,9 @@ struct HtmlWalker<'a, 'p> {
     /// paragraph when a block boundary arrives, so loose text in a `<div>`
     /// is not lost.
     inline: Vec<Inline>,
+    sheet: crate::css::Stylesheet,
+    path: Vec<ElemInfo>,
+    root_children: Vec<tl::NodeHandle>,
 }
 
 impl HtmlWalker<'_, '_> {
@@ -2389,23 +2573,34 @@ impl HtmlWalker<'_, '_> {
         }
     }
 
-    /// Collect an element's children as inline content, under `style`.
-    fn inline_of(&mut self, tag: &tl::HTMLTag<'_>, style: &TextStyle) -> Vec<Inline> {
+    /// Collect an element's children as inline content.
+    fn inline_of(&mut self, tag: &tl::HTMLTag<'_>, cx: &HtmlCx) -> Vec<Inline> {
         let saved = std::mem::take(&mut self.inline);
         for child in tag.children().top().iter() {
-            self.node(*child, style);
+            self.node(*child, cx);
         }
         std::mem::replace(&mut self.inline, saved)
     }
 
-    /// Collect an element's children as blocks (a list item, a quote, a
-    /// table cell's block content).
-    fn blocks_of(&mut self, tag: &tl::HTMLTag<'_>, style: &TextStyle) -> Vec<Block> {
+    /// Collect an element's children as blocks (a quote's content).
+    fn blocks_of(&mut self, tag: &tl::HTMLTag<'_>, cx: &HtmlCx) -> Vec<Block> {
         let saved_blocks = std::mem::take(&mut self.blocks);
         let saved_inline = std::mem::take(&mut self.inline);
         for child in tag.children().top().iter() {
-            self.node(*child, style);
+            self.node(*child, cx);
         }
+        self.flush_paragraph();
+        let out = std::mem::replace(&mut self.blocks, saved_blocks);
+        self.inline = saved_inline;
+        out
+    }
+
+    /// An element ITSELF as blocks — a list item, with its own box if its CSS
+    /// gives it one.
+    fn element_blocks(&mut self, handle: tl::NodeHandle, cx: &HtmlCx) -> Vec<Block> {
+        let saved_blocks = std::mem::take(&mut self.blocks);
+        let saved_inline = std::mem::take(&mut self.inline);
+        self.node(handle, cx);
         self.flush_paragraph();
         let out = std::mem::replace(&mut self.blocks, saved_blocks);
         self.inline = saved_inline;
@@ -2416,44 +2611,181 @@ impl HtmlWalker<'_, '_> {
         tag.attributes().get(name).flatten().map(|v| v.as_utf8_str().into_owned())
     }
 
-    fn node(&mut self, handle: tl::NodeHandle, style: &TextStyle) {
+    fn element_children(&self, tag: &tl::HTMLTag<'_>) -> Vec<tl::NodeHandle> {
+        tag.children()
+            .top()
+            .iter()
+            .copied()
+            .filter(|h| h.get(self.parser).is_some_and(|n| n.as_tag().is_some()))
+            .collect()
+    }
+
+    /// Put an element on the path, where selectors can see it and its
+    /// position among its siblings.
+    fn enter(&mut self, handle: tl::NodeHandle, tag: &tl::HTMLTag<'_>, name: &str) {
+        let siblings = self.path.last().map(|p| &p.children).unwrap_or(&self.root_children);
+        let index = siblings.iter().position(|h| *h == handle).map(|i| i + 1).unwrap_or(1);
+        let count = siblings.len().max(index);
+        let id = Self::attr(tag, "id").map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let classes = Self::attr(tag, "class")
+            .map(|c| c.split_whitespace().map(str::to_string).collect())
+            .unwrap_or_default();
+        let children = self.element_children(tag);
+        self.path.push(ElemInfo { name: name.to_string(), id, classes, index, count, children });
+    }
+
+    /// The element's computed style: what it hands its children, its box,
+    /// whether it is displayed at all, and whether it lays out as a block.
+    fn style_of(&self, tag: &tl::HTMLTag<'_>, name: &str, parent: &HtmlCx) -> (HtmlCx, BoxStyle, bool, bool) {
+        let mut cx = parent.clone();
+        let mut bx = BoxStyle::default();
+        let mut hidden = false;
+        let mut block = HTML_BLOCK_TAGS.contains(&name);
+        // What the element is, before any CSS: the user-agent defaults the
+        // subset keeps, and the presentational attributes a page may still use.
+        match name {
+            "strong" | "b" | "th" => cx.text.strong = true,
+            "em" | "i" | "cite" | "dfn" | "var" => cx.text.emphasis = true,
+            "s" | "del" | "strike" => cx.text.strikethrough = true,
+            "u" | "ins" => cx.text.underline = Some(true),
+            "code" | "kbd" | "samp" | "tt" => cx.text.code = true,
+            "mark" => bx.background = Some(Background::Solid("#ffff00ff".into())),
+            "small" => cx.font_px *= 0.83,
+            "big" => cx.font_px *= 1.2,
+            // §8.5: an unsafe scheme is dropped, so the text stays and only
+            // its link goes — a `javascript:` anchor becomes plain words
+            // rather than a live one or a hole in the prose.
+            "a" => {
+                cx.text.link = Self::attr(tag, "href")
+                    .filter(|h| is_safe_url(h))
+                    .or_else(|| parent.text.link.clone())
+            }
+            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+                let k = [2.0, 1.5, 1.17, 1.0, 0.83, 0.67][(name.as_bytes()[1] - b'1') as usize];
+                cx.font_px = parent.font_px * k;
+            }
+            _ => {}
+        }
+        if let Some(c) = Self::attr(tag, "color") {
+            cx.text.color = Some(c);
+        }
+        if let Some(c) = Self::attr(tag, "bgcolor").and_then(|c| crate::css::color_string(&c)) {
+            bx.background = Some(Background::Solid(c));
+        }
+        if let Some(a) = Self::attr(tag, "align").and_then(|a| css_align(&a)) {
+            bx.text_align = Some(a);
+            cx.align = Some(a);
+        }
+        let inline_decls =
+            Self::attr(tag, "style").map(|s| crate::css::parse_declarations(&s)).unwrap_or_default();
+        if !self.sheet.is_empty() || !inline_decls.is_empty() {
+            let refs: Vec<crate::css::ElementRef<'_>> = self
+                .path
+                .iter()
+                .map(|e| crate::css::ElementRef {
+                    name: &e.name,
+                    id: e.id.as_deref(),
+                    classes: &e.classes,
+                    index: e.index,
+                    count: e.count,
+                })
+                .collect();
+            let decls = self.sheet.cascade(&refs, &inline_decls);
+            // Custom properties first: any declaration of this element may
+            // use one this element defines.
+            if decls.iter().any(|d| d.name.starts_with("--")) {
+                let mut vars = (*cx.vars).clone();
+                for d in decls.iter().filter(|d| d.name.starts_with("--")) {
+                    vars.insert(d.name.clone(), d.value.clone());
+                }
+                cx.vars = std::rc::Rc::new(vars);
+            }
+            let resolved: Vec<(String, String)> = decls
+                .iter()
+                .filter(|d| !d.name.starts_with("--"))
+                .filter_map(|d| {
+                    crate::css::substitute_vars(&d.value, &cx.vars).map(|v| (d.name.clone(), v.trim().to_string()))
+                })
+                .collect();
+            // The font first: `em` anywhere else is relative to it.
+            for (n, v) in &resolved {
+                if n == "font-size" || n == "font" {
+                    apply_font_size(n, v, parent, &mut cx);
+                }
+            }
+            for (n, v) in &resolved {
+                apply_declaration(n, v, &mut cx, &mut bx, &mut hidden, &mut block);
+            }
+        }
+        if cx.size_authored {
+            cx.text.size = Some(cx.font_px);
+        }
+        (cx, bx, hidden, block)
+    }
+
+    fn node(&mut self, handle: tl::NodeHandle, cx: &HtmlCx) {
         let Some(node) = handle.get(self.parser) else { return };
         if let Some(raw) = node.as_raw() {
-            let text = decode_html_entities(&raw.as_utf8_str());
+            let mut text = decode_html_entities(&raw.as_utf8_str());
             if !text.is_empty() {
-                self.inline.push(Inline::Text { text, style: style.clone() });
+                match cx.transform {
+                    Some(TextTransform::Upper) => text = text.to_uppercase(),
+                    Some(TextTransform::Lower) => text = text.to_lowercase(),
+                    Some(TextTransform::Capitalize) => {
+                        let mut prev_space = true;
+                        text = text
+                            .chars()
+                            .map(|c| {
+                                let out = if prev_space { c.to_uppercase().next().unwrap_or(c) } else { c };
+                                prev_space = c.is_whitespace();
+                                out
+                            })
+                            .collect();
+                    }
+                    None => {}
+                }
+                self.inline.push(Inline::Text { text, style: cx.text.clone() });
             }
             return;
         }
         let Some(tag) = node.as_tag() else { return };
         let name = tag.name().as_utf8_str().to_ascii_lowercase();
-
         if HTML_DROPPED.contains(&name.as_str()) {
             return;
         }
-
-        // Inline elements: style the run and carry on in the same paragraph.
-        let mut styled = style.clone();
-        match name.as_str() {
-            "strong" | "b" => styled.strong = true,
-            "em" | "i" => styled.emphasis = true,
-            "s" | "del" | "strike" => styled.strikethrough = true,
-            "code" | "kbd" | "samp" | "tt" => styled.code = true,
-            // §8.5: an unsafe scheme is dropped, so the text stays and
-            // only its link goes — a `javascript:` anchor becomes plain
-            // words rather than a live one or a hole in the prose.
-            "a" => {
-                styled.link = Self::attr(tag, "href")
-                    .filter(|h| is_safe_url(h))
-                    .or_else(|| style.link.clone())
+        self.enter(handle, tag, &name);
+        let (mut ecx, bx, hidden, block) = self.style_of(tag, &name, cx);
+        if !hidden {
+            if block && bx.is_visible() {
+                // A box of its own: everything the element produces goes
+                // inside it.
+                self.flush_paragraph();
+                let saved_blocks = std::mem::take(&mut self.blocks);
+                let saved_inline = std::mem::take(&mut self.inline);
+                self.content(tag, &name, &ecx, true);
+                self.flush_paragraph();
+                let inner = std::mem::replace(&mut self.blocks, saved_blocks);
+                self.inline = saved_inline;
+                if !inner.is_empty() || bx.background.is_some() || bx.border_width.iter().any(|w| *w > 0.0) {
+                    self.blocks.push(Block::Styled { style: Box::new(bx), blocks: inner });
+                }
+            } else {
+                // An inline element's background is a highlight behind its
+                // text; the rest of an inline box is not in the subset.
+                if !block {
+                    if let Some(Background::Solid(c)) = &bx.background {
+                        ecx.text.background = Some(c.clone());
+                    }
+                }
+                self.content(tag, &name, &ecx, block);
             }
-            _ => {}
         }
-        if let Some(colour) = html_colour(tag) {
-            styled.color = Some(colour);
-        }
+        self.path.pop();
+    }
 
-        match name.as_str() {
+    /// What an element contributes, by kind.
+    fn content(&mut self, tag: &tl::HTMLTag<'_>, name: &str, cx: &HtmlCx, block: bool) {
+        match name {
             "br" => self.inline.push(Inline::Break { hard: true }),
             "img" => {
                 let src = Self::attr(tag, "src").filter(|s| is_safe_url(s)).unwrap_or_default();
@@ -2470,12 +2802,12 @@ impl HtmlWalker<'_, '_> {
             "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
                 self.flush_paragraph();
                 let level = name[1..].parse::<u8>().unwrap_or(1);
-                let content = self.inline_of(tag, &styled);
+                let content = self.inline_of(tag, cx);
                 self.blocks.push(Block::Heading { level, content });
             }
             "p" => {
                 self.flush_paragraph();
-                let content = self.inline_of(tag, &styled);
+                let content = self.inline_of(tag, cx);
                 if !content.is_empty() {
                     self.blocks.push(Block::Paragraph { content });
                 }
@@ -2487,7 +2819,7 @@ impl HtmlWalker<'_, '_> {
             }
             "blockquote" => {
                 self.flush_paragraph();
-                let blocks = self.blocks_of(tag, &styled);
+                let blocks = self.blocks_of(tag, cx);
                 self.blocks.push(Block::BlockQuote { blocks });
             }
             "ul" | "ol" => {
@@ -2495,151 +2827,525 @@ impl HtmlWalker<'_, '_> {
                 let ordered = name == "ol";
                 let start = Self::attr(tag, "start").and_then(|s| s.trim().parse::<u64>().ok());
                 let mut items = Vec::new();
-                for child in tag.children().top().iter() {
+                for child in self.element_children(tag) {
                     let Some(li) = child.get(self.parser).and_then(|n| n.as_tag()) else { continue };
                     if !li.name().as_utf8_str().eq_ignore_ascii_case("li") {
                         continue;
                     }
-                    items.push(ListItem { blocks: self.blocks_of(li, &styled), checked: None });
+                    items.push(ListItem { blocks: self.element_blocks(child, cx), checked: None });
                 }
                 self.blocks.push(Block::List { ordered, start: if ordered { start.or(Some(1)) } else { None }, items });
             }
             "table" => {
                 self.flush_paragraph();
-                let table = self.table(tag, &styled);
+                let table = self.table(tag, cx);
                 self.blocks.push(table);
             }
-            // Everything else — `div`, `section`, `span`, `main`, an
-            // unknown custom element — contributes its CHILDREN. That is
-            // "degrade to the supported subset": a grid-laid-out page loses
-            // its grid and keeps its content.
+            // Everything else — `div`, `section`, `span`, `main`, an unknown
+            // custom element — contributes its CHILDREN. That is "degrade to
+            // the supported subset": a grid-laid-out page loses its grid and
+            // keeps its content. A block element still ends the paragraph
+            // before it, and its own after it.
             _ => {
+                if block {
+                    self.flush_paragraph();
+                }
                 for child in tag.children().top().iter() {
-                    self.node(*child, &styled);
+                    self.node(*child, cx);
+                }
+                if block {
+                    self.flush_paragraph();
                 }
             }
         }
     }
 
-    fn table(&mut self, tag: &tl::HTMLTag<'_>, style: &TextStyle) -> Block {
+    fn table(&mut self, tag: &tl::HTMLTag<'_>, cx: &HtmlCx) -> Block {
+        // (cells, their styles, every cell a <th>)
+        let mut collected: Vec<(Vec<Vec<Inline>>, Vec<CellStyle>, bool)> = Vec::new();
+        self.table_rows(tag, cx, &mut collected);
         let mut header: Vec<Vec<Inline>> = Vec::new();
         let mut rows: Vec<Vec<Vec<Inline>>> = Vec::new();
-        // `<thead>`/`<tbody>`/`<tfoot>` are transparent here: what matters
-        // is the rows, wherever they are grouped.
-        let mut stack: Vec<tl::NodeHandle> = tag.children().top().iter().copied().collect();
-        let mut row_handles: Vec<tl::NodeHandle> = Vec::new();
-        while let Some(h) = stack.pop() {
-            let Some(t) = h.get(self.parser).and_then(|n| n.as_tag()) else { continue };
-            let n = t.name().as_utf8_str().to_ascii_lowercase();
-            if n == "tr" {
-                row_handles.push(h);
-            } else if matches!(n.as_str(), "thead" | "tbody" | "tfoot") {
-                stack.extend(t.children().top().iter().copied());
-            }
-        }
-        // The walk above pops in reverse; restore document order.
-        row_handles.reverse();
-        for h in row_handles {
-            let Some(tr) = h.get(self.parser).and_then(|n| n.as_tag()) else { continue };
-            let mut cells: Vec<Vec<Inline>> = Vec::new();
-            let mut all_header = true;
-            for c in tr.children().top().iter() {
-                let Some(cell) = c.get(self.parser).and_then(|n| n.as_tag()) else { continue };
-                let cn = cell.name().as_utf8_str().to_ascii_lowercase();
-                if cn != "td" && cn != "th" {
-                    continue;
-                }
-                if cn != "th" {
-                    all_header = false;
-                }
-                cells.push(self.inline_of(cell, style));
-            }
-            if cells.is_empty() {
-                continue;
-            }
-            if all_header && header.is_empty() {
+        let mut styles: Vec<Vec<CellStyle>> = Vec::new();
+        for (cells, cell_styles, all_header) in collected {
+            if all_header && header.is_empty() && rows.is_empty() {
                 header = cells;
+                styles.insert(0, cell_styles);
             } else {
                 rows.push(cells);
+                styles.push(cell_styles);
             }
         }
         let width = header.len().max(rows.first().map(Vec::len).unwrap_or(0));
-        Block::Table { alignments: vec![TableAlignment::None; width], header, rows }
+        let styled = styles.iter().flatten().any(|c| *c != CellStyle::default());
+        Block::Table {
+            alignments: vec![TableAlignment::None; width],
+            header,
+            rows,
+            style: styled.then(|| Box::new(TableStyle { cells: styles })),
+        }
+    }
+
+    /// The rows under `parent`, in document order — `<thead>`, `<tbody>` and
+    /// `<tfoot>` are walked through, and every element is put on the path so
+    /// a selector like `tbody tr:nth-child(even) td` finds it.
+    fn table_rows(
+        &mut self,
+        parent: &tl::HTMLTag<'_>,
+        cx: &HtmlCx,
+        out: &mut Vec<(Vec<Vec<Inline>>, Vec<CellStyle>, bool)>,
+    ) {
+        for h in self.element_children(parent) {
+            let Some(t) = h.get(self.parser).and_then(|n| n.as_tag()) else { continue };
+            let n = t.name().as_utf8_str().to_ascii_lowercase();
+            match n.as_str() {
+                "thead" | "tbody" | "tfoot" => {
+                    self.enter(h, t, &n);
+                    let (gcx, gbx, hidden, _) = self.style_of(t, &n, cx);
+                    if !hidden {
+                        let before = out.len();
+                        self.table_rows(t, &gcx, out);
+                        // A group's background shows through its cells.
+                        if let Some(bg) = gbx.background {
+                            for row in &mut out[before..] {
+                                for c in &mut row.1 {
+                                    c.background.get_or_insert_with(|| bg.clone());
+                                }
+                            }
+                        }
+                    }
+                    self.path.pop();
+                }
+                "tr" => {
+                    self.enter(h, t, &n);
+                    let (rcx, rbx, hidden, _) = self.style_of(t, &n, cx);
+                    if !hidden {
+                        let mut cells = Vec::new();
+                        let mut styles = Vec::new();
+                        let mut all_header = true;
+                        for ch in self.element_children(t) {
+                            let Some(cell) = ch.get(self.parser).and_then(|n| n.as_tag()) else { continue };
+                            let cn = cell.name().as_utf8_str().to_ascii_lowercase();
+                            if cn != "td" && cn != "th" {
+                                continue;
+                            }
+                            all_header &= cn == "th";
+                            self.enter(ch, cell, &cn);
+                            let (ccx, cbx, _, _) = self.style_of(cell, &cn, &rcx);
+                            cells.push(self.inline_of(cell, &ccx));
+                            styles.push(CellStyle {
+                                background: cbx.background.clone().or_else(|| rbx.background.clone()),
+                                align: cbx.text_align.or(ccx.align),
+                                padding: (cbx.padding != [0.0; 4]).then_some(cbx.padding),
+                                border_width: cbx.border_width,
+                                border_color: cbx.border_color.clone(),
+                            });
+                            self.path.pop();
+                        }
+                        if !cells.is_empty() {
+                            out.push((cells, styles, all_header));
+                        }
+                    }
+                    self.path.pop();
+                }
+                _ => {}
+            }
+        }
     }
 }
 
-/// An HTML colour string as RGB — `#rgb`, `#rrggbb`, `rgb(r,g,b)` and the
-/// sixteen original HTML colour names.
-///
-/// The full CSS colour list is 148 names and a subset renderer gains little
-/// from carrying it; anything unrecognised answers `None`, and the caller
-/// then uses the theme's own ink rather than a guess.
-pub fn parse_html_color(value: &str) -> Option<[u8; 3]> {
-    let v = value.trim().to_ascii_lowercase();
-    if let Some(hex) = v.strip_prefix('#') {
-        let expand = |c: char| u8::from_str_radix(&format!("{c}{c}"), 16).ok();
-        return match hex.len() {
-            3 => {
-                let mut it = hex.chars();
-                Some([expand(it.next()?)?, expand(it.next()?)?, expand(it.next()?)?])
-            }
-            6 => Some([
-                u8::from_str_radix(&hex[0..2], 16).ok()?,
-                u8::from_str_radix(&hex[2..4], 16).ok()?,
-                u8::from_str_radix(&hex[4..6], 16).ok()?,
-            ]),
+fn css_align(v: &str) -> Option<TextAlign> {
+    match v.trim().to_ascii_lowercase().as_str() {
+        "left" | "start" | "justify" => Some(TextAlign::Left),
+        "center" | "middle" => Some(TextAlign::Center),
+        "right" | "end" => Some(TextAlign::Right),
+        _ => None,
+    }
+}
+
+/// `font-size` (or the size inside a `font` shorthand), against the PARENT's
+/// size — which is what `em` and `%` mean for this one property.
+fn apply_font_size(name: &str, value: &str, parent: &HtmlCx, cx: &mut HtmlCx) {
+    let pick = |v: &str| -> Option<f32> {
+        let keyword = match v.to_ascii_lowercase().as_str() {
+            "xx-small" => Some(9.0),
+            "x-small" => Some(10.0),
+            "small" => Some(13.0),
+            "medium" => Some(16.0),
+            "large" => Some(18.0),
+            "x-large" => Some(24.0),
+            "xx-large" => Some(32.0),
+            "smaller" => Some(parent.font_px * 0.83),
+            "larger" => Some(parent.font_px * 1.2),
             _ => None,
         };
+        keyword.or_else(|| crate::css::length(v, parent.font_px, Some(parent.font_px)))
+    };
+    let size = if name == "font" {
+        crate::css::tokens(value).into_iter().find_map(|t| pick(t.split('/').next().unwrap_or(t)))
+    } else {
+        pick(value)
+    };
+    if let Some(px) = size.filter(|px| *px > 0.0) {
+        cx.font_px = px;
+        cx.size_authored = true;
     }
-    if let Some(inner) = v.strip_prefix("rgb(").and_then(|r| r.strip_suffix(')')) {
-        let parts: Vec<u8> = inner
-            .split(',')
-            .filter_map(|p| p.trim().parse::<i32>().ok())
-            .map(|n| n.clamp(0, 255) as u8)
-            .collect();
-        if parts.len() == 3 {
-            return Some([parts[0], parts[1], parts[2]]);
-        }
-        return None;
-    }
-    let named: &[(&str, [u8; 3])] = &[
-        ("black", [0, 0, 0]),
-        ("silver", [192, 192, 192]),
-        ("gray", [128, 128, 128]),
-        ("grey", [128, 128, 128]),
-        ("white", [255, 255, 255]),
-        ("maroon", [128, 0, 0]),
-        ("red", [255, 0, 0]),
-        ("purple", [128, 0, 128]),
-        ("fuchsia", [255, 0, 255]),
-        ("green", [0, 128, 0]),
-        ("lime", [0, 255, 0]),
-        ("olive", [128, 128, 0]),
-        ("yellow", [255, 255, 0]),
-        ("navy", [0, 0, 128]),
-        ("blue", [0, 0, 255]),
-        ("teal", [0, 128, 128]),
-        ("aqua", [0, 255, 255]),
-    ];
-    named.iter().find(|(n, _)| *n == v).map(|(_, c)| *c)
 }
 
-/// §3's "colours" for the common cases a subset renderer can honestly read:
-/// `<font color>`, and a `color:` in an inline `style` attribute. A
-/// stylesheet is **not** consulted — that is a cascade, and a cascade is a
-/// browser.
-fn html_colour(tag: &tl::HTMLTag<'_>) -> Option<String> {
-    if let Some(c) = HtmlWalker::attr(tag, "color") {
-        return Some(c);
+/// `linear-gradient(…)` or a colour, from a `background` value.
+fn css_background(value: &str) -> Option<Option<Background>> {
+    let v = value.trim();
+    if v.eq_ignore_ascii_case("none") || v.eq_ignore_ascii_case("transparent") {
+        return Some(None);
     }
-    let style = HtmlWalker::attr(tag, "style")?;
-    for decl in style.split(';') {
-        let (key, value) = decl.split_once(':')?;
-        if key.trim().eq_ignore_ascii_case("color") {
-            return Some(value.trim().to_string());
+    let lower = v.to_ascii_lowercase();
+    if let Some(at) = lower.find("linear-gradient(") {
+        let inner_start = at + "linear-gradient(".len();
+        let mut depth = 1;
+        let mut end = None;
+        for (i, c) in v[inner_start..].char_indices() {
+            match c {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(inner_start + i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let inner = &v[inner_start..end?];
+        let mut parts = crate::css::split_top(inner, ',');
+        let mut angle = 180.0;
+        if let Some(first) = parts.first() {
+            let f = first.trim().to_ascii_lowercase();
+            let dir = if let Some(d) = f.strip_suffix("deg") {
+                d.trim().parse::<f32>().ok()
+            } else if let Some(t) = f.strip_suffix("turn") {
+                t.trim().parse::<f32>().ok().map(|t| t * 360.0)
+            } else if let Some(to) = f.strip_prefix("to ") {
+                let has = |w: &str| to.split_whitespace().any(|x| x == w);
+                Some(match (has("top"), has("bottom"), has("left"), has("right")) {
+                    (true, _, true, _) => 315.0,
+                    (true, _, _, true) => 45.0,
+                    (_, true, true, _) => 225.0,
+                    (_, true, _, true) => 135.0,
+                    (true, ..) => 0.0,
+                    (_, _, true, _) => 270.0,
+                    (_, _, _, true) => 90.0,
+                    _ => 180.0,
+                })
+            } else {
+                None
+            };
+            if let Some(d) = dir {
+                angle = d;
+                parts.remove(0);
+            }
+        }
+        let n = parts.len();
+        let mut stops = Vec::new();
+        for (i, p) in parts.iter().enumerate() {
+            let toks = crate::css::tokens(p);
+            let Some(colour) = toks.first().and_then(|t| crate::css::color_string(t)) else { continue };
+            let pos = toks
+                .get(1)
+                .and_then(|t| t.strip_suffix('%'))
+                .and_then(|t| t.trim().parse::<f32>().ok())
+                .map(|p| p / 100.0)
+                .unwrap_or(if n > 1 { i as f32 / (n - 1) as f32 } else { 0.0 });
+            stops.push((colour, pos));
+        }
+        return match stops.len() {
+            0 => None,
+            1 => Some(Some(Background::Solid(stops.remove(0).0))),
+            _ => Some(Some(Background::Linear { angle, stops })),
+        };
+    }
+    // `background: #fff url(x.png) no-repeat` — the colour is the one part a
+    // subset that fetches nothing can honour.
+    crate::css::tokens(v)
+        .into_iter()
+        .find_map(crate::css::color_string)
+        .map(|c| Some(Some(Background::Solid(c))))
+        .unwrap_or(None)
+}
+
+/// `width style colour`, in any order, from a `border` value.
+fn css_border(value: &str, font_px: f32, current: Option<&str>) -> (f32, Option<String>) {
+    let mut width: Option<f32> = None;
+    let mut colour = None;
+    let mut none = false;
+    for t in crate::css::tokens(value) {
+        let lt = t.to_ascii_lowercase();
+        match lt.as_str() {
+            "none" | "hidden" => none = true,
+            "thin" => width = Some(1.0),
+            "medium" => width = Some(3.0),
+            "thick" => width = Some(5.0),
+            "solid" | "dashed" | "dotted" | "double" | "groove" | "ridge" | "inset" | "outset" => {
+                width.get_or_insert(3.0);
+            }
+            _ => {
+                if let Some(w) = crate::css::length(&lt, font_px, None) {
+                    width = Some(w);
+                } else if let Some(c) = crate::css::color_string(t) {
+                    colour = Some(c);
+                }
+            }
         }
     }
-    None
+    if none {
+        return (0.0, None);
+    }
+    (width.unwrap_or(0.0), colour.or_else(|| current.map(str::to_string)))
+}
+
+/// 1–4 lengths as `[top, right, bottom, left]`, with `auto` reported apart.
+fn css_sides(value: &str, font_px: f32) -> Option<([f32; 4], [bool; 4])> {
+    let toks = crate::css::tokens(value);
+    let mut vals = Vec::new();
+    for t in &toks {
+        if t.eq_ignore_ascii_case("auto") {
+            vals.push((0.0, true));
+        } else {
+            vals.push((crate::css::length(t, font_px, None).unwrap_or(0.0), false));
+        }
+    }
+    let [t, r, b, l] = match vals.len() {
+        1 => [vals[0]; 4],
+        2 => [vals[0], vals[1], vals[0], vals[1]],
+        3 => [vals[0], vals[1], vals[2], vals[1]],
+        4 => [vals[0], vals[1], vals[2], vals[3]],
+        _ => return None,
+    };
+    Some(([t.0, r.0, b.0, l.0], [t.1, r.1, b.1, l.1]))
+}
+
+fn side_index(s: &str) -> Option<usize> {
+    match s {
+        "top" => Some(0),
+        "right" => Some(1),
+        "bottom" => Some(2),
+        "left" => Some(3),
+        _ => None,
+    }
+}
+
+/// One declaration of the cascade, applied — in cascade order, so the last
+/// word on each property stands.
+fn apply_declaration(name: &str, value: &str, cx: &mut HtmlCx, bx: &mut BoxStyle, hidden: &mut bool, block: &mut bool) {
+    let v = value.trim();
+    let lv = v.to_ascii_lowercase();
+    if lv == "inherit" || lv == "unset" || lv == "revert" {
+        return;
+    }
+    let px = |s: &str| crate::css::length(s, cx.font_px, None);
+    let current = cx.text.color.clone();
+    match name {
+        "color" => {
+            if let Some(c) = crate::css::color_string(v) {
+                cx.text.color = Some(c);
+            }
+        }
+        "background" | "background-color" | "background-image" => {
+            if let Some(bg) = css_background(v) {
+                if bg.is_some() || name != "background-image" {
+                    bx.background = bg;
+                }
+            }
+        }
+        "font-weight" => {
+            cx.text.strong = match lv.as_str() {
+                "bold" | "bolder" => true,
+                "normal" | "lighter" => false,
+                n => n.parse::<u32>().map(|w| w >= 600).unwrap_or(cx.text.strong),
+            }
+        }
+        "font-style" => cx.text.emphasis = lv == "italic" || lv == "oblique",
+        "text-decoration" | "text-decoration-line" => {
+            if lv.contains("none") {
+                cx.text.underline = Some(false);
+                cx.text.strikethrough = false;
+            }
+            if lv.contains("underline") {
+                cx.text.underline = Some(true);
+            }
+            if lv.contains("line-through") {
+                cx.text.strikethrough = true;
+            }
+        }
+        "font-family" => {
+            let mono = ["monospace", "courier", "consolas", "menlo", "monaco", "mono"];
+            let first = lv.split(',').next().unwrap_or("");
+            cx.text.mono = mono.iter().any(|m| first.contains(m));
+        }
+        "font" => {
+            for t in crate::css::tokens(&lv) {
+                match t {
+                    "bold" | "bolder" => cx.text.strong = true,
+                    "italic" | "oblique" => cx.text.emphasis = true,
+                    _ => {}
+                }
+            }
+            let mono = ["monospace", "courier", "consolas", "menlo", "monaco"];
+            cx.text.mono = mono.iter().any(|m| lv.contains(m));
+        }
+        "text-align" => {
+            if let Some(a) = css_align(v) {
+                bx.text_align = Some(a);
+                cx.align = Some(a);
+            }
+        }
+        "text-transform" => {
+            cx.transform = match lv.as_str() {
+                "uppercase" => Some(TextTransform::Upper),
+                "lowercase" => Some(TextTransform::Lower),
+                "capitalize" => Some(TextTransform::Capitalize),
+                _ => None,
+            }
+        }
+        "letter-spacing" => cx.text.letter_spacing = px(v).unwrap_or(0.0),
+        "line-height" => {
+            cx.text.line_height = if lv == "normal" {
+                None
+            } else if let Ok(n) = lv.parse::<f32>() {
+                Some(n * cx.font_px)
+            } else {
+                crate::css::length(v, cx.font_px, Some(cx.font_px))
+            }
+        }
+        "display" => match lv.as_str() {
+            "none" => *hidden = true,
+            "block" | "flex" | "grid" | "list-item" | "table" | "flow-root" => *block = true,
+            "inline" | "inline-block" | "inline-flex" => *block = false,
+            _ => {}
+        },
+        "visibility" if lv == "hidden" || lv == "collapse" => *hidden = true,
+        "margin" | "padding" => {
+            if let Some((sides, auto)) = css_sides(v, cx.font_px) {
+                if name == "margin" {
+                    bx.margin = sides;
+                    bx.center = auto[1] && auto[3];
+                } else {
+                    bx.padding = sides;
+                }
+            }
+        }
+        "border-radius" => {
+            if let Some(r) = crate::css::tokens(v).first().and_then(|t| px(t.split('/').next().unwrap_or(t))) {
+                bx.radius = r;
+            }
+        }
+        "border" => {
+            let (w, c) = css_border(v, cx.font_px, current.as_deref());
+            bx.border_width = [w; 4];
+            bx.border_color = [c.clone(), c.clone(), c.clone(), c];
+        }
+        "border-width" => {
+            if let Some((sides, _)) = css_sides(v, cx.font_px) {
+                bx.border_width = sides;
+            }
+        }
+        "border-color" => {
+            if let Some(c) = crate::css::color_string(v) {
+                bx.border_color = [Some(c.clone()), Some(c.clone()), Some(c.clone()), Some(c)];
+            }
+        }
+        "border-style" if lv == "none" || lv == "hidden" => bx.border_width = [0.0; 4],
+        "width" => {
+            if let Some(p) = lv.strip_suffix('%').and_then(|p| p.trim().parse::<f32>().ok()) {
+                bx.width_share = Some((p / 100.0).clamp(0.0, 1.0));
+                bx.width = None;
+            } else if let Some(w) = px(v) {
+                bx.width = Some(w);
+                bx.width_share = None;
+            }
+        }
+        "max-width" => bx.max_width = px(v),
+        "box-shadow" => {
+            bx.shadow = None;
+            if lv != "none" {
+                // The first outer shadow; an inset one is not in the subset.
+                for shadow in crate::css::split_top(v, ',') {
+                    let toks = crate::css::tokens(shadow);
+                    if toks.iter().any(|t| t.eq_ignore_ascii_case("inset")) {
+                        continue;
+                    }
+                    let lens: Vec<f32> = toks.iter().filter_map(|t| px(t)).collect();
+                    let colour = toks
+                        .iter()
+                        .find_map(|t| crate::css::color_string(t))
+                        .unwrap_or_else(|| "#00000040".into());
+                    if lens.len() >= 2 {
+                        bx.shadow = Some(BoxShadow {
+                            x: lens[0],
+                            y: lens[1],
+                            blur: lens.get(2).copied().unwrap_or(0.0),
+                            spread: lens.get(3).copied().unwrap_or(0.0),
+                            color: colour,
+                        });
+                        break;
+                    }
+                }
+            }
+        }
+        _ => {
+            // The per-side forms: margin-top, padding-left, border-bottom,
+            // border-left-color, border-top-width …
+            let mut parts = name.splitn(3, '-');
+            let (Some(prop), Some(side)) = (parts.next(), parts.next()) else { return };
+            let Some(i) = side_index(side) else { return };
+            match (prop, parts.next()) {
+                ("margin", None) => {
+                    if lv == "auto" {
+                        if i == 1 || i == 3 {
+                            // Centred only when both sides are auto; the other
+                            // side's declaration completes the pair.
+                            bx.margin[i] = 0.0;
+                            bx.center = true;
+                        }
+                    } else if let Some(l) = px(v) {
+                        bx.margin[i] = l;
+                        if i == 1 || i == 3 {
+                            bx.center = false;
+                        }
+                    }
+                }
+                ("padding", None) => {
+                    if let Some(l) = px(v) {
+                        bx.padding[i] = l;
+                    }
+                }
+                ("border", None) => {
+                    let (w, c) = css_border(v, cx.font_px, current.as_deref());
+                    bx.border_width[i] = w;
+                    bx.border_color[i] = c;
+                }
+                ("border", Some("width")) => {
+                    if let Some(l) = px(v).or_else(|| css_border(v, cx.font_px, None).0.into()) {
+                        bx.border_width[i] = l;
+                    }
+                }
+                ("border", Some("color")) => {
+                    if let Some(c) = crate::css::color_string(v) {
+                        bx.border_color[i] = Some(c);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+/// An HTML colour string as RGB — every form CSS accepts (`#rgb`, `#rrggbb`,
+/// `rgb()`, `hsl()`, the full list of named colours; see [`crate::css::color`]),
+/// its alpha dropped. Anything unrecognised answers `None`, and the caller
+/// then uses the theme's own ink rather than a guess.
+pub fn parse_html_color(value: &str) -> Option<[u8; 3]> {
+    crate::css::color(value).map(|[r, g, b, _]| [r, g, b])
 }
 
 /// §8.5 — URL schemes that must never survive into rendered content.
@@ -3482,9 +4188,9 @@ impl SearchableText for MarkdownDocument {
                         out.push_str(source);
                         out.push('\n');
                     }
-                    Block::BlockQuote { blocks } | Block::FootnoteDefinition { blocks, .. } => {
-                        walk(blocks, out)
-                    }
+                    Block::BlockQuote { blocks }
+                    | Block::FootnoteDefinition { blocks, .. }
+                    | Block::Styled { blocks, .. } => walk(blocks, out),
                     Block::List { items, .. } => {
                         for item in items {
                             walk(&item.blocks, out);
@@ -4625,7 +5331,7 @@ mod tests {
     fn tables_capture_header_alignment_and_body_rows() {
         let md = "| Name | Qty |\n|:---|---:|\n| Widget | 12 |\n| Gadget | 7 |\n";
         let doc = parse_markdown(md);
-        let Block::Table { alignments, header, rows } = &doc.blocks[0] else { panic!("expected a Table") };
+        let Block::Table { alignments, header, rows, .. } = &doc.blocks[0] else { panic!("expected a Table") };
         let header_text: Vec<String> = header.iter().map(|c| plain_text(c)).collect();
         let row_texts: Vec<Vec<String>> =
             rows.iter().map(|r| r.iter().map(|c| plain_text(c)).collect()).collect();
@@ -6216,6 +6922,115 @@ mod mermaid_tests {
 mod html_tests {
     use super::*;
 
+    /// A page written the way generated pages are — variables, a gradient
+    /// header, a centred container, a card with an accent border, a striped
+    /// table, a badge — reaches the layout model styled (operator, 2026-09-27:
+    /// "the page's CSS must be applied too").
+    pub(crate) const STYLED_PAGE: &str = r#"<!DOCTYPE html><html><head><style>
+      :root { --primary: #667eea; --radius: 12px; }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { font-family: 'Segoe UI', sans-serif; background: #f4f6fb; color: #333; }
+      .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+      header { background: linear-gradient(135deg, var(--primary), #764ba2); color: white;
+               padding: 30px; border-radius: var(--radius); text-align: center;
+               box-shadow: 0 4px 12px rgba(0,0,0,.15) }
+      h1 { font-size: 2.2rem; text-transform: uppercase }
+      .card { background: white; border-left: 4px solid var(--primary); padding: 16px; margin: 16px 0; }
+      table { width: 100%; border-collapse: collapse; }
+      th { background: var(--primary); color: #fff; padding: 12px; text-align: left }
+      td { padding: 10px; border-bottom: 1px solid #ddd }
+      tr:nth-child(even) td { background: #f8f9ff }
+      .badge { background: #e8f5e9; color: #2e7d32; font-weight: 600 }
+      @media (max-width: 600px) { header { padding: 10px } }
+      .hidden { display: none }
+      a:hover { color: red }
+    </style></head><body><div class="container">
+      <header><h1>Contracts</h1><p>Approval policy</p></header>
+      <div class="card"><p>Status <span class="badge">approved</span></p></div>
+      <table><tr><th>Value</th><th>Approval</th></tr><tr><td>A</td><td>1</td></tr><tr><td>B</td><td>2</td></tr></table>
+      <p class="hidden">secret</p>
+    </div></body></html>"#;
+
+    #[test]
+    fn a_pages_css_reaches_the_layout_model() {
+        let doc = parse_html(STYLED_PAGE);
+        let mut boxes: Vec<&BoxStyle> = Vec::new();
+        let mut runs: Vec<(String, TextStyle)> = Vec::new();
+        let mut tables: Vec<&TableStyle> = Vec::new();
+        fn walk<'a>(
+            blocks: &'a [Block],
+            boxes: &mut Vec<&'a BoxStyle>,
+            runs: &mut Vec<(String, TextStyle)>,
+            tables: &mut Vec<&'a TableStyle>,
+        ) {
+            for b in blocks {
+                match b {
+                    Block::Styled { style, blocks } => {
+                        boxes.push(style);
+                        walk(blocks, boxes, runs, tables);
+                    }
+                    Block::Heading { content, .. } | Block::Paragraph { content } => {
+                        for i in content {
+                            if let Inline::Text { text, style } = i {
+                                if !text.trim().is_empty() {
+                                    runs.push((text.trim().to_string(), style.clone()));
+                                }
+                            }
+                        }
+                    }
+                    Block::Table { style, .. } => tables.extend(style.as_deref()),
+                    _ => {}
+                }
+            }
+        }
+        walk(&doc.blocks, &mut boxes, &mut runs, &mut tables);
+        let run = |t: &str| runs.iter().find(|(x, _)| x == t).map(|(_, s)| s.clone()).unwrap_or_else(|| panic!("{t}: {runs:?}"));
+
+        let body = boxes.iter().find(|b| b.background == Some(Background::Solid("#f4f6fbff".into()))).expect("body");
+        assert!(body.is_visible());
+        let container = boxes.iter().find(|b| b.max_width == Some(900.0)).expect("the container");
+        assert!(container.center, "margin: 0 auto centres it");
+        assert_eq!(container.padding, [20.0; 4]);
+        let header = boxes
+            .iter()
+            .find(|b| matches!(b.background, Some(Background::Linear { .. })))
+            .expect("the gradient header");
+        let Some(Background::Linear { angle, stops }) = &header.background else { unreachable!() };
+        assert_eq!(*angle, 135.0);
+        assert_eq!(stops, &vec![("#667eeaff".to_string(), 0.0), ("#764ba2ff".to_string(), 1.0)], "var() resolved");
+        assert_eq!(header.radius, 12.0);
+        assert_eq!(header.padding, [30.0; 4], "the @media override is not applied");
+        assert_eq!(header.text_align, Some(TextAlign::Center));
+        assert!(header.shadow.is_some());
+        let card = boxes.iter().find(|b| b.border_width[3] == 4.0).expect("the card's accent border");
+        assert_eq!(card.border_color[3].as_deref(), Some("#667eeaff"));
+        assert_eq!(card.margin, [16.0, 0.0, 16.0, 0.0]);
+
+        let h1 = run("CONTRACTS");
+        assert_eq!(h1.size, Some(35.2), "2.2rem, and text-transform");
+        assert_eq!(h1.color.as_deref(), Some("#ffffffff"), "white, inherited from the header");
+        assert_eq!(run("Status").color.as_deref(), Some("#333333ff"), "body's colour, inherited");
+        let badge = run("approved");
+        assert_eq!(badge.background.as_deref(), Some("#e8f5e9ff"));
+        assert!(badge.strong);
+
+        let t = tables.first().expect("the table's cells are styled");
+        assert_eq!(t.cells[0][0].background, Some(Background::Solid("#667eeaff".into())), "th");
+        assert_eq!(t.cells[1][0].background, Some(Background::Solid("#f8f9ffff".into())), "tr 2 is even");
+        assert_eq!(t.cells[2][0].background, None, "tr 3 is odd");
+        assert_eq!(t.cells[1][0].border_width[2], 1.0, "td's bottom border");
+        assert_eq!(t.cells[1][0].padding, Some([10.0; 4]));
+
+        let text = doc.searchable_text().unwrap_or_default();
+        assert!(!text.contains("secret"), "display: none takes it out");
+        println!(
+            "\n  ── a page's CSS, in the model ──\n  {} boxes (body, container, gradient header, card), {} runs, {} styled table\n  header 135° #667eea→#764ba2, r12, centred, shadow; h1 35.2px white; badge #e8f5e9 bold; zebra rows; @media and :hover ignored; display:none hidden\n",
+            boxes.len(),
+            runs.len(),
+            tables.len()
+        );
+    }
+
     const PAGE: &str = r#"<!DOCTYPE html>
 <html><head><title>Ignored</title><style>p { color: lime }</style></head>
 <body>
@@ -6361,10 +7176,22 @@ mod html_tests {
     }
 
     #[test]
-    fn a_runs_own_colour_is_read_where_a_subset_renderer_can_honestly_read_it() {
+    fn a_runs_own_colour_and_weight_come_from_its_css() {
         let doc = parse_html(
             r#"<p><span style="color: #c00">red</span> <font color="blue">blue</font> <span style="font-weight:bold">plain</span></p>"#,
         );
+        let strong: Vec<bool> = doc
+            .blocks
+            .iter()
+            .flat_map(|b| match b {
+                Block::Paragraph { content } => content.clone(),
+                _ => vec![],
+            })
+            .filter_map(|i| match i {
+                Inline::Text { text, style } if !text.trim().is_empty() => Some(style.strong),
+                _ => None,
+            })
+            .collect();
         let colours: Vec<(String, Option<String>)> = doc
             .blocks
             .iter()
@@ -6382,12 +7209,15 @@ mod html_tests {
         for (text, colour) in &colours {
             println!("{text:>6} -> colour {colour:?} -> rgb {:?}", colour.as_deref().and_then(parse_html_color));
         }
-        assert_eq!(colours[0].1.as_deref(), Some("#c00"));
+        // The cascade carries a colour normalised, alpha included.
+        assert_eq!(colours[0].1.as_deref(), Some("#cc0000ff"));
         assert_eq!(parse_html_color("#c00"), Some([0xcc, 0x00, 0x00]));
-        assert_eq!(colours[1].1.as_deref(), Some("blue"));
+        assert_eq!(colours[1].1.as_deref(), Some("blue"), "<font color> as written");
         assert_eq!(colours[2].1, None, "a declaration that is not a colour sets none");
+        assert_eq!(strong, vec![false, false, true], "font-weight: bold is CSS the subset honours");
         assert_eq!(parse_html_color("rgb(10, 20, 30)"), Some([10, 20, 30]));
-        assert_eq!(parse_html_color("papayawhip"), None, "unrecognised falls back to the theme's ink");
+        assert_eq!(parse_html_color("papayawhip"), Some([255, 239, 213]), "every CSS colour name");
+        assert_eq!(parse_html_color("nonsense"), None, "unrecognised falls back to the theme's ink");
     }
 
     #[test]

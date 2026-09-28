@@ -130,7 +130,9 @@ fn has_code(blocks: &[Block]) -> bool {
     blocks.iter().any(|b| match b {
         Block::CodeBlock { .. } | Block::Mermaid { .. } => true,
         Block::Heading { content, .. } | Block::Paragraph { content } => inline(content),
-        Block::BlockQuote { blocks } | Block::FootnoteDefinition { blocks, .. } => has_code(blocks),
+        Block::BlockQuote { blocks }
+        | Block::FootnoteDefinition { blocks, .. }
+        | Block::Styled { blocks, .. } => has_code(blocks),
         Block::List { items, .. } => items.iter().any(|i| has_code(&i.blocks)),
         Block::Table { header, rows, .. } => {
             header.iter().any(|c| inline(c)) || rows.iter().flatten().any(|c| inline(c))
@@ -222,6 +224,9 @@ fn render_block(block: &Block, fonts: &Fonts, out: &mut LinearLayout) {
             }
             out.push(table);
         }
+        // A CSS box keeps its CONTENT in the PDF, in order; its background,
+        // border and shadow are the screen's (the PDF writer has no boxes).
+        Block::Styled { blocks, .. } => out.push(render_blocks(blocks, fonts)),
         Block::ThematicBreak => {
             out.push(
                 Paragraph::new("* * *")

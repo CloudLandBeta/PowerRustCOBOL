@@ -8,6 +8,69 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.308] — 2026-09-27
+
+### Feature — the Viewer applies a page's CSS
+
+The operator asked that "the page's CSS must be applied too", and chose CSS
+for styling over a full browser engine or opening the page in the system
+browser. An HTML document, or an HTML chunk in a conversation, is now drawn
+with its own CSS. Before, `<style>` was dropped and only an inline `color`
+was read.
+
+- **`crates/cobolt-forms/src/css.rs` (new).** It holds the parser and the
+  cascade:
+  - `<style>` blocks anywhere in the document, plus `style="…"`;
+  - specificity, source order, `!important`, inline above sheets;
+  - inheritance, and `var(--x)` custom properties with fallbacks;
+  - selectors: tag, `.class`, `#id`, `*`, descendant, `>`, comma groups,
+    `:first-child`, `:last-child`, `:only-child`, `:nth-child()`,
+    `:nth-last-child()` and `:root`;
+  - every CSS colour form, and all named colours.
+
+  It is our own module rather than `simplecss`, because `simplecss` has no
+  `:nth-child`, which striped tables need.
+- **What is painted:**
+  - text: colour, size, weight, style, monospaced family, decoration,
+    transform, letter spacing, line height;
+  - boxes (`Block::Styled`, new): background colour or `linear-gradient`,
+    borders per side, radius, padding, margins including `0 auto` centring,
+    width, max-width, `box-shadow`;
+  - `text-align` on every row;
+  - `display: none`;
+  - table cells (`TableStyle`): background, padding, alignment, borders;
+  - an inline element's background, drawn as a highlight.
+
+  CSS lengths scale with the Viewer's zoom: 16 CSS px equals its base font.
+  Boxes are painted in one pass, with the shadow and background slots
+  reserved before the content and filled after it, so nesting costs no
+  second layout.
+- **Deliberately not done:**
+  - CSS layout (flex, grid, floats, positioning): the content stays stacked
+    in order;
+  - `@media` rules;
+  - `:hover`, `::before`, attribute and sibling selectors: skipped, not
+    guessed at;
+  - anything fetched (`@import`, `<link>`, `url()`, web fonts).
+
+  The PDF export keeps a box's content but not its background.
+- Centred and right-aligned text stays selectable: a text run now records
+  its galley's own origin.
+- `parse_html_color` accepts every CSS colour. The unused `html_colour` is
+  removed.
+- Developer's Guide: a new "HTML and its CSS" section, plus the format table
+  and `ORGANIZATION IS HTML`. System KB: the Viewer description.
+  `chunked.data` is regenerated.
+- Tests:
+  - `css::tests` (cascade, selectors, values);
+  - `a_pages_css_reaches_the_layout_model`: a generated-style page with
+    variables, a gradient header, a centred container, an accent-bordered
+    card, a striped table and a badge;
+  - `a_pages_css_is_painted.rs`: the gradient mesh, the `var()` header fill,
+    the white card, the body background and the white heading ink are among
+    the painted shapes;
+  - the colour test updated for normalised colours and CSS weight.
+
 ## [PowerRustCOBOL 1.70.307] — 2026-09-27
 
 ### Fix — a conversation scrolls to every line; PowerChat renders an HTML page instead of showing its code

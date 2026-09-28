@@ -9058,6 +9058,8 @@ fn paint_conversation_bubbles(
             link_color: ink,
             code_color: ink,
             width: max_inner,
+            css_scale: base.css_scale,
+            align: None,
         };
         // Measure: the same layout, on a painter that draws nothing.
         let mut probe_painter = painter.clone();
@@ -9244,7 +9246,12 @@ struct TextMarks<'a> {
 /// One galley the paint put on screen, and where.
 #[derive(Clone)]
 pub(crate) struct TextRun {
+    /// Where the run's text actually is on screen.
     pub rect: egui::Rect,
+    /// The galley's own origin — what a point is measured from to find a
+    /// character. Not `rect.min` once text is centred or right-aligned: a
+    /// galley laid out with `halign` extends to the LEFT of its origin.
+    pub origin: egui::Pos2,
     pub galley: std::sync::Arc<egui::Galley>,
 }
 
@@ -9295,7 +9302,8 @@ impl TextMarks<'_> {
         }
         self.mark(painter, &galley, origin);
         self.runs.push(TextRun {
-            rect: egui::Rect::from_min_size(origin, galley.rect.size()),
+            rect: galley.rect.translate(origin.to_vec2()),
+            origin,
             galley: galley.clone(),
         });
         galley
@@ -9340,6 +9348,11 @@ struct BlockPaintCtx {
     link_color: Color32,
     code_color: Color32,
     width: f32,
+    /// Viewer pixels per CSS pixel: the document's base font over CSS's 16 px,
+    /// so a page's CSS lengths zoom with the rest of it.
+    css_scale: f32,
+    /// `text-align` inherited from an enclosing CSS box.
+    align: Option<crate::viewer::TextAlign>,
 }
 
 fn viewer_heading_size(base: f32, level: u8) -> f32 {
@@ -9512,6 +9525,7 @@ fn build_inline_job(
     link_color: Color32,
     code_color: Color32,
     max_width: f32,
+    css_scale: f32,
 ) -> egui::text::LayoutJob {
     use crate::viewer::Inline;
     let mut job = egui::text::LayoutJob::default();
@@ -9534,24 +9548,32 @@ fn build_inline_job(
                 if text.is_empty() {
                     continue;
                 }
-                let font_id = if style.code {
-                    egui::FontId::monospace(base_size * 0.92)
+                // A size the page's CSS set wins; otherwise the block's own
+                // (a heading's scale included), as it always was.
+                let size = style.size.map(|px| px * css_scale).unwrap_or(base_size);
+                let font_id = if style.code || style.mono {
+                    egui::FontId::monospace(if style.size.is_some() { size } else { size * 0.92 })
                 } else {
-                    egui::FontId::proportional(base_size)
+                    egui::FontId::proportional(size)
                 };
                 // §3's "colours": an explicit colour on the run wins over
                 // every convention below it — a document that SAYS what
                 // colour its text is means it. Only the HTML subset ever
                 // sets one (T21); Markdown runs leave it `None` and keep
                 // the theme's own ink.
-                let color = match style.color.as_deref().and_then(crate::viewer::parse_html_color) {
-                    Some([r, g, b]) => Color32::from_rgb(r, g, b),
+                let color = match style.color.as_deref().and_then(css_color32) {
+                    Some(c) => c,
                     None if style.link.is_some() => link_color,
                     None if style.code => code_color,
                     None if style.strong => strong_color,
                     None => text_color,
                 };
-                let underline = if style.link.is_some() { Stroke::new(1.0, color) } else { Stroke::NONE };
+                let underline = match style.underline {
+                    Some(true) => Stroke::new(1.0, color),
+                    Some(false) => Stroke::NONE,
+                    None if style.link.is_some() => Stroke::new(1.0, color),
+                    None => Stroke::NONE,
+                };
                 let strikethrough = if style.strikethrough { Stroke::new(1.0, color) } else { Stroke::NONE };
                 job.append(
                     text,
@@ -9559,6 +9581,9 @@ fn build_inline_job(
                     egui::TextFormat {
                         font_id,
                         color,
+                        background: style.background.as_deref().and_then(css_color32).unwrap_or(Color32::TRANSPARENT),
+                        extra_letter_spacing: style.letter_spacing * css_scale,
+                        line_height: style.line_height.map(|l| l * css_scale),
                         italics: style.emphasis,
                         underline,
                         strikethrough,
@@ -9635,21 +9660,14 @@ fn paint_block(
     match block {
         Block::Heading { level, content } => {
             let size = viewer_heading_size(ctx.font_size, *level);
-            let job = build_inline_job(content, size, ctx.strong_ink, ctx.strong_ink, ctx.link_color, ctx.code_color, ctx.width);
-            let galley = viewer_layout(painter, job);
-            let h = galley.rect.height();
-            let galley = find.run(painter, galley, pos);
-            painter.galley(pos, galley, ctx.strong_ink);
-            h
+            let job = build_inline_job(content, size, ctx.strong_ink, ctx.strong_ink, ctx.link_color, ctx.code_color, ctx.width, ctx.css_scale);
+            paint_aligned(painter, job, pos, ctx.width, ctx.align, ctx.strong_ink, find)
         }
         Block::Paragraph { content } => {
-            let job = build_inline_job(content, ctx.font_size, ctx.text_ink, ctx.strong_ink, ctx.link_color, ctx.code_color, ctx.width);
-            let galley = viewer_layout(painter, job);
-            let h = galley.rect.height();
-            let galley = find.run(painter, galley, pos);
-            painter.galley(pos, galley, ctx.text_ink);
-            h
+            let job = build_inline_job(content, ctx.font_size, ctx.text_ink, ctx.strong_ink, ctx.link_color, ctx.code_color, ctx.width, ctx.css_scale);
+            paint_aligned(painter, job, pos, ctx.width, ctx.align, ctx.text_ink, find)
         }
+        Block::Styled { style, blocks } => paint_css_box(painter, ctx, style, blocks, pos, find),
         Block::CodeBlock { text, .. } => {
             let font_id = egui::FontId::monospace(ctx.font_size * 0.92);
             let mut job = egui::text::LayoutJob::default();
@@ -9741,7 +9759,7 @@ fn paint_block(
             }
             (y - pos.y).max(0.0)
         }
-        Block::Table { header, rows, .. } => paint_table(painter, ctx, header, rows, pos, find),
+        Block::Table { header, rows, style, .. } => paint_table(painter, ctx, header, rows, style.as_deref(), pos, find),
         Block::ThematicBreak => {
             let mid_y = pos.y + VIEWER_RULE_HEIGHT / 2.0;
             painter.line_segment(
@@ -9770,56 +9788,332 @@ fn paint_block(
     }
 }
 
+/// A CSS colour string as a `Color32`, alpha included.
+fn css_color32(value: &str) -> Option<Color32> {
+    crate::css::color(value).map(|[r, g, b, a]| Color32::from_rgba_unmultiplied(r, g, b, a))
+}
+
+/// Lay a block of text out under `align` and paint it; its height.
+///
+/// Centred and right-aligned text is laid out with the galley's own `halign`
+/// and painted from the column's centre or right edge — so every ROW is
+/// aligned, not just the block as a whole.
+fn paint_aligned(
+    painter: &egui::Painter,
+    mut job: egui::text::LayoutJob,
+    pos: egui::Pos2,
+    width: f32,
+    align: Option<crate::viewer::TextAlign>,
+    ink: Color32,
+    find: &mut TextMarks<'_>,
+) -> f32 {
+    use crate::viewer::TextAlign;
+    let dx = match align {
+        Some(TextAlign::Center) => {
+            job.halign = egui::Align::Center;
+            width / 2.0
+        }
+        Some(TextAlign::Right) => {
+            job.halign = egui::Align::Max;
+            width
+        }
+        _ => 0.0,
+    };
+    let galley = viewer_layout(painter, job);
+    let h = galley.rect.height();
+    let at = pos + egui::vec2(dx, 0.0);
+    let galley = find.run(painter, galley, at);
+    painter.galley(at, galley, ink);
+    h
+}
+
+/// A rounded rectangle's outline as a convex polygon, clockwise from the
+/// top-left arc — what a gradient mesh is fanned over.
+fn rounded_rect_points(rect: egui::Rect, radius: f32) -> Vec<egui::Pos2> {
+    let r = radius.min(rect.width() / 2.0).min(rect.height() / 2.0).max(0.0);
+    if r < 0.5 {
+        return vec![rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom()];
+    }
+    let mut pts = Vec::new();
+    let corners = [
+        (egui::pos2(rect.min.x + r, rect.min.y + r), std::f32::consts::PI),
+        (egui::pos2(rect.max.x - r, rect.min.y + r), 1.5 * std::f32::consts::PI),
+        (egui::pos2(rect.max.x - r, rect.max.y - r), 0.0),
+        (egui::pos2(rect.min.x + r, rect.max.y - r), 0.5 * std::f32::consts::PI),
+    ];
+    for (c, start) in corners {
+        for i in 0..=8 {
+            let a = start + i as f32 / 8.0 * std::f32::consts::FRAC_PI_2;
+            pts.push(c + egui::vec2(a.cos(), a.sin()) * r);
+        }
+    }
+    pts
+}
+
+/// A CSS `linear-gradient` filling a rounded rectangle.
+///
+/// The colour is computed at every vertex from the gradient line, exactly as
+/// CSS defines it (angle 0 points up, 90 right; the line is long enough for
+/// the corners to reach both ends). The fan is split into rings, so a stop in
+/// the middle of the gradient lands where it should rather than being
+/// averaged away between the centre and the edge.
+fn css_gradient_shape(rect: egui::Rect, radius: f32, angle: f32, stops: &[(Color32, f32)]) -> egui::Shape {
+    let a = angle.to_radians();
+    let dir = egui::vec2(a.sin(), -a.cos());
+    let len = (rect.width() * a.sin()).abs() + (rect.height() * a.cos()).abs();
+    let center = rect.center();
+    let colour_at = |p: egui::Pos2| -> Color32 {
+        let t = if len > 0.0 { ((p - center).dot(dir) / len + 0.5).clamp(0.0, 1.0) } else { 0.0 };
+        let first = stops[0];
+        if t <= first.1 {
+            return first.0;
+        }
+        for w in stops.windows(2) {
+            let ((c0, p0), (c1, p1)) = (w[0], w[1]);
+            if t <= p1 {
+                let f = if p1 > p0 { (t - p0) / (p1 - p0) } else { 1.0 };
+                return c0.lerp_to_gamma(c1, f);
+            }
+        }
+        stops[stops.len() - 1].0
+    };
+    let edge = rounded_rect_points(rect, radius);
+    const RINGS: usize = 6;
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(center, colour_at(center));
+    for ring in 1..=RINGS {
+        let f = ring as f32 / RINGS as f32;
+        for p in &edge {
+            let q = center + (*p - center) * f;
+            mesh.colored_vertex(q, colour_at(q));
+        }
+    }
+    let n = edge.len() as u32;
+    for i in 0..n {
+        let j = (i + 1) % n;
+        mesh.add_triangle(0, 1 + i, 1 + j);
+        for ring in 1..RINGS as u32 {
+            let inner = 1 + (ring - 1) * n;
+            let outer = 1 + ring * n;
+            mesh.add_triangle(inner + i, outer + i, outer + j);
+            mesh.add_triangle(inner + i, outer + j, inner + j);
+        }
+    }
+    egui::Shape::mesh(mesh)
+}
+
+/// A box's background as a shape, or `None` for no background.
+fn css_background_shape(bg: Option<&crate::viewer::Background>, rect: egui::Rect, radius: f32) -> Option<egui::Shape> {
+    use crate::viewer::Background;
+    match bg? {
+        Background::Solid(c) => {
+            let c = css_color32(c)?;
+            Some(egui::Shape::rect_filled(rect, egui::CornerRadius::same(radius.min(255.0) as u8), c))
+        }
+        Background::Linear { angle, stops } => {
+            let stops: Vec<(Color32, f32)> =
+                stops.iter().filter_map(|(c, p)| css_color32(c).map(|c| (c, *p))).collect();
+            match stops.len() {
+                0 => None,
+                1 => Some(egui::Shape::rect_filled(rect, egui::CornerRadius::same(radius.min(255.0) as u8), stops[0].0)),
+                _ => Some(css_gradient_shape(rect, radius, *angle, &stops)),
+            }
+        }
+    }
+}
+
+/// Four borders, `[top, right, bottom, left]`: one rounded stroke when they
+/// agree, a line per side when they do not.
+fn paint_css_borders(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    radius: f32,
+    widths: [f32; 4],
+    colours: &[Option<String>; 4],
+    fallback: Color32,
+) {
+    let colour = |i: usize| colours[i].as_deref().and_then(css_color32).unwrap_or(fallback);
+    let uniform = widths.iter().all(|w| (*w - widths[0]).abs() < 0.01) && (0..4).all(|i| colour(i) == colour(0));
+    if uniform {
+        if widths[0] > 0.0 {
+            painter.rect_stroke(
+                rect,
+                egui::CornerRadius::same(radius.min(255.0) as u8),
+                Stroke::new(widths[0], colour(0)),
+                egui::StrokeKind::Inside,
+            );
+        }
+        return;
+    }
+    let [t, r, b, l] = widths;
+    if t > 0.0 {
+        let y = rect.min.y + t / 2.0;
+        painter.line_segment([egui::pos2(rect.min.x, y), egui::pos2(rect.max.x, y)], Stroke::new(t, colour(0)));
+    }
+    if r > 0.0 {
+        let x = rect.max.x - r / 2.0;
+        painter.line_segment([egui::pos2(x, rect.min.y), egui::pos2(x, rect.max.y)], Stroke::new(r, colour(1)));
+    }
+    if b > 0.0 {
+        let y = rect.max.y - b / 2.0;
+        painter.line_segment([egui::pos2(rect.min.x, y), egui::pos2(rect.max.x, y)], Stroke::new(b, colour(2)));
+    }
+    if l > 0.0 {
+        let x = rect.min.x + l / 2.0;
+        painter.line_segment([egui::pos2(x, rect.min.y), egui::pos2(x, rect.max.y)], Stroke::new(l, colour(3)));
+    }
+}
+
+/// A CSS box (`Block::Styled`): margins, width, background, border, padding
+/// and shadow around its content. Returns the height it took, margins
+/// included.
+///
+/// **One pass.** The shadow's and the background's places in the paint list
+/// are reserved BEFORE the content is painted and filled in AFTER, once its
+/// height is known — so boxes nest to any depth at the cost of one layout,
+/// where measuring each first would double the work at every level.
+///
+/// `width` is the BORDER box, as `box-sizing: border-box` has it — the sizing
+/// almost every page written today asks for.
+fn paint_css_box(
+    painter: &egui::Painter,
+    ctx: &BlockPaintCtx,
+    style: &crate::viewer::BoxStyle,
+    blocks: &[crate::viewer::Block],
+    pos: egui::Pos2,
+    find: &mut TextMarks<'_>,
+) -> f32 {
+    let k = ctx.css_scale;
+    let m = style.margin.map(|v| v * k);
+    let b = style.border_width.map(|v| v * k);
+    let p = style.padding.map(|v| v * k);
+    let avail = (ctx.width - m[1] - m[3]).max(20.0);
+    let mut w = avail;
+    if let Some(share) = style.width_share {
+        w = avail * share;
+    }
+    if let Some(px) = style.width {
+        w = px * k;
+    }
+    if let Some(mx) = style.max_width {
+        w = w.min(mx * k);
+    }
+    let w = w.clamp(20.0_f32.min(avail), avail);
+    let x0 = pos.x + m[3] + if style.center { (avail - w) / 2.0 } else { 0.0 };
+    let top = pos.y + m[0];
+    let inner_w = (w - b[1] - b[3] - p[1] - p[3]).max(10.0);
+    let shadow_idx = painter.add(egui::Shape::Noop);
+    let bg_idx = painter.add(egui::Shape::Noop);
+    let inner = BlockPaintCtx { width: inner_w, align: style.text_align.or(ctx.align), ..*ctx };
+    let origin = egui::pos2(x0 + b[3] + p[3], top + b[0] + p[0]);
+    let content_h = if blocks.is_empty() {
+        0.0
+    } else {
+        (paint_blocks(painter, &inner, blocks, origin, find) - VIEWER_BLOCK_SPACING).max(0.0)
+    };
+    let h = b[0] + p[0] + content_h + p[2] + b[2];
+    let rect = egui::Rect::from_min_size(egui::pos2(x0, top), egui::vec2(w, h));
+    let radius = style.radius * k;
+    if let Some(s) = &style.shadow {
+        if let Some(colour) = css_color32(&s.color) {
+            let shadow = egui::epaint::Shadow {
+                offset: [(s.x * k).round().clamp(-127.0, 127.0) as i8, (s.y * k).round().clamp(-127.0, 127.0) as i8],
+                blur: (s.blur * k).round().clamp(0.0, 255.0) as u8,
+                spread: (s.spread * k).round().clamp(0.0, 255.0) as u8,
+                color: colour,
+            };
+            painter.set(shadow_idx, shadow.as_shape(rect, egui::CornerRadius::same(radius.min(255.0) as u8)));
+        }
+    }
+    if let Some(shape) = css_background_shape(style.background.as_ref(), rect, radius) {
+        painter.set(bg_idx, shape);
+    }
+    paint_css_borders(painter, rect, radius, b, &style.border_color, ctx.text_ink);
+    m[0] + h + m[2]
+}
+
 fn paint_table(
     painter: &egui::Painter,
     ctx: &BlockPaintCtx,
     header: &[Vec<crate::viewer::Inline>],
     rows: &[Vec<Vec<crate::viewer::Inline>>],
+    style: Option<&crate::viewer::TableStyle>,
     pos: egui::Pos2,
     find: &mut TextMarks<'_>,
 ) -> f32 {
     let col_count = header.len().max(rows.first().map_or(0, |r| r.len())).max(1);
     let col_width = (ctx.width / col_count as f32).max(30.0);
     let mut y = pos.y;
+    // A table whose CSS draws its own cell borders gets no rule of ours
+    // under the header as well.
+    let own_borders =
+        style.is_some_and(|s| s.cells.iter().flatten().any(|c| c.border_width.iter().any(|w| *w > 0.0)));
 
     // A closure that borrows `find` mutably cannot also be called twice
     // below while `find` is borrowed elsewhere, so this is a plain fn of
     // the cursor rather than a capture of it.
+    #[allow(clippy::too_many_arguments)]
     fn paint_row(
         painter: &egui::Painter,
         ctx: &BlockPaintCtx,
         pos: egui::Pos2,
         col_width: f32,
         cells: &[Vec<crate::viewer::Inline>],
+        styles: Option<&Vec<crate::viewer::CellStyle>>,
         y: f32,
         strong: bool,
         find: &mut TextMarks<'_>,
     ) -> f32 {
-        let mut row_h: f32 = 0.0;
+        let k = ctx.css_scale;
         let color = if strong { ctx.strong_ink } else { ctx.text_ink };
+        let mut bg_slots = Vec::new();
+        let mut row_h: f32 = 0.0;
+        let pads: Vec<[f32; 4]> = (0..cells.len())
+            .map(|i| {
+                styles
+                    .and_then(|s| s.get(i))
+                    .and_then(|c| c.padding)
+                    .map(|p| p.map(|v| v * k))
+                    .unwrap_or([VIEWER_TABLE_CELL_PADDING; 4])
+            })
+            .collect();
         for (i, cell) in cells.iter().enumerate() {
+            let cs = styles.and_then(|s| s.get(i));
+            bg_slots.push(painter.add(egui::Shape::Noop));
+            let pad = pads[i];
             let x = pos.x + i as f32 * col_width;
-            let cell_width = (col_width - 2.0 * VIEWER_TABLE_CELL_PADDING).max(10.0);
-            let job = build_inline_job(cell, ctx.font_size * 0.95, color, ctx.strong_ink, ctx.link_color, ctx.code_color, cell_width);
-            let galley = viewer_layout(painter, job);
-            row_h = row_h.max(galley.rect.height());
-            let at = egui::pos2(x + VIEWER_TABLE_CELL_PADDING, y + VIEWER_TABLE_CELL_PADDING);
-            let galley = find.run(painter, galley, at);
-            painter.galley(at, galley, color);
+            let cell_width = (col_width - pad[1] - pad[3]).max(10.0);
+            let job = build_inline_job(cell, ctx.font_size * 0.95, color, ctx.strong_ink, ctx.link_color, ctx.code_color, cell_width, ctx.css_scale);
+            let at = egui::pos2(x + pad[3], y + pad[0]);
+            let h = paint_aligned(painter, job, at, cell_width, cs.and_then(|c| c.align).or(ctx.align), color, find);
+            row_h = row_h.max(h + pad[0] + pad[2]);
         }
-        row_h + 2.0 * VIEWER_TABLE_CELL_PADDING
+        for (i, slot) in bg_slots.into_iter().enumerate() {
+            let Some(cs) = styles.and_then(|s| s.get(i)) else { continue };
+            let rect = egui::Rect::from_min_size(egui::pos2(pos.x + i as f32 * col_width, y), egui::vec2(col_width, row_h));
+            if let Some(shape) = css_background_shape(cs.background.as_ref(), rect, 0.0) {
+                painter.set(slot, shape);
+            }
+            paint_css_borders(painter, rect, 0.0, cs.border_width.map(|v| v * k), &cs.border_color, ctx.text_ink);
+        }
+        row_h
     }
 
+    let mut style_rows = style.map(|s| s.cells.iter());
     if !header.is_empty() {
-        let h = paint_row(painter, ctx, pos, col_width, header, y, true, find);
-        painter.line_segment(
-            [egui::pos2(pos.x, y + h), egui::pos2(pos.x + ctx.width, y + h)],
-            Stroke::new(1.5, ctx.strong_ink),
-        );
-        y += h + 2.0;
+        let styles = style_rows.as_mut().and_then(|r| r.next());
+        let h = paint_row(painter, ctx, pos, col_width, header, styles, y, true, find);
+        if !own_borders {
+            painter.line_segment(
+                [egui::pos2(pos.x, y + h), egui::pos2(pos.x + ctx.width, y + h)],
+                Stroke::new(1.5, ctx.strong_ink),
+            );
+        }
+        y += h + if own_borders { 0.0 } else { 2.0 };
     }
     for row in rows {
-        let h = paint_row(painter, ctx, pos, col_width, row, y, false, find);
+        let styles = style_rows.as_mut().and_then(|r| r.next());
+        let h = paint_row(painter, ctx, pos, col_width, row, styles, y, false, find);
         y += h;
     }
     (y - pos.y).max(0.0)
@@ -10451,7 +10745,16 @@ pub(crate) fn draw_viewer(
     } else {
         let blocks = blocks.unwrap();
         let inner_width = (content_rect.width() - 2.0 * VIEWER_TEXT_INSET).max(20.0);
-        let block_ctx = BlockPaintCtx { font_size, text_ink: muted, strong_ink: ink, link_color, code_color, width: inner_width };
+        let block_ctx = BlockPaintCtx {
+            font_size,
+            text_ink: muted,
+            strong_ink: ink,
+            link_color,
+            code_color,
+            width: inner_width,
+            css_scale: font_size / 16.0,
+            align: None,
+        };
         let origin = egui::pos2(content_rect.min.x + VIEWER_TEXT_INSET, top);
         // R29 on a formatted document: each galley is searched as it is
         // painted, with a running count in document order saying which match
@@ -10944,6 +11247,8 @@ fn draw_viewer_page_face(
                     link_color: VIEWER_LINK_COLOR,
                     code_color: VIEWER_CODE_COLOR,
                     width: body.width().max(4.0),
+                    css_scale: size / 16.0,
+                    align: None,
                 };
                 // A card is a MINIATURE: nothing in it is searched, and
                 // nothing in it is selectable — the reader selects the page,
@@ -19338,6 +19643,7 @@ mod theme_render_tests {
                 VIEWER_LINK_COLOR,
                 VIEWER_CODE_COLOR,
                 width,
+                1.0,
             );
             let galley = ctx.fonts_mut(|f| f.layout_job(job));
             galley.rows.iter().map(|r| r.text().to_owned()).collect()

@@ -5363,7 +5363,7 @@ fn viewer_view_interactive(
             }
             let (i, _) = best?;
             let run = &painted.text_runs[i];
-            let cursor = run.galley.cursor_from_pos(p - run.rect.min);
+            let cursor = run.galley.cursor_from_pos(p - run.origin);
             Some(vw::TextAnchor::new(i, cursor.index.0))
         };
 
