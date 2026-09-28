@@ -8,6 +8,34 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.306] — 2026-09-27
+
+### Fix — the PowerChat end-to-end test runs again
+
+`powerchat_settings_topics_documents_and_chat` had failed at its first
+assertion since 1.70.261, so everything after it went untested. PowerChat
+itself was not broken. The test still described PowerChat as it was before
+these changes:
+
+- Chat waits for a topic (1.70.280), and the welcome screen is its own form,
+  opened through the menu's Getting started row.
+- The CRUD pattern (1.70.261):
+  - New opens the Create/Update tab.
+  - Save goes back to the list, and the providers form reports there.
+  - A topic is opened from its row's icon.
+  - A prompt version is promoted from its row, after the confirmation dialog.
+- The drop zone copies nothing itself (1.70.301).
+- A deleted document is named in the status (1.70.300).
+
+The harness also gained two things:
+
+- A form other than the main one now gets the chat form as its `super`, the
+  way the app opens it. Settings and Topics call `super::"PC-REFRESH"`, and
+  without a parent that raised "super is NULL".
+- A `cell` helper clicks a DataGrid cell the way the host reports one.
+
+All 12 PowerChat tests pass.
+
 ## [PowerRustCOBOL 1.70.305] — 2026-09-27
 
 ### PowerChat: a table or formatted answer goes straight into the conversation

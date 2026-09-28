@@ -101,6 +101,9 @@ impl Session {
         // The form's own object, as `set_form_host` below names it.
         let form_object = "FORM".to_string();
         let err_tx = display_tx.clone();
+        // Every form but the main one is opened by the chat form, so its
+        // `super` is that form (049 R28): a stand-in that answers.
+        let is_main = form.main_form;
         let handle = thread::spawn(move || {
             let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
             interp.set_input_channel(input_rx);
@@ -116,6 +119,9 @@ impl Session {
                 let (closed_tx, closed_rx) = mpsc::channel::<String>();
                 _closed = Some(closed_tx);
                 interp.set_form_host(req_tx, ROOT_HANDLE, "FORM", closed_rx);
+                if !is_main {
+                    interp.set_super_form("CHAT-FORM-STAND-IN");
+                }
                 thread::spawn(move || {
                     let mut answers = dialogs.unwrap_or_default().into_iter();
                     while let Ok(req) = req_rx.recv() {
@@ -130,6 +136,11 @@ impl Session {
                                 }
                                 let _ = opened_tx.send(form_id);
                                 let _ = reply.send(None);
+                            }
+                            // The stand-in parent: `INVOKE super::"PC-REFRESH"()`
+                            // and its kin succeed and return nothing.
+                            FormRequest::HandleMethod { reply, .. } => {
+                                let _ = reply.send(Ok(String::new()));
                             }
                             _ => {}
                         }
@@ -160,6 +171,14 @@ impl Session {
 
     fn click(&self, ctrl: &str) {
         self.events.send(FormEvent::click(ctrl)).unwrap();
+    }
+
+    /// Click a DataGrid cell the way the host reports one: which cell
+    /// (1-based data row and column), then the grid's own event.
+    fn cell(&self, ctrl: &str, row: usize, col: usize) {
+        self.input.send(StateUpdate::new(ctrl, "ClickedRow", &row.to_string())).unwrap();
+        self.input.send(StateUpdate::new(ctrl, "ClickedColumn", &col.to_string())).unwrap();
+        self.events.send(FormEvent::new(ctrl, "onCellClick")).unwrap();
     }
 
     fn menu(&self, item: &str) {
@@ -330,22 +349,24 @@ fn powerchat_settings_topics_documents_and_chat() {
         );
         rows.iter().filter(|r| r.overlay).map(|r| (r.item.id.clone(), r.item.enabled)).collect()
     };
-    let shown = |v: &std::collections::HashMap<(String, String), String>, ctrl: &str| -> String {
-        v.get(&(ctrl.to_string(), "VISIBLE".to_string())).cloned().unwrap_or_default()
-    };
     let mut s = Session::start("chat-form.cfrm");
     let v = s.settle();
     s.quit();
     let state = menu_state(&v);
-    for id in ["newc", "tpcs", "docs", "fils", "prmt"] {
+    // Chat waits for a topic as well (1.70.280), and a first run has none.
+    for id in ["chat", "newc", "tpcs", "docs", "fils", "prmt"] {
         assert!(state.contains(&(id.to_string(), false)), "{id} is shut before a model is set: {state:?}");
     }
-    assert!(!state.iter().any(|(id, on)| (id == "sett" || id == "chat") && !on), "RAG settings and Chat stay open");
-    assert_eq!(shown(&v, "POWERCHAT"), "true", "the welcome screen is up");
-    assert_eq!(shown(&v, "PIC-ROBOT"), "true");
-    assert_eq!(shown(&v, "VWR-CHAT"), "false", "the chat waits");
+    assert!(!state.iter().any(|(id, on)| (id == "sett" || id == "welc") && !on), "RAG settings and Getting started stay open");
+    // The welcome screen is its own form since 1.70.261: the chat asks the
+    // menu to open its row, and the ContentPane shows it.
+    let activated = v
+        .get(&("SIDEMENU-1".to_string(), cobolt_forms::menu::runtime::ACTIVATE_ITEM_PROP.to_ascii_uppercase()))
+        .cloned()
+        .unwrap_or_default();
+    assert!(activated.starts_with("welc#"), "the welcome form is opened: {activated:?}");
     report.push(format!(
-        "first run: menu shut but for Chat and RAG settings; welcome screen shown — {:.0} ms",
+        "first run: menu shut but for RAG settings and Getting started; welcome form opened — {:.0} ms",
         t.elapsed().as_secs_f64() * 1000.0
     ));
 
@@ -380,7 +401,8 @@ fn powerchat_settings_topics_documents_and_chat() {
     let tested = s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Connection OK"));
     assert_eq!(tested.trim(), "Connection OK: 2 models available.", "the test lists the provider's models");
     s.click("Btn-Save");
-    s.wait_for("Lbl-Status", "Caption", |v| v.contains("key saved"));
+    // Saved, the CRUD form goes back to its list tab and says so there.
+    s.wait_for("Lbl-List-Status", "Caption", |v| v.contains("key saved"));
     s.quit();
     // Model selection: opening connects and lists the models by itself.
     let mut s = Session::start("model-form.cfrm");
@@ -429,23 +451,35 @@ fn powerchat_settings_topics_documents_and_chat() {
     let v = s.settle();
     s.quit();
     let state = menu_state(&v);
-    for id in ["newc", "tpcs", "docs", "fils", "prmt"] {
+    for id in ["tpcs", "docs", "fils", "prmt"] {
         assert!(state.contains(&(id.to_string(), true)), "{id} opens once an agent has a model: {state:?}");
     }
-    assert_eq!(shown(&v, "POWERCHAT"), "false", "the welcome screen goes");
-    assert_eq!(shown(&v, "VWR-CHAT"), "true", "the chat is back");
-    report.push(format!("configured: menu open, welcome screen gone — {:.0} ms", t.elapsed().as_secs_f64() * 1000.0));
+    for id in ["chat", "newc"] {
+        assert!(state.contains(&(id.to_string(), false)), "{id} still waits for a topic: {state:?}");
+    }
+    let activated = v
+        .get(&("SIDEMENU-1".to_string(), cobolt_forms::menu::runtime::ACTIVATE_ITEM_PROP.to_ascii_uppercase()))
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(activated, "", "the welcome form is not forced open any more");
+    report.push(format!(
+        "configured: menu open but Chat and New conversation, which wait for a topic; no welcome form — {:.0} ms",
+        t.elapsed().as_secs_f64() * 1000.0
+    ));
 
     // ── Topics: create one, open it ──
     let t = Instant::now();
     let mut s = Session::start("topics-form.cfrm");
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("No topics yet"));
+    // The CRUD pattern: New opens the Create/Update tab, Save goes back to
+    // the grid, and a row's chat icon (column 3) opens that topic.
+    s.click("Btn-New");
+    s.wait_for("Tab-Crud", "SelectedTab", |v| v == "1");
     s.type_into("Txt-Name", "Human Resources");
     s.type_into("Txt-Prompt", "You answer questions about the company's HR policies.");
-    s.click("Btn-Create");
+    s.click("Btn-Save");
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("Topic created"));
-    s.pick("Lst-Topics", 0);
-    s.click("Btn-Open");
+    s.cell("Dg-List", 1, 3);
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("Topic opened"));
     s.quit();
     let collections: Vec<PathBuf> = std::fs::read_dir(&kb).unwrap().flatten().map(|e| e.path()).collect();
@@ -484,9 +518,9 @@ fn powerchat_settings_topics_documents_and_chat() {
     s.wait_for("Lbl-Status", "Caption", |v| v == "Folder created: Policies.");
     assert!(data.join("folders.idx").is_file(), "the folder is recorded in data/folders.idx");
 
+    // Selecting a folder is where uploads go (1.70.301: the zone copies
+    // nothing itself, the form imports into the selected folder).
     s.events.send(node("Policies", 1, 1)).unwrap();
-    let dest = s.wait_for("Drop-Docs", "DestinationFolder", |v| v.trim_end().ends_with("/Policies"));
-    assert_eq!(dest.trim_end(), docs.join("Policies").display().to_string(), "a drop goes into the selected folder");
     s.wait_for("Lbl-Status", "Caption", |v| v == "New documents go into Policies.");
 
     // What a drop does: the file lands in the folder, and a refresh indexes it.
@@ -503,9 +537,10 @@ fn powerchat_settings_topics_documents_and_chat() {
     s.events.send(node("travel.md", 2, 2)).unwrap();
     s.wait_for("Lbl-Status", "Caption", |v| v == "New documents go into Policies.");
     s.click("Btn-Delete");
-    s.wait_for("Lbl-Status", "Caption", |v| v.contains("removed 1"));
-    // The emptied folder stays, with its own folder icon, until it is deleted.
+    // The emptied folder stays, with its own folder icon, until it is deleted;
+    // the tree is rebuilt before the status says what went.
     s.wait_for("Trv-Docs", "Items", |v| v == "Policies\tfolder\nleave-policy.md");
+    s.wait_for("Lbl-Status", "Caption", |v| v == "Deleted: Policies/travel.md - removed from the Knowledge Base.");
 
     s.events.send(node("Policies", 1, 1)).unwrap();
     s.wait_for("Lbl-Status", "Caption", |v| v == "New documents go into Policies.");
@@ -569,14 +604,14 @@ fn powerchat_settings_topics_documents_and_chat() {
     let t = Instant::now();
     let mut s = Session::start("providers-form.cfrm");
     s.settle();
-    s.choose("Cmb-Conn", 0); // (new connection)
-    s.settle();
+    s.click("Btn-New"); // an empty Create/Update page for a new connection
+    s.wait_for("Tab-Crud", "SelectedTab", |v| v == "1");
     s.type_into("Txt-Name", "planner");
     s.pick("Cmb-Provider", 14); // Ollama (Local), the IDE's 15th provider
     s.type_into("Txt-Url", &url);
     s.type_into("Txt-Key", "");
     s.click("Btn-Save");
-    s.wait_for("Lbl-Status", "Caption", |v| v.contains("Connection saved"));
+    s.wait_for("Lbl-List-Status", "Caption", |v| v.contains("Connection saved"));
     s.quit();
     let mut s = Session::start("model-form.cfrm");
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("models available"));
@@ -641,14 +676,17 @@ fn powerchat_settings_topics_documents_and_chat() {
     std::fs::write(&actors_cidx, r#"<?xml version="1.0" encoding="UTF-8"?><IndexedFile name="ACTORS-FILE" finalized="true" version="1.0"><assign-path>actors.idx</assign-path><access-mode>dynamic</access-mode><record-format fixed-length="111"/><storage mode="disk" compression="false" persistence="false"/><comment><![CDATA[One row per performer and their salary]]></comment><keys><primary duplicates="false" ordering="ascending"><part field="ACTOR-ID" offset="0" length="9" encoding="bytes"/></primary></keys><fields><Field level="1" name="ACTORS-RECORD" usage="display"><Field level="5" name="ACTOR-ID" pic="9(9)" usage="display" offset="0" length="9"><comment><![CDATA[The performer number]]></comment></Field><Field level="5" name="ACTOR-SALARY" pic="9(9)V99" usage="display" offset="99" length="11"><comment><![CDATA[Annual salary]]></comment></Field></Field></fields></IndexedFile>"#).unwrap();
     let actors_before = std::fs::read(&actors).unwrap();
     let mut s = Session::start("files-form.cfrm");
+    s.settle();
+    s.click("Btn-New"); // the Create/Update page, empty
+    s.wait_for("Tab-Crud", "SelectedTab", |v| v == "1");
     s.type_into("Txt-Data", &root.join("missing.idx").display().to_string());
     s.type_into("Txt-Cidx", &actors_cidx.display().to_string());
-    s.click("Btn-Add");
+    s.click("Btn-Save");
     let refused = s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Not added"));
     assert!(refused.contains("NOT-FOUND"), "{refused}");
     s.type_into("Txt-Data", &actors.display().to_string());
     s.type_into("Txt-Cidx", &actors_cidx.display().to_string());
-    s.click("Btn-Add");
+    s.click("Btn-Save");
     let added = s.wait_for("Lbl-Status", "Caption", |v| v.starts_with("Added"));
     assert!(added.contains("ACTORS-FILE"), "{added}");
     s.quit();
@@ -685,22 +723,29 @@ fn powerchat_settings_topics_documents_and_chat() {
     let t = Instant::now();
     let topics_text = || String::from_utf8_lossy(&std::fs::read(data.join("topics.idx")).unwrap()).into_owned();
     let mut s = Session::start("prompts-form.cfrm");
-    s.wait_for("Lst-Versions", "Items", |v| v.contains("v1") && v.contains("[active]"));
+    // One grid row per version, newest first: number, date, the active
+    // marker, a preview, then promote (5), edit (6) and delete (7).
+    s.wait_for("Dg-List", "Rows", |v| v.starts_with("1\t") && v.contains("[active]"));
+    s.click("Btn-New");
+    s.wait_for("Tab-Crud", "SelectedTab", |v| v == "1");
     s.type_into("Txt-Prompt", "You answer HR questions in two sentences at most.");
     s.click("Btn-Save");
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("Saved as v2, now active"));
     assert!(topics_text().contains("two sentences at most"), "v2 is the topic's prompt now");
-    s.pick("Lst-Versions", 1);
-    s.click("Btn-Activate");
-    s.wait_for("Lbl-Status", "Caption", |v| v.contains("Press Activate again to confirm"));
-    assert!(topics_text().contains("two sentences at most"), "nothing changes before the confirmation");
-    s.click("Btn-Activate");
+    // Promoting v1 (row 2 now) asks first: No changes nothing.
+    *s.confirm.lock().unwrap() = "N".into();
+    s.cell("Dg-List", 2, 5);
+    assert_eq!(s.opened.recv_timeout(Duration::from_secs(30)).unwrap().to_ascii_uppercase(), "CONFIRM-FORM");
+    s.settle();
+    assert!(topics_text().contains("two sentences at most"), "nothing changes when the operator says no");
+    *s.confirm.lock().unwrap() = "Y".into();
+    s.cell("Dg-List", 2, 5);
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("v1 is the active prompt"));
     s.quit();
     let topics = topics_text();
     assert!(topics.contains("company's HR policies") && !topics.contains("two sentences at most"), "v1 is back");
     report.push(format!(
-        "prompts:   v1 from the topic; v2 saved and active; v1 promoted back after a confirmation — {:.0} ms",
+        "prompts:   v1 from the topic; v2 saved and active; v1 promoted back only once the dialog says yes — {:.0} ms",
         t.elapsed().as_secs_f64() * 1000.0
     ));
 
@@ -731,8 +776,7 @@ fn powerchat_settings_topics_documents_and_chat() {
     assert!(installed.contains("3 topics, 7 documents"), "{installed}");
     s.click("Btn-Install");
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("already installed"));
-    s.pick("Lst-Topics", 2);
-    s.click("Btn-Open");
+    s.cell("Dg-List", 3, 3);
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("Topic opened"));
     s.quit();
     assert_eq!(std::fs::read_dir(&kb).unwrap().count(), kb_before + 3, "one collection per sample topic");
@@ -782,20 +826,19 @@ fn powerchat_settings_topics_documents_and_chat() {
     let t = Instant::now();
     // Removing the samples cleared the current topic; open the operator's own.
     let mut s = Session::start("topics-form.cfrm");
-    s.pick("Lst-Topics", 0);
-    s.click("Btn-Open");
+    s.cell("Dg-List", 1, 3);
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("Topic opened"));
     s.quit();
     let langs = [
-        ("pt", "Enviar", "Este mês:", "Nova conversa", "Criar tópico"),
-        ("es", "Enviar", "Este mes:", "Nueva conversación", "Crear tema"),
-        ("fr", "Envoyer", "Ce mois-ci :", "Nouvelle conversation", "Créer le sujet"),
-        ("jp", "送信", "今月：", "新しい会話", "トピックを作成"),
-        ("cn", "发送", "本月：", "新对话", "创建主题"),
-        ("en", "Send", "This month:", "New conversation", "Create topic"),
+        ("pt", "Enviar", "Este mês:", "Nova conversa", "Instalar tópicos de exemplo"),
+        ("es", "Enviar", "Este mes:", "Nueva conversación", "Instalar temas de ejemplo"),
+        ("fr", "Envoyer", "Ce mois-ci :", "Nouvelle conversation", "Installer les sujets d'exemple"),
+        ("jp", "送信", "今月：", "新しい会話", "サンプルトピックをインストール"),
+        ("cn", "发送", "本月：", "新对话", "安装示例主题"),
+        ("en", "Send", "This month:", "New conversation", "Install sample topics"),
     ];
     let mut checked = 0;
-    for (code, send, month, new_conv, create) in langs {
+    for (code, send, month, new_conv, install) in langs {
         let mut s = Session::start("chat-form.cfrm");
         s.wait_for("Lbl-Status", "Caption", |v| !v.is_empty());
         s.click(&format!("Flag-{code}"));
@@ -808,7 +851,7 @@ fn powerchat_settings_topics_documents_and_chat() {
         let menu = std::fs::read_to_string(project().join("generated/chat-form.cbl")).unwrap();
         assert!(menu.contains(&format!("VALUE \"{new_conv}\"")), "{code}: the menu row has its label");
         let mut s = Session::start("topics-form.cfrm");
-        s.wait_for("Btn-Create", "Caption", |v| v == create);
+        s.wait_for("Btn-Install", "Caption", |v| v == install);
         s.quit();
         checked += 1;
     }
