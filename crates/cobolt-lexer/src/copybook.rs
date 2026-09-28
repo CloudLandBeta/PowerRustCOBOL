@@ -630,7 +630,7 @@ fn load_and_expand(
         errors.push(format!("cyclic COPY of '{name}'"));
         return String::new();
     }
-    let raw = match std::fs::read_to_string(&path) {
+    let raw = match std::fs::read(&path).map(decode_source_bytes) {
         Ok(s) => s,
         Err(e) => {
             errors.push(format!("cannot read copybook '{name}': {e}"));
@@ -669,6 +669,31 @@ fn load_and_expand(
     let expanded = expand_text(&replaced, &child_dirs, format, errors, stack, depth + 1);
     stack.pop();
     expanded
+}
+
+/// A copybook's bytes as text: UTF-8 when they are, and otherwise
+/// **Windows-1252** — what PowerCOBOL and other Windows editors save, where an
+/// accented letter is one byte that is not valid UTF-8. Refusing such a file
+/// stopped a form with "stream did not contain valid UTF-8" (operator,
+/// 2026-09-28). Windows-1252 is Latin-1 plus printable characters in
+/// 0x80–0x9F, so a Latin-1 file reads the same; its five unassigned bytes
+/// keep their Latin-1 meaning.
+pub fn decode_source_bytes(bytes: Vec<u8>) -> String {
+    match String::from_utf8(bytes) {
+        Ok(s) => s,
+        Err(e) => e.into_bytes().iter().map(|&b| windows_1252_char(b)).collect(),
+    }
+}
+
+fn windows_1252_char(b: u8) -> char {
+    const HIGH: [char; 32] = [
+        '€', '\u{81}', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\u{8D}', 'Ž', '\u{8F}',
+        '\u{90}', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', '\u{9D}', 'ž', 'Ÿ',
+    ];
+    match b {
+        0x80..=0x9F => HIGH[(b - 0x80) as usize],
+        _ => b as char,
+    }
 }
 
 /// Resolve a copybook name to a file path under `base_dir`, trying common
@@ -844,6 +869,34 @@ mod tests {
         assert!(r.errors.is_empty(), "{:?}", r.errors);
         assert!(r.text.contains("01 WS-NAME PIC X(10)."));
         assert!(!r.text.to_uppercase().contains("COPY REC"));
+    }
+
+    /// A copybook saved in Windows-1252 — accents one byte each, as
+    /// PowerCOBOL writes them — is read, not refused as invalid UTF-8; a UTF-8
+    /// one reads as it always did.
+    #[test]
+    fn a_windows_1252_copybook_is_read() {
+        let d = tmp().join("cp1252");
+        std::fs::create_dir_all(d.join("TXT")).unwrap();
+        // "01 WS-TITULO PIC X(20) VALUE \"Função – Açúcar\"." in Windows-1252.
+        let mut bytes = b"01 WS-TITULO PIC X(20) VALUE \"Fun".to_vec();
+        bytes.extend_from_slice(&[0xE7, 0xE3]); // ç ã
+        bytes.extend_from_slice(b"o ");
+        bytes.push(0x96); // – (en dash, 0x96 in Windows-1252 only)
+        bytes.extend_from_slice(b" A");
+        bytes.push(0xE7); // ç
+        bytes.push(0xFA); // ú
+        bytes.extend_from_slice(b"car\".\n");
+        std::fs::write(d.join("TXT").join("PADRAO.WS"), &bytes).unwrap();
+        write(&d.join("TXT"), "UTF8.WS", "01 WS-OUTRO PIC X(10) VALUE \"Ação\".\n");
+        for src in ["       COPY 'TXT/PADRAO.WS'.\n", "       COPY \"TXT/UTF8.WS\".\n"] {
+            let r = expand_copybooks(src, &d, SourceFormat::Free);
+            assert!(r.errors.is_empty(), "{src}: {:?}", r.errors);
+        }
+        let r = expand_copybooks("       COPY 'TXT/PADRAO.WS'.\n", &d, SourceFormat::Free);
+        assert!(r.text.contains("\"Função – Açúcar\""), "{}", r.text);
+        let r = expand_copybooks("       COPY \"TXT/UTF8.WS\".\n", &d, SourceFormat::Free);
+        assert!(r.text.contains("\"Ação\""), "UTF-8 unchanged: {}", r.text);
     }
 
     /// A Windows path in the literal (`\`) finds the copybook in a subfolder

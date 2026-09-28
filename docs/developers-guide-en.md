@@ -7626,6 +7626,12 @@ Both lines name the same file. A backslash is read as a folder separator on
 habit) compile unchanged on macOS and Linux. A copybook that itself contains
 `COPY` resolves its names from its own folder first.
 
+> **Note — the copybook's encoding.** A copybook saved as UTF-8 is read as
+> such. One that is not — saved by PowerCOBOL or another Windows editor in
+> **Windows-1252** (or Latin-1), where `ç`, `ã` or `é` is a single byte — is
+> read as Windows-1252, so its accents arrive intact. Single or double quotes
+> around the name are the same: `COPY 'txt/Padrao.ws'.`
+
 **In a form**, write the path from the project's folder: a form's program is
 generated into the project's `generated/` folder, which you never write in, so
 `COPY "txt\Padrao.ws"` finds `<project>/txt/Padrao.ws`. It works in every

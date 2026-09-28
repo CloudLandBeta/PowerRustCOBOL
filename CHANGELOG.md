@@ -8,6 +8,26 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.333] — 2026-09-28
+
+### Fix — a copybook saved in Windows-1252 is read, not refused
+
+A form stopped with *"copybook error: cannot read copybook 'TXT/PADRAO.WS':
+stream did not contain valid UTF-8"*. The `COPY` was right and the file was
+found, but it was saved as Windows-1252, as PowerCOBOL writes it, where an
+accented letter is one byte that is not valid UTF-8.
+`cobolt_lexer::copybook::decode_source_bytes` now reads a copybook as UTF-8
+when it is, and otherwise as Windows-1252, which is Latin-1 plus the
+characters in 0x80–0x9F. No dependency is added.
+
+Every path that expands a `COPY` goes through it: the IDE's check, `rcrun`,
+Run Form, and the compiled binary.
+
+- Test: `copybook::tests::a_windows_1252_copybook_is_read`. It reads
+  `"Função – Açúcar"` from Windows-1252 bytes; a UTF-8 copybook is unchanged.
+  Lexer 152/152.
+- Developer's Guide: a note on the copybook's encoding, and single quotes.
+
 ## [PowerRustCOBOL 1.70.332] — 2026-09-28
 
 ### Feature — PowerChat: one main prompt holds every instruction; the report templates are complete pages
