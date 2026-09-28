@@ -5797,15 +5797,25 @@ impl Interpreter {
                 // windowHandler variable (R20/R23/R24).
                 if let Some(result) = self.try_exec_window_call(object, method, &vals)? {
                     if let Some(dest) = returning {
-                        let s = result.as_display_string().trim().to_string();
+                        // RETURNING into a member chain (`… RETURNING
+                        // Txt-Name::Text`) assigns that place, as it does for
+                        // any other method; a record read back through
+                        // `super::"GetProperty"` fills its fields.
+                        if matches!(dest, Expr::Member { .. }) {
+                            self.assign_member(dest, &result)?;
+                            return Ok(());
+                        }
                         let name = self.expr_to_name(dest);
                         if Self::method_returns_window_handle(method) {
+                            let s = result.as_display_string().trim().to_string();
                             self.window_handle_vars.insert(
                                 name.to_ascii_uppercase(),
                                 if s.is_empty() { None } else { Some(s.clone()) },
                             );
+                            self.env.set_str(&name, &s);
+                        } else {
+                            self.store_returned(&name, &result.as_display_string());
                         }
-                        self.env.set_str(&name, &s);
                     }
                     return Ok(());
                 }
@@ -5847,9 +5857,8 @@ impl Interpreter {
                     if matches!(dest, Expr::Member { .. }) {
                         self.assign_member(dest, &result)?;
                     } else {
-                        let s = result.as_display_string();
                         let n = self.expr_to_name(dest);
-                        self.env.set_str(&n, s.trim());
+                        self.store_returned(&n, &result.as_display_string());
                     }
                 }
                 Ok(())
@@ -8271,6 +8280,19 @@ impl Interpreter {
             self.env.set_group(name, s);
         } else {
             self.env.set_str(name, s);
+        }
+    }
+
+    /// A method's RETURNING value into a data item. A group item receives it
+    /// the way `MOVE` gives one text, field by field and its leading spaces
+    /// kept (a record's first field may be blank); an elementary item gets
+    /// it trimmed, as it always has.
+    fn store_returned(&mut self, name: &str, s: &str) {
+        let key = self.env.resolve_name(name, &[]);
+        if self.env.is_group(&key) {
+            self.env.set_group(&key, s.trim_end());
+        } else {
+            self.env.set_str(name, s.trim());
         }
     }
 

@@ -2784,7 +2784,16 @@ impl CobolEnvironment {
                 // is the byte form [`Self::image_bytes`] produces for a
                 // negative source field. Plain digits and everything else
                 // land verbatim exactly as before.
+                //
+                // A second: a slice of digits only, landing in a numeric child
+                // with an implied decimal point (`PIC 9(5)V99`), decodes to
+                // the value those digits ARE — `0064990` is 649.90. Kept
+                // verbatim, arithmetic read it as 64990: a record sent through
+                // a property and read back into its group priced every line a
+                // hundred times over (operator, 2026-09-28).
                 if let Some(v) = self.decode_overpunched_slice(&ck, &padded) {
+                    self.set(&ck, v);
+                } else if let Some(v) = self.decode_scaled_digits(&ck, &padded) {
                     self.set(&ck, v);
                 } else {
                     self.set_verbatim_bytes(&ck, &padded);
@@ -3104,6 +3113,20 @@ impl CobolEnvironment {
     /// the trailing byte) for the signed numeric item `ck` — `None` when the
     /// slice is not that shape or the item is not a signed numeric, in which
     /// case a group move stores the bytes verbatim as always.
+    /// All digits, into a numeric child with decimal places: its value.
+    fn decode_scaled_digits(&self, ck: &str, bytes: &[u8]) -> Option<CobolValue> {
+        let up = ck.to_ascii_uppercase();
+        let &(_, decimals) = self.field_caps.get(&up).or_else(|| self.field_caps.get(base_name(&up)))?;
+        if decimals == 0 || bytes.is_empty() || !bytes.iter().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let mut mantissa: i128 = 0;
+        for &b in bytes {
+            mantissa = mantissa.checked_mul(10)?.checked_add((b - b'0') as i128)?;
+        }
+        Some(CobolValue::Numeric(CobolNumeric::new(mantissa, decimals)))
+    }
+
     fn decode_overpunched_slice(&self, ck: &str, bytes: &[u8]) -> Option<CobolValue> {
         let (&last, head) = bytes.split_last()?;
         if !head.iter().all(|b| b.is_ascii_digit()) {
@@ -3364,6 +3387,18 @@ impl CobolEnvironment {
                 Some((_, decimals)) if byte_image && value.as_exact().is_some() => {
                     let mut fresh = CobolValue::Numeric(CobolNumeric::new(0, decimals as u8));
                     fresh.assign(&value);
+                    *existing = fresh;
+                }
+                // A floating result — `FUNCTION NUMVAL`, a `COMPUTE` — is a
+                // number too: into a child still holding a group move's bytes
+                // it was assigned as text and lost, so the item kept its old
+                // digits (operator, 2026-09-28: a quantity typed in a form
+                // never reached the record).
+                Some((_, decimals)) if byte_image && matches!(value, CobolValue::Float(_)) => {
+                    let CobolValue::Float(f) = value else { unreachable!() };
+                    let exact = CobolValue::Numeric(CobolNumeric::new((f * 1e9_f64).round() as i128, 9));
+                    let mut fresh = CobolValue::Numeric(CobolNumeric::new(0, decimals as u8));
+                    fresh.assign(&exact);
                     *existing = fresh;
                 }
                 _ => existing.assign(&value),

@@ -8,6 +8,32 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.330] — 2026-09-28
+
+### Fix — a record passed through a property comes back whole
+
+These surfaced while building PowerDemo3's "Passing Data to a Child Form".
+
+- **`RETURNING` through `super::` / `ME::`.** The window-method path
+  (`INVOKE super::"GetProperty"(…) RETURNING …`) had two gaps:
+  - it assigned nothing when the destination was a control's property
+    (`RETURNING Txt-Name::Text`);
+  - into a group item, it did not fill the fields.
+
+  Both paths now assign a member chain as a member, and fill a group as
+  `MOVE` does (`store_returned`).
+- **Implied decimals after a group move.** A slice of digits landing in a
+  `PIC 9(5)V99` child is now decoded to its value (`0064990` is 649.90). It
+  used to be kept as text, which arithmetic read as 64990
+  (`decode_scaled_digits`). Spaces, letters and whole-number fields still
+  land verbatim.
+- **A floating result into a byte-image field.** `FUNCTION NUMVAL(…)` or a
+  `COMPUTE` written into a numeric field still holding a group move's bytes
+  was lost, and the field kept its old digits. It now becomes the number,
+  at the field's scale.
+- NIST, the 8 protected modules re-run: NC, SQ, IF, IX, ST, RL, IC, SM, all
+  100 % of 8,362 assertions.
+
 ## [PowerRustCOBOL 1.70.329] — 2026-09-28
 
 ### Fix — the Viewer lays a report page out the way a browser does
