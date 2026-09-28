@@ -943,11 +943,14 @@ pub struct DebuggerPanel {
     /// in, so switching loses neither file's breakpoints nor its folds
     /// (spec 061 R4).
     sources: HashMap<String, SourceEntry>,
-    /// A line the developer asked to clear from the Breakpoints list this frame
-    /// (its ✕ button). Drained by `split_body` into a `ToggleBreakpoint`, the
-    /// same action a gutter click raises, so removal and the gutter share one
-    /// path back to the editor's breakpoint set.
-    bp_remove_request: Option<u32>,
+    /// Every breakpoint in the project — each Common Code file's and each
+    /// form handler's, open or not — for the Breakpoints list. The list is
+    /// project wide, not the listing on screen (operator, 2026-09-28), so it
+    /// is fed by the IDE, which owns every store the marks live in.
+    project_breakpoints: Vec<ProjectBreakpoint>,
+    /// A breakpoint the developer cleared from the list this frame (its ✕).
+    /// Drained by the IDE, which removes it from the store it lives in.
+    project_bp_remove: Option<ProjectBreakpoint>,
     last_scrolled_line: u32,
     force_center_current: bool,
 
@@ -1101,7 +1104,8 @@ impl DebuggerPanel {
             source_lines: Vec::new(),
             source_path: String::new(),
             breakpoints: HashSet::new(),
-            bp_remove_request: None,
+            project_breakpoints: Vec::new(),
+            project_bp_remove: None,
             session_started_wall: None,
             last_scrolled_line: 0,
             force_center_current: false,
@@ -1281,6 +1285,22 @@ impl DebuggerPanel {
     /// Sync the live breakpoint set from the editor gutter.
     pub fn set_breakpoints(&mut self, bps: &HashSet<u32>) {
         self.breakpoints = bps.clone();
+    }
+
+    /// Replace the project-wide Breakpoints list.
+    pub fn set_project_breakpoints(&mut self, bps: Vec<ProjectBreakpoint>) {
+        self.project_breakpoints = bps;
+    }
+
+    /// Whether the Breakpoints list is on screen — the IDE builds the
+    /// project-wide list only then.
+    pub fn showing_breakpoints(&self) -> bool {
+        self.active_tab == Tab::Breakpoints
+    }
+
+    /// The breakpoint whose ✕ was pressed in the list, if any.
+    pub fn take_project_bp_remove(&mut self) -> Option<ProjectBreakpoint> {
+        self.project_bp_remove.take()
     }
 
     /// Replace the watch list — the project's saved expressions, on open.
@@ -2399,9 +2419,7 @@ impl DebuggerPanel {
                     });
             });
 
-        // A gutter click wins the frame; otherwise a ✕ pressed in the
-        // Breakpoints list clears that line. Both are the same toggle.
-        toggled.or_else(|| self.bp_remove_request.take())
+        toggled
     }
 
     /// Ctrl/Cmd+C over a selection, because that is the key everyone reaches
@@ -3742,58 +3760,62 @@ impl DebuggerPanel {
                     .id_salt("dbg_bp_scroll")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        if self.breakpoints.is_empty() {
+                        if self.project_breakpoints.is_empty() {
                             ui.label(
                                 RichText::new(tr.dbg_no_breakpoints).color(sk.chrome_dim),
                             );
                         } else {
-                            let mut sorted: Vec<u32> = self.breakpoints.iter().cloned().collect();
-                            sorted.sort_unstable();
-                            egui::Grid::new("dbg_bp_grid")
-                                .num_columns(3)
-                                .striped(true)
-                                .show(ui, |ui| {
-                                    for line in &sorted {
-                                        // The red dot — the "o" of the gutter,
-                                        // so a row reads the same as the code.
-                                        ui.label(
-                                            RichText::new("●")
-                                                .color(Color32::from_rgb(210, 50, 50)),
-                                        );
-                                        // `line N - <excerpt>`: the code the
-                                        // breakpoint sits on, trimmed and
-                                        // clipped so a long statement never
-                                        // stretches the dock (operator).
-                                        let excerpt = self
-                                            .source_lines
-                                            .get((*line as usize).saturating_sub(1))
-                                            .map(|s| bp_line_excerpt(s))
-                                            .unwrap_or_default();
-                                        let text = if excerpt.is_empty() {
-                                            format!("line {line}")
-                                        } else {
-                                            format!("line {line} - {excerpt}")
-                                        };
-                                        ui.label(
-                                            RichText::new(text)
-                                                .monospace()
-                                                .color(Color32::from_rgb(100, 180, 255)),
-                                        );
-                                        // The ✕ clears this breakpoint — the
-                                        // same toggle a gutter click raises,
-                                        // routed out through `bp_remove_request`.
-                                        let x = ui.add(
-                                            egui::Button::new(
-                                                RichText::new("✕").color(sk.chrome_dim),
-                                            )
-                                            .frame(false),
-                                        );
-                                        if x.on_hover_text(tr.dbg_remove_breakpoint).clicked() {
-                                            self.bp_remove_request = Some(*line);
-                                        }
-                                        ui.end_row();
+                            let mut remove = None;
+                            let mut place: Option<&str> = None;
+                            for bp in &self.project_breakpoints {
+                                // One heading per file or handler, so a
+                                // project's worth of marks stays readable.
+                                if place != Some(bp.place.as_str()) {
+                                    place = Some(bp.place.as_str());
+                                    ui.add_space(2.0);
+                                    ui.label(
+                                        RichText::new(&bp.place)
+                                            .strong()
+                                            .size(12.0)
+                                            .color(sk.chrome_dim),
+                                    );
+                                }
+                                ui.horizontal(|ui| {
+                                    // The red dot — the "o" of the gutter,
+                                    // so a row reads the same as the code.
+                                    ui.label(
+                                        RichText::new("●")
+                                            .color(Color32::from_rgb(210, 50, 50)),
+                                    );
+                                    // `line N - <excerpt>`: the code the
+                                    // breakpoint sits on, clipped so a long
+                                    // statement never stretches the dock.
+                                    let text = if bp.excerpt.is_empty() {
+                                        format!("line {}", bp.line)
+                                    } else {
+                                        format!("line {} - {}", bp.line, bp.excerpt)
+                                    };
+                                    ui.label(
+                                        RichText::new(text)
+                                            .monospace()
+                                            .color(Color32::from_rgb(100, 180, 255)),
+                                    );
+                                    // The ✕ clears this breakpoint in the
+                                    // store it lives in, via the IDE.
+                                    let x = ui.add(
+                                        egui::Button::new(
+                                            RichText::new("✕").color(sk.chrome_dim),
+                                        )
+                                        .frame(false),
+                                    );
+                                    if x.on_hover_text(tr.dbg_remove_breakpoint).clicked() {
+                                        remove = Some(bp.clone());
                                     }
                                 });
+                            }
+                            if remove.is_some() {
+                                self.project_bp_remove = remove;
+                            }
                         }
                     });
             }
@@ -4167,6 +4189,106 @@ fn dock_font(ctx: &egui::Context, size: f32) -> egui::FontId {
     } else {
         egui::FontId::monospace(size)
     }
+}
+
+/// Where a breakpoint in the project-wide list lives — which store the ✕
+/// has to clear it from.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum BpHome {
+    /// A file's gutter: a Common Code `.cbl`, or a generated listing.
+    File(std::path::PathBuf),
+    /// A form event handler, by its form and nested-program id; the line is a
+    /// line of the handler's own text.
+    Handler { cfrm: std::path::PathBuf, program_id: String },
+}
+
+/// One row of the Breakpoints list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectBreakpoint {
+    pub home: BpHome,
+    /// The heading it is grouped under: a project-relative file, or
+    /// `Form ▸ Control ▸ event`. COBOL names — English in every language.
+    pub place: String,
+    pub line: u32,
+    /// The code on that line, as [`bp_line_excerpt`] clips it.
+    pub excerpt: String,
+}
+
+/// One form's handler breakpoints, as the IDE hands them to
+/// [`project_breakpoint_rows`]: the `.cfrm`, the form's name, and per handler
+/// its program id, site, marked lines and current text.
+pub struct FormHandlerMarks {
+    pub cfrm: std::path::PathBuf,
+    pub form_name: String,
+    pub handlers: Vec<(String, cobolt_forms::code_site::CodeSite, Vec<u32>, String)>,
+}
+
+/// Build the project-wide Breakpoints list: every file's gutter marks
+/// (`files`, read through `file_text`) and every form handler's (`forms`),
+/// grouped by place — files first, by path, then handlers — and by line
+/// within a place. Nothing here depends on which listing the debugger shows,
+/// which is the point (operator, 2026-09-28).
+pub fn project_breakpoint_rows(
+    files: &HashMap<std::path::PathBuf, HashSet<u32>>,
+    file_text: impl Fn(&std::path::Path) -> Option<String>,
+    project_dir: Option<&std::path::Path>,
+    forms: &[FormHandlerMarks],
+) -> Vec<ProjectBreakpoint> {
+    let mut rows = Vec::new();
+    let mut paths: Vec<&std::path::PathBuf> =
+        files.iter().filter(|(_, l)| !l.is_empty()).map(|(p, _)| p).collect();
+    paths.sort();
+    for path in paths {
+        let place = project_dir
+            .and_then(|d| path.strip_prefix(d).ok())
+            .unwrap_or(path)
+            .display()
+            .to_string();
+        let text = file_text(path).unwrap_or_default();
+        let lines: Vec<&str> = text.lines().collect();
+        let mut marks: Vec<u32> = files[path].iter().copied().collect();
+        marks.sort_unstable();
+        for line in marks {
+            rows.push(ProjectBreakpoint {
+                home: BpHome::File(path.clone()),
+                place: place.clone(),
+                line,
+                excerpt: excerpt_at(&lines, line),
+            });
+        }
+    }
+    let mut forms: Vec<&FormHandlerMarks> = forms.iter().collect();
+    forms.sort_by(|a, b| a.cfrm.cmp(&b.cfrm));
+    for form in forms {
+        let mut handlers: Vec<_> = form.handlers.iter().filter(|h| !h.2.is_empty()).collect();
+        handlers.sort_by(|a, b| a.0.cmp(&b.0));
+        for (program_id, site, marks, text) in handlers {
+            let place = site.display_path(&form.form_name);
+            let lines: Vec<&str> = text.lines().collect();
+            let mut marks = marks.clone();
+            marks.sort_unstable();
+            marks.dedup();
+            for line in marks {
+                rows.push(ProjectBreakpoint {
+                    home: BpHome::Handler {
+                        cfrm: form.cfrm.clone(),
+                        program_id: program_id.clone(),
+                    },
+                    place: place.clone(),
+                    line,
+                    excerpt: excerpt_at(&lines, line),
+                });
+            }
+        }
+    }
+    rows
+}
+
+fn excerpt_at(lines: &[&str], line: u32) -> String {
+    lines
+        .get((line as usize).saturating_sub(1))
+        .map(|s| bp_line_excerpt(s))
+        .unwrap_or_default()
 }
 
 /// A one-line preview of the code a breakpoint sits on, for the Breakpoints
@@ -4588,6 +4710,59 @@ impl DebuggerPanel {
                 self.flatten_children(row.reference, depth + 1, filter, out);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod project_breakpoint_tests {
+    use super::*;
+    use cobolt_forms::code_site::CodeSite;
+    use std::path::{Path, PathBuf};
+
+    /// Operator (2026-09-28): "the list of breakpoints is project wide, not
+    /// particular to the opened code". Every Common Code file's marks and
+    /// every form handler's are listed, grouped by place, with the code each
+    /// one sits on — and switching the listing on screen changes nothing.
+    #[test]
+    fn the_list_holds_every_file_and_handler_and_ignores_the_listing() {
+        let dir = PathBuf::from("/proj");
+        let mut files: HashMap<PathBuf, HashSet<u32>> = HashMap::new();
+        files.insert(dir.join("common/utils.cbl"), [2].into_iter().collect());
+        files.insert(dir.join("common/empty.cbl"), HashSet::new());
+        let text = |p: &Path| {
+            p.ends_with("utils.cbl").then(|| "       PROCEDURE DIVISION.\n           MOVE 1 TO WS-A.\n".to_owned())
+        };
+        let site = CodeSite::ControlEvent { control_id: "BTN-1".into(), event: "onClick".into() };
+        let forms = vec![FormHandlerMarks {
+            cfrm: dir.join("forms/main.cfrm"),
+            form_name: "MainForm".into(),
+            handlers: vec![(
+                "BTN-1--ONCLICK".into(),
+                site,
+                vec![3, 1],
+                "L1\n  L2\n           DISPLAY \"HI\"\n".into(),
+            )],
+        }];
+        let rows = project_breakpoint_rows(&files, text, Some(&dir), &forms);
+        for r in &rows {
+            println!("  {} : line {} - {}", r.place, r.line, r.excerpt);
+        }
+        assert_eq!(rows.len(), 3, "the empty file lists nothing");
+        assert_eq!(rows[0].place, "common/utils.cbl");
+        assert_eq!(rows[0].excerpt, "MOVE 1 TO WS-A.");
+        assert_eq!(rows[1].line, 1, "handler lines in order");
+        assert_eq!(rows[2].excerpt, "DISPLAY \"HI\"");
+        assert!(rows[1].place.contains("MainForm") && rows[1].place.contains("onClick"));
+        assert_eq!(
+            rows[2].home,
+            BpHome::Handler { cfrm: dir.join("forms/main.cfrm"), program_id: "BTN-1--ONCLICK".into() }
+        );
+
+        let mut p = DebuggerPanel::new();
+        p.set_project_breakpoints(rows.clone());
+        p.set_source("/proj/generated/main.cbl".into(), "A\n", &HashSet::new());
+        p.add_source("/proj/generated/child.cbl", "B\n", &HashSet::new());
+        assert_eq!(p.project_breakpoints, rows, "the listing on screen does not narrow the list");
     }
 }
 

@@ -405,6 +405,14 @@ struct DebugForm {
     sent_breakpoints: std::collections::HashSet<u32>,
 }
 
+/// A closed designer's handler breakpoints, with the form they are lines of —
+/// read from disk when the designer closed, since that is the form the
+/// generated program was built from.
+struct ClosedFormMarks {
+    form: Option<Form>,
+    marks: Vec<crate::panels::designer::HandlerMarks>,
+}
+
 /// Parse one outbound `@DBG` payload from a debuggee.
 ///
 /// Newest form first: the [`DebugWire`] envelope, which says which form in
@@ -695,6 +703,11 @@ pub struct CoboltApp {
     /// several forms, and the debugger follows the program into whichever one
     /// stops.
     debug_forms: std::collections::HashMap<String, DebugForm>,
+    /// Handler breakpoints of forms whose designer is CLOSED, by `.cfrm`.
+    /// The marks live in a designer's event editor; without this they died
+    /// with the window, and the debugger's project-wide list never saw them
+    /// (operator, 2026-09-28). Handed back when the designer reopens.
+    closed_handler_marks: std::collections::HashMap<PathBuf, ClosedFormMarks>,
     /// The handle whose listing the panel is showing — and therefore the
     /// debuggee every toolbar command is addressed to.
     debug_shown_handle: String,
@@ -2011,6 +2024,7 @@ impl CoboltApp {
             debug_active: false,
             debug_owner_form: None,
             debug_forms: std::collections::HashMap::new(),
+            closed_handler_marks: std::collections::HashMap::new(),
             debug_shown_handle: cobolt_runtime::form_host::ROOT_HANDLE.to_owned(),
             debug_stopped: Vec::new(),
             debug_form_index: std::collections::HashMap::new(),
@@ -3312,7 +3326,17 @@ impl CoboltApp {
                 .poll(vp_ctx, self.debug.doc_screenshots, shot_bg);
             self.doc_shots.ui(vp_ctx, shot_bg);
             let close = vp_ctx.input(|i| i.viewport().close_requested());
+            // The Breakpoints list is the whole project's, swept from every
+            // store the marks live in — not the listing on screen (operator,
+            // 2026-09-28). Built only while the list is showing.
+            if self.debugger.showing_breakpoints() {
+                let rows = self.project_breakpoints();
+                self.debugger.set_project_breakpoints(rows);
+            }
             let action = self.debugger.show_viewport_body(vp_ctx, tr);
+            if let Some(bp) = self.debugger.take_project_bp_remove() {
+                self.remove_project_breakpoint(&bp);
+            }
             if close {
                 self.handle_debug_action(DebugAction::Stop);
             } else if let Some(a) = action {
@@ -3572,12 +3596,7 @@ impl CoboltApp {
             self.debug_forms.get(&self.debug_shown_handle).map(|f| f.cfrm.clone())
         };
         if let Some(form_path) = shown_form {
-            if let Some(form) = self
-                .designers
-                .iter()
-                .find(|(p, _)| *p == form_path)
-                .map(|(_, d)| d.form.clone())
-            {
+            if let Some(form) = self.form_for_marks(&form_path) {
                 let (gen_src, source_map) = cobolt_codegen::generate_with_map(&form);
                 for line in self.handler_breakpoint_gen_lines(&form_path, &source_map) {
                     if !user_lines.contains(&line) {
@@ -3670,17 +3689,124 @@ impl CoboltApp {
         form_path: &Path,
         map: &cobolt_codegen::SourceMap,
     ) -> Vec<u32> {
-        self.designers
-            .iter()
-            .find(|(path, _)| path == form_path)
-            .map(|(_, designer)| {
-                designer
-                    .handler_breakpoints()
-                    .into_iter()
-                    .filter_map(|(site, line)| map.gen_line_for(&site, line))
-                    .collect()
-            })
-            .unwrap_or_default()
+        self.handler_marks_for(form_path)
+            .into_iter()
+            .filter_map(|(site, line)| map.gen_line_for(&site, line))
+            .collect()
+    }
+
+    /// A form's handler breakpoints as (site, line of the handler's text) —
+    /// from its designer when open, else from what it left when it closed.
+    fn handler_marks_for(&self, form_path: &Path) -> Vec<(cobolt_forms::code_site::CodeSite, u32)> {
+        if let Some((_, designer)) = self.designers.iter().find(|(p, _)| p == form_path) {
+            return designer.handler_breakpoints();
+        }
+        let Some(closed) = self.closed_handler_marks.get(form_path) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for m in &closed.marks {
+            let mut lines: Vec<u32> = m.lines.iter().copied().collect();
+            lines.sort_unstable();
+            out.extend(lines.into_iter().map(|l| (m.site.clone(), l)));
+        }
+        out
+    }
+
+    /// Every breakpoint in the project, for the debugger's Breakpoints list:
+    /// each file's gutter marks — Common Code and generated listings alike —
+    /// and each form handler's, whether its designer is open or closed.
+    fn project_breakpoints(&self) -> Vec<crate::panels::debugger::ProjectBreakpoint> {
+        use crate::panels::debugger::{project_breakpoint_rows, FormHandlerMarks};
+        let mut forms: Vec<FormHandlerMarks> = Vec::new();
+        for (path, d) in &self.designers {
+            let handlers = d
+                .handler_marks()
+                .into_iter()
+                .map(|m| {
+                    let text = d.handler_text(&m.program_id, &m.site);
+                    (m.program_id, m.site, m.lines.into_iter().collect(), text)
+                })
+                .collect();
+            forms.push(FormHandlerMarks {
+                cfrm: path.clone(),
+                form_name: d.form.name.clone(),
+                handlers,
+            });
+        }
+        for (path, closed) in &self.closed_handler_marks {
+            let handlers = closed
+                .marks
+                .iter()
+                .map(|m| {
+                    let text = closed
+                        .form
+                        .as_ref()
+                        .and_then(|f| cobolt_forms::code_site::site_text(f, &m.site))
+                        .unwrap_or_default()
+                        .to_owned();
+                    (m.program_id.clone(), m.site.clone(), m.lines.iter().copied().collect(), text)
+                })
+                .collect();
+            forms.push(FormHandlerMarks {
+                cfrm: path.clone(),
+                form_name: closed.form.as_ref().map(|f| f.name.clone()).unwrap_or_else(|| {
+                    path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
+                }),
+                handlers,
+            });
+        }
+        let project_dir = self.project_dir();
+        project_breakpoint_rows(
+            &self.editor.breakpoints,
+            |path| {
+                // An open tab's text is what the developer sees; else disk.
+                self.editor
+                    .tabs
+                    .iter()
+                    .find(|t| t.path == path)
+                    .map(|t| t.content.clone())
+                    .or_else(|| std::fs::read_to_string(path).ok())
+            },
+            project_dir.as_deref(),
+            &forms,
+        )
+    }
+
+    /// Clear a breakpoint the developer removed from the Breakpoints list,
+    /// in the store it lives in, and send the new set to the debuggee.
+    fn remove_project_breakpoint(&mut self, bp: &crate::panels::debugger::ProjectBreakpoint) {
+        use crate::panels::debugger::BpHome;
+        match &bp.home {
+            BpHome::File(path) => {
+                if let Some(lines) = self.editor.breakpoints.get_mut(path) {
+                    lines.remove(&bp.line);
+                }
+            }
+            BpHome::Handler { cfrm, program_id } => {
+                if let Some((_, d)) = self.designers.iter_mut().find(|(p, _)| p == cfrm) {
+                    d.remove_handler_breakpoint(program_id, bp.line);
+                } else if let Some(closed) = self.closed_handler_marks.get_mut(cfrm) {
+                    for m in closed.marks.iter_mut().filter(|m| &m.program_id == program_id) {
+                        m.lines.remove(&bp.line);
+                    }
+                    closed.marks.retain(|m| !m.lines.is_empty());
+                    if closed.marks.is_empty() {
+                        self.closed_handler_marks.remove(cfrm);
+                    }
+                }
+            }
+        }
+        self.sync_breakpoints_to_debuggee();
+    }
+
+    /// The form a debug sync translates handler marks through: the open
+    /// designer's, or the one a closed designer left behind.
+    fn form_for_marks(&self, form_path: &Path) -> Option<Form> {
+        if let Some((_, d)) = self.designers.iter().find(|(p, _)| p == form_path) {
+            return Some(d.form.clone());
+        }
+        self.closed_handler_marks.get(form_path).and_then(|c| c.form.clone())
     }
 
     /// Push the "only my code" scope when the developer flips the toggle.
@@ -6484,6 +6610,9 @@ impl CoboltApp {
                 }
                 let mut dp = DesignerPanel::new(form);
                 dp.cfrm_dir = path.parent().map(|p| p.to_path_buf());
+                if let Some(closed) = self.closed_handler_marks.remove(&path) {
+                    dp.restore_handler_marks(closed.marks);
+                }
                 self.designer_activation_requests.request(path.clone());
                 self.designers.push((path, dp));
                 self.egui_ctx.request_repaint();
@@ -15624,7 +15753,19 @@ impl eframe::App for CoboltApp {
         // viewport host was retired with it (042 R4) — it had been unreachable
         // since the external run landed.
 
-        // Remove any designer windows the user has closed.
+        // Remove any designer windows the user has closed — keeping their
+        // handler breakpoints, which are project-wide, not the window's.
+        for (path, d) in self.designers.iter().filter(|(_, d)| d.close_requested) {
+            let marks = d.handler_marks();
+            if marks.is_empty() {
+                self.closed_handler_marks.remove(path);
+            } else {
+                self.closed_handler_marks.insert(
+                    path.clone(),
+                    ClosedFormMarks { form: load_form(path).ok(), marks },
+                );
+            }
+        }
         self.designers.retain(|(_, d)| !d.close_requested);
         self.indexed_grids.retain(|(_, g)| !g.close_requested);
 
@@ -17265,6 +17406,7 @@ impl CoboltApp {
             self.editor.active = self.editor.tabs.len() - 1;
         }
         self.designers.retain(|(p, _)| !p.starts_with(dir_abs));
+        self.closed_handler_marks.retain(|p, _| !p.starts_with(dir_abs));
         self.indexed_grids.retain(|(p, _)| !p.starts_with(dir_abs));
         if let Some(st) = &self.indexed_inspect {
             if st.path.starts_with(dir_abs) {
@@ -17324,6 +17466,7 @@ impl CoboltApp {
     fn delete_form_path(&mut self, path: PathBuf) {
         let rel = self.project_dir().and_then(|dir| relative_to(&path, &dir));
         self.designers.retain(|(open_path, _)| open_path != &path);
+        self.closed_handler_marks.remove(&path);
         if let Some(rel) = rel {
             self.do_remove_file_from_project(rel);
         }

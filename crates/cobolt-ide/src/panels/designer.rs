@@ -2538,6 +2538,15 @@ fn diff_moves(
     anims
 }
 
+/// One handler's breakpoints, lifted out of its designer so they outlive it:
+/// the lines are 1-based lines of the handler's own text.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HandlerMarks {
+    pub program_id: String,
+    pub site: cobolt_forms::code_site::CodeSite,
+    pub lines: std::collections::HashSet<u32>,
+}
+
 // ── DesignerPanel ─────────────────────────────────────────────────────────────
 
 pub struct DesignerPanel {
@@ -5549,6 +5558,65 @@ impl DesignerPanel {
             out.extend(sorted.into_iter().map(|line| (site.clone(), line)));
         }
         out
+    }
+
+    /// Every handler that carries a breakpoint, with its marks — what the IDE
+    /// keeps when this designer closes, so the marks outlive the window and
+    /// the debugger's project-wide list still finds them (operator,
+    /// 2026-09-28: "the list of breakpoints is project wide").
+    pub fn handler_marks(&self) -> Vec<HandlerMarks> {
+        let mut out: Vec<HandlerMarks> = self
+            .event_editor
+            .breakpoints
+            .iter()
+            .filter(|(_, lines)| !lines.is_empty())
+            .filter_map(|(path, lines)| {
+                let program_id = path.to_str()?.strip_suffix(".handler")?;
+                let site = self.handler_sites.get(program_id)?;
+                Some(HandlerMarks {
+                    program_id: program_id.to_owned(),
+                    site: site.clone(),
+                    lines: lines.clone(),
+                })
+            })
+            .collect();
+        out.sort_by(|a, b| a.program_id.cmp(&b.program_id));
+        out
+    }
+
+    /// Put back the marks [`Self::handler_marks`] took when this form's
+    /// designer last closed. The event editor finds them under the same
+    /// `<program-id>.handler` key the next time the handler opens.
+    pub fn restore_handler_marks(&mut self, marks: Vec<HandlerMarks>) {
+        for m in marks {
+            self.event_editor
+                .breakpoints
+                .entry(std::path::PathBuf::from(format!("{}.handler", m.program_id)))
+                .or_default()
+                .extend(m.lines);
+            self.handler_sites.insert(m.program_id, m.site);
+        }
+    }
+
+    /// Clear one handler breakpoint — the ✕ in the debugger's list.
+    pub fn remove_handler_breakpoint(&mut self, program_id: &str, line: u32) {
+        let key = std::path::PathBuf::from(format!("{program_id}.handler"));
+        if let Some(lines) = self.event_editor.breakpoints.get_mut(&key) {
+            lines.remove(&line);
+        }
+    }
+
+    /// The text of a handler as the developer sees it now: the open event
+    /// editor's buffer when that handler is the one on screen, otherwise what
+    /// the form holds.
+    pub fn handler_text(&self, program_id: &str, site: &cobolt_forms::code_site::CodeSite) -> String {
+        let key = std::path::PathBuf::from(format!("{program_id}.handler"));
+        if let Some(tab) = self.event_editor.tabs.iter().find(|t| t.path == key) {
+            return tab.content.clone();
+        }
+        cobolt_forms::code_site::site_text(&self.form, site)
+            .unwrap_or_default()
+            .to_owned()
     }
 
     pub fn open_event_modal(&mut self, ctrl_id: &str, event_name: &str) {
@@ -21848,5 +21916,33 @@ mod handler_breakpoint_tests {
             "the open editor's mark counts: {got:?}"
         );
         assert_eq!(got.len(), 2);
+    }
+    /// The marks outlive the designer: taken when it closes, handed to a new
+    /// designer for the same form, they are the same breakpoints — and the ✕
+    /// in the debugger's list clears exactly one of them.
+    #[test]
+    fn handler_marks_survive_a_designer_closing_and_reopening() {
+        let make = || {
+            let mut form = Form::new("F1", "F1", 640, 480);
+            form.add_control(cobolt_forms::Control::new("BTN-1", cobolt_forms::ControlType::Button, 10, 10));
+            DesignerPanel::new(form)
+        };
+        let mut first = make();
+        first.open_event_modal("BTN-1", "onClick");
+        let pid = first.event_modal.as_ref().unwrap().program_id.clone();
+        let key = std::path::PathBuf::from(format!("{pid}.handler"));
+        first.event_editor.breakpoints.entry(key).or_default().extend([3, 5]);
+        let marks = first.handler_marks();
+        assert_eq!(marks.len(), 1);
+        drop(first);
+
+        let mut second = make();
+        assert!(second.handler_breakpoints().is_empty(), "a fresh designer has none");
+        second.restore_handler_marks(marks);
+        let site = CodeSite::ControlEvent { control_id: "BTN-1".into(), event: "onClick".into() };
+        assert_eq!(second.handler_breakpoints(), vec![(site.clone(), 3), (site.clone(), 5)]);
+
+        second.remove_handler_breakpoint(&pid, 3);
+        assert_eq!(second.handler_breakpoints(), vec![(site, 5)]);
     }
 }

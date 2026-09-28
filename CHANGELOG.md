@@ -8,6 +8,39 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.317] — 2026-09-28
+
+### Fix — the debugger's Breakpoints list is the whole project's
+
+The operator reported that the Breakpoints list showed none of the breakpoints
+set in a form's event handlers, and ruled that "the list of breakpoints is
+project wide, not particular to the opened code".
+
+- **One list for the project.** The list used to show only the marks of the
+  listing on screen, so a Common Code file's marks never appeared, and a
+  handler's appeared only when its form's designer happened to be open. The
+  list is now swept, while it is showing, from every store the marks live in:
+  - each file's gutter marks — Common Code and generated listings;
+  - every form handler's, whether its designer is open or closed.
+
+  The list is grouped by place (the file, or `Form ▸ Control ▸ event`), and
+  each row shows the line and the statement on it. Switching the listing on
+  screen changes nothing (`project_breakpoint_rows`).
+- **The ✕ clears the mark where it lives.** For a file it clears the file's
+  gutter; for a handler it clears the handler's editor, or the marks a closed
+  designer left behind. The new set reaches the debuggee at once.
+- **Handler marks outlive their designer.** Closing a form's designer used to
+  drop every breakpoint set in its handlers. The IDE now keeps them, with the
+  form read from disk, and:
+  - the debug session still translates and sends them;
+  - reopening the designer hands them back to its event editor.
+
+  Deleting the form, or the folder that holds it, drops them.
+- Tests: `the_list_holds_every_file_and_handler_and_ignores_the_listing`,
+  `handler_marks_survive_a_designer_closing_and_reopening`.
+- Developer's Guide: the event-editor note in the debugging section now
+  describes the project-wide list.
+
 ## [PowerRustCOBOL 1.70.316] — 2026-09-28
 
 ### Feature — `StartTimeoutSeconds`: a model's answer must begin in time, or the call is cancelled
