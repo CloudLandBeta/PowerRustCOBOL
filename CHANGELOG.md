@@ -8,6 +8,47 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.324] — 2026-09-28
+
+### Fix — PowerChat's two failing tests: stale rules updated, three real gaps closed
+
+The operator asked for "corrija os dois testes do PowerChat que falham".
+`powerchat_compiles` had not passed for several versions. Each assertion
+fixed exposed the next, and each was either stale (the design had moved on
+deliberately) or a real gap in PowerChat.
+
+**Real gaps, fixed in PowerChat:**
+- **`confirm-form` and `pick-form` showed English.** Their designed texts
+  ("Are you sure?", "Yes", "No"; "Choose one", "OK", "Cancel") appeared
+  whenever the caller did not pass its own. Both now carry the translation
+  table (six languages), `PC-PATHS`, `PC-SETTING-GET` and `PC-TEXTS`, and
+  apply the user's language in `onLoad`. A caller's own text still replaces
+  them.
+- **The welcome screen did not follow a language change.** A flag clicked
+  while it was on the pane left it in the old language. It now has the
+  `Tmr-Lang` watcher every other pane form has.
+
+**Stale rules, updated in the test:**
+- **Menu order:** New conversation heads the menu (1.70.280), ahead of Chat.
+- **Chat waits for a topic**, like the other rows. Only RAG settings is
+  never shut (1.70.280).
+- **The chat may open the generic dialogs in a window.** New conversation
+  picks its topic in `PICK-FORM`. Any other form in a window is still
+  refused.
+- **Dialog size:** a dialog is at least 800 × 450 and holds every control
+  inside it. The connections dialog is 1072 × 552 for its CRUD tabs; the
+  old rule demanded exactly 800 × 450.
+- **The generic dialogs** (`confirm-form`, `pick-form`, `preview-form`) are
+  recognised as modal windows, not pane forms.
+- **Translation rule:**
+  - `preview-form` designs no text (its caller hands the title and button
+    over translated), so it needs no table;
+  - the product name, "PowerChat", is not translated.
+- Result: `powerchat_compiles` 4/0; `powerchat_runs` 13/0. Each form's table
+  is checked in six languages.
+- Developer's Guide: the PowerChat table says what `confirm-form` and
+  `pick-form` show when the caller sets nothing.
+
 ## [PowerRustCOBOL 1.70.323] — 2026-09-28
 
 ### Fix — a text drawing inside a Mermaid block is shown as text, not refused

@@ -79,14 +79,15 @@ fn the_menu_hash_and_the_main_form_seal_are_valid() {
     // The menu is designed, so the designer and the preview show it; the
     // chat form relabels each row in the current language (R46) and holds
     // the rows shut until an agent has a model. Every form row opens its
-    // form EMBEDDED in the ContentPane, by its designed action.
+    // form EMBEDDED in the ContentPane, by its designed action. New
+    // conversation heads the menu, as it does in a chat app (1.70.280).
     let designed: Vec<(&str, Option<&str>)> =
         menu.menu.iter().map(|i| (i.id.as_str(), i.action.as_deref())).collect();
     assert_eq!(
         designed,
         [
-            ("chat", Some("home")),
             ("newc", None),
+            ("chat", Some("home")),
             ("tpcs", Some("open-form:topics-form")),
             ("docs", Some("open-form:documents-form")),
             ("fils", Some("open-form:files-form")),
@@ -98,12 +99,20 @@ fn the_menu_hash_and_the_main_form_seal_are_valid() {
     for (id, _) in &designed {
         assert!(chat.contains(&format!("SideMenu-1::SetItemLabel(\"{id}\"")), "the chat form labels menu row {id}");
     }
-    for id in ["newc", "tpcs", "docs", "fils", "prmt"] {
+    // Chat waits for a topic as well (1.70.280: with no topic there is
+    // nothing to chat about); RAG settings, where a model is set up, never
+    // waits for anything.
+    for id in ["newc", "chat", "tpcs", "docs", "fils", "prmt"] {
         assert!(chat.contains(&format!("SideMenu-1::SetItemEnabled(\"{id}\"")), "row {id} waits for a model");
     }
-    assert!(!chat.contains("SetItemEnabled(\"sett\"") && !chat.contains("SetItemEnabled(\"chat\""),
-        "RAG settings and the way home are never shut");
-    assert!(!chat.contains("OpenFormSync"), "no form opens in a window of its own");
+    assert!(!chat.contains("SetItemEnabled(\"sett\""), "RAG settings is never shut");
+    // No form opens in a window of its own — except the generic dialogs a
+    // question is asked in (New conversation picks its topic in PICK-FORM,
+    // 1.70.280).
+    for (i, _) in chat.match_indices("OpenFormSync\"(\"") {
+        let target: String = chat[i + 15..].chars().take_while(|c| *c != '"').collect();
+        assert!(["PICK-FORM", "CONFIRM-FORM"].contains(&target.as_str()), "the chat opens {target} in a window of its own");
+    }
     // The flags are image buttons: an empty Caption (a missing one shows the
     // id, which then takes the whole button and leaves the image no room).
     let chat_form = cobolt_forms::load_form(&project().join("forms/chat-form.cfrm")).unwrap();
@@ -133,9 +142,29 @@ fn the_menu_hash_and_the_main_form_seal_are_valid() {
         let stem = Path::new(&rel).file_stem().unwrap().to_string_lossy().to_string();
         if dialogs.contains(&stem.as_str()) {
             assert_eq!(form.form_format, cobolt_forms::model::FormFormat::Standalone, "{rel} is a modal dialog");
-            assert_eq!((form.width, form.height), (800, 450), "{rel}: every dialog is 800 x 450");
+            // At least 800 x 450, and every control inside it: the connections
+            // dialog is larger, for its CRUD tabs (1072 x 552).
+            assert!(form.width >= 800 && form.height >= 450, "{rel}: a dialog is at least 800 x 450");
+            for c in &form.controls {
+                assert!(
+                    c.rect.x + c.rect.w <= form.width as i32 && c.rect.y + c.rect.h <= form.height as i32,
+                    "{rel}: {} runs past the dialog's edge",
+                    c.id
+                );
+            }
             let id = cobolt_compiler::main_form_guard::form_id(Path::new(&rel));
             assert!(settings.contains(&format!("OpenFormSync\"(\"{id}\")")), "RAG settings opens {id}");
+        } else if ["confirm-form", "pick-form", "preview-form"].contains(&stem.as_str()) {
+            // The generic dialogs any form asks through (a yes/no, a choice,
+            // a document shown): windows of their own, sized to what they hold.
+            assert_eq!(form.form_format, cobolt_forms::model::FormFormat::Standalone, "{rel} is a modal dialog");
+            for c in &form.controls {
+                assert!(
+                    c.rect.x + c.rect.w <= form.width as i32 && c.rect.y + c.rect.h <= form.height as i32,
+                    "{rel}: {} runs past the dialog's edge",
+                    c.id
+                );
+            }
         } else if !rel.ends_with("chat-form.cfrm") {
             assert_eq!(form.form_format, cobolt_forms::model::FormFormat::Embedded, "{rel} opens in the ContentPane");
             assert!(form.controls.iter().all(|c| c.id != "Btn-Close"), "{rel}: an embedded form has no Close button");
@@ -171,7 +200,12 @@ fn every_visible_text_is_translated_into_six_languages() {
                 let text = c.get_prop(prop).map(|v| v.to_string()).unwrap_or_default();
                 // Empty in the design (the loader shows the id): set at run time.
                 // No lowercase letter ("1-3", "API"): the same in every language.
-                if text.trim().is_empty() || text == c.id || !text.chars().any(|ch| ch.is_lowercase()) {
+                // The product's name is not translated either.
+                if text.trim().is_empty()
+                    || text == c.id
+                    || text.trim() == "PowerChat"
+                    || !text.chars().any(|ch| ch.is_lowercase())
+                {
                     continue;
                 }
                 let needle = format!(" TO {}::{prop}", c.id);
@@ -184,8 +218,15 @@ fn every_visible_text_is_translated_into_six_languages() {
             }
         }
         // The table: a comment naming each text, then one FILLER per language.
+        // A form that designs no text of its own — `preview-form`, whose
+        // title and button the caller hands over already translated — has
+        // nothing to put in one.
         let lines: Vec<&str> = src.lines().collect();
-        let start = lines.iter().position(|l| l.contains("01 PC-TEXT-DATA")).expect("a translation table");
+        let Some(start) = lines.iter().position(|l| l.contains("01 PC-TEXT-DATA")) else {
+            assert_eq!(applied, 0, "{rel} shows designed text, so it needs a translation table");
+            rows.push(format!("  {:<28}   no designed text — the caller supplies it", rel));
+            continue;
+        };
         let end = lines.iter().position(|l| l.contains("01 PC-TEXT-TABLE REDEFINES")).unwrap();
         let mut texts = 0;
         let mut i = start + 1;
