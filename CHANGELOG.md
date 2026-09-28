@@ -8,6 +8,34 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.323] — 2026-09-28
+
+### Fix — a text drawing inside a Mermaid block is shown as text, not refused
+
+The operator asked PowerChat for a process. The answer ended with "Mermaid
+'[' diagrams are not supported", above the model's own drawing
+(`[ Início ] → [ Elaboração ] → { Possui Cláusula Crítica? } → …`). The model
+had written a text drawing, not Mermaid, inside the diagram element. The
+Viewer took its first word, `[`, for a diagram type it does not draw.
+
+- **Viewer.** `mermaid_kind` now tells three cases apart:
+  - flowchart and sequence diagrams are drawn;
+  - a real Mermaid type the Viewer does not draw (class, state, gantt, …,
+    listed in `MERMAID_DIAGRAM_TYPES`) is refused by name, as before;
+  - a block that opens with no Mermaid type at all is `NotMermaid`, and is
+    painted as its own text with no refusal. This covers a ```` ```mermaid ````
+    fence and a `<div class="mermaid">` alike.
+- **PowerChat.** The orchestrator's prompt shows real Mermaid syntax
+  (`flowchart TD / A[Start] --> B{…} / B -->|Yes| C[…]`, one statement per
+  line) and forbids a drawing made of brackets and arrows.
+- Tests:
+  - `a_text_drawing_is_painted_as_text_without_a_refusal`: the operator's
+    drawing, in a fence and in an element, painted twice with no refusal;
+  - the kind table gains two `NotMermaid` cases;
+  - `cobolt-forms` 1210/0, `powerchat_runs` 13/0.
+- Developer's Guide (the Viewer's format table) and System KB (the Viewer
+  description) are updated, and `chunked.data` is regenerated.
+
 ## [PowerRustCOBOL 1.70.322] — 2026-09-28
 
 ### Feature — generated code writes the built-ins inline too

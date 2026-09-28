@@ -9713,8 +9713,11 @@ fn paint_block(
                 Err(reason) => {
                     let mut job = egui::text::LayoutJob::default();
                     job.wrap.max_width = (ctx.width - 2.0 * VIEWER_CODE_PADDING).max(10.0);
+                    // Not Mermaid at all — a text drawing: its own text,
+                    // with no reason above it (the empty `reason`).
+                    let shown = if reason.is_empty() { source.clone() } else { format!("{reason}\n\n{source}") };
                     job.append(
-                        &format!("{reason}\n\n{source}"),
+                        &shown,
                         0.0,
                         egui::TextFormat {
                             font_id: egui::FontId::monospace(ctx.font_size * 0.92),

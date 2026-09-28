@@ -3768,7 +3768,23 @@ pub enum MermaidKind {
     /// A real Mermaid diagram type this control does not publish (§3) —
     /// carried by name so the reason can be shown rather than swallowed.
     Unsupported(String),
+    /// Not a Mermaid diagram at all: the block opens with no diagram type
+    /// Mermaid knows. A model asked for a diagram sometimes writes a text
+    /// drawing (`[ Start ] → [ Review ] → …`) inside the Mermaid element;
+    /// that is shown as the text it is, never "'[' diagrams are not
+    /// supported" (operator, 2026-09-28).
+    NotMermaid,
 }
+
+/// Every diagram type Mermaid declares on its first line, lower-cased — the
+/// line between "a diagram this Viewer does not draw" and "not a diagram".
+const MERMAID_DIAGRAM_TYPES: &[&str] = &[
+    "flowchart", "graph", "sequencediagram", "classdiagram", "classdiagram-v2", "statediagram",
+    "statediagram-v2", "erdiagram", "journey", "gantt", "pie", "quadrantchart", "requirementdiagram",
+    "gitgraph", "c4context", "c4container", "c4component", "c4dynamic", "c4deployment", "mindmap",
+    "timeline", "zenuml", "sankey-beta", "xychart-beta", "block-beta", "packet-beta", "kanban",
+    "architecture-beta", "radar-beta", "treemap-beta",
+];
 
 impl MermaidKind {
     pub fn is_supported(&self) -> bool {
@@ -3790,7 +3806,8 @@ pub fn mermaid_kind(source: &str) -> MermaidKind {
         "flowchart" | "graph" => MermaidKind::Flowchart,
         "sequencediagram" => MermaidKind::Sequence,
         "" => MermaidKind::Unsupported("empty".to_string()),
-        other => MermaidKind::Unsupported(other.to_string()),
+        other if MERMAID_DIAGRAM_TYPES.contains(&other) => MermaidKind::Unsupported(other.to_string()),
+        _ => MermaidKind::NotMermaid,
     }
 }
 
@@ -3808,6 +3825,7 @@ pub fn render_mermaid_svg(source: &str) -> Result<String, String> {
         MermaidKind::Unsupported(kind) => Err(format!(
             "Mermaid '{kind}' diagrams are not supported — this Viewer draws flowchart and sequence diagrams"
         )),
+        MermaidKind::NotMermaid => Err(String::new()),
     }
 }
 
@@ -7167,10 +7185,15 @@ mod mermaid_tests {
             ("stateDiagram-v2\n [*] --> S", MermaidKind::Unsupported("statediagram-v2".into())),
             ("gantt\n title X", MermaidKind::Unsupported("gantt".into())),
             ("", MermaidKind::Unsupported("empty".into())),
+            // A model's text drawing inside the Mermaid element (operator,
+            // 2026-09-28): not a diagram type at all — shown as text.
+            ("[ Início ] → [ Elaboração ] → { Possui Cláusula Crítica? }", MermaidKind::NotMermaid),
+            ("Início --> Fim", MermaidKind::NotMermaid),
         ];
         for (src, want) in cases {
             let got = mermaid_kind(src);
-            println!("{:?}... -> {got:?} (supported: {})", &src[..src.len().min(22)], got.is_supported());
+            let head: String = src.chars().take(22).collect();
+            println!("{head:?}... -> {got:?} (supported: {})", got.is_supported());
             assert_eq!(&got, want);
         }
     }
