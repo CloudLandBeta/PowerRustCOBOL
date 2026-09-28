@@ -10884,14 +10884,16 @@ writes a per-control diagnostics dump named after the project.
 ---
 ## 20. Appearance and internationalisation
 
-- **Themes.** ⚙ ▸ *Settings* offers 32 colour themes — dark (Dark Glass
+- **Themes.** ⚙ ▸ *Settings* offers 33 colour themes — dark (Dark Glass
   [default], Deep Blue, Dark+, Monokai, Solarized Dark, Nord, Dracula, and
   more), light (Light+, GitHub Light, One Light, Gruvbox Light, Ayu Light,
   Quiet Light, Tomorrow, Material Lighter, Nord Light, Rosé Pine Dawn,
   Catppuccin Latte, Solarized Light), **Classic**, a faithful Windows
   95 look (silver chrome, navy selection) for the full retro-RAD experience,
-  and three **Neumorphic** palettes — Light, Dark and Cobalt — whose soft
-  relief matches the Neumorphic form styles.
+  three **Neumorphic** palettes — Light, Dark and Cobalt — whose soft
+  relief matches the Neumorphic form styles, and **Silver Glass**, the same
+  soft-UI construction in frosted silver: slightly translucent panels that let
+  a background image frost through, crisp white edges and dark text.
   There is also an optional **background image** with an opacity control.
   Settings are saved **per project** in `cobolt.toml`. The project tree and
   panel text automatically adapt their contrast to the theme — light text on

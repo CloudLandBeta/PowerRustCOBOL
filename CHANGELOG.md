@@ -8,6 +8,36 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.310] — 2026-09-28
+
+### Feature — Silver Glass, a new IDE theme
+
+**Silver Glass** (`silver-glass`, 33rd in the theme list) is Neumorphic
+Cobalt's construction in frosted silver. Its colours come from the operator's
+reference CSS: a silver gradient over a blur, a 1 px white border at 40 %, a
+`0 8px 32px rgba(0,0,0,.2)` shadow, and `#1a1a1a` text.
+
+- **Construction.** It is in the neumorphic family: panel, control and code
+  share one surface, and depth comes from the relief halo.
+- **Surface.** It is the middle of the CSS gradient, `rgb(204,211,218)`,
+  kept slightly translucent (alpha ≈ 0.9). A background image frosts
+  through, while the relief rings under a control stay covered.
+- **Edges and depth.**
+  - panel borders are the CSS's white 40 %;
+  - panel frames carry the CSS's soft deep shadow;
+  - the relief is a white rim over a cool steel shadow.
+- **Colours.** The text is `#1a1a1a`, which makes it a light theme. The
+  accent is Cobalt's blue, since its gold would vanish on silver. The editor
+  keeps Cobalt2's hues, each darkened until it reads on silver.
+- Tests:
+  - `silver_glass_is_a_light_neumorphic_theme`;
+  - `silver_glass_code_reads_on_its_surface`: every editor and chrome colour
+    reaches WCAG AA (≥ 4.5:1) on the surface composited over white. It
+    caught the first keyword and warning colours, and they were darkened;
+  - the registry size is now 33, and the shared-surface rule is checked for
+    the new member.
+- Developer's Guide §20 lists it.
+
 ## [PowerRustCOBOL 1.70.309] — 2026-09-28
 
 ### Fix — `test_external_crates_e2e` passes again, and the build tests clean up after themselves

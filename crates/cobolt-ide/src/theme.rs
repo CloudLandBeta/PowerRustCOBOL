@@ -73,7 +73,10 @@ impl Theme {
     /// Subtle border for glass "card" panel surfaces (a faint cool tint on dark
     /// themes, a soft shadow-grey on light themes).
     pub fn panel_border(&self) -> Color32 {
-        if self.dark {
+        if self.id == "silver-glass" {
+            // The crisp metallic edge of frosted silver: white at 40 %.
+            Color32::from_rgba_unmultiplied(255, 255, 255, 102)
+        } else if self.dark {
             Color32::from_rgba_unmultiplied(120, 180, 220, 46)
         } else {
             Color32::from_rgba_unmultiplied(40, 70, 100, 40)
@@ -81,7 +84,7 @@ impl Theme {
     }
 
     /// Whether this is one of the discrete "soft UI" neumorphic themes
-    /// (Light, Dark or Cobalt). All share the flat-surface-plus-relief-halo
+    /// (Light, Dark, Cobalt or Silver Glass). All share the flat-surface-plus-relief-halo
     /// chrome (`paint_neumorphic_relief`, `glass_panel_frame`'s discrete
     /// shadow, the graphite toggle badge) — only their colour palettes differ.
     /// Every neumorphic behaviour in the IDE is gated on this one predicate, so
@@ -89,7 +92,7 @@ impl Theme {
     pub fn is_neumorphic(&self) -> bool {
         matches!(
             self.id,
-            "neumorphic-light" | "neumorphic-dark" | "neumorphic-cobalt"
+            "neumorphic-light" | "neumorphic-dark" | "neumorphic-cobalt" | "silver-glass"
         )
     }
 }
@@ -179,7 +182,16 @@ pub fn glass_panel_frame(fill: Color32, theme: &Theme) -> egui::Frame {
         .corner_radius(CornerRadius::same(10))
         .inner_margin(Margin::same(10))
         .outer_margin(Margin::same(6))
-        .shadow(if theme.is_neumorphic() {
+        .shadow(if theme.id == "silver-glass" {
+            // Frosted glass floats: a soft, deep shadow below the card
+            // (`0 8px 32px rgba(0,0,0,.2)`), not a relief pressed into it.
+            Shadow {
+                offset: [0, 8],
+                blur: 32,
+                spread: 0,
+                color: Color32::from_rgba_unmultiplied(0, 0, 0, 51),
+            }
+        } else if theme.is_neumorphic() {
             Shadow {
                 offset: [3, 3],
                 blur: 12,
@@ -233,6 +245,9 @@ pub fn paint_neumorphic_relief(
     // on Neumorphic Cobalt's navy, so that palette lights its rim in navy.
     let (shadow_rgb, highlight_rgb) = if theme.id == "neumorphic-cobalt" {
         ((0u8, 0u8, 0u8), (52u8, 92u8, 122u8))
+    } else if theme.id == "silver-glass" {
+        // A cool steel shadow under a white metallic rim.
+        ((120u8, 130u8, 145u8), (255u8, 255u8, 255u8))
     } else if theme.dark {
         ((0u8, 0u8, 0u8), (78u8, 78u8, 82u8))
     } else {
@@ -1274,6 +1289,54 @@ pub const NEUMORPHIC_COBALT: Theme = Theme {
     ed_generated: rgb(0, 187, 255),
 };
 
+/// Silver Glass — Neumorphic Cobalt's construction in frosted silver.
+///
+/// Built by the neumorphic rule (Panel, Control and Code share one fill; depth
+/// is the relief halo), with the colours of a silver glass card:
+/// `linear-gradient(135deg, rgba(220,225,230,.25), rgba(180,190,200,.1))` over
+/// a blur, a `1px rgba(255,255,255,.4)` border, a `0 8px 32px rgba(0,0,0,.2)`
+/// shadow and `#1a1a1a` text (operator, 2026-09-28).
+///
+/// A surface cannot be blurred glass in the IDE, so the silver is the middle
+/// of that gradient, kept slightly translucent (alpha ≈ 0.9): a background
+/// image frosts through it, while the relief rings painted under a control
+/// stay hidden by the fill. The text is the CSS's near-black, which makes this
+/// a LIGHT theme. The accent is Cobalt's blue — its gold would vanish on
+/// silver — and the editor keeps Cobalt2's hues, each darkened until it reads
+/// on silver (`silver_glass_code_reads_on_its_surface` measures it).
+pub const SILVER_GLASS: Theme = Theme {
+    id: "silver-glass",
+    name: "Silver Glass",
+    dark: false,
+    // One flat surface for panel / control / code — the neumorphic rule.
+    bg_panel: rgba(204, 211, 218, 230),
+    bg_control: rgba(204, 211, 218, 230),
+    code_bg: rgba(204, 211, 218, 230),
+    // Lifted and recessed a step either side of the silver.
+    bg_hover: rgba(218, 224, 230, 240),
+    faint_bg: rgba(194, 202, 210, 235),
+    // The text-edit well: frosted near-white, as the card's lit face.
+    bg_extreme: rgba(238, 241, 244, 248),
+    bg_active: rgba(0, 122, 204, 245),
+    accent: rgb(0, 94, 170),
+    border_dim: rgba(255, 255, 255, 102),
+    border_hi: rgba(0, 94, 170, 210),
+    text_dim: rgb(58, 64, 74),
+    text_bright: rgb(26, 26, 26),
+    selection: rgba(0, 122, 204, 90),
+    hyperlink: rgb(0, 84, 160),
+    warn: rgb(125, 72, 0),
+    error: rgb(165, 20, 40),
+    // Cobalt2's hues, darkened to read on silver.
+    ed_plain: rgb(26, 26, 26),
+    ed_keyword: rgb(140, 60, 0),
+    ed_data: rgb(0, 88, 145),
+    ed_paragraph: rgb(120, 82, 0),
+    ed_string: rgb(0, 105, 70),
+    ed_comment: rgb(60, 92, 100),
+    ed_generated: rgb(0, 84, 160),
+};
+
 /// All selectable themes, in display order. The first is the default.
 pub const THEMES: &[Theme] = &[
     DARK_GLASS,
@@ -1308,6 +1371,7 @@ pub const THEMES: &[Theme] = &[
     NEUMORPHIC_LIGHT,
     NEUMORPHIC_DARK,
     NEUMORPHIC_COBALT,
+    SILVER_GLASS,
 ];
 
 /// The default theme (preserves the original look).
@@ -1478,8 +1542,8 @@ mod tests {
     fn the_theme_registry_size_is_pinned() {
         assert_eq!(
             THEMES.len(),
-            32,
-            "17 original + 12 light + Classic + Neumorphic Light/Dark/Cobalt"
+            33,
+            "17 original + 12 light + Classic + Neumorphic Light/Dark/Cobalt + Silver Glass"
         );
     }
 
@@ -1620,5 +1684,56 @@ mod tests {
             u32::from(highlight.2) > u32::from(surface.b()),
             "the rim must be lighter than the surface"
         );
+    }
+
+    /// Silver Glass is Neumorphic Cobalt's construction: in the family, one
+    /// shared surface (checked for every member above), selectable — and light,
+    /// because its text is the CSS's `#1a1a1a`.
+    #[test]
+    fn silver_glass_is_a_light_neumorphic_theme() {
+        let t = theme_by_id("silver-glass");
+        assert_eq!(t.id, "silver-glass");
+        assert_eq!(t.name, "Silver Glass");
+        assert!(t.is_neumorphic());
+        assert!(!t.dark);
+        assert_eq!(t.text_bright, rgb(0x1a, 0x1a, 0x1a));
+        // Glass: the surface lets a background through, a little.
+        assert!(t.bg_panel.a() < 255 && t.bg_panel.a() >= 220, "{:?}", t.bg_panel);
+        // The metallic border is the CSS's white at 40 %.
+        assert_eq!(t.panel_border(), Color32::from_rgba_unmultiplied(255, 255, 255, 102));
+    }
+
+    /// Every editor colour and the chrome's text must read on the silver —
+    /// measured against the surface as it shows over the IDE's white
+    /// fallback background, at WCAG AA for normal text (4.5:1).
+    #[test]
+    fn silver_glass_code_reads_on_its_surface() {
+        let t = SILVER_GLASS;
+        // The translucent fill composited over white, the lightest (so the
+        // least favourable) thing that can sit behind it.
+        let a = t.code_bg.a() as f32 / 255.0;
+        let over_white = |c: u8| (c as f32 + 255.0 * (1.0 - a)).round().min(255.0) as u8;
+        let surface = Color32::from_rgb(over_white(t.code_bg.r()), over_white(t.code_bg.g()), over_white(t.code_bg.b()));
+        let mut report = Vec::new();
+        for (name, c) in [
+            ("ed_plain", t.ed_plain),
+            ("ed_keyword", t.ed_keyword),
+            ("ed_data", t.ed_data),
+            ("ed_paragraph", t.ed_paragraph),
+            ("ed_string", t.ed_string),
+            ("ed_comment", t.ed_comment),
+            ("ed_generated", t.ed_generated),
+            ("text_bright", t.text_bright),
+            ("text_dim", t.text_dim),
+            ("hyperlink", t.hyperlink),
+            ("accent", t.accent),
+            ("warn", t.warn),
+            ("error", t.error),
+        ] {
+            let ratio = crate::contrast::contrast_ratio(c, surface);
+            report.push(format!("{name} {ratio:.1}:1"));
+            assert!(ratio >= 4.5, "{name} reads at {ratio:.2}:1 on the silver surface");
+        }
+        println!("  Silver Glass on {surface:?}: {}", report.join(", "));
     }
 }
