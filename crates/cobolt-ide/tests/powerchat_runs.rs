@@ -1711,19 +1711,37 @@ fn powerchat_puts_a_formatted_answer_in_the_stream_not_a_bubble() {
         (4, "A", "| Grade | Days | |---|---| | A | 20 |"),
         (5, "U", "And as HTML"),
         (6, "A", "<table><tr><td>A</td><td>20</td></tr></table>"),
+        (7, "U", "Make it a polished HTML page"),
+        // A Markdown answer that shows a page in a fenced block: the page is
+        // rendered, not shown as code to copy (operator, 2026-09-27).
+        (8, "A", "Here is the page: ```html <html><head><style>h1{color:red}</style></head><body><h1>Contracts</h1><table><tr><td>A</td><td>20</td></tr></table></body></html>``` Save it as a file."),
     ]);
     let mut s = Session::start("chat-form.cfrm");
     s.settle();
     s.menu(&format!("c{conv}"));
-    let html = s.wait_for("Vwr-Chat", "_ConversationHtml", |v| v.contains("<td>20</td>") || v.contains("&lt;td&gt;20"));
+    let html = s.wait_for("Vwr-Chat", "_ConversationHtml", |v| v.contains("Save it as a file"));
     s.quit();
-    let roles: Vec<cobolt_forms::viewer::MessageRole> =
-        cobolt_forms::viewer::parse_conversation_html(&html).iter().map(|m| m.role).collect();
+    let messages = cobolt_forms::viewer::parse_conversation_html(&html);
+    let roles: Vec<cobolt_forms::viewer::MessageRole> = messages.iter().map(|m| m.role).collect();
     use cobolt_forms::viewer::MessageRole::{Agent, None as Stream, User};
-    assert_eq!(roles, vec![User, Agent, User, Stream, User, Stream], "a reply in its bubble; the two presentations in the stream");
+    assert_eq!(
+        roles,
+        vec![User, Agent, User, Stream, User, Stream, User, Stream, Stream, Stream],
+        "a reply in its bubble; the presentations in the stream, the fenced page as its own rendered part"
+    );
+    use cobolt_forms::viewer::Block;
+    let page = &messages[8].blocks;
+    assert!(page.iter().any(|b| matches!(b, Block::Table { .. })), "the fenced page is rendered: {page:?}");
+    assert!(
+        !messages.iter().flat_map(|m| &m.blocks).any(|b| matches!(b, Block::CodeBlock { .. })),
+        "no page is shown as code to copy"
+    );
     let form = cobolt_forms::load_form(&project().join("forms/chat-form.cfrm")).unwrap();
     let viewer = form.controls.iter().find(|c| c.id == "Vwr-Chat").unwrap();
     assert_eq!(viewer.get_prop("UserBubbleColor").map(|v| v.as_str().to_string()).as_deref(), Some("#61D467FF"));
-    println!("\n  ── 071 PowerChat, presentations in the stream ───────────\n  roles: {roles:?}; the user's bubble #61D467FF\n");
+    println!(
+        "\n  ── 071 PowerChat, presentations in the stream ───────────\n  roles: {roles:?}\n  a ```html fence: rendered as a page ({} blocks), not code; the user's bubble #61D467FF\n",
+        page.len()
+    );
     let _ = std::fs::remove_dir_all(&root);
 }

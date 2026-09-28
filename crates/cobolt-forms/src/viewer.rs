@@ -1603,6 +1603,58 @@ pub fn chrome_layout(bounds: ViewRect, opts: &ChromeOpts) -> ChromeLayout {
     ChromeLayout { toolbar, find_bar, filmstrip, content, slider }
 }
 
+// ── The conversation's scrollbar ─────────────────────────────────────────
+//
+// `Streamed` has no chrome, and the wheel was its only way to move: a reader
+// without one — or with a gesture that sends none — could not get back to the
+// start of an answer taller than the pane (operator, 2026-09-27). A bar on the
+// right edge, only while there is something to scroll, is both the way and
+// the sign of where the reader is.
+
+/// The bar's width, its gap to the pane's edge, and the shortest thumb a hand
+/// can still take hold of.
+pub const STREAM_BAR_WIDTH: f32 = 10.0;
+pub const STREAM_BAR_MARGIN: f32 = 3.0;
+pub const STREAM_BAR_MIN_THUMB: f32 = 28.0;
+
+/// The track and the thumb of a conversation's scrollbar.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StreamBar {
+    pub track: ViewRect,
+    pub thumb: ViewRect,
+}
+
+/// Where the bar goes for a pane of `content`, scrolled to `offset` of `max`.
+/// `None` when everything fits: nothing to scroll, nothing to show.
+pub fn stream_scrollbar(content: ViewRect, offset: f32, max: f32) -> Option<StreamBar> {
+    let track_h = content.h - 2.0 * STREAM_BAR_MARGIN;
+    if max <= 0.5 || track_h < STREAM_BAR_MIN_THUMB || content.w < 4.0 * STREAM_BAR_WIDTH {
+        return None;
+    }
+    let track = ViewRect::new(
+        content.right() - STREAM_BAR_MARGIN - STREAM_BAR_WIDTH,
+        content.y + STREAM_BAR_MARGIN,
+        STREAM_BAR_WIDTH,
+        track_h,
+    );
+    // The thumb is to the track what the pane is to the whole conversation.
+    let thumb_h = (track_h * content.h / (content.h + max)).clamp(STREAM_BAR_MIN_THUMB, track_h);
+    let travel = track_h - thumb_h;
+    let at = (offset / max).clamp(0.0, 1.0);
+    let thumb = ViewRect::new(track.x, track.y + travel * at, STREAM_BAR_WIDTH, thumb_h);
+    Some(StreamBar { track, thumb })
+}
+
+/// The offset that puts the thumb's top at `thumb_top` — what a drag of the
+/// thumb means. Clamped to the conversation, both ends included.
+pub fn stream_bar_offset(bar: &StreamBar, thumb_top: f32, max: f32) -> f32 {
+    let travel = bar.track.h - bar.thumb.h;
+    if travel <= 0.0 {
+        return 0.0;
+    }
+    ((thumb_top - bar.track.y) / travel).clamp(0.0, 1.0) * max.max(0.0)
+}
+
 // ── Conversation mode (T23: §8.1, §8.2, AC12, AC13, AC16, AC17) ─────────
 //
 // §8 drives the same control as an **append-only, self-following
@@ -4189,6 +4241,29 @@ mod office_tests {
 
 #[cfg(test)]
 mod tests {
+    /// The conversation's scrollbar: absent when all of it fits, at the top
+    /// and the bottom at either end, and a drag of the thumb to either end
+    /// reaches that end exactly — nothing left out of reach.
+    #[test]
+    fn a_conversation_scrollbar_reaches_both_ends() {
+        use super::{stream_bar_offset, stream_scrollbar, ViewRect};
+        let pane = ViewRect::new(0.0, 0.0, 600.0, 400.0);
+        assert!(stream_scrollbar(pane, 0.0, 0.0).is_none(), "nothing to scroll, no bar");
+        let top = stream_scrollbar(pane, 0.0, 1600.0).unwrap();
+        let bottom = stream_scrollbar(pane, 1600.0, 1600.0).unwrap();
+        assert_eq!(top.thumb.y, top.track.y, "at the top");
+        assert!((bottom.thumb.bottom() - bottom.track.bottom()).abs() < 0.01, "at the bottom");
+        assert!((top.thumb.h - top.track.h * 400.0 / 2000.0).abs() < 0.01, "a fifth of the track for a fifth of it");
+        assert_eq!(stream_bar_offset(&top, top.track.y - 50.0, 1600.0), 0.0, "past the top is the top");
+        assert_eq!(stream_bar_offset(&top, top.track.bottom(), 1600.0), 1600.0, "past the bottom is the end");
+        let mid = stream_bar_offset(&top, top.track.y + (top.track.h - top.thumb.h) / 2.0, 1600.0);
+        assert!((mid - 800.0).abs() < 0.5, "halfway down the travel is halfway through: {mid}");
+        // A conversation hundreds of panes long still gets a thumb a hand can hold.
+        let long = stream_scrollbar(pane, 0.0, 400_000.0).unwrap();
+        assert_eq!(long.thumb.h, super::STREAM_BAR_MIN_THUMB);
+        println!("  scrollbar: none when it fits; thumb {:.0} px of {:.0}; both ends reached", top.thumb.h, top.track.h);
+    }
+
     use super::*;
     use std::io::Write;
 

@@ -5096,6 +5096,17 @@ id the conversation does not hold.
 > them back down; a quiet indicator appears instead, and following resumes by
 > itself the moment they scroll back to the end.
 
+> **Note — moving through a long conversation.** The operator reaches every
+> line, first to last, three ways: the **wheel** (or a trackpad's two-finger
+> scroll); the **scrollbar** that appears on the pane's right edge as soon as
+> the conversation is taller than the pane — drag its thumb, or click the track
+> to move a page; and, with the pointer over the conversation, the **arrow**,
+> **Page Up / Page Down**, **Home** and **End** keys. The keys stand aside
+> while another control — the question box — holds the caret. Dragging across
+> the text still *selects* it for copying; it never scrolls. There is no
+> sideways scrolling to need: code wraps, tables fit the pane and images scale
+> down to it.
+
 > ⚠️ **Caveat — set `RenderAsHtml` to zero for content you did not write.**
 > It is a blanket switch: with it off, *every* append is treated as raw
 > whichever method you called. If a reply comes from somewhere you do not

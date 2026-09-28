@@ -8,6 +8,43 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.307] — 2026-09-27
+
+### Fix — a conversation scrolls to every line; PowerChat renders an HTML page instead of showing its code
+
+- **Viewer, `Layout = Streamed`: the wheel was the only way to move.** Before
+  this fix:
+  - Keys and drag were `Full`-mode only.
+  - The conversation drew no scrollbar.
+
+  So without a wheel, the start of an answer taller than the pane was out of
+  reach (operator, 2026-09-27). The conversation now has:
+  - a scrollbar on its right edge whenever it overflows (drag the thumb; a
+    click on the track moves a page);
+  - the arrow, Page Up/Down, Home and End keys while the pointer is over it
+    (not while another control holds the caret);
+  - the wheel, which also works over the bar.
+
+  A press on the bar never starts a text selection. Dragging across the text
+  still selects it. There is no sideways scrolling: code wraps, tables fit
+  the pane and images scale down to it.
+- **PowerChat: a ```` ```html ```` fenced block broke the answer.** My 1.70.305
+  check saw `<html` anywhere and sent the whole Markdown answer to the HTML
+  reader. That printed the backticks literally and swallowed the page from
+  `<head>` on. An answer is now HTML only when it starts with a tag. Inside a
+  Markdown answer, a ```` ```html ```` block is **rendered as the page it
+  holds**, not shown as code to copy (operator: "the html must be rendered").
+  The text around it stays Markdown, in order.
+- Developer's Guide (Hosting a conversation) and the System KB (`Layout`)
+  describe how a conversation is moved through. `chunked.data` is regenerated.
+- Tests:
+  - `a_conversation_scrolls_to_its_first_line.rs` (new): the wheel, both ends,
+    on a bare Viewer and on PowerChat's own chat form; the thumb dragged to
+    the top; End and Home.
+  - `a_conversation_scrollbar_reaches_both_ends` (geometry).
+  - `powerchat_puts_a_formatted_answer_in_the_stream_not_a_bubble` now also
+    covers a fenced page: rendered, with no code block.
+
 ## [PowerRustCOBOL 1.70.306] — 2026-09-27
 
 ### Fix — the PowerChat end-to-end test runs again

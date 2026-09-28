@@ -434,6 +434,12 @@
        01 WS-FMT-HTML        GLOBAL PIC X VALUE "N".
        01 WS-SHOW-ANSWER     GLOBAL PIC X VALUE "N".
        01 WS-FMT-T           GLOBAL PIC 9(6).
+      *>   PC-APPEND-FORMATTED's place in WS-MSG, the fence it found, and
+      *>   the page inside it.
+       01 WS-FP              GLOBAL PIC 9(6).
+       01 WS-FA              GLOBAL PIC 9(6).
+       01 WS-FB              GLOBAL PIC 9(6).
+       01 WS-BS              GLOBAL PIC 9(6).
        01 WS-LOWQ            GLOBAL PIC X(64000).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
@@ -1036,7 +1042,23 @@
            INSPECT WS-MSG TALLYING WS-FMT-T FOR ALL "<table" ALL "<TABLE"
                ALL "<html" ALL "<HTML" ALL "<div" ALL "<h1" ALL "<h2" ALL "<ul"
            IF WS-FMT-T > 0
-               MOVE "Y" TO WS-FORMATTED WS-FMT-HTML
+               MOVE "Y" TO WS-FORMATTED
+      *>       HTML only when the answer IS HTML - it starts with a tag. A
+      *>       Markdown answer that shows a page inside a fenced block stays
+      *>       Markdown, or the HTML reader takes the page apart (operator,
+      *>       2026-09-27: "fenced blocks break the conversation").
+               PERFORM VARYING WS-FMT-T FROM 1 BY 1
+                   UNTIL WS-FMT-T > 200
+                      OR (WS-MSG(WS-FMT-T:1) NOT = SPACE
+                          AND WS-MSG(WS-FMT-T:1) NOT = X"0A"
+                          AND WS-MSG(WS-FMT-T:1) NOT = X"0D"
+                          AND WS-MSG(WS-FMT-T:1) NOT = X"09")
+               END-PERFORM
+               IF WS-FMT-T NOT > 200
+                   IF WS-MSG(WS-FMT-T:1) = "<"
+                       MOVE "Y" TO WS-FMT-HTML
+                   END-IF
+               END-IF
                EXIT PROGRAM
            END-IF
            INSPECT WS-MSG TALLYING WS-FMT-T FOR ALL "|---" ALL "| ---"
@@ -1056,6 +1078,56 @@
                    MOVE "Y" TO WS-FORMATTED
                END-IF
            END-IF
+]]></Event>
+    <Event name="PC-APPEND-FORMATTED" paragraph="PC-APPEND-FORMATTED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-MSG in, a presentation (PC-IS-FORMATTED): straight into the
+      *>   conversation, no bubble. HTML is rendered as HTML. Markdown is
+      *>   rendered as Markdown - except a ```html fenced block, which is
+      *>   rendered as the page it holds instead of shown as code to copy
+      *>   (operator, 2026-09-27). The text around each such block stays
+      *>   Markdown, in order.
+           IF WS-FMT-HTML = "Y"
+               MOVE Vwr-Chat::AppendHtml(FUNCTION TRIM(WS-MSG)) TO WS-OK
+               EXIT PROGRAM
+           END-IF
+           MOVE 1 TO WS-FP
+           PERFORM UNTIL WS-FP > 64100
+               MOVE 0 TO WS-FA
+               INSPECT WS-MSG(WS-FP:) TALLYING WS-FA
+                   FOR CHARACTERS BEFORE INITIAL "```html"
+      *>       No fence left: the rest is Markdown.
+               IF WS-FP + WS-FA > 64100
+                   IF WS-MSG(WS-FP:) NOT = SPACES
+                       MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG(WS-FP:)))
+                           TO WS-OK
+                   END-IF
+                   EXIT PERFORM
+               END-IF
+               IF WS-FA > 0
+                   IF WS-MSG(WS-FP:WS-FA) NOT = SPACES
+                       MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG(WS-FP:WS-FA)))
+                           TO WS-OK
+                   END-IF
+               END-IF
+      *>       The page: from past "```html" to the closing fence (or the end
+      *>       of the answer, when the model left it open).
+               COMPUTE WS-BS = WS-FP + WS-FA + 7
+               IF WS-BS > 64100
+                   EXIT PERFORM
+               END-IF
+               MOVE 0 TO WS-FB
+               INSPECT WS-MSG(WS-BS:) TALLYING WS-FB
+                   FOR CHARACTERS BEFORE INITIAL "```"
+               IF WS-FB > 0
+                   IF WS-MSG(WS-BS:WS-FB) NOT = SPACES
+                       MOVE Vwr-Chat::AppendHtml(FUNCTION TRIM(WS-MSG(WS-BS:WS-FB)))
+                           TO WS-OK
+                   END-IF
+               END-IF
+               COMPUTE WS-FP = WS-BS + WS-FB + 3
+           END-PERFORM
 ]]></Event>
     <Event name="PC-SAY-STATUS" paragraph="PC-SAY-STATUS"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -1088,11 +1160,7 @@
                    MOVE Vwr-Chat::RemoveMessage(FUNCTION TRIM(WS-STATUS-ID)) TO WS-OK
                    MOVE SPACES TO WS-STATUS-ID
                END-IF
-               IF WS-FMT-HTML = "Y"
-                   MOVE Vwr-Chat::AppendHtml(FUNCTION TRIM(WS-MSG)) TO WS-OK
-               ELSE
-                   MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG)) TO WS-OK
-               END-IF
+               CALL "PC-APPEND-FORMATTED"
                MOVE Vwr-Chat::JumpToLatest() TO WS-OK
                EXIT PROGRAM
            END-IF
@@ -1611,14 +1679,11 @@
                    MOVE WS-JOIN TO WS-MSG
                    MOVE "N" TO WS-SHOW-ANSWER
                    CALL "PC-IS-FORMATTED"
-                   EVALUATE TRUE
-                       WHEN WS-FMT-HTML = "Y"
-                           MOVE Vwr-Chat::AppendHtml(FUNCTION TRIM(WS-JOIN)) TO WS-OK
-                       WHEN WS-FORMATTED = "Y"
-                           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-JOIN)) TO WS-OK
-                       WHEN OTHER
-                           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-JOIN), "agent") TO WS-OK
-                   END-EVALUATE
+                   IF WS-FORMATTED = "Y"
+                       CALL "PC-APPEND-FORMATTED"
+                   ELSE
+                       MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-JOIN), "agent") TO WS-OK
+                   END-IF
                END-IF
            END-IF
            MOVE SPACE TO WS-JOIN-ROLE

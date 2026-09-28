@@ -5175,8 +5175,70 @@ fn viewer_view_interactive(
     // done it. And now that the Viewer CONSUMES the wheel, a mode left out
     // would be a dead zone rather than merely an unscrolled one: the notch
     // would reach neither the document nor the form.
-    if enabled && !zoomed_by_wheel && resp.hovered() && wheel != 0.0 {
+    // ── The conversation's scrollbar (operator, 2026-09-27) ─────────────
+    // `Streamed` had the wheel and nothing else, so a reader without one
+    // could not get back to the start of a long answer. Sensed against last
+    // frame's extent, as the wheel is, and drawn after the paint against this
+    // frame's. Registered after the control's own response, so a press on
+    // the bar is the bar's — never the start of a text selection under it.
+    let bar = if streamed {
+        vw::stream_scrollbar(chrome.content, live.scroll.offset(), live.last_max)
+    } else {
+        None
+    };
+    let mut bar_busy = false;
+    let mut bar_hovered = false;
+    if let Some(b) = bar {
+        let grab_id = vid.with("viewer-bar-grab");
+        let track = to_rect(b.track).expand2(Vec2::new(3.0, 0.0));
+        let br = ui.interact(track, vid.with("viewer-bar"), Sense::click_and_drag());
+        bar_hovered = br.hovered();
+        bar_busy = br.dragged() || br.is_pointer_button_down_on();
+        if enabled {
+            let thumb = to_rect(b.thumb).expand2(Vec2::new(3.0, 0.0));
+            if br.drag_started() {
+                // Held where it was taken — or, pressed on the bare track,
+                // by its middle, so the thumb comes to the hand.
+                let grab = pointer
+                    .filter(|p| thumb.contains(*p))
+                    .map(|p| p.y - thumb.min.y)
+                    .unwrap_or(b.thumb.h / 2.0);
+                ui.ctx().memory_mut(|m| m.data.insert_temp(grab_id, grab));
+            }
+            if br.dragged() {
+                let grab = ui.ctx().memory(|m| m.data.get_temp::<f32>(grab_id)).unwrap_or(b.thumb.h / 2.0);
+                if let Some(p) = pointer {
+                    live.scroll.set_offset(vw::stream_bar_offset(&b, p.y - grab, live.last_max));
+                }
+            } else if br.clicked() {
+                // A click on the track pages toward it, as every bar does.
+                if let Some(p) = pointer.filter(|p| !thumb.contains(*p)) {
+                    let page = chrome.content.h * 0.9;
+                    let step = if p.y < thumb.min.y { -page } else { page };
+                    live.scroll.set_offset(live.scroll.offset() + step);
+                }
+            }
+            if br.drag_stopped() {
+                ui.ctx().memory_mut(|m| m.data.remove::<f32>(grab_id));
+            }
+        }
+    }
+
+    if enabled && !zoomed_by_wheel && (resp.hovered() || bar_hovered) && wheel != 0.0 {
         live.scroll.set_offset(live.scroll.offset() - wheel);
+    }
+
+    // The keys in a conversation too — while the reader is on it: over it,
+    // or it holds the focus. Never while another control (the question box)
+    // has the caret, which is `keyboard_free`'s job.
+    if enabled && streamed {
+        let on_it = resp.hovered() || resp.has_focus() || bar_hovered;
+        if keyboard_free && on_it && keys.any() {
+            let line = vw::line_height(st.font_size);
+            live.scroll.apply_keys(&keys, dt, line, chrome.content.h);
+        } else {
+            live.scroll.apply_keys(&vw::KeyScrollInput::default(), dt, 1.0, chrome.content.h);
+        }
     }
 
     // ── R33/R33.1/R33.2: keys, drag and throw — `Full` mode only ────────
@@ -5307,8 +5369,8 @@ fn viewer_view_interactive(
 
         // A drag that began on the CONTENT, not on the chrome: pressing the
         // Find bar and sliding into the page must not select anything.
-        let dragging = resp.dragged() && !slider_busy && !grip_busy;
-        if resp.drag_started() && over_content {
+        let dragging = resp.dragged() && !slider_busy && !grip_busy && !bar_busy;
+        if resp.drag_started() && over_content && !bar_busy {
             if let Some(a) = pointer.and_then(anchor_at) {
                 selection = Some(vw::TextSelection::at(a));
             }
@@ -5465,6 +5527,16 @@ fn viewer_view_interactive(
         };
         live.scroll.set_offset(offset);
         live.last_max = new_max;
+
+        // The scrollbar, where this frame's extent and offset put it: a quiet
+        // track, and a thumb that darkens under the hand.
+        if let Some(b) = vw::stream_scrollbar(chrome.content, live.scroll.offset(), new_max) {
+            let painter = ui.painter().with_clip_rect(content_rect);
+            let radius = egui::CornerRadius::same((vw::STREAM_BAR_WIDTH / 2.0) as u8);
+            painter.rect_filled(to_rect(b.track), radius, Color32::from_black_alpha(14));
+            let ink = if bar_busy { 150 } else if bar_hovered { 120 } else { 80 };
+            painter.rect_filled(to_rect(b.thumb), radius, Color32::from_black_alpha(ink));
+        }
     }
 
     // ── Write back every COBOL-visible value, then raise R32's events ───
