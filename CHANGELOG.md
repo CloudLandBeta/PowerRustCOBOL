@@ -8,6 +8,32 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.309] — 2026-09-28
+
+### Fix — `test_external_crates_e2e` passes again, and the build tests clean up after themselves
+
+- **Cause.** At 1.70.64 the build cache moved out of the OS temp dir, into
+  `~/Library/Caches/PowerRustCOBOL/builds` on macOS (and the per-user cache
+  folder on the other platforms), because the temp reaper prunes cached build
+  artefacts. Both e2e tests still rebuilt the old path by hand
+  (`$TMPDIR/cobolt-build-<name>`), so they could not find the staged
+  `Cargo.lock` / `Cargo.toml`. The build itself was fine.
+- **The same stale path stopped the cleanup.** The compiler's
+  `remove_build_staging` also looked in the temp dir, so every test build's
+  staging crate, with its own `target/`, stayed in the cache. Six test-only
+  folders held **about 80 GB**: `cratedemo` 26 GB, `aliasdemo` 14 GB, and
+  `rebuildme`, `badrust`, `silentnomore` and `baditem` about 10 GB each.
+- **Fix.** `BuildResult` now reports `build_dir`, the staging workspace it
+  used, so no caller re-derives the compiler's path rule. The e2e tests read
+  it and remove it when they finish. `remove_build_staging` looks in the
+  build cache. The IDE's comment about where builds stage is corrected.
+- Result:
+  - `test_external_crates_e2e`: 2/2 (cold build 24.9 s, warm no-op 0.9 s);
+  - `cobolt-compiler`: 145 + 2 pass;
+  - the six test folders are gone, and a developer's own project caches
+    (`powerchat`, `powerdemo3`) are untouched;
+  - free disk went from 58 GB to 137 GB.
+
 ## [PowerRustCOBOL 1.70.308] — 2026-09-27
 
 ### Feature — the Viewer applies a page's CSS

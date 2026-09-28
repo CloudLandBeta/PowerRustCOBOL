@@ -1210,6 +1210,11 @@ pub struct BuildResult {
     /// as a count rather than a stopwatch reading, because a count is the same
     /// number on a fast machine and a slow one.
     pub crates_compiled: usize,
+    /// The staging workspace this build used — the generated `Cargo.toml`,
+    /// `Cargo.lock` and cargo's `target/`. It lives under a per-user cache
+    /// folder, not the OS temp directory (see `build_cache_root`), and is
+    /// reported here so nothing outside the compiler has to know that rule.
+    pub build_dir: PathBuf,
 }
 
 /// Compile a Cobolt project into a single native binary.
@@ -2421,6 +2426,7 @@ fn build_core(
         form_count: forms.len(),
         ast_bytes: ast_compressed_len,
         crates_compiled: compiled,
+        build_dir,
     })
 }
 
@@ -8047,14 +8053,16 @@ mod resolve_main_tests {
         dir
     }
 
-    /// Remove the staging crate `build_core` leaves in the system temp dir.
+    /// Remove the staging crate `build_core` leaves in the build cache.
     ///
     /// Each staged crate carries its own `target/`, so a test that builds and
     /// walks away leaves about a gigabyte behind — a few of those fill a disk
     /// and the failure lands on whatever runs next, looking like anything but a
-    /// test that did not tidy up.
+    /// test that did not tidy up. From 1.70.64, when the cache moved out of
+    /// the OS temp dir, until 1.70.309 this still looked there and removed
+    /// nothing: about 40 GB of these were found in the cache.
     fn remove_build_staging(bin_name: &str) {
-        let dir = std::env::temp_dir().join(format!("cobolt-build-{bin_name}"));
+        let dir = build_cache_root().join(format!("cobolt-build-{bin_name}"));
         let _ = fs::remove_dir_all(dir);
     }
 

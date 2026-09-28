@@ -4628,7 +4628,7 @@ impl CoboltApp {
     /// because it is the only one that can promise nothing older survived.
     fn do_build_binary_with(&mut self, full: bool) {
         // One build at a time. Every build of a project stages into the same
-        // `$TMPDIR/cobolt-build-<binary>` folder, and a full build's first act
+        // `cobolt-build-<binary>` folder of the build cache, and a full build's first act
         // is to throw that folder away — so a second build started while one is
         // still compiling deletes the artefacts the live cargo is writing. What
         // the developer gets is pages of compiler errors naming crates they

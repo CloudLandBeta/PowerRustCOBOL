@@ -208,7 +208,10 @@ fn external_crates_build_run_manifest_and_determinism() {
 
     // ── AC5 + R10/R15 — the staged lockfile: exactly ONE serde, and the pins
     //    resolve as path (vendored) packages, i.e. no `source =` line ─────────
-    let build_dir = std::env::temp_dir().join("cobolt-build-cratedemo");
+    // Where the build staged, as the build reports it — it moved out of the
+    // OS temp dir at 1.70.64, and a test that re-derives the path goes stale
+    // the next time it moves.
+    let build_dir = built.build_dir.clone();
     let lock = std::fs::read_to_string(build_dir.join("Cargo.lock"))
         .expect("staged build dir must carry a lockfile");
     let serde_entries = lock.matches("\nname = \"serde\"\n").count();
@@ -266,6 +269,9 @@ fn external_crates_build_run_manifest_and_determinism() {
     println!("total:                   {:.1} s", t_all.elapsed().as_secs_f32());
     println!("──────────────────────────────────────────────────────────");
 
+    // The staged crate carries its own `target/` — tens of GB left behind
+    // per run otherwise.
+    let _ = std::fs::remove_dir_all(&build_dir);
     let _ = std::fs::remove_dir_all(&project);
 }
 
@@ -338,7 +344,7 @@ fn external_crates_alias_build_and_run() {
 
     // The staged manifest carries a `package =` path dependency and no patch
     // for it (spec 045 R1) — the platform's own egui 0.36 stays unpatched.
-    let build_dir = std::env::temp_dir().join("cobolt-build-aliasdemo");
+    let build_dir = built.build_dir.clone();
     let cargo_toml = std::fs::read_to_string(build_dir.join("Cargo.toml"))
         .expect("staged build dir must carry the generated Cargo.toml");
     assert!(
@@ -359,5 +365,6 @@ fn external_crates_alias_build_and_run() {
     println!("total:         {:.1} s", t_all.elapsed().as_secs_f32());
     println!("────────────────────────────────────────────────");
 
+    let _ = std::fs::remove_dir_all(&build_dir);
     let _ = std::fs::remove_dir_all(&project);
 }
