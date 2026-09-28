@@ -2675,9 +2675,16 @@ pub fn parse_html(html: &str) -> LayoutDocument {
         return LayoutDocument::default();
     };
     let parser = dom.parser();
+    // A page that links Bulma gets the Viewer's own Bulma-compatible sheet
+    // in its place — nothing is fetched — cascaded first, as a linked sheet
+    // is, so the page's `<style>` still overrides it.
+    let mut sheet = if links_bulma(&dom) {
+        crate::css::Stylesheet::parse(BULMA_CSS)
+    } else {
+        crate::css::Stylesheet::default()
+    };
     // Every `<style>` in the document, wherever it sits (a page's `<head>`
     // included), in source order — its rules apply to this document only.
-    let mut sheet = crate::css::Stylesheet::default();
     if let Some(styles) = dom.query_selector("style") {
         for h in styles {
             if let Some(tag) = h.get(parser).and_then(|n| n.as_tag()) {
@@ -2699,6 +2706,26 @@ pub fn parse_html(html: &str) -> LayoutDocument {
     }
     walker.flush_paragraph();
     LayoutDocument { blocks: walker.blocks }
+}
+
+/// The Viewer's Bulma-compatible sheet: Bulma's class names and look, written
+/// for this subset (see the file's own header).
+pub const BULMA_CSS: &str = include_str!("bulma.css");
+
+/// Whether the page links a Bulma stylesheet — a `<link>` whose `href` names
+/// `bulma` (a CDN URL, or a local `bulma.min.css`).
+fn links_bulma(dom: &tl::VDom<'_>) -> bool {
+    let parser = dom.parser();
+    dom.query_selector("link").is_some_and(|mut links| {
+        links.any(|h| {
+            h.get(parser).and_then(|n| n.as_tag()).is_some_and(|tag| {
+                tag.attributes()
+                    .get("href")
+                    .flatten()
+                    .is_some_and(|href| href.as_utf8_str().to_ascii_lowercase().contains("bulma"))
+            })
+        })
+    })
 }
 
 /// Elements that make a block of their own — the ones a CSS box can wrap.
@@ -7588,6 +7615,52 @@ mod html_tests {
         );
         assert_eq!(blocks[2], Block::Mermaid { source: "sequenceDiagram\n  A->>B: Hola".into() });
         assert_eq!(blocks.len(), 3, "nothing of the scripts is shown");
+    }
+
+    /// A page that links Bulma is styled by the Viewer's own Bulma sheet —
+    /// nothing fetched: a coloured hero, `.columns` as a flex row whose
+    /// `.column.is-half` takes half, a `.box` with its shadow. The page's own
+    /// `<style>` still wins, as it does over a linked sheet in a browser. A
+    /// page that does not link Bulma gets none of it.
+    #[test]
+    fn a_page_that_links_bulma_is_styled_by_bulma() {
+        let page = "<html><head>\
+            <link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css\">\
+            <style>.box.mine { background-color: #123456 }</style></head><body>\
+            <section class=\"hero is-primary\"><div class=\"hero-body\"><p class=\"title\">T</p></div></section>\
+            <div class=\"columns\"><div class=\"column is-half\"><div class=\"box mine\">a</div></div>\
+            <div class=\"column\"><div class=\"box\">b</div></div></div></body></html>";
+        let blocks = parse_html(page).blocks;
+        let find = |blocks: &[Block]| -> Vec<BoxStyle> {
+            fn walk(b: &[Block], out: &mut Vec<BoxStyle>) {
+                for b in b {
+                    if let Block::Styled { style, blocks } = b {
+                        out.push((**style).clone());
+                        walk(blocks, out);
+                    }
+                }
+            }
+            let mut out = Vec::new();
+            walk(blocks, &mut out);
+            out
+        };
+        let boxes = find(&blocks);
+        println!("  boxes: {boxes:#?}");
+        let solid = |c: &str| Some(Background::Solid(c.into()));
+        assert!(boxes.iter().any(|b| b.background == solid("#00d1b2ff")), "the primary hero");
+        let columns = boxes.iter().find(|b| b.layout.as_ref().is_some_and(|l| l.kind == LayoutKind::Row));
+        assert!(columns.is_some(), ".columns is a flex row");
+        assert!(boxes.iter().any(|b| b.width_share == Some(0.5)), ".column.is-half takes half");
+        assert!(
+            boxes.iter().any(|b| b.background == solid("#123456ff")),
+            "the page's own rule overrides the Bulma box"
+        );
+        assert!(
+            boxes.iter().any(|b| b.shadow.is_some() && b.background == solid("#ffffffff")),
+            "a plain .box keeps Bulma's white and shadow"
+        );
+        let plain = parse_html("<div class=\"columns\"><div class=\"column\">a</div></div>").blocks;
+        assert!(find(&plain).iter().all(|b| b.layout.is_none()), "no link, no Bulma");
     }
 
     /// The layout declarations a model's infographic uses, in any order, land

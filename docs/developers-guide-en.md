@@ -1238,7 +1238,7 @@ to start your own. Everything in it is COBOL in its twelve forms:
 
 | Form | What it shows you how to do |
 |---|---|
-| `chat-form` (main) | A SideMenu shell whose menu is designed in the menu editor, relabelled with `SetItemLabel` in the current language and held shut with `SetItemEnabled` until an agent has a model (and **Chat** / **New conversation** until a topic exists); **New conversation** asks which topic to talk about, through `pick-form`, starts a fresh conversation in it and shows the chat (`ActivateItem("chat")`); with no documents and no data files for the topic, the orchestrator's system prompt tells it to say it cannot answer about the user's data until one is added; the orchestrator's prompt also asks for a formatted answer as one colourful, infographic-style HTML page — gradient banner, cards, round numbered steps in flex rows, grids of facts, a Mermaid element for a diagram — using only what the chat's `Viewer` draws; a **Getting started** row added at run time (`AddItem`) opens the welcome form, and on a first run the program opens it itself with `ActivateItem`. Every other form opens **embedded** in the ContentPane by its row's `open-form:` action (the RAG settings dialogs excepted — they are modal windows), and `onActivate` refreshes the chat when the operator comes back; a `Viewer` as a chat; three `AgentObject`s that elect an orchestrator and split the work (below), grounded in a `KnowledgeBase` with `AllowKnowledgeBase`; conversations as run-time menu rows; token totals from `LastInputTokens` / `LastOutputTokens` |
+| `chat-form` (main) | A SideMenu shell whose menu is designed in the menu editor, relabelled with `SetItemLabel` in the current language and held shut with `SetItemEnabled` until an agent has a model (and **Chat** / **New conversation** until a topic exists); **New conversation** asks which topic to talk about, through `pick-form`, starts a fresh conversation in it and shows the chat (`ActivateItem("chat")`); with no documents and no data files for the topic, the orchestrator's system prompt tells it to say it cannot answer about the user's data until one is added; a report is built from a **report template** — the orchestrator's prompt lists every template in `data/report-templates.idx` (filled the first time from `samples/report-templates.txt`: Executive, the sober one, and ten infographic types — Informational, List, Timeline, Comparison, Map, Statistics, Flowchart, Hierarchy, Anatomical, Animated), asks the user which to use while recommending the two or three that fit, and writes one HTML page that links Bulma, with no JavaScript; a template the user changes or describes comes back in a hidden `<!--REPORT-TEMPLATE … -->` block that the program saves under its name and cuts out of the answer (with several agents, the planner answers `ASK:` instead of splitting the question when no template is chosen yet); a **Getting started** row added at run time (`AddItem`) opens the welcome form, and on a first run the program opens it itself with `ActivateItem`. Every other form opens **embedded** in the ContentPane by its row's `open-form:` action (the RAG settings dialogs excepted — they are modal windows), and `onActivate` refreshes the chat when the operator comes back; a `Viewer` as a chat; three `AgentObject`s that elect an orchestrator and split the work (below), grounded in a `KnowledgeBase` with `AllowKnowledgeBase`; conversations as run-time menu rows; token totals from `LastInputTokens` / `LastOutputTokens` |
 | `welcome-form` | The first-run screen — the name at 84 points, a robot, four steps — as a form of its own rather than controls hidden over the chat |
 | `topics-form` | **The CRUD pattern** (below): topics in a DataGrid with open, edit and delete icon buttons per row, each topic with its own Knowledge Base collection (`CreateCollection` on save, `RemoveCollection` on delete); sample topics installed from a plain text list and taken out again |
 | `documents-form` | The collection's documents as a `TreeView` built with `AddNode`, its folders kept in an indexed file so an empty one still shows; `onNodeSelect` points the `FileDropZone` at the chosen folder; `Refresh()`, and a progress strip — always in its own place, empty when idle — driven by `onProgress` / `onIndexed` |
@@ -4845,7 +4845,47 @@ in every form CSS writes them: `#rgb`, `#rrggbbaa`, `rgb()`/`rgba()`,
 > ⚠️ **Caveat — nothing is fetched.** `@import`, `<link rel="stylesheet">`,
 > `url(…)` backgrounds and web fonts are ignored. A viewer that loaded what a
 > page asked for would be a browser, with a browser's exposure. A page's
-> styles must be in the page.
+> styles must be in the page — with one exception, Bulma, below.
+
+> **Note — Bulma, built in.** A page whose `<head>` links Bulma —
+> `<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">`,
+> or any `href` naming `bulma` — is styled by the Viewer's own Bulma sheet,
+> nothing downloaded. A browser opening the same page loads the real Bulma,
+> so one HTML file, with no JavaScript, looks the same in both. The sheet
+> covers Bulma 0.9.4's layout and components — `section`, `container`,
+> `hero` (with its colours and `is-bold` gradients), `columns`/`column` and
+> their widths (`is-half`, `is-one-third`, `is-2` … `is-12`,
+> `is-multiline`, `is-vcentered`), `level`, `media`, `tile`, `title` and
+> `subtitle`, `box`, `card`, `notification`, `message`, `panel`, `tag`,
+> `table` (`is-striped`, `is-bordered`, `is-fullwidth`) — and the helpers
+> `has-text-*`, `has-background-*`, `is-size-*`, `has-text-weight-*`, the
+> flex helpers and the `m-*` / `p-*` spacing. It is cascaded before the
+> page's own `<style>`, as a linked sheet is, so the page can still override
+> any rule.
+>
+> ```html
+> <head>
+>   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+> </head>
+> <body>
+>   <section class="hero is-info is-bold"><div class="hero-body">
+>     <p class="title">Leave report</p><p class="subtitle">First half</p>
+>   </div></section>
+>   <div class="columns">
+>     <div class="column is-half"><div class="box">Operations: <strong>82%</strong></div></div>
+>     <div class="column"><div class="notification is-warning is-light">Book overdue leave by July 31.</div></div>
+>   </div>
+> </body>
+> ```
+>
+> A COBOL program that writes such a page — `ASSIGN TO VIEWER`, a file it
+> shows with `Source`, an answer from an `AgentObject` — needs nothing else.
+
+> ⚠️ **Caveat — Bulma at desktop width.** Bulma makes `.columns` a row only
+> above 768 px, behind `@media`; the Viewer has no media queries, so its
+> `.columns` are always a row. Bulma's JavaScript-driven parts (a navbar's
+> burger, dropdowns, modals) are not in the subset — the pages it is for are
+> reports.
 
 #### Layouts
 

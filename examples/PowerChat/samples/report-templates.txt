@@ -1,0 +1,54 @@
+=== Executive
+Suits: any report for management, clients or an audit - the sober, professional choice; always offer it.
+Structure: a plain header (title, subtitle with date and scope) in a section with a thin bottom border; an "Executive summary" box of 3 to 5 sentences; a level of 3 or 4 key figures (heading + title is-4); then numbered sections (title is-5) with short paragraphs and, where there is data, a table is-striped is-fullwidth; a closing "Recommendations" list and a small footnote with the sources.
+Look: no hero colour, no emoji, no gradients. White background, grey text (has-text-grey-dark), ONE accent colour (#1f3a5f, navy) for titles and figures, thin #dbdbdb rules between sections, generous white space. Tags only for statuses, is-light.
+
+=== Informational
+Suits: teaching a concept, a policy or a topic so the reader understands it quickly.
+Structure: a hero is-info is-bold with the question it answers; a short introduction; "What it is", "Why it matters" and "How it works" as three boxes in columns, each opened by an emoji; a Mermaid diagram or a simple labelled figure when it helps; a notification is-warning is-light with the one rule to remember.
+Look: friendly and clear - balanced text and visuals, a blue/teal palette, key terms bold.
+
+=== List
+Suits: tips, rules, checklists, requirements, "N things to know".
+Structure: a hero with the count in its title ("7 rules for ..."); each item a box with a flex row: a round numbered badge (48px circle, strong colour, white bold number) and, beside it, the item's title (strong) and one or two lines; the items in columns is-multiline, column is-half each; a closing notification with the one item that matters most.
+Look: each item distinct - rotate 4 or 5 accent colours on the badges; icons or emoji per item.
+
+=== Timeline
+Suits: history, a project's phases, a process over time, a biography, cause and effect.
+Structure: a hero with the period covered; a vertical timeline - each event a flex row: a fixed-width date column (tag is-medium, the accent colour), a 4px coloured vertical rule (border-left on the event box), and a box with the event's title and one or two lines; milestones marked with a star emoji and a stronger colour; a closing box "Where we are now".
+Look: clear left-to-right hierarchy date -> event; a gradient from the oldest (cool colour) to the newest (warm colour).
+
+=== Comparison
+Suits: two or more options, products, plans, before/after, pros and cons.
+Structure: a hero naming what is compared; the options side by side in columns (one column per option, same structure in each): a card with a coloured card-header (the option's name), its key figure large, and the same list of criteria in the same order; below, a table is-bordered is-fullwidth with one row per criterion and a check or cross per option; a closing notification with the verdict ("Choose A when..., B when...").
+Look: symmetrical - one colour per option, used consistently in the header, the figures and the table.
+
+=== Map
+Suits: data by region, state, country, branch or site.
+Structure: no map image - a tile map: a grid of equal square boxes, one per region, roughly in its geographic position (columns is-multiline), each showing the region's code and its value; the tiles coloured by intensity in 4 or 5 steps of ONE hue (light = low, dark = high) with a legend of the steps; beside it the top 5 regions as a ranked table; a note naming the source and date.
+Look: a single-hue scale, white text on the dark tiles, dark text on the light ones.
+
+=== Statistics
+Suits: survey results, KPIs, performance, research findings - when the numbers are the story.
+Structure: a hero with the headline number; a level of 3 or 4 big figures (title is-2 in the accent colour, heading above it, a tag with the change up or down); horizontal bars for comparisons - a grey track div (height 20px, rounded) holding a coloured div whose width is the percentage, the label and value beside it; a table for the detail; one notification with the insight.
+Look: numbers first and large; green for good, red for bad, grey for neutral; never more than 5 colours.
+
+=== Flowchart
+Suits: a procedure, a decision path, "how to", an approval or support flow.
+Structure: a hero with the goal of the process; a Mermaid "flowchart TD" with the steps and the yes/no decisions; then the same steps as numbered cards in order (badge + title + who does it + what they need), a decision step marked with a tag is-warning; a closing notification with the rule that ends the flow.
+Look: directional and calm - one colour for steps, amber for decisions, green for the end.
+
+=== Hierarchy
+Suits: an organisation chart, priorities, levels, a ranking, Maslow-style pyramids.
+Structure: a pyramid of centred boxes, one per level, the top one narrowest (width 30%, then 45%, 60%, 75%, 90% - margin auto to centre), each coloured darker the higher it is, with the level's name bold and one line; or, for an organisation, a Mermaid "flowchart TD" tree; a table beside or below with each level's details.
+Look: size and colour carry importance - the top the strongest; white text on the dark levels.
+
+=== Anatomical
+Suits: the parts of a system, a product, a document, a contract or a process - "what it is made of".
+Structure: three columns: the left and right columns hold the parts as labelled callout boxes (a number badge, the part's name, one line) with a coloured border on the side facing the centre; the centre column holds the whole - a large box, card or emoji figure with the numbered zones listed on it; below, a table "part - role - note".
+Look: precise and labelled - numbers link each callout to its zone; neutral background, one accent per group of parts.
+
+=== Animated
+Suits: announcements, launches, growth stories - when the page will be opened in a browser.
+Structure: any of the structures above, with CSS3 animations in the <style> block: @keyframes fade-in and slide-up on the sections (animation: 0.6s ease-out both, staggered with animation-delay), bars that grow to their width (@keyframes grow from width 0), a gentle pulse on the headline figure. No JavaScript.
+Look: subtle movement that highlights, never distracts. Note to the user that the Viewer shows it still; a browser plays it.

@@ -8,6 +8,55 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.326] — 2026-09-28
+
+### Feature — Bulma in the Viewer; report templates in PowerChat
+
+The operator asked for reports that are not fixed to one infographic style:
+fixed templates that can be changed, or new ones created, from the prompt;
+a framework "like Tailwind or Bulma" for rich reports without JavaScript;
+the infographic types described at atomisystems.com as the model; and, when a
+report is asked for, a question about which template to use, recommending
+the ones that fit and always offering a sober, professional option.
+
+- **Bulma in the Viewer (`cobolt-forms`).** A page that links a Bulma
+  stylesheet (any `<link>` whose `href` names `bulma`) is styled by
+  `viewer::BULMA_CSS` (`src/bulma.css`), the Viewer's own sheet written for
+  its CSS subset. It covers Bulma 0.9.4's layout, components, colours and
+  helpers. Nothing is fetched. The sheet is cascaded before the page's
+  `<style>`, as a linked sheet is. A browser loads the real Bulma, so one
+  HTML file without JavaScript renders in both. Bulma was chosen over
+  Tailwind because Tailwind needs a build step (or its JavaScript CDN) to
+  produce the CSS for the classes a page uses.
+  Test: `viewer::html_tests::a_page_that_links_bulma_is_styled_by_bulma`.
+- **Report templates (PowerChat).**
+  - `samples/report-templates.txt` ships eleven templates: **Executive**,
+    the sober one, plus Informational, List, Timeline, Comparison, Map,
+    Statistics, Flowchart, Hierarchy, Anatomical and Animated. Animated uses
+    CSS3 animation: a browser plays it, and the Viewer shows it still.
+  - `PC-TEMPLATES` fills `data/report-templates.idx` from that file when
+    the idx file is empty.
+  - The orchestrator's prompt, which replaces the fixed "colourful
+    infographic" instructions, lists every template and tells the model to:
+    - ask which template to use, recommend two or three, and always list
+      Executive;
+    - write one HTML page that links Bulma, with no JavaScript;
+    - return any template the user changes or describes in a
+      `<!--REPORT-TEMPLATE … -->` block.
+  - `PC-SAVE-TEMPLATE` saves that block under its NAME, replacing a template
+    of the same name, and cuts it out of the answer. Every template is kept
+    ("always save").
+  - With several agents, the planner answers `ASK:` instead of splitting the
+    question into tasks when no template has been chosen yet, and
+    `PC-DISPATCH` shows that question as the answer.
+  - Tests: `powerchat_offers_report_templates_and_saves_a_new_one` and
+    `powerchat_asks_which_template_before_planning_a_report`.
+- An `OPEN I-O` of a missing indexed file answers `00` and creates it (not
+  `35`), so the templates are seeded when the file is found empty, not on
+  status 35.
+- Developer's Guide: a Bulma note and caveat in the Viewer's CSS section, and
+  the PowerChat row. PowerChat README and `data/README.md` updated.
+
 ## [PowerRustCOBOL 1.70.325] — 2026-09-28
 
 ### Fix — flowchart connectors are orthogonal and meet each shape at a side's middle

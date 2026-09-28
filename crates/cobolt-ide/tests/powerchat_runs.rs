@@ -1818,3 +1818,165 @@ fn powerchat_browses_for_a_data_file_and_its_description() {
     println!("\n  ── 071 PowerChat, browse for a data file ──\n  panels: {asked:?}\n  fields: {got} / {got_cidx}\n");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A scripted Ollama for the report templates: a planning request (it asks
+/// to split the question) is answered `ASK:` with the template question;
+/// every other request with `reply`. Every request is kept.
+fn report_server(reply: &'static str) -> (String, Arc<Mutex<Vec<String>>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+    let log = seen.clone();
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 8192];
+            let head_end = loop {
+                match stream.read(&mut chunk) {
+                    Ok(0) | Err(_) => break None,
+                    Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                }
+                if let Some(i) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break Some(i + 4);
+                }
+            };
+            let Some(head_end) = head_end else { continue };
+            let head = String::from_utf8_lossy(&buf[..head_end]).to_ascii_lowercase();
+            let len = head
+                .lines()
+                .find_map(|l| l.strip_prefix("content-length:"))
+                .and_then(|v| v.trim().parse::<usize>().ok())
+                .unwrap_or(0);
+            while buf.len() < head_end + len {
+                match stream.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                }
+            }
+            let body = String::from_utf8_lossy(&buf[head_end..]).into_owned();
+            log.lock().unwrap().push(body.clone());
+            let content = if body.contains("Split the user") {
+                "ASK: Which template should the report use? 1. Executive (recommended) 2. Timeline"
+            } else {
+                reply
+            };
+            let reply = serde_json::json!({
+                "message": {"role": "assistant", "content": content},
+                "prompt_eval_count": 50, "eval_count": 20
+            })
+            .to_string();
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                reply.len(),
+                reply
+            );
+            let _ = stream.write_all(resp.as_bytes());
+        }
+    });
+    (format!("http://127.0.0.1:{port}/api"), seen)
+}
+
+/// A PowerChat data folder with the HR topic and `agents` agents on the
+/// model at `url`.
+fn report_setup(tag: &str, url: &str, agents: usize) -> (PathBuf, PathBuf) {
+    let root = std::env::temp_dir().join(format!(
+        "prc-071-{tag}-{}",
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let data = root.join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    plant_model(&root, false);
+    std::env::set_var("POWERCHAT_DATA", &data);
+    std::env::set_var("POWERCHAT_SAMPLES", project().join("samples"));
+    let mut settings = vec![("CUR-TOPIC", "HR"), ("AGENT-1-ENTRY", "Local")];
+    if agents > 1 {
+        settings.push(("AGENT-2-ENTRY", "Local"));
+    }
+    seed_settings(&data, &settings);
+    seed_indexed(
+        &data.join("topics.idx"),
+        "           05 TOP-ID PIC X(16).\n           05 TOP-NAME PIC X(40).\n           05 TOP-PROMPT PIC X(1000).\n           05 TOP-CREATED PIC X(14).\n           05 TOP-SAMPLE PIC X.\n",
+        "TOP-ID",
+        "           MOVE \"HR\" TO TOP-ID\n           MOVE \"HR\" TO TOP-NAME\n           MOVE \"You answer HR questions.\" TO TOP-PROMPT\n           WRITE R\n",
+    );
+    seed_indexed(
+        &data.join("models.idx"),
+        "           05 MDL-NAME PIC X(30).\n           05 MDL-API PIC X(12).\n           05 MDL-URL PIC X(200).\n           05 MDL-MODEL PIC X(80).\n           05 MDL-TOOLS PIC X.\n           05 MDL-RANK PIC 9.\n",
+        "MDL-NAME",
+        &format!(
+            "           MOVE \"Local\" TO MDL-NAME\n           MOVE \"ollama\" TO MDL-API\n           MOVE \"{url}\" TO MDL-URL\n           MOVE \"test-model\" TO MDL-MODEL\n           MOVE \"N\" TO MDL-TOOLS\n           MOVE 5 TO MDL-RANK\n           WRITE R\n"
+        ),
+    );
+    (root, data)
+}
+
+/// Operator (2026-09-28): reports come from templates — fixed ones, ones
+/// changed by prompt and new ones described in the chat — built with Bulma,
+/// no JavaScript. The shipped templates reach the orchestrator's
+/// instructions; a template the model defines in its answer is saved under
+/// its name and cut out of what the user sees; the next session offers it.
+#[test]
+fn powerchat_offers_report_templates_and_saves_a_new_one() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    const REPLY: &str = "Here is your report.\n```html\n<html><head><link rel=\"stylesheet\" \
+        href=\"https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css\"></head><body>\
+        <section class=\"hero is-success\"><div class=\"hero-body\"><p class=\"title\">Leave</p></div></section>\
+        </body></html>\n```\n<!--REPORT-TEMPLATE\nNAME: Green Timeline\nSuits: a year's milestones.\n\
+        Structure: the Timeline template.\nLook: shades of green, no icons.\n-->\n";
+    let (url, _requests) = report_server(REPLY);
+    let (root, data) = report_setup("templates", &url, 1);
+    let t = Instant::now();
+    let mut s = Session::start("chat-form.cfrm");
+    let prompt = s.wait_for("AGENT-1", "SystemPrompt", |v| v.contains("### Animated"));
+    let shipped = prompt.matches("\n### ").count() + usize::from(prompt.starts_with("### "));
+    for name in ["Executive", "Informational", "List", "Timeline", "Comparison", "Map", "Statistics",
+                 "Flowchart", "Hierarchy", "Anatomical", "Animated"] {
+        assert!(prompt.contains(&format!("### {name}\n")), "the {name} template is offered");
+    }
+    assert!(prompt.contains("bulma@0.9.4") && prompt.contains("always list") && prompt.contains("Executive"));
+    assert!(prompt.contains("Never JavaScript"));
+
+    s.type_into("Txt-Input", "A report of the leave year, green timeline, no icons");
+    s.click("Btn-Send");
+    let html = s.wait_for("Vwr-Chat", "_ConversationHtml", |v| v.contains("Here is your report"));
+    s.quit();
+    assert!(!html.contains("REPORT-TEMPLATE") && !html.contains("Green Timeline"), "the block is not shown: {html}");
+    let saved = String::from_utf8_lossy(&std::fs::read(data.join("report-templates.idx")).unwrap()).into_owned();
+    assert!(saved.contains("Green Timeline") && saved.contains("Look: shades of green, no icons."), "saved");
+
+    // The next session offers it with the shipped ones.
+    let mut s = Session::start("chat-form.cfrm");
+    let again = s.wait_for("AGENT-1", "SystemPrompt", |v| v.contains("### Green Timeline"));
+    s.quit();
+    assert!(again.contains("### Green Timeline\nSuits: a year's milestones."), "{again}");
+    println!(
+        "\n  ── 071 PowerChat, report templates ──────────────────────\n  {shipped} shipped templates in the instructions ({} characters); \
+         one defined in an answer saved, hidden from the user, offered next session — {:.0} ms\n",
+        prompt.len(),
+        t.elapsed().as_secs_f64() * 1000.0
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// With several agents the orchestrator plans first; a report with no
+/// template chosen yet is answered `ASK:` — a question for the user, shown
+/// as the answer, not split into tasks.
+#[test]
+fn powerchat_asks_which_template_before_planning_a_report() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let (url, requests) = report_server("unused");
+    let (root, _data) = report_setup("ask", &url, 2);
+    let mut s = Session::start("chat-form.cfrm");
+    s.settle();
+    s.type_into("Txt-Input", "Make me a report on leave");
+    s.click("Btn-Send");
+    let html = s.wait_for("Vwr-Chat", "_ConversationHtml", |v| v.contains("Which template"));
+    s.quit();
+    assert!(!html.contains("ASK:"), "the marker is not shown: {html}");
+    let asked = requests.lock().unwrap().len();
+    assert_eq!(asked, 1, "one planning request, no task sent to another agent");
+    println!("\n  ── 071 PowerChat, template asked before planning ────────\n  {asked} request; the question shown\n");
+    let _ = std::fs::remove_dir_all(&root);
+}

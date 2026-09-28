@@ -452,6 +452,16 @@
       *>   Where the orchestrator's prompt ends, for what is added to it.
        01 WS-SYS-PT          GLOBAL PIC 9(6).
        01 WS-LOWQ            GLOBAL PIC X(64000).
+      *>   The report templates (operator, 2026-09-28): data/report-templates.idx,
+      *>   seeded from samples/report-templates.txt the first time.
+       01 WS-RTPL-PATH       GLOBAL PIC X(240).
+       01 WS-RTSEED-PATH     GLOBAL PIC X(240).
+       01 WS-RT-NAME         GLOBAL PIC X(40).
+       01 WS-RT-BODY         GLOBAL PIC X(2000).
+       01 WS-RT-PT           GLOBAL PIC 9(6).
+       01 WS-RT-AT           GLOBAL PIC 9(6).
+       01 WS-RT-LEN          GLOBAL PIC 9(6).
+       01 WS-RT-END          GLOBAL PIC 9(6).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -538,6 +548,15 @@
                RECORD KEY IS TF-KEY
                FILE STATUS IS WS-FS
                STORAGE MODE IS DISK.
+           SELECT RTPL-FILE ASSIGN TO WS-RTPL-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS RT-NAME
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT RTSEED-FILE ASSIGN TO WS-RTSEED-PATH
+               ORGANIZATION IS LINE SEQUENTIAL
+               FILE STATUS IS WS-FS.
 ]]></file-control>
   <file-section><![CDATA[       FD  SETTINGS-FILE IS GLOBAL.
        01  SETTINGS-REC.
@@ -587,6 +606,14 @@
            05 TF-NAME           PIC X(30).
            05 TF-DATA           PIC X(250).
            05 TF-CIDX           PIC X(250).
+       FD  RTPL-FILE IS GLOBAL.
+      *>   One report template: its name and what it says - what it suits,
+      *>   its structure, its look - as the model reads it.
+       01  RTPL-REC.
+           05 RT-NAME           PIC X(40).
+           05 RT-BODY           PIC X(2000).
+       FD  RTSEED-FILE IS GLOBAL.
+       01  RTSEED-REC           PIC X(1000).
 ]]></file-section>
   <user-procedures>
     <Event name="PC-PATHS" paragraph="PC-PATHS"><![CDATA[       ENVIRONMENT DIVISION.
@@ -616,6 +643,20 @@
            MOVE SPACES TO WS-TFILES-PATH
            STRING FUNCTION TRIM(WS-DATA-DIR) "/topic-files.idx"
                DELIMITED BY SIZE INTO WS-TFILES-PATH
+           MOVE SPACES TO WS-RTPL-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/report-templates.idx"
+               DELIMITED BY SIZE INTO WS-RTPL-PATH
+      *>   The shipped templates sit beside the sample topics:
+      *>   POWERCHAT_SAMPLES, else "samples".
+           DISPLAY "POWERCHAT_SAMPLES" UPON ENVIRONMENT-NAME
+           ACCEPT WS-RTSEED-PATH FROM ENVIRONMENT-VALUE
+           IF WS-RTSEED-PATH = SPACES
+               MOVE "samples" TO WS-RTSEED-PATH
+           END-IF
+           MOVE FUNCTION TRIM(WS-RTSEED-PATH) TO WS-RT-BODY
+           MOVE SPACES TO WS-RTSEED-PATH
+           STRING FUNCTION TRIM(WS-RT-BODY) "/report-templates.txt"
+               DELIMITED BY SIZE INTO WS-RTSEED-PATH
 ]]></Event>
     <Event name="PC-SETTING-GET" paragraph="PC-SETTING-GET"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -839,43 +880,73 @@
                            DELIMITED BY SIZE INTO WS-TEXT
                        END-STRING
                    END-IF
-      *>           How a presentation should look (operator, 2026-09-28: the
-      *>           HTML was "ugly as hell" - "use a colorful, infograph
-      *>           style"). It names only what the chat's Viewer draws: CSS
-      *>           boxes, gradients, flex rows, grids and a Mermaid element.
+      *>           How a report should look (operator, 2026-09-28): the user
+      *>           picks one of the report templates - the model recommends
+      *>           the ones that fit, always offers the sober Executive one -
+      *>           and any template can be changed or a new one described;
+      *>           what the model then defines is saved (PC-SAVE-TEMPLATE).
+      *>           Pages link Bulma: a browser loads it, the chat's Viewer
+      *>           styles the same classes itself. No JavaScript.
                    COMPUTE WS-SYS-PT =
                        FUNCTION LENGTH(FUNCTION TRIM(WS-TEXT)) + 1
                    STRING X"0A" X"0A"
-                       "When the user asks for a formatted, visual or HTML "
-                       "answer, write ONE self-contained HTML page, fenced as "
-                       "```html, in a colourful INFOGRAPHIC style: "
-                       "a title banner with a linear-gradient background and "
-                       "white text; each section a card (white or pastel "
-                       "background, border-radius 12px, a soft box-shadow, a "
-                       "5px coloured border-left); numbered steps as rows "
-                       "(display:flex; align-items:center; gap:16px), each "
-                       "led by a round badge (width and height 40px, "
-                       "border-radius:50%, a strong background colour, white "
-                       "bold number, display:flex; align-items:center; "
-                       "justify-content:center); groups of facts as a grid "
-                       "(display:grid; grid-template-columns:repeat(auto-fit, "
-                       "minmax(220px, 1fr)); gap:16px) of small cards, each "
-                       "opened by an emoji; key figures large and bold in the "
-                       "accent colour; a mandatory rule or a warning in a red "
-                       "or amber callout box. Define a harmonious palette of "
-                       "4 or 5 colours as CSS variables in :root and put all "
-                       "CSS in one <style> block. For a diagram, use "
-                       "<div class=""mermaid""> holding REAL Mermaid syntax "
-                       "that starts with flowchart TD (or sequenceDiagram), "
-                       "e.g. flowchart TD / A[Start] --> B{Critical "
-                       "clause?} / B -->|Yes| C[Legal review] / B -->|No| "
-                       "D[Signature] - one statement per line, never a "
-                       "drawing made of brackets and arrows. Never use "
-                       "JavaScript, position, "
-                       "float, external images or web fonts. Write the "
-                       "page's text in the user's language."
+                       "REPORTS. When the user asks for a report, a "
+                       "presentation, an infographic or a formatted, visual "
+                       "or HTML answer and has not yet chosen a report "
+                       "template, do not write it yet: reply with a short "
+                       "numbered list of the report templates below - each "
+                       "name translated into the user's language and one "
+                       "line on what it suits - mark the two or three that "
+                       "best fit this content as recommended, always list "
+                       "Executive (the sober, professional one), and ask "
+                       "which one to use. Add that any template can be "
+                       "changed (for example: the timeline, in green, "
+                       "without icons) or a new one described. Once the "
+                       "user has chosen, by number or name, or named one in "
+                       "the request, write the report with that template, "
+                       "applying every change they asked for."
+                       X"0A" X"0A"
+                       "A report is ONE self-contained HTML page, fenced as "
+                       "```html, whose <head> links Bulma: <link "
+                       "rel=""stylesheet"" href=""https://cdn.jsdelivr.net"
+                       "/npm/bulma@0.9.4/css/bulma.min.css"">. Build it from "
+                       "Bulma classes: section, container, hero (is-primary, "
+                       "is-info, is-success, is-warning, is-danger, is-dark, "
+                       "is-bold) with hero-body, title and subtitle (is-1 to "
+                       "is-6), box, card with card-header, card-header-title "
+                       "and card-content, columns with column (is-half, "
+                       "is-one-third, is-one-quarter, is-2 to is-12), "
+                       "is-multiline, is-vcentered, level with level-item "
+                       "and heading, media, notification and tag (with a "
+                       "colour and is-light), message with message-header "
+                       "and message-body, table is-striped is-bordered "
+                       "is-fullwidth, and the helpers has-text-*, "
+                       "has-background-*, has-text-centered, "
+                       "has-text-weight-bold, is-size-1 to is-size-7, "
+                       "m-* and p-*. One <style> block may add a palette "
+                       "or what Bulma lacks (a round badge, a bar's width). "
+                       "Never JavaScript, position, float, external images "
+                       "or web fonts. For a diagram, use <div "
+                       "class=""mermaid""> holding REAL Mermaid syntax that "
+                       "starts with flowchart TD (or sequenceDiagram), one "
+                       "statement per line, never a drawing made of "
+                       "brackets and arrows. Write the page's text in the "
+                       "user's language."
+                       X"0A" X"0A"
+                       "SAVING TEMPLATES. Whenever the user changes a "
+                       "template or describes a new one, end that answer "
+                       "with the template as it now stands, in exactly this "
+                       "block, which is saved and not shown:" X"0A"
+                       "<!--REPORT-TEMPLATE" X"0A"
+                       "NAME: <the template's English name - the same name "
+                       "to replace it, a new one for a new template>" X"0A"
+                       "Suits: ..." X"0A" "Structure: ..." X"0A"
+                       "Look: ..." X"0A"
+                       "-->" X"0A" X"0A"
+                       "The report templates:" X"0A"
                        DELIMITED BY SIZE INTO WS-TEXT WITH POINTER WS-SYS-PT
                    END-STRING
+                   CALL "PC-TEMPLATES"
                ELSE
                    MOVE WS-AG-ROLE(WS-A) TO WS-TEXT
                END-IF
@@ -926,6 +997,165 @@
            END-PERFORM
            MOVE WS-CUR-TOPIC TO WS-ALLOWED-TOPIC
            MOVE "IDLE" TO WS-STAGE
+]]></Event>
+    <Event name="PC-TEMPLATES" paragraph="PC-TEMPLATES"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-TEXT and WS-SYS-PT in: every report template appended, as
+      *>   "### name" and its text. An empty file - the first time - is
+      *>   filled from the shipped samples/report-templates.txt, where
+      *>   "=== name" opens each template.
+           OPEN I-O RTPL-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT RTPL-FILE
+               CLOSE RTPL-FILE
+               OPEN I-O RTPL-FILE
+           END-IF
+           MOVE LOW-VALUES TO RT-NAME
+           MOVE "N" TO WS-EOF
+           START RTPL-FILE KEY IS >= RT-NAME
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           IF WS-EOF = "Y"
+               CALL "PC-SEED-TEMPLATES"
+               MOVE LOW-VALUES TO RT-NAME
+               MOVE "N" TO WS-EOF
+               START RTPL-FILE KEY IS >= RT-NAME
+                   INVALID KEY MOVE "Y" TO WS-EOF
+               END-START
+           END-IF
+           PERFORM UNTIL WS-EOF = "Y"
+               READ RTPL-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       STRING "### " FUNCTION TRIM(RT-NAME) X"0A"
+                              FUNCTION TRIM(RT-BODY) X"0A" X"0A"
+                           DELIMITED BY SIZE INTO WS-TEXT WITH POINTER WS-SYS-PT
+                       END-STRING
+               END-READ
+           END-PERFORM
+           CLOSE RTPL-FILE
+]]></Event>
+    <Event name="PC-SEED-TEMPLATES" paragraph="PC-SEED-TEMPLATES"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   RTPL-FILE open I-O and empty: the shipped templates written in. A
+      *>   missing samples file leaves it empty - the chat still answers.
+           OPEN INPUT RTSEED-FILE
+           IF WS-FS NOT = "00"
+               EXIT PROGRAM
+           END-IF
+           MOVE SPACES TO WS-RT-NAME
+           MOVE "N" TO WS-EOF
+           PERFORM UNTIL WS-EOF = "Y"
+               READ RTSEED-FILE
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       IF RTSEED-REC(1:4) = "=== "
+                           CALL "PC-PUT-TEMPLATE"
+                           MOVE FUNCTION TRIM(RTSEED-REC(5:)) TO WS-RT-NAME
+                           MOVE SPACES TO WS-RT-BODY
+                           MOVE 1 TO WS-RT-PT
+                       ELSE
+                           IF RTSEED-REC NOT = SPACES AND WS-RT-NAME NOT = SPACES
+                               STRING FUNCTION TRIM(RTSEED-REC) X"0A"
+                                   DELIMITED BY SIZE INTO WS-RT-BODY
+                                   WITH POINTER WS-RT-PT
+                               END-STRING
+                           END-IF
+                       END-IF
+               END-READ
+           END-PERFORM
+           CALL "PC-PUT-TEMPLATE"
+           CLOSE RTSEED-FILE
+           MOVE "N" TO WS-EOF
+]]></Event>
+    <Event name="PC-PUT-TEMPLATE" paragraph="PC-PUT-TEMPLATE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-RT-NAME and WS-RT-BODY in, RTPL-FILE open I-O: the template
+      *>   written, or rewritten when one of that name exists.
+           IF WS-RT-NAME = SPACES
+               EXIT PROGRAM
+           END-IF
+           MOVE WS-RT-NAME TO RT-NAME
+           READ RTPL-FILE
+               INVALID KEY
+                   MOVE WS-RT-BODY TO RT-BODY
+                   WRITE RTPL-REC
+                   END-WRITE
+               NOT INVALID KEY
+                   MOVE WS-RT-BODY TO RT-BODY
+                   REWRITE RTPL-REC
+                   END-REWRITE
+           END-READ
+           COMMIT
+]]></Event>
+    <Event name="PC-SAVE-TEMPLATE" paragraph="PC-SAVE-TEMPLATE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-REPLY in: a template the model defined ("<!--REPORT-TEMPLATE"
+      *>   ... "-->", the SAVING TEMPLATES rule in PC-ELECT) is saved under
+      *>   its NAME - a new one added, a changed one replaced - and cut out
+      *>   of the reply, which the user sees without it. Every template is
+      *>   kept (operator, 2026-09-28: "always save").
+           MOVE 0 TO WS-RT-AT
+           INSPECT WS-REPLY TALLYING WS-RT-AT
+               FOR CHARACTERS BEFORE INITIAL "<!--REPORT-TEMPLATE"
+           IF WS-RT-AT NOT < 64000
+               EXIT PROGRAM
+           END-IF
+           ADD 1 TO WS-RT-AT
+      *>   The block's text: past the marker to "-->", or to the end.
+           COMPUTE WS-RT-PT = WS-RT-AT + 19
+           MOVE 0 TO WS-RT-LEN
+           INSPECT WS-REPLY(WS-RT-PT:) TALLYING WS-RT-LEN
+               FOR CHARACTERS BEFORE INITIAL "-->"
+           COMPUTE WS-RT-END = WS-RT-PT + WS-RT-LEN + 3
+           IF WS-RT-END > 64001
+               MOVE 64001 TO WS-RT-END
+           END-IF
+      *>   NAME: is its first line; the rest is the template.
+           MOVE SPACES TO WS-RT-NAME WS-RT-BODY
+           IF WS-RT-LEN > 0
+               MOVE 0 TO WS-FC
+               INSPECT WS-REPLY(WS-RT-PT:WS-RT-LEN) TALLYING WS-FC
+                   FOR CHARACTERS BEFORE INITIAL "NAME:"
+               IF WS-FC < WS-RT-LEN
+                   COMPUTE WS-FA = WS-RT-PT + WS-FC + 5
+                   COMPUTE WS-REST = WS-RT-LEN - WS-FC - 5
+                   MOVE 0 TO WS-FB
+                   INSPECT WS-REPLY(WS-FA:WS-REST) TALLYING WS-FB
+                       FOR CHARACTERS BEFORE INITIAL X"0A"
+                   IF WS-FB > 0
+                       MOVE FUNCTION TRIM(WS-REPLY(WS-FA:WS-FB)) TO WS-RT-NAME
+                   END-IF
+                   COMPUTE WS-FA = WS-FA + WS-FB + 1
+                   COMPUTE WS-REST = WS-RT-PT + WS-RT-LEN - WS-FA
+                   IF WS-REST > 0
+                       MOVE FUNCTION TRIM(WS-REPLY(WS-FA:WS-REST)) TO WS-RT-BODY
+                   END-IF
+               END-IF
+           END-IF
+           IF WS-RT-NAME NOT = SPACES AND WS-RT-BODY NOT = SPACES
+               OPEN I-O RTPL-FILE
+               IF WS-FS = "35"
+                   OPEN OUTPUT RTPL-FILE
+                   CLOSE RTPL-FILE
+                   OPEN I-O RTPL-FILE
+               END-IF
+               CALL "PC-PUT-TEMPLATE"
+               CLOSE RTPL-FILE
+           END-IF
+      *>   The block cut out of what the user sees and what is kept.
+           MOVE SPACES TO WS-TEXT
+           IF WS-RT-AT > 1
+               MOVE WS-REPLY(1:WS-RT-AT - 1) TO WS-TEXT
+           END-IF
+           IF WS-RT-END NOT > 64000
+               MOVE WS-REPLY(WS-RT-END:) TO WS-TEXT(WS-RT-AT:)
+           END-IF
+           MOVE WS-TEXT TO WS-REPLY
 ]]></Event>
     <Event name="PC-REGISTER-FILES" paragraph="PC-REGISTER-FILES"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -1363,6 +1593,7 @@
        PROCEDURE DIVISION.
       *>   WS-REPLY in: the answer the user sees, kept as the next turn.
            MOVE "IDLE" TO WS-STAGE
+           CALL "PC-SAVE-TEMPLATE"
            MOVE WS-REPLY TO WS-MSG
            MOVE "Y" TO WS-SHOW-ANSWER
            CALL "PC-SHOW-AGENT"
@@ -1376,6 +1607,23 @@
        PROCEDURE DIVISION.
       *>   The orchestrator's plan in WS-REPLY: its TASK: lines go to the other
       *>   agents, all at once (R58, R59). The tool worker takes the first.
+      *>   A plan that starts ASK: is a question for the user instead - which
+      *>   report template to use - shown as the answer.
+           MOVE 1 TO WS-FP
+           PERFORM UNTIL WS-FP > 200
+                   OR (WS-REPLY(WS-FP:1) NOT = SPACE
+                       AND WS-REPLY(WS-FP:1) NOT = X"0A"
+                       AND WS-REPLY(WS-FP:1) NOT = X"0D")
+               ADD 1 TO WS-FP
+           END-PERFORM
+           IF WS-FP NOT > 200
+               IF FUNCTION UPPER-CASE(WS-REPLY(WS-FP:4)) = "ASK:"
+                   MOVE WS-REPLY(WS-FP + 4:) TO WS-TEXT
+                   MOVE FUNCTION TRIM(WS-TEXT) TO WS-REPLY
+                   CALL "PC-FINISH"
+                   EXIT PROGRAM
+               END-IF
+           END-IF
            MOVE 0 TO WS-TASK-COUNT
            MOVE SPACES TO WS-LINES
            UNSTRING WS-REPLY DELIMITED BY X"0A"
@@ -2463,6 +2711,9 @@
                       "Split the user's last question into at most 3 independent"
                       " tasks for assistants who can search this topic's documents."
                       " Reply with one line per task, each starting with TASK:"
+                      " - unless it asks for a report whose template is not"
+                      " chosen yet: then reply ASK: and, after it, your"
+                      " question to the user, as the REPORTS rule says."
                    DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
                END-STRING
            END-IF

@@ -75,6 +75,21 @@ opens inside the window, in the content pane beside the menu.
    conversation as a PDF with its formatting — headings, bold, lists, tables,
    code — to where you choose in the system's Save panel.
 
+   **Reports.** Ask for a report, a presentation or an infographic and the
+   chat first asks which **report template** to use. It lists them, marks
+   the two or three that suit your content, and always offers **Executive**,
+   the sober, professional one. The others follow the common infographic
+   types: Informational, List, Timeline, Comparison, Map, Statistics,
+   Flowchart, Hierarchy, Anatomical and Animated. Answer with a number or a
+   name, and add any change you like ("the timeline, in green, without
+   icons"), or describe a template of your own. What you change or describe
+   is **saved** under its name and offered from then on. The report is one
+   HTML page built with Bulma and no JavaScript, so it looks the same in the
+   chat and in a browser. The shipped templates are in
+   `samples/report-templates.txt`, and the ones in use are in
+   `data/report-templates.idx`. Delete that file to start again from the
+   shipped ones.
+
 The flags at the foot of the menu switch the interface between English,
 Portuguese, Spanish, French, Japanese and Chinese, at once.
 
@@ -90,7 +105,7 @@ Portuguese, Spanish, French, Japanese and Chinese, at once.
 | `prompts-form` | Versions of the topic's system prompt |
 | `preview-form` | A document shown in a modal window, opened from `documents-form` |
 
-PowerChat's own data is seven indexed files in `data/` (see `data/README.md`),
+PowerChat's own data is nine indexed files in `data/` (see `data/README.md`),
 opened `I-O` and committed as each change is made. Every behaviour is data: no
 topic is written into the code.
 
