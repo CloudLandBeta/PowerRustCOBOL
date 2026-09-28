@@ -5019,15 +5019,18 @@ is raised, because the operator did exactly what they meant to.
            .
 ```
 
-**`SaveAsPdf` keeps the formatting.** `SaveAs` copies the document's own
-bytes. `SaveAsPdf` lays out what the Viewer *shows* as a PDF instead. Under
+**`SaveAsPdf` is what the Viewer shows.** `SaveAs` copies the document's own
+bytes. `SaveAsPdf` writes what the Viewer *paints* as a PDF instead: the
+Viewer's own painter lays the content out at the width of an A4 page, and
+every shape it draws becomes the same shape in the PDF. Under
 `Layout = Streamed` that is the conversation, which has no file to copy at
-all. Headings keep their sizes, bold and italic use the font's real faces,
-lists and task lists keep their numbers and boxes, tables keep their header
-row and frame, and code stays in a monospaced face. The user's own messages
-are set in, in the user's ink, the way their bubbles are. Outside a
-conversation it takes a Markdown or text document the same way, copies a PDF
-as it stands, and raises `onError` for anything else.
+all — the user's and the agent's bubbles in their colours, an HTML answer
+with its own CSS (backgrounds, gradients, borders, rounded corners, shadows,
+flex rows and grids), tables, code, a Mermaid diagram as its picture, and
+the same fonts and emoji. Text stays text: it can be selected, copied and
+searched in any PDF reader. Pages break between lines, never through one.
+Outside a conversation it takes a Markdown or text document the same way,
+copies a PDF as it stands, and raises `onError` for anything else.
 
 ```cobol
        PROGRAM-ID. BTN-PDF--ONCLICK.
@@ -5040,10 +5043,11 @@ With no argument the same Save panel opens, proposing `conversation.pdf` and
 offering the PDF type. With a path, that path is written. The events are
 `SaveAs`'s: `onSaveComplete`, `onSaveCancelled`, `onError`.
 
-> ⚠️ **Caveat — a PDF carries its fonts.** They are your machine's own, and
-> they are embedded whole, so even a short conversation makes a PDF of a few
-> megabytes, and more when it holds code. An image in a message appears as its
-> alt text, and a Mermaid diagram as its source.
+> **Note — a PDF carries its fonts, trimmed.** Each font is embedded with
+> only the letters the document uses, so a conversation of a few pages is
+> tens of kilobytes, not megabytes. A face that cannot be embedded that way
+> (a font whose outlines are not TrueType) is drawn as its letter shapes:
+> it looks the same, but that text cannot be selected.
 
 > **Note — what `Print` does, and what its events mean.** A platform takes a
 > *file*, so a document opened from a `Source` is handed over as it stands, and

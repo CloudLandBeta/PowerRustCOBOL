@@ -43,11 +43,6 @@ lopdf = { version = "0.26", default-features = false, features = ["nom_parser"] 
 # Version matched to cobolt-ide's own pin so the two never resolve to
 # different releases.
 mermaid-rs-renderer = "0.2"
-# The Viewer's Save as PDF (`SaveAsPdf`, operator 2026-09-27): a document or a
-# conversation written out as a PDF with its formatting. Behind `pdf` — not
-# `render` — because the RUNTIME writes it, and the runtime links this crate
-# without egui. Version matched to cobolt-ide's own pin.
-genpdf = { version = "0.2", default-features = false, optional = true }
 # The Viewer opening Word, PowerPoint, Excel and OpenDocument files as their
 # text (operator 2026-09-27): the Knowledge Base's own converter, so a
 # document reads the same in the Viewer as the chat reads it. Behind `office`
@@ -89,7 +84,11 @@ native-tls  = { version = "0.2", optional = true }
 arboard     = { version = "3.6", optional = true }
 
 [features]
-pdf = ["dep:genpdf", "dep:fontdb"]
+# The Viewer's Save as PDF (`SaveAsPdf`): what the Viewer PAINTS, written by
+# `pdf_paint` over `lopdf` — so it needs the painter, and therefore `render`.
+# Only a program with a Viewer asks for it (`runtime_features`), and that is a
+# form application, which links `render` already (operator, 2026-09-28).
+pdf = ["render"]
 office = ["dep:cobolt-docs"]
 render = ["dep:egui", "dep:fontdb", "dep:skrifa", "dep:cobolt-media", "dep:image", "dep:resvg", "dep:egui-elegance", "dep:ureq", "dep:native-tls", "dep:arboard"]
 

@@ -1541,7 +1541,6 @@ dependencies = [
  "egui",
  "egui-elegance",
  "fontdb",
- "genpdf",
  "hmac 0.12.1",
  "image 0.25.10",
  "indexmap",

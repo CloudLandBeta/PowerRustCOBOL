@@ -14362,11 +14362,20 @@ impl Interpreter {
             .and_then(|s| s.to_str())
             .unwrap_or("Document")
             .to_string();
+        // The PDF is what the Viewer paints, so the painting follows the
+        // Viewer's own settings: its bubble colours and its font size.
+        let mut viewer = cobolt_forms::Control::new(obj, cobolt_forms::ControlType::Viewer, 0, 0);
+        for key in ["UserBubbleColor", "UserBubbleTextColor", "AgentBubbleColor", "AgentBubbleTextColor", "FontSize"] {
+            let v = self.obj_get(obj, key);
+            if !v.trim().is_empty() {
+                viewer.set_prop(key, cobolt_forms::PropValue::String(v));
+            }
+        }
         // A `Streamed` Viewer shows its conversation and nothing else — an
         // empty one is "the conversation is empty", not "no document".
         let html = self.obj_get(obj, "_ConversationHtml");
         if !html.trim().is_empty() || self.obj_get(obj, "Layout").trim().eq_ignore_ascii_case("Streamed") {
-            return cobolt_forms::viewer_pdf::conversation_to_pdf(&html, &title, dest);
+            return cobolt_forms::viewer_pdf::conversation_to_pdf(&viewer, &html, &title, dest);
         }
         let source = self.obj_get(obj, "Source");
         let bytes: Vec<u8> = if !source.trim().is_empty() {
@@ -14384,7 +14393,7 @@ impl Interpreter {
             ViewerFormat::Markdown | ViewerFormat::Text => {
                 let hint = (!source.trim().is_empty()).then(|| source.trim().to_string());
                 let text = cobolt_forms::viewer::markdown_text(hint.as_deref(), &bytes);
-                cobolt_forms::viewer_pdf::markdown_to_pdf(&text, &title, dest)
+                cobolt_forms::viewer_pdf::markdown_to_pdf(&viewer, &text, &title, dest)
             }
             other => Err(format!(
                 "Save as PDF takes a conversation, a Markdown or text document, or a PDF — not {}",

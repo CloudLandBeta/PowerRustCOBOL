@@ -94,6 +94,10 @@ pub mod render;
 #[cfg(feature = "render")]
 pub mod fonts;
 
+/// What the Viewer painted, written as a PDF (`SaveAsPdf`).
+#[cfg(feature = "render")]
+pub mod pdf_paint;
+
 // The ONE sidebar renderer (spec 049). Designer canvas, preview, Run Form and
 // the shell MenuPane all draw through it, so the rail cannot look different
 // depending on which surface you are looking at.

@@ -8,6 +8,64 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.320] — 2026-09-28
+
+### Fix — `SaveAsPdf` writes what the Viewer painted
+
+The operator reported that "the PDF generation is not faithful to the
+generated text in the chat". Their PDF of PowerChat's styled contract answer
+had lost its look: no bubbles, no backgrounds or boxes, no colours, headings
+reset to plain bold, and the emoji came out as empty squares. The cause was
+that `viewer_pdf` re-laid the blocks out a second time through a PDF layout
+library, which can draw neither a background nor a box.
+
+- **The PDF is the Viewer's own paint.** `paint::paint_viewer_export` runs
+  the Viewer's painter on a context of its own, with the form host's fonts,
+  at the width of an A4 page. It uses the same `paint_conversation_bubbles`
+  / `paint_blocks` the chat uses. The new `pdf_paint` then writes each shape
+  as the matching PDF operators:
+  - rounded rectangles, borders per side, circles, paths and Béziers;
+  - shadows as soft layers;
+  - gradients as Gouraud-shaded triangle meshes (shading type 4);
+  - pictures, a Mermaid diagram included, with their alpha as a soft mask;
+  - transparency through `ExtGState`.
+
+  So bubbles, CSS boxes, the new flex rows and grids, tables and code come
+  out as the chat shows them.
+- **Text stays text.** Each glyph is set in the font the Viewer used,
+  embedded as a Type0/CIDFontType2 subset: unused glyphs are emptied (the
+  numbering is kept), components follow composites, and a face inside a
+  collection is taken alone. A `ToUnicode` map makes every word selectable,
+  copyable and searchable in any reader, emoji included. A face whose
+  outlines are not TrueType is drawn as its outlines. Two shaping cases are
+  handled:
+  - egui's ligatures (an "fi" drawn as one glyph, the "i" given no width)
+    are set as their letters;
+  - an emoji's variation selector, which shaping reports as the emoji again,
+    is not drawn twice.
+- **Pages break between lines, never through one.** A picture is never
+  split either.
+- **Size.** A styled one-page conversation is about 19 KB. The old writer
+  embedded every font whole, a few megabytes per file.
+- **Links.** `SaveAsPdf` passes the Viewer control to the export, so its
+  bubble colours and `FontSize` are followed. genpdf is no longer linked by
+  `cobolt-forms`. Its `pdf` feature now means the painter, which every
+  program with a Viewer already links (`runtime_features`).
+- Tests:
+  - `a_conversation_pdf_is_what_the_viewer_painted` reads the file back as a
+    reader does, through `ToUnicode`, and finds every word, the emoji and
+    each colour: the `#61D467` user and `#2C6FD2` agent bubbles, the
+    gradient shading, the badge, the cards and their border.
+  - `a_long_document_runs_onto_more_pages`: 120 paragraphs make 3 pages.
+  - `a_subset_face_keeps_its_glyphs_and_their_numbers`: Hack, 309 KB, becomes
+    a 17 KB subset that still draws its "A".
+  - `a_page_break_moves_up_past_a_line_it_would_cut`.
+  - Sweeps: `cobolt-forms` 1209/0, `cobolt-runtime` 1091/0,
+    `powerchat_runs` 13/0.
+- Developer's Guide: the `SaveAsPdf` paragraph, and the font caveat, which
+  is now a note on subsets.
+- System KB: `SaveAsPdf`; `chunked.data` regenerated.
+
 ## [PowerRustCOBOL 1.70.319] — 2026-09-28
 
 ### Feature — the Viewer lays out CSS flex rows and grids; PowerChat answers in an infographic style

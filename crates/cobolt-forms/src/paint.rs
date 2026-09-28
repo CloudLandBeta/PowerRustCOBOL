@@ -26837,3 +26837,87 @@ mod icon_button_tests {
         assert!(textured >= 1, "the icon must be painted");
     }
 }
+
+/// What a Viewer's content looks like, painted for EXPORT — the shapes the
+/// same painter draws on screen, laid out at a page's width, with every
+/// texture they use and the fonts they were set in. `SaveAsPdf` turns this
+/// into a PDF, so the file is what the reader saw rather than a second
+/// layout of it (operator, 2026-09-28: the PDF "is not faithful").
+pub struct ExportPaint {
+    pub shapes: Vec<egui::Shape>,
+    /// Every texture the shapes use — an image, a Mermaid diagram — by id.
+    pub textures: std::collections::HashMap<egui::TextureId, egui::ColorImage>,
+    pub fonts: egui::FontDefinitions,
+    /// The content's height, in the same units as the shapes.
+    pub height: f32,
+}
+
+/// Paint `messages` (a Streamed conversation: bubbles by role) or `blocks`
+/// (a document) at `width`, top-left at the origin, on a context of its own.
+/// `ctrl` supplies the Viewer's own settings — bubble colours, `FontSize`.
+pub fn paint_viewer_export(
+    ctrl: &Control,
+    messages: Option<&[crate::viewer::StreamMessage]>,
+    blocks: &[crate::viewer::Block],
+    width: f32,
+) -> ExportPaint {
+    let ctx = egui::Context::default();
+    ctx.set_fonts(crate::fonts::base_font_definitions());
+    let font_size = ctrl
+        .get_prop("FontSize")
+        .and_then(|v| v.as_str().trim().parse::<f32>().ok())
+        .filter(|s| *s > 0.0)
+        .unwrap_or(14.0);
+    let mut textures: std::collections::HashMap<egui::TextureId, egui::ColorImage> = Default::default();
+    let mut shapes = Vec::new();
+    let mut height = 0.0;
+    // Two passes: the first installs the fonts and uploads what the content
+    // needs (a diagram's picture); the second paints with all of it in place.
+    for _ in 0..2 {
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 4000.0)));
+        let mut out = ctx.run_ui(input, |ui| {
+            let painter = ui.painter().with_clip_rect(egui::Rect::EVERYTHING);
+            let base = BlockPaintCtx {
+                font_size,
+                text_ink: VIEWER_DOCUMENT_INK,
+                strong_ink: VIEWER_DOCUMENT_INK,
+                link_color: VIEWER_LINK_COLOR,
+                code_color: VIEWER_CODE_COLOR,
+                width,
+                css_scale: font_size / 16.0,
+                align: None,
+            };
+            let mut find = TextMarks {
+                query: "",
+                case_sensitive: false,
+                highlight: false,
+                current: 0,
+                seen: 0,
+                alpha: 255,
+                selection: None,
+                selection_fill: Color32::TRANSPARENT,
+                selection_ink: Color32::BLACK,
+                runs: Vec::new(),
+            };
+            height = match messages {
+                Some(m) => paint_conversation_bubbles(&painter, &base, ctrl, m, egui::Pos2::ZERO, &mut find, 1.0),
+                None => paint_blocks(&painter, &base, blocks, egui::Pos2::ZERO, &mut find),
+            };
+        });
+        for (id, deltas) in &out.textures_delta.set {
+            for delta in deltas.iter() {
+                if delta.pos.is_some() {
+                    continue; // a partial update — the font atlas, never an image
+                }
+                if let egui::ImageData::Color(img) = &delta.image {
+                    textures.insert(*id, (**img).clone());
+                }
+            }
+        }
+        out.textures_delta.clear();
+        shapes = out.shapes.into_iter().map(|c| c.shape).collect();
+    }
+    let fonts = ctx.fonts(|f| f.definitions().clone());
+    ExportPaint { shapes, textures, fonts, height }
+}

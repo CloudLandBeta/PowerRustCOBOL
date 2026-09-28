@@ -91,8 +91,9 @@ pub struct RuntimeFeatures {
     /// Spec 075 — `smb://` addresses for files an `AgentObject` registers by
     /// path. Pure Rust (`smb2`); on for any form with an `AgentObject`.
     pub smb: bool,
-    /// The Viewer's `SaveAsPdf` — genpdf and font discovery. Pure Rust; on
-    /// for any form with a Viewer.
+    /// The Viewer's `SaveAsPdf` — what the Viewer paints, written as a PDF.
+    /// Pure Rust; on for any form with a Viewer (which links the painter
+    /// already).
     pub pdf: bool,
     /// The Viewer opening Word, PowerPoint, Excel and OpenDocument files as
     /// their text (`cobolt-docs`). Pure Rust; on for any form with a Viewer.

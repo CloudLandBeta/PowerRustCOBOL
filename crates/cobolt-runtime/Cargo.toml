@@ -68,10 +68,10 @@ kb-semantic = ["kb", "cobolt-kb/semantic"]
 # networking; the compiler turns it on when a form has one.
 smb = ["dep:smb2", "dep:tokio"]
 
-# The Viewer's `SaveAsPdf` — a document or a conversation written out as a PDF
-# with its formatting. Pure Rust (genpdf). Separable because it embeds font
-# handling every Viewer-free program can do without; the compiler turns it on
-# when a form has a Viewer.
+# The Viewer's `SaveAsPdf` — a document or a conversation written out as a PDF,
+# exactly as the Viewer paints it (`cobolt-forms`' painter + `pdf_paint`).
+# Pure Rust. Separable because it links the painter, which a Viewer-free
+# program can do without; the compiler turns it on when a form has a Viewer.
 pdf = ["cobolt-forms/pdf"]
 
 # The Viewer opening Word, PowerPoint, Excel and OpenDocument files as their
