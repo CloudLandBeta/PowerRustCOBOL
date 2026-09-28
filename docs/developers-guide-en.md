@@ -4822,6 +4822,14 @@ sibling (`h1 ~ p`), a comma-separated group, and `:first-child`, `:last-child`,
 in every form CSS writes them: `#rgb`, `#rrggbbaa`, `rgb()`/`rgba()`,
 `hsl()`/`hsla()` and all the named colours.
 
+Text is laid out the way a browser lays it out: the line breaks and
+indentation of the page's source collapse into single spaces, and a unitless
+`line-height` (`1.5`) is a factor each element applies to its own font size.
+In a flex or grid row, an empty cell keeps its place, a box stretched to the
+row's height still centres what it holds (`align-items: center`), a short
+item such as a tag is never squeezed below its own width, and a column
+honours its items' `width` and its own `justify-content`.
+
 `@media` is answered as a desktop screen **1024 px wide** would answer it: a
 page's `(min-width: 769px)` rules apply, its `(max-width: 768px)` phone
 overrides and its `print` rules do not.

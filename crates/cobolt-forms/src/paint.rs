@@ -10157,9 +10157,18 @@ fn paint_box_content(
             // item to its content and places it across the column.
             (0..blocks.len())
                 .map(|i| {
-                    let own = item_style(&blocks[i]).and_then(|s| s.align_self).unwrap_or(layout.align);
-                    let natural = match own {
-                        crate::viewer::CrossAlign::Stretch => None,
+                    let st = item_style(&blocks[i]);
+                    let own = st.and_then(|s| s.align_self).unwrap_or(layout.align);
+                    // A width the item states is its width — the tiers of a
+                    // pyramid — whatever the column's alignment.
+                    let stated = st.and_then(|s| {
+                        s.width
+                            .map(|w| (w + s.margin[1] + s.margin[3]) * k)
+                            .or_else(|| s.width_share.map(|p| p * width))
+                    });
+                    let natural = match (stated, own) {
+                        (Some(w), _) => Some(w.min(width)),
+                        (None, crate::viewer::CrossAlign::Stretch) => None,
                         _ => max_content_width(painter, ctx, &blocks[i]).map(|w| w.min(width)),
                     };
                     let w = natural.unwrap_or(width);
@@ -10245,11 +10254,14 @@ fn paint_box_content(
                     } else if free < 0.0 {
                         // Too wide: what can shrink gives up room in
                         // proportion to its size — a stated width holds.
+                        // A short item — a label, a tag — keeps its width, as
+                        // CSS never shrinks an item below its longest word.
+                        let can_shrink = |i: usize| !items[i].2 && items[i].0 > width * 0.25;
                         let shrinkable: f32 =
-                            line.iter().zip(&sizes).filter(|(i, _)| !items[**i].2).map(|(_, s)| *s).sum();
+                            line.iter().zip(&sizes).filter(|(i, _)| can_shrink(**i)).map(|(_, s)| *s).sum();
                         if shrinkable > 0.0 {
                             for (s, i) in sizes.iter_mut().zip(&line) {
-                                if !items[*i].2 {
+                                if can_shrink(*i) {
                                     *s = (*s + free * *s / shrinkable).max(12.0);
                                 }
                             }
@@ -10317,6 +10329,9 @@ fn paint_box_content(
         }
     };
     let single = lines.len() == 1;
+    let layer = painter.layer_id();
+    let first_shape = painter.ctx().graphics_mut(|g| g.entry(layer).next_idx().0);
+    let first_run = find.runs.len();
     let mut y = origin.y;
     for (li, line) in lines.iter().enumerate() {
         if li > 0 {
@@ -10324,6 +10339,30 @@ fn paint_box_content(
         }
         let min_line = if single { min_h } else { 0.0 };
         y += paint_layout_line(painter, ctx, layout.align, blocks, line, egui::pos2(origin.x, y), min_line, find);
+    }
+    // A column in a box taller than its items places them along it with
+    // `justify-content` — the centred content of a circle.
+    if layout.kind == LayoutKind::Column && !single && min_h > y - origin.y {
+        let share = match layout.justify {
+            MainAlign::Center | MainAlign::SpaceAround | MainAlign::SpaceEvenly => 0.5,
+            MainAlign::End => 1.0,
+            _ => 0.0,
+        };
+        let shift = (min_h - (y - origin.y)) * share;
+        if shift > 0.01 {
+            let t = egui::emath::TSTransform::from_translation(egui::vec2(0.0, shift));
+            let last = painter.ctx().graphics_mut(|g| g.entry(layer).next_idx().0);
+            painter.ctx().graphics_mut(|g| {
+                let list = g.entry(layer);
+                for idx in first_shape..last {
+                    list.mutate_shape(egui::layers::ShapeIdx(idx), |c| c.shape.transform(t));
+                }
+            });
+            for run in &mut find.runs[first_run..] {
+                run.rect = run.rect.translate(egui::vec2(0.0, shift));
+                run.origin += egui::vec2(0.0, shift);
+            }
+        }
     }
     (y - origin.y).max(if single { min_h } else { 0.0 })
 }
@@ -10402,6 +10441,40 @@ fn paint_layout_line(
         }
         if let (Some(open), Some(style)) = (&p.open, style) {
             let stretch = (own == CrossAlign::Stretch).then_some(line_h);
+            // Stretched to the line, a box that centres (or ends) its own
+            // items in that direction moves them into the height it gained:
+            // they were laid out in the height their content needed.
+            if stretch.is_some() && line_h - p.h > 0.5 {
+                use crate::viewer::{LayoutKind, MainAlign};
+                let extra = line_h - p.h;
+                let share = match style.layout.as_ref() {
+                    Some(l) if l.kind == LayoutKind::Column => match l.justify {
+                        MainAlign::Center | MainAlign::SpaceAround | MainAlign::SpaceEvenly => 0.5,
+                        MainAlign::End => 1.0,
+                        _ => 0.0,
+                    },
+                    Some(l) => match l.align {
+                        CrossAlign::Center => 0.5,
+                        CrossAlign::End => 1.0,
+                        _ => 0.0,
+                    },
+                    None => 0.0,
+                };
+                let shift = extra * share;
+                if shift > 0.01 {
+                    let t = egui::emath::TSTransform::from_translation(egui::vec2(0.0, shift));
+                    painter.ctx().graphics_mut(|g| {
+                        let list = g.entry(layer);
+                        for idx in p.start..p.end {
+                            list.mutate_shape(egui::layers::ShapeIdx(idx), |c| c.shape.transform(t));
+                        }
+                    });
+                    for run in &mut find.runs[p.runs_start..p.runs_end] {
+                        run.rect = run.rect.translate(egui::vec2(0.0, shift));
+                        run.origin += egui::vec2(0.0, shift);
+                    }
+                }
+            }
             close_css_box(painter, ctx, style, open, stretch, dy);
         }
     }

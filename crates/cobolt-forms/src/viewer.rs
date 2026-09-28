@@ -2719,6 +2719,58 @@ pub fn parse_html(html: &str) -> LayoutDocument {
     LayoutDocument { blocks: walker.blocks }
 }
 
+/// Every run of whitespace as one space, the way HTML lays text out.
+fn collapse_whitespace(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut space = false;
+    for c in text.chars() {
+        if matches!(c, ' ' | '\n' | '\r' | '\t' | '\u{c}') {
+            if !space {
+                out.push(' ');
+            }
+            space = true;
+        } else {
+            out.push(c);
+            space = false;
+        }
+    }
+    out
+}
+
+/// A line of inline runs as a browser shows it: no space at its start or
+/// end, and never two spaces where two runs meet.
+fn tidy_inlines(mut runs: Vec<Inline>) -> Vec<Inline> {
+    let mut after_space = true;
+    for run in runs.iter_mut() {
+        match run {
+            Inline::Text { text, .. } => {
+                if after_space && text.starts_with(' ') {
+                    text.remove(0);
+                }
+                if !text.is_empty() {
+                    after_space = text.ends_with(' ');
+                }
+            }
+            Inline::Break { hard: true } => after_space = true,
+            _ => after_space = false,
+        }
+    }
+    for run in runs.iter_mut().rev() {
+        match run {
+            Inline::Text { text, .. } => {
+                let trimmed = text.trim_end_matches(' ').len();
+                text.truncate(trimmed);
+                if !text.is_empty() {
+                    break;
+                }
+            }
+            _ => break,
+        }
+    }
+    runs.retain(|r| !matches!(r, Inline::Text { text, .. } if text.is_empty()));
+    runs
+}
+
 /// Bulma 0.9.4, as released (MIT, © Jeremy Thomas — see
 /// THIRD_PARTY_NOTICES.md): what a page that links Bulma is styled by.
 pub const BULMA_CSS: &str = include_str!("bulma-0.9.4.min.css");
@@ -2775,6 +2827,9 @@ struct HtmlCx {
     align: Option<TextAlign>,
     transform: Option<TextTransform>,
     vars: std::rc::Rc<std::collections::HashMap<String, String>>,
+    /// A unitless `line-height`: the FACTOR is inherited and applied to each
+    /// element's own font size, never the pixels it came to on the parent.
+    line_factor: Option<f32>,
     /// The parent lays its children out (flex / grid), so this element is an
     /// item of its own — a box, even when CSS gave it nothing to draw.
     layout_item: bool,
@@ -2789,6 +2844,7 @@ impl HtmlCx {
             align: None,
             transform: None,
             vars: Default::default(),
+            line_factor: None,
             layout_item: false,
         }
     }
@@ -2825,7 +2881,7 @@ impl HtmlWalker<'_, '_> {
             Inline::Text { text, .. } => !text.trim().is_empty(),
             _ => true,
         }) {
-            let content = std::mem::take(&mut self.inline);
+            let content = tidy_inlines(std::mem::take(&mut self.inline));
             self.blocks.push(Block::Paragraph { content });
         } else {
             self.inline.clear();
@@ -2838,7 +2894,7 @@ impl HtmlWalker<'_, '_> {
         for child in tag.children().top().iter() {
             self.node(*child, cx);
         }
-        std::mem::replace(&mut self.inline, saved)
+        tidy_inlines(std::mem::replace(&mut self.inline, saved))
     }
 
     /// Collect an element's children as blocks (a quote's content).
@@ -2999,13 +3055,19 @@ impl HtmlWalker<'_, '_> {
         if cx.size_authored {
             cx.text.size = Some(cx.font_px);
         }
+        if let Some(f) = cx.line_factor {
+            cx.text.line_height = Some(f * cx.font_px);
+        }
         (cx, bx, hidden, block)
     }
 
     fn node(&mut self, handle: tl::NodeHandle, cx: &HtmlCx) {
         let Some(node) = handle.get(self.parser) else { return };
         if let Some(raw) = node.as_raw() {
-            let mut text = decode_html_entities(&raw.as_utf8_str());
+            // HTML collapses a run of whitespace — the source's line breaks
+            // and indentation included — into one space (`<pre>` reads its
+            // text whole and never comes here).
+            let mut text = collapse_whitespace(&decode_html_entities(&raw.as_utf8_str()));
             if !text.is_empty() {
                 match cx.transform {
                     Some(TextTransform::Upper) => text = text.to_uppercase(),
@@ -3060,7 +3122,10 @@ impl HtmlWalker<'_, '_> {
                 self.flush_paragraph();
                 let inner = std::mem::replace(&mut self.blocks, saved_blocks);
                 self.inline = saved_inline;
-                if !inner.is_empty()
+                // An empty grid or flex item still takes its place, or every
+                // cell after it moves back one.
+                if is_item
+                    || !inner.is_empty()
                     || bx.background.is_some()
                     || bx.border_width.iter().any(|w| *w > 0.0)
                     || bx.min_height.is_some()
@@ -3529,9 +3594,10 @@ fn apply_declaration(
         }
         "letter-spacing" => cx.text.letter_spacing = px(v).unwrap_or(0.0),
         "line-height" => {
+            cx.line_factor = lv.parse::<f32>().ok();
             cx.text.line_height = if lv == "normal" {
                 None
-            } else if let Ok(n) = lv.parse::<f32>() {
+            } else if let Some(n) = cx.line_factor {
                 Some(n * cx.font_px)
             } else {
                 crate::css::length(v, cx.font_px, Some(cx.font_px))
@@ -7724,6 +7790,23 @@ mod html_tests {
         );
         let plain = parse_html("<div class=\"columns\"><div class=\"column\">a</div></div>").blocks;
         assert!(find(&plain).iter().all(|b| b.layout.is_none()), "no link, no Bulma");
+    }
+
+    /// A page's source is indented and wrapped; its text is not. A run of
+    /// whitespace — a line break and the next line's indentation included —
+    /// is one space, and a paragraph neither starts nor ends with one.
+    #[test]
+    fn html_whitespace_collapses_as_in_a_browser() {
+        let blocks = parse_html("<p>\n      Two suppliers need a new\n      clause   before <strong>renewal</strong> .\n    </p>").blocks;
+        let Block::Paragraph { content } = &blocks[0] else { panic!("{blocks:?}") };
+        let text: String = content
+            .iter()
+            .map(|i| match i {
+                Inline::Text { text, .. } => text.as_str(),
+                _ => "",
+            })
+            .collect();
+        assert_eq!(text, "Two suppliers need a new clause before renewal .");
     }
 
     /// Bulma as released, through the engine: the rules behind

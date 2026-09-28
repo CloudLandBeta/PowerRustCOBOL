@@ -8,6 +8,38 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.329] — 2026-09-28
+
+### Fix — the Viewer lays a report page out the way a browser does
+
+These surfaced while the report templates were rebuilt (operator: "all the
+templates are horrible"). Each page was painted through the Viewer's own
+PDF export and compared with a browser.
+
+- **HTML whitespace collapses.** The source's line breaks and indentation
+  inside a paragraph showed up as a line break plus an indent. A run of
+  whitespace is now one space, and a paragraph neither starts nor ends with
+  one (`collapse_whitespace`, `tidy_inlines`).
+- **A unitless `line-height` is a factor.** Bulma's `line-height: 1.5` on
+  `body` was turned into 24 px and inherited as pixels, so a 64 px figure
+  ran into the line under it. The factor is now inherited and applied to
+  each element's own size (`HtmlCx::line_factor`).
+- **An empty grid or flex cell keeps its place.** Before, it was dropped,
+  and every cell after it moved back one.
+- **A box stretched to its row centres its content.** With
+  `align-items: center` on a row, or `justify-content: center` on a column,
+  the content now moves into the height the box gained
+  (`paint_layout_line`).
+- **A column honours `width` / `width: 30%`** on its items, whatever its
+  alignment (a pyramid's tiers).
+- **A column honours its own `justify-content`** inside a box with a height
+  (the content of a circle).
+- **Flex shrink leaves short items alone.** A tag was squeezed to one letter
+  per line beside a long paragraph.
+- Tests: `tests/a_report_template_lays_out.rs` and
+  `viewer::html_tests::html_whitespace_collapses_as_in_a_browser`. Forms
+  1214/1214, PowerChat 15/15. Developer's Guide: the CSS section.
+
 ## [PowerRustCOBOL 1.70.328] — 2026-09-28
 
 ### Feature — the Viewer draws bold in a bold face; `UserBubbleBold`; PowerChat's question bubble bold and 5 % darker
