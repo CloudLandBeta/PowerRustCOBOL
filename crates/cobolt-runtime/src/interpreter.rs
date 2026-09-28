@@ -14365,7 +14365,7 @@ impl Interpreter {
         // The PDF is what the Viewer paints, so the painting follows the
         // Viewer's own settings: its bubble colours and its font size.
         let mut viewer = cobolt_forms::Control::new(obj, cobolt_forms::ControlType::Viewer, 0, 0);
-        for key in ["UserBubbleColor", "UserBubbleTextColor", "AgentBubbleColor", "AgentBubbleTextColor", "FontSize"] {
+        for key in ["UserBubbleColor", "UserBubbleTextColor", "UserBubbleBold", "AgentBubbleColor", "AgentBubbleTextColor", "FontSize"] {
             let v = self.obj_get(obj, key);
             if !v.trim().is_empty() {
                 viewer.set_prop(key, cobolt_forms::PropValue::String(v));

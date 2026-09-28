@@ -1769,9 +1769,10 @@ fn powerchat_puts_a_formatted_answer_in_the_stream_not_a_bubble() {
     );
     let form = cobolt_forms::load_form(&project().join("forms/chat-form.cfrm")).unwrap();
     let viewer = form.controls.iter().find(|c| c.id == "Vwr-Chat").unwrap();
-    assert_eq!(viewer.get_prop("UserBubbleColor").map(|v| v.as_str().to_string()).as_deref(), Some("#61D467FF"));
+    assert_eq!(viewer.get_prop("UserBubbleColor").map(|v| v.as_str().to_string()).as_deref(), Some("#5CC962FF"));
+    assert!(viewer.get_prop("UserBubbleBold").is_some_and(|v| v.as_bool()), "the question in the bold face");
     println!(
-        "\n  ── 071 PowerChat, presentations in the stream ───────────\n  roles: {roles:?}\n  a ```html fence: rendered as a page ({} blocks), not code; the user's bubble #61D467FF\n",
+        "\n  ── 071 PowerChat, presentations in the stream ───────────\n  roles: {roles:?}\n  a ```html fence: rendered as a page ({} blocks), not code; the user's bubble #5CC962FF, bold\n",
         page.len()
     );
     let _ = std::fs::remove_dir_all(&root);

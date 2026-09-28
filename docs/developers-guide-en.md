@@ -5173,8 +5173,13 @@ between the two voices.
 
 The colours are the Viewer's properties: `UserBubbleColor` /
 `UserBubbleTextColor` (green with white text to start with) and
-`AgentBubbleColor` / `AgentBubbleTextColor` (blue with white text). A message
+`AgentBubbleColor` / `AgentBubbleTextColor` (blue with white text).
+`UserBubbleBold` set to `1` draws the user's words in the bold face. A message
 streamed in with `AppendToMessage` keeps the bubble it started in.
+
+> **Note — bold is bold.** Bold text in a Viewer — `**…**` in Markdown,
+> `<strong>` or `<b>` in HTML, or `font-weight: 600` and heavier in a page's
+> CSS — is drawn in a real bold face, the system's bold Arial or Helvetica.
 
 A reply arriving a piece at a time extends the message already on screen,
 rather than starting a new one:

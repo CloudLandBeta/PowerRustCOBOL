@@ -5942,6 +5942,8 @@ impl Control {
                 ] {
                     props.insert(key.into(), PropValue::String(value.into()));
                 }
+                // The user's words in the bold face.
+                props.insert("UserBubbleBold".into(), PropValue::Bool(false));
                 props.insert("HistoryList".into(), PropValue::String("".into()));
                 props.insert("Progress".into(), PropValue::Int(0));
                 props.insert("LastError".into(), PropValue::String("".into()));

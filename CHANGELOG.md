@@ -8,6 +8,28 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.328] — 2026-09-28
+
+### Feature — the Viewer draws bold in a bold face; `UserBubbleBold`; PowerChat's question bubble bold and 5 % darker
+
+The operator asked for the text of PowerChat's green question bubble in bold,
+and for that green 5 % darker.
+
+- **Bold is a bold face.** Until now a `strong` run in the Viewer (Markdown
+  `**…**`, HTML `<strong>`/`<b>`, CSS `font-weight: 600+`) was only drawn in
+  the stronger ink, never in a heavier weight. So a Bulma `title` looked as
+  light as body text. `paint::build_inline_job` now lays such a run out in
+  the system's bold Arial or Helvetica (`fonts::bold_font_id`, the face the
+  TextBox's bold already uses), falling back to the regular face while it
+  loads or where there is none.
+- **`UserBubbleBold`** (Viewer, conversation mode, default off). When on,
+  every message appended with role `"user"` is drawn in the bold face. It is
+  in the Properties panel (Conversation section), the property help (six
+  languages), the System KB (regenerated), and the conversation's PDF
+  export.
+- **PowerChat:** `Vwr-Chat` sets `UserBubbleBold` and `UserBubbleColor`
+  `#5CC962FF`, which is `#61D467FF` with each channel × 0.95.
+
 ## [PowerRustCOBOL 1.70.327] — 2026-09-28
 
 ### Feature — the Viewer runs Bulma as released; its CSS gains what Bulma needs

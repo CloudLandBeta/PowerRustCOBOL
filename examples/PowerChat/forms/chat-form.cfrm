@@ -2525,7 +2525,7 @@
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
     <Property name="Layout">Streamed</Property>
-    <Property name="UserBubbleColor">#61D467FF</Property>
+    <Property name="UserBubbleColor">#5CC962FF</Property>
     <Property name="Fullscreen">false</Property>
     <Property name="SplitMode">None</Property>
     <Property name="SplitPercent">50</Property>
@@ -2564,6 +2564,7 @@
     <Property name="View2Source"></Property>
     <Property name="View2SearchText"></Property>
     <Property name="UserBubbleTextColor">#FFFFFFFF</Property>
+    <Property name="UserBubbleBold">true</Property>
     <Property name="AgentBubbleColor">#2C6FD2FF</Property>
     <Property name="AgentBubbleTextColor">#FFFFFFFF</Property>
     <Event name="onSaveComplete" paragraph="VWR-CHAT--ONSAVECOMPLETE"><![CDATA[       ENVIRONMENT DIVISION.

@@ -5681,6 +5681,14 @@ pub static PROP_HELP: &[PropHelp] = &[
         "用户气泡内的文字颜色。默认为白色。",
         "Couleur du texte dans la bulle de l'utilisateur. Blanc par défaut.",
     ] },
+    PropHelp { ty: "Viewer", prop: "UserBubbleBold", text: [
+        "On, the text of the user's bubble is drawn in the bold face. Default off.",
+        "Activado, el texto del globo del usuario se dibuja en negrita. Desactivado por defecto.",
+        "Ligado, o texto do balão do usuário é desenhado em negrito. Padrão: desligado.",
+        "オンにすると、ユーザーの吹き出しの文字を太字で描きます。既定はオフ。",
+        "开启后，用户气泡中的文字以粗体绘制。默认关闭。",
+        "Activé, le texte de la bulle de l'utilisateur est dessiné en gras. Désactivé par défaut.",
+    ] },
     PropHelp { ty: "Viewer", prop: "View1CardSize", text: [
         "Size of the page cards when view 1 is in Cards mode, 0 to 100 percent (default 55); larger means fewer, bigger cards per row. Also reachable as CardSize.",
         "Tamaño de las tarjetas de página cuando la vista 1 está en modo Cards, de 0 a 100 por ciento (por defecto 55); mayor significa menos tarjetas, y más grandes, por fila. También accesible como CardSize.",

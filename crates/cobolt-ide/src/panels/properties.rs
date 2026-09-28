@@ -7928,6 +7928,7 @@ impl PropertiesPanel {
                 ] {
                     color_prop_row_default(ui, id, key, label, ctrl, action, builtin);
                 }
+                bool_row_inline(ui, id, "UserBubbleBold", "User bubble bold", ctrl, action);
                 ui.add_space(6.0);
             }
 

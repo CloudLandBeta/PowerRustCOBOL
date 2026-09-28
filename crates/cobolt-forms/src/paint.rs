@@ -9034,7 +9034,7 @@ fn paint_conversation_bubbles(
     let max_inner = (full * BUBBLE_MAX_FRACTION - 2.0 * BUBBLE_PAD.x).max(20.0);
     let mut y = origin.y;
     for m in messages {
-        let (fill, ink, right) = match m.role {
+        let (fill, ink, right, bold) = match m.role {
             MessageRole::None => {
                 y += paint_blocks(painter, base, &m.blocks, egui::pos2(origin.x, y), find);
                 continue;
@@ -9043,10 +9043,12 @@ fn paint_conversation_bubbles(
                 colour("UserBubbleColor", crate::viewer::USER_BUBBLE_COLOR),
                 colour("UserBubbleTextColor", crate::viewer::BUBBLE_TEXT_COLOR),
                 true,
+                ctrl.get_prop("UserBubbleBold").is_some_and(|v| v.as_bool()),
             ),
             MessageRole::Agent => (
                 colour("AgentBubbleColor", crate::viewer::AGENT_BUBBLE_COLOR),
                 colour("AgentBubbleTextColor", crate::viewer::BUBBLE_TEXT_COLOR),
+                false,
                 false,
             ),
         };
@@ -9060,6 +9062,7 @@ fn paint_conversation_bubbles(
             width: max_inner,
             css_scale: base.css_scale,
             align: None,
+            bold,
         };
         // Measure: the same layout, on a painter that draws nothing.
         let mut probe_painter = painter.clone();
@@ -9353,6 +9356,8 @@ struct BlockPaintCtx {
     css_scale: f32,
     /// `text-align` inherited from an enclosing CSS box.
     align: Option<crate::viewer::TextAlign>,
+    /// Every run in the bold face — a user bubble when `UserBubbleBold`.
+    bold: bool,
 }
 
 fn viewer_heading_size(base: f32, level: u8) -> f32 {
@@ -9526,6 +9531,8 @@ fn build_inline_job(
     code_color: Color32,
     max_width: f32,
     css_scale: f32,
+    ectx: &egui::Context,
+    all_bold: bool,
 ) -> egui::text::LayoutJob {
     use crate::viewer::Inline;
     let mut job = egui::text::LayoutJob::default();
@@ -9551,8 +9558,13 @@ fn build_inline_job(
                 // A size the page's CSS set wins; otherwise the block's own
                 // (a heading's scale included), as it always was.
                 let size = style.size.map(|px| px * css_scale).unwrap_or(base_size);
+                // Bold is a bold FACE — the system's bold Arial or Helvetica —
+                // not only the stronger ink; until that face is loaded (or
+                // where there is none) the run keeps the regular one.
                 let font_id = if style.code || style.mono {
                     egui::FontId::monospace(if style.size.is_some() { size } else { size * 0.92 })
+                } else if style.strong || all_bold {
+                    crate::fonts::bold_font_id(ectx, "", size).unwrap_or_else(|| egui::FontId::proportional(size))
                 } else {
                     egui::FontId::proportional(size)
                 };
@@ -9660,11 +9672,11 @@ fn paint_block(
     match block {
         Block::Heading { level, content } => {
             let size = viewer_heading_size(ctx.font_size, *level);
-            let job = build_inline_job(content, size, ctx.strong_ink, ctx.strong_ink, ctx.link_color, ctx.code_color, ctx.width, ctx.css_scale);
+            let job = build_inline_job(content, size, ctx.strong_ink, ctx.strong_ink, ctx.link_color, ctx.code_color, ctx.width, ctx.css_scale, painter.ctx(), ctx.bold);
             paint_aligned(painter, job, pos, ctx.width, ctx.align, ctx.strong_ink, find)
         }
         Block::Paragraph { content } => {
-            let job = build_inline_job(content, ctx.font_size, ctx.text_ink, ctx.strong_ink, ctx.link_color, ctx.code_color, ctx.width, ctx.css_scale);
+            let job = build_inline_job(content, ctx.font_size, ctx.text_ink, ctx.strong_ink, ctx.link_color, ctx.code_color, ctx.width, ctx.css_scale, painter.ctx(), ctx.bold);
             paint_aligned(painter, job, pos, ctx.width, ctx.align, ctx.text_ink, find)
         }
         Block::Styled { style, blocks } => paint_css_box(painter, ctx, style, blocks, pos, find),
@@ -10407,7 +10419,7 @@ fn max_content_width(painter: &egui::Painter, ctx: &BlockPaintCtx, block: &crate
                 Block::Heading { level, .. } => viewer_heading_size(ctx.font_size, *level),
                 _ => ctx.font_size,
             };
-            let job = build_inline_job(content, size, ctx.text_ink, ctx.strong_ink, ctx.link_color, ctx.code_color, f32::INFINITY, ctx.css_scale);
+            let job = build_inline_job(content, size, ctx.text_ink, ctx.strong_ink, ctx.link_color, ctx.code_color, f32::INFINITY, ctx.css_scale, painter.ctx(), ctx.bold);
             Some(viewer_layout(painter, job).rect.width().ceil() + 1.0)
         }
         Block::Styled { style, blocks } => styled_content_width(painter, ctx, style, blocks),
@@ -10492,7 +10504,7 @@ fn paint_table(
             let pad = pads[i];
             let x = pos.x + i as f32 * col_width;
             let cell_width = (col_width - pad[1] - pad[3]).max(10.0);
-            let job = build_inline_job(cell, ctx.font_size * 0.95, color, ctx.strong_ink, ctx.link_color, ctx.code_color, cell_width, ctx.css_scale);
+            let job = build_inline_job(cell, ctx.font_size * 0.95, color, ctx.strong_ink, ctx.link_color, ctx.code_color, cell_width, ctx.css_scale, painter.ctx(), ctx.bold);
             let at = egui::pos2(x + pad[3], y + pad[0]);
             let h = paint_aligned(painter, job, at, cell_width, cs.and_then(|c| c.align).or(ctx.align), color, find);
             row_h = row_h.max(h + pad[0] + pad[2]);
@@ -11163,6 +11175,7 @@ pub(crate) fn draw_viewer(
             width: inner_width,
             css_scale: font_size / 16.0,
             align: None,
+            bold: false,
         };
         let origin = egui::pos2(content_rect.min.x + VIEWER_TEXT_INSET, top);
         // R29 on a formatted document: each galley is searched as it is
@@ -11658,6 +11671,7 @@ fn draw_viewer_page_face(
                     width: body.width().max(4.0),
                     css_scale: size / 16.0,
                     align: None,
+                    bold: false,
                 };
                 // A card is a MINIATURE: nothing in it is searched, and
                 // nothing in it is selectable — the reader selects the page,
@@ -20053,6 +20067,8 @@ mod theme_render_tests {
                 VIEWER_CODE_COLOR,
                 width,
                 1.0,
+                &ctx,
+                false,
             );
             let galley = ctx.fonts_mut(|f| f.layout_job(job));
             galley.rows.iter().map(|r| r.text().to_owned()).collect()
@@ -26905,6 +26921,7 @@ pub fn paint_viewer_export(
                 width,
                 css_scale: font_size / 16.0,
                 align: None,
+                bold: false,
             };
             let mut find = TextMarks {
                 query: "",
