@@ -5009,6 +5009,15 @@ impl FormHost {
             drained += 1;
         }
 
+        // 058 R18.1/R19/R20 — a Viewer's Save As / SaveAsPdf panel and its
+        // Print / Share hand-offs, on the ROOT form too. Only `child_frame`
+        // did this, so on a main form — PowerChat's chat, and the first form
+        // of every built application — the request was queued and never
+        // opened: "Save as PDF" did nothing at all (operator, 2026-09-28).
+        self.root.start_pending_save_as(ctx);
+        self.root.collect_viewer_save_as();
+        self.root.drive_viewer_os_handoffs(ctx);
+
         // ── One-shot databind diagnostic (opt-in) ────────────────────────────
         // COBOLT_DATABIND_TRACE=1 (also true/on) writes, once, the mismatch
         // between the state keys the interpreter populated and the instanced ids
@@ -6760,6 +6769,59 @@ mod parity {
             "SET TABS-1::SelectedTab TO 0 must go back to page 0"
         );
         assert!(!shows(&host, "LBL-TWO"), "…and hide page 1 again");
+    }
+
+    /// **A main form's Viewer gets its Save panel answered.** Only the child
+    /// path opened and collected it, so on the ROOT form — PowerChat's chat,
+    /// the first form of every built application — `SaveAsPdf()` and
+    /// `SaveAs()` did nothing at all (operator, 2026-09-28: "Save as PDF was
+    /// not implemented"). The OS dialog is stood in for by its test hook; what
+    /// is proved is that the root frame collects the answer and hands it to
+    /// the program.
+    #[test]
+    fn a_main_forms_viewer_gets_its_save_panel_answered() {
+        let mut form = cobolt_forms::Form::new("MAIN", "Main", 400, 300);
+        let mut v = cobolt_forms::Control::new("VWR-1", cobolt_forms::ControlType::Viewer, 10, 10);
+        v.rect = cobolt_forms::model::Rect::new(10, 10, 300, 200);
+        form.add_control(v);
+        let mut flat = Vec::new();
+        crate::flatten_controls(&form.controls, &mut flat);
+        let state: HashMap<String, CtrlState> =
+            flat.iter().map(|c| (c.id.clone(), CtrlState::from_control(c))).collect();
+        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (input_tx, input_rx) = mpsc::channel::<StateUpdate>();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let (mut app, _f) = FormHost::new(FormHostConfig {
+            form, flat, state, ev_tx, input_tx, state_rx, display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx, closed_tx, form_req_tx,
+            form_source: None, child_theme: None, child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: FxSpec::default(), fx_exit: FxSpec::default(), fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None, title_fallback: String::new(), hooks: Box::new(NoHooks),
+            surface: Surface::Window,
+        });
+        app.fx_entrance_done = true;
+        app.root.anim_started = true;
+        app.root.lifecycle_sent = true;
+        // The operator chose where to save, in the panel the request opened.
+        let chosen = std::env::temp_dir().join("conversation.pdf");
+        crate::file_dialog::answer_for_test(&FormBody::viewer_save_as_key("VWR-1"), Some(chosen.clone()));
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, raw());
+        let answers: Vec<String> = input_rx
+            .try_iter()
+            .filter(|u| u.ctrl_id == "VWR-1" && u.prop == "_SaveAsAnswer")
+            .map(|u| u.value)
+            .collect();
+        println!("root form: the Save panel's answer reached the program: {answers:?}");
+        assert_eq!(answers, vec![chosen.display().to_string()], "the main form collects its Viewer's Save panel");
     }
 
     fn host_with_surface(

@@ -1792,6 +1792,16 @@
            MOVE "V" TO WS-JOIN-TO
            CALL "PC-JOIN-FLUSH"
 ]]></Event>
+    <Event name="PC-SHOW-CHAT" paragraph="PC-SHOW-CHAT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Bring the chat into view. A conversation row and New conversation
+      *>   only raise onMenuItemClick: with Topics, Documents or the settings
+      *>   on the pane, the conversation loaded behind it and nothing seemed
+      *>   to happen (operator, 2026-09-28: "the history is listed, but the
+      *>   conversation does not load"). The Chat row's own action goes home.
+           MOVE SideMenu-1::ActivateItem("chat") TO WS-OK
+]]></Event>
     <Event name="PC-MENU-STATE" paragraph="PC-MENU-STATE"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -2045,9 +2055,11 @@
                    CONTINUE
                WHEN "newc"
                    CALL "PC-PICK-TOPIC"
+                   CALL "PC-SHOW-CHAT"
                WHEN OTHER
                    IF WS-ITEM(1:1) = "c"
                        CALL "PC-OPEN-CONV"
+                       CALL "PC-SHOW-CHAT"
                    END-IF
            END-EVALUATE
            CALL "PC-STATUS"

@@ -1584,6 +1584,10 @@ fn powerchat_reopens_a_long_question_whole() {
     s.menu(&format!("c{conv}"));
     // The whole conversation: its last turn is there.
     let html = s.wait_for("Vwr-Chat", "_ConversationHtml", |v| v.contains("END-OF-QUESTION") && v.contains("Answered."));
+    // …and the chat is brought into view, or with another form on the pane
+    // the conversation loads out of sight (operator, 2026-09-28).
+    let shown = s.wait_for("SideMenu-1", cobolt_forms::menu::runtime::ACTIVATE_ITEM_PROP, |v| v.starts_with("chat#"));
+    assert!(shown.starts_with("chat#"), "{shown}");
     s.quit();
     let msgs = cobolt_forms::viewer::parse_conversation_html(&html);
     let texts: Vec<String> = msgs
@@ -1766,3 +1770,4 @@ fn powerchat_puts_a_formatted_answer_in_the_stream_not_a_bubble() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+

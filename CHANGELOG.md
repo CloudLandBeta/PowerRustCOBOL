@@ -8,6 +8,30 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.312] — 2026-09-28
+
+### Fix — Save as PDF works on a main form; a conversation from the history comes into view
+
+- **A main form's Viewer never opened its Save panel.** `SaveAsPdf()` and
+  `SaveAs()` leave a request for the host, and `Print()`/`Share()` leave a
+  hand-off. Only the host's child path, `child_frame` (child windows and
+  content-pane occupants), opened and answered those. The **root** form's
+  drain did neither. That covers PowerChat's chat and the first form of every
+  built application, which share `cobolt-form-host`. On those forms the call
+  was accepted and nothing happened (operator, 2026-09-28: "Save as PDF was
+  not implemented"). The root frame now opens the queued panel, collects
+  its answer and drives the Print/Share hand-offs, as the child path does.
+  Test: `a_main_forms_viewer_gets_its_save_panel_answered`, which fails
+  without the fix.
+- **PowerChat: a conversation picked from the history loaded out of
+  sight.** A history row, like New conversation, only raises
+  `onMenuItemClick`. With Topics, Documents or a settings screen on the
+  pane, the conversation loaded into the chat behind it, and nothing seemed
+  to happen ("the history is listed, but the conversation does not load").
+  Loading was never the fault: the operator's own data reopens complete.
+  The new `PC-SHOW-CHAT` activates the Chat row, whose action goes home.
+  The reopen test now also checks that the chat is brought into view.
+
 ## [PowerRustCOBOL 1.70.311] — 2026-09-28
 
 ### Fix — a conversation scrolls smoothly from its end; PowerChat renders a page written into an answer; answers are no longer cut at 1,024 tokens
