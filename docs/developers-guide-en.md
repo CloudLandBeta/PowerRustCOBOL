@@ -5626,7 +5626,7 @@ sequenceDiagram
     participant H as Event handler<br/>(nested COBOL program)
 
     Note over L: PERFORM UNTIL quit
-    L->>L: CALL "COBOL-WAIT-EVENT"<br/>(blocks)
+    L->>L: COBOL::"WAIT-EVENT"( … )<br/>(blocks)
     U->>W: clicks "Say hello" button
     W-->>L: event = (control = "BTN-OK", event = "onClick")
     L->>H: CALL "BTN-OK--ONCLICK"
@@ -5641,7 +5641,7 @@ sequenceDiagram
 In words:
 
 1. The generated program enters a loop and calls the built-in
-   **`COBOL-WAIT-EVENT`**, which blocks until the user interacts with the form.
+   **`COBOL::"WAIT-EVENT"`**, which blocks until the user interacts with the form.
 2. When an event occurs, the runtime hands back **which control** and **which
    event** (e.g. `BTN-OK` / `onClick`).
 3. The loop dispatches to the handler for that pair — a **nested COBOL-85
@@ -5705,7 +5705,7 @@ In words:
 >   `onRowFetched` on `Fetch`; RestClient fires the async lifecycle
 >   (`onComplete`/`onError`/`onCancelled`/`onTimeout` — §16); the AI agent
 >   fires `onResponse` when `Ask` returns a reply. These dispatch on the next
->   `COBOL-WAIT-EVENT` return.
+>   `COBOL::"WAIT-EVENT"` return.
 > - **Timer** fires `onTick` every `Interval` ms while enabled (`Start`/`Stop`).
 >   **`Enabled` is the timer's own switch** — it decides whether the timer runs,
 >   not whether a control is greyed out. Untick **Enabled at start** in the
@@ -6026,17 +6026,17 @@ ordinary data items — each operand follows its own rules:
            INITIALIZE Spinner-1 WS-COUNT.   *> control → Value, data item → PIC default
 ```
 
-### Property access via CALL (also supported)
+### Property access via the `COBOL` object (also supported)
 
-The explicit `CALL` form remains available and is interchangeable with the
-syntax above:
+The built-in form remains available and is interchangeable with the syntax
+above (see *The built-ins: the `COBOL` object* below):
 
 
-| `CALL`                 | Purpose                                                     |
-| ---------------------- | ----------------------------------------------------------- |
-| `"COBOL-WAIT-EVENT"`   | Block until the next UI event (used by the generated loop). |
-| `"COBOL-GET-PROPERTY"` | Read a control property into a data item.                   |
-| `"COBOL-SET-PROPERTY"` | Write a control property from a data item.                  |
+| Built-in                 | Purpose                                                     |
+| ------------------------ | ----------------------------------------------------------- |
+| `COBOL::"WAIT-EVENT"`    | Block until the next UI event (used by the generated loop). |
+| `COBOL::"GET-PROPERTY"`  | Read a control property into a data item.                   |
+| `COBOL::"SET-PROPERTY"`  | Write a control property from a data item.                  |
 
 A handler is a nested program, not a paragraph, and its body is what you write
 — the IDE supplies the `IDENTIFICATION DIVISION` / `PROGRAM-ID` header and the
@@ -6109,7 +6109,7 @@ The built-ins, by family (each covered in its own section):
 - **Data bindings and MCP:** the `BINDING-…` calls the generated code makes, and
   `MCP-SEARCH`.
 - **Lifecycle:** `INIT-FORM` and `WAIT-EVENT`, which the generated program
-  makes for you.
+  calls for you — written inline there too.
 
 > **Note.** Property names passed to `GET`/`SET` are exactly the names shown in
 > the properties pane (e.g. `"Text"`, `"Caption"`, `"BackgroundColor"`,
@@ -6332,7 +6332,7 @@ Its shape is predictable:
 
 - a **PROGRAM-ID** for the form;
 - working-storage for each control's state;
-- the **event loop** (the `PERFORM UNTIL` around `COBOL-WAIT-EVENT`);
+- the **event loop** (the `PERFORM UNTIL` around `COBOL::"WAIT-EVENT"`);
 - one **nested COBOL-85 program** per event handler, named
   `CONTROL-ID--EVENTNAME` (uppercased, e.g. `BTN-OK--ONCLICK`); the form's
   `onLoad` runs at start-up and `onClose` at shutdown.
@@ -10872,7 +10872,7 @@ launch, with the debugger attached to its window.
 > `.cbl`.** Pressing **Debug** on a form launches it as a real window, so its
 > handlers actually run and your breakpoints in them are reached. Pressing
 > **Debug** on the generated file from the editor runs the program with no
-> window attached: `COBOL-WAIT-EVENT` finds no form to wait on, ends the event
+> window attached: `COBOL::"WAIT-EVENT"` finds no form to wait on, ends the event
 > loop straight away, and no handler is ever dispatched — so a breakpoint inside
 > one is never passed, however correctly it is set.
 
@@ -10902,7 +10902,7 @@ worth knowing:
   of them takes a click — until you continue. That is deliberate: what has
   stopped is your program, and your program is all of them.
 - **A form only produces events while you are working in it.** The others
-  sit inside `COBOL-WAIT-EVENT`, waiting, exactly as they do when you are
+  sit inside `COBOL::"WAIT-EVENT"`, waiting, exactly as they do when you are
   not debugging.
 - **Two forms can be stopped at once.** A Timer keeps ticking while the
   application is paused, so a second form can reach a breakpoint of its own
@@ -12228,7 +12228,7 @@ A rough mental map to speed you up. These are *analogies*, not exact equivalents
 | A *sheet* / *form* with controls       | A **form** (`.cfrm`) edited in the **Form Designer**                                                     |
 | Property sheet                        | The **properties pane** (collapsible section cards)                                                      |
 | Event procedure attached to a control | A COBOL **event handler** (`CONTROL-ID--EVENTNAME` nested program)                                       |
-| The event loop hidden by the runtime  | The explicit **`COBOL-WAIT-EVENT`** loop in generated code                                               |
+| The event loop hidden by the runtime  | The explicit **`COBOL::"WAIT-EVENT"`** loop in generated code                                               |
 | `INVOKE`/method calls on controls     | The same —`Ctrl::Method(args)`, `INVOKE Ctrl "Method" USING …`, or the `COBOL::"GET-PROPERTY"` / `"SET-PROPERTY"` built-ins |
 | Vendor ISAM                           | PowerRustCOBOL **indexed files** (`STORAGE IS MEMORY/DISK`, `redb`, `COMMIT`/`ROLLBACK`)                 |
 | Embedded SQL / ODBC                   | `COBOL::"OPEN-DB"` + `COBOL::"EXEC-SQL"` (SQLite/PostgreSQL/MySQL)                                            |

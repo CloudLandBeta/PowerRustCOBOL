@@ -87,7 +87,7 @@
 
        PROCEDURE DIVISION.
        COBOL-MAIN.
-           CALL "COBOL-INIT-FORM" USING FORM-NAME
+           COBOL::"INIT-FORM" ( FORM-NAME )
            CALL "TOOLBAR-FORM--ONLOAD"
            PERFORM COBOL-EVENT-LOOP
            CALL "TOOLBAR-FORM--ONCLOSE"
@@ -96,8 +96,7 @@
       *> <EVENT-LOOP>
        COBOL-EVENT-LOOP.
            PERFORM UNTIL COBOL-QUIT = 1
-               CALL "COBOL-WAIT-EVENT"
-                   USING COBOL-EVENT-ID COBOL-CONTROL-ID
+               COBOL::"WAIT-EVENT" ( COBOL-EVENT-ID COBOL-CONTROL-ID )
                EVALUATE COBOL-CONTROL-ID
                    WHEN "TB-MAIN-FILE-SAVE"
                        EVALUATE COBOL-EVENT-ID

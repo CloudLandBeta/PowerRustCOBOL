@@ -97,7 +97,7 @@
 
        PROCEDURE DIVISION.
        COBOL-MAIN.
-           CALL "COBOL-INIT-FORM" USING FORM-NAME
+           COBOL::"INIT-FORM" ( FORM-NAME )
            PERFORM CustomerFile-OPEN
            CALL "CUSTOMER-FORM--ONLOAD"
            PERFORM COBOL-EVENT-LOOP
@@ -108,8 +108,7 @@
       *> <EVENT-LOOP>
        COBOL-EVENT-LOOP.
            PERFORM UNTIL COBOL-QUIT = 1
-               CALL "COBOL-WAIT-EVENT"
-                   USING COBOL-EVENT-ID COBOL-CONTROL-ID
+               COBOL::"WAIT-EVENT" ( COBOL-EVENT-ID COBOL-CONTROL-ID )
                *> No event handlers defined yet.
                CONTINUE
            END-PERFORM.
@@ -127,7 +126,7 @@
       *>  Opens indexed file CUSTOMERS for I-O.
            IF WS-CustomerFile-IS-OPEN = 0
                OPEN I-O CUSTOMERS
-               CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL
+               COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
                IF WS-CustomerFile-STATUS(1:1) = '0'
                    MOVE 1 TO WS-CustomerFile-IS-OPEN
                END-IF
@@ -139,21 +138,21 @@
       *>  Set CUSTOMER-ID, then PERFORM CustomerFile-START to position the current pointer.
            START CUSTOMERS KEY IS GREATER THAN OR EQUAL TO CUSTOMER-ID
                INVALID KEY
-                   CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL
+                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
                    MOVE 0 TO WS-CustomerFile-HAS-RECORD
                NOT INVALID KEY
-                   CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL
+                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
                    MOVE 0 TO WS-CustomerFile-AT-END
            END-START.
 
        CustomerFile-READ-NEXT.
            READ CUSTOMERS NEXT
                AT END
-                   CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL
+                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
                    MOVE 1 TO WS-CustomerFile-AT-END
                    MOVE 0 TO WS-CustomerFile-HAS-RECORD
                NOT AT END
-                   CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL
+                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
                    MOVE 0 TO WS-CustomerFile-AT-END
                    MOVE 1 TO WS-CustomerFile-HAS-RECORD
            END-READ.
@@ -161,11 +160,11 @@
        CustomerFile-READ-PREVIOUS.
            READ CUSTOMERS PREVIOUS
                AT END
-                   CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL
+                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
                    MOVE 1 TO WS-CustomerFile-AT-END
                    MOVE 0 TO WS-CustomerFile-HAS-RECORD
                NOT AT END
-                   CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL
+                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
                    MOVE 0 TO WS-CustomerFile-AT-END
                    MOVE 1 TO WS-CustomerFile-HAS-RECORD
            END-READ.
@@ -177,11 +176,11 @@
            END-START
            READ CUSTOMERS NEXT
                AT END
-                   CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL
+                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
                    MOVE 1 TO WS-CustomerFile-AT-END
                    MOVE 0 TO WS-CustomerFile-HAS-RECORD
                NOT AT END
-                   CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL
+                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
                    MOVE 0 TO WS-CustomerFile-AT-END
                    MOVE 1 TO WS-CustomerFile-HAS-RECORD
            END-READ.
@@ -193,11 +192,11 @@
            END-START
            READ CUSTOMERS PREVIOUS
                AT END
-                   CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL
+                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
                    MOVE 1 TO WS-CustomerFile-AT-END
                    MOVE 0 TO WS-CustomerFile-HAS-RECORD
                NOT AT END
-                   CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL
+                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
                    MOVE 0 TO WS-CustomerFile-AT-END
                    MOVE 1 TO WS-CustomerFile-HAS-RECORD
            END-READ.
@@ -206,10 +205,10 @@
       *>  Direct keyed read. Set CUSTOMER-ID before calling this paragraph.
            READ CUSTOMERS
                INVALID KEY
-                   CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL
+                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
                    MOVE 0 TO WS-CustomerFile-HAS-RECORD
                NOT INVALID KEY
-                   CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL
+                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
                    MOVE 1 TO WS-CustomerFile-HAS-RECORD
            END-READ.
 
@@ -217,40 +216,40 @@
       *>  Requires CUSTOMERS opened I-O. Data comes from bound/set record fields.
            WRITE CUSTOMER-REC
                INVALID KEY
-                   CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL
+                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
                NOT INVALID KEY
-                   CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL
+                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
            END-WRITE.
 
        CustomerFile-REWRITE.
       *>  Requires CUSTOMERS opened I-O. Data comes from bound/set record fields.
            REWRITE CUSTOMER-REC
                INVALID KEY
-                   CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL
+                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
                NOT INVALID KEY
-                   CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL
+                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
            END-REWRITE.
 
        CustomerFile-DELETE.
       *>  Requires CUSTOMERS opened I-O. Data comes from bound/set record fields.
            DELETE CUSTOMERS
                INVALID KEY
-                   CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL
+                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
                NOT INVALID KEY
-                   CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL
+                   COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
            END-DELETE.
 
        CustomerFile-COMMIT.
       *>  Flushes pending indexed-file changes for CUSTOMERS.
            CLOSE CUSTOMERS
            OPEN I-O CUSTOMERS
-           CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL.
+           COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS ).
 
        CustomerFile-ROLLBACK.
       *>  Transaction rollback is storage-engine dependent; reopen to discard pending cursor state.
            CLOSE CUSTOMERS
            OPEN I-O CUSTOMERS
-           CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL.
+           COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS ).
 
        CustomerFile-CLOSE.
       *>  No-op when already closed. I-O close commits automatically.
@@ -258,7 +257,7 @@
                PERFORM CustomerFile-COMMIT
                CLOSE CUSTOMERS
                MOVE 0 TO WS-CustomerFile-IS-OPEN
-               CALL "COBOL-FILE-STATUS" USING "CUSTOMERS" WS-CustomerFile-STATUS END-CALL
+               COBOL::"FILE-STATUS" ( "CUSTOMERS" WS-CustomerFile-STATUS )
            END-IF.
 
 

@@ -8,6 +8,45 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.322] — 2026-09-28
+
+### Feature — generated code writes the built-ins inline too
+
+The operator asked for "convert the generated code to inline too". 1.70.321
+had left the scaffolding writing `CALL`. It is now `COBOL::"…"( … )`
+throughout:
+
+- the event loop (`COBOL::"WAIT-EVENT" ( COBOL-EVENT-ID COBOL-CONTROL-ID )`)
+  and `COBOL::"INIT-FORM" ( FORM-NAME )`;
+- the RestClient GET, POST and PUT paragraphs, and the WebSearch request;
+- the SqlDatabase CONNECT, EXEC, FETCH-ALL and CLOSE paragraphs, and their
+  usage comments;
+- the chart SET-TABLE, ADD-POINT, CLEAR and REFRESH paragraphs;
+- the five data-binding calls;
+- the IndexedFile facade's `COBOL::"FILE-STATUS"`.
+
+  The facade's CALL needed `END-CALL` inside `INVALID KEY … NOT INVALID KEY`,
+  or it took the `NOT` for its own `NOT ON EXCEPTION`. The inline form ends
+  at its `)`, which a new test proves: a first `WRITE` reports `00` on the
+  NOT branch, the duplicate reports `22` on the INVALID branch
+  (`an_inline_file_status_inside_invalid_key_reports_each_branch`).
+
+The debugger, "Only my code" and build-feature detection all key on the
+parsed CALL, which the inline form becomes, so none of them changed.
+
+- **Golden snapshots** (`tests/golden/`): regenerated and reviewed. The diff
+  is only these substitutions. Every "user line" range moved up by exactly
+  one line, because the event loop's two-line `CALL … USING` became one line.
+- **Text.** The Developer's Guide (the event-loop diagram and its prose, the
+  "Property access" table), the Event Handler agent's prompt and the
+  RustCOBOL skill now name the generated calls inline.
+- **Sweeps:**
+  - codegen 72/0, compiler 147/0, parser 175/0, semantic 88/0,
+    runtime 1093/0;
+  - `cobolt-ide` 1275/1 (the known red translation guard);
+  - the charts, REST, maps and snackbar demos compile;
+  - `powerchat_runs` 13/0.
+
 ## [PowerRustCOBOL 1.70.321] — 2026-09-28
 
 ### Feature — the built-in CALLs are methods of the `COBOL` object, written inline

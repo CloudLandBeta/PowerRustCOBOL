@@ -81,7 +81,7 @@
 
        PROCEDURE DIVISION.
        COBOL-MAIN.
-           CALL "COBOL-INIT-FORM" USING FORM-NAME
+           COBOL::"INIT-FORM" ( FORM-NAME )
            CALL "EMPTY-FORM--ONLOAD"
            PERFORM COBOL-EVENT-LOOP
            CALL "EMPTY-FORM--ONCLOSE"
@@ -90,8 +90,7 @@
       *> <EVENT-LOOP>
        COBOL-EVENT-LOOP.
            PERFORM UNTIL COBOL-QUIT = 1
-               CALL "COBOL-WAIT-EVENT"
-                   USING COBOL-EVENT-ID COBOL-CONTROL-ID
+               COBOL::"WAIT-EVENT" ( COBOL-EVENT-ID COBOL-CONTROL-ID )
                *> No event handlers defined yet.
                CONTINUE
            END-PERFORM.

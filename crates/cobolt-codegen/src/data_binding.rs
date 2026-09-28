@@ -66,7 +66,7 @@ pub fn write_data_binding_paragraphs(out: &mut String, form: &Form) {
             "0"
         };
         out.push_str(&format!(
-            "           CALL \"COBOL-BINDING-SET-READ-ONLY\" USING \"{}\" \"{}\"\n",
+            "           COBOL::\"BINDING-SET-READ-ONLY\" ( \"{}\" \"{}\" )\n",
             binding.id, read_only
         ));
         out.push_str(&format!(
@@ -75,7 +75,7 @@ pub fn write_data_binding_paragraphs(out: &mut String, form: &Form) {
             source_label(&binding.source)
         ));
         out.push_str(&format!(
-            "           CALL \"COBOL-BINDING-LOAD\" USING \"{}\" {}-STATUS\n",
+            "           COBOL::\"BINDING-LOAD\" ( \"{}\" {}-STATUS )\n",
             binding.id, pfx
         ));
     }
@@ -91,7 +91,7 @@ pub fn write_data_binding_paragraphs(out: &mut String, form: &Form) {
         ));
         write_binding_refresh_seed(out, form, binding);
         out.push_str(&format!(
-            "           CALL \"COBOL-BINDING-POPULATE\" USING \"{}\" {}-STATUS\n",
+            "           COBOL::\"BINDING-POPULATE\" ( \"{}\" {}-STATUS )\n",
             binding.id, pfx
         ));
         for mapping in sorted_mappings(binding) {
@@ -108,7 +108,7 @@ pub fn write_data_binding_paragraphs(out: &mut String, form: &Form) {
     for binding in sorted_bindings(form) {
         let pfx = binding_prefix(&binding.id);
         out.push_str(&format!(
-            "           CALL \"COBOL-BINDING-MARK-CLEAN\" USING \"{}\" {}-DIRTY\n",
+            "           COBOL::\"BINDING-MARK-CLEAN\" ( \"{}\" {}-DIRTY )\n",
             binding.id, pfx
         ));
     }
@@ -121,7 +121,7 @@ pub fn write_data_binding_paragraphs(out: &mut String, form: &Form) {
     {
         let pfx = binding_prefix(&binding.id);
         out.push_str(&format!(
-            "           CALL \"COBOL-BINDING-UPDATE\" USING \"{}\" {}-ROW-KEY {}-STATUS\n",
+            "           COBOL::\"BINDING-UPDATE\" ( \"{}\" {}-ROW-KEY {}-STATUS )\n",
             binding.id, pfx, pfx
         ));
     }

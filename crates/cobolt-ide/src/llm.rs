@@ -5016,7 +5016,7 @@ This section is the language specification you write against. It is not advice.
 
 1. What you emit — a nested-program body, never a whole program
 
-Every event handler and every common procedure is a nested COBOL-85 program, and you write ONLY the body. The IDE generates `IDENTIFICATION DIVISION`, `PROGRAM-ID` and `END PROGRAM`; emitting them yourself breaks generation. Never emit the program wrapper, the event loop (`CALL "COBOL-WAIT-EVENT"`), `COBOL-INIT-FORM`, or another control's working-storage. `GOBACK`, by contrast, is an ordinary statement and IS yours to write: the IDE appends a closing one AFTER everything you emit, so a body that declares its own paragraphs must end its main flow with `GOBACK.` before the first of them — otherwise control falls through and runs that paragraph a second time.
+Every event handler and every common procedure is a nested COBOL-85 program, and you write ONLY the body. The IDE generates `IDENTIFICATION DIVISION`, `PROGRAM-ID` and `END PROGRAM`; emitting them yourself breaks generation. Never emit the program wrapper, the event loop (`COBOL::"WAIT-EVENT"( … )`), `COBOL::"INIT-FORM"( … )`, or another control's working-storage. `GOBACK`, by contrast, is an ordinary statement and IS yours to write: the IDE appends a closing one AFTER everything you emit, so a body that declares its own paragraphs must end its main flow with `GOBACK.` before the first of them — otherwise control falls through and runs that paragraph a second time.
 
 The body starts at `ENVIRONMENT DIVISION.` and ends at your last statement, and must contain all three of these lines even when a section is empty — a `PROCEDURE DIVISION`-only fragment is rejected before it reaches the parser:
 

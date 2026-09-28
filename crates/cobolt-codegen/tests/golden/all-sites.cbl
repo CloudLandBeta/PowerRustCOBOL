@@ -59,7 +59,7 @@
 
        PROCEDURE DIVISION.
        COBOL-MAIN.
-           CALL "COBOL-INIT-FORM" USING FORM-NAME
+           COBOL::"INIT-FORM" ( FORM-NAME )
            CALL "ALL-SITES--ONLOAD"
            PERFORM COBOL-EVENT-LOOP
            CALL "ALL-SITES--ONCLOSE"
@@ -68,8 +68,7 @@
       *> <EVENT-LOOP>
        COBOL-EVENT-LOOP.
            PERFORM UNTIL COBOL-QUIT = 1
-               CALL "COBOL-WAIT-EVENT"
-                   USING COBOL-EVENT-ID COBOL-CONTROL-ID
+               COBOL::"WAIT-EVENT" ( COBOL-EVENT-ID COBOL-CONTROL-ID )
                EVALUATE COBOL-CONTROL-ID
                    WHEN "BTN-GO"
                        EVALUATE COBOL-EVENT-ID

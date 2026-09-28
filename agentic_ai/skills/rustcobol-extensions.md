@@ -163,8 +163,8 @@ handler simple and leave a `*>` comment noting what the developer must fill in.
 
 ## 7. Never write
 
-- The generated program wrapper, the event loop (`CALL "COBOL-WAIT-EVENT"`),
-  `COBOL-INIT-FORM`, or any other control's working-storage.
+- The generated program wrapper, the event loop (`COBOL::"WAIT-EVENT"( … )`),
+  `COBOL::"INIT-FORM"( … )`, or any other control's working-storage.
 - `IDENTIFICATION DIVISION` / `PROGRAM-ID` / `GOBACK` / `END PROGRAM` in a handler
   or procedure body.
 - Non-English identifiers, comments, or literals-as-identifiers.

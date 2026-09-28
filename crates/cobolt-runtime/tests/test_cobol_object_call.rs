@@ -17,6 +17,10 @@ use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::{parse, Severity};
 use cobolt_runtime::Interpreter;
 
+/// Both tests move the process's working directory to a scratch folder for
+/// their files; the lock keeps them from doing it at the same time.
+static CWD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn run_capture(src: &str) -> Vec<String> {
     let result = parse(tokenize(src, SourceFormat::Free));
     assert!(
@@ -83,6 +87,7 @@ fn an_inline_cobol_call_is_the_call_wherever_it_sits() {
     "#;
     let dir = std::env::temp_dir().join(format!("cobol-object-call-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
+    let _cwd = CWD.lock().unwrap_or_else(|e| e.into_inner());
     let here = std::env::current_dir().unwrap();
     std::env::set_current_dir(&dir).unwrap();
     let out = run_capture(src);
@@ -107,4 +112,69 @@ fn an_inline_cobol_call_is_the_call_wherever_it_sits() {
     println!("  {} forms, all equal to the CALL: {}; {ms:.1} ms\n", forms.len(), got.iter().all(|v| *v == reference));
     assert_ne!(reference, "0000", "the built-in answers");
     assert_eq!(got, vec![reference.as_str(); 6], "every inline call wrote the CALL's result back");
+}
+
+/// The generated IndexedFile facade reads the engine's FILE STATUS inside
+/// `INVALID KEY … NOT INVALID KEY` with `COBOL::"FILE-STATUS"( … )`. As a
+/// `CALL` it needed `END-CALL`, or it took the `NOT` for its own
+/// `NOT ON EXCEPTION`; the inline form ends at its `)` — each branch must
+/// still run its own call and report the real status.
+#[test]
+fn an_inline_file_status_inside_invalid_key_reports_each_branch() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. INLINEFS.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT CUST ASSIGN TO "inline-fs.idx"
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS CUST-ID
+               STORAGE IS MEMORY.
+       DATA DIVISION.
+       FILE SECTION.
+       FD  CUST.
+       01  CUST-REC.
+           05 CUST-ID   PIC 9(4).
+           05 CUST-NAME PIC X(10).
+       WORKING-STORAGE SECTION.
+       01 WS-FS   PIC XX.
+       01 WS-PATH PIC X VALUE SPACE.
+       PROCEDURE DIVISION.
+       MAIN.
+           OPEN OUTPUT CUST
+           MOVE 1 TO CUST-ID
+           MOVE "ADA" TO CUST-NAME
+           WRITE CUST-REC
+               INVALID KEY
+                   COBOL::"FILE-STATUS" ( "CUST" WS-FS )
+                   MOVE "I" TO WS-PATH
+               NOT INVALID KEY
+                   COBOL::"FILE-STATUS" ( "CUST" WS-FS )
+                   MOVE "N" TO WS-PATH
+           END-WRITE
+           DISPLAY "first " WS-PATH " " WS-FS
+           WRITE CUST-REC
+               INVALID KEY
+                   COBOL::"FILE-STATUS" ( "CUST" WS-FS )
+                   MOVE "I" TO WS-PATH
+               NOT INVALID KEY
+                   COBOL::"FILE-STATUS" ( "CUST" WS-FS )
+                   MOVE "N" TO WS-PATH
+           END-WRITE
+           DISPLAY "duplicate " WS-PATH " " WS-FS
+           CLOSE CUST
+           STOP RUN.
+    "#;
+    let dir = std::env::temp_dir().join(format!("inline-fs-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _cwd = CWD.lock().unwrap_or_else(|e| e.into_inner());
+    let here = std::env::current_dir().unwrap();
+    std::env::set_current_dir(&dir).unwrap();
+    let out = run_capture(src);
+    std::env::set_current_dir(here).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    println!("  WRITE, then the same key again: {out:?}");
+    assert_eq!(out, vec!["first N 00", "duplicate I 22"]);
 }

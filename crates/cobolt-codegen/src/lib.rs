@@ -39,7 +39,7 @@
 //!
 //!  COBOL-EVENT-LOOP.
 //!      PERFORM UNTIL COBOL-QUIT = 1
-//!          CALL "COBOL-WAIT-EVENT"
+//!          COBOL::"WAIT-EVENT" ( … )
 //!              USING COBOL-EVENT-ID COBOL-CONTROL-ID
 //!          EVALUATE COBOL-CONTROL-ID
 //!              WHEN "BTN-OK"
@@ -658,12 +658,11 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
         out.push_str("      *>     PERFORM DB1-EXEC\n");
         out.push_str("      *>     PERFORM UNTIL WS-SQL-MORE = 'N'\n");
         out.push_str("      *>         MOVE 1 TO WS-SQL-COL-INDEX\n");
-        out.push_str("      *>         CALL \"COBOL-FETCH-ROW\" USING WS-DB1-HANDLE\n");
-        out.push_str("      *>                                       WS-SQL-COL-INDEX\n");
-        out.push_str("      *>                                       WS-SQL-CURRENT-VALUE\n");
-        out.push_str("      *>                                       WS-SQL-ERROR\n");
-        out.push_str("      *>         CALL \"COBOL-NEXT-ROW\" USING WS-DB1-HANDLE\n");
-        out.push_str("      *>                                      WS-SQL-MORE\n");
+        out.push_str("      *>         COBOL::\"FETCH-ROW\" ( WS-DB1-HANDLE\n");
+        out.push_str("      *>                                  WS-SQL-COL-INDEX\n");
+        out.push_str("      *>                                  WS-SQL-CURRENT-VALUE\n");
+        out.push_str("      *>                                  WS-SQL-ERROR )\n");
+        out.push_str("      *>         COBOL::\"NEXT-ROW\" ( WS-DB1-HANDLE WS-SQL-MORE )\n");
         out.push_str("      *>     END-PERFORM\n");
         out.push_str("       01 WS-SQL-QUERY           PIC X(4096)  VALUE SPACES.\n");
         out.push_str("       01 WS-SQL-ERROR            PIC X(512)   VALUE SPACES.\n");
@@ -1061,7 +1060,7 @@ fn write_procedure_division(out: &mut String, form: &Form, map: &mut SourceMap) 
 
     // ── COBOL-MAIN ──────────────────────────────────────────────────────
     out.push_str("       COBOL-MAIN.\n");
-    out.push_str("           CALL \"COBOL-INIT-FORM\" USING FORM-NAME\n");
+    out.push_str("           COBOL::\"INIT-FORM\" ( FORM-NAME )\n");
     if !form.data_bindings.is_empty() {
         out.push_str("           PERFORM COBOL-DATA-BINDINGS-LOAD\n");
     }
@@ -1304,11 +1303,9 @@ fn write_rest_client_stubs(out: &mut String, all_controls: &[&Control]) {
             "      *>    HTTP GET via {} — set WS-REQUEST-URL before calling.\n",
             ctrl.id
         ));
-        out.push_str("           CALL \"COBOL-HTTP-GET\"\n");
-        out.push_str("               USING WS-REQUEST-URL\n");
-        out.push_str("                     WS-HTTP-RESPONSE\n");
-        out.push_str("                     WS-HTTP-STATUS\n");
-        out.push_str("           END-CALL\n");
+        out.push_str("           COBOL::\"HTTP-GET\" ( WS-REQUEST-URL\n");
+        out.push_str("                 WS-HTTP-RESPONSE\n");
+        out.push_str("                 WS-HTTP-STATUS )\n");
         out.push_str("           EVALUATE TRUE\n");
         out.push_str("               WHEN WS-HTTP-STATUS >= 200\n");
         out.push_str("                AND WS-HTTP-STATUS <= 299\n");
@@ -1324,12 +1321,10 @@ fn write_rest_client_stubs(out: &mut String, all_controls: &[&Control]) {
             "      *>    HTTP POST via {} — set WS-REQUEST-URL and WS-REQUEST-BODY before calling.\n",
             ctrl.id
         ));
-        out.push_str("           CALL \"COBOL-HTTP-POST\"\n");
-        out.push_str("               USING WS-REQUEST-URL\n");
-        out.push_str("                     WS-REQUEST-BODY\n");
-        out.push_str("                     WS-HTTP-RESPONSE\n");
-        out.push_str("                     WS-HTTP-STATUS\n");
-        out.push_str("           END-CALL\n");
+        out.push_str("           COBOL::\"HTTP-POST\" ( WS-REQUEST-URL\n");
+        out.push_str("                 WS-REQUEST-BODY\n");
+        out.push_str("                 WS-HTTP-RESPONSE\n");
+        out.push_str("                 WS-HTTP-STATUS )\n");
         out.push_str("           EVALUATE TRUE\n");
         out.push_str("               WHEN WS-HTTP-STATUS >= 200\n");
         out.push_str("                AND WS-HTTP-STATUS <= 299\n");
@@ -1345,12 +1340,10 @@ fn write_rest_client_stubs(out: &mut String, all_controls: &[&Control]) {
             "      *>    HTTP PUT via {} — set WS-REQUEST-URL and WS-REQUEST-BODY before calling.\n",
             ctrl.id
         ));
-        out.push_str("           CALL \"COBOL-HTTP-PUT\"\n");
-        out.push_str("               USING WS-REQUEST-URL\n");
-        out.push_str("                     WS-REQUEST-BODY\n");
-        out.push_str("                     WS-HTTP-RESPONSE\n");
-        out.push_str("                     WS-HTTP-STATUS\n");
-        out.push_str("           END-CALL\n");
+        out.push_str("           COBOL::\"HTTP-PUT\" ( WS-REQUEST-URL\n");
+        out.push_str("                 WS-REQUEST-BODY\n");
+        out.push_str("                 WS-HTTP-RESPONSE\n");
+        out.push_str("                 WS-HTTP-STATUS )\n");
         out.push_str("           EVALUATE TRUE\n");
         out.push_str("               WHEN WS-HTTP-STATUS >= 200\n");
         out.push_str("                AND WS-HTTP-STATUS <= 299\n");
@@ -1646,11 +1639,9 @@ fn write_web_search_stubs(out: &mut String, all_controls: &[&Control]) {
         ));
         out.push_str("               INTO WS-REQUEST-URL\n");
         out.push_str("           END-STRING\n");
-        out.push_str("           CALL \"COBOL-HTTP-GET\"\n");
-        out.push_str("               USING WS-REQUEST-URL\n");
-        out.push_str("                     WS-HTTP-RESPONSE\n");
-        out.push_str("                     WS-HTTP-STATUS\n");
-        out.push_str("           END-CALL\n");
+        out.push_str("           COBOL::\"HTTP-GET\" ( WS-REQUEST-URL\n");
+        out.push_str("                 WS-HTTP-RESPONSE\n");
+        out.push_str("                 WS-HTTP-STATUS )\n");
         out.push_str("           EVALUATE TRUE\n");
         out.push_str("               WHEN WS-HTTP-STATUS >= 200\n");
         out.push_str("                AND WS-HTTP-STATUS <= 299\n");
@@ -1746,12 +1737,9 @@ fn write_sql_stubs(out: &mut String, all_controls: &[&Control]) {
             "      *>  On error:   WS-SQL-ERROR contains the message.\n"
         ));
         out.push_str(&format!("           MOVE SPACES TO WS-SQL-ERROR\n"));
-        out.push_str(&format!("           CALL \"COBOL-OPEN-DB\"\n"));
-        out.push_str(&format!(
-            "               USING BY REFERENCE {pfx}-CONN-STRING\n"
-        ));
-        out.push_str(&format!("                     BY REFERENCE {pfx}-HANDLE\n"));
-        out.push_str(&format!("                     BY REFERENCE WS-SQL-ERROR\n"));
+        out.push_str(&format!("           COBOL::\"OPEN-DB\" ( {pfx}-CONN-STRING\n"));
+        out.push_str(&format!("                 {pfx}-HANDLE\n"));
+        out.push_str("                 WS-SQL-ERROR )\n");
         out.push_str(&format!("           IF WS-SQL-ERROR NOT = SPACES\n"));
         out.push_str(&format!("               PERFORM {error_para}\n"));
         out.push_str(&format!("           ELSE\n"));
@@ -1776,13 +1764,10 @@ fn write_sql_stubs(out: &mut String, all_controls: &[&Control]) {
             "      *>  Resets WS-SQL-MORE to 'Y' if rows are present.\n"
         ));
         out.push_str(&format!("           MOVE SPACES TO WS-SQL-ERROR\n"));
-        out.push_str(&format!("           CALL \"COBOL-EXEC-SQL\"\n"));
-        out.push_str(&format!("               USING BY REFERENCE {pfx}-HANDLE\n"));
-        out.push_str(&format!("                     BY REFERENCE WS-SQL-QUERY\n"));
-        out.push_str(&format!(
-            "                     BY REFERENCE WS-SQL-ROW-COUNT\n"
-        ));
-        out.push_str(&format!("                     BY REFERENCE WS-SQL-ERROR\n"));
+        out.push_str(&format!("           COBOL::\"EXEC-SQL\" ( {pfx}-HANDLE\n"));
+        out.push_str("                 WS-SQL-QUERY\n");
+        out.push_str("                 WS-SQL-ROW-COUNT\n");
+        out.push_str("                 WS-SQL-ERROR )\n");
         out.push_str(&format!("           IF WS-SQL-ERROR NOT = SPACES\n"));
         out.push_str(&format!("               PERFORM {error_para}\n"));
         out.push_str(&format!("           ELSE\n"));
@@ -1807,47 +1792,24 @@ fn write_sql_stubs(out: &mut String, all_controls: &[&Control]) {
         ));
         out.push_str(&format!("      *>  Example:\n"));
         out.push_str(&format!("      *>    MOVE 1 TO WS-SQL-COL-INDEX\n"));
-        out.push_str(&format!(
-            "      *>    CALL \"COBOL-FETCH-ROW\" USING {pfx}-HANDLE\n"
-        ));
-        out.push_str(&format!(
-            "      *>                                   WS-SQL-COL-INDEX\n"
-        ));
-        out.push_str(&format!(
-            "      *>                                   WS-SQL-CURRENT-VALUE\n"
-        ));
-        out.push_str(&format!(
-            "      *>                                   WS-SQL-ERROR\n"
-        ));
+        out.push_str(&format!("      *>    COBOL::\"FETCH-ROW\" ( {pfx}-HANDLE\n"));
+        out.push_str("      *>                             WS-SQL-COL-INDEX\n");
+        out.push_str("      *>                             WS-SQL-CURRENT-VALUE\n");
+        out.push_str("      *>                             WS-SQL-ERROR )\n");
         out.push_str(&format!(
             "      *>    MOVE WS-SQL-CURRENT-VALUE TO WS-MY-NAME-FIELD\n"
         ));
         out.push_str(&format!("           PERFORM UNTIL WS-SQL-MORE = 'N'\n"));
         out.push_str(&format!("               MOVE 1 TO WS-SQL-COL-INDEX\n"));
-        out.push_str(&format!("               CALL \"COBOL-FETCH-ROW\"\n"));
-        out.push_str(&format!(
-            "                   USING BY REFERENCE {pfx}-HANDLE\n"
-        ));
-        out.push_str(&format!(
-            "                         BY REFERENCE WS-SQL-COL-INDEX\n"
-        ));
-        out.push_str(&format!(
-            "                         BY REFERENCE WS-SQL-CURRENT-VALUE\n"
-        ));
-        out.push_str(&format!(
-            "                         BY REFERENCE WS-SQL-ERROR\n"
-        ));
+        out.push_str(&format!("               COBOL::\"FETCH-ROW\" ( {pfx}-HANDLE\n"));
+        out.push_str("                     WS-SQL-COL-INDEX\n");
+        out.push_str("                     WS-SQL-CURRENT-VALUE\n");
+        out.push_str("                     WS-SQL-ERROR )\n");
         out.push_str(&format!(
             "      *>          MOVE WS-SQL-CURRENT-VALUE TO your-field-here\n"
         ));
         out.push_str(&format!("               CONTINUE\n"));
-        out.push_str(&format!("               CALL \"COBOL-NEXT-ROW\"\n"));
-        out.push_str(&format!(
-            "                   USING BY REFERENCE {pfx}-HANDLE\n"
-        ));
-        out.push_str(&format!(
-            "                         BY REFERENCE WS-SQL-MORE\n"
-        ));
+        out.push_str(&format!("               COBOL::\"NEXT-ROW\" ( {pfx}-HANDLE WS-SQL-MORE )\n"));
         out.push_str(&format!("           END-PERFORM.\n"));
         out.push('\n');
 
@@ -1856,10 +1818,7 @@ fn write_sql_stubs(out: &mut String, all_controls: &[&Control]) {
         out.push_str(&format!(
             "      *>  Close the {drv_label} connection for {id}.\n"
         ));
-        out.push_str(&format!("           CALL \"COBOL-CLOSE-DB\"\n"));
-        out.push_str(&format!(
-            "               USING BY REFERENCE {pfx}-HANDLE.\n"
-        ));
+        out.push_str(&format!("           COBOL::\"CLOSE-DB\" ( {pfx}-HANDLE ).\n"));
         out.push('\n');
 
         // ── user event handler stubs ───────────────────────────────────────
@@ -1906,7 +1865,7 @@ fn write_indexed_file_stubs(out: &mut String, all_controls: &[&Control], user_ws
         // END-CALL closes it explicitly: inside `INVALID KEY … NOT INVALID
         // KEY`, an open CALL would take the `NOT` as the start of its own
         // `NOT ON EXCEPTION` phrase.
-        let status_call = format!("CALL \"COBOL-FILE-STATUS\" USING \"{file}\" {status_item} END-CALL");
+        let status_call = format!("COBOL::\"FILE-STATUS\" ( \"{file}\" {status_item} )");
         // `CurrentRecordDataItem`: every READ also lands the record there.
         let into = prop_string(ctrl, "CurrentRecordDataItem")
             .map(|s| s.trim().to_owned())
@@ -2117,7 +2076,7 @@ fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
                     "           MOVE {cnt}        TO {ws}-SELECTED-IDX\n"
                 ));
                 out.push_str(&format!(
-                    "           CALL \"COBOL-CHART-SET-TABLE\" USING \"{id}\" {ds} {cnt}\n"
+                    "           COBOL::\"CHART-SET-TABLE\" ( \"{id}\" {ds} {cnt} )\n"
                 ));
             }
             _ => {
@@ -2141,7 +2100,7 @@ fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
             "      *>    Usage: INVOKE {id} ADD-POINT USING WS-LABEL WS-VALUE\n"
         ));
         out.push_str(&format!(
-            "           CALL \"COBOL-CHART-ADD-POINT\" USING \"{id}\" {ws}-SELECTED-LBL {ws}-SELECTED-VAL\n"
+            "           COBOL::\"CHART-ADD-POINT\" ( \"{id}\" {ws}-SELECTED-LBL {ws}-SELECTED-VAL )\n"
         ));
         out.push_str("           CONTINUE.\n");
         out.push('\n');
@@ -2151,7 +2110,7 @@ fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
         out.push_str(&format!("      *>    Remove all data series from {id}.\n"));
         out.push_str(&format!("      *>    Usage: INVOKE {id} CLEAR\n"));
         out.push_str(&format!(
-            "           CALL \"COBOL-CHART-CLEAR\" USING \"{id}\"\n"
+            "           COBOL::\"CHART-CLEAR\" ( \"{id}\" )\n"
         ));
         out.push_str("           CONTINUE.\n");
         out.push('\n');
@@ -2163,7 +2122,7 @@ fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
         ));
         out.push_str(&format!("      *>    Usage: INVOKE {id} REFRESH\n"));
         out.push_str(&format!(
-            "           CALL \"COBOL-CHART-REFRESH\" USING \"{id}\"\n"
+            "           COBOL::\"CHART-REFRESH\" ( \"{id}\" )\n"
         ));
         out.push_str("           CONTINUE.\n");
         out.push('\n');
@@ -2623,8 +2582,7 @@ fn write_event_loop(out: &mut String, form: &Form) {
     open_region(out, "EVENT-LOOP");
     out.push_str("       COBOL-EVENT-LOOP.\n");
     out.push_str("           PERFORM UNTIL COBOL-QUIT = 1\n");
-    out.push_str("               CALL \"COBOL-WAIT-EVENT\"\n");
-    out.push_str("                   USING COBOL-EVENT-ID COBOL-CONTROL-ID\n");
+    out.push_str("               COBOL::\"WAIT-EVENT\" ( COBOL-EVENT-ID COBOL-CONTROL-ID )\n");
 
     let all_controls = collect_all_controls(&form.controls);
     let controls_with_events: Vec<_> = all_controls
@@ -3207,7 +3165,7 @@ mod tests {
         assert!(src.contains("WS-SEARCH-1-NUM-RESULTS DELIMITED BY SIZE"));
         assert!(src.contains("WS-SEARCH-1-SAFE-SEARCH DELIMITED BY SPACE"));
         assert!(src.contains("INTO WS-REQUEST-URL"));
-        assert!(src.contains("CALL \"COBOL-HTTP-GET\""));
+        assert!(src.contains("COBOL::\"HTTP-GET\""));
         assert!(src.contains("SEARCH-1-ON-RESULTS."));
         assert!(src.contains("SEARCH-1-ON-ERROR."));
         // R30/R31: no API key anywhere in generated source — INVOKE 'SEARCH'
@@ -3354,7 +3312,7 @@ mod tests {
         idx.set_prop("LoadStrategy", PropValue::String("Memory".into()));
         form.controls.push(idx);
         let src = generate(&form);
-        assert!(src.contains("CALL \"COBOL-FILE-STATUS\" USING \"CUSTOMERS\" WS-FS"), "{src}");
+        assert!(src.contains("COBOL::\"FILE-STATUS\" ( \"CUSTOMERS\" WS-FS )"), "{src}");
         assert!(!src.contains("MOVE '23' TO WS-FS") && !src.contains("MOVE '00' TO WS-FS"));
         assert!(src.contains("READ CUSTOMERS NEXT INTO WS-CUSTOMER"));
         assert!(src.contains("REGISTERED USER 'alice'"));
@@ -3928,7 +3886,7 @@ mod tests {
         assert!(src.contains("COBOL-DATA-BINDINGS-POPULATE."));
         assert!(src.contains("COBOL-DATA-BINDINGS-MARK-CLEAN."));
         assert!(src.contains("COBOL-DATA-BINDINGS-UPDATE."));
-        assert!(src.contains("CALL \"COBOL-BINDING-LOAD\" USING \"BIND-IDX-GRID\""));
+        assert!(src.contains("COBOL::\"BINDING-LOAD\" ( \"BIND-IDX-GRID\""));
         assert!(src.contains("IndexedFile:CUSTOMER-REC"));
         assert!(src.contains("SQL:CUSTOMER-ROWS"));
         assert!(src.contains("COBOLTable:CUSTOMER-TABLE"));
