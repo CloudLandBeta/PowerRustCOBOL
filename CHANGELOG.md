@@ -8,6 +8,41 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.331] — 2026-09-28
+
+### Feature — PowerDemo3: "Passing Data to a Child Form"
+
+The operator asked for a PowerDemo3 example of passing properties to a child
+form and back: the child reads from the parent and answers with
+`super::SetProperty`, with both simple and complex data.
+
+- **`props-parent-form`** (menu: General → Passing Data to a Child Form).
+  - It publishes three simple values (customer name, credit limit, VIP flag)
+    and one complex one: the order record, a group item with a 3-line
+    `OCCURS` table, as **one** property.
+  - Each goes out with `INVOKE ME::"SetProperty"`, and then
+    `OpenFormSync("PROPS-CHILD-FORM")` opens the child.
+  - When the child returns, `ME::"GetProperty"` reads the answer, the name
+    and the edited record back.
+- **`props-child-form`** (the Order Editor).
+  - `onLoad` reads `super::Title` bare, and everything else with
+    `INVOKE super::"GetProperty"(…) RETURNING …`, into TextBoxes, a label, a
+    CheckBox and the record's own layout.
+  - The operator edits the name and the quantities.
+  - **OK** sends the name and the record back with `super::"SetProperty"`,
+    sets `ChildResult`, and closes with `ME::Close()`. **Cancel** answers
+    `CANCEL`.
+- Note: the child reads through `super::"GetProperty"`, not through
+  `COBOL::"GET-PROPERTY"`, which sees only its own program's controls.
+- Project manifest: the two forms added and `main-form-seal` recomputed.
+  `SideMenu-1.menu.yaml` gains the row and is resealed.
+- Test: `crates/cobolt-ide/tests/props_demo_runs.rs`. Both forms compile
+  (parse and semantics), and each runs against a stand-in for the other: the
+  parent publishes 5 properties and reads the answer back; the child reads a
+  106-byte record, and it comes back with a quantity edited.
+- Developer's Guide: "Passing data to a child form and back", with a
+  sequence diagram, both halves in COBOL, and the simple / complex rules.
+
 ## [PowerRustCOBOL 1.70.330] — 2026-09-28
 
 ### Fix — a record passed through a property comes back whole

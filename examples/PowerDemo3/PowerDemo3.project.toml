@@ -43,6 +43,8 @@ forms = [
     "forms/General/inner-form2.cfrm",
     "forms/General/call-form-demo.cfrm",
     "forms/General/called-form-demo.cfrm",
+    "forms/General/props-parent-form.cfrm",
+    "forms/General/props-child-form.cfrm",
     "forms/Common/maps-demo.cfrm",
     "forms/Data/datagrid-form.cfrm",
     "forms/Non-Visual/snackbar-form.cfrm",
@@ -99,6 +101,8 @@ generated = [
     "generated/inner-form2.cbl",
     "generated/call-form-demo.cbl",
     "generated/called-form-demo.cbl",
+    "generated/props-parent-form.cbl",
+    "generated/props-child-form.cbl",
     "generated/maps-demo.cbl",
     "generated/new-morph-form.cbl",
     "generated/datagrid-form.cbl",
@@ -171,7 +175,7 @@ focus-ring = true
 focus-ring-color = ""
 focus-ring-pulse = true
 main-form = "SIDEBAR-FORM"
-main-form-seal = "d18ee77df9a24ec6cca0bd0c9898e70a9eac30ffa2d98abf7d5135cf9b2994fc"
+main-form-seal = "b61f8ca5e454206dbbbb64a7585355460aeb28d8e3aa5aa40610964bcd3f0c74"
 
 [ai]
 schema_version = 1

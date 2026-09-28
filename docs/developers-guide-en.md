@@ -6364,6 +6364,68 @@ them is `Waiting` (`FormState`), which vetoes the whole close and raises
 `onCloseRejected` — the same rule a PowerCOBOL developer would expect from a
 child form that has unsaved work.
 
+**Passing data to a child form and back.** A PowerCOBOL developer would
+reach for a shared global area; here the two forms are separate programs, and
+the data travels as **properties of the parent form**, under names you choose:
+
+```mermaid
+sequenceDiagram
+    participant P as Parent form
+    participant C as Child form
+    P->>P: INVOKE ME::"SetProperty"("OrderRecord", WS-ORDER)
+    P->>C: INVOKE ME::"OpenFormSync"("PROPS-CHILD-FORM")
+    C->>P: INVOKE super::"GetProperty"("OrderRecord") RETURNING WS-ORDER
+    Note over C: the operator edits
+    C->>P: INVOKE super::"SetProperty"("OrderRecord", WS-ORDER)
+    C->>C: INVOKE ME::Close()
+    P->>P: INVOKE ME::"GetProperty"("OrderRecord") RETURNING WS-ORDER
+```
+
+The parent publishes before it opens the child:
+
+```cobol
+           INVOKE ME::"SetProperty"("CustomerName", Txt-Name::Text)
+           INVOKE ME::"SetProperty"("OrderRecord", WS-ORDER)
+           INVOKE ME::"SetProperty"("ChildResult", "NONE")
+           INVOKE ME::"OpenFormSync"("PROPS-CHILD-FORM")
+           INVOKE ME::"GetProperty"("ChildResult") RETURNING WS-RESULT
+           IF WS-RESULT = "OK"
+               INVOKE ME::"GetProperty"("OrderRecord") RETURNING WS-ORDER
+           END-IF
+```
+
+The child reads in its `onLoad`, and answers before it closes:
+
+```cobol
+           INVOKE super::"GetProperty"("CustomerName") RETURNING Txt-Name::Text
+           INVOKE super::"GetProperty"("OrderRecord") RETURNING WS-ORDER
+      *>   ... on OK:
+           INVOKE super::"SetProperty"("OrderRecord", WS-ORDER)
+           INVOKE super::"SetProperty"("ChildResult", "OK")
+           INVOKE ME::Close()
+```
+
+- **Simple values** — a name, an amount, a flag — go one property each.
+  `RETURNING` may name a data item or a control's property
+  (`RETURNING Txt-Name::Text`).
+- **Complex data** — a **group item**, header and `OCCURS` table included —
+  goes as **one** property: its bytes travel as they stand, and `RETURNING`
+  into the same layout fills it field by field, numeric fields with implied
+  decimals (`PIC 9(5)V99`) included. Both forms must describe the record the
+  same way; in an application, `COPY` it from one copybook.
+- The **parent's own form properties** read bare: `super::Title`. A property
+  of your own naming always goes through `GetProperty` / `SetProperty` — a
+  bare `super::OrderRecord` does not build, because a bare name is checked
+  against the fixed form surface.
+- `COBOL::"GET-PROPERTY"` reads the controls of **its own** program only; the
+  parent is reached through `super`.
+
+PowerDemo3 has the whole example — **General → Passing Data to a Child
+Form** (`props-parent-form` and `props-child-form`).
+
+> 📷 Screenshot needed — `props-demo.png`: PowerDemo3's *Passing Data to a
+> Child Form* with the Order Editor open over it, a quantity edited.
+
 **Lifecycle rules.**
 
 - The **main form is a singleton**: opening it while it runs focuses the

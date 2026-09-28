@@ -319,4 +319,10 @@ menu:
       icon: window
       action: open-form:call-form-demo
       enabled: true
-hash: 52ed3cf2146e2aaf6614a789cf127d1b5d0bbb789cb707c84869b97929dd4810
+    - id: prpd
+      label: Passing Data to a Child Form
+      type: action
+      icon: window
+      action: open-form:props-parent-form
+      enabled: true
+hash: 4b9892d144ba41cc047628ff2ee1804c1ce105ee2033bc27b53cc026929c771f
