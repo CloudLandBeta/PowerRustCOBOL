@@ -253,3 +253,37 @@ fn inspect_honours_reference_modification_and_subscripts() {
 "##;
     assert_eq!(run_capture(src), vec!["...-## 02", "aaaaabbaaaaa"]);
 }
+
+/// A reference-modified INSPECT counts BYTE positions, exactly as the same
+/// `X(P:N)` read as a sender does. It used to count characters, so every
+/// accented letter before `P` moved the region one byte right: the tally
+/// came back short, and the slice taken with it lost its last bytes —
+/// PowerChat cut a page at `</htm` and showed "l>" after it (2026-09-28).
+#[test]
+fn a_refmod_inspect_counts_bytes_after_multibyte_characters() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. INSPMB.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 W PIC X(40).
+       01 C PIC 9(5) VALUE 0.
+       01 P PIC 9(5) VALUE 6.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE "éé<b>xé</b>é" TO W
+           INSPECT W(P:) TALLYING C FOR CHARACTERS BEFORE INITIAL "</b>"
+           DISPLAY C
+           DISPLAY "[" W(P:C) "]"
+           MOVE 0 TO C
+           INSPECT W(5:6) TALLYING C FOR ALL "é"
+           DISPLAY C
+           INSPECT W(5:) REPLACING ALL "x" BY "y"
+           DISPLAY FUNCTION TRIM(W)
+           STOP RUN.
+    "#;
+    let out = run_capture(src);
+    println!("  byte-positioned INSPECT: {out:?}");
+    // From byte 6 ("b"): "b>xé" is 5 bytes before "</b>".
+    assert_eq!(out, vec!["00005", "[b>xé]", "00001", "éé<b>yé</b>é"]);
+}

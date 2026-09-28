@@ -2806,6 +2806,20 @@ impl HtmlWalker<'_, '_> {
 
     /// What an element contributes, by kind.
     fn content(&mut self, tag: &tl::HTMLTag<'_>, name: &str, cx: &HtmlCx, block: bool) {
+        // A `<div class="mermaid">` / `<pre class="mermaid">` is how a page
+        // carries a Mermaid diagram — the same diagram a ```` ```mermaid ````
+        // fence holds, so it is drawn the same way instead of shown as its
+        // source text (operator, 2026-09-28: a diagram asked of a model came
+        // out as text).
+        if matches!(name, "div" | "pre")
+            && Self::attr(tag, "class")
+                .is_some_and(|c| c.split_whitespace().any(|w| w.eq_ignore_ascii_case("mermaid")))
+        {
+            self.flush_paragraph();
+            let text = decode_html_entities(&tag.inner_text(self.parser));
+            self.blocks.push(Block::Mermaid { source: text.trim().to_string() });
+            return;
+        }
         match name {
             "br" => self.inline.push(Inline::Break { hard: true }),
             "img" => {
@@ -7239,6 +7253,27 @@ mod html_tests {
         assert_eq!(parse_html_color("rgb(10, 20, 30)"), Some([10, 20, 30]));
         assert_eq!(parse_html_color("papayawhip"), Some([255, 239, 213]), "every CSS colour name");
         assert_eq!(parse_html_color("nonsense"), None, "unrecognised falls back to the theme's ink");
+    }
+
+    /// A page carrying a Mermaid diagram the way pages do — `mermaid.js` and
+    /// a `class="mermaid"` element — draws the diagram, not its source text
+    /// (operator, 2026-09-28). The script is dropped, as every script is.
+    #[test]
+    fn a_mermaid_element_in_a_page_is_a_diagram() {
+        let page = "<!DOCTYPE html>\n<html><head>\
+            <script src=\"https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js\"></script>\
+            <script>mermaid.initialize({startOnLoad:true});</script></head><body>\
+            <h1>Proceso</h1>\n<div class=\"mermaid\">\ngraph TD\n  A[Solicitud] --&gt; B{¿Aprobado?}\n</div>\
+            <pre class=\"diagram mermaid\">sequenceDiagram\n  A-&gt;&gt;B: Hola</pre></body></html>";
+        let blocks = parse_html(page).blocks;
+        println!("  blocks: {blocks:?}");
+        assert!(matches!(&blocks[0], Block::Heading { level: 1, .. }));
+        assert_eq!(
+            blocks[1],
+            Block::Mermaid { source: "graph TD\n  A[Solicitud] --> B{¿Aprobado?}".into() }
+        );
+        assert_eq!(blocks[2], Block::Mermaid { source: "sequenceDiagram\n  A->>B: Hola".into() });
+        assert_eq!(blocks.len(), 3, "nothing of the scripts is shown");
     }
 
     #[test]

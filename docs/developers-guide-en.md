@@ -4774,7 +4774,7 @@ for some formats.
 |---|---|---|
 | Plain text | All of it, at any size | — |
 | Markdown, with tables, task lists, footnotes and strikethrough | All of it, at any size | — |
-| Mermaid diagrams inside a Markdown fence | Flowcharts and sequence diagrams | Class, state, gantt, ER and journey diagrams — **refused by name**, not half-drawn |
+| Mermaid diagrams — a Markdown fence, or an HTML page's `<div class="mermaid">` / `<pre class="mermaid">` | Flowcharts and sequence diagrams, drawn by the Viewer itself (a page's `mermaid.js` is never run, and is not needed) | Class, state, gantt, ER and journey diagrams — **refused by name**, not half-drawn |
 | Images: PNG, JPEG, GIF, WebP, APNG, BMP, TIFF, SVG | All of them, animation included | — |
 | PDF | Its text, its basic line and rectangle drawing, its page sizes, its page breaks, and Find over all of it | A faithful picture of a complex page; unusual embedded font encodings; forms; annotations; a scanned page beyond the image it embeds |
 | HTML | A **subset**: block and inline layout, common typography, colours, borders, tables, images — **styled by the page's own CSS** (see *HTML and its CSS* below) | CSS **layout** — grid, flex, floats, positioning; animation and transforms; `@media`; anything fetched; JavaScript. **It is not a browser** |

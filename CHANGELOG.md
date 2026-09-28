@@ -8,6 +8,47 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.318] — 2026-09-28
+
+### Fix — a reference-modified `INSPECT` counts bytes; PowerChat no longer leaks "/html>" and "```" after a page
+
+The operator asked a model for a diagram and saw `/html>` and ```` ``` ````
+printed under the page it drew.
+
+- **Runtime: `INSPECT X(P:N)` addressed characters, everything else bytes.**
+  A reference-modified sender, `DISPLAY` and `MOVE` all count BYTE positions.
+  `INSPECT` sliced its region by CHARACTER, so every multi-byte character
+  before `P` moved the region one byte right. A `TALLYING … BEFORE INITIAL`
+  came back short, and the `X(P:count)` taken with that count lost its last
+  bytes. PowerChat cut a page at `</htm` after "Aquí está:" and showed the
+  rest as text. Positions are bytes now, the same as for a sender. The one
+  case that splits a character, a bound falling mid-character, is read
+  lossily, as the sender already does.
+  - Test: `a_refmod_inspect_counts_bytes_after_multibyte_characters`.
+  - Regression check: `cobolt-runtime` 1091/0.
+  - NIST NC (Nucleus): 95/95 programs, 4614 assertions, 0 failures.
+  - NIST SQ (Sequential I-O): 85/85 programs, 624 assertions, 0 failures.
+- **PowerChat: what surrounds a page.** Two more shapes of answer printed
+  fence marks or lost their layout:
+  - An answer that STARTS with a tag was handed to `AppendHtml` whole, so
+    the closing fence and any explanation after `</html>` showed as text.
+    When text follows `</html>`, the page is now cut out like any other.
+  - A page written inside a fence opened as ```` ``` ```` or
+    ```` ```HTML ```` (not ```` ```html ````) left both fence marks to
+    Markdown. The opening one is cut off with the text before the page, and
+    a bare closing one right after the page is skipped.
+
+  Checked by running `PC-APPEND-FORMATTED` itself in `rcrun`, over seven
+  answer shapes.
+- **Viewer: a page's Mermaid diagram is drawn.** `<div class="mermaid">` or
+  `<pre class="mermaid">` — how a page carries a diagram for `mermaid.js` —
+  showed its source as a paragraph. It is now the same diagram block a
+  ```` ```mermaid ```` fence makes, drawn by the Viewer itself (no script
+  runs).
+  - Test: `a_mermaid_element_in_a_page_is_a_diagram`.
+  - Developer's Guide: the Viewer's format table.
+  - System KB: the Viewer's description; `chunked.data` regenerated.
+
 ## [PowerRustCOBOL 1.70.317] — 2026-09-28
 
 ### Fix — the debugger's Breakpoints list is the whole project's

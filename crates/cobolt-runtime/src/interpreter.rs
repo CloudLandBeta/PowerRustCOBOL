@@ -8335,17 +8335,32 @@ impl Interpreter {
         // Only the selected positions are inspected; the characters before and
         // after them are kept aside and put back unchanged.
         let mut outside: Option<(String, String)> = None;
+        // Positions are BYTES, exactly as a reference-modified sender counts
+        // them: counting characters here instead put the region past every
+        // multi-byte character before it, so `INSPECT X(P:) TALLYING … BEFORE`
+        // after an "í" came back one short per accent and the `X(P:N)` slice
+        // taken with that count lost its last bytes (operator, 2026-09-28:
+        // PowerChat showed "/html>" after a page).
         if let Some((start, length, rspan)) = refmod {
-            let chars: Vec<char> = s.chars().collect();
             let first = self.eval_expr(start, rspan)?.as_i64().unwrap_or(1).max(1) as usize;
-            let begin = (first - 1).min(chars.len());
+            let begin = (first - 1).min(s.len());
             let len = match length {
                 Some(l) => self.eval_expr(l, rspan)?.as_i64().unwrap_or(0).max(0) as usize,
-                None => chars.len() - begin,
+                None => s.len() - begin,
             };
-            let end = (begin + len).min(chars.len());
-            outside = Some((chars[..begin].iter().collect(), chars[end..].iter().collect()));
-            s = chars[begin..end].iter().collect();
+            let end = (begin + len).min(s.len());
+            let (before, inner, after) = if s.is_char_boundary(begin) && s.is_char_boundary(end) {
+                (s[..begin].to_owned(), s[begin..end].to_owned(), s[end..].to_owned())
+            } else {
+                let b = s.as_bytes();
+                (
+                    String::from_utf8_lossy(&b[..begin]).into_owned(),
+                    String::from_utf8_lossy(&b[begin..end]).into_owned(),
+                    String::from_utf8_lossy(&b[end..]).into_owned(),
+                )
+            };
+            outside = Some((before, after));
+            s = inner;
         }
         let whole = |s: &str| match &outside {
             Some((before, after)) => format!("{before}{s}{after}"),

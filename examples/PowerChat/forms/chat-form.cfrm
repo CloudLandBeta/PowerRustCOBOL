@@ -445,6 +445,10 @@
       *>   The kind of page found: "F" a ```html fence, "R" a page written
       *>   straight into the answer, space none.
        01 WS-FKIND           GLOBAL PIC X.
+      *>   The Markdown before a page, and whether a fence the page sat in
+      *>   ("```" or "```HTML", not "```html") was cut off with it.
+       01 WS-FQ              GLOBAL PIC 9(6).
+       01 WS-FSTRIP          GLOBAL PIC X.
        01 WS-LOWQ            GLOBAL PIC X(64000).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
@@ -1094,9 +1098,28 @@
       *>   rendered as the page it is instead of shown as code (operator,
       *>   2026-09-27 and 09-28). The text around each page stays Markdown,
       *>   in order.
+      *>   An answer that starts with a tag is HTML - unless it goes on after
+      *>   its page's </html> (a closing fence, an explanation): then the page
+      *>   is cut out below like any other, or everything after </html> is
+      *>   shown as text (operator, 2026-09-28: "/html>" and "```" leaked).
            IF WS-FMT-HTML = "Y"
-               MOVE Vwr-Chat::AppendHtml(FUNCTION TRIM(WS-MSG)) TO WS-OK
-               EXIT PROGRAM
+               MOVE 0 TO WS-FB
+               INSPECT WS-MSG TALLYING WS-FB
+                   FOR CHARACTERS BEFORE INITIAL "</html>"
+               IF WS-FB NOT < 64100
+                   MOVE 0 TO WS-FB
+                   INSPECT WS-MSG TALLYING WS-FB
+                       FOR CHARACTERS BEFORE INITIAL "</HTML>"
+               END-IF
+               COMPUTE WS-BS = WS-FB + 8
+               IF WS-FB NOT < 64093
+                   MOVE Vwr-Chat::AppendHtml(FUNCTION TRIM(WS-MSG)) TO WS-OK
+                   EXIT PROGRAM
+               END-IF
+               IF WS-MSG(WS-BS:) = SPACES
+                   MOVE Vwr-Chat::AppendHtml(FUNCTION TRIM(WS-MSG)) TO WS-OK
+                   EXIT PROGRAM
+               END-IF
            END-IF
            MOVE 1 TO WS-FP
            PERFORM UNTIL WS-FP > 64100
@@ -1152,9 +1175,31 @@
                    END-IF
                    EXIT PERFORM
                END-IF
-               IF WS-FA > 0
-                   IF WS-MSG(WS-FP:WS-FA) NOT = SPACES
-                       MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG(WS-FP:WS-FA)))
+      *>       A page written straight in may still sit inside a fence the
+      *>       model opened as "```" or "```HTML": an odd count of "```" in
+      *>       the Markdown before it. That opening fence is cut off here and
+      *>       its closing one skipped after the page, or Markdown shows them.
+               MOVE WS-FA TO WS-FQ
+               MOVE "N" TO WS-FSTRIP
+               IF WS-FKIND = "R" AND WS-FA > 2
+                   MOVE 0 TO WS-FC
+                   INSPECT WS-MSG(WS-FP:WS-FA) TALLYING WS-FC FOR ALL "```"
+                   IF FUNCTION MOD(WS-FC, 2) = 1
+                       COMPUTE WS-FQ = WS-FA - 3
+                       PERFORM UNTIL WS-FQ = 0
+                               OR WS-MSG(WS-FP + WS-FQ:3) = "```"
+                           SUBTRACT 1 FROM WS-FQ
+                       END-PERFORM
+                       IF WS-MSG(WS-FP + WS-FQ:3) = "```"
+                           MOVE "Y" TO WS-FSTRIP
+                       ELSE
+                           MOVE WS-FA TO WS-FQ
+                       END-IF
+                   END-IF
+               END-IF
+               IF WS-FQ > 0
+                   IF WS-MSG(WS-FP:WS-FQ) NOT = SPACES
+                       MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG(WS-FP:WS-FQ)))
                            TO WS-OK
                    END-IF
                END-IF
@@ -1193,6 +1238,27 @@
                    END-IF
                END-IF
                COMPUTE WS-FP = WS-BS + WS-FB + WS-FC
+      *>       ...and the fence the page sat in is closed right after it: a
+      *>       bare "```" straight after a page written in is that fence's
+      *>       end, whether or not its opening was in this answer.
+               IF WS-FKIND = "R"
+                   MOVE WS-FP TO WS-FQ
+                   PERFORM UNTIL WS-FQ > 64097
+                           OR (WS-MSG(WS-FQ:1) NOT = SPACE
+                               AND WS-MSG(WS-FQ:1) NOT = X"0A"
+                               AND WS-MSG(WS-FQ:1) NOT = X"0D")
+                       ADD 1 TO WS-FQ
+                   END-PERFORM
+                   IF WS-FQ NOT > 64097
+                       IF WS-MSG(WS-FQ:3) = "```"
+                          AND (WS-FSTRIP = "Y"
+                               OR WS-MSG(WS-FQ + 3:1) = SPACE
+                               OR WS-MSG(WS-FQ + 3:1) = X"0A"
+                               OR WS-MSG(WS-FQ + 3:1) = X"0D")
+                           COMPUTE WS-FP = WS-FQ + 3
+                       END-IF
+                   END-IF
+               END-IF
            END-PERFORM
 ]]></Event>
     <Event name="PC-SAY-STATUS" paragraph="PC-SAY-STATUS"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2211,6 +2277,9 @@
     <Property name="View1SearchText"></Property>
     <Property name="View2Source"></Property>
     <Property name="View2SearchText"></Property>
+    <Property name="UserBubbleTextColor">#FFFFFFFF</Property>
+    <Property name="AgentBubbleColor">#2C6FD2FF</Property>
+    <Property name="AgentBubbleTextColor">#FFFFFFFF</Property>
     <Event name="onSaveComplete" paragraph="VWR-CHAT--ONSAVECOMPLETE"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -2469,6 +2538,8 @@
     <Property name="AgentEndpoint"></Property>
     <Property name="TargetControls"></Property>
     <Property name="ResponseDataItem"></Property>
+    <Property name="StreamReply">false</Property>
+    <Property name="StartTimeoutSeconds">60</Property>
     <Event name="onResponse" paragraph="AGENT-1--ONRESPONSE"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -2577,6 +2648,8 @@
     <Property name="AgentEndpoint"></Property>
     <Property name="TargetControls"></Property>
     <Property name="ResponseDataItem"></Property>
+    <Property name="StreamReply">false</Property>
+    <Property name="StartTimeoutSeconds">60</Property>
     <Event name="onResponse" paragraph="AGENT-2--ONRESPONSE"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -2685,6 +2758,8 @@
     <Property name="AgentEndpoint"></Property>
     <Property name="TargetControls"></Property>
     <Property name="ResponseDataItem"></Property>
+    <Property name="StreamReply">false</Property>
+    <Property name="StartTimeoutSeconds">60</Property>
     <Event name="onResponse" paragraph="AGENT-3--ONRESPONSE"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
