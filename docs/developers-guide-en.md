@@ -10781,6 +10781,12 @@ with a COBOL file open in the editor it debugs that file; with nothing open
 it debugs the project's **main form**, exactly the form **Run** would
 launch, with the debugger attached to its window.
 
+> **Note — breakpoints in the event editor.** A breakpoint you set in a
+> handler's own editor stays set when you close that editor, and so does every
+> other handler's: they all appear in the debugger's **Breakpoints** list and
+> all stop the form, including the handlers of a second form the application
+> opens. They last for the IDE session, while the form's designer is open.
+
 > ⚠️ **To stop inside an event handler, debug the form — not its generated
 > `.cbl`.** Pressing **Debug** on a form launches it as a real window, so its
 > handlers actually run and your breakpoints in them are reached. Pressing

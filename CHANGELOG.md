@@ -8,6 +8,32 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.314] — 2026-09-28
+
+### Fix — breakpoints set in a form's event editors reach the debugger
+
+The operator reported that breakpoints set in the forms did not appear in
+the debugger, whose Breakpoints list read "No breakpoints set".
+
+- **Only the handler open now counted.**
+  `DesignerPanel::open_handler_breakpoints` read just the event editor on
+  screen; its own comment said "empty when no handler is open, which is the
+  usual case". So the usual order failed: mark a line, close the editor,
+  press Debug, and the debugger was sent nothing. The event editor already
+  kept each handler's marks after its window closed (under
+  `<program-id>.handler`). Now:
+  - the designer records each handler's code site when its editor opens;
+  - `handler_breakpoints()` translates **every** handler's marks.
+- **A child form's handler breakpoints vanished from the list.** When the
+  debugger followed the program into another form, the per-frame sync folded
+  in event-editor marks only for the root form, so a child's disappeared
+  after one frame. Each `DebugForm` now records its `.cfrm`, and the sync
+  translates the shown form's marks through **that form's** source map.
+  Auto-stops stay root-only, as designed.
+- Developer's Guide: a note on how long event-editor breakpoints last (the
+  IDE session, while the form's designer is open) and where they show.
+- Test: `every_handlers_breakpoints_count_after_its_editor_closes`.
+
 ## [PowerRustCOBOL 1.70.313] — 2026-09-28
 
 ### Fix — PowerChat: Browse for a data file and its description

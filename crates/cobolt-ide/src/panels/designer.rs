@@ -2738,6 +2738,12 @@ pub struct DesignerPanel {
     /// The full-featured COBOL editor hosted inside the event modal (IntelliSense,
     /// find/replace, status bar) — the same engine as the main code editor.
     event_editor: super::editor::EditorPanel,
+    /// Which code site each handler PROGRAM-ID edited this session belongs to,
+    /// recorded when its editor opens. The editor keeps a handler's breakpoints
+    /// after its window closes (under `<program-id>.handler`); this is what
+    /// turns them back into generated-program lines, for every handler rather
+    /// than only the one on screen (see [`Self::handler_breakpoints`]).
+    handler_sites: std::collections::HashMap<String, cobolt_forms::code_site::CodeSite>,
     /// The AI prompt box in the event modal also uses the COBOL editor engine so
     /// prompts that mention controls can complete `Control::Property` names.
     ai_prompt_editor: super::editor::EditorPanel,
@@ -2919,6 +2925,7 @@ impl DesignerPanel {
             tab_order_visual: None,
             tab_order_modal: None,
             event_modal: None,
+            handler_sites: std::collections::HashMap::new(),
             event_editor: super::editor::EditorPanel::new(),
             ai_prompt_editor: super::editor::EditorPanel::new(),
             cs_editor: super::editor::EditorPanel::new(),
@@ -5519,43 +5526,29 @@ impl DesignerPanel {
         self.open_event_modal(id, &event);
     }
 
-    /// Open the modal COBOL code editor for `event_name` on control `ctrl_id`.
-    /// Pass an empty `ctrl_id` for form-level events (OnLoad, OnClose).
-    /// Breakpoints the developer set in the OPEN handler editor, each as the
-    /// code site plus the 1-based line **of that handler's own text**.
+    /// Every breakpoint set in an event editor this session, as (site, line
+    /// within that handler's text) — the handler open now AND every one opened
+    /// earlier.
     ///
-    /// The event modal hosts its own [`EditorPanel`], so its marks live in a
-    /// different breakpoint map from the main editor's — invisible to a lookup
-    /// keyed by the generated `.cbl` path, whatever that path is. That is why a
-    /// breakpoint set here was accepted by the gutter and then ignored by the
-    /// running form (operator, 2026-09-16). The caller turns each one into a
-    /// generated line with `SourceMap::gen_line_for`.
-    ///
-    /// Empty when no handler is open, which is the usual case.
-    ///
-    /// [`EditorPanel`]: super::editor::EditorPanel
-    pub fn open_handler_breakpoints(&self) -> Vec<(cobolt_forms::code_site::CodeSite, u32)> {
-        use cobolt_forms::code_site::CodeSite;
-        let Some(modal) = self.event_modal.as_ref() else {
-            return Vec::new();
-        };
-        // The same synthetic path `open_event_modal` gave the buffer.
-        let path = std::path::PathBuf::from(format!("{}.handler", modal.program_id));
-        let site = if modal.ctrl_id.trim().is_empty() {
-            CodeSite::FormEvent {
-                event: modal.event_name.clone(),
-            }
-        } else {
-            CodeSite::ControlEvent {
-                control_id: modal.ctrl_id.clone(),
-                event: modal.event_name.clone(),
-            }
-        };
-        self.event_editor
-            .breakpoints_for(&path)
-            .into_iter()
-            .map(|line| (site.clone(), line))
-            .collect()
+    /// Only the handler on screen used to count, so the usual order — set a
+    /// breakpoint, close the editor, press Debug — sent the debugger nothing,
+    /// and its Breakpoints list read "No breakpoints set" (operator,
+    /// 2026-09-28: "breakpoints set in the forms don't appear in the
+    /// debugger"). The editor keeps each handler's marks under
+    /// `<program-id>.handler` after its window closes; `handler_sites`
+    /// remembers which site each program id is.
+    pub fn handler_breakpoints(&self) -> Vec<(cobolt_forms::code_site::CodeSite, u32)> {
+        let mut out = Vec::new();
+        for (path, lines) in &self.event_editor.breakpoints {
+            let Some(program_id) = path.to_str().and_then(|p| p.strip_suffix(".handler")) else {
+                continue;
+            };
+            let Some(site) = self.handler_sites.get(program_id) else { continue };
+            let mut sorted: Vec<u32> = lines.iter().copied().collect();
+            sorted.sort_unstable();
+            out.extend(sorted.into_iter().map(|line| (site.clone(), line)));
+        }
+        out
     }
 
     pub fn open_event_modal(&mut self, ctrl_id: &str, event_name: &str) {
@@ -5650,6 +5643,15 @@ impl DesignerPanel {
         self.ai_prompt_editor.known_data_items =
             super::editor::build_prompt_data_items(&self.form, &source);
 
+        let site = if ctrl_id.trim().is_empty() {
+            cobolt_forms::code_site::CodeSite::FormEvent { event: event_name.to_string() }
+        } else {
+            cobolt_forms::code_site::CodeSite::ControlEvent {
+                control_id: ctrl_id.to_string(),
+                event: event_name.to_string(),
+            }
+        };
+        self.handler_sites.insert(program_id.clone(), site);
         self.event_modal = Some(EventEditorModal::new(
             ctrl_id, display, event_name, program_id, source,
         ));
@@ -21805,5 +21807,46 @@ mod menu_badge_tests {
         modal.selected = vec![1];
         modal.sync_bufs_from_selection();
         assert_eq!(modal.badge_buf, "");
+    }
+}
+
+#[cfg(test)]
+mod handler_breakpoint_tests {
+    use super::*;
+    use cobolt_forms::code_site::CodeSite;
+
+    /// Operator (2026-09-28): "breakpoints set in the forms don't appear in
+    /// the debugger". A breakpoint set in an event editor must still count
+    /// once that editor is closed — and every handler's, not only the last
+    /// one's. Only the handler on screen used to, so the usual order (mark,
+    /// close, press Debug) sent the debugger nothing.
+    #[test]
+    fn every_handlers_breakpoints_count_after_its_editor_closes() {
+        let mut form = Form::new("F1", "F1", 640, 480);
+        form.add_control(cobolt_forms::Control::new("BTN-1", cobolt_forms::ControlType::Button, 10, 10));
+        let mut dp = DesignerPanel::new(form);
+
+        // A mark on line 3 of the button's handler, then its editor closes.
+        dp.open_event_modal("BTN-1", "onClick");
+        let button_path = std::path::PathBuf::from(format!("{}.handler", dp.event_modal.as_ref().unwrap().program_id));
+        dp.event_editor.breakpoints.entry(button_path).or_default().insert(3);
+        dp.event_modal = None;
+        // A mark on line 2 of the form's onLoad, editor still open.
+        dp.open_event_modal("", "onLoad");
+        let load_path = std::path::PathBuf::from(format!("{}.handler", dp.event_modal.as_ref().unwrap().program_id));
+        dp.event_editor.breakpoints.entry(load_path).or_default().insert(2);
+
+        let mut got = dp.handler_breakpoints();
+        got.sort_by_key(|(site, line)| (format!("{site:?}"), *line));
+        println!("  handler breakpoints: {got:?}");
+        assert!(
+            got.contains(&(CodeSite::ControlEvent { control_id: "BTN-1".into(), event: "onClick".into() }, 3)),
+            "the closed editor's mark still counts: {got:?}"
+        );
+        assert!(
+            got.contains(&(CodeSite::FormEvent { event: "onLoad".into() }, 2)),
+            "the open editor's mark counts: {got:?}"
+        );
+        assert_eq!(got.len(), 2);
     }
 }

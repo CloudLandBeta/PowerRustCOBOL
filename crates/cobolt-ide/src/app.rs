@@ -394,6 +394,9 @@ fn debug_ends_one_form(handle: &str, ev: &cobolt_runtime::DebugEvent) -> bool {
 struct DebugForm {
     /// The generated `.cbl` this debuggee's stops are reported against.
     generated: PathBuf,
+    /// The form it was generated from — whose event editors' breakpoints are
+    /// translated through ITS source map, not the root's.
+    cfrm: PathBuf,
     /// Lines of that file holding the developer's own handler and procedure
     /// bodies, for *Only my code*.
     user_lines: std::collections::HashSet<u32>,
@@ -2646,6 +2649,7 @@ impl CoboltApp {
             cobolt_runtime::form_host::ROOT_HANDLE.to_owned(),
             DebugForm {
                 generated: cbl_path.to_path_buf(),
+                cfrm: form_path.to_path_buf(),
                 user_lines: self.debug_user_lines.iter().copied().collect(),
                 sent_breakpoints: self.debug_sent_breakpoints.clone(),
             },
@@ -3455,6 +3459,7 @@ impl CoboltApp {
             handle.to_owned(),
             DebugForm {
                 generated,
+                cfrm: cfrm.clone(),
                 user_lines,
                 sent_breakpoints: bp_set,
             },
@@ -3540,7 +3545,7 @@ impl CoboltApp {
         }
         // The DEVELOPER's breakpoints: the gutter marks on the generated file,
         // plus the open handler editor's own marks translated into generated
-        // lines. This — and only this — is what the gutter dots and the
+        // lines (every handler's, open or not). This — and only this — is what the gutter dots and the
         // Breakpoints list show, and what a gutter click toggles.
         let mut user_lines = self.editor.breakpoints_for(&path);
         // The auto-stop pseudo-breakpoints, added to the SENT set only. Kept
@@ -3555,8 +3560,18 @@ impl CoboltApp {
         // another form's generated file — sending them would ask a child to
         // stop on line numbers that are the caller's — so they are folded in
         // only while the root's listing is the one being synced (061).
+        //
+        // The event editors' marks, though, belong to whichever form is on
+        // screen, translated through THAT form's own map: folding them in only
+        // for the root made a child form's handler breakpoints vanish from the
+        // list one frame after it came up (operator, 2026-09-28).
         let is_root = self.debug_shown_handle == cobolt_runtime::form_host::ROOT_HANDLE;
-        if let Some(form_path) = self.debug_owner_form.clone().filter(|_| is_root) {
+        let shown_form = if is_root {
+            self.debug_owner_form.clone()
+        } else {
+            self.debug_forms.get(&self.debug_shown_handle).map(|f| f.cfrm.clone())
+        };
+        if let Some(form_path) = shown_form {
             if let Some(form) = self
                 .designers
                 .iter()
@@ -3569,7 +3584,7 @@ impl CoboltApp {
                         user_lines.push(line);
                     }
                 }
-                if self.debug_auto_stop_armed {
+                if is_root && self.debug_auto_stop_armed {
                     auto_stop = source_map.all_handler_stop_lines(&gen_src);
                     self.debug_auto_stop_lines = auto_stop.iter().copied().collect();
                 }
@@ -3636,8 +3651,9 @@ impl CoboltApp {
         }
     }
 
-    /// The open handler editor's breakpoints, as lines of the GENERATED
-    /// program — the only coordinate space the debuggee understands.
+    /// The event editors' breakpoints — every handler edited this session,
+    /// not only the open one — as lines of the GENERATED program, the only
+    /// coordinate space the debuggee understands.
     ///
     /// The event modal keeps its own editor and therefore its own breakpoint
     /// map, so these marks are invisible to a lookup keyed by the generated
@@ -3659,7 +3675,7 @@ impl CoboltApp {
             .find(|(path, _)| path == form_path)
             .map(|(_, designer)| {
                 designer
-                    .open_handler_breakpoints()
+                    .handler_breakpoints()
                     .into_iter()
                     .filter_map(|(site, line)| map.gen_line_for(&site, line))
                     .collect()
