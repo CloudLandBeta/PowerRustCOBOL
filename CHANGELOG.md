@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.335] — 2026-09-28
+
+### Spec — 077 National and UTF-8 character data (draft)
+
+`specs/077-national-and-utf8-data/spec.md` opens the work the operator asked
+for: COBOL 2002's national class (`PIC N` / `USAGE NATIONAL`, `N"…"` /
+`NX"…"`, `NATIONAL-OF`, `DISPLAY-OF`, UTF-16 at 2 bytes per character) and
+IBM Enterprise COBOL's UTF-8 class (`PIC U` / `USAGE UTF-8`, `U"…"` /
+`UX"…"`, `ULENGTH`, `UPOS`, `USUBSTR`, `UVALID`, `UWIDTH`,
+`USUPPLEMENTARY`). It has two phases, 26 EARS requirements, 18 acceptance
+criteria and 7 open questions. Draft only; no code changes.
+
 ## [PowerRustCOBOL 1.70.334] — 2026-09-28
 
 ### Fix — a program written in Windows-1252 runs, builds and opens in the editor
