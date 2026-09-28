@@ -1644,3 +1644,43 @@ fn powerchat_counts_a_document_added_while_the_chat_is_open() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Operator (2026-09-27): "when a table or a formatted presentation
+/// (Markdown, HTML…) is asked for, the answer goes straight into the
+/// conversation, not into a bubble". A conversation reopened shows it the same
+/// way — decided from the answer, as a live answer is.
+#[test]
+fn powerchat_puts_a_formatted_answer_in_the_stream_not_a_bubble() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let root = std::env::temp_dir().join(format!(
+        "prc-071-stream-{}",
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let data = root.join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    plant_model(&root, false);
+    std::env::set_var("POWERCHAT_DATA", &data);
+    let conv = "2026092713000000";
+    seed_turns(&data, conv, &[
+        (1, "U", "How many leave days?"),
+        (2, "A", "Twenty working days a year."),
+        (3, "U", "Show them as a table"),
+        (4, "A", "| Grade | Days | |---|---| | A | 20 |"),
+        (5, "U", "And as HTML"),
+        (6, "A", "<table><tr><td>A</td><td>20</td></tr></table>"),
+    ]);
+    let mut s = Session::start("chat-form.cfrm");
+    s.settle();
+    s.menu(&format!("c{conv}"));
+    let html = s.wait_for("Vwr-Chat", "_ConversationHtml", |v| v.contains("<td>20</td>") || v.contains("&lt;td&gt;20"));
+    s.quit();
+    let roles: Vec<cobolt_forms::viewer::MessageRole> =
+        cobolt_forms::viewer::parse_conversation_html(&html).iter().map(|m| m.role).collect();
+    use cobolt_forms::viewer::MessageRole::{Agent, None as Stream, User};
+    assert_eq!(roles, vec![User, Agent, User, Stream, User, Stream], "a reply in its bubble; the two presentations in the stream");
+    let form = cobolt_forms::load_form(&project().join("forms/chat-form.cfrm")).unwrap();
+    let viewer = form.controls.iter().find(|c| c.id == "Vwr-Chat").unwrap();
+    assert_eq!(viewer.get_prop("UserBubbleColor").map(|v| v.as_str().to_string()).as_deref(), Some("#61D467FF"));
+    println!("\n  ── 071 PowerChat, presentations in the stream ───────────\n  roles: {roles:?}; the user's bubble #61D467FF\n");
+    let _ = std::fs::remove_dir_all(&root);
+}

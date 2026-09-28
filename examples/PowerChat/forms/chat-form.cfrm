@@ -426,6 +426,15 @@
        01 WS-JOIN            GLOBAL PIC X(64000).
       *>   Where a joined turn goes: "P" the prompt, "V" the Viewer.
        01 WS-JOIN-TO         GLOBAL PIC X VALUE SPACE.
+      *>   A formatted answer - a table, a Markdown or HTML presentation - goes
+      *>   straight into the conversation, not into a bubble (operator,
+      *>   2026-09-27). PC-IS-FORMATTED decides, from WS-MSG and, for a live
+      *>   answer, the question that asked for it.
+       01 WS-FORMATTED       GLOBAL PIC X VALUE "N".
+       01 WS-FMT-HTML        GLOBAL PIC X VALUE "N".
+       01 WS-SHOW-ANSWER     GLOBAL PIC X VALUE "N".
+       01 WS-FMT-T           GLOBAL PIC 9(6).
+       01 WS-LOWQ            GLOBAL PIC X(64000).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -1015,6 +1024,39 @@
            END-READ
            CLOSE CONVS-FILE
 ]]></Event>
+    <Event name="PC-IS-FORMATTED" paragraph="PC-IS-FORMATTED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-MSG in: is it a presentation rather than a reply? HTML blocks
+      *>   (WS-FMT-HTML too), a Markdown table or a fenced block - or, when
+      *>   WS-SHOW-ANSWER says it answers the question in hand, a question
+      *>   that asked for a table, Markdown or HTML.
+           MOVE "N" TO WS-FORMATTED WS-FMT-HTML
+           MOVE 0 TO WS-FMT-T
+           INSPECT WS-MSG TALLYING WS-FMT-T FOR ALL "<table" ALL "<TABLE"
+               ALL "<html" ALL "<HTML" ALL "<div" ALL "<h1" ALL "<h2" ALL "<ul"
+           IF WS-FMT-T > 0
+               MOVE "Y" TO WS-FORMATTED WS-FMT-HTML
+               EXIT PROGRAM
+           END-IF
+           INSPECT WS-MSG TALLYING WS-FMT-T FOR ALL "|---" ALL "| ---"
+               ALL "|:--" ALL "```"
+           IF WS-FMT-T > 0
+               MOVE "Y" TO WS-FORMATTED
+               EXIT PROGRAM
+           END-IF
+           IF WS-SHOW-ANSWER = "Y"
+               MOVE FUNCTION LOWER-CASE(WS-QUESTION) TO WS-LOWQ
+      *>       " table" with its space: "acceptable" and "notable" are not
+      *>       asking for one; the same for the CJK words, not a bare 表.
+               INSPECT WS-LOWQ TALLYING WS-FMT-T FOR ALL "tabela" ALL " table"
+                   ALL "tabla" ALL "markdown" ALL "html" ALL "表格" ALL "テーブル"
+                   ALL "表を"
+               IF WS-FMT-T > 0
+                   MOVE "Y" TO WS-FORMATTED
+               END-IF
+           END-IF
+]]></Event>
     <Event name="PC-SAY-STATUS" paragraph="PC-SAY-STATUS"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -1036,7 +1078,24 @@
        DATA DIVISION.
        PROCEDURE DIVISION.
       *>   WS-MSG in: the agent's message - the answer, or what went wrong.
-      *>   It takes the status bubble's place, so the bubble becomes it.
+      *>   It takes the status bubble's place, so the bubble becomes it -
+      *>   unless it is a presentation, which goes straight into the
+      *>   conversation, full width, with no bubble.
+           CALL "PC-IS-FORMATTED"
+           MOVE "N" TO WS-SHOW-ANSWER
+           IF WS-FORMATTED = "Y"
+               IF WS-STATUS-ID NOT = SPACES
+                   MOVE Vwr-Chat::RemoveMessage(FUNCTION TRIM(WS-STATUS-ID)) TO WS-OK
+                   MOVE SPACES TO WS-STATUS-ID
+               END-IF
+               IF WS-FMT-HTML = "Y"
+                   MOVE Vwr-Chat::AppendHtml(FUNCTION TRIM(WS-MSG)) TO WS-OK
+               ELSE
+                   MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG)) TO WS-OK
+               END-IF
+               MOVE Vwr-Chat::JumpToLatest() TO WS-OK
+               EXIT PROGRAM
+           END-IF
            IF WS-STATUS-ID = SPACES
                MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "agent") TO WS-OK
            ELSE
@@ -1067,6 +1126,7 @@
       *>   WS-REPLY in: the answer the user sees, kept as the next turn.
            MOVE "IDLE" TO WS-STAGE
            MOVE WS-REPLY TO WS-MSG
+           MOVE "Y" TO WS-SHOW-ANSWER
            CALL "PC-SHOW-AGENT"
            MOVE "A" TO WS-ROLE
            MOVE WS-REPLY TO WS-TEXT
@@ -1547,7 +1607,18 @@
                IF WS-JOIN-ROLE = "U"
                    MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-JOIN), "user") TO WS-OK
                ELSE
-                   MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-JOIN), "agent") TO WS-OK
+      *>           A presentation reopens as it was shown: in the stream.
+                   MOVE WS-JOIN TO WS-MSG
+                   MOVE "N" TO WS-SHOW-ANSWER
+                   CALL "PC-IS-FORMATTED"
+                   EVALUATE TRUE
+                       WHEN WS-FMT-HTML = "Y"
+                           MOVE Vwr-Chat::AppendHtml(FUNCTION TRIM(WS-JOIN)) TO WS-OK
+                       WHEN WS-FORMATTED = "Y"
+                           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-JOIN)) TO WS-OK
+                       WHEN OTHER
+                           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-JOIN), "agent") TO WS-OK
+                   END-EVALUATE
                END-IF
            END-IF
            MOVE SPACE TO WS-JOIN-ROLE
@@ -1959,6 +2030,7 @@
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
     <Property name="Layout">Streamed</Property>
+    <Property name="UserBubbleColor">#61D467FF</Property>
     <Property name="Fullscreen">false</Property>
     <Property name="SplitMode">None</Property>
     <Property name="SplitPercent">50</Property>

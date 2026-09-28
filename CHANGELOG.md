@@ -8,6 +8,23 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.305] — 2026-09-27
+
+### PowerChat: a table or formatted answer goes straight into the conversation
+
+- **The user's question bubble is green, `#61D467FF`** (the chat viewer's
+  `UserBubbleColor`).
+- **An answer that is a presentation is shown in the conversation itself, not
+  in the agent's bubble.** That covers an answer carrying a Markdown table or
+  a fenced code block, an HTML answer (`<table>`, `<div>`, a heading, a list),
+  and any answer to a question that asked for a table, Markdown or HTML (in
+  all six UI languages). HTML is rendered as HTML and the rest as Markdown, at
+  the full width of the conversation. The "thinking" status bubble is removed
+  instead of being overwritten.
+- **A reopened conversation shows it the same way**, decided from the
+  answer's own content.
+- Test: `powerchat_puts_a_formatted_answer_in_the_stream_not_a_bubble`.
+
 ## [PowerRustCOBOL 1.70.304] — 2026-09-27
 
 ### Fix — `AllowKnowledgeBase` / `DenyKnowledgeBase` are each agent's own
