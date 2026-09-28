@@ -8,6 +8,72 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.319] — 2026-09-28
+
+### Feature — the Viewer lays out CSS flex rows and grids; PowerChat answers in an infographic style
+
+The operator found PowerChat's formatted answers "ugly as hell". They asked
+for a colourful infographic style and more HTML/CSS3 support where needed.
+The screenshot showed why: a model's round step number, a flex item, came
+out as a full-width blue bar. The Viewer built no CSS layout at all, so
+every flex row and grid was stacked.
+
+- **Flex.** `display: flex` / `inline-flex` puts a container's children side
+  by side. Each item takes:
+  - the width it states, or the share `flex: 1` / `flex-grow` gives it; or
+  - with neither stated, the width its content needs (CSS's max-content,
+    measured).
+
+  The rest of the row goes to `justify-content`: start, center, end,
+  space-between, space-around or space-evenly. Too wide a row shrinks what
+  has no stated width. Also supported:
+  - `flex-wrap` / `flex-flow` start new lines;
+  - `gap`, `row-gap` and `column-gap`;
+  - `align-items` / `align-self`: `stretch` (the default, which gives every
+    card in a row one height), `center` and `end`;
+  - `flex-direction: column` stacks items with the gap and aligns them
+    across the column.
+- **Grid.** `display: grid` places children in the columns of
+  `grid-template-columns`, starting a new row whenever one fills. The
+  columns can be lengths, percentages, `fr`, `auto`, `minmax()`,
+  `repeat(N, …)` or `repeat(auto-fit | auto-fill, minmax(min, 1fr))`. An
+  item can take `grid-column: span N` or `1 / -1`.
+- **Box size.** `height` and `min-height` make a box at least that tall and
+  centre a flex container's content inside it. `border-radius: 50%` rounds
+  a square box into a circle.
+- **Every element child of a flex or grid container is an item**, a box of
+  its own even when CSS gives it nothing to draw. A `<div>` holding a
+  heading and a paragraph therefore stays one item.
+- **How the painter does it, still in one pass.** Each item's frame is
+  reserved around its content. Once the line's height is known, the item is
+  stretched to it, or its already-painted shapes are moved across the line
+  (`mutate_shape`, so the viewport clip never moves). Text runs move with
+  them, so selection and Find still land.
+- **PowerChat.** The orchestrator's system prompt now asks for a formatted
+  answer as one self-contained, infographic-style HTML page, using only what
+  the chat's `Viewer` draws:
+  - a gradient banner;
+  - pastel cards with a coloured border-left;
+  - round numbered badges in flex rows;
+  - `repeat(auto-fit, minmax(220px, 1fr))` grids of emoji-led fact cards;
+  - a red or amber callout;
+  - a `:root` palette;
+  - `<div class="mermaid">` for a diagram.
+
+  It rules out scripts, positioning and anything fetched.
+- Tests:
+  - `a_flex_row_and_a_grid_are_laid_out_side_by_side` paints a real frame.
+    The circle stays square and small, and its digit is centred both ways.
+    The label sits beside the circle and is centred on it. Three grid cards
+    share one line, with equal widths and an even gap.
+  - `flex_and_grid_declarations_reach_the_box_model`.
+  - `cobolt-forms` 1204/0; `powerchat_runs` 13/0.
+- Developer's Guide: the Viewer's format table, the CSS property table (Box
+  size, Flex, Grid) and a note on flex rows and grids. The old
+  "styling, not layout" caveat now covers only floats and positioning. The
+  PowerChat table describes the prompt.
+- System KB: the Viewer's description; `chunked.data` regenerated.
+
 ## [PowerRustCOBOL 1.70.318] — 2026-09-28
 
 ### Fix — a reference-modified `INSPECT` counts bytes; PowerChat no longer leaks "/html>" and "```" after a page

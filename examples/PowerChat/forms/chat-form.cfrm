@@ -449,6 +449,8 @@
       *>   ("```" or "```HTML", not "```html") was cut off with it.
        01 WS-FQ              GLOBAL PIC 9(6).
        01 WS-FSTRIP          GLOBAL PIC X.
+      *>   Where the orchestrator's prompt ends, for what is added to it.
+       01 WS-SYS-PT          GLOBAL PIC 9(6).
        01 WS-LOWQ            GLOBAL PIC X(64000).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
@@ -838,6 +840,38 @@
                            DELIMITED BY SIZE INTO WS-TEXT
                        END-STRING
                    END-IF
+      *>           How a presentation should look (operator, 2026-09-28: the
+      *>           HTML was "ugly as hell" - "use a colorful, infograph
+      *>           style"). It names only what the chat's Viewer draws: CSS
+      *>           boxes, gradients, flex rows, grids and a Mermaid element.
+                   COMPUTE WS-SYS-PT =
+                       FUNCTION LENGTH(FUNCTION TRIM(WS-TEXT)) + 1
+                   STRING X"0A" X"0A"
+                       "When the user asks for a formatted, visual or HTML "
+                       "answer, write ONE self-contained HTML page, fenced as "
+                       "```html, in a colourful INFOGRAPHIC style: "
+                       "a title banner with a linear-gradient background and "
+                       "white text; each section a card (white or pastel "
+                       "background, border-radius 12px, a soft box-shadow, a "
+                       "5px coloured border-left); numbered steps as rows "
+                       "(display:flex; align-items:center; gap:16px), each "
+                       "led by a round badge (width and height 40px, "
+                       "border-radius:50%, a strong background colour, white "
+                       "bold number, display:flex; align-items:center; "
+                       "justify-content:center); groups of facts as a grid "
+                       "(display:grid; grid-template-columns:repeat(auto-fit, "
+                       "minmax(220px, 1fr)); gap:16px) of small cards, each "
+                       "opened by an emoji; key figures large and bold in the "
+                       "accent colour; a mandatory rule or a warning in a red "
+                       "or amber callout box. Define a harmonious palette of "
+                       "4 or 5 colours as CSS variables in :root and put all "
+                       "CSS in one <style> block. For a diagram, use "
+                       "<div class=""mermaid""> holding a Mermaid flowchart "
+                       "or sequence diagram. Never use JavaScript, position, "
+                       "float, external images or web fonts. Write the "
+                       "page's text in the user's language."
+                       DELIMITED BY SIZE INTO WS-TEXT WITH POINTER WS-SYS-PT
+                   END-STRING
                ELSE
                    MOVE WS-AG-ROLE(WS-A) TO WS-TEXT
                END-IF

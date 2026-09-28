@@ -690,6 +690,191 @@ pub struct BoxStyle {
     pub max_width: Option<f32>,
     pub shadow: Option<BoxShadow>,
     pub text_align: Option<TextAlign>,
+    /// `border-radius` as a share of the box's shorter side (`50%` makes a
+    /// square a circle), when it was a percentage.
+    pub radius_share: Option<f32>,
+    /// How the box lays out its children when CSS asks for more than
+    /// stacking — `display: flex` or `grid`.
+    pub layout: Option<BoxLayout>,
+    /// As a flex item: its share of the spare room (`flex-grow`) …
+    pub flex_grow: f32,
+    /// … and the size it starts from (`flex-basis`, CSS px).
+    pub flex_basis: Option<f32>,
+    /// `height` / `min-height`, CSS px: the box is at least this tall.
+    pub min_height: Option<f32>,
+    /// `align-self`, as a flex or grid item.
+    pub align_self: Option<CrossAlign>,
+    /// `grid-column: span N` — how many columns a grid item covers; `0` is
+    /// one, and `u16::MAX` the whole row (`1 / -1`).
+    pub column_span: u16,
+}
+
+/// A CSS container's layout of its children (`display: flex` / `grid`).
+/// Every element child is an item; the Viewer places them, it does not
+/// stack them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BoxLayout {
+    pub kind: LayoutKind,
+    /// `row-gap` and `column-gap`, CSS px.
+    pub gap: [f32; 2],
+    /// `flex-wrap: wrap` — items that do not fit start a new line.
+    pub wrap: bool,
+    /// `align-items`: where an item sits across the line.
+    pub align: CrossAlign,
+    /// `justify-content`: where a line's items sit along it when they leave
+    /// room over.
+    pub justify: MainAlign,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LayoutKind {
+    /// `display: flex` — side by side.
+    Row,
+    /// `flex-direction: column` — stacked, with its gap and alignment.
+    Column,
+    /// `display: grid`, with its `grid-template-columns` (empty: one column).
+    Grid(Vec<GridTrack>),
+}
+
+/// One `grid-template-columns` track.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GridTrack {
+    Px(f32),
+    /// A percentage, as a share of the grid's width.
+    Share(f32),
+    /// `Nfr` — `auto` counts as `1fr`.
+    Fr(f32),
+    /// `repeat(auto-fit | auto-fill, minmax(Npx, 1fr))`: as many equal
+    /// columns as fit at this minimum width.
+    AutoFill(f32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CrossAlign {
+    #[default]
+    Stretch,
+    Start,
+    Center,
+    End,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MainAlign {
+    #[default]
+    Start,
+    Center,
+    End,
+    SpaceBetween,
+    SpaceAround,
+    SpaceEvenly,
+}
+
+/// The layout declarations of one element, gathered in any order and settled
+/// into a [`BoxLayout`] once every declaration has been read.
+#[derive(Default)]
+struct LayoutDecl {
+    /// `Some(false)` flex, `Some(true)` grid.
+    grid: Option<bool>,
+    column: bool,
+    wrap: bool,
+    gap: [Option<f32>; 2],
+    align: Option<CrossAlign>,
+    justify: Option<MainAlign>,
+    tracks: Vec<GridTrack>,
+}
+
+impl LayoutDecl {
+    fn settle(self) -> Option<BoxLayout> {
+        let grid = self.grid?;
+        let kind = if grid {
+            LayoutKind::Grid(self.tracks)
+        } else if self.column {
+            LayoutKind::Column
+        } else {
+            LayoutKind::Row
+        };
+        Some(BoxLayout {
+            kind,
+            gap: [self.gap[0].unwrap_or(0.0), self.gap[1].unwrap_or(0.0)],
+            wrap: self.wrap,
+            align: self.align.unwrap_or_default(),
+            justify: self.justify.unwrap_or_default(),
+        })
+    }
+}
+
+fn css_cross_align(v: &str) -> Option<CrossAlign> {
+    Some(match v {
+        "stretch" | "normal" => CrossAlign::Stretch,
+        "center" => CrossAlign::Center,
+        "flex-start" | "start" | "self-start" | "baseline" | "first baseline" => CrossAlign::Start,
+        "flex-end" | "end" | "self-end" | "last baseline" => CrossAlign::End,
+        _ => return None,
+    })
+}
+
+fn css_main_align(v: &str) -> Option<MainAlign> {
+    Some(match v {
+        "flex-start" | "start" | "left" | "normal" => MainAlign::Start,
+        "center" => MainAlign::Center,
+        "flex-end" | "end" | "right" => MainAlign::End,
+        "space-between" => MainAlign::SpaceBetween,
+        "space-around" => MainAlign::SpaceAround,
+        "space-evenly" => MainAlign::SpaceEvenly,
+        _ => return None,
+    })
+}
+
+/// `grid-template-columns`: lengths, percentages, `fr`, `auto`, `minmax()`
+/// (its larger side), `repeat(N, …)` and `repeat(auto-fit|auto-fill,
+/// minmax(min, …))`.
+fn css_grid_tracks(v: &str, font_px: f32) -> Vec<GridTrack> {
+    fn one(t: &str, font_px: f32) -> Option<GridTrack> {
+        let t = t.trim().to_ascii_lowercase();
+        if let Some(n) = t.strip_suffix("fr").and_then(|n| n.trim().parse::<f32>().ok()) {
+            return Some(GridTrack::Fr(n.max(0.0)));
+        }
+        if t == "auto" || t == "min-content" || t == "max-content" {
+            return Some(GridTrack::Fr(1.0));
+        }
+        if let Some(inner) = t.strip_prefix("minmax(").and_then(|r| r.strip_suffix(')')) {
+            let parts = crate::css::split_top(inner, ',');
+            return parts.get(1).and_then(|m| one(m, font_px)).or_else(|| parts.first().and_then(|m| one(m, font_px)));
+        }
+        if let Some(p) = t.strip_suffix('%').and_then(|p| p.trim().parse::<f32>().ok()) {
+            return Some(GridTrack::Share((p / 100.0).clamp(0.0, 1.0)));
+        }
+        crate::css::length(&t, font_px, None).map(GridTrack::Px)
+    }
+    let mut out = Vec::new();
+    for tok in crate::css::tokens(v) {
+        let lt = tok.to_ascii_lowercase();
+        if let Some(inner) = lt.strip_prefix("repeat(").and_then(|r| r.strip_suffix(')')) {
+            let parts = crate::css::split_top(inner, ',');
+            let (Some(count), Some(track)) = (parts.first(), parts.get(1)) else { continue };
+            let count = count.trim();
+            if count == "auto-fit" || count == "auto-fill" {
+                let t = track.trim();
+                let min = t
+                    .strip_prefix("minmax(")
+                    .and_then(|r| r.strip_suffix(')'))
+                    .and_then(|r| crate::css::split_top(r, ',').first().and_then(|m| crate::css::length(m, font_px, None)))
+                    .or_else(|| crate::css::length(t, font_px, None));
+                if let Some(min) = min {
+                    out.push(GridTrack::AutoFill(min.max(1.0)));
+                }
+            } else if let Ok(n) = count.parse::<usize>() {
+                let tracks: Vec<GridTrack> =
+                    crate::css::tokens(track).iter().filter_map(|t| one(t, font_px)).collect();
+                for _ in 0..n.min(24) {
+                    out.extend(tracks.iter().copied());
+                }
+            }
+        } else if let Some(t) = one(tok, font_px) {
+            out.push(t);
+        }
+    }
+    out
 }
 
 impl BoxStyle {
@@ -2544,6 +2729,9 @@ struct HtmlCx {
     align: Option<TextAlign>,
     transform: Option<TextTransform>,
     vars: std::rc::Rc<std::collections::HashMap<String, String>>,
+    /// The parent lays its children out (flex / grid), so this element is an
+    /// item of its own — a box, even when CSS gave it nothing to draw.
+    layout_item: bool,
 }
 
 impl HtmlCx {
@@ -2555,6 +2743,7 @@ impl HtmlCx {
             align: None,
             transform: None,
             vars: Default::default(),
+            layout_item: false,
         }
     }
 }
@@ -2734,9 +2923,11 @@ impl HtmlWalker<'_, '_> {
                     apply_font_size(n, v, parent, &mut cx);
                 }
             }
+            let mut lay = LayoutDecl::default();
             for (n, v) in &resolved {
-                apply_declaration(n, v, &mut cx, &mut bx, &mut hidden, &mut block);
+                apply_declaration(n, v, &mut cx, &mut bx, &mut hidden, &mut block, &mut lay);
             }
+            bx.layout = lay.settle();
         }
         if cx.size_authored {
             cx.text.size = Some(cx.font_px);
@@ -2776,8 +2967,10 @@ impl HtmlWalker<'_, '_> {
         }
         self.enter(handle, tag, &name);
         let (mut ecx, bx, hidden, block) = self.style_of(tag, &name, cx);
+        let is_item = cx.layout_item;
+        ecx.layout_item = bx.layout.is_some();
         if !hidden {
-            if block && bx.is_visible() {
+            if (block && bx.is_visible()) || is_item {
                 // A box of its own: everything the element produces goes
                 // inside it.
                 self.flush_paragraph();
@@ -2787,7 +2980,11 @@ impl HtmlWalker<'_, '_> {
                 self.flush_paragraph();
                 let inner = std::mem::replace(&mut self.blocks, saved_blocks);
                 self.inline = saved_inline;
-                if !inner.is_empty() || bx.background.is_some() || bx.border_width.iter().any(|w| *w > 0.0) {
+                if !inner.is_empty()
+                    || bx.background.is_some()
+                    || bx.border_width.iter().any(|w| *w > 0.0)
+                    || bx.min_height.is_some()
+                {
                     self.blocks.push(Block::Styled { style: Box::new(bx), blocks: inner });
                 }
             } else {
@@ -3171,7 +3368,15 @@ fn side_index(s: &str) -> Option<usize> {
 
 /// One declaration of the cascade, applied — in cascade order, so the last
 /// word on each property stands.
-fn apply_declaration(name: &str, value: &str, cx: &mut HtmlCx, bx: &mut BoxStyle, hidden: &mut bool, block: &mut bool) {
+fn apply_declaration(
+    name: &str,
+    value: &str,
+    cx: &mut HtmlCx,
+    bx: &mut BoxStyle,
+    hidden: &mut bool,
+    block: &mut bool,
+    lay: &mut LayoutDecl,
+) {
     let v = value.trim();
     let lv = v.to_ascii_lowercase();
     if lv == "inherit" || lv == "unset" || lv == "revert" {
@@ -3252,12 +3457,86 @@ fn apply_declaration(name: &str, value: &str, cx: &mut HtmlCx, bx: &mut BoxStyle
                 crate::css::length(v, cx.font_px, Some(cx.font_px))
             }
         }
-        "display" => match lv.as_str() {
-            "none" => *hidden = true,
-            "block" | "flex" | "grid" | "list-item" | "table" | "flow-root" => *block = true,
-            "inline" | "inline-block" | "inline-flex" => *block = false,
-            _ => {}
-        },
+        "display" => {
+            match lv.as_str() {
+                "none" => *hidden = true,
+                "block" | "flex" | "grid" | "list-item" | "table" | "flow-root" | "inline-flex" | "inline-grid" => {
+                    *block = true
+                }
+                "inline" | "inline-block" => *block = false,
+                _ => {}
+            }
+            lay.grid = match lv.as_str() {
+                "flex" | "inline-flex" => Some(false),
+                "grid" | "inline-grid" => Some(true),
+                _ => None,
+            };
+        }
+        "flex-direction" => lay.column = lv.starts_with("column"),
+        "flex-wrap" => lay.wrap = lv.starts_with("wrap"),
+        "flex-flow" => {
+            for t in crate::css::tokens(&lv) {
+                match t {
+                    "row" | "row-reverse" => lay.column = false,
+                    "column" | "column-reverse" => lay.column = true,
+                    "wrap" | "wrap-reverse" => lay.wrap = true,
+                    "nowrap" => lay.wrap = false,
+                    _ => {}
+                }
+            }
+        }
+        "gap" | "grid-gap" => {
+            let lens: Vec<f32> = crate::css::tokens(v).iter().filter_map(|t| px(t)).collect();
+            if let Some(first) = lens.first() {
+                lay.gap = [Some(*first), Some(*lens.get(1).unwrap_or(first))];
+            }
+        }
+        "row-gap" | "grid-row-gap" => lay.gap[0] = px(v),
+        "column-gap" | "grid-column-gap" => lay.gap[1] = px(v),
+        "align-items" => lay.align = css_cross_align(&lv),
+        "justify-content" => lay.justify = css_main_align(&lv),
+        "place-items" => lay.align = crate::css::tokens(&lv).first().and_then(|t| css_cross_align(t)),
+        "place-content" => lay.justify = crate::css::tokens(&lv).last().and_then(|t| css_main_align(t)),
+        "grid-template-columns" => lay.tracks = css_grid_tracks(v, cx.font_px),
+        "align-self" => bx.align_self = css_cross_align(&lv),
+        "flex" => {
+            let toks = crate::css::tokens(&lv);
+            match toks.as_slice() {
+                ["none"] => {
+                    bx.flex_grow = 0.0;
+                    bx.flex_basis = None;
+                }
+                ["auto"] => bx.flex_grow = 1.0,
+                [first, rest @ ..] => {
+                    if let Ok(g) = first.parse::<f32>() {
+                        bx.flex_grow = g.max(0.0);
+                        // `flex: 1` is `1 1 0`: the basis is zero, so every
+                        // item's share is equal whatever its content.
+                        bx.flex_basis = Some(0.0);
+                    } else if let Some(b) = px(first) {
+                        bx.flex_basis = Some(b);
+                    }
+                    if let Some(b) = rest.iter().rev().find_map(|t| if t.parse::<f32>().is_ok() { None } else { px(t) }) {
+                        bx.flex_basis = Some(b);
+                    }
+                }
+                [] => {}
+            }
+        }
+        "flex-grow" => bx.flex_grow = lv.parse::<f32>().unwrap_or(0.0).max(0.0),
+        "flex-basis" => bx.flex_basis = px(v),
+        "height" | "min-height" => {
+            if let Some(h) = px(v) {
+                bx.min_height = Some(h);
+            }
+        }
+        "grid-column" => {
+            if let Some(n) = lv.strip_prefix("span").and_then(|n| n.trim().parse::<u16>().ok()) {
+                bx.column_span = n.max(1);
+            } else if lv.replace(' ', "") == "1/-1" {
+                bx.column_span = u16::MAX;
+            }
+        }
         "visibility" if lv == "hidden" || lv == "collapse" => *hidden = true,
         "margin" | "padding" => {
             if let Some((sides, auto)) = css_sides(v, cx.font_px) {
@@ -3270,8 +3549,13 @@ fn apply_declaration(name: &str, value: &str, cx: &mut HtmlCx, bx: &mut BoxStyle
             }
         }
         "border-radius" => {
-            if let Some(r) = crate::css::tokens(v).first().and_then(|t| px(t.split('/').next().unwrap_or(t))) {
+            let first = crate::css::tokens(v).first().map(|t| t.split('/').next().unwrap_or(t).to_string());
+            if let Some(p) = first.as_deref().and_then(|t| t.strip_suffix('%')).and_then(|p| p.trim().parse::<f32>().ok()) {
+                bx.radius_share = Some((p / 100.0).clamp(0.0, 0.5));
+                bx.radius = 0.0;
+            } else if let Some(r) = first.as_deref().and_then(|t| px(t)) {
                 bx.radius = r;
+                bx.radius_share = None;
             }
         }
         "border" => {
@@ -7274,6 +7558,48 @@ mod html_tests {
         );
         assert_eq!(blocks[2], Block::Mermaid { source: "sequenceDiagram\n  A->>B: Hola".into() });
         assert_eq!(blocks.len(), 3, "nothing of the scripts is shown");
+    }
+
+    /// The layout declarations a model's infographic uses, in any order, land
+    /// in the box model; every element child of a flex or grid container is
+    /// an item of its own, even when CSS gave it nothing to draw.
+    #[test]
+    fn flex_and_grid_declarations_reach_the_box_model() {
+        let page = "<style>\
+            .row { gap: 8px 12px; justify-content: space-between; display: flex; flex-wrap: wrap; align-items: center }\
+            .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)) }\
+            .two { display: grid; grid-template-columns: 120px 2fr 1fr }\
+            .grow { flex: 1 } .fixed { flex: 0 0 60px; height: 3em; border-radius: 50%; align-self: end }\
+            .wide { grid-column: 1 / -1 }\
+            </style>\
+            <div class=\"row\"><div class=\"grow\"><p>a</p><p>b</p></div><span class=\"fixed\">c</span></div>\
+            <div class=\"grid\"><div class=\"wide\">x</div><div>y</div></div>\
+            <div class=\"two\"><div>1</div></div>";
+        let blocks = parse_html(page).blocks;
+        let Block::Styled { style: row, blocks: items } = &blocks[0] else { panic!("{blocks:?}") };
+        let lay = row.layout.as_ref().expect("a flex row");
+        assert_eq!(lay.kind, LayoutKind::Row);
+        assert_eq!(lay.gap, [8.0, 12.0]);
+        assert!(lay.wrap);
+        assert_eq!(lay.align, CrossAlign::Center);
+        assert_eq!(lay.justify, MainAlign::SpaceBetween);
+        assert_eq!(items.len(), 2, "two items — the first keeps its two paragraphs together: {items:?}");
+        let Block::Styled { style: grow, blocks: g } = &items[0] else { panic!() };
+        assert_eq!((grow.flex_grow, grow.flex_basis, g.len()), (1.0, Some(0.0), 2));
+        let Block::Styled { style: fixed, .. } = &items[1] else { panic!() };
+        assert_eq!(fixed.flex_basis, Some(60.0));
+        assert_eq!(fixed.min_height, Some(48.0), "3em at 16px");
+        assert_eq!(fixed.radius_share, Some(0.5));
+        assert_eq!(fixed.align_self, Some(CrossAlign::End));
+        let Block::Styled { style: grid, blocks: cells } = &blocks[1] else { panic!() };
+        assert_eq!(grid.layout.as_ref().unwrap().kind, LayoutKind::Grid(vec![GridTrack::AutoFill(200.0)]));
+        let Block::Styled { style: wide, .. } = &cells[0] else { panic!() };
+        assert_eq!(wide.column_span, u16::MAX);
+        let Block::Styled { style: two, .. } = &blocks[2] else { panic!() };
+        assert_eq!(
+            two.layout.as_ref().unwrap().kind,
+            LayoutKind::Grid(vec![GridTrack::Px(120.0), GridTrack::Fr(2.0), GridTrack::Fr(1.0)])
+        );
     }
 
     #[test]

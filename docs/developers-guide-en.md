@@ -1238,7 +1238,7 @@ to start your own. Everything in it is COBOL in its twelve forms:
 
 | Form | What it shows you how to do |
 |---|---|
-| `chat-form` (main) | A SideMenu shell whose menu is designed in the menu editor, relabelled with `SetItemLabel` in the current language and held shut with `SetItemEnabled` until an agent has a model (and **Chat** / **New conversation** until a topic exists); **New conversation** asks which topic to talk about, through `pick-form`, starts a fresh conversation in it and shows the chat (`ActivateItem("chat")`); with no documents and no data files for the topic, the orchestrator's system prompt tells it to say it cannot answer about the user's data until one is added; a **Getting started** row added at run time (`AddItem`) opens the welcome form, and on a first run the program opens it itself with `ActivateItem`. Every other form opens **embedded** in the ContentPane by its row's `open-form:` action (the RAG settings dialogs excepted — they are modal windows), and `onActivate` refreshes the chat when the operator comes back; a `Viewer` as a chat; three `AgentObject`s that elect an orchestrator and split the work (below), grounded in a `KnowledgeBase` with `AllowKnowledgeBase`; conversations as run-time menu rows; token totals from `LastInputTokens` / `LastOutputTokens` |
+| `chat-form` (main) | A SideMenu shell whose menu is designed in the menu editor, relabelled with `SetItemLabel` in the current language and held shut with `SetItemEnabled` until an agent has a model (and **Chat** / **New conversation** until a topic exists); **New conversation** asks which topic to talk about, through `pick-form`, starts a fresh conversation in it and shows the chat (`ActivateItem("chat")`); with no documents and no data files for the topic, the orchestrator's system prompt tells it to say it cannot answer about the user's data until one is added; the orchestrator's prompt also asks for a formatted answer as one colourful, infographic-style HTML page — gradient banner, cards, round numbered steps in flex rows, grids of facts, a Mermaid element for a diagram — using only what the chat's `Viewer` draws; a **Getting started** row added at run time (`AddItem`) opens the welcome form, and on a first run the program opens it itself with `ActivateItem`. Every other form opens **embedded** in the ContentPane by its row's `open-form:` action (the RAG settings dialogs excepted — they are modal windows), and `onActivate` refreshes the chat when the operator comes back; a `Viewer` as a chat; three `AgentObject`s that elect an orchestrator and split the work (below), grounded in a `KnowledgeBase` with `AllowKnowledgeBase`; conversations as run-time menu rows; token totals from `LastInputTokens` / `LastOutputTokens` |
 | `welcome-form` | The first-run screen — the name at 84 points, a robot, four steps — as a form of its own rather than controls hidden over the chat |
 | `topics-form` | **The CRUD pattern** (below): topics in a DataGrid with open, edit and delete icon buttons per row, each topic with its own Knowledge Base collection (`CreateCollection` on save, `RemoveCollection` on delete); sample topics installed from a plain text list and taken out again |
 | `documents-form` | The collection's documents as a `TreeView` built with `AddNode`, its folders kept in an indexed file so an empty one still shows; `onNodeSelect` points the `FileDropZone` at the chosen folder; `Refresh()`, and a progress strip — always in its own place, empty when idle — driven by `onProgress` / `onIndexed` |
@@ -4777,7 +4777,7 @@ for some formats.
 | Mermaid diagrams — a Markdown fence, or an HTML page's `<div class="mermaid">` / `<pre class="mermaid">` | Flowcharts and sequence diagrams, drawn by the Viewer itself (a page's `mermaid.js` is never run, and is not needed) | Class, state, gantt, ER and journey diagrams — **refused by name**, not half-drawn |
 | Images: PNG, JPEG, GIF, WebP, APNG, BMP, TIFF, SVG | All of them, animation included | — |
 | PDF | Its text, its basic line and rectangle drawing, its page sizes, its page breaks, and Find over all of it | A faithful picture of a complex page; unusual embedded font encodings; forms; annotations; a scanned page beyond the image it embeds |
-| HTML | A **subset**: block and inline layout, common typography, colours, borders, tables, images — **styled by the page's own CSS** (see *HTML and its CSS* below) | CSS **layout** — grid, flex, floats, positioning; animation and transforms; `@media`; anything fetched; JavaScript. **It is not a browser** |
+| HTML | A **subset**: block and inline layout, common typography, colours, borders, tables, images — **styled by the page's own CSS**, flex rows and grids included (see *HTML and its CSS* below) | Floats and positioning; animation and transforms; `@media`; anything fetched; JavaScript. **It is not a browser** |
 | Video | Nothing — out of scope. Animated GIF, WebP and APNG are covered above as images | Any format needing an external codec |
 | Word, PowerPoint, Excel, OpenDocument | Their **text**, as Markdown: headings, lists and tables kept; page layout, fonts and pictures not | The Knowledge Base's own converter — a document reads the same here as the chat reads it |
 
@@ -4804,7 +4804,10 @@ What the CSS can say, and be obeyed:
 |---|---|
 | Text | `color`, `font-size` (px, em, rem, %, pt, keywords), `font-weight`, `font-style`, `font-family` (a monospaced family is honoured; any other maps to the Viewer's own face), `font`, `text-decoration`, `text-transform`, `letter-spacing`, `line-height` |
 | Box | `background`/`background-color` — a colour or a `linear-gradient(…)`; `border` and each side's own (`border-left: 4px solid …`); `border-radius`; `padding`; `margin`, `margin: 0 auto` centring included; `width` (px or %); `max-width`; `box-shadow` |
+| Box size | `height` and `min-height` (the box is at least that tall); `border-radius: 50%` — a square box becomes a circle |
 | Alignment | `text-align` — left, center, right |
+| Flex | `display: flex` (and `inline-flex`), `flex-direction: column`, `flex-wrap`, `flex-flow`, `gap` / `row-gap` / `column-gap`, `align-items`, `justify-content` (start, center, end, space-between, space-around, space-evenly); on an item: `flex` (`1`, `none`, `0 0 60px`), `flex-grow`, `flex-basis`, `align-self` |
+| Grid | `display: grid`, `grid-template-columns` — lengths, percentages, `fr`, `auto`, `minmax()`, `repeat(3, 1fr)` and `repeat(auto-fit, minmax(220px, 1fr))`; `gap`; on an item: `grid-column: span 2` and `1 / -1` |
 | Visibility | `display: none`, `visibility: hidden` |
 | Tables | every cell's background, padding, alignment and borders — a striped table written with `tr:nth-child(even)` stripes |
 | Inline | a `<span>`'s background shows as a highlight behind its text — a badge, a `<mark>` |
@@ -4820,10 +4823,20 @@ in every form CSS writes them: `#rgb`, `#rrggbbaa`, `rgb()`/`rgba()`,
 > `FontSize` scale a styled page as a whole — its padding and borders grow with
 > its text.
 
-> ⚠️ **Caveat — styling, not layout.** A layout the CSS builds out of
-> `display: flex`, `grid`, `float` or `position` is not built: the page's
-> blocks are stacked, in order, each in its own styled box. A two-column page
-> reads as one column. A rule this subset does not understand — `:hover`,
+> **Note — flex rows and grids.** A `display: flex` container puts its
+> children side by side: each takes the width it states, the share `flex: 1`
+> gives it, or — neither stated — the width its content needs, and what is
+> left over goes to `justify-content`. `align-items: center` centres each item
+> across the row, and the default, `stretch`, gives every card in a row the
+> same height. A `display: grid` container lays its children out in its
+> columns, a new row whenever one is full. Every element child of either is
+> an item of its own. The step list of an infographic — a round, coloured
+> number beside each step's text — and a row of three cards are both built
+> this way.
+
+> ⚠️ **Caveat — no floats, no positioning.** A layout built out of `float`
+> or `position` is not built: those blocks are stacked, in order, each in its
+> own styled box. A rule this subset does not understand — `:hover`,
 > `::before`, an attribute selector, a sibling combinator — is skipped, never
 > guessed at, and a rule inside `@media` is skipped too (the pane is not a
 > phone). `width` counts the border and padding in, the way

@@ -9932,44 +9932,58 @@ fn paint_css_borders(
     colours: &[Option<String>; 4],
     fallback: Color32,
 ) {
+    painter.extend(css_border_shapes(rect, radius, widths, colours, fallback));
+}
+
+/// The shapes [`paint_css_borders`] draws — returned, so a box can drop them
+/// into a place it reserved before its content was painted.
+fn css_border_shapes(
+    rect: egui::Rect,
+    radius: f32,
+    widths: [f32; 4],
+    colours: &[Option<String>; 4],
+    fallback: Color32,
+) -> Vec<egui::Shape> {
     let colour = |i: usize| colours[i].as_deref().and_then(css_color32).unwrap_or(fallback);
     let uniform = widths.iter().all(|w| (*w - widths[0]).abs() < 0.01) && (0..4).all(|i| colour(i) == colour(0));
+    let mut out = Vec::new();
     if uniform {
         if widths[0] > 0.0 {
-            painter.rect_stroke(
+            out.push(egui::Shape::rect_stroke(
                 rect,
                 egui::CornerRadius::same(radius.min(255.0) as u8),
                 Stroke::new(widths[0], colour(0)),
                 egui::StrokeKind::Inside,
-            );
+            ));
         }
-        return;
+        return out;
     }
     let [t, r, b, l] = widths;
     if t > 0.0 {
         let y = rect.min.y + t / 2.0;
-        painter.line_segment([egui::pos2(rect.min.x, y), egui::pos2(rect.max.x, y)], Stroke::new(t, colour(0)));
+        out.push(egui::Shape::line_segment([egui::pos2(rect.min.x, y), egui::pos2(rect.max.x, y)], Stroke::new(t, colour(0))));
     }
     if r > 0.0 {
         let x = rect.max.x - r / 2.0;
-        painter.line_segment([egui::pos2(x, rect.min.y), egui::pos2(x, rect.max.y)], Stroke::new(r, colour(1)));
+        out.push(egui::Shape::line_segment([egui::pos2(x, rect.min.y), egui::pos2(x, rect.max.y)], Stroke::new(r, colour(1))));
     }
     if b > 0.0 {
         let y = rect.max.y - b / 2.0;
-        painter.line_segment([egui::pos2(rect.min.x, y), egui::pos2(rect.max.x, y)], Stroke::new(b, colour(2)));
+        out.push(egui::Shape::line_segment([egui::pos2(rect.min.x, y), egui::pos2(rect.max.x, y)], Stroke::new(b, colour(2))));
     }
     if l > 0.0 {
         let x = rect.min.x + l / 2.0;
-        painter.line_segment([egui::pos2(x, rect.min.y), egui::pos2(x, rect.max.y)], Stroke::new(l, colour(3)));
+        out.push(egui::Shape::line_segment([egui::pos2(x, rect.min.y), egui::pos2(x, rect.max.y)], Stroke::new(l, colour(3))));
     }
+    out
 }
 
 /// A CSS box (`Block::Styled`): margins, width, background, border, padding
 /// and shadow around its content. Returns the height it took, margins
 /// included.
 ///
-/// **One pass.** The shadow's and the background's places in the paint list
-/// are reserved BEFORE the content is painted and filled in AFTER, once its
+/// **One pass.** The shadow's, the background's and the border's places in
+/// the paint list are reserved around the content and filled in once its
 /// height is known — so boxes nest to any depth at the cost of one layout,
 /// where measuring each first would double the work at every level.
 ///
@@ -9983,37 +9997,98 @@ fn paint_css_box(
     pos: egui::Pos2,
     find: &mut TextMarks<'_>,
 ) -> f32 {
+    let open = open_css_box(painter, ctx, style, blocks, pos, None, find);
+    close_css_box(painter, ctx, style, &open, None, 0.0)
+}
+
+/// A CSS box whose content is painted and whose frame is still to come —
+/// what a flex or grid line holds until it knows how tall the line is.
+struct OpenBox {
+    x0: f32,
+    top: f32,
+    w: f32,
+    /// The border box's height from its content alone.
+    h: f32,
+    m: [f32; 4],
+    shadow_idx: egui::layers::ShapeIdx,
+    bg_idx: egui::layers::ShapeIdx,
+    border_idx: egui::layers::ShapeIdx,
+}
+
+/// Lay out and paint a box's content, reserving its frame's places. `forced`
+/// is a border-box width a flex or grid line has already decided.
+fn open_css_box(
+    painter: &egui::Painter,
+    ctx: &BlockPaintCtx,
+    style: &crate::viewer::BoxStyle,
+    blocks: &[crate::viewer::Block],
+    pos: egui::Pos2,
+    forced: Option<f32>,
+    find: &mut TextMarks<'_>,
+) -> OpenBox {
     let k = ctx.css_scale;
     let m = style.margin.map(|v| v * k);
     let b = style.border_width.map(|v| v * k);
     let p = style.padding.map(|v| v * k);
     let avail = (ctx.width - m[1] - m[3]).max(20.0);
-    let mut w = avail;
-    if let Some(share) = style.width_share {
-        w = avail * share;
-    }
-    if let Some(px) = style.width {
-        w = px * k;
-    }
-    if let Some(mx) = style.max_width {
-        w = w.min(mx * k);
-    }
-    let w = w.clamp(20.0_f32.min(avail), avail);
-    let x0 = pos.x + m[3] + if style.center { (avail - w) / 2.0 } else { 0.0 };
+    let w = match forced {
+        Some(f) => (f - m[1] - m[3]).max(1.0),
+        None => {
+            let mut w = avail;
+            if let Some(share) = style.width_share {
+                w = avail * share;
+            }
+            if let Some(px) = style.width {
+                w = px * k;
+            }
+            if let Some(mx) = style.max_width {
+                w = w.min(mx * k);
+            }
+            w.clamp(20.0_f32.min(avail), avail)
+        }
+    };
+    let x0 = pos.x + m[3] + if style.center && forced.is_none() { (avail - w) / 2.0 } else { 0.0 };
     let top = pos.y + m[0];
-    let inner_w = (w - b[1] - b[3] - p[1] - p[3]).max(10.0);
+    let inner_w = (w - b[1] - b[3] - p[1] - p[3]).max(1.0);
     let shadow_idx = painter.add(egui::Shape::Noop);
     let bg_idx = painter.add(egui::Shape::Noop);
     let inner = BlockPaintCtx { width: inner_w, align: style.text_align.or(ctx.align), ..*ctx };
     let origin = egui::pos2(x0 + b[3] + p[3], top + b[0] + p[0]);
+    // A box with a height of its own lays its content out inside that height
+    // — the centred digit of a round step marker.
+    let min_inner = style.min_height.map(|h| (h * k - b[0] - b[2] - p[0] - p[2]).max(0.0)).unwrap_or(0.0);
     let content_h = if blocks.is_empty() {
         0.0
     } else {
-        (paint_blocks(painter, &inner, blocks, origin, find) - VIEWER_BLOCK_SPACING).max(0.0)
+        paint_box_content(painter, &inner, style, blocks, origin, min_inner, find)
     };
-    let h = b[0] + p[0] + content_h + p[2] + b[2];
-    let rect = egui::Rect::from_min_size(egui::pos2(x0, top), egui::vec2(w, h));
-    let radius = style.radius * k;
+    let mut h = b[0] + p[0] + content_h + p[2] + b[2];
+    if let Some(min) = style.min_height {
+        h = h.max(min * k);
+    }
+    let border_idx = painter.add(egui::Shape::Noop);
+    OpenBox { x0, top, w, h, m, shadow_idx, bg_idx, border_idx }
+}
+
+/// Paint the frame of an [`OpenBox`] — `height`, when a line stretches it,
+/// is its outer height, margins included; `dy` is how far the line moved it.
+/// Returns the outer height it took.
+fn close_css_box(
+    painter: &egui::Painter,
+    ctx: &BlockPaintCtx,
+    style: &crate::viewer::BoxStyle,
+    open: &OpenBox,
+    height: Option<f32>,
+    dy: f32,
+) -> f32 {
+    let k = ctx.css_scale;
+    let m = open.m;
+    let h = height.map(|o| (o - m[0] - m[2]).max(open.h)).unwrap_or(open.h);
+    let rect = egui::Rect::from_min_size(egui::pos2(open.x0, open.top + dy), egui::vec2(open.w, h));
+    let radius = match style.radius_share {
+        Some(share) => rect.width().min(rect.height()) * share,
+        None => style.radius * k,
+    };
     if let Some(s) = &style.shadow {
         if let Some(colour) = css_color32(&s.color) {
             let shadow = egui::epaint::Shadow {
@@ -10022,14 +10097,330 @@ fn paint_css_box(
                 spread: (s.spread * k).round().clamp(0.0, 255.0) as u8,
                 color: colour,
             };
-            painter.set(shadow_idx, shadow.as_shape(rect, egui::CornerRadius::same(radius.min(255.0) as u8)));
+            painter.set(open.shadow_idx, shadow.as_shape(rect, egui::CornerRadius::same(radius.min(255.0) as u8)));
         }
     }
     if let Some(shape) = css_background_shape(style.background.as_ref(), rect, radius) {
-        painter.set(bg_idx, shape);
+        painter.set(open.bg_idx, shape);
     }
-    paint_css_borders(painter, rect, radius, b, &style.border_color, ctx.text_ink);
+    let borders = css_border_shapes(rect, radius, style.border_width.map(|v| v * k), &style.border_color, ctx.text_ink);
+    if !borders.is_empty() {
+        painter.set(open.border_idx, egui::Shape::Vec(borders));
+    }
     m[0] + h + m[2]
+}
+
+/// A box's content: stacked, or placed by its CSS layout (flex / grid).
+/// Returns the content's height. `min_h` is the height the box itself asks
+/// for, inside its padding — the room a single line is aligned in.
+fn paint_box_content(
+    painter: &egui::Painter,
+    ctx: &BlockPaintCtx,
+    style: &crate::viewer::BoxStyle,
+    blocks: &[crate::viewer::Block],
+    origin: egui::Pos2,
+    min_h: f32,
+    find: &mut TextMarks<'_>,
+) -> f32 {
+    use crate::viewer::{GridTrack, LayoutKind, MainAlign};
+    let Some(layout) = &style.layout else {
+        return (paint_blocks(painter, ctx, blocks, origin, find) - VIEWER_BLOCK_SPACING).max(0.0);
+    };
+    let k = ctx.css_scale;
+    let gap_y = layout.gap[0] * k;
+    let gap_x = layout.gap[1] * k;
+    let width = ctx.width;
+    let lines: Vec<Vec<(usize, f32, f32)>> = match &layout.kind {
+        LayoutKind::Column => {
+            // One item per line; `align-items` other than stretch sizes an
+            // item to its content and places it across the column.
+            (0..blocks.len())
+                .map(|i| {
+                    let own = item_style(&blocks[i]).and_then(|s| s.align_self).unwrap_or(layout.align);
+                    let natural = match own {
+                        crate::viewer::CrossAlign::Stretch => None,
+                        _ => max_content_width(painter, ctx, &blocks[i]).map(|w| w.min(width)),
+                    };
+                    let w = natural.unwrap_or(width);
+                    let x = match own {
+                        crate::viewer::CrossAlign::Center => (width - w) / 2.0,
+                        crate::viewer::CrossAlign::End => width - w,
+                        _ => 0.0,
+                    };
+                    vec![(i, x, w)]
+                })
+                .collect()
+        }
+        LayoutKind::Row => {
+            // Each item's starting size: its width, its basis, or — neither
+            // stated and not growing — what its content needs.
+            let items: Vec<(f32, f32, bool)> = blocks
+                .iter()
+                .map(|b| {
+                    let st = item_style(b);
+                    let margins = st.map(|s| (s.margin[1] + s.margin[3]) * k).unwrap_or(0.0);
+                    let grow = st.map(|s| s.flex_grow).unwrap_or(0.0);
+                    let stated = st.and_then(|s| {
+                        s.width
+                            .map(|w| w * k)
+                            .or_else(|| s.width_share.map(|p| p * width))
+                            .or_else(|| s.flex_basis.map(|b| b * k))
+                    });
+                    match stated {
+                        Some(w) => (w + margins, grow, st.is_some_and(|s| s.width.is_some())),
+                        None if grow > 0.0 => (0.0, grow, false),
+                        None => match max_content_width(painter, ctx, b) {
+                            Some(w) => (w, 0.0, false),
+                            // Content with no natural width (a table, a
+                            // list, a diagram) takes the room that is left.
+                            None => (0.0, 1.0, false),
+                        },
+                    }
+                })
+                .collect();
+            let mut lines: Vec<Vec<usize>> = vec![Vec::new()];
+            let mut used = 0.0;
+            for (i, (base, _, _)) in items.iter().enumerate() {
+                let line = lines.last_mut().expect("one line");
+                let extra = if line.is_empty() { *base } else { gap_x + base };
+                if layout.wrap && !line.is_empty() && used + extra > width {
+                    lines.push(vec![i]);
+                    used = *base;
+                } else {
+                    line.push(i);
+                    used += extra;
+                }
+            }
+            lines
+                .into_iter()
+                .filter(|l| !l.is_empty())
+                .map(|line| {
+                    let n = line.len() as f32;
+                    let mut sizes: Vec<f32> = line.iter().map(|i| items[*i].0).collect();
+                    let free = width - sizes.iter().sum::<f32>() - gap_x * (n - 1.0);
+                    let grow: f32 = line.iter().map(|i| items[*i].1).sum();
+                    let mut lead = 0.0;
+                    let mut between = gap_x;
+                    if free > 0.0 && grow > 0.0 {
+                        for (s, i) in sizes.iter_mut().zip(&line) {
+                            *s += free * items[*i].1 / grow;
+                        }
+                    } else if free > 0.0 {
+                        match layout.justify {
+                            MainAlign::Start => {}
+                            MainAlign::Center => lead = free / 2.0,
+                            MainAlign::End => lead = free,
+                            MainAlign::SpaceBetween if n > 1.0 => between += free / (n - 1.0),
+                            MainAlign::SpaceBetween => {}
+                            MainAlign::SpaceAround => {
+                                lead = free / n / 2.0;
+                                between += free / n;
+                            }
+                            MainAlign::SpaceEvenly => {
+                                lead = free / (n + 1.0);
+                                between += free / (n + 1.0);
+                            }
+                        }
+                    } else if free < 0.0 {
+                        // Too wide: what can shrink gives up room in
+                        // proportion to its size — a stated width holds.
+                        let shrinkable: f32 =
+                            line.iter().zip(&sizes).filter(|(i, _)| !items[**i].2).map(|(_, s)| *s).sum();
+                        if shrinkable > 0.0 {
+                            for (s, i) in sizes.iter_mut().zip(&line) {
+                                if !items[*i].2 {
+                                    *s = (*s + free * *s / shrinkable).max(12.0);
+                                }
+                            }
+                        }
+                    }
+                    let mut x = lead;
+                    line.iter()
+                        .zip(sizes)
+                        .map(|(i, w)| {
+                            let at = x;
+                            x += w + between;
+                            (*i, at, w)
+                        })
+                        .collect()
+                })
+                .collect()
+        }
+        LayoutKind::Grid(tracks) => {
+            // The columns: fixed tracks first, then the fractions share
+            // what is left.
+            let cols: Vec<f32> = match tracks.as_slice() {
+                [] => vec![width],
+                [GridTrack::AutoFill(min)] => {
+                    let min = min * k;
+                    let n = (((width + gap_x) / (min + gap_x)).floor() as usize).clamp(1, blocks.len().max(1));
+                    vec![(width - gap_x * (n as f32 - 1.0)) / n as f32; n]
+                }
+                ts => {
+                    let n = ts.len() as f32;
+                    let fixed: f32 = ts
+                        .iter()
+                        .map(|t| match t {
+                            GridTrack::Px(p) => p * k,
+                            GridTrack::Share(s) => s * width,
+                            _ => 0.0,
+                        })
+                        .sum();
+                    let frs: f32 = ts.iter().map(|t| if let GridTrack::Fr(f) = t { *f } else { 0.0 }).sum();
+                    let left = (width - fixed - gap_x * (n - 1.0)).max(0.0);
+                    ts.iter()
+                        .map(|t| match t {
+                            GridTrack::Px(p) => p * k,
+                            GridTrack::Share(s) => s * width,
+                            GridTrack::Fr(f) if frs > 0.0 => left * f / frs,
+                            _ => left / n,
+                        })
+                        .collect()
+                }
+            };
+            let mut lines: Vec<Vec<(usize, f32, f32)>> = Vec::new();
+            let mut col = cols.len();
+            for i in 0..blocks.len() {
+                let span = item_style(&blocks[i]).map(|s| s.column_span).unwrap_or(0).max(1) as usize;
+                let span = span.min(cols.len());
+                if col + span > cols.len() {
+                    lines.push(Vec::new());
+                    col = 0;
+                }
+                let x: f32 = cols[..col].iter().sum::<f32>() + gap_x * col as f32;
+                let w: f32 = cols[col..col + span].iter().sum::<f32>() + gap_x * (span as f32 - 1.0);
+                lines.last_mut().expect("a line").push((i, x, w));
+                col += span;
+            }
+            lines
+        }
+    };
+    let single = lines.len() == 1;
+    let mut y = origin.y;
+    for (li, line) in lines.iter().enumerate() {
+        if li > 0 {
+            y += gap_y;
+        }
+        let min_line = if single { min_h } else { 0.0 };
+        y += paint_layout_line(painter, ctx, layout.align, blocks, line, egui::pos2(origin.x, y), min_line, find);
+    }
+    (y - origin.y).max(if single { min_h } else { 0.0 })
+}
+
+/// A block's own CSS box, when it is one — what a flex or grid line reads an
+/// item's sizing from.
+fn item_style(block: &crate::viewer::Block) -> Option<&crate::viewer::BoxStyle> {
+    match block {
+        crate::viewer::Block::Styled { style, .. } => Some(style),
+        _ => None,
+    }
+}
+
+/// Paint one flex or grid line: each item at its place and width, then — the
+/// line's height known — each stretched to it or moved across it. Returns the
+/// line's height.
+#[allow(clippy::too_many_arguments)]
+fn paint_layout_line(
+    painter: &egui::Painter,
+    ctx: &BlockPaintCtx,
+    align: crate::viewer::CrossAlign,
+    blocks: &[crate::viewer::Block],
+    line: &[(usize, f32, f32)],
+    origin: egui::Pos2,
+    min_h: f32,
+    find: &mut TextMarks<'_>,
+) -> f32 {
+    use crate::viewer::{Block, CrossAlign};
+    struct Placed {
+        start: usize,
+        end: usize,
+        runs_start: usize,
+        runs_end: usize,
+        open: Option<OpenBox>,
+        h: f32,
+    }
+    let layer = painter.layer_id();
+    let next = || painter.ctx().graphics_mut(|g| g.entry(layer).next_idx().0);
+    let mut placed = Vec::with_capacity(line.len());
+    for (i, x, w) in line {
+        let start = next();
+        let runs_start = find.runs.len();
+        let at = egui::pos2(origin.x + x, origin.y);
+        let item_ctx = BlockPaintCtx { width: *w, ..*ctx };
+        let (open, h) = match &blocks[*i] {
+            Block::Styled { style, blocks: inner } => {
+                let open = open_css_box(painter, &item_ctx, style, inner, at, Some(*w), find);
+                let h = open.m[0] + open.h + open.m[2];
+                (Some(open), h)
+            }
+            other => (None, paint_block(painter, &item_ctx, other, at, find)),
+        };
+        placed.push(Placed { start, end: next(), runs_start, runs_end: find.runs.len(), open, h });
+    }
+    let line_h = placed.iter().map(|p| p.h).fold(min_h, f32::max);
+    for ((i, _, _), p) in line.iter().zip(&placed) {
+        let style = item_style(&blocks[*i]);
+        let own = style.and_then(|s| s.align_self).unwrap_or(align);
+        let dy = match own {
+            CrossAlign::Center => (line_h - p.h) / 2.0,
+            CrossAlign::End => line_h - p.h,
+            _ => 0.0,
+        };
+        if dy.abs() > 0.01 {
+            let t = egui::emath::TSTransform::from_translation(egui::vec2(0.0, dy));
+            painter.ctx().graphics_mut(|g| {
+                let list = g.entry(layer);
+                for idx in p.start..p.end {
+                    list.mutate_shape(egui::layers::ShapeIdx(idx), |c| c.shape.transform(t));
+                }
+            });
+            for run in &mut find.runs[p.runs_start..p.runs_end] {
+                run.rect = run.rect.translate(egui::vec2(0.0, dy));
+                run.origin += egui::vec2(0.0, dy);
+            }
+        }
+        if let (Some(open), Some(style)) = (&p.open, style) {
+            let stretch = (own == CrossAlign::Stretch).then_some(line_h);
+            close_css_box(painter, ctx, style, open, stretch, dy);
+        }
+    }
+    line_h
+}
+
+/// The width a block's content needs on one line — CSS's max-content — or
+/// `None` for content that has no natural width and fills what it is given
+/// (a table, a list, code, a diagram).
+fn max_content_width(painter: &egui::Painter, ctx: &BlockPaintCtx, block: &crate::viewer::Block) -> Option<f32> {
+    use crate::viewer::{Block, LayoutKind};
+    let k = ctx.css_scale;
+    match block {
+        Block::Paragraph { content } | Block::Heading { content, .. } => {
+            let size = match block {
+                Block::Heading { level, .. } => viewer_heading_size(ctx.font_size, *level),
+                _ => ctx.font_size,
+            };
+            let job = build_inline_job(content, size, ctx.text_ink, ctx.strong_ink, ctx.link_color, ctx.code_color, f32::INFINITY, ctx.css_scale);
+            Some(viewer_layout(painter, job).rect.width().ceil() + 1.0)
+        }
+        Block::Styled { style, blocks } => {
+            let frame = (style.margin[1] + style.margin[3] + style.padding[1] + style.padding[3]) * k
+                + (style.border_width[1] + style.border_width[3]) * k;
+            if let Some(w) = style.width {
+                return Some(w * k + (style.margin[1] + style.margin[3]) * k);
+            }
+            let inner: Option<Vec<f32>> = blocks.iter().map(|b| max_content_width(painter, ctx, b)).collect();
+            let inner = inner?;
+            let content = match style.layout.as_ref().map(|l| &l.kind) {
+                Some(LayoutKind::Row) => {
+                    let gap = style.layout.as_ref().map(|l| l.gap[1] * k).unwrap_or(0.0);
+                    inner.iter().sum::<f32>() + gap * (inner.len().saturating_sub(1)) as f32
+                }
+                _ => inner.iter().copied().fold(0.0, f32::max),
+            };
+            Some(content + frame)
+        }
+        _ => None,
+    }
 }
 
 fn paint_table(
