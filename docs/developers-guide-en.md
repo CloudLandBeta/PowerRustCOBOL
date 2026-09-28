@@ -4803,20 +4803,28 @@ What the CSS can say, and be obeyed:
 | Area | Properties |
 |---|---|
 | Text | `color`, `font-size` (px, em, rem, %, pt, keywords), `font-weight`, `font-style`, `font-family` (a monospaced family is honoured; any other maps to the Viewer's own face), `font`, `text-decoration`, `text-transform`, `letter-spacing`, `line-height` |
-| Box | `background`/`background-color` — a colour or a `linear-gradient(…)`; `border` and each side's own (`border-left: 4px solid …`); `border-radius`; `padding`; `margin`, `margin: 0 auto` centring included; `width` (px or %); `max-width`; `box-shadow` |
+| Box | `background`/`background-color` — a colour or a `linear-gradient(…)`; `border` and each side's own (`border-left: 4px solid …`); `border-radius`; `padding`; `margin`, `margin: 0 auto` centring and negative margins included; `width` (px or %); `max-width`; `box-shadow` |
 | Box size | `height` and `min-height` (the box is at least that tall); `border-radius: 50%` — a square box becomes a circle |
 | Alignment | `text-align` — left, center, right |
-| Flex | `display: flex` (and `inline-flex`), `flex-direction: column`, `flex-wrap`, `flex-flow`, `gap` / `row-gap` / `column-gap`, `align-items`, `justify-content` (start, center, end, space-between, space-around, space-evenly); on an item: `flex` (`1`, `none`, `0 0 60px`), `flex-grow`, `flex-basis`, `align-self` |
+| Flex | `display: flex`, `flex-direction: column`, `flex-wrap`, `flex-flow`, `gap` / `row-gap` / `column-gap`, `align-items`, `justify-content` (start, center, end, space-between, space-around, space-evenly); on an item: `flex` (`1`, `none`, `0 0 60px`), `flex-grow`, `flex-basis`, `align-self` |
 | Grid | `display: grid`, `grid-template-columns` — lengths, percentages, `fr`, `auto`, `minmax()`, `repeat(3, 1fr)` and `repeat(auto-fit, minmax(220px, 1fr))`; `gap`; on an item: `grid-column: span 2` and `1 / -1` |
 | Visibility | `display: none`, `visibility: hidden` |
 | Tables | every cell's background, padding, alignment and borders — a striped table written with `tr:nth-child(even)` stripes |
 | Inline | a `<span>`'s background shows as a highlight behind its text — a badge, a `<mark>` |
+| Inline boxes | `display: inline-block`, `inline-flex`, `inline-grid`: holding only text, the element stays in its line, its background a highlight; holding blocks, it is a box as wide as its content rather than its container |
+| Lengths | px, em, rem, %, pt, and `calc()` over them — `calc(100% - 2rem)`, `calc(-1 * var(--gap))` |
 
-The selectors: a tag, `.class`, `#id`, `*`, a descendant (`nav a`) or a child
-(`ul > li`), a comma-separated group, and `:first-child`, `:last-child`,
-`:only-child`, `:nth-child(…)`, `:nth-last-child(…)` and `:root`. Colours come
+The selectors: a tag, `.class`, `#id`, `*`, a descendant (`nav a`), a child
+(`ul > li`), the element straight after another (`h1 + p`) or any later
+sibling (`h1 ~ p`), a comma-separated group, and `:first-child`, `:last-child`,
+`:only-child`, `:nth-child(…)`, `:nth-last-child(…)`, `:root` and
+`:not(…)` (`.box:not(:last-child)`). Colours come
 in every form CSS writes them: `#rgb`, `#rrggbbaa`, `rgb()`/`rgba()`,
 `hsl()`/`hsla()` and all the named colours.
+
+`@media` is answered as a desktop screen **1024 px wide** would answer it: a
+page's `(min-width: 769px)` rules apply, its `(max-width: 768px)` phone
+overrides and its `print` rules do not.
 
 > **Note — sizes follow the Viewer's zoom.** The CSS's 16 px is the Viewer's
 > base font size, and every length on the page is measured from it. Zoom and
@@ -4837,9 +4845,9 @@ in every form CSS writes them: `#rgb`, `#rrggbbaa`, `rgb()`/`rgba()`,
 > ⚠️ **Caveat — no floats, no positioning.** A layout built out of `float`
 > or `position` is not built: those blocks are stacked, in order, each in its
 > own styled box. A rule this subset does not understand — `:hover`,
-> `::before`, an attribute selector, a sibling combinator — is skipped, never
-> guessed at, and a rule inside `@media` is skipped too (the pane is not a
-> phone). `width` counts the border and padding in, the way
+> `::before`, an attribute selector — is skipped, never guessed at. The
+> 1024 px `@media` answer is fixed: a narrow Viewer does not switch to a
+> page's phone layout. `width` counts the border and padding in, the way
 > `box-sizing: border-box` has it.
 
 > ⚠️ **Caveat — nothing is fetched.** `@import`, `<link rel="stylesheet">`,
@@ -4849,19 +4857,17 @@ in every form CSS writes them: `#rgb`, `#rrggbbaa`, `rgb()`/`rgba()`,
 
 > **Note — Bulma, built in.** A page whose `<head>` links Bulma —
 > `<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">`,
-> or any `href` naming `bulma` — is styled by the Viewer's own Bulma sheet,
-> nothing downloaded. A browser opening the same page loads the real Bulma,
-> so one HTML file, with no JavaScript, looks the same in both. The sheet
-> covers Bulma 0.9.4's layout and components — `section`, `container`,
-> `hero` (with its colours and `is-bold` gradients), `columns`/`column` and
-> their widths (`is-half`, `is-one-third`, `is-2` … `is-12`,
-> `is-multiline`, `is-vcentered`), `level`, `media`, `tile`, `title` and
-> `subtitle`, `box`, `card`, `notification`, `message`, `panel`, `tag`,
-> `table` (`is-striped`, `is-bordered`, `is-fullwidth`) — and the helpers
-> `has-text-*`, `has-background-*`, `is-size-*`, `has-text-weight-*`, the
-> flex helpers and the `m-*` / `p-*` spacing. It is cascaded before the
-> page's own `<style>`, as a linked sheet is, so the page can still override
-> any rule.
+> or any `href` naming `bulma` — is styled by **Bulma 0.9.4 itself**,
+> which ships inside the Viewer: nothing is downloaded. A browser opening the
+> same page loads the same Bulma from the link, so one HTML file, with no
+> JavaScript, looks the same in both. Bulma's layout and components come
+> through — `section`, `container`, `hero` (its colours and `is-bold`
+> gradients), `columns` / `column` and their widths, `level`, `media`,
+> `tile`, `title` and `subtitle`, `box`, `card`, `notification`, `message`,
+> `panel`, `tag`, `table` — and the helpers `has-text-*`,
+> `has-background-*`, `is-size-*`, the flex helpers and the `m-*` / `p-*`
+> spacing. Bulma is cascaded before the page's own `<style>`, as a linked
+> sheet is, so the page can still override any rule.
 >
 > ```html
 > <head>
@@ -4881,11 +4887,14 @@ in every form CSS writes them: `#rgb`, `#rrggbbaa`, `rgb()`/`rgba()`,
 > A COBOL program that writes such a page — `ASSIGN TO VIEWER`, a file it
 > shows with `Source`, an answer from an `AgentObject` — needs nothing else.
 
-> ⚠️ **Caveat — Bulma at desktop width.** Bulma makes `.columns` a row only
-> above 768 px, behind `@media`; the Viewer has no media queries, so its
-> `.columns` are always a row. Bulma's JavaScript-driven parts (a navbar's
-> burger, dropdowns, modals) are not in the subset — the pages it is for are
-> reports.
+> ⚠️ **Caveat — what Bulma cannot do here.** The Viewer answers `@media`
+> as a 1024 px desktop, so Bulma's desktop layout is the one shown. A
+> `.tag` or `.button` inside a sentence is a highlight without its padding
+> and rounded corners (inside `.tags` or `.buttons` it is a full box).
+> Hover states, `::before`/`::after` decorations (a `delete` button's
+> cross, a `select`'s arrow) and the form controls are not drawn, and the
+> JavaScript-driven parts (a navbar's burger, dropdowns, modals) are out of
+> scope: the pages this is for are reports.
 
 #### Layouts
 

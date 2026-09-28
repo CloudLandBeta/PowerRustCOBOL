@@ -10047,6 +10047,12 @@ fn open_css_box(
             if let Some(mx) = style.max_width {
                 w = w.min(mx * k);
             }
+            // An inline box: as wide as its content, when that is known.
+            if style.fit_content && style.width.is_none() && style.width_share.is_none() {
+                if let Some(c) = styled_content_width(painter, ctx, style, blocks) {
+                    w = w.min(c - m[1] - m[3]);
+                }
+            }
             w.clamp(20.0_f32.min(avail), avail)
         }
     };
@@ -10394,8 +10400,7 @@ fn paint_layout_line(
 /// `None` for content that has no natural width and fills what it is given
 /// (a table, a list, code, a diagram).
 fn max_content_width(painter: &egui::Painter, ctx: &BlockPaintCtx, block: &crate::viewer::Block) -> Option<f32> {
-    use crate::viewer::{Block, LayoutKind};
-    let k = ctx.css_scale;
+    use crate::viewer::Block;
     match block {
         Block::Paragraph { content } | Block::Heading { content, .. } => {
             let size = match block {
@@ -10405,25 +10410,35 @@ fn max_content_width(painter: &egui::Painter, ctx: &BlockPaintCtx, block: &crate
             let job = build_inline_job(content, size, ctx.text_ink, ctx.strong_ink, ctx.link_color, ctx.code_color, f32::INFINITY, ctx.css_scale);
             Some(viewer_layout(painter, job).rect.width().ceil() + 1.0)
         }
-        Block::Styled { style, blocks } => {
-            let frame = (style.margin[1] + style.margin[3] + style.padding[1] + style.padding[3]) * k
-                + (style.border_width[1] + style.border_width[3]) * k;
-            if let Some(w) = style.width {
-                return Some(w * k + (style.margin[1] + style.margin[3]) * k);
-            }
-            let inner: Option<Vec<f32>> = blocks.iter().map(|b| max_content_width(painter, ctx, b)).collect();
-            let inner = inner?;
-            let content = match style.layout.as_ref().map(|l| &l.kind) {
-                Some(LayoutKind::Row) => {
-                    let gap = style.layout.as_ref().map(|l| l.gap[1] * k).unwrap_or(0.0);
-                    inner.iter().sum::<f32>() + gap * (inner.len().saturating_sub(1)) as f32
-                }
-                _ => inner.iter().copied().fold(0.0, f32::max),
-            };
-            Some(content + frame)
-        }
+        Block::Styled { style, blocks } => styled_content_width(painter, ctx, style, blocks),
         _ => None,
     }
+}
+
+/// [`max_content_width`] of a CSS box, margins included.
+fn styled_content_width(
+    painter: &egui::Painter,
+    ctx: &BlockPaintCtx,
+    style: &crate::viewer::BoxStyle,
+    blocks: &[crate::viewer::Block],
+) -> Option<f32> {
+    use crate::viewer::LayoutKind;
+    let k = ctx.css_scale;
+    let frame = (style.margin[1] + style.margin[3] + style.padding[1] + style.padding[3]) * k
+        + (style.border_width[1] + style.border_width[3]) * k;
+    if let Some(w) = style.width {
+        return Some(w * k + (style.margin[1] + style.margin[3]) * k);
+    }
+    let inner: Option<Vec<f32>> = blocks.iter().map(|b| max_content_width(painter, ctx, b)).collect();
+    let inner = inner?;
+    let content = match style.layout.as_ref().map(|l| &l.kind) {
+        Some(LayoutKind::Row) => {
+            let gap = style.layout.as_ref().map(|l| l.gap[1] * k).unwrap_or(0.0);
+            inner.iter().sum::<f32>() + gap * (inner.len().saturating_sub(1)) as f32
+        }
+        _ => inner.iter().copied().fold(0.0, f32::max),
+    };
+    Some(content + frame)
 }
 
 fn paint_table(

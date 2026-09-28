@@ -19,9 +19,10 @@
 //! `url(…)` are ignored: a viewer that loaded what a page asked for would be a
 //! browser, with a browser's attack surface.
 //!
-//! `@media` blocks are skipped whole. The pane is desktop-wide, and the rules
-//! a page puts behind a media query are, overwhelmingly, its narrow-screen
-//! overrides.
+//! `@media` blocks are evaluated against a desktop screen [`MEDIA_WIDTH_PX`]
+//! wide: the pane is desktop-wide, so a page's desktop rules apply and its
+//! narrow-screen and print overrides do not. That is what lets a framework
+//! such as Bulma, whose columns become a row only above 768 px, lay out.
 
 use std::collections::HashMap;
 
@@ -45,9 +46,24 @@ pub struct ElementRef<'a> {
     pub index: usize,
     /// How many element children the parent has.
     pub count: usize,
+    /// The parent's element children, in order — what `+` and `~` look
+    /// back through. Empty when unknown; a sibling selector then fails.
+    pub siblings: &'a [Sibling],
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// One element child of a parent, as a sibling combinator sees it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Sibling {
+    pub name: String,
+    pub id: Option<String>,
+    pub classes: Vec<String>,
+}
+
+/// The width `@media` queries are answered for, CSS pixels: a desktop
+/// screen, never print.
+pub const MEDIA_WIDTH_PX: f32 = 1024.0;
+
+#[derive(Debug, Clone, PartialEq)]
 enum Pseudo {
     FirstChild,
     LastChild,
@@ -57,6 +73,8 @@ enum Pseudo {
     Nth(i32, i32),
     /// `:nth-last-child(an+b)`
     NthLast(i32, i32),
+    /// `:not(a, b)` — none of the compounds matches.
+    Not(Vec<Compound>),
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -71,6 +89,10 @@ struct Compound {
 enum Combinator {
     Descendant,
     Child,
+    /// `+` — the element straight before.
+    Adjacent,
+    /// `~` — any element before, same parent.
+    General,
 }
 
 /// A complex selector, left to right: each compound after the first says how
@@ -107,10 +129,25 @@ impl Stylesheet {
             if rest.is_empty() {
                 break;
             }
-            // An at-rule: a statement to its `;`, or a block skipped whole.
+            // An at-rule: a statement to its `;`, or a block skipped whole —
+            // except `@media`, whose rules are kept when its query holds.
             if rest.starts_with('@') {
                 let semi = rest.find(';');
                 let brace = rest.find('{');
+                if let Some(b) = brace.filter(|b| semi.is_none_or(|s| s > *b)) {
+                    let head = rest[1..b].trim();
+                    if let Some(query) = head.strip_prefix("media").filter(|q| q.starts_with(char::is_whitespace) || q.starts_with('(')) {
+                        let Some(e) = block_end(&rest[b..]) else { break };
+                        if media_matches(query) {
+                            for mut r in Stylesheet::parse(&rest[b + 1..b + e]).rules {
+                                r.order = rules.len();
+                                rules.push(r);
+                            }
+                        }
+                        rest = &rest[b + e + 1..];
+                        continue;
+                    }
+                }
                 match (semi, brace) {
                     (Some(s), Some(b)) if s < b => rest = &rest[s + 1..],
                     (Some(s), None) => rest = &rest[s + 1..],
@@ -315,10 +352,19 @@ fn parse_selector(s: &str) -> Option<Selector> {
                 pending = Combinator::Child;
                 i += 1;
             }
-            // Sibling combinators and attribute selectors are not in the
-            // subset: a selector using one is dropped rather than matched
-            // wrongly.
-            '+' | '~' | '[' => return None,
+            '+' | '~' => {
+                if let Some(cmp) = current.take() {
+                    parts.push((pending, cmp));
+                }
+                if parts.is_empty() {
+                    return None;
+                }
+                pending = if c == '+' { Combinator::Adjacent } else { Combinator::General };
+                i += 1;
+            }
+            // Attribute selectors are not in the subset: a selector using
+            // one is dropped rather than matched wrongly.
+            '[' => return None,
             '*' => {
                 current.get_or_insert_with(Compound::default);
                 i += 1;
@@ -351,7 +397,18 @@ fn parse_selector(s: &str) -> Option<Selector> {
                 let mut arg = String::new();
                 if i < chars.len() && chars[i] == '(' {
                     let start = i + 1;
-                    while i < chars.len() && chars[i] != ')' {
+                    let mut depth = 0;
+                    while i < chars.len() {
+                        match chars[i] {
+                            '(' => depth += 1,
+                            ')' => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
                         i += 1;
                     }
                     arg = chars[start..i.min(chars.len())].iter().collect();
@@ -370,6 +427,21 @@ fn parse_selector(s: &str) -> Option<Selector> {
                         let (a, b) = parse_nth(&arg)?;
                         Pseudo::NthLast(a, b)
                     }
+                    // Each argument one compound: `:not(.a)`, `:not(:last-child)`.
+                    "not" => {
+                        let mut list = Vec::new();
+                        for a in split_top(&arg, ',') {
+                            let sel = parse_selector(a.trim())?;
+                            let [(Combinator::Descendant, cmp)] = <[_; 1]>::try_from(sel.parts).ok()? else {
+                                return None;
+                            };
+                            list.push(cmp);
+                        }
+                        if list.is_empty() {
+                            return None;
+                        }
+                        Pseudo::Not(list)
+                    }
                     _ => return None,
                 };
                 current.get_or_insert_with(Compound::default).pseudos.push(p);
@@ -387,7 +459,7 @@ fn parse_selector(s: &str) -> Option<Selector> {
     }
     if let Some(cmp) = current.take() {
         parts.push((pending, cmp));
-    } else if pending == Combinator::Child {
+    } else if pending != Combinator::Descendant {
         return None;
     }
     (!parts.is_empty()).then_some(Selector { parts })
@@ -439,14 +511,31 @@ impl Compound {
         if !self.classes.iter().all(|c| e.classes.iter().any(|ec| ec == c)) {
             return false;
         }
-        self.pseudos.iter().all(|p| match *p {
+        self.pseudos.iter().all(|p| match p {
             Pseudo::FirstChild => e.index == 1,
             Pseudo::LastChild => e.index == e.count,
             Pseudo::OnlyChild => e.count == 1,
             Pseudo::Root => e.name == "html",
-            Pseudo::Nth(a, b) => nth_matches(a, b, e.index as i32),
-            Pseudo::NthLast(a, b) => nth_matches(a, b, (e.count + 1 - e.index) as i32),
+            Pseudo::Nth(a, b) => nth_matches(*a, *b, e.index as i32),
+            Pseudo::NthLast(a, b) => nth_matches(*a, *b, (e.count + 1 - e.index) as i32),
+            Pseudo::Not(list) => !list.iter().any(|c| c.matches(e)),
         })
+    }
+
+    /// (ids, classes and pseudo-classes, tags) — `:not()` counts as its
+    /// most specific argument.
+    fn specificity(&self) -> (u32, u32, u32) {
+        let mut s = (self.id.is_some() as u32, self.classes.len() as u32, self.tag.is_some() as u32);
+        for p in &self.pseudos {
+            match p {
+                Pseudo::Not(list) => {
+                    let m = list.iter().map(Compound::specificity).max().unwrap_or_default();
+                    s = (s.0 + m.0, s.1 + m.1, s.2 + m.2);
+                }
+                _ => s.1 += 1,
+            }
+        }
+        s
     }
 }
 
@@ -454,9 +543,8 @@ impl Selector {
     fn specificity(&self) -> (u32, u32, u32) {
         let mut s = (0, 0, 0);
         for (_, c) in &self.parts {
-            s.0 += c.id.is_some() as u32;
-            s.1 += (c.classes.len() + c.pseudos.len()) as u32;
-            s.2 += c.tag.is_some() as u32;
+            let t = c.specificity();
+            s = (s.0 + t.0, s.1 + t.1, s.2 + t.2);
         }
         s
     }
@@ -472,13 +560,117 @@ impl Selector {
             if rest_parts.is_empty() {
                 return true;
             }
+            // A sibling stands in for the element, under the same ancestors.
+            let as_sibling = |j: usize| {
+                let s = &elem.siblings[j - 1];
+                let mut p = ancestors.to_vec();
+                p.push(ElementRef {
+                    name: &s.name,
+                    id: s.id.as_deref(),
+                    classes: &s.classes,
+                    index: j,
+                    count: elem.count,
+                    siblings: elem.siblings,
+                });
+                at(rest_parts, &p)
+            };
+            let before = elem.index.saturating_sub(1).min(elem.siblings.len());
             match comb {
                 Combinator::Child => at(rest_parts, ancestors),
                 Combinator::Descendant => (0..ancestors.len()).rev().any(|n| at(rest_parts, &ancestors[..=n])),
+                Combinator::Adjacent => before > 0 && before + 1 == elem.index && as_sibling(before),
+                Combinator::General => (1..=before).rev().any(as_sibling),
             }
         }
         at(&self.parts, path)
     }
+}
+
+/// Whether an `@media` query list holds on a screen [`MEDIA_WIDTH_PX`] wide:
+/// any of its comma-separated queries. Media types `all` and `screen` hold,
+/// `print` and the rest do not; `min-width` / `max-width` are compared, and
+/// a feature this subset does not know makes its query fail.
+pub fn media_matches(list: &str) -> bool {
+    split_top(list, ',').iter().any(|q| {
+        let q = q.trim().to_ascii_lowercase();
+        let (negated, q) = match q.strip_prefix("not ") {
+            Some(r) => (true, r.trim().to_string()),
+            None => (false, q.strip_prefix("only ").map(|r| r.trim().to_string()).unwrap_or(q)),
+        };
+        let mut ok = true;
+        for part in q.split(" and ") {
+            let part = part.trim();
+            let holds = if let Some(f) = part.strip_prefix('(').and_then(|f| f.strip_suffix(')')) {
+                let (name, value) = f.split_once(':').map(|(n, v)| (n.trim(), v.trim())).unwrap_or((f.trim(), ""));
+                let px = || length(value, 16.0, None);
+                match name {
+                    "min-width" => px().is_some_and(|w| MEDIA_WIDTH_PX >= w),
+                    "max-width" => px().is_some_and(|w| MEDIA_WIDTH_PX <= w),
+                    "orientation" => value == "landscape",
+                    "hover" | "any-hover" => value == "hover",
+                    "pointer" | "any-pointer" => value == "fine",
+                    "prefers-color-scheme" => value == "light",
+                    "color" => true,
+                    _ => false,
+                }
+            } else {
+                matches!(part, "all" | "screen" | "")
+            };
+            ok &= holds;
+        }
+        ok != negated
+    })
+}
+
+/// `calc(…)`: `+ - * /` over lengths and numbers, with parentheses and
+/// nested `calc()`. A percentage needs `percent_of`.
+fn calc(src: &str, font_px: f32, percent_of: Option<f32>) -> Option<f32> {
+    // CSS wants `+` and `-` spaced out inside calc(), so they split on
+    // whitespace; `*`, `/` and the parentheses need no spaces.
+    let spaced: String = src
+        .chars()
+        .flat_map(|c| if matches!(c, '(' | ')' | '*' | '/') { vec![' ', c, ' '] } else { vec![c] })
+        .collect();
+    // A nested `calc(` is only a parenthesis.
+    let toks: Vec<String> =
+        spaced.split_whitespace().filter(|t| !t.eq_ignore_ascii_case("calc")).map(str::to_string).collect();
+    fn expr(t: &[String], i: &mut usize, f: f32, pct: Option<f32>) -> Option<f32> {
+        let mut v = term(t, i, f, pct)?;
+        while let Some(op) = t.get(*i).filter(|o| o.as_str() == "+" || o.as_str() == "-") {
+            let add = op == "+";
+            *i += 1;
+            let r = term(t, i, f, pct)?;
+            v = if add { v + r } else { v - r };
+        }
+        Some(v)
+    }
+    fn term(t: &[String], i: &mut usize, f: f32, pct: Option<f32>) -> Option<f32> {
+        let mut v = factor(t, i, f, pct)?;
+        while let Some(op) = t.get(*i).filter(|o| o.as_str() == "*" || o.as_str() == "/") {
+            let mul = op == "*";
+            *i += 1;
+            let r = factor(t, i, f, pct)?;
+            v = if mul { v * r } else if r != 0.0 { v / r } else { return None };
+        }
+        Some(v)
+    }
+    fn factor(t: &[String], i: &mut usize, f: f32, pct: Option<f32>) -> Option<f32> {
+        let tok = t.get(*i)?;
+        *i += 1;
+        if tok == "(" {
+            let v = expr(t, i, f, pct)?;
+            (t.get(*i)? == ")").then_some(())?;
+            *i += 1;
+            return Some(v);
+        }
+        if tok == "-" {
+            return factor(t, i, f, pct).map(|v| -v);
+        }
+        tok.parse::<f32>().ok().or_else(|| length(tok, f, pct))
+    }
+    let mut i = 0;
+    let v = expr(&toks, &mut i, font_px, percent_of)?;
+    (i == toks.len()).then_some(v)
 }
 
 // ── Values ────────────────────────────────────────────────────────────────
@@ -523,6 +715,9 @@ pub fn substitute_vars(value: &str, vars: &HashMap<String, String>) -> Option<St
 /// when there is one. A unitless `0` is a length; any other bare number is not.
 pub fn length(value: &str, font_px: f32, percent_of: Option<f32>) -> Option<f32> {
     let v = value.trim().to_ascii_lowercase();
+    if let Some(inner) = v.strip_prefix("calc(").and_then(|r| r.strip_suffix(')')) {
+        return calc(inner, font_px, percent_of);
+    }
     let num = |s: &str| s.trim().parse::<f32>().ok();
     if let Some(n) = v.strip_suffix("px") {
         return num(n);
@@ -690,7 +885,7 @@ mod tests {
     use super::*;
 
     fn el<'a>(name: &'a str, id: Option<&'a str>, classes: &'a [String], index: usize, count: usize) -> ElementRef<'a> {
-        ElementRef { name, id, classes, index, count }
+        ElementRef { name, id, classes, index, count, siblings: &[] }
     }
 
     #[test]
@@ -709,7 +904,7 @@ mod tests {
         let last = |name: &str| got.iter().rev().find(|(n, _)| n == name).map(|(_, v)| v.clone());
         assert_eq!(last("color").as_deref(), Some("green"), "{got:?}");
         assert_eq!(last("margin").as_deref(), Some("0"), "!important beats a later rule: {got:?}");
-        assert!(!got.iter().any(|(_, v)| v == "pink"), "an @media block is skipped");
+        assert!(!got.iter().any(|(_, v)| v == "pink"), "a narrow-screen @media block does not apply");
         // The inline style outranks every sheet rule but an important one.
         let inline = parse_declarations("color: orange; margin: 9px");
         let got = sheet.cascade(&path, &inline);
@@ -741,6 +936,71 @@ mod tests {
         let a = [el("a", None, &none, 1, 1)];
         assert_eq!(decl(&a, "color"), None, ":hover never matches a document");
         assert_eq!(sheet.rules.len(), 4, "::before and [attr] are dropped, not guessed at");
+    }
+
+    /// What a framework such as Bulma leans on: `@media` answered for a
+    /// desktop screen, `:not()`, the sibling combinators and `calc()`.
+    #[test]
+    fn media_not_siblings_and_calc() {
+        assert!(media_matches("screen and (min-width: 769px), print"));
+        assert!(media_matches("screen and (min-width:1024px)"));
+        assert!(!media_matches("screen and (max-width: 768px)"), "the narrow-screen override");
+        assert!(!media_matches("print"));
+        assert!(!media_matches("screen and (min-width: 1216px)"), "wider than the pane");
+        assert!(media_matches("not print"));
+        assert!(!media_matches("(prefers-reduced-motion: reduce)"), "an unknown feature fails its query");
+
+        let sheet = Stylesheet::parse(
+            ".title:not(:last-child) { margin-bottom: 24px }
+             .columns:not(.is-desktop) { display: flex }
+             .title + .subtitle { margin-top: -20px }
+             h1 ~ p { color: gray }
+             @media screen and (min-width: 769px), print { .column.is-half { width: 50% } }
+             @media screen and (max-width: 768px) { .column.is-half { width: 100% } }",
+        );
+        let none: Vec<String> = Vec::new();
+        let title = vec!["title".to_string()];
+        let subtitle = vec!["subtitle".to_string()];
+        let columns = vec!["columns".to_string()];
+        let desktop = vec!["columns".to_string(), "is-desktop".to_string()];
+        let half = vec!["column".to_string(), "is-half".to_string()];
+        let kids = vec![
+            Sibling { name: "h1".into(), id: None, classes: title.clone() },
+            Sibling { name: "p".into(), id: None, classes: subtitle.clone() },
+            Sibling { name: "p".into(), id: None, classes: none.clone() },
+        ];
+        let decls = |path: &[ElementRef<'_>], name: &str| {
+            sheet.cascade(path, &[]).into_iter().rev().find(|d| d.name == name).map(|d| d.value)
+        };
+        let body = el("body", None, &none, 1, 1);
+        let h1 = ElementRef { name: "h1", id: None, classes: &title, index: 1, count: 3, siblings: &kids };
+        let sub = ElementRef { name: "p", id: None, classes: &subtitle, index: 2, count: 3, siblings: &kids };
+        let plain = ElementRef { name: "p", id: None, classes: &none, index: 3, count: 3, siblings: &kids };
+        assert_eq!(decls(&[body, h1], "margin-bottom").as_deref(), Some("24px"), ":not(:last-child)");
+        assert_eq!(decls(&[body, sub], "margin-top").as_deref(), Some("-20px"), "title + subtitle");
+        assert_eq!(decls(&[body, plain], "margin-top"), None, "+ is the element straight before only");
+        assert_eq!(decls(&[body, plain], "color").as_deref(), Some("gray"), "h1 ~ p, two apart");
+        assert_eq!(decls(&[body, sub], "color").as_deref(), Some("gray"));
+        assert_eq!(decls(&[body, h1], "color"), None, "~ looks back, never forward");
+        let lone = ElementRef { name: "p", id: None, classes: &subtitle, index: 2, count: 3, siblings: &[] };
+        assert_eq!(decls(&[body, lone], "margin-top"), None, "siblings unknown: no match, no panic");
+        assert_eq!(decls(&[body, el("div", None, &columns, 1, 1)], "display").as_deref(), Some("flex"));
+        assert_eq!(decls(&[body, el("div", None, &desktop, 1, 1)], "display"), None, ":not(.is-desktop)");
+        assert_eq!(decls(&[body, el("div", None, &half, 1, 1)], "width").as_deref(), Some("50%"), "the desktop query holds");
+        // :not() counts as its argument: .a:not(.b) outranks .a.
+        let sp = Stylesheet::parse(".a:not(.b) { color: red } .a { color: blue }");
+        let a = vec!["a".to_string()];
+        assert_eq!(decls_of(&sp, &[el("i", None, &a, 1, 1)], "color").as_deref(), Some("red"));
+
+        assert_eq!(length("calc(-1 * 0.75rem)", 16.0, None), Some(-12.0));
+        assert_eq!(length("calc(100% - 2rem)", 16.0, Some(500.0)), Some(468.0));
+        assert_eq!(length("calc(2 * (1em + 4px))", 10.0, None), Some(28.0));
+        assert_eq!(length("calc(10px + )", 16.0, None), None);
+        assert_eq!(length("-.75rem", 16.0, None), Some(-12.0), "a negative length");
+    }
+
+    fn decls_of(sheet: &Stylesheet, path: &[ElementRef<'_>], name: &str) -> Option<String> {
+        sheet.cascade(path, &[]).into_iter().rev().find(|d| d.name == name).map(|d| d.value)
     }
 
     #[test]

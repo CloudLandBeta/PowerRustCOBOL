@@ -8,6 +8,52 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.327] — 2026-09-28
+
+### Feature — the Viewer runs Bulma as released; its CSS gains what Bulma needs
+
+The operator asked whether what Bulma needs could be added, then said "do
+it" and "faça tudo o que for necessário". 1.70.326 styled a Bulma page with
+a sheet of this project's own. The Viewer now uses **Bulma 0.9.4 itself**:
+`bulma-0.9.4.min.css` is unmodified, under MIT, with its licence beside it
+and an entry in THIRD_PARTY_NOTICES. The sheet is parsed once per thread and
+cascaded before the page's `<style>`. Getting there needed the engine to
+understand what that sheet is written in:
+
+- **`@media`** is evaluated, not skipped. `css::media_matches` answers for a
+  screen `MEDIA_WIDTH_PX` (1024) wide:
+  - `screen` and `all` hold; `print` does not;
+  - `min-width` and `max-width` are compared; `not` and `only` are read;
+  - an unknown feature fails its query.
+
+  Bulma's `.columns` and `.level` become rows, and its phone overrides stay
+  out.
+- **`:not(…)`**, with a list of compounds, counted as its most specific
+  argument (`.title:not(:last-child)`, `.columns:not(.is-desktop)`).
+- **`+` and `~`**. `ElementRef` carries the parent's element children
+  (`css::Sibling`), so the walker can see the element straight before
+  (`.title + .subtitle`) or any earlier sibling.
+- **`calc()`**: `+ - * /` with parentheses, over px, em, rem, pt, % and
+  numbers.
+- **Negative lengths**, so Bulma's `-0.75rem` gutters on `.columns` apply.
+  The box layout already honoured a negative margin.
+- **`inline-block` / `inline-flex` / `inline-grid`**:
+  - holding only inline content, the element stays in its line with its
+    background as a highlight (a `.tag` in a sentence);
+  - holding blocks, it is a box as wide as its content (`BoxStyle::fit_content`,
+    sized by `paint::styled_content_width`);
+  - as a flex item it is a box of its own (a `.tag` in `.tags`).
+- The project's own `bulma.css` is removed.
+- Measured in a debug build: the 207 KB sheet parses in about 30 ms once;
+  a Bulma page is styled in about 3 ms.
+- Tests: `css::tests::media_not_siblings_and_calc`,
+  `viewer::html_tests::bulma_as_released_styles_a_page`, and the 1.70.326
+  Bulma test, now run against the real sheet. Forms 1211/1211, PowerChat
+  19/19.
+- Developer's Guide: the CSS table (inline boxes, `calc()`, negative
+  margins), the selectors (`+`, `~`, `:not()`), how `@media` is answered,
+  and the Bulma note and caveat.
+
 ## [PowerRustCOBOL 1.70.326] — 2026-09-28
 
 ### Feature — Bulma in the Viewer; report templates in PowerChat

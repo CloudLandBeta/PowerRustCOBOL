@@ -25,6 +25,12 @@ This is not an exhaustive SPDX bill of materials — run license tooling before 
 Entries reflect major external crates in active use as of v1.22.0:
 
 ```text
+Component: Bulma 0.9.4 (CSS framework)
+Homepage: https://bulma.io — https://github.com/jgthms/bulma
+License: MIT — Copyright (c) 2022 Jeremy Thomas (full text: crates/cobolt-forms/src/bulma-0.9.4.LICENSE)
+File: crates/cobolt-forms/src/bulma-0.9.4.min.css (unmodified), embedded in every binary
+Used by: cobolt-forms (the Viewer styles a page that links Bulma with it)
+
 Component: egui / eframe / egui_extras
 Homepage: https://github.com/emilk/egui
 License: MIT OR Apache-2.0

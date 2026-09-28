@@ -707,6 +707,9 @@ pub struct BoxStyle {
     /// `grid-column: span N` — how many columns a grid item covers; `0` is
     /// one, and `u16::MAX` the whole row (`1 / -1`).
     pub column_span: u16,
+    /// `display: inline-block | inline-flex | inline-grid` holding blocks: a
+    /// box as wide as its content, not as its container.
+    pub fit_content: bool,
 }
 
 /// A CSS container's layout of its children (`display: flex` / `grid`).
@@ -2679,7 +2682,7 @@ pub fn parse_html(html: &str) -> LayoutDocument {
     // in its place — nothing is fetched — cascaded first, as a linked sheet
     // is, so the page's `<style>` still overrides it.
     let mut sheet = if links_bulma(&dom) {
-        crate::css::Stylesheet::parse(BULMA_CSS)
+        bulma_sheet()
     } else {
         crate::css::Stylesheet::default()
     };
@@ -2698,8 +2701,16 @@ pub fn parse_html(html: &str) -> LayoutDocument {
         .copied()
         .filter(|h| h.get(parser).is_some_and(|n| n.as_tag().is_some()))
         .collect();
-    let mut walker =
-        HtmlWalker { parser, blocks: Vec::new(), inline: Vec::new(), sheet, path: Vec::new(), root_children };
+    let root_kids = HtmlWalker::siblings_of(parser, &root_children);
+    let mut walker = HtmlWalker {
+        parser,
+        blocks: Vec::new(),
+        inline: Vec::new(),
+        sheet,
+        path: Vec::new(),
+        root_children,
+        root_kids,
+    };
     let cx = HtmlCx::root();
     for handle in dom.children() {
         walker.node(*handle, &cx);
@@ -2708,9 +2719,17 @@ pub fn parse_html(html: &str) -> LayoutDocument {
     LayoutDocument { blocks: walker.blocks }
 }
 
-/// The Viewer's Bulma-compatible sheet: Bulma's class names and look, written
-/// for this subset (see the file's own header).
-pub const BULMA_CSS: &str = include_str!("bulma.css");
+/// Bulma 0.9.4, as released (MIT, © Jeremy Thomas — see
+/// THIRD_PARTY_NOTICES.md): what a page that links Bulma is styled by.
+pub const BULMA_CSS: &str = include_str!("bulma-0.9.4.min.css");
+
+/// [`BULMA_CSS`] parsed — once per thread, 200 KB is not re-read per page.
+fn bulma_sheet() -> crate::css::Stylesheet {
+    thread_local! {
+        static SHEET: crate::css::Stylesheet = crate::css::Stylesheet::parse(BULMA_CSS);
+    }
+    SHEET.with(Clone::clone)
+}
 
 /// Whether the page links a Bulma stylesheet — a `<link>` whose `href` names
 /// `bulma` (a CDN URL, or a local `bulma.min.css`).
@@ -2783,6 +2802,8 @@ struct ElemInfo {
     index: usize,
     count: usize,
     children: Vec<tl::NodeHandle>,
+    /// The element children as sibling selectors see them.
+    kids: Vec<crate::css::Sibling>,
 }
 
 struct HtmlWalker<'a, 'p> {
@@ -2795,6 +2816,7 @@ struct HtmlWalker<'a, 'p> {
     sheet: crate::css::Stylesheet,
     path: Vec<ElemInfo>,
     root_children: Vec<tl::NodeHandle>,
+    root_kids: Vec<crate::css::Sibling>,
 }
 
 impl HtmlWalker<'_, '_> {
@@ -2868,7 +2890,23 @@ impl HtmlWalker<'_, '_> {
             .map(|c| c.split_whitespace().map(str::to_string).collect())
             .unwrap_or_default();
         let children = self.element_children(tag);
-        self.path.push(ElemInfo { name: name.to_string(), id, classes, index, count, children });
+        let kids = Self::siblings_of(self.parser, &children);
+        self.path.push(ElemInfo { name: name.to_string(), id, classes, index, count, children, kids });
+    }
+
+    /// Element children as [`crate::css::Sibling`]s: name, id and classes.
+    fn siblings_of(parser: &tl::Parser<'_>, handles: &[tl::NodeHandle]) -> Vec<crate::css::Sibling> {
+        handles
+            .iter()
+            .filter_map(|h| h.get(parser).and_then(|n| n.as_tag()))
+            .map(|t| crate::css::Sibling {
+                name: t.name().as_utf8_str().to_ascii_lowercase(),
+                id: Self::attr(t, "id").map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+                classes: Self::attr(t, "class")
+                    .map(|c| c.split_whitespace().map(str::to_string).collect())
+                    .unwrap_or_default(),
+            })
+            .collect()
     }
 
     /// The element's computed style: what it hands its children, its box,
@@ -2919,12 +2957,14 @@ impl HtmlWalker<'_, '_> {
             let refs: Vec<crate::css::ElementRef<'_>> = self
                 .path
                 .iter()
-                .map(|e| crate::css::ElementRef {
+                .enumerate()
+                .map(|(i, e)| crate::css::ElementRef {
                     name: &e.name,
                     id: e.id.as_deref(),
                     classes: &e.classes,
                     index: e.index,
                     count: e.count,
+                    siblings: if i == 0 { &self.root_kids } else { &self.path[i - 1].kids },
                 })
                 .collect();
             let decls = self.sheet.cascade(&refs, &inline_decls);
@@ -2993,8 +3033,21 @@ impl HtmlWalker<'_, '_> {
             return;
         }
         self.enter(handle, tag, &name);
-        let (mut ecx, bx, hidden, block) = self.style_of(tag, &name, cx);
+        let (mut ecx, bx, hidden, mut block) = self.style_of(tag, &name, cx);
         let is_item = cx.layout_item;
+        // An inline box with nothing but inline content inside — a Bulma
+        // `.tag`, `.icon`, a `<span style="display:inline-block">` — stays in
+        // the line of text, its background a highlight behind its words.
+        if bx.fit_content && !is_item && !HTML_BLOCK_TAGS.contains(&name.as_str()) {
+            let only_inline = self.element_children(tag).iter().all(|h| {
+                h.get(self.parser)
+                    .and_then(|n| n.as_tag())
+                    .is_some_and(|t| !HTML_BLOCK_TAGS.contains(&t.name().as_utf8_str().to_ascii_lowercase().as_str()))
+            });
+            if only_inline {
+                block = false;
+            }
+        }
         ecx.layout_item = bx.layout.is_some();
         if !hidden {
             if (block && bx.is_visible()) || is_item {
@@ -3487,10 +3540,20 @@ fn apply_declaration(
         "display" => {
             match lv.as_str() {
                 "none" => *hidden = true,
-                "block" | "flex" | "grid" | "list-item" | "table" | "flow-root" | "inline-flex" | "inline-grid" => {
-                    *block = true
+                "block" | "flex" | "grid" | "list-item" | "table" | "flow-root" => {
+                    *block = true;
+                    bx.fit_content = false;
                 }
-                "inline" | "inline-block" => *block = false,
+                // An inline box: a box as wide as its content — or, holding
+                // only inline content, a run in the text (decided in `node`).
+                "inline-block" | "inline-flex" | "inline-grid" => {
+                    *block = true;
+                    bx.fit_content = true;
+                }
+                "inline" => {
+                    *block = false;
+                    bx.fit_content = false;
+                }
                 _ => {}
             }
             lay.grid = match lv.as_str() {
@@ -7661,6 +7724,75 @@ mod html_tests {
         );
         let plain = parse_html("<div class=\"columns\"><div class=\"column\">a</div></div>").blocks;
         assert!(find(&plain).iter().all(|b| b.layout.is_none()), "no link, no Bulma");
+    }
+
+    /// Bulma as released, through the engine: the rules behind
+    /// `@media`, `:not()`, `+` and negative margins land, an inline `.tag`
+    /// stays in its sentence and a `.tag` in `.tags` is a box as wide as its
+    /// word. Timed: the 200 KB sheet parsed once, a page styled by it.
+    #[test]
+    fn bulma_as_released_styles_a_page() {
+        let t = std::time::Instant::now();
+        let rules = crate::css::Stylesheet::parse(BULMA_CSS);
+        let parse_ms = t.elapsed().as_secs_f64() * 1000.0;
+        assert!(!rules.is_empty());
+        let page = "<html><head><link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css\"></head><body>\
+            <section class=\"section\"><h1 class=\"title\">T</h1><p class=\"subtitle\">S</p>\
+            <div class=\"columns\"><div class=\"column\"><div class=\"box\">a</div></div><div class=\"column\">b</div></div>\
+            <p>State: <span class=\"tag is-success\">OK</span> today.</p>\
+            <div class=\"tags\"><span class=\"tag is-danger\">Late</span><span class=\"tag\">x</span></div>\
+            </section></body></html>";
+        let _ = bulma_sheet();
+        let t = std::time::Instant::now();
+        let blocks = parse_html(page).blocks;
+        let page_ms = t.elapsed().as_secs_f64() * 1000.0;
+        fn walk(b: &[Block], out: &mut Vec<(BoxStyle, Vec<Block>)>) {
+            for b in b {
+                if let Block::Styled { style, blocks } = b {
+                    out.push(((**style).clone(), blocks.clone()));
+                    walk(blocks, out);
+                }
+            }
+        }
+        let mut boxes = Vec::new();
+        walk(&blocks, &mut boxes);
+        let columns = boxes
+            .iter()
+            .find(|(b, kids)| b.layout.as_ref().is_some_and(|l| l.kind == LayoutKind::Row) && kids.len() == 2 && b.margin[3] < 0.0)
+            .expect("the .columns row, pulled out by its negative margins");
+        assert_eq!((columns.0.margin[1], columns.0.margin[3]), (-12.0, -12.0));
+        assert!(
+            boxes.iter().any(|(b, kids)| b.margin[0] == -20.0 && kids.iter().any(|k| matches!(k, Block::Paragraph { .. }))),
+            ".title + .subtitle pulls the subtitle up (a :not() and a + rule)"
+        );
+        // The sentence keeps its tag inline, highlighted.
+        let sentence = blocks_text_runs(&blocks);
+        assert!(
+            sentence.iter().any(|(t, bg)| t == "OK" && bg.as_deref() == Some("#48c78eff")),
+            "the inline tag is a run in its sentence: {sentence:?}"
+        );
+        // In .tags, each tag is a box of its own, as wide as its word.
+        let tags = boxes.iter().find(|(b, kids)| b.layout.is_some() && kids.len() == 2 && b.margin[3] >= 0.0 && kids.iter().all(|k| matches!(k, Block::Styled { style, .. } if style.fit_content)));
+        assert!(tags.is_some(), "the .tags row of fit-content boxes");
+        println!("\n  ── Bulma 0.9.4 in the Viewer ──\n  sheet parsed in {parse_ms:.1} ms; a page styled by it in {page_ms:.2} ms\n");
+    }
+
+    fn blocks_text_runs(blocks: &[Block]) -> Vec<(String, Option<String>)> {
+        let mut out = Vec::new();
+        for b in blocks {
+            match b {
+                Block::Paragraph { content } => {
+                    for i in content {
+                        if let Inline::Text { text, style } = i {
+                            out.push((text.trim().to_string(), style.background.clone()));
+                        }
+                    }
+                }
+                Block::Styled { blocks, .. } => out.extend(blocks_text_runs(blocks)),
+                _ => {}
+            }
+        }
+        out
     }
 
     /// The layout declarations a model's infographic uses, in any order, land
