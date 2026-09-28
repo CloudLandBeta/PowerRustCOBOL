@@ -1715,23 +1715,44 @@ fn powerchat_puts_a_formatted_answer_in_the_stream_not_a_bubble() {
         // A Markdown answer that shows a page in a fenced block: the page is
         // rendered, not shown as code to copy (operator, 2026-09-27).
         (8, "A", "Here is the page: ```html <html><head><style>h1{color:red}</style></head><body><h1>Contracts</h1><table><tr><td>A</td><td>20</td></tr></table></body></html>``` Save it as a file."),
+        (9, "U", "Build the contract process, polished HTML"),
+        // A page written STRAIGHT into a Markdown answer, no fence — what a
+        // model actually sent (operator, 2026-09-28). Markdown would read it
+        // only to its first blank line and show the rest as code.
+        (10, "A", "Here is the process: *** <!DOCTYPE html><html><head><style>.box{background:#0056b3;color:white;padding:12px}</style></head><body><div class='box'><h2>Contract flow</h2></div><table><tr><td>Draft</td><td>Legal</td></tr></table></body></html> Anything else?"),
     ]);
     let mut s = Session::start("chat-form.cfrm");
     s.settle();
     s.menu(&format!("c{conv}"));
-    let html = s.wait_for("Vwr-Chat", "_ConversationHtml", |v| v.contains("Save it as a file"));
+    let html = s.wait_for("Vwr-Chat", "_ConversationHtml", |v| v.contains("Anything else"));
     s.quit();
     let messages = cobolt_forms::viewer::parse_conversation_html(&html);
     let roles: Vec<cobolt_forms::viewer::MessageRole> = messages.iter().map(|m| m.role).collect();
     use cobolt_forms::viewer::MessageRole::{Agent, None as Stream, User};
     assert_eq!(
         roles,
-        vec![User, Agent, User, Stream, User, Stream, User, Stream, Stream, Stream],
-        "a reply in its bubble; the presentations in the stream, the fenced page as its own rendered part"
+        vec![User, Agent, User, Stream, User, Stream, User, Stream, Stream, Stream, User, Stream, Stream, Stream],
+        "a reply in its bubble; the presentations in the stream, each page (fenced or not) as its own rendered part"
     );
     use cobolt_forms::viewer::Block;
     let page = &messages[8].blocks;
     assert!(page.iter().any(|b| matches!(b, Block::Table { .. })), "the fenced page is rendered: {page:?}");
+    // The unfenced page: rendered as HTML, its own CSS applied (the .box's
+    // background), between its prose before and after.
+    fn has_styled(blocks: &[Block]) -> bool {
+        blocks.iter().any(|b| match b {
+            Block::Styled { style, blocks } => {
+                style.background == Some(cobolt_forms::viewer::Background::Solid("#0056b3ff".into())) || has_styled(blocks)
+            }
+            _ => false,
+        })
+    }
+    assert!(has_styled(&messages[12].blocks), "the page's CSS box: {:?}", messages[12].blocks);
+    use cobolt_forms::viewer::SearchableText;
+    let text_of = |i: usize| cobolt_forms::viewer::LayoutDocument { blocks: messages[i].blocks.clone() }.searchable_text().unwrap_or_default();
+    assert!(text_of(11).contains("Here is the process") && !text_of(11).contains("DOCTYPE"), "{}", text_of(11));
+    assert!(text_of(12).contains("Contract flow") && text_of(12).contains("Draft"));
+    assert!(text_of(13).contains("Anything else"));
     assert!(
         !messages.iter().flat_map(|m| &m.blocks).any(|b| matches!(b, Block::CodeBlock { .. })),
         "no page is shown as code to copy"

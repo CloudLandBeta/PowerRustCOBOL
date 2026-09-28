@@ -440,6 +440,11 @@
        01 WS-FA              GLOBAL PIC 9(6).
        01 WS-FB              GLOBAL PIC 9(6).
        01 WS-BS              GLOBAL PIC 9(6).
+       01 WS-FC              GLOBAL PIC 9(6).
+       01 WS-REST            GLOBAL PIC 9(6).
+      *>   The kind of page found: "F" a ```html fence, "R" a page written
+      *>   straight into the answer, space none.
+       01 WS-FKIND           GLOBAL PIC X.
        01 WS-LOWQ            GLOBAL PIC X(64000).
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
@@ -1084,21 +1089,63 @@
        PROCEDURE DIVISION.
       *>   WS-MSG in, a presentation (PC-IS-FORMATTED): straight into the
       *>   conversation, no bubble. HTML is rendered as HTML. Markdown is
-      *>   rendered as Markdown - except a ```html fenced block, which is
-      *>   rendered as the page it holds instead of shown as code to copy
-      *>   (operator, 2026-09-27). The text around each such block stays
-      *>   Markdown, in order.
+      *>   rendered as Markdown - except a page inside it, fenced (```html)
+      *>   or written straight in (<!DOCTYPE, <html, <style), which is
+      *>   rendered as the page it is instead of shown as code (operator,
+      *>   2026-09-27 and 09-28). The text around each page stays Markdown,
+      *>   in order.
            IF WS-FMT-HTML = "Y"
                MOVE Vwr-Chat::AppendHtml(FUNCTION TRIM(WS-MSG)) TO WS-OK
                EXIT PROGRAM
            END-IF
            MOVE 1 TO WS-FP
            PERFORM UNTIL WS-FP > 64100
-               MOVE 0 TO WS-FA
-               INSPECT WS-MSG(WS-FP:) TALLYING WS-FA
+      *>       The next page in what is left: a ```html fence, or a page
+      *>       written straight into the answer - <!DOCTYPE, <html or
+      *>       <style. Markdown reads such a page only up to its first blank
+      *>       line and shows the indented rest as code (operator,
+      *>       2026-09-28: "it showed the generated code"), so it is cut out
+      *>       and rendered as HTML here. The nearest one wins.
+               COMPUTE WS-REST = 64100 - WS-FP + 1
+               MOVE WS-REST TO WS-FA
+               MOVE SPACE TO WS-FKIND
+               MOVE 0 TO WS-FC
+               INSPECT WS-MSG(WS-FP:) TALLYING WS-FC
                    FOR CHARACTERS BEFORE INITIAL "```html"
-      *>       No fence left: the rest is Markdown.
-               IF WS-FP + WS-FA > 64100
+               IF WS-FC < WS-FA
+                   MOVE WS-FC TO WS-FA
+                   MOVE "F" TO WS-FKIND
+               END-IF
+               MOVE 0 TO WS-FC
+               INSPECT WS-MSG(WS-FP:) TALLYING WS-FC
+                   FOR CHARACTERS BEFORE INITIAL "<!DOCTYPE"
+               IF WS-FC < WS-FA
+                   MOVE WS-FC TO WS-FA
+                   MOVE "R" TO WS-FKIND
+               END-IF
+               MOVE 0 TO WS-FC
+               INSPECT WS-MSG(WS-FP:) TALLYING WS-FC
+                   FOR CHARACTERS BEFORE INITIAL "<!doctype"
+               IF WS-FC < WS-FA
+                   MOVE WS-FC TO WS-FA
+                   MOVE "R" TO WS-FKIND
+               END-IF
+               MOVE 0 TO WS-FC
+               INSPECT WS-MSG(WS-FP:) TALLYING WS-FC
+                   FOR CHARACTERS BEFORE INITIAL "<html"
+               IF WS-FC < WS-FA
+                   MOVE WS-FC TO WS-FA
+                   MOVE "R" TO WS-FKIND
+               END-IF
+               MOVE 0 TO WS-FC
+               INSPECT WS-MSG(WS-FP:) TALLYING WS-FC
+                   FOR CHARACTERS BEFORE INITIAL "<style"
+               IF WS-FC < WS-FA
+                   MOVE WS-FC TO WS-FA
+                   MOVE "R" TO WS-FKIND
+               END-IF
+      *>       No page left: the rest is Markdown.
+               IF WS-FKIND = SPACE
                    IF WS-MSG(WS-FP:) NOT = SPACES
                        MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG(WS-FP:)))
                            TO WS-OK
@@ -1111,22 +1158,41 @@
                            TO WS-OK
                    END-IF
                END-IF
-      *>       The page: from past "```html" to the closing fence (or the end
-      *>       of the answer, when the model left it open).
-               COMPUTE WS-BS = WS-FP + WS-FA + 7
-               IF WS-BS > 64100
-                   EXIT PERFORM
+               IF WS-FKIND = "F"
+      *>           A fence: from past "```html" to the closing fence (or the
+      *>           end of the answer, when the model left it open).
+                   COMPUTE WS-BS = WS-FP + WS-FA + 7
+                   IF WS-BS > 64100
+                       EXIT PERFORM
+                   END-IF
+                   MOVE 0 TO WS-FB
+                   INSPECT WS-MSG(WS-BS:) TALLYING WS-FB
+                       FOR CHARACTERS BEFORE INITIAL "```"
+                   MOVE 3 TO WS-FC
+               ELSE
+      *>           A page in the answer: to its </html>, or to the end.
+                   COMPUTE WS-BS = WS-FP + WS-FA
+                   COMPUTE WS-REST = 64100 - WS-BS + 1
+                   MOVE 0 TO WS-FB
+                   INSPECT WS-MSG(WS-BS:) TALLYING WS-FB
+                       FOR CHARACTERS BEFORE INITIAL "</html>"
+                   IF WS-FB NOT < WS-REST
+                       MOVE 0 TO WS-FB
+                       INSPECT WS-MSG(WS-BS:) TALLYING WS-FB
+                           FOR CHARACTERS BEFORE INITIAL "</HTML>"
+                   END-IF
+                   IF WS-FB < WS-REST
+                       ADD 7 TO WS-FB
+                   END-IF
+                   MOVE 0 TO WS-FC
                END-IF
-               MOVE 0 TO WS-FB
-               INSPECT WS-MSG(WS-BS:) TALLYING WS-FB
-                   FOR CHARACTERS BEFORE INITIAL "```"
                IF WS-FB > 0
                    IF WS-MSG(WS-BS:WS-FB) NOT = SPACES
                        MOVE Vwr-Chat::AppendHtml(FUNCTION TRIM(WS-MSG(WS-BS:WS-FB)))
                            TO WS-OK
                    END-IF
                END-IF
-               COMPUTE WS-FP = WS-BS + WS-FB + 3
+               COMPUTE WS-FP = WS-BS + WS-FB + WS-FC
            END-PERFORM
 ]]></Event>
     <Event name="PC-SAY-STATUS" paragraph="PC-SAY-STATUS"><![CDATA[       ENVIRONMENT DIVISION.
@@ -2344,7 +2410,7 @@
   </Control>
   <Control id="AGENT-1" type="AgentObject" x="1200" y="16" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="TimeoutSeconds">120</Property>
-    <Property name="MaximumTokens">1024</Property>
+    <Property name="MaximumTokens">8192</Property>
     <Property name="SystemPrompt">You are a careful research assistant. Answer only from what the topic&apos;s documents and data say, and say so when they do not.</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -2433,7 +2499,7 @@
   </Control>
   <Control id="AGENT-2" type="AgentObject" x="1200" y="80" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="TimeoutSeconds">120</Property>
-    <Property name="MaximumTokens">1024</Property>
+    <Property name="MaximumTokens">8192</Property>
     <Property name="SystemPrompt">You are a careful research assistant. Answer only from what the topic&apos;s documents and data say, and say so when they do not.</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -2522,7 +2588,7 @@
   </Control>
   <Control id="AGENT-3" type="AgentObject" x="1200" y="144" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="TimeoutSeconds">120</Property>
-    <Property name="MaximumTokens">1024</Property>
+    <Property name="MaximumTokens">8192</Property>
     <Property name="SystemPrompt">You are a careful research assistant. Answer only from what the topic&apos;s documents and data say, and say so when they do not.</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>

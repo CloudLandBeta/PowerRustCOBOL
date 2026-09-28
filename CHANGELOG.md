@@ -8,6 +8,52 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.311] — 2026-09-28
+
+### Fix — a conversation scrolls smoothly from its end; PowerChat renders a page written into an answer; answers are no longer cut at 1,024 tokens
+
+- **Viewer, `Streamed`: small scroll steps were undone at the end of a
+  conversation.** Following the end is decided against §8.3's 28 px
+  threshold. That decision was taken on **every** frame, after the reader's
+  own input, and the view was pinned back to the end on every frame too.
+  A trackpad, or the mouse wheel (which egui spreads over several frames),
+  moves a few pixels per frame, so a move up from the end was pulled back
+  each time: it could not leave the end, and it jumped when a big step
+  finally crossed the threshold. This was the real cause of "I cannot scroll
+  up to the start of the answer" and of "the scroll is neither smooth nor
+  responsive". Now:
+  - `AutoFollow::reader_moved` decides from the reader's own move: **any
+    move up leaves the end**, and a move down into the threshold resumes
+    following;
+  - a program's `ScrollPosition` write counts as a move;
+  - the view is pinned to the end only when the **content's height
+    changes**, or on `JumpToLatest`.
+
+  Measured on the way (release build): the Viewer paints a 15-exchange
+  conversation in 0.43 ms, and the real host scrolls PowerChat's chat form
+  at 2.7 ms per frame. The engine was never slow.
+- **PowerChat: a page written straight into a Markdown answer showed as
+  code.** The model sent prose, `***`, then a whole `<!DOCTYPE html>` page
+  with no fence. Markdown reads raw HTML only up to its first blank line, so
+  the `<head>` came out as blank space and the indented rest as a code
+  block. `PC-APPEND-FORMATTED` now cuts out the nearest page, whether it is
+  a ```` ```html ```` fence or a page written in (`<!DOCTYPE`, `<html`,
+  `<style`, up to `</html>` or the end). It renders the page as HTML, with
+  its own CSS (1.70.308), and the prose around it as Markdown.
+- **PowerChat's answers were cut at about 3,200 characters.** The three
+  chat agents carried the control default `MaximumTokens = 1024`, and the
+  reported answer stopped mid-page at exactly that length. They now allow
+  8192.
+- Developer's Guide: the auto-follow note says that any move up leaves the
+  end.
+- Tests:
+  - `small_steps_scroll_up_from_the_end_smoothly`: 40 frames of 4 px from
+    the end must each move, by their own step. It failed at 1056 → 1056 on
+    frame 0 before the fix;
+  - `a_small_move_up_leaves_the_end_and_a_move_down_rejoins_it` (the rule);
+  - the PowerChat stream test gains an unfenced page: prose, the page
+    rendered with its CSS box, then prose, as three parts with no code.
+
 ## [PowerRustCOBOL 1.70.310] — 2026-09-28
 
 ### Feature — Silver Glass, a new IDE theme

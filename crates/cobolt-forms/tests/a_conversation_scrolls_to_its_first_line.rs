@@ -254,3 +254,37 @@ fn the_scrollbar_and_the_keys_reach_both_ends_without_a_wheel() {
     }
     println!();
 }
+
+/// A trackpad (or the wheel, which egui smooths over several frames) moves
+/// the view a few pixels a frame. From the end of a conversation, that must
+/// scroll up — every frame, from the first — and not be pulled back to the
+/// end because the reader is still "near" it (operator, 2026-09-28: "the
+/// scroll is neither smooth nor responsive").
+#[test]
+fn small_steps_scroll_up_from_the_end_smoothly() {
+    let ctx = egui::Context::default();
+    let mut c = chat(&tall_conversation());
+    let mut at = 0.0f32;
+    for _ in 0..4 {
+        if let Some(v) = frame(&ctx, &mut c, Vec::new()) {
+            at = v;
+        }
+    }
+    let end = at;
+    let mut trail = Vec::new();
+    for _ in 0..40 {
+        if let Some(v) = frame(&ctx, &mut c, wheel(4.0)) {
+            at = v;
+        }
+        trail.push(at);
+    }
+    println!("\n  4 px a frame from the end ({end:.0}): {:?}\n", &trail[..10]);
+    // Every frame moved, by its own step — no frame stood still or jumped back.
+    let mut prev = end;
+    for (i, &t) in trail.iter().enumerate() {
+        assert!(t < prev, "frame {i}: {prev} -> {t} did not move up");
+        assert!(prev - t <= 8.0, "frame {i}: {prev} -> {t} jumped");
+        prev = t;
+    }
+    assert!(end - at >= 150.0, "40 small steps travel their distance: {end} -> {at}");
+}

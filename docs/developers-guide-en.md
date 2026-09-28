@@ -5140,7 +5140,8 @@ id the conversation does not hold.
 > **Note — the view follows only if the reader is already at the end.** If your
 > operator has scrolled up to re-read something, new content does **not** yank
 > them back down; a quiet indicator appears instead, and following resumes by
-> itself the moment they scroll back to the end.
+> itself the moment they scroll back to the end. Any move up — however small, a
+> trackpad's few pixels included — counts as leaving the end.
 
 > **Note — moving through a long conversation.** The operator reaches every
 > line, first to last, three ways: the **wheel** (or a trackpad's two-finger

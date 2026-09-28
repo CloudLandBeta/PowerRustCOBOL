@@ -2365,6 +2365,27 @@ impl AutoFollow {
         }
     }
 
+    /// A move the READER made — the wheel, a key, the scrollbar, or the
+    /// program writing `ScrollPosition` — from `from` to `to`, against the
+    /// extent `max` they were reading.
+    ///
+    /// **Up leaves the end at once, however small the step.** §8.3's
+    /// threshold exists so rounding and late layout do not switch following
+    /// off; it was also being applied to the reader's own hand, every frame,
+    /// so a trackpad — or the wheel, which egui spreads over several frames —
+    /// moving a few pixels at a time was pulled back to the end on each one
+    /// and could not leave it at all (operator, 2026-09-28: "the scroll is
+    /// neither smooth nor responsive"). A deliberate move up is a reader
+    /// leaving. **Down** resumes following on arriving within the threshold,
+    /// as §8.3 asks. No move changes nothing.
+    pub fn reader_moved(&mut self, from: f32, to: f32, max: f32) {
+        if to < from - 0.01 {
+            self.active = false;
+        } else if to > from + 0.01 {
+            self.observe(to, max);
+        }
+    }
+
     /// The viewport offset after the document's height changed — an append,
     /// or a late layout change such as an image finishing its decode
     /// (§8.3's last paragraph, AC18).
@@ -7429,6 +7450,26 @@ mod conversation_tests {
 
     /// **§8.4** — activating the indicator must do all three things:
     /// scroll to the end, clear itself, and re-enable automatic following.
+    #[test]
+    fn a_small_move_up_leaves_the_end_and_a_move_down_rejoins_it() {
+        let mut f = AutoFollow::default();
+        // 4 px up from the end — inside the threshold, and still a reader leaving.
+        f.reader_moved(1000.0, 996.0, 1000.0);
+        assert!(!f.is_active(), "a small move up stops following");
+        // New content arrives: the reader stays put and is told about it.
+        assert_eq!(f.after_height_change(996.0, 1400.0), 996.0);
+        assert!(f.has_pending());
+        // Back down to within the threshold of the end: following resumes…
+        f.reader_moved(996.0, 1390.0, 1400.0);
+        assert!(f.is_active() && !f.has_pending());
+        // …and the next append is followed.
+        assert_eq!(f.after_height_change(1390.0, 1800.0), 1800.0);
+        // Standing still changes nothing.
+        f.reader_moved(1800.0, 1800.0, 1800.0);
+        assert!(f.is_active());
+        println!("  4 px up leaves the end; an append then waits (pending); back down within {AUTO_FOLLOW_THRESHOLD} px follows again");
+    }
+
     #[test]
     fn jump_to_latest_scrolls_clears_and_re_enables_following() {
         let mut f = AutoFollow::default();

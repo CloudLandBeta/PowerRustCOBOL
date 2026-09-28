@@ -4736,6 +4736,11 @@ fn viewer_view_interactive(
         .memory(|m| m.data.get_temp::<ViewerLive>(live_id))
         .unwrap_or_else(|| ViewerLive::seed(&st));
 
+    // Where the view stood when this frame began: every move from here —
+    // the program's own write just below included — is the reader's (or the
+    // program's) doing, and decides whether a conversation still follows its
+    // end (`AutoFollow::reader_moved`).
+    let offset_at_start = live.scroll.offset();
     // A COBOL write to `ScrollPosition` outranks our own remembered offset;
     // our own echo (the value we pushed last frame) does not.
     let prop_scroll = st.scroll.round() as i64;
@@ -5510,7 +5515,7 @@ fn viewer_view_interactive(
     // has already made the document taller answers a question nobody asked.
     let new_max = (painted.content_height - chrome.content.h).max(0.0);
     if streamed {
-        live.following.observe(live.scroll.offset(), live.last_max);
+        live.following.reader_moved(offset_at_start, live.scroll.offset(), live.last_max);
     }
     live.scroll.set_max(new_max);
     if streamed {
@@ -5522,8 +5527,13 @@ fn viewer_view_interactive(
         let offset = if asked != live.jumped_seen {
             live.jumped_seen = asked;
             live.following.jump_to_latest(new_max)
-        } else {
+        } else if (new_max - live.last_max).abs() > 0.5 {
+            // Only a change of HEIGHT — an append, a late layout — moves a
+            // following view to the end. Pinning on every frame is what
+            // undid a reader's small moves before they could add up.
             live.following.after_height_change(live.scroll.offset(), new_max)
+        } else {
+            live.scroll.offset()
         };
         live.scroll.set_offset(offset);
         live.last_max = new_max;
