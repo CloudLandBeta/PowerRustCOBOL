@@ -10437,8 +10437,10 @@ share provides.
 The model now has a tool that searches the collection (the control's
 `Collection`, or the one you name as a second argument). It decides when to
 search, and each passage it receives names its document and section, so it can
-cite them. `DenyKnowledgeBase` withdraws it. As with `AllowFile`, a collection
-you allow is visible to every agent in the application.
+cite them. `DenyKnowledgeBase` withdraws it. Unlike `AllowFile`, a collection
+is granted to **the agent you call it on** and no other: with several agents,
+grant it to each one that should search, and denying it to one never takes it
+from another.
 
 > ⚠️ **Caveats.**
 > - One operation at a time per control: a second call while one runs answers

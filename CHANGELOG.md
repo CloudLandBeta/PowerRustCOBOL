@@ -8,6 +8,32 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.304] — 2026-09-27
+
+### Fix — `AllowKnowledgeBase` / `DenyKnowledgeBase` are each agent's own
+
+- **Why PowerChat still said "no documents"** (operator, 2026-09-27, after
+  1.70.303): the Knowledge Base search itself works — probed on the operator's
+  "Legal" collection, semantic, the right sections first (3. Contratos 0.898;
+  3.2 Modelos aprovados 0.905). But the collection tools were ONE list for the
+  whole program, whichever agent the call was made on. PowerChat's election
+  grants the collection to its tool worker (agent 1) and then denies it to
+  agents 2 and 3 — which took it from agent 1 as well, so no agent could
+  search. The first election of a session escaped it (nothing to deny yet);
+  every later one — a model changed, or 1.70.303's re-election when the
+  document count moves off 0 — left the chat with no search.
+- **Per agent now** (operator's ruling, 2026-09-27): a grant belongs to the
+  agent it is called on (`KbTool.agent`); `DenyKnowledgeBase` on one agent
+  never touches another's; each agent is offered, and can run, only its own.
+  This CHANGES the documented behaviour — the System KB and the Developer's
+  Guide said a collection allowed was "visible to every agent"; an application
+  that granted on one agent and asked another must now grant on that one too.
+  System KB and Guide updated; `chunked.data` regenerated.
+- Test: `denying_a_collection_to_one_agent_leaves_another_agents_grant` —
+  PowerChat's order (grant to AGT-1, deny to AGT-2, AGT-1 asks): the tool is
+  offered and answered from leave.md; without the fix the tool is gone.
+  cobolt-runtime 1083/0, cobolt-compiler (lib) 145/0.
+
 ## [PowerRustCOBOL 1.70.303] — 2026-09-27
 
 ### Fix — PowerChat: a document added while the chat is open is used by the next question

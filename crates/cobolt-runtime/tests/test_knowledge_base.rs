@@ -454,6 +454,83 @@ fn an_agent_answers_from_a_collection_and_names_the_document() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Operator (2026-09-27): PowerChat's election grants the collection to its
+/// tool worker (`AGT-1`) and then denies it to the other agents — and the
+/// tool list was ONE list for the whole program, so denying it to `AGT-2`
+/// took it from `AGT-1` too, and no agent could search ("the internal
+/// documents were not provided"). A grant and a denial are each agent's own.
+#[test]
+fn denying_a_collection_to_one_agent_leaves_another_agents_grant() {
+    let root = temp("agent-own");
+    let location = root.join("KB");
+    let (port, seen) = model_server(|round, _| match round {
+        0 => serde_json::json!({
+            "choices": [{"message": {"content": null, "tool_calls": [{
+                "id": "call_1", "type": "function",
+                "function": {"name": "kb_kb_1_hr", "arguments": "{\"query\":\"annual leave days\"}"}
+            }]}}],
+            "usage": {"prompt_tokens": 40, "completion_tokens": 8}
+        })
+        .to_string(),
+        _ => serde_json::json!({
+            "choices": [{"message": {"content": "Twenty working days, per leave.md."}}],
+            "usage": {"prompt_tokens": 90, "completion_tokens": 9}
+        })
+        .to_string(),
+    });
+    let src = format!(
+        r#"{HEADER}
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE KB-1::AddDocument("leave.md", "Annual leave is twenty working days a year.") TO WS-OK
+           PERFORM UNTIL COBOL-QUIT = 1
+               CALL "COBOL-WAIT-EVENT" USING COBOL-EVENT-ID COBOL-CONTROL-ID
+               EVALUATE COBOL-EVENT-ID
+                   WHEN "onIndexed"
+                       MOVE AGT-1::DenyKnowledgeBase("KB-1", "hr") TO WS-OK
+                       MOVE AGT-1::AllowKnowledgeBase("KB-1", "hr") TO WS-OK
+                       MOVE AGT-2::DenyKnowledgeBase("KB-1", "hr") TO WS-OK
+                       MOVE AGT-1::Ask("How much annual leave do we get?") TO WS-TEXT
+                   WHEN "onResponse"
+                       MOVE AGT-1::LastReply TO WS-TEXT
+                       DISPLAY "REPLY=" WS-TEXT
+                       MOVE 1 TO COBOL-QUIT
+                   WHEN "onError"
+                       MOVE AGT-1::LastError TO WS-TEXT
+                       DISPLAY "ERROR=" WS-TEXT
+                       MOVE 1 TO COBOL-QUIT
+               END-EVALUATE
+           END-PERFORM
+           STOP RUN.
+"#
+    );
+    let agent = |port: u16| -> Vec<(String, String)> {
+        [
+            ("AgentAPI", "OpenAI".to_string()),
+            ("AgentURL", format!("http://127.0.0.1:{port}/v1/chat/completions")),
+            ("AgentModel", "test-model".to_string()),
+            ("TimeoutSeconds", "10".to_string()),
+        ]
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.clone()))
+        .collect()
+    };
+    let out = run_with(
+        &src,
+        vec![
+            ("KB-1".into(), "KnowledgeBase".into(), props(&location, &[])),
+            ("AGT-1".into(), "AgentObject".into(), agent(port)),
+            ("AGT-2".into(), "AgentObject".into(), agent(port)),
+        ],
+    );
+    assert!(line(&out, "ERROR=").is_empty(), "{out:#?}");
+    let bodies = seen.lock().unwrap().clone();
+    assert!(bodies[0].contains("kb_kb_1_hr"), "AGT-1 keeps its grant after AGT-2's denial: {}", bodies[0]);
+    assert!(bodies[1].contains("document: leave.md"), "and its search is answered: {}", bodies[1]);
+    assert_eq!(line(&out, "REPLY="), vec!["Twenty working days, per leave.md."]);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// The same question with the collection on an **endpoint** embedder: the
 /// model's search needs the embedding server, so it runs on a worker and the
 /// agent's tool loop resumes when it returns.

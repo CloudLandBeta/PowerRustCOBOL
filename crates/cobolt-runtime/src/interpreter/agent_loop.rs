@@ -109,7 +109,7 @@ impl Interpreter {
                 parameters: t.input_schema,
             })
             .collect();
-        tools.extend(self.kb_tool_specs());
+        tools.extend(self.kb_tool_specs(obj));
         if let Some(declared) = self.agent_declared_tools.get(&obj.trim().to_ascii_uppercase()) {
             tools.extend(declared.iter().map(DeclaredTool::spec));
         }
@@ -293,7 +293,7 @@ impl Interpreter {
                 ))
             } else if declared {
                 None
-            } else if self.kb_tool_is(&call.name) {
+            } else if self.kb_tool_is(obj, &call.name) {
                 self.announce_tool_use(obj, &call, "KnowledgeBase");
                 // Spec 068 — a KnowledgeBase collection. Answered here, or on a
                 // worker when the query needs the embedding server.

@@ -16114,9 +16114,9 @@ impl Interpreter {
                 val(if ok { "1" } else { "0" }.into())
             }
             // Spec 068 — a KnowledgeBase collection as a tool the model uses.
-            "ALLOWKNOWLEDGEBASE" => val(self.agent_allow_kb(&arg(0), &arg(1))),
+            "ALLOWKNOWLEDGEBASE" => val(self.agent_allow_kb(obj, &arg(0), &arg(1))),
             "DENYKNOWLEDGEBASE" => {
-                self.agent_deny_kb(&arg(0), &arg(1));
+                self.agent_deny_kb(obj, &arg(0), &arg(1));
                 none
             }
             "ASK" => {

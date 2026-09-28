@@ -419,6 +419,12 @@ pub(crate) struct KbTool {
     /// The KnowledgeBase control whose settings the search uses.
     pub kb: String,
     pub collection: String,
+    /// The AgentObject it was granted to, upper-cased. A tool is THAT
+    /// agent's: granting one to an agent, or taking one from another, never
+    /// touches the others' (operator, 2026-09-27 — PowerChat's election
+    /// denied the collection to agents 2 and 3 after granting it to the tool
+    /// worker, and the shared list left no agent able to search).
+    pub agent: String,
 }
 
 fn slug(s: &str) -> String {
@@ -451,13 +457,18 @@ pub(crate) fn tool_text(collection: &str, hits: &[KbHit], mode: &str) -> String 
 }
 
 impl Interpreter {
-    pub(crate) fn kb_tool_is(&self, name: &str) -> bool {
-        self.kb_tools.iter().any(|t| t.name.eq_ignore_ascii_case(name))
-    }
-
-    pub(crate) fn kb_tool_specs(&self) -> Vec<crate::agent_tools::ToolSpec> {
+    pub(crate) fn kb_tool_is(&self, agent: &str, name: &str) -> bool {
+        let agent = agent.trim().to_ascii_uppercase();
         self.kb_tools
             .iter()
+            .any(|t| t.agent == agent && t.name.eq_ignore_ascii_case(name))
+    }
+
+    pub(crate) fn kb_tool_specs(&self, agent: &str) -> Vec<crate::agent_tools::ToolSpec> {
+        let agent = agent.trim().to_ascii_uppercase();
+        self.kb_tools
+            .iter()
+            .filter(|t| t.agent == agent)
             .map(|t| crate::agent_tools::ToolSpec {
                 name: t.name.clone(),
                 description: format!(
@@ -483,7 +494,8 @@ impl Interpreter {
     /// `AGT::AllowKnowledgeBase(kb [, collection])` — offer the collection to
     /// the model as a tool. `"1"`, or `"0"` when `kb` is not a KnowledgeBase or
     /// names no collection.
-    pub(crate) fn agent_allow_kb(&mut self, kb: &str, collection: &str) -> String {
+    pub(crate) fn agent_allow_kb(&mut self, agent: &str, kb: &str, collection: &str) -> String {
+        let agent = agent.trim().to_ascii_uppercase();
         let kb = kb.trim();
         if !self.is_knowledge_base(kb) {
             return "0".into();
@@ -497,20 +509,24 @@ impl Interpreter {
             return "0".into();
         }
         let name = format!("kb_{}_{}", slug(kb), slug(&collection));
-        self.kb_tools.retain(|t| !t.name.eq_ignore_ascii_case(&name));
+        self.kb_tools
+            .retain(|t| !(t.agent == agent && t.name.eq_ignore_ascii_case(&name)));
         self.kb_tools.push(KbTool {
             name,
             kb: kb.to_string(),
             collection,
+            agent,
         });
         "1".into()
     }
 
-    pub(crate) fn agent_deny_kb(&mut self, kb: &str, collection: &str) {
+    pub(crate) fn agent_deny_kb(&mut self, agent: &str, kb: &str, collection: &str) {
+        let agent = agent.trim().to_ascii_uppercase();
         let kb = kb.trim();
         let collection = collection.trim();
         self.kb_tools.retain(|t| {
-            !(t.kb.eq_ignore_ascii_case(kb)
+            !(t.agent == agent
+                && t.kb.eq_ignore_ascii_case(kb)
                 && (collection.is_empty() || t.collection.eq_ignore_ascii_case(collection)))
         });
     }
@@ -520,7 +536,12 @@ impl Interpreter {
     /// and a `KbToolResult` will follow for `agent`.
     pub(crate) fn kb_tool_search(&mut self, agent: &str, call: &crate::agent_tools::ToolCall) -> Option<String> {
         use crate::kb_runtime::{self as kr, EmbedderChoice, KbOp};
-        let tool = self.kb_tools.iter().find(|t| t.name.eq_ignore_ascii_case(&call.name))?.clone();
+        let owner = agent.trim().to_ascii_uppercase();
+        let tool = self
+            .kb_tools
+            .iter()
+            .find(|t| t.agent == owner && t.name.eq_ignore_ascii_case(&call.name))?
+            .clone();
         let args = call.arguments.clone().unwrap_or_default();
         let query = args.get("query").and_then(|q| q.as_str()).unwrap_or("").to_string();
         if query.trim().is_empty() {
@@ -574,10 +595,10 @@ impl Interpreter {
 
 #[cfg(not(feature = "kb"))]
 impl Interpreter {
-    pub(crate) fn agent_allow_kb(&mut self, _kb: &str, _collection: &str) -> String {
+    pub(crate) fn agent_allow_kb(&mut self, _agent: &str, _kb: &str, _collection: &str) -> String {
         "0".into()
     }
-    pub(crate) fn agent_deny_kb(&mut self, _kb: &str, _collection: &str) {}
+    pub(crate) fn agent_deny_kb(&mut self, _agent: &str, _kb: &str, _collection: &str) {}
     pub(crate) fn kb_tool_search(&mut self, _agent: &str, _call: &crate::agent_tools::ToolCall) -> Option<String> {
         Some("error: the Knowledge Base is not linked into this program".into())
     }
