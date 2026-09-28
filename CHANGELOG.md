@@ -8,6 +8,25 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.313] — 2026-09-28
+
+### Fix — PowerChat: Browse for a data file and its description
+
+The Data files form wanted two paths typed by hand (operator, 2026-09-28:
+"a button that opens the OS dialog, limited to RustCOBOL's indexed-file
+extension"). Each path now has a **Browse...** button that opens the
+platform's own Open panel:
+- the data file's panel shows **RustCOBOL indexed files (`.idx`)** only;
+- the description's panel shows `.cidx` only.
+
+The choice lands in its field and waits for Save; a cancelled panel changes
+nothing. There are five new texts in all six languages, the text table grows
+from 27 rows to 32, and both fields are narrowed to make room.
+
+Test: `powerchat_browses_for_a_data_file_and_its_description`. The test
+harness's stand-in dialog now records each panel's title and filters, so the
+limit to `.idx` / `.cidx` is asserted, not assumed.
+
 ## [PowerRustCOBOL 1.70.312] — 2026-09-28
 
 ### Fix — Save as PDF works on a main form; a conversation from the history comes into view

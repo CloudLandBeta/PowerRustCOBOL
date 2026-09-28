@@ -44,6 +44,9 @@ struct Session {
     /// it without answering. Written back the way the real dialog's
     /// `super::"SetProperty"` arrives: on the caller's own form object.
     confirm: Arc<Mutex<String>>,
+    /// Every native dialog the program opened: its title and its filters
+    /// (`(description, extensions)`), in order.
+    dialogs_asked: Arc<Mutex<Vec<(String, Vec<(String, Vec<String>)>)>>>,
 }
 
 impl Session {
@@ -98,6 +101,8 @@ impl Session {
         let (opened_tx, opened) = mpsc::channel::<String>();
         let confirm = Arc::new(Mutex::new(String::new()));
         let confirm_answer = confirm.clone();
+        let dialogs_asked: Arc<Mutex<Vec<(String, Vec<(String, Vec<String>)>)>>> = Arc::default();
+        let asked = dialogs_asked.clone();
         // The form's own object, as `set_form_host` below names it.
         let form_object = "FORM".to_string();
         let err_tx = display_tx.clone();
@@ -126,7 +131,8 @@ impl Session {
                     let mut answers = dialogs.unwrap_or_default().into_iter();
                     while let Ok(req) = req_rx.recv() {
                         match req {
-                            FormRequest::FileDialog { reply, .. } => {
+                            FormRequest::FileDialog { title, filters, reply, .. } => {
+                                asked.lock().unwrap().push((title, filters));
                                 let _ = reply.send(answers.next().flatten());
                             }
                             FormRequest::OpenForm { form_id, reply, .. } => {
@@ -151,7 +157,7 @@ impl Session {
                 let _ = err_tx.send(format!("RUN ENDED WITH ERROR: {e:?}"));
             }
         });
-        Session { events, input, state, display, seen: Vec::new(), handle: Some(handle), opened, confirm }
+        Session { events, input, state, display, seen: Vec::new(), handle: Some(handle), opened, confirm, dialogs_asked }
     }
 
     fn type_into(&self, ctrl: &str, text: &str) {
@@ -1771,3 +1777,44 @@ fn powerchat_puts_a_formatted_answer_in_the_stream_not_a_bubble() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Operator (2026-09-28): adding a data file had no way to browse for it —
+/// "a button that opens the OS dialog, limited to RustCOBOL's indexed-file
+/// extension". Both paths get one: the data file (`.idx`) and its
+/// description (`.cidx`), each landing in its field, and a cancelled panel
+/// leaving the field as it was.
+#[test]
+fn powerchat_browses_for_a_data_file_and_its_description() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let root = std::env::temp_dir().join(format!(
+        "prc-071-browse-{}",
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let data = root.join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    std::env::set_var("POWERCHAT_DATA", &data);
+    seed_settings(&data, &[("CUR-TOPIC", "2026092800000000")]);
+    let idx = root.join("actors.idx").display().to_string();
+    let cidx = root.join("actors.cidx").display().to_string();
+    let mut s = Session::start_with_dialogs("files-form.cfrm", vec![Some(idx.clone()), Some(cidx.clone()), None]);
+    s.settle();
+    s.click("Btn-New");
+    s.wait_for("Tab-Crud", "SelectedTab", |v| v == "1");
+    s.click("Btn-BrowseData");
+    let got = s.wait_for("Txt-Data", "Text", |v| v.trim() == idx);
+    s.click("Btn-BrowseCidx");
+    let got_cidx = s.wait_for("Txt-Cidx", "Text", |v| v.trim() == cidx);
+    // Cancelled: the field keeps what it had.
+    s.click("Btn-BrowseData");
+    let v = s.settle();
+    let asked = s.dialogs_asked.lock().unwrap().clone();
+    s.quit();
+    assert_eq!(got.trim(), idx);
+    assert_eq!(got_cidx.trim(), cidx);
+    assert!(v.get(&("TXT-DATA".to_string(), "TEXT".to_string())).is_none_or(|t| t.trim() == idx), "a cancelled panel changes nothing");
+    assert_eq!(asked.len(), 3, "{asked:?}");
+    assert_eq!(asked[0].1, vec![("RustCOBOL indexed files".to_string(), vec!["idx".to_string()])], "the data file: .idx only");
+    assert_eq!(asked[1].1, vec![("RustCOBOL file descriptions".to_string(), vec!["cidx".to_string()])], "its description: .cidx only");
+    assert_eq!(asked[0].0, "Choose the indexed data file");
+    println!("\n  ── 071 PowerChat, browse for a data file ──\n  panels: {asked:?}\n  fields: {got} / {got_cidx}\n");
+    let _ = std::fs::remove_dir_all(&root);
+}
