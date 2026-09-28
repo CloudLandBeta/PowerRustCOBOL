@@ -673,8 +673,7 @@
                READ MODELS-FILE NEXT RECORD
                    AT END MOVE "Y" TO WS-EOF
                    NOT AT END
-                       CALL "COBOL-MODEL-SET"
-                           USING MDL-NAME MDL-API MDL-URL MDL-MODEL
+                       COBOL::"MODEL-SET" ( MDL-NAME MDL-API MDL-URL MDL-MODEL )
                END-READ
            END-PERFORM
       *>   Each agent's entry, and what the entry says the model can do.

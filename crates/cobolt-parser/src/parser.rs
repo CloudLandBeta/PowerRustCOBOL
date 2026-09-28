@@ -231,7 +231,9 @@ impl Parser {
 
     /// `true` if current token is an `Identifier`.
     pub(crate) fn at_identifier(&self) -> bool {
-        matches!(self.peek(), Token::Identifier(_))
+        // `COBOL::NAME(…)` opens the next statement — a built-in CALL — so it
+        // is never one more name in a list (`CLOSE f1 f2`, `USING a b`).
+        matches!(self.peek(), Token::Identifier(_)) && !crate::stmt::at_cobol_object_call(self)
     }
 
     /// `true` if current token is a `LevelNumber`.

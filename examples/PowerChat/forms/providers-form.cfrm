@@ -551,7 +551,7 @@
       *>   whether a key is stored (never the key itself), edit, delete.
            MOVE MDL-API TO WS-PROV-ID
            CALL "PC-PROVIDER-LABEL"
-           CALL "COBOL-KEY-IS-SET" USING MDL-NAME WS-KEY-FLAG
+           COBOL::"KEY-IS-SET" ( MDL-NAME WS-KEY-FLAG )
            IF WS-KEY-FLAG = "Y"
                MOVE T-YES TO WS-YESNO
            ELSE
@@ -670,7 +670,7 @@
            END-IF
            COMMIT
            CLOSE MODELS-FILE
-           CALL "COBOL-MODEL-SET" USING MDL-NAME MDL-API MDL-URL MDL-MODEL
+           COBOL::"MODEL-SET" ( MDL-NAME MDL-API MDL-URL MDL-MODEL )
       *>   From here on the page holds this saved connection.
            MOVE "E" TO WS-EDIT-MODE
            MOVE WS-XVAL TO WS-EDIT-NAME
@@ -678,7 +678,7 @@
            MOVE T-CONN-SAVED TO WS-STATUS
            MOVE Txt-Key::Text TO WS-KEY
            IF WS-KEY NOT = SPACES
-               CALL "COBOL-KEY-SET" USING MDL-NAME WS-KEY WS-STATUS
+               COBOL::"KEY-SET" ( MDL-NAME WS-KEY WS-STATUS )
                IF WS-STATUS = "OK"
                    MOVE T-CONN-KEY-SAVED TO WS-STATUS
                END-IF
@@ -687,7 +687,7 @@
            ELSE
       *>       A provider that needs a key, and none stored yet: say so, and
       *>       stay on this page so it can be typed now.
-               CALL "COBOL-KEY-IS-SET" USING MDL-NAME WS-KEY-FLAG
+               COBOL::"KEY-IS-SET" ( MDL-NAME WS-KEY-FLAG )
                IF WS-PROV-NEEDS = "Y" AND WS-KEY-FLAG NOT = "Y"
                    MOVE FUNCTION TRIM(T-CONN-NEEDS-KEY) TO Lbl-Status::Caption
                    CALL "PC-FILL-GRID"
@@ -738,8 +738,8 @@
            END-DELETE
            COMMIT
            CLOSE MODELS-FILE
-           CALL "COBOL-MODEL-REMOVE" USING MDL-NAME
-           CALL "COBOL-KEY-REMOVE" USING MDL-NAME
+           COBOL::"MODEL-REMOVE" ( MDL-NAME )
+           COBOL::"KEY-REMOVE" ( MDL-NAME )
            CALL "PC-CLEAR-AGENT-REFS"
       *>   The Create/Update page must not keep holding a deleted record.
            IF WS-EDIT-MODE = "E" AND WS-EDIT-NAME = WS-KEY-NAME
@@ -808,11 +808,11 @@
        PROCEDURE DIVISION.
       *>   The IDE's providers, from the runtime (never a copy of our own):
       *>   the combo's items are their names, in the IDE's order.
-           CALL "COBOL-PROVIDER-COUNT" USING WS-PROV-COUNT
+           COBOL::"PROVIDER-COUNT" ( WS-PROV-COUNT )
            MOVE Cmb-Provider::Clear() TO WS-OK
            PERFORM VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-PROV-COUNT
-               CALL "COBOL-PROVIDER-GET" USING WS-P WS-PROV-ID WS-PROV-LABEL
-                    WS-PROV-EP WS-PROV-NEEDS
+               COBOL::"PROVIDER-GET" ( WS-P WS-PROV-ID WS-PROV-LABEL
+                    WS-PROV-EP WS-PROV-NEEDS )
                MOVE Cmb-Provider::AddItem(FUNCTION TRIM(WS-PROV-LABEL)) TO WS-OK
            END-PERFORM
 ]]></Event>
@@ -827,8 +827,8 @@
            MOVE FUNCTION LOWER-CASE(WS-XVAL) TO WS-XVAL
            PERFORM VARYING WS-P FROM 1 BY 1
                    UNTIL WS-P > WS-PROV-COUNT OR WS-PROV-IX > 0
-               CALL "COBOL-PROVIDER-GET" USING WS-P WS-XNAME WS-PROV-LABEL
-                    WS-PROV-EP WS-PROV-NEEDS
+               COBOL::"PROVIDER-GET" ( WS-P WS-XNAME WS-PROV-LABEL
+                    WS-PROV-EP WS-PROV-NEEDS )
                IF WS-XNAME = WS-XVAL(1:20)
                    MOVE WS-P TO WS-PROV-IX
                END-IF
@@ -853,8 +853,8 @@
                EXIT PROGRAM
            END-IF
            MOVE WS-PROV-IX TO WS-P
-           CALL "COBOL-PROVIDER-GET" USING WS-P WS-PROV-ID WS-PROV-LABEL
-                WS-PROV-EP WS-PROV-NEEDS
+           COBOL::"PROVIDER-GET" ( WS-P WS-PROV-ID WS-PROV-LABEL
+                WS-PROV-EP WS-PROV-NEEDS )
 ]]></Event>
     <Event name="PC-TEXTS" paragraph="PC-TEXTS"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -1042,6 +1042,9 @@ Create/Update</Property>
     <Property name="VScroll">false</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
+    <Property name="ActiveTabForegroundColor"></Property>
+    <Property name="InactiveTabColor"></Property>
+    <Property name="InactiveTabForegroundColor"></Property>
   </Control>
   <Control id="Lbl-Name" type="Label" x="40" y="144" w="144" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#00000000</Property>
@@ -1209,6 +1212,7 @@ Create/Update</Property>
     <Property name="Items"></Property>
     <Property name="ActiveItemColor"></Property>
     <Property name="HoverItemColor"></Property>
+    <Property name="ItemsFile"></Property>
     <Event name="onSelectedIndexChanged" paragraph="CMB-PROVIDER--ONSELECTEDINDEXCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -1493,8 +1497,8 @@ Create/Update</Property>
            MOVE Txt-Url::Text TO WS-PATH
            MOVE Txt-Key::Text TO WS-KEY
            MOVE Txt-Name::Text TO MDL-NAME
-           CALL "COBOL-MODEL-LIST" USING WS-PROV-ID WS-PATH WS-KEY WS-N
-                WS-LONG MDL-NAME
+           COBOL::"MODEL-LIST" ( WS-PROV-ID WS-PATH WS-KEY WS-N
+                WS-LONG MDL-NAME )
            MOVE SPACES TO WS-KEY
            IF WS-LONG = "OK"
                MOVE T-CONN-OK-MODELS TO WS-FMT

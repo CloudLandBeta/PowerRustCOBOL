@@ -3999,6 +3999,67 @@ PowerRustCOBOL extends COBOL-85 with inline RAD Form and UI Control access featu
 
   Several receiving fields under one `MOVE` remain perfectly legal when every one of them IS a receiver: `MOVE GLOBAL-TOTAL TO GLOBAL-TOTAL-ED  dgReceipt::X.` correctly writes the edited item AND the `X` property. Only a method among the receivers is the defect. The fix is a period on the preceding statement, or the explicit `INVOKE <control> "<method>" USING <parameters>` form, which cannot be read as a receiving field.
 
+## RustCOBOL built-ins — the `COBOL` object
+The runtime's built-in calls — HTTP, SQL, files, native dialogs, API keys, the model list, charts, data bindings — are the methods of the **`COBOL` object**, and are written INLINE:
+
+```cobol
+           COBOL::"MODEL-LIST" ( WS-PROV-ID WS-CUR-URL WS-KEY WS-N WS-STATUS )
+           COBOL::"HTTP-GET" ( WS-URL WS-RESPONSE WS-HTTP-STATUS )
+           COBOL::"OPEN-FILE-DIALOG" ( WS-TITLE "Data|idx" WS-PATH )
+```
+
+- `COBOL::"NAME"( args )` IS `CALL "COBOL-NAME" USING args` — the same call, the same arguments in the same order. A data item is passed BY REFERENCE, so what the built-in returns lands in it; a literal is passed BY CONTENT. **Write the inline form, never the `CALL`.**
+- It is a STATEMENT, not a value: the results come back in the `out` arguments, never as a returned value (`MOVE COBOL::…` is wrong).
+- The name may be quoted or bare (`COBOL::HTTP-GET( … )`), and may carry the `COBOL-` prefix; quoted is the house style.
+- Arguments are separated by spaces (commas are allowed). `[…]` marks an optional argument, which may be left off the end.
+- A name that is not a built-in is reported exactly as an unknown `CALL` is. A common procedure is still reached with `CALL "PROCEDURE-NAME"`.
+
+| Method | Arguments, in order | What it does |
+|---|---|---|
+| `COBOL::"APPEND-FILE"` | path in, text in, [status out] | Append a line of text to a file, creating it if missing |
+| `COBOL::"BINDING-LOAD"` | binding-id in, status out | Load a data binding's records from its source |
+| `COBOL::"BINDING-MARK-CLEAN"` | binding-id in, dirty-flag out | Mark a binding clean: no pending edits |
+| `COBOL::"BINDING-POPULATE"` | binding-id in, status out | Fill a binding's bound controls from its data |
+| `COBOL::"BINDING-SET-PENDING"` | binding-id in, row-key in, value in, dirty-flag out | Record a pending edit for one row of a binding |
+| `COBOL::"BINDING-SET-READ-ONLY"` | binding-id in, flag in | Make a binding read-only (flag not "0") or writable |
+| `COBOL::"BINDING-UPDATE"` | binding-id in, row-key in, status out | Write a binding row's pending changes back to its source |
+| `COBOL::"CHART-ADD-POINT"` | chart-id in, label in, value in, [more values in] | Add one point to a chart |
+| `COBOL::"CHART-CLEAR"` | chart-id in | Remove all data from a chart |
+| `COBOL::"CHART-REFRESH"` | chart-id in | Repaint a chart from its current data |
+| `COBOL::"CHART-SET-TABLE"` | chart-id in, table in, count in | Replace a chart's data with count rows of a table |
+| `COBOL::"CLOSE-DB"` | handle in | Close a database connection |
+| `COBOL::"EXEC-SQL"` | handle in, sql in, row-count out, status out | Run a SQL statement; returns the row or affected count |
+| `COBOL::"FETCH-ROW"` | handle in, column in, value out, status out | Read one column (1-based) of the current result row |
+| `COBOL::"FILE-STATUS"` | file-name in, status out | Copy a file's last FILE STATUS code into a data item |
+| `COBOL::"FOLDER-DIALOG"` | title in, [start-folder in], path out | Ask the operator for a folder; spaces when cancelled |
+| `COBOL::"GET-PROPERTY"` | object in, property in, value out | Read a control's property into a data item |
+| `COBOL::"HTTP-CLEAR-HEADERS"` | — | Remove every header set with HTTP-SET-HEADER |
+| `COBOL::"HTTP-DELETE"` | url in, response out, http-status out | Send an HTTP DELETE; returns the body and status code |
+| `COBOL::"HTTP-GET"` | url in, response out, http-status out | Send an HTTP GET; returns the body and status code |
+| `COBOL::"HTTP-POST"` | url in, body in, response out, http-status out | Send an HTTP POST (JSON by default); returns body and status |
+| `COBOL::"HTTP-PUT"` | url in, body in, response out, http-status out | Send an HTTP PUT; returns the body and status code |
+| `COBOL::"HTTP-SET-HEADER"` | name in, value in | Add or replace a header sent on every later HTTP call |
+| `COBOL::"INIT-FORM"` | [form-name in] | Initialise the form (generated code calls it) |
+| `COBOL::"KEY-IS-SET"` | entry in, flag out | Whether an API key is stored for a model entry: Y or N |
+| `COBOL::"KEY-REMOVE"` | entry in, [status out] | Delete the stored API key of a model entry |
+| `COBOL::"KEY-SET"` | entry in, key in, [status out] | Store the API key of a model entry (never read back) |
+| `COBOL::"MCP-SEARCH"` | tool in, arguments-json in, result out | Call an MCP tool with JSON arguments; returns its text |
+| `COBOL::"MODEL-LIST"` | provider in, endpoint in, key in, count out, status out, [entry in] | Ask a provider which models it offers |
+| `COBOL::"MODEL-LIST-GET"` | index in, model out | One model name (1-based) from the last MODEL-LIST |
+| `COBOL::"MODEL-REMOVE"` | entry in, [status out] | Remove an entry from the model list |
+| `COBOL::"MODEL-SET"` | entry in, api in, url in, model in, [status out] | Add or replace an entry in the model list |
+| `COBOL::"MODEL-TEST"` | provider in, endpoint in, model in, key in, [status out], [entry in] | Send a model a tiny request to test the connection |
+| `COBOL::"NEXT-ROW"` | handle in, more out | Move to the next result row: Y when there is one, N at the end |
+| `COBOL::"OPEN-DB"` | connection-string in, handle out, status out | Open a SQLite, PostgreSQL or MySQL connection |
+| `COBOL::"OPEN-FILE-DIALOG"` | title in, [filter in], [start-folder in], path out | Ask the operator for a file to open; spaces when cancelled |
+| `COBOL::"PROVIDER-COUNT"` | count out | How many model providers there are |
+| `COBOL::"PROVIDER-GET"` | index in, [id out], [label out], [endpoint out], [needs-key out] | One provider's details (1-based) |
+| `COBOL::"ROW-COUNT"` | handle in, count out | How many rows the last result set has |
+| `COBOL::"SAVE-FILE-DIALOG"` | title in, [filter in], [file-name in], [start-folder in], path out | Ask the operator where to save; spaces when cancelled |
+| `COBOL::"SET-PROPERTY"` | object in, property in, value in | Set a control's property |
+| `COBOL::"WAIT-EVENT"` | event-id out, control-id out | Wait for the next event (generated code calls it) |
+| `COBOL::"WRITE-FILE"` | path in, text in, [status out] | Write a file holding one line of text, replacing it |
+
 ## Value Conventions (types and domains)
 - **Boolean properties** store `1` (true) / `0` (false). Write `SET C::Visible TO 1`. On method arguments, `true`/`yes`/`on` (any case) also count as true.
 - **Colors** are hex strings: `"#RRGGBB"` or `"#RRGGBBAA"` (e.g. `"#FF0000"`, `"#00000000"` = transparent).
@@ -4007,7 +4068,7 @@ PowerRustCOBOL extends COBOL-85 with inline RAD Form and UI Control access featu
 - **DataGrid data**: `Columns` is one `Name:Type` per line (`Type` ∈ `string`|`number`|`datetime`); `Rows` separates rows with newlines and cells with TAB.
 - **Enumerated properties** accept only their listed values EXACTLY as spelled (e.g. `Orientation` is `Horizontal` or `Vertical`); an unrecognised value falls back to the default without an error.
 - **Property names**: setting a misspelled property silently creates a new, unused property — never guess names; use the ones in the Form Controls Reference.
-- **Charts**: feed data with `Chart::AddPoint(label, value)` / `Chart::Clear()` / `Chart::Refresh()`, with `PERFORM <id>-ADD-POINT` / `<id>-SET-TABLE` paragraphs, or with `CALL "COBOL-CHART-ADD-POINT" USING "<id>" label value` — or bind a COBOL table via the `DataSource`/`DataCount` properties. Do NOT invent working-storage tables for charts.
+- **Charts**: feed data with `Chart::AddPoint(label, value)` / `Chart::Clear()` / `Chart::Refresh()`, with `PERFORM <id>-ADD-POINT` / `<id>-SET-TABLE` paragraphs, or with `COBOL::"CHART-ADD-POINT"( "<id>" label value )` — or bind a COBOL table via the `DataSource`/`DataCount` properties. Do NOT invent working-storage tables for charts.
 
 ## Event payloads — what a handler actually receives (LINKAGE)
 
@@ -5484,7 +5545,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         // ── RestClient ──
         "ModelEntry" => (
             "empty, or the name of a model-list entry (run time)",
-            "AgentObject / KnowledgeBase (spec 076): a model-list entry the PROGRAM handed over while it runs, with `CALL \"COBOL-MODEL-SET\" USING name api url model [status]` (the program keeps its list in its own indexed file and hands it over at start-up; the runtime stores no list). When set it WINS over `Configuration` and the control's own settings: the entry gives the API, the endpoint and the key (stored with `CALL \"COBOL-KEY-SET\" USING name key [status]`, removed with `COBOL-KEY-REMOVE`, checked with `COBOL-KEY-IS-SET USING name flag` → Y/N — no CALL ever returns a key); the entry's model when it names one, else the agent's own; temperature, token limit and timeout stay the agent's. An unknown entry, or an entry whose provider needs a key (every provider but local Ollama — the IDE's rule) with no key stored, fails the Ask at once with `onError` and sends nothing. The IDE's provider list, model listing and connection test are available to the program too: `COBOL-PROVIDER-COUNT USING count`, `COBOL-PROVIDER-GET USING index id label endpoint needs-key`, `COBOL-MODEL-LIST USING provider endpoint key count status [entry]` + `COBOL-MODEL-LIST-GET USING index model`, and `COBOL-MODEL-TEST USING provider endpoint model key status [entry]` (status `OK` or the IDE's own message; a blank key with an entry uses that entry's stored key, which is never returned). Keys live in `<app>/settings/model-keys.dat`, shared by every user of the installation, encrypted with a key derived from the installation folder and the machine's name — unreadable at a glance and useless copied elsewhere, but usable by anyone who can run the application on that machine. A key is never shown in a log (the verbose log masks it), an error, or anything sent to a model. A change to an entry an agent used raises `onModelChanged` on that agent. `COBOL-MODEL-REMOVE USING name` withdraws an entry.",
+            "AgentObject / KnowledgeBase (spec 076): a model-list entry the PROGRAM handed over while it runs, with `COBOL::\"MODEL-SET\"( name api url model [status] )` (the program keeps its list in its own indexed file and hands it over at start-up; the runtime stores no list). When set it WINS over `Configuration` and the control's own settings: the entry gives the API, the endpoint and the key (stored with `CALL \"COBOL-KEY-SET\" USING name key [status]`, removed with `COBOL-KEY-REMOVE`, checked with `COBOL-KEY-IS-SET USING name flag` → Y/N — no CALL ever returns a key); the entry's model when it names one, else the agent's own; temperature, token limit and timeout stay the agent's. An unknown entry, or an entry whose provider needs a key (every provider but local Ollama — the IDE's rule) with no key stored, fails the Ask at once with `onError` and sends nothing. The IDE's provider list, model listing and connection test are available to the program too: `COBOL-PROVIDER-COUNT USING count`, `COBOL-PROVIDER-GET USING index id label endpoint needs-key`, `COBOL-MODEL-LIST USING provider endpoint key count status [entry]` + `COBOL-MODEL-LIST-GET USING index model`, and `COBOL-MODEL-TEST USING provider endpoint model key status [entry]` (status `OK` or the IDE's own message; a blank key with an entry uses that entry's stored key, which is never returned). Keys live in `<app>/settings/model-keys.dat`, shared by every user of the installation, encrypted with a key derived from the installation folder and the machine's name — unreadable at a glance and useless copied elsewhere, but usable by anyone who can run the application on that machine. A key is never shown in a log (the verbose log masks it), an error, or anything sent to a model. A change to an entry an agent used raises `onModelChanged` on that agent. `COBOL-MODEL-REMOVE USING name` withdraws an entry.",
         ),
         "Configuration" => (
             "empty (this control's own settings), or the name of a project connection",
@@ -6463,7 +6524,7 @@ The IDE also generates paragraphs for a control named `DB-1`: `DB-1-CONNECT` (op
 Three equivalent ways to feed the chart:\n\
 1. Inline methods: `Chart-1::AddPoint(\"Jan\", 150).` / `Chart-1::Clear().` / `Chart-1::Refresh().`\n\
 2. Generated paragraphs: `PERFORM Chart-1-ADD-POINT` (after `MOVE`s to `WS-Chart-1-SELECTED-LBL` / `-SELECTED-VAL`), `PERFORM Chart-1-SET-TABLE`, `PERFORM Chart-1-CLEAR`, `PERFORM Chart-1-REFRESH`.\n\
-3. Runtime calls: `CALL \"COBOL-CHART-ADD-POINT\" USING \"Chart-1\" label value` and `CALL \"COBOL-CHART-SET-TABLE\" USING \"Chart-1\" table count` (table rows: `PIC X(64)` label + `PIC 9(18)V9(6)` value).\n\
+3. Built-in calls: `COBOL::\"CHART-ADD-POINT\"( \"Chart-1\" label value )` and `COBOL::\"CHART-SET-TABLE\"( \"Chart-1\" table count )` (table rows: `PIC X(64)` label + `PIC 9(18)V9(6)` value).\n\
 Or bind declaratively with the `DataSource`/`DataCount`/`LabelField`/`ValueFields` properties.\n",
         "GroupBox" => "\
 ### Repeating groups (control arrays)\n\
@@ -6502,7 +6563,7 @@ A button carries its OWN code, not just the toolbar's one `onClick`. In the Tool
 ### Changing a button while the form runs\n\
 COBOL may write a button's COLOURS and its TOOLTIP, and nothing else: `Tooltip`, `BackgroundColor`, `ForegroundColor`, `IconColor`, `GradientStartColor`, `GradientEndColor`, `ShadowColor`. A colour set to SPACES goes back to inheriting (group, then theme), the same meaning the editor's ✕ has. `MOVE \"#204080FF\" TO TOOLBAR-1-FMTG-BNSQ::BackgroundColor.`\n\
 \n\
-Anything else — width, height, corner radius, label, icon, enabled, action — is a RUNTIME ERROR naming the property and the allowed set, through all three doors (`x::Prop`, `CALL \"COBOL-SET-PROPERTY\"`, `INVOKE x \"SetProperty\"`). A button is laid out BY ITS TOOLBAR, so a button that could move itself would leave nothing to put it back; a silent no-op would be worse. Reads are never refused. The COBOL editor flags a refused property as it is typed.\n\
+Anything else — width, height, corner radius, label, icon, enabled, action — is a RUNTIME ERROR naming the property and the allowed set, through all three doors (`x::Prop`, `COBOL::\"SET-PROPERTY\"( … )` — the same as `CALL \"COBOL-SET-PROPERTY\"` — and `INVOKE x \"SetProperty\"`). A button is laid out BY ITS TOOLBAR, so a button that could move itself would leave nothing to put it back; a silent no-op would be worse. Reads are never refused. The COBOL editor flags a refused property as it is typed.\n\
 \n\
 ### How a button reaches COBOL\n\
 A toolbar button is NOT a control — the toolbar owns the layout, so a button has no entry in `form.controls`. It is named by a DERIVED id instead, `<toolbar>-<group>-<button>` upper-cased: `TOOLBAR-1` + `fmtg` + `bnsq` ⇒ `TOOLBAR-1-FMTG-BNSQ`. The press arrives under that id and the generated event loop dispatches on it, which is how `procedure:` and `open-modal:` reach anything — a `procedure:` button becomes `CALL \"<NAME>\"` (a user procedure is a nested program, IS COMMON) and an `open-modal:` button becomes `INVOKE ME::\"OpenFormSync\"(\"<FORM>\")`, whose one-argument form is modal. Nothing types the derived id by hand.\n\
@@ -7315,7 +7376,7 @@ fn methods_reference_doc() -> String {
         ),
         (
             "Charts (BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart)",
-            "Equivalent to the `CALL \"COBOL-CHART-*\"` runtime calls and the generated `PERFORM <id>-ADD-POINT` paragraphs.",
+            "Equivalent to the `COBOL::\"CHART-…\"` built-in calls and the generated `PERFORM <id>-ADD-POINT` paragraphs.",
             &[
                 ("AddPoint(label: String, value: Number)", "Append one point and repaint."),
                 ("Clear()", "Drop all pushed points."),

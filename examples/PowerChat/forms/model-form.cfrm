@@ -367,8 +367,8 @@
            MOVE FUNCTION LOWER-CASE(WS-XVAL) TO WS-XVAL
            PERFORM VARYING WS-P FROM 1 BY 1
                    UNTIL WS-P > WS-PROV-COUNT OR WS-PROV-IX > 0
-               CALL "COBOL-PROVIDER-GET" USING WS-P WS-XNAME WS-PROV-LABEL
-                    WS-PROV-EP WS-PROV-NEEDS
+               COBOL::"PROVIDER-GET" ( WS-P WS-XNAME WS-PROV-LABEL
+                    WS-PROV-EP WS-PROV-NEEDS )
                IF WS-XNAME = WS-XVAL(1:20)
                    MOVE WS-P TO WS-PROV-IX
                END-IF
@@ -424,8 +424,8 @@
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
            MOVE Cmb-Model::Clear() TO WS-OK
            MOVE SPACES TO WS-KEY
-           CALL "COBOL-MODEL-LIST" USING WS-PROV-ID WS-CUR-URL WS-KEY WS-N
-                WS-LONG WS-CUR-NAME
+           COBOL::"MODEL-LIST" ( WS-PROV-ID WS-CUR-URL WS-KEY WS-N
+                WS-LONG WS-CUR-NAME )
            IF WS-LONG NOT = "OK"
       *>       No list: what went wrong, and the saved model still on offer.
                MOVE WS-LONG TO Lbl-Status::Caption
@@ -438,7 +438,7 @@
            END-IF
            MOVE -1 TO WS-INDEX
            PERFORM VARYING WS-M FROM 1 BY 1 UNTIL WS-M > WS-N
-               CALL "COBOL-MODEL-LIST-GET" USING WS-M WS-XVAL
+               COBOL::"MODEL-LIST-GET" ( WS-M WS-XVAL )
                MOVE Cmb-Model::AddItem(FUNCTION TRIM(WS-XVAL)) TO WS-OK
                IF WS-XVAL = WS-MODEL-ID
                    COMPUTE WS-INDEX = WS-M - 1
@@ -448,7 +448,7 @@
            IF WS-INDEX < 0
                MOVE 0 TO WS-INDEX
                MOVE 1 TO WS-M
-               CALL "COBOL-MODEL-LIST-GET" USING WS-M WS-MODEL-ID
+               COBOL::"MODEL-LIST-GET" ( WS-M WS-MODEL-ID )
            END-IF
            MOVE WS-INDEX TO WS-P
            MOVE Cmb-Model::SetSelectedIndex(WS-P) TO WS-OK
@@ -577,7 +577,7 @@
            REWRITE MODEL-REC
            COMMIT
            CLOSE MODELS-FILE
-           CALL "COBOL-MODEL-SET" USING MDL-NAME MDL-API MDL-URL MDL-MODEL
+           COBOL::"MODEL-SET" ( MDL-NAME MDL-API MDL-URL MDL-MODEL )
            MOVE FUNCTION TRIM(T-MODEL-SAVED) TO Lbl-Status::Caption
            INVOKE ME::Close()
 ]]></Event>
@@ -595,7 +595,7 @@
        PROCEDURE DIVISION.
            CALL "PC-PATHS"
            CALL "PC-TEXTS"
-           CALL "COBOL-PROVIDER-COUNT" USING WS-PROV-COUNT
+           COBOL::"PROVIDER-COUNT" ( WS-PROV-COUNT )
            MOVE SPACES TO WS-CUR-NAME
            CALL "PC-LOAD-CONNS"
            MOVE Cmb-Conn::Clear() TO WS-OK
@@ -731,6 +731,7 @@
     <Property name="Items"></Property>
     <Property name="ActiveItemColor"></Property>
     <Property name="HoverItemColor"></Property>
+    <Property name="ItemsFile"></Property>
     <Event name="onSelectedIndexChanged" paragraph="CMB-CONN--ONSELECTEDINDEXCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -817,6 +818,7 @@
     <Property name="Items"></Property>
     <Property name="ActiveItemColor"></Property>
     <Property name="HoverItemColor"></Property>
+    <Property name="ItemsFile"></Property>
   </Control>
   <Control id="Lbl-Rank" type="Label" x="24" y="172" w="160" h="24" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>
@@ -949,6 +951,7 @@
     <Property name="DataFormat"></Property>
     <Property name="GroupName"></Property>
     <Property name="CheckBoxColor">#F0F0F0FF</Property>
+    <Property name="CheckSpacing">6</Property>
   </Control>
   <Control id="Lbl-Status" type="Label" x="24" y="224" w="752" h="140" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#00000000</Property>

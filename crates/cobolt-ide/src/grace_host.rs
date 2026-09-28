@@ -4441,6 +4441,28 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// Grace answers from the System KB, so the KB must know every
+    /// built-in the `COBOL` object has — by its inline name, the form the
+    /// project writes (operator, 2026-09-28) — and no longer teach a built-in
+    /// as a `CALL "COBOL-…"` to write.
+    #[test]
+    fn the_system_kb_teaches_every_builtin_inline() {
+        let root = std::env::temp_dir().join(format!("prc-builtins-kb-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("scratch root");
+        cobolt_compiler::publish_system_documentation(&root).expect("publish");
+        let ext = std::fs::read_to_string(root.join("Knowledge Base/rustcobol_extensions.md")).expect("published");
+        let _ = std::fs::remove_dir_all(&root);
+        let missing: Vec<&str> = cobolt_runtime::builtins::BUILTINS
+            .iter()
+            .map(|b| b.name)
+            .filter(|n| !ext.contains(&format!("`COBOL::\"{n}\"`")))
+            .collect();
+        println!("  {} built-ins in the KB; missing: {missing:?}", cobolt_runtime::builtins::BUILTINS.len() - missing.len());
+        assert!(missing.is_empty(), "built-ins the KB does not document: {missing:?}");
+        assert!(ext.contains("never the `CALL`"), "the KB says which form to write");
+    }
+
     /// The PREBUILT chunked store shipped in the binary must stay current
     /// with the documentation this build publishes — a cloned IDE must not
     /// re-embed anything. Regenerate with

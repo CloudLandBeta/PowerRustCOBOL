@@ -307,6 +307,40 @@ const UNIVERSAL_VISUAL: &[Method] = &[
     ("GetProperty", "Get any property by name"),
 ];
 
+/// The type IntelliSense gives the `COBOL` object — the receiver of the
+/// built-in CALLs: `COBOL::"MODEL-LIST"( … )` is `CALL "COBOL-MODEL-LIST"
+/// USING …`, and the form to write (operator, 2026-09-28).
+pub(crate) const COBOL_OBJECT_TYPE: &str = "Cobol";
+
+/// Its methods: every built-in, each described by its arguments and what it
+/// does — drawn once from `cobolt_runtime::builtins`, never copied.
+fn cobol_object_methods() -> &'static [Method] {
+    static METHODS: std::sync::OnceLock<Vec<Method>> = std::sync::OnceLock::new();
+    METHODS.get_or_init(|| {
+        cobolt_runtime::builtins::BUILTINS
+            .iter()
+            .map(|b| {
+                let desc: &'static str = if b.params.is_empty() {
+                    b.description
+                } else {
+                    Box::leak(format!("( {} ) — {}", b.params, b.description).into_boxed_str())
+                };
+                (b.name, desc)
+            })
+            .collect()
+    })
+}
+
+/// The IntelliSense entry for the `COBOL` object.
+pub fn cobol_object_known_control() -> KnownControl {
+    KnownControl {
+        id: "COBOL".to_string(),
+        ctrl_type: COBOL_OBJECT_TYPE.to_string(),
+        properties: vec![],
+        extra_methods: vec![],
+    }
+}
+
 /// Methods for non-visual widgets (Timer, AI agent, REST/SQL clients).
 const UNIVERSAL_NONVISUAL: &[Method] = &[
     ("SetProperty", "Set any property by name"),
@@ -316,6 +350,10 @@ const UNIVERSAL_NONVISUAL: &[Method] = &[
 /// Per-type methods plus the relevant universal set, used by `ctrl::`/`INVOKE`
 /// completion. Returns an owned vec so universal + specific can be merged.
 fn methods_for_type(ctrl_type: &str) -> Vec<Method> {
+    // The `COBOL` object: the built-in CALLs, from the runtime's own table.
+    if ctrl_type == COBOL_OBJECT_TYPE {
+        return cobol_object_methods().to_vec();
+    }
     let (base, specific): (&[Method], &[Method]) = match ctrl_type {
         // A form receiver (`me`, `super`) is a window, not a control: it has
         // none of the universal control methods (no `MoveTo`, no `Show`); its
@@ -1094,6 +1132,7 @@ pub fn build_known_controls(form: &cobolt_forms::Form) -> Vec<KnownControl> {
     // semantic checker accepts on a bare `me::X`.
     list.push(form_receiver_known_control("me"));
     list.push(form_receiver_known_control("super"));
+    list.push(cobol_object_known_control());
 
     list
 }
@@ -4567,7 +4606,7 @@ fn detect_invoke_context(
                         .iter()
                         .find(|c| c.id.eq_ignore_ascii_case(&ctrl_tok))
                         .map(|c| c.ctrl_type.clone())
-                        .unwrap_or_else(|| "Generic".into());
+                        .unwrap_or_else(|| receiver_type_fallback(&ctrl_tok));
                     return Some((ctrl_tok, ctrl_type, mprefix.into()));
                 }
             }
@@ -4612,12 +4651,22 @@ fn detect_invoke_context(
                 .iter()
                 .find(|c| c.id.eq_ignore_ascii_case(&ctrl_tok))
                 .map(|c| c.ctrl_type.clone())
-                .unwrap_or_else(|| "Generic".into());
+                .unwrap_or_else(|| receiver_type_fallback(&ctrl_tok));
             return Some((ctrl_tok, ctrl_type, mprefix.into()));
         }
     }
 
     None
+}
+
+/// The type of a receiver no form declares: the `COBOL` object is known in
+/// every file — a Common Code program included — and anything else is generic.
+fn receiver_type_fallback(receiver: &str) -> String {
+    if receiver.eq_ignore_ascii_case("COBOL") {
+        COBOL_OBJECT_TYPE.into()
+    } else {
+        "Generic".into()
+    }
 }
 
 /// Byte offset where the chain expression ending at `before` begins.
@@ -6147,6 +6196,33 @@ END-EVALUATE
         // Both categories survive; the cap used to let one starve the other.
         assert!(labels.contains(&"S-ITEM-039"), "last data item missing");
         assert!(labels.contains(&"S-Ctrl-039"), "last control missing");
+    }
+
+    #[test]
+    fn the_cobol_object_completes_its_builtins_in_any_file() {
+        // Operator (2026-09-28): the built-in CALLs are written inline —
+        // `COBOL::"MODEL-LIST"( … )` — so `COBOL::` completes them, in a
+        // Common Code file with no form and no controls as much as in a
+        // handler, each shown with its arguments.
+        let none: Vec<KnownControl> = Vec::new();
+        let ctx = |line: &str| detect_invoke_context(line, line.chars().count(), &none);
+        let (id, ty, pre) = ctx("           COBOL::").expect("`COBOL::` opens the list");
+        assert_eq!((id.as_str(), ty.as_str(), pre.as_str()), ("COBOL", COBOL_OBJECT_TYPE, ""));
+        let (_, ty, pre) = ctx("           COBOL::\"MOD").expect("and the quoted form");
+        let all = member_completions(&cobol_object_known_control(), "");
+        let filtered = member_completions(
+            &KnownControl { id: "COBOL".into(), ctrl_type: ty, properties: vec![], extra_methods: vec![] },
+            &pre,
+        );
+        let labels: Vec<&str> = filtered.iter().map(|i| i.label.as_str()).collect();
+        println!("  COBOL:: offers {} built-ins; \"MOD → {labels:?}", all.len());
+        assert_eq!(all.len(), cobolt_runtime::builtins::BUILTINS.len(), "every built-in, nothing else");
+        assert_eq!(labels, vec!["MODEL-LIST", "MODEL-LIST-GET", "MODEL-REMOVE", "MODEL-SET", "MODEL-TEST"]);
+        let list = filtered.iter().find(|i| i.label == "MODEL-LIST").unwrap();
+        assert!(list.detail.contains("provider in") && list.detail.contains("count out"), "{}", list.detail);
+        // A form's handler lists the object among its receivers.
+        let form = cobolt_forms::Form::new("F", "F", 100, 100);
+        assert!(build_known_controls(&form).iter().any(|k| k.id == "COBOL" && k.ctrl_type == COBOL_OBJECT_TYPE));
     }
 
     #[test]

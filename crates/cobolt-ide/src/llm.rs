@@ -5162,6 +5162,8 @@ Interact with controls using the COBOL-2002-style inline syntax, NEVER `CALL` or
 
 Property names are matched case-insensitively, but use the exact spelling from your delegation context — a name that is not a real property of that control's type is rejected by the validator. Numeric properties are algebraic and need no intermediate `PIC` item. Colours are `#RRGGBB` string literals. For control arrays, index the firing item: `MOVE "#FFCC00" TO Row-Label(CONTROL-ARRAY-INDEX)::BackgroundColor`. Do not use `CALL "COBOL-SET-PROPERTY"` / `"COBOL-GET-PROPERTY"`; they exist but are not yours to write.
 
+RustCOBOL built-ins — the `COBOL-…` CALLs (HTTP, SQL, files, dialogs, keys, models, charts) — are methods of the `COBOL` object and are written INLINE: `COBOL::"HTTP-GET"( WS-URL WS-RESPONSE WS-HTTP-STATUS )`, never `CALL "COBOL-HTTP-GET" USING WS-URL WS-RESPONSE WS-HTTP-STATUS`. They are the same call — the same arguments in the same order, a data item passed BY REFERENCE so what the built-in returns lands in it — but only the inline form is written. This is for the built-ins only: a common procedure is still reached with `CALL "PROCEDURE-NAME"`.
+
 7. Event data (LINKAGE)
 
 Event payload items arrive in `LINKAGE SECTION` and are bound by `PROCEDURE DIVISION USING …`. Use ONLY the linkage items your context lists for that event. Most events deliver nothing — an empty `LINKAGE SECTION` and a plain `PROCEDURE DIVISION.` with no `USING`. Array handlers receive `CONTROL-ARRAY-INDEX PIC S9(4) COMP-5`, the 1-based index of the firing control.
@@ -6264,6 +6266,7 @@ That section is the language specification, and it enumerates exactly what this 
 * `IDENTIFICATION DIVISION`, `PROGRAM-ID`, `GOBACK` or `END PROGRAM` inside a handler body, or a body missing any of `ENVIRONMENT DIVISION.`, `DATA DIVISION.`, `PROCEDURE DIVISION.`;
 * a `CONFIGURATION SECTION` or `SPECIAL-NAMES` paragraph inside a handler or a common procedure — `DECIMAL-POINT IS COMMA` is declared on the FORM, the main program of the nesting, and a nested body that redeclares it is rejected;
 * control access through `CALL "COBOL-SET-PROPERTY"` / `"COBOL-GET-PROPERTY"` or a legacy `INVOKE Control "Method"` form instead of the inline `::` syntax — this clause names those two runtime entry points and that `INVOKE` form ONLY; `CALL "SOME-PROCEDURE"` at a common procedure is correct and is not this defect;
+* a RustCOBOL built-in written as `CALL "COBOL-NAME" USING …` instead of the inline `COBOL::"NAME"( … )` — the same call, and the inline form is the one the project writes;
 * an inline method call standing where a RECEIVING FIELD belongs — `MOVE … TO <control>::<method>(…)`, or, far more often, a `<control>::<method>(…)` written under a `MOVE`/`SET` that was never closed with a period, which makes the call that statement's SECOND RECEIVER. A property may receive a value; a method call may not, and this fails as a runtime exception rather than at generation, so the handler looks right and throws on the click. Read every `::` call against the sentence ABOVE it: if that sentence carries no period, the call is a receiver and the handler is broken. Several receivers under one `MOVE` stay legal when all of them ARE receivers — `MOVE X TO X-ED  Grid::Value.` is correct — so raise this only for a method among them. The fix is a period on the preceding statement, or the explicit `INVOKE <control> "<method>" USING …` form;
 * a bare `*` comment line, or any stray character in column 7 above a blank or numeric sequence area — either one silently switches the whole file to fixed format, where everything past column 72 is discarded;
 * an unterminated scoped statement, or a missing `.` where the grammar requires one.
@@ -6395,7 +6398,7 @@ What to examine:
 * DATA DIVISION correctness: PIC against the values the field must hold, USAGE, sign, scale, OCCURS and ODO bounds, REDEFINES, level numbers.
 * PROCEDURE DIVISION behaviour: control flow that does what the text claims, decisions and loops that terminate, table searches without off-by-one.
 * File handling: indexed access, primary and alternate keys, START/READ NEXT/READ PREVIOUS positioning, REWRITE, DELETE, INVALID KEY and AT END handling, FILE STATUS checks, CLOSE and COMMIT.
-* PowerRustCOBOL: inline object syntax (`Control-1::Text`, `Control-1::Refresh()`, `SET Control-1::ShadowEnabled TO 1`). A method written as a property assignment, a `CALL "COBOL-SET-PROPERTY"`, a legacy `INVOKE Control "Method" USING ...`, or a control invented as a `PIC X` item are all defects.
+* PowerRustCOBOL: inline object syntax (`Control-1::Text`, `Control-1::Refresh()`, `SET Control-1::ShadowEnabled TO 1`). A method written as a property assignment, a `CALL "COBOL-SET-PROPERTY"`, a legacy `INVOKE Control "Method" USING ...`, or a control invented as a `PIC X` item are all defects. A RustCOBOL built-in is written inline too: `COBOL::"HTTP-GET"( WS-URL WS-RESPONSE WS-HTTP-STATUS )`, not `CALL "COBOL-HTTP-GET" USING …`.
 * Invented constructs: verbs, controls, properties, methods, file organizations or APIs PowerRustCOBOL does not have. Count each distinct invention.
 
 Scoring duties:
@@ -6514,7 +6517,7 @@ Supported benchmark scope:
 
 Out of scope for this benchmark: REPORT SECTION and report writer verbs; COMMUNICATION SECTION; field-level SCREEN SECTION editing; RELATIVE file organization; COBOL OO class/method definitions; undocumented `cbl_`/runtime helper calls; invented REST/SQLite verbs; unimplemented controls, events, properties, methods, or compiler internals.
 
-Important PowerRustCOBOL rule: for controls and form objects, prefer inline object syntax `ControlName::Method(args)` and `ControlName::Property` / `SET ControlName::Property TO value`. Do not propose `CALL "COBOL-SET-PROPERTY"`, `CALL "COBOL-GET-PROPERTY"`, chart helper CALLs, or legacy `INVOKE Control "Method" USING ...` forms for control work. If the required method/property is not listed in context, the correct behavior is to ask for directions instead of guessing.
+Important PowerRustCOBOL rule: for controls and form objects, prefer inline object syntax `ControlName::Method(args)` and `ControlName::Property` / `SET ControlName::Property TO value`. Do not propose `CALL "COBOL-SET-PROPERTY"`, `CALL "COBOL-GET-PROPERTY"`, chart helper CALLs, or legacy `INVOKE Control "Method" USING ...` forms for control work. RustCOBOL built-ins are written inline as methods of the `COBOL` object — `COBOL::"HTTP-GET"( WS-URL WS-RESPONSE WS-HTTP-STATUS )` — not as `CALL "COBOL-HTTP-GET" USING …`. If the required method/property is not listed in context, the correct behavior is to ask for directions instead of guessing.
 
 The report must include these sections in this order before the metrics JSON:
 1. Executive summary: concise recommendation and major risks.
@@ -6574,7 +6577,7 @@ The leaderboard reads these additional per-capability scores; each one is judged
 - `refactoring_score`: restructuring working code without altering behaviour — extracting paragraphs, removing duplication, tightening data descriptions, improving names.
 - `table_driven_score`: OCCURS and OCCURS DEPENDING ON, ASCENDING/DESCENDING KEY, INDEXED BY, SET, SEARCH and SEARCH ALL, and bounds discipline in table-driven designs.
 - `type_inference_score`: choosing PIC and USAGE correctly for the values a field must hold — precision, sign, scale, COMP/COMP-3 choice, and avoiding truncation or overflow.
-- `inline_invoke_score`: the inline object syntax for controls and form objects — `Control-1::Text`, `Control-1::Refresh()`, `SET Control-1::ShadowEnabled TO 1`, and Rust FFI repository objects via INVOKE. Reduce it for `CALL "COBOL-SET-PROPERTY"`, legacy `INVOKE Control "Method" USING ...`, or a method written as a property assignment.
+- `inline_invoke_score`: the inline object syntax for controls and form objects — `Control-1::Text`, `Control-1::Refresh()`, `SET Control-1::ShadowEnabled TO 1`, and Rust FFI repository objects via INVOKE. Reduce it for a built-in written as `CALL "COBOL-NAME" USING …` instead of `COBOL::"NAME"( … )`, for `CALL "COBOL-SET-PROPERTY"`, legacy `INVOKE Control "Method" USING ...`, or a method written as a property assignment.
 - `code_explanation_score`: explaining COBOL accurately to a developer — what the code does, why, and where its risks are, without inventing behaviour.
 - `hallucination_count`: a WHOLE NUMBER, not a percentage: how many distinct invented or unsupported things appeared in your output — verbs, controls, properties, methods, file organizations, or APIs that PowerRustCOBOL does not have. Count each distinct invention once. Report 0 only if there were none; do not report a percentage here.
 

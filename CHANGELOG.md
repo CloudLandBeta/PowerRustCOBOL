@@ -8,6 +8,81 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.321] — 2026-09-28
+
+### Feature — the built-in CALLs are methods of the `COBOL` object, written inline
+
+The operator asked for the internal CALLs to be written as inline invokes,
+and for IntelliSense, Grace and the agents to know and use that form:
+
+```cobol
+           COBOL::"MODEL-LIST" ( WS-PROV-ID WS-CUR-URL WS-KEY WS-N )
+      *>   is exactly
+           CALL "COBOL-MODEL-LIST" USING WS-PROV-ID WS-CUR-URL WS-KEY WS-N
+```
+
+It was not implemented. The statement parsed as a member call on an unknown
+object, and did nothing, without a word.
+
+- **Parser: `COBOL::"NAME"( args )` is `CALL "COBOL-NAME" USING args`**
+  (`cobol_object_call`). The call runs through the one CALL path:
+  - a data item goes BY REFERENCE, so what the built-in writes back lands in
+    it;
+  - a literal goes BY CONTENT;
+  - an unknown name is reported as an unknown CALL is.
+
+  The name may be quoted or bare, with or without its `COBOL-` prefix.
+  Build-feature detection (`runtime_features`) reads the resulting CALL, so a
+  program using the inline form still links its SQL or HTTP bridge.
+- **An operand list never swallows it.** `COBOL` is not a verb, so a
+  `DISPLAY …`, `CLOSE f` or `MOVE … TO a b` just before one took
+  `COBOL::"…"(…)` as one more operand, and the call never ran. A built-in has
+  no value, so `COBOL::` now always opens a statement (`at_cobol_object_call`,
+  in `is_expr_start` and `Parser::at_identifier`).
+- **One list of the built-ins: `cobolt-runtime/src/builtins.rs`.** It holds
+  all 43, each with its arguments marked in, out or in-out, and what it does.
+  A test holds it equal to what `exec_call` dispatches, in both directions.
+- **IntelliSense.** `COBOL::` and `COBOL::"` complete every built-in with
+  its arguments, in a handler and in a Common Code file alike. Handlers also
+  list the `COBOL` object among their receivers.
+- **Grace and the agents:**
+  - The Event Handler agent's prompt and its reviewer's checklist say to write
+    built-ins inline and never as `CALL "COBOL-…" USING`.
+  - So do the proficiency judge, the benchmark and the RustCOBOL skill (the
+    Rust constant, and the repository's `.md` copies).
+  - The previous skill text is kept as superseded, so untouched project
+    copies refresh; stamped prompts refresh on their own.
+- **System KB.** A section on the `COBOL` object, with every built-in listed
+  by its inline name and arguments. The KB's chart, model-list and SQL
+  examples are now written inline. A test holds the KB to `BUILTINS`, and
+  `chunked.data` is regenerated.
+- **PowerChat.** Its 31 CALLs, in chat, files, kb-folder, model, providers
+  and settings forms, are written inline, and the forms are regenerated.
+  `powerchat_runs` 13/0.
+- **Developer's Guide.**
+  - A section on the `COBOL` object, framed for PowerCOBOL and isCOBOL
+    developers.
+  - Every example and table now writes the inline form.
+  - The SQL "typical flow" example passed the wrong arguments. It now shows
+    the handle, the row count and `NEXT-ROW`.
+- Not changed: the generated scaffolding (`COBOL-INIT-FORM`,
+  `COBOL-WAIT-EVENT`, the RestClient, SqlDatabase and binding paragraphs)
+  still writes `CALL`. Both forms are the same call.
+- Tests:
+  - `an_inline_cobol_call_is_the_call_wherever_it_sits` (six forms, each
+    equal to the CALL's own result);
+  - `the_table_is_every_builtin_the_interpreter_dispatches`;
+  - `the_cobol_object_completes_its_builtins_in_any_file`;
+  - `the_system_kb_teaches_every_builtin_inline`.
+- Sweeps:
+  - parser 175/0, semantic 88/0, runtime 1092/0, compiler 147/0;
+  - `cobolt-ide` 1275/1 (the one failure is the known red translation
+    guard);
+  - NIST NC (Nucleus): compile 95/95, execution 95/95 with 4614 assertions
+    and 0 failures;
+  - NIST SQ (Sequential I-O): compile 85/85, execution 85/85 with 624
+    assertions and 0 failures.
+
 ## [PowerRustCOBOL 1.70.320] — 2026-09-28
 
 ### Fix — `SaveAsPdf` writes what the Viewer painted

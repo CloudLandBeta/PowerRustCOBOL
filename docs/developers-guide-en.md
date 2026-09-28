@@ -1242,10 +1242,10 @@ to start your own. Everything in it is COBOL in its twelve forms:
 | `welcome-form` | The first-run screen — the name at 84 points, a robot, four steps — as a form of its own rather than controls hidden over the chat |
 | `topics-form` | **The CRUD pattern** (below): topics in a DataGrid with open, edit and delete icon buttons per row, each topic with its own Knowledge Base collection (`CreateCollection` on save, `RemoveCollection` on delete); sample topics installed from a plain text list and taken out again |
 | `documents-form` | The collection's documents as a `TreeView` built with `AddNode`, its folders kept in an indexed file so an empty one still shows; `onNodeSelect` points the `FileDropZone` at the chosen folder; `Refresh()`, and a progress strip — always in its own place, empty when idle — driven by `onProgress` / `onIndexed` |
-| `settings-form` | A summary, not an editor: four group buttons — **Knowledge Base folder**, **Model providers**, **Model selection**, **Agents** — each with a one-line account of what it holds beneath it, the model list, Export/Import and the status line. Each button opens its group as a **modal dialog** (`INVOKE ME::"OpenFormSync"("FORM-ID")`), and the summary reads the files again the moment the dialog closes. **Model selection** and **Agents** stay disabled until at least one provider connection exists. The whole setup is exported to and imported from XML — the export never writes a key, and an import stores any `key="…"` added by hand to a `<model>` with `COBOL-KEY-SET`. After every change it asks the main form to re-check its menu with `INVOKE super::"PC-REFRESH"()` |
-| `kb-folder-form` | The KB folder, typed or picked with `COBOL-FOLDER-DIALOG`; **Save** and **Cancel** at the top and at the bottom of the fields, both pairs calling the same `PC-SAVE` / `PC-CANCEL` |
-| `providers-form` | **The CRUD pattern** in a dialog: the connections in a grid (name, provider, endpoint, model, whether a key is set); Create/Update holds the name, the IDE's providers in a ComboBox (`COBOL-PROVIDER-COUNT/GET`), the endpoint and the API key — stored with `COBOL-KEY-SET` and never shown again — and **Test connection**, which asks the provider for its model list (`COBOL-MODEL-LIST`). Deleting a connection also clears the agents that used it |
-| `model-form` | Opening it **connects**: the first connection's provider is asked for its models at once, and picking another connection asks again; the model, whether it calls tools and its rank are saved onto the connection and handed over with `COBOL-MODEL-SET`. Save/Cancel at top and bottom |
+| `settings-form` | A summary, not an editor: four group buttons — **Knowledge Base folder**, **Model providers**, **Model selection**, **Agents** — each with a one-line account of what it holds beneath it, the model list, Export/Import and the status line. Each button opens its group as a **modal dialog** (`INVOKE ME::"OpenFormSync"("FORM-ID")`), and the summary reads the files again the moment the dialog closes. **Model selection** and **Agents** stay disabled until at least one provider connection exists. The whole setup is exported to and imported from XML — the export never writes a key, and an import stores any `key="…"` added by hand to a `<model>` with `COBOL::"KEY-SET"`. After every change it asks the main form to re-check its menu with `INVOKE super::"PC-REFRESH"()` |
+| `kb-folder-form` | The KB folder, typed or picked with `COBOL::"FOLDER-DIALOG"`; **Save** and **Cancel** at the top and at the bottom of the fields, both pairs calling the same `PC-SAVE` / `PC-CANCEL` |
+| `providers-form` | **The CRUD pattern** in a dialog: the connections in a grid (name, provider, endpoint, model, whether a key is set); Create/Update holds the name, the IDE's providers in a ComboBox (`COBOL::"PROVIDER-COUNT"` / `"PROVIDER-GET"`), the endpoint and the API key — stored with `COBOL::"KEY-SET"` and never shown again — and **Test connection**, which asks the provider for its model list (`COBOL::"MODEL-LIST"`). Deleting a connection also clears the agents that used it |
+| `model-form` | Opening it **connects**: the first connection's provider is asked for its models at once, and picking another connection asks again; the model, whether it calls tools and its rank are saved onto the connection and handed over with `COBOL::"MODEL-SET"`. Save/Cancel at top and bottom |
 | `agents-form` | One ComboBox per agent — **(off)** or a saved connection; Save/Cancel at top and bottom |
 | `prompts-form` | **The CRUD pattern** for the versions of a topic's system prompt, newest first with the active one marked; a promote icon button per row makes a version the active prompt after a confirmation, and the active version cannot be deleted |
 | `files-form` | **The CRUD pattern** for a topic's own indexed files, registered by path with `RegisterFile`: each one is tried as it is saved, so a missing file or a `.cidx` that does not describe it is refused on the spot with its reason; the chat form registers the topic's files when it opens and names any it cannot use |
@@ -6058,24 +6058,58 @@ A handler is a nested program, not a paragraph, and its body is what you write
            GOBACK.
 ```
 
-Written with the `CALL` primitives instead, the two property lines would read
-`CALL "COBOL-GET-PROPERTY" USING "TXT-NAME" "Text" WS-NAME` and
-`CALL "COBOL-SET-PROPERTY" USING "LBL-OUT" "Caption" WS-MESSAGE`. They still
-work, but `::` is the form to write — the agents are instructed never to emit
-these primitives for control access.
+Written with the built-in primitives instead, the two property lines would read
+`COBOL::"GET-PROPERTY"( "TXT-NAME" "Text" WS-NAME )` and
+`COBOL::"SET-PROPERTY"( "LBL-OUT" "Caption" WS-MESSAGE )`. They still work, but
+`::` on the control itself is the form to write — the agents are instructed
+never to emit these primitives for control access.
 
-Other built-in services available via `CALL` (covered in their sections):
+#### The built-ins: the `COBOL` object
 
-- **Charts:** `COBOL-CHART-ADD-POINT`, `COBOL-CHART-SET-TABLE`,
-  `COBOL-CHART-CLEAR`, `COBOL-CHART-REFRESH`.
-- **SQL:** `COBOL-OPEN-DB`, `COBOL-EXEC-SQL`, `COBOL-FETCH-ROW`,
-  `COBOL-NEXT-ROW`, `COBOL-ROW-COUNT`, `COBOL-CLOSE-DB`.
-- **HTTP:** `COBOL-HTTP-GET/POST/PUT/DELETE`, `COBOL-HTTP-SET-HEADER`,
-  `COBOL-HTTP-CLEAR-HEADERS`.
-- **Text files:** `COBOL-WRITE-FILE`, `COBOL-APPEND-FILE`.
-- **Asking for a file or a folder:** `COBOL-OPEN-FILE-DIALOG`,
-  `COBOL-SAVE-FILE-DIALOG`, `COBOL-FOLDER-DIALOG`.
-- **Lifecycle:** `COBOL-INIT-FORM`, `COBOL-QUIT`.
+Beyond the controls, the runtime has a set of **built-in calls** — HTTP, SQL,
+text files, the operating system's file dialogs, API keys, the model list,
+charts. They are the methods of one object, **`COBOL`**, and you write them
+inline, like any other method:
+
+```cobol
+           COBOL::"HTTP-GET" ( WS-URL WS-RESPONSE WS-HTTP-STATUS )
+           COBOL::"OPEN-FILE-DIALOG" ( "Import settings" "XML files|xml" WS-PATH )
+```
+
+If you come from PowerCOBOL or isCOBOL, read this as the runtime library you
+would `CALL` — and you still can: `COBOL::"HTTP-GET"( … )` **is**
+`CALL "COBOL-HTTP-GET" USING …`. The two are the same call, with the same
+arguments in the same order. A data item is passed by reference, so whatever
+the built-in returns lands in it; a literal is passed by content. The inline
+form is the one to write — it reads as what it is, IntelliSense completes it
+(type `COBOL::` to see every built-in with its arguments), and it is the form
+the agents write.
+
+> **Note.** A built-in is a **statement**: its results come back in its
+> arguments, so it is never used as a value (`MOVE COBOL::…` is wrong). The name
+> may be written bare (`COBOL::HTTP-GET( … )`) and may keep its `COBOL-` prefix;
+> quoted is the house style. Arguments are separated by spaces. A common
+> procedure is still reached with `CALL "PROCEDURE-NAME"`.
+
+The built-ins, by family (each covered in its own section):
+
+- **Charts:** `CHART-ADD-POINT`, `CHART-SET-TABLE`, `CHART-CLEAR`,
+  `CHART-REFRESH`.
+- **SQL:** `OPEN-DB`, `EXEC-SQL`, `FETCH-ROW`, `NEXT-ROW`, `ROW-COUNT`,
+  `CLOSE-DB`.
+- **HTTP:** `HTTP-GET`, `HTTP-POST`, `HTTP-PUT`, `HTTP-DELETE`,
+  `HTTP-SET-HEADER`, `HTTP-CLEAR-HEADERS`.
+- **Text files:** `WRITE-FILE`, `APPEND-FILE`, and `FILE-STATUS` for the last
+  status of an `FD` file.
+- **Asking for a file or a folder:** `OPEN-FILE-DIALOG`, `SAVE-FILE-DIALOG`,
+  `FOLDER-DIALOG`.
+- **Models and keys:** `MODEL-SET`, `MODEL-REMOVE`, `MODEL-LIST`,
+  `MODEL-LIST-GET`, `MODEL-TEST`, `PROVIDER-COUNT`, `PROVIDER-GET`, `KEY-SET`,
+  `KEY-REMOVE`, `KEY-IS-SET`.
+- **Data bindings and MCP:** the `BINDING-…` calls the generated code makes, and
+  `MCP-SEARCH`.
+- **Lifecycle:** `INIT-FORM` and `WAIT-EVENT`, which the generated program
+  makes for you.
 
 > **Note.** Property names passed to `GET`/`SET` are exactly the names shown in
 > the properties pane (e.g. `"Text"`, `"Caption"`, `"BackgroundColor"`,
@@ -7216,7 +7250,7 @@ Which makes embedded JSON, SQL and HTML readable:
 {"name": "O'Brien", "tags": ["a", "b"], "ok": true}
 ```
        TO WS-PAYLOAD.
-       CALL "COBOL-HTTP-POST" USING WS-URL WS-PAYLOAD WS-RESPONSE.
+       COBOL::"HTTP-POST" ( WS-URL WS-PAYLOAD WS-RESPONSE WS-HTTP-STATUS ).
 ````
 
 > ⚠️ **Free format only.** Fixed format has an indicator column and a sequence
@@ -7960,15 +7994,15 @@ A log line, an audit trail, a small export — work that does not deserve a
 built-in calls write one line and are done:
 
 ```cobol
-           CALL "COBOL-WRITE-FILE"  USING WS-PATH WS-LINE WS-STATUS.
-           CALL "COBOL-APPEND-FILE" USING WS-PATH WS-LINE WS-STATUS.
+           COBOL::"WRITE-FILE"  ( WS-PATH WS-LINE WS-STATUS ).
+           COBOL::"APPEND-FILE" ( WS-PATH WS-LINE WS-STATUS ).
 ```
 
 
 |                       |                                                                     |
 | --------------------- | ------------------------------------------------------------------- |
-| `COBOL-WRITE-FILE`    | **Replaces** the file — this is how you write the first, header line |
-| `COBOL-APPEND-FILE`   | **Adds** to the end — this is how you write every line after it      |
+| `COBOL::"WRITE-FILE"`  | **Replaces** the file — this is how you write the first, header line |
+| `COBOL::"APPEND-FILE"` | **Adds** to the end — this is how you write every line after it      |
 
 Both create the file when it is not there, and both write the text **followed by
 a newline**, so you never add one yourself.
@@ -7991,7 +8025,7 @@ A header line and then the rows is the whole pattern:
        01  WS-STATUS  PIC X(120).
       *> ...
        PROCEDURE DIVISION.
-           CALL "COBOL-WRITE-FILE" USING WS-PATH "id,name,total" WS-STATUS.
+           COBOL::"WRITE-FILE" ( WS-PATH "id,name,total" WS-STATUS ).
            IF WS-STATUS NOT = SPACES
                DISPLAY "Cannot write the export: " WS-STATUS
                GOBACK
@@ -8002,7 +8036,7 @@ A header line and then the rows is the whole pattern:
                       ","             DELIMITED BY SIZE
                       CUST-NAME (WS-I) DELIMITED BY SIZE
                    INTO WS-LINE
-               CALL "COBOL-APPEND-FILE" USING WS-PATH WS-LINE WS-STATUS
+               COBOL::"APPEND-FILE" ( WS-PATH WS-LINE WS-STATUS )
            END-PERFORM.
 ```
 
@@ -8022,12 +8056,12 @@ built-in calls open the operating system's own dialog instead, and the program
 **waits** on the call until the operator has chosen:
 
 ```cobol
-           CALL "COBOL-OPEN-FILE-DIALOG" USING "Import settings"
-                "XML files|xml" WS-PATH.
-           CALL "COBOL-SAVE-FILE-DIALOG" USING "Export settings"
-                "XML files|xml" "rag-settings.xml" WS-PATH.
-           CALL "COBOL-FOLDER-DIALOG"    USING "Knowledge Base folder"
-                WS-KB-FOLDER WS-PATH.
+           COBOL::"OPEN-FILE-DIALOG" ( "Import settings"
+                "XML files|xml" WS-PATH ).
+           COBOL::"SAVE-FILE-DIALOG" ( "Export settings"
+                "XML files|xml" "rag-settings.xml" WS-PATH ).
+           COBOL::"FOLDER-DIALOG"    ( "Knowledge Base folder"
+                WS-KB-FOLDER WS-PATH ).
            IF WS-PATH = SPACES
                DISPLAY "Nothing chosen."
            END-IF.
@@ -8035,9 +8069,9 @@ built-in calls open the operating system's own dialog instead, and the program
 
 | Call | Arguments, in order |
 |---|---|
-| `COBOL-OPEN-FILE-DIALOG` | title · filter · *start folder* · **path** |
-| `COBOL-SAVE-FILE-DIALOG` | title · filter · suggested file name · *start folder* · **path** |
-| `COBOL-FOLDER-DIALOG` | title · *start folder* · **path** |
+| `COBOL::"OPEN-FILE-DIALOG"` | title · filter · *start folder* · **path** |
+| `COBOL::"SAVE-FILE-DIALOG"` | title · filter · suggested file name · *start folder* · **path** |
+| `COBOL::"FOLDER-DIALOG"` | title · *start folder* · **path** |
 
 - **path** is always the **last** argument. It receives the file or folder
   chosen, or **SPACES** when the operator cancels.
@@ -8047,7 +8081,7 @@ built-in calls open the operating system's own dialog instead, and the program
   `"Documents|pdf,docx,md"` — or as the extensions alone, `"xml"`. An empty
   filter shows every file.
 - The save dialog asks before overwriting an existing file; the program then
-  writes it as it would any other path (`COBOL-WRITE-FILE`, or an `FD`).
+  writes it as it would any other path (`COBOL::"WRITE-FILE"`, or an `FD`).
 
 > **Note.** The dialog belongs to the running form's window, so it works in Run
 > Form and in a built application. A console program has no window to show one
@@ -8423,7 +8457,7 @@ a control property there and the window is repainted when the block returns:
 >
 > ⚠️ **Before 1.60.14 these writes did nothing.** Block execution had no channel
 > to the window, so the control changed in memory and the form never showed it.
-> If you worked around that with `COBOL-SET-PROPERTY`, that still works and needs
+> If you worked around that with `COBOL::"SET-PROPERTY"`, that still works and needs
 > no change.
 >
 > ⚠️ **Write with `set_property`; do not reach for `get_mut(..).unwrap()`.** A
@@ -8898,7 +8932,7 @@ made since the last `COMMIT`/`OPEN`. For **`STORAGE IS DISK`** a `COMMIT` also
 makes those changes *durable on disk*; for **`STORAGE IS MEMORY`** it is purely
 an in-RAM boundary (durability, if wanted, comes from `WITH PERSISTENCE` at
 `CLOSE` — see above). (These are **file** transactions — for SQL transactions use
-`COBOL-EXEC-SQL` with `BEGIN`/`COMMIT`/`ROLLBACK`.)
+`COBOL::"EXEC-SQL"` with `BEGIN`/`COMMIT`/`ROLLBACK`.)
 
 ```mermaid
 flowchart LR
@@ -8966,19 +9000,26 @@ chosen from the connection string:
 Typical flow:
 
 ```cobol
-           CALL "COBOL-OPEN-DB"   USING "sqlite:app.db".
-           CALL "COBOL-EXEC-SQL"  USING
-               "SELECT id, name FROM customers WHERE active = 1".
-           PERFORM UNTIL WS-NO-MORE-ROWS
-               CALL "COBOL-FETCH-ROW" USING WS-ID WS-NAME
+           COBOL::"OPEN-DB" ( "sqlite:app.db" WS-DB WS-STATUS )
+           COBOL::"EXEC-SQL" ( WS-DB
+               "SELECT id, name FROM customers WHERE active = 1"
+               WS-ROWS WS-STATUS )
+      *>   The first row is the current one; NEXT-ROW says whether
+      *>   there is another.
+           IF WS-ROWS > 0
+               MOVE "Y" TO WS-MORE
+           END-IF
+           PERFORM UNTIL WS-MORE NOT = "Y"
+               COBOL::"FETCH-ROW" ( WS-DB 1 WS-ID WS-STATUS )
+               COBOL::"FETCH-ROW" ( WS-DB 2 WS-NAME WS-STATUS )
                ...
-               CALL "COBOL-NEXT-ROW"
-           END-PERFORM.
-           CALL "COBOL-CLOSE-DB".
+               COBOL::"NEXT-ROW" ( WS-DB WS-MORE )
+           END-PERFORM
+           COBOL::"CLOSE-DB" ( WS-DB ).
 ```
 
 The drivers are pure and bundled (no `libpq`/OpenSSL to install). Use
-`COBOL-EXEC-SQL` with `BEGIN`/`COMMIT`/`ROLLBACK` for SQL transactions. Full
+`COBOL::"EXEC-SQL"` with `BEGIN`/`COMMIT`/`ROLLBACK` for SQL transactions. Full
 reference: `docs/database-runtime-en.md`.
 
 > **Note.** You can model a database connection visually with the **SQL Database**
@@ -8990,8 +9031,8 @@ reference: `docs/database-runtime-en.md`.
 
 ## 16. HTTP / REST and AI agents
 
-- **HTTP/REST.** `COBOL-HTTP-GET/POST/PUT/DELETE` issue requests;
-  `COBOL-HTTP-SET-HEADER` / `COBOL-HTTP-CLEAR-HEADERS` manage headers. The
+- **HTTP/REST.** `COBOL::"HTTP-GET"`, `"HTTP-POST"`, `"HTTP-PUT"` and `"HTTP-DELETE"` issue requests;
+  `COBOL::"HTTP-SET-HEADER"` / `COBOL::"HTTP-CLEAR-HEADERS"` manage headers. The
   **REST Client** non-visual control gives you a designable endpoint with four
   events to bind: `onComplete`, `onError`, `onTimeout` and `onCancelled`.
 - **AI agents.** The **AI Agent** non-visual control models a connection to a
@@ -9117,7 +9158,7 @@ should hold, and an operations team can see which value goes where.
   `DefaultHeaders` for it.
 - **`DefaultHeaders`** — `key: value`, one per line, sent with every request. A
   line with no colon is ignored. A header set at run time with
-  `COBOL-HTTP-SET-HEADER` **overrides** the one named here: an explicit call is
+  `COBOL::"HTTP-SET-HEADER"` **overrides** the one named here: an explicit call is
   more specific than design-time configuration.
 - **`DefaultMethod`** — the verb `Call()` uses when it is given no method
   argument. The named verbs (`get`, `post`, `put`, `delete`) always use theirs.
@@ -9192,7 +9233,7 @@ The control surface, on `RestClient` and `WebSearch`:
 > ⚠️ **Compatibility.** An existing form that reads `ResponseBody` on the
 > statement *after* a `GET` relies on the old blocking behaviour. Set that
 > control's `Mode` to `Sync` to keep the original same-statement result, or
-> move the read into an `onComplete` handler. The `COBOL-HTTP-*` CALL surface
+> move the read into an `onComplete` handler. The `COBOL::"HTTP-…"` built-ins
 > is unchanged and always synchronous.
 
 #### An asynchronous SqlDatabase
@@ -9229,7 +9270,7 @@ synchronous call raises** — so a handler you already wrote keeps working:
 ```
 
 > **Notes.** One statement at a time per control: while `Busy` is on, a
-> second `Query` or `Execute` is ignored, and a `COBOL-EXEC-SQL` CALL on the
+> second `Query` or `Execute` is ignored, and a `COBOL::"EXEC-SQL"` call on the
 > same connection answers that it is busy — the connection is out on the
 > worker, so it is never used by two things at once. `Open`, `Fetch` and
 > `Close` stay synchronous. A timed-out or cancelled statement is not
@@ -9642,7 +9683,7 @@ A `WebSearch` control also gets a generated `<id>-SEARCH` paragraph
 **unencoded** string concatenation (a multi-word `Query` truncates at its first
 space), never carries the key, and is **Google-only** — it does not follow
 `Provider`, because two of the providers need a POST with an authentication
-header and `COBOL-HTTP-GET` cannot send one. **Prefer `Search()`**, which
+header and `COBOL::"HTTP-GET"` cannot send one. **Prefer `Search()`**, which
 percent-encodes the query, resolves the credential, and honours `Provider`.
 
 #### Where an agent's credentials live
@@ -9696,16 +9737,16 @@ Two things are kept apart, on purpose:
                READ MODELS-FILE NEXT RECORD
                    AT END MOVE "Y" TO WS-EOF
                    NOT AT END
-                       CALL "COBOL-MODEL-SET" USING MOD-NAME MOD-API
-                                                    MOD-URL MOD-MODEL WS-STATUS
+                       COBOL::"MODEL-SET" ( MOD-NAME MOD-API
+                                            MOD-URL MOD-MODEL WS-STATUS )
                END-READ
            END-PERFORM.
 
        SETTINGS-FORM--SAVE-KEY.
       *>   The administrator typed a key: store it, then forget it.
-           CALL "COBOL-KEY-SET" USING MOD-NAME WS-NEW-KEY WS-STATUS
+           COBOL::"KEY-SET" ( MOD-NAME WS-NEW-KEY WS-STATUS )
            MOVE SPACES TO WS-NEW-KEY
-           CALL "COBOL-KEY-IS-SET" USING MOD-NAME WS-KEY-FLAG
+           COBOL::"KEY-IS-SET" ( MOD-NAME WS-KEY-FLAG )
       *>   WS-KEY-FLAG is "Y" or "N" — never the key.
            .
 
@@ -9713,13 +9754,13 @@ Two things are kept apart, on purpose:
            MOVE "company-model" TO AGENT-1::ModelEntry.
 ```
 
-| CALL | What it does |
+| Built-in | What it does |
 |---|---|
-| `COBOL-MODEL-SET USING name api url model [status]` | Adds or changes an entry. `api` is a provider id from the list below (`openai`, `anthropic`, `groq`, `ollama`, …), or `LMStudio` / `Custom`; `model` may be blank. |
-| `COBOL-MODEL-REMOVE USING name [status]` | Withdraws an entry. |
-| `COBOL-KEY-SET USING name key [status]` | Stores or replaces the key for an entry. |
-| `COBOL-KEY-REMOVE USING name [status]` | Removes it. |
-| `COBOL-KEY-IS-SET USING name flag` | `Y` or `N`. |
+| `COBOL::"MODEL-SET"( name api url model [status] )` | Adds or changes an entry. `api` is a provider id from the list below (`openai`, `anthropic`, `groq`, `ollama`, …), or `LMStudio` / `Custom`; `model` may be blank. |
+| `COBOL::"MODEL-REMOVE"( name [status] )` | Withdraws an entry. |
+| `COBOL::"KEY-SET"( name key [status] )` | Stores or replaces the key for an entry. |
+| `COBOL::"KEY-REMOVE"( name [status] )` | Removes it. |
+| `COBOL::"KEY-IS-SET"( name flag )` | `Y` or `N`. |
 
 `status` receives `OK`, or why it failed (the key file cannot be written, for
 example).
@@ -9732,23 +9773,23 @@ default endpoint, whether it needs a key, how it lists its models and how its
 connection is tested. A built application has the same list and the same
 rules, without the IDE:
 
-| CALL | What it does |
+| Built-in | What it does |
 |---|---|
-| `COBOL-PROVIDER-COUNT USING count` | How many providers there are (17). |
-| `COBOL-PROVIDER-GET USING index id label endpoint needs-key` | Provider *index* (1-based, the IDE's order): its id (what `COBOL-MODEL-SET` takes as `api`), the name to show, its default endpoint, and `Y`/`N`. |
-| `COBOL-MODEL-LIST USING provider endpoint key count status [entry]` | Asks the provider which models it offers; `count` receives how many, `status` `OK` or the IDE's own message ("Could not list models: …"). A blank endpoint is the provider's default. |
-| `COBOL-MODEL-LIST-GET USING index model` | Model *index* of that list. |
-| `COBOL-MODEL-TEST USING provider endpoint model key status [entry]` | Asks the model one tiny question, as the IDE's **Test** button does. `status` is `OK`, or what to fix. |
+| `COBOL::"PROVIDER-COUNT"( count )` | How many providers there are (17). |
+| `COBOL::"PROVIDER-GET"( index id label endpoint needs-key )` | Provider *index* (1-based, the IDE's order): its id (what `MODEL-SET` takes as `api`), the name to show, its default endpoint, and `Y`/`N`. |
+| `COBOL::"MODEL-LIST"( provider endpoint key count status [entry] )` | Asks the provider which models it offers; `count` receives how many, `status` `OK` or the IDE's own message ("Could not list models: …"). A blank endpoint is the provider's default. |
+| `COBOL::"MODEL-LIST-GET"( index model )` | Model *index* of that list. |
+| `COBOL::"MODEL-TEST"( provider endpoint model key status [entry] )` | Asks the model one tiny question, as the IDE's **Test** button does. `status` is `OK`, or what to fix. |
 
 With a blank `key` and an `entry` name, the key stored for that entry is used —
 so a settings screen can test a saved model without ever reading its key back.
 
 ```cobol
-           CALL "COBOL-MODEL-LIST" USING WS-PROVIDER WS-ENDPOINT WS-KEY
-                WS-COUNT WS-STATUS WS-ENTRY
+           COBOL::"MODEL-LIST" ( WS-PROVIDER WS-ENDPOINT WS-KEY
+                WS-COUNT WS-STATUS WS-ENTRY )
            IF WS-STATUS = "OK"
                PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-COUNT
-                   CALL "COBOL-MODEL-LIST-GET" USING WS-I WS-MODEL
+                   COBOL::"MODEL-LIST-GET" ( WS-I WS-MODEL )
                    MOVE CMB-MODEL::AddItem(WS-MODEL) TO WS-OK
                END-PERFORM
            ELSE
@@ -9975,7 +10016,7 @@ a round trip:
        01 WS-ARGS   PIC X(80) VALUE '{"ACTOR-SALARY": "100000"}'.
        01 WS-RESULT PIC X(500).
        ...
-           CALL "COBOL-MCP-SEARCH" USING WS-TOOL WS-ARGS WS-RESULT.
+           COBOL::"MCP-SEARCH" ( WS-TOOL WS-ARGS WS-RESULT ).
            DISPLAY WS-RESULT.
 ```
 
@@ -10692,7 +10733,7 @@ flowchart LR
 > or see *Installing the IDE elsewhere* in `BUILDING-en.md`.
 
 > **Note — what a build links, and what that costs.** The SQL bridge
-> (`COBOL-OPEN-DB` and its companions) brings SQLite with it, and SQLite is C:
+> (`COBOL::"OPEN-DB"` and its companions) brings SQLite with it, and SQLite is C:
 > linking it means the build machine also needs a **C compiler** — `link.exe`
 > from the Visual Studio Build Tools on Windows, `cc` from `build-essential` or
 > the Xcode Command Line Tools elsewhere. So the build reads your program first
@@ -10714,7 +10755,7 @@ flowchart LR
 > drivers. You do not have to declare anything; the point is only that a plain
 > program no longer pays for a database it never opens.
 >
-> The same applies to the network. `COBOL-HTTP-*` reaches the operating
+> The same applies to the network. `COBOL::"HTTP-…"` reaches the operating
 > system's TLS stack, which on **Linux** is OpenSSL — another C library, and
 > another development package to install. A console program that calls no HTTP
 > verb is built without it. The Maps client is separate again, and is linked
@@ -12188,9 +12229,9 @@ A rough mental map to speed you up. These are *analogies*, not exact equivalents
 | Property sheet                        | The **properties pane** (collapsible section cards)                                                      |
 | Event procedure attached to a control | A COBOL **event handler** (`CONTROL-ID--EVENTNAME` nested program)                                       |
 | The event loop hidden by the runtime  | The explicit **`COBOL-WAIT-EVENT`** loop in generated code                                               |
-| `INVOKE`/method calls on controls     | The same —`Ctrl::Method(args)`, `INVOKE Ctrl "Method" USING …`, or the `COBOL-GET/SET-PROPERTY` calls |
+| `INVOKE`/method calls on controls     | The same —`Ctrl::Method(args)`, `INVOKE Ctrl "Method" USING …`, or the `COBOL::"GET-PROPERTY"` / `"SET-PROPERTY"` built-ins |
 | Vendor ISAM                           | PowerRustCOBOL **indexed files** (`STORAGE IS MEMORY/DISK`, `redb`, `COMMIT`/`ROLLBACK`)                 |
-| Embedded SQL / ODBC                   | `COBOL-OPEN-DB` + `COBOL-EXEC-SQL` (SQLite/PostgreSQL/MySQL)                                            |
+| Embedded SQL / ODBC                   | `COBOL::"OPEN-DB"` + `COBOL::"EXEC-SQL"` (SQLite/PostgreSQL/MySQL)                                            |
 | Building an `.exe` with a runtime DLL  | `rcrun build` → **one self-contained binary**, no runtime to install                                   |
 | Project/workspace file                | `cobolt.toml` + the standard folder layout                                                              |
 

@@ -144,12 +144,19 @@ receive `CONTROL-ARRAY-INDEX PIC S9(4) COMP-5` (the 1-based firing index).
 These non-standard runtime programs back the data/network controls; use them only
 when the request clearly calls for that control:
 
-- **SQL** (SqlDatabase): `CALL "COBOL-OPEN-DB"`, `"COBOL-EXEC-SQL"`,
-  `"COBOL-FETCH-ROW"`/`"COBOL-NEXT-ROW"`, `"COBOL-CLOSE-DB"`.
-- **HTTP** (RestClient): `CALL "COBOL-HTTP-GET"`, `"COBOL-HTTP-SET-HEADER"`,
-  `"COBOL-HTTP-CLEAR-HEADERS"`.
-- **Charts:** `CALL "COBOL-CHART-ADD-POINT"`, `"COBOL-CHART-CLEAR"`,
-  `"COBOL-CHART-REFRESH"`, `"COBOL-CHART-SET-TABLE"`.
+- **SQL** (SqlDatabase): `COBOL::"OPEN-DB"( … )`, `COBOL::"EXEC-SQL"( … )`,
+  `COBOL::"FETCH-ROW"( … )` / `COBOL::"NEXT-ROW"( … )`, `COBOL::"CLOSE-DB"( … )`.
+- **HTTP** (RestClient): `COBOL::"HTTP-GET"( … )`, `COBOL::"HTTP-SET-HEADER"( … )`,
+  `COBOL::"HTTP-CLEAR-HEADERS"()`.
+- **Charts:** `COBOL::"CHART-ADD-POINT"( … )`, `COBOL::"CHART-CLEAR"( … )`,
+  `COBOL::"CHART-REFRESH"( … )`, `COBOL::"CHART-SET-TABLE"( … )`.
+
+These built-ins are methods of the **`COBOL` object** and are written inline:
+`COBOL::"HTTP-GET"( WS-URL WS-RESPONSE WS-HTTP-STATUS )` — never
+`CALL "COBOL-HTTP-GET" USING WS-URL WS-RESPONSE WS-HTTP-STATUS`. The two are the
+same call (same arguments, same order; a data item passes BY REFERENCE, so what
+the built-in returns lands in it), but only the inline form is written. A common
+procedure is still reached with `CALL "NAME"`.
 
 Do not invent runtime CALL names. If unsure of the exact argument list, keep the
 handler simple and leave a `*>` comment noting what the developer must fill in.

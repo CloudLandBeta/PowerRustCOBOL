@@ -459,7 +459,7 @@
                            IF MDL-MODEL NOT = SPACES
                                ADD 1 TO WS-WITH-MODEL
                            END-IF
-                           CALL "COBOL-KEY-IS-SET" USING MDL-NAME WS-KEY-FLAG
+                           COBOL::"KEY-IS-SET" ( MDL-NAME WS-KEY-FLAG )
                            MOVE MDL-API TO WS-PROV-ID
                            CALL "PC-PROVIDER-LABEL"
                            MOVE SPACES TO WS-ROW
@@ -520,8 +520,8 @@
            MOVE FUNCTION LOWER-CASE(WS-XVAL) TO WS-XVAL
            PERFORM VARYING WS-P FROM 1 BY 1
                    UNTIL WS-P > WS-PROV-COUNT OR WS-PROV-IX > 0
-               CALL "COBOL-PROVIDER-GET" USING WS-P WS-XNAME WS-PROV-LABEL
-                    WS-PROV-EP WS-PROV-NEEDS
+               COBOL::"PROVIDER-GET" ( WS-P WS-XNAME WS-PROV-LABEL
+                    WS-PROV-EP WS-PROV-NEEDS )
                IF WS-XNAME = WS-XVAL(1:20)
                    MOVE WS-P TO WS-PROV-IX
                END-IF
@@ -614,10 +614,10 @@
        PROCEDURE DIVISION.
       *>   Append WS-XLINE to the export file (the first line replaces it).
            IF WS-XROOT = "N"
-               CALL "COBOL-WRITE-FILE" USING WS-XML-PATH WS-XLINE WS-LONG
+               COBOL::"WRITE-FILE" ( WS-XML-PATH WS-XLINE WS-LONG )
                MOVE "Y" TO WS-XROOT
            ELSE
-               CALL "COBOL-APPEND-FILE" USING WS-XML-PATH WS-XLINE WS-LONG
+               COBOL::"APPEND-FILE" ( WS-XML-PATH WS-XLINE WS-LONG )
            END-IF
 ]]></Event>
     <Event name="PC-REFRESH" paragraph="PC-REFRESH"><![CDATA[       ENVIRONMENT DIVISION.
@@ -766,7 +766,7 @@
        PROCEDURE DIVISION.
            CALL "PC-PATHS"
            CALL "PC-TEXTS"
-           CALL "COBOL-PROVIDER-COUNT" USING WS-PROV-COUNT
+           COBOL::"PROVIDER-COUNT" ( WS-PROV-COUNT )
            CALL "PC-REFRESH"
 ]]></Event>
     <Event name="onActivate" paragraph="SETTINGS-FORM--ONACTIVATE"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1256,6 +1256,7 @@
     <Property name="ActiveItemColor"></Property>
     <Property name="SelectedItemsColor"></Property>
     <Property name="ActiveItemTextColor"></Property>
+    <Property name="ItemsFile"></Property>
   </Control>
   <Control id="Btn-Export" type="Button" x="24" y="480" w="150" h="32" tab-order="6" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
@@ -1303,8 +1304,8 @@
        PROCEDURE DIVISION.
       *>   rag-settings.xml: the folder, every model and every agent. Keys are
       *>   never written - they stay in the application's key store.
-           CALL "COBOL-SAVE-FILE-DIALOG" USING T-EXPORT-TITLE "XML|xml"
-                "rag-settings.xml" WS-XML-PATH
+           COBOL::"SAVE-FILE-DIALOG" ( T-EXPORT-TITLE "XML|xml"
+                "rag-settings.xml" WS-XML-PATH )
            IF WS-XML-PATH = SPACES
                EXIT PROGRAM
            END-IF
@@ -1440,7 +1441,7 @@
       *>   file may carry one - key="..." on a <model>, added by hand - and it
       *>   is stored in the key store like one typed in Model providers. The
       *>   models still without a key are named afterwards.
-           CALL "COBOL-OPEN-FILE-DIALOG" USING T-IMPORT-TITLE "XML|xml" WS-XML-PATH
+           COBOL::"OPEN-FILE-DIALOG" ( T-IMPORT-TITLE "XML|xml" WS-XML-PATH )
            IF WS-XML-PATH = SPACES
                EXIT PROGRAM
            END-IF
@@ -1507,15 +1508,15 @@
                                    WRITE MODEL-REC
                                        INVALID KEY REWRITE MODEL-REC
                                    END-WRITE
-                                   CALL "COBOL-MODEL-SET" USING MDL-NAME MDL-API MDL-URL MDL-MODEL
+                                   COBOL::"MODEL-SET" ( MDL-NAME MDL-API MDL-URL MDL-MODEL )
                                    IF WS-KEY NOT = SPACES
-                                       CALL "COBOL-KEY-SET" USING MDL-NAME WS-KEY WS-STATUS
+                                       COBOL::"KEY-SET" ( MDL-NAME WS-KEY WS-STATUS )
                                        MOVE SPACES TO WS-KEY
                                    END-IF
                                    ADD 1 TO WS-IMPORTED
                                    MOVE MDL-API TO WS-PROV-ID
                                    CALL "PC-PROVIDER-LABEL"
-                                   CALL "COBOL-KEY-IS-SET" USING MDL-NAME WS-KEY-FLAG
+                                   COBOL::"KEY-IS-SET" ( MDL-NAME WS-KEY-FLAG )
                                    IF WS-PROV-NEEDS = "Y" AND WS-KEY-FLAG NOT = "Y"
                                        IF WS-NEED-KEYS = SPACES
                                            MOVE MDL-NAME TO WS-NEED-KEYS

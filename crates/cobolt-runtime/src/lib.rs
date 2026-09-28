@@ -35,6 +35,8 @@
 pub mod agent_runtime;
 /// Spec 072 — AgentObject tool calling: the pure half.
 pub mod agent_tools;
+/// The built-in CALLs — the `COBOL` object's methods (`COBOL::"NAME"( … )`).
+pub mod builtins;
 pub mod async_op;
 pub mod channels;
 pub mod collation;

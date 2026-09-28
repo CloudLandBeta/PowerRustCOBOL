@@ -493,7 +493,7 @@
       *>   The operating system's own folder window (no typing, no typos).
       *>   The choice waits in the field until Save.
            MOVE Txt-KbLocation::Text TO WS-SET-VALUE
-           CALL "COBOL-FOLDER-DIALOG" USING T-KB-BROWSE-TITLE WS-SET-VALUE WS-PATH
+           COBOL::"FOLDER-DIALOG" ( T-KB-BROWSE-TITLE WS-SET-VALUE WS-PATH )
            IF WS-PATH NOT = SPACES
                MOVE WS-PATH TO Txt-KbLocation::Text
            END-IF

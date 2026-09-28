@@ -3351,7 +3351,43 @@ fn parse_inline_invoke(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     let expr = parse_expr(p);
     p.eat(&Token::Period);
+    if let Some(call) = cobol_object_call(&expr, span) {
+        return call;
+    }
     Stmt::InvokeExpr { expr, span }
+}
+
+/// `COBOL::"MODEL-LIST"(WS-PROV-ID WS-CUR-URL WS-KEY WS-N)` — the inline
+/// spelling of a RustCOBOL built-in CALL: the `COBOL` object's method NAME is
+/// `CALL "COBOL-NAME" USING …`, exactly (operator, 2026-09-28). It becomes
+/// that CALL, so it runs through the one CALL path: a data item goes BY
+/// REFERENCE, and whatever the built-in writes back lands in it, as with
+/// `USING`; a literal or an expression goes BY CONTENT.
+fn cobol_object_call(expr: &Expr, span: cobolt_lexer::Span) -> Option<Stmt> {
+    let Expr::Member { recv, member, args, parens: true, .. } = expr else { return None };
+    let Expr::Identifier(object, _) = recv.as_ref() else { return None };
+    if !object.eq_ignore_ascii_case("COBOL") || member.trim().is_empty() {
+        return None;
+    }
+    let name = member.trim().trim_matches('"').to_ascii_uppercase();
+    let name = if name.starts_with("COBOL-") { name } else { format!("COBOL-{name}") };
+    let using = args
+        .iter()
+        .map(|a| match a {
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } | Expr::RefMod { .. } => {
+                CallArg::ByReference(a.clone())
+            }
+            other => CallArg::ByContent(other.clone()),
+        })
+        .collect();
+    Some(Stmt::Call {
+        program: Expr::Literal(cobolt_ast::expr::Literal::String(name), span),
+        using,
+        returning: None,
+        on_exception: Vec::new(),
+        not_on_exception: Vec::new(),
+        span,
+    })
 }
 
 // ── INITIALIZE ────────────────────────────────────────────────────────────────
@@ -3489,7 +3525,7 @@ fn parse_set(p: &mut Parser) -> Stmt {
         // is untouched.
         loop {
             let mut more = Vec::new();
-            while matches!(p.peek(), Token::Identifier(_)) && !p.at(&Token::To) {
+            while matches!(p.peek(), Token::Identifier(_)) && !p.at(&Token::To) && !at_cobol_object_call(p) {
                 more.push(parse_expr(p));
             }
             if more.is_empty() || !p.eat(&Token::To) {
@@ -3740,6 +3776,13 @@ fn at_terminating_period(p: &Parser) -> bool {
 }
 
 pub(crate) fn is_expr_start(p: &Parser) -> bool {
+    // `COBOL::NAME(…)` is a built-in CALL, which has no value: it can only
+    // open the next statement, never continue an operand list. Without this
+    // the `DISPLAY` before it took it as one more thing to display, and the
+    // call never ran.
+    if at_cobol_object_call(p) {
+        return false;
+    }
     matches!(
         p.peek(),
         Token::Identifier(_)
@@ -3761,6 +3804,13 @@ pub(crate) fn is_expr_start(p: &Parser) -> bool {
             | Token::LParen
             | Token::Function
     )
+}
+
+/// At `COBOL::` — the built-in CALL object ([`cobol_object_call`]).
+pub(crate) fn at_cobol_object_call(p: &Parser) -> bool {
+    matches!(p.peek(), Token::Identifier(w) if w.eq_ignore_ascii_case("COBOL"))
+        && *p.peek_at(1) == Token::Colon
+        && *p.peek_at(2) == Token::Colon
 }
 
 /// Return the current identifier as an uppercase string without consuming it.

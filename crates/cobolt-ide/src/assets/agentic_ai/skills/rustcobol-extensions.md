@@ -91,6 +91,11 @@ syntax either. Use:
 <control>::<method>(<parameters>)
 ```
 
+A RustCOBOL built-in — a `COBOL-…` runtime call (HTTP, SQL, files, dialogs,
+keys, models, charts) — is a method of the **`COBOL` object** and is written
+inline: `COBOL::"HTTP-GET"( WS-URL WS-RESPONSE WS-HTTP-STATUS )`, never
+`CALL "COBOL-HTTP-GET" USING …`. Same call, same arguments in the same order.
+
 **Read (GET)** — `control-id::Property` is a value usable anywhere:
 
 ```cobol
