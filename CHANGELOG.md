@@ -8,6 +8,54 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.325] — 2026-09-28
+
+### Fix — flowchart connectors are orthogonal and meet each shape at a side's middle
+
+The operator asked to "corrija a geração de fluxos usando linhas ortogonais e
+conectadas nos vértices ou no meio de um dos lados de um shape". The
+screenshot showed slanted segments, and arrows meeting a box wherever they
+happened to arrive: the renderer spreads its ports along a side and routes
+freely.
+
+- **`mermaid_route::orthogonalize`.** The Mermaid layout still places the
+  nodes. Each flowchart edge's points are then replaced, before the SVG is
+  written, by the cheapest of several candidate routes:
+  - straight;
+  - a Z, vertical or horizontal;
+  - an L;
+  - a detour round the shapes in the way.
+
+  Every candidate starts and ends at the middle of a side: N, E, S or W,
+  which on a decision diamond are its vertices. The cost counts length,
+  bends, a heavy penalty for passing through another shape, and a smaller
+  one for a port already used. So a decision's two ways out leave by two
+  different vertices.
+- **Detours:**
+  - each detour runs in a lane of its own, so two never lie on top of each
+    other;
+  - a lane past the left or top edge moves the whole drawing over instead of
+    being squeezed against the edge;
+  - the drawing grows to hold every route and every label.
+- **Labels.** A label sits on its own route, where it covers no shape. Each
+  straight run is sampled every 8 px from its middle, so a label on a lane
+  beside a column of boxes lands in the gap between two of them.
+- Sequence diagrams and every other kind are left exactly as laid out.
+- Test: `flowchart_connectors_are_orthogonal_and_meet_a_side_at_its_middle`,
+  on the operator's own process. Every connector is checked for:
+  - orthogonality;
+  - starting and ending at a side's middle;
+  - crossing no shape;
+  - no two vertical runs overlapping;
+  - staying inside the drawing;
+  - the decision leaving by two vertices;
+  - no label covering a shape.
+
+  Checked by eye too, rendered: the TD process and an LR order flow.
+  `cobolt-forms` 1211/0.
+- Developer's Guide: the Viewer's format table. System KB: the Viewer
+  description; `chunked.data` is regenerated.
+
 ## [PowerRustCOBOL 1.70.324] — 2026-09-28
 
 ### Fix — PowerChat's two failing tests: stale rules updated, three real gaps closed

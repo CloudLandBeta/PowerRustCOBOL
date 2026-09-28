@@ -60,6 +60,8 @@ pub mod viewer;
 /// The CSS the Viewer's HTML subset honours: a cascade for styling, never
 /// layout, and nothing fetched.
 pub mod css;
+/// A flowchart's connectors made orthogonal, meeting each shape at a side's middle.
+pub mod mermaid_route;
 /// The Viewer written out as a PDF — `SaveAsPdf`.
 #[cfg(feature = "pdf")]
 pub mod viewer_pdf;

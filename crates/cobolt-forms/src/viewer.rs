@@ -3819,9 +3819,16 @@ pub fn mermaid_kind(source: &str) -> MermaidKind {
 /// spec.
 pub fn render_mermaid_svg(source: &str) -> Result<String, String> {
     match mermaid_kind(source) {
-        MermaidKind::Flowchart | MermaidKind::Sequence => {
-            mermaid_rs_renderer::render(source).map_err(|e| e.to_string())
+        MermaidKind::Flowchart => {
+            // The Mermaid layout places the nodes; the connectors are then
+            // made orthogonal and attached at a side's middle.
+            let parsed = mermaid_rs_renderer::parse_mermaid(source).map_err(|e| e.to_string())?;
+            let opts = mermaid_rs_renderer::RenderOptions::default();
+            let mut layout = mermaid_rs_renderer::compute_layout(&parsed.graph, &opts.theme, &opts.layout);
+            crate::mermaid_route::orthogonalize(&mut layout);
+            Ok(mermaid_rs_renderer::render_svg(&layout, &opts.theme, &opts.layout))
         }
+        MermaidKind::Sequence => mermaid_rs_renderer::render(source).map_err(|e| e.to_string()),
         MermaidKind::Unsupported(kind) => Err(format!(
             "Mermaid '{kind}' diagrams are not supported — this Viewer draws flowchart and sequence diagrams"
         )),
