@@ -8,6 +8,70 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.332] — 2026-09-28
+
+### Feature — PowerChat: one main prompt holds every instruction; the report templates are complete pages
+
+The operator asked for every instruction to the model to be in English and
+part of the main prompt, not inserted inside the program where the user
+cannot change it. They also said the templates were "horrible" and the
+reports looked as they did before Bulma, and showed three infographics to
+aim for.
+
+- **The main prompt** (`samples/main-prompt.md`, edited in the Prompt
+  screen).
+  - It holds every instruction the models get, in English, in named
+    sections:
+    - `SYSTEM`: the orchestrator;
+    - `ASSISTANT`: every other agent, replacing the role prompt designed on
+      the AgentObjects;
+    - `NO SOURCES`: a topic with no documents;
+    - `PLAN`, `TASK` and `COMPOSE`: splitting, asking and answering;
+    - `TEMPLATE`: sent with a chosen report template.
+  - The program fills in only the `{…}` words the text leaves:
+    `{TOPIC}`, `{SOURCES NOTE}`, `{TEMPLATES}`, `{NAME}`, `{SKELETON}`,
+    `{TASK}`, `{RESULTS}`, `{DOCUMENTS MENU}`, `{DATA FILES MENU}`.
+    `PC-MAIN-LOAD`, `PC-SECTION` and `PC-FILL` do this. Every fixed
+    instruction sentence is gone from the COBOL.
+  - It is re-read before each question, so an edit reaches the next one, and
+    a changed text triggers a new election.
+  - With no main prompt at all, the orchestrator still gets the topic's own
+    prompt.
+- **The Prompt screen.**
+  - Its **Main prompt** / **Topic prompt** buttons switch what it edits; the
+    main prompt's versions sit under the topic id `*MAIN`.
+  - **Restore default** saves the shipped text as a new version.
+  - Versions move from `prompts.idx` (1,000 characters) to
+    `prompt-versions.idx` (32,000), copied over the first time the screen
+    opens (`PC-MIGRATE`). `topics-form` follows the new file.
+  - The editor takes 32,000 characters. Five new texts, in six languages.
+- **Report templates are complete pages.**
+  - `samples/report-templates.txt` now holds 11 HTML skeletons, each drawn
+    and checked through the Viewer's own rendering: Executive, Informational,
+    List, Timeline (the horizontal band of icons the operator preferred),
+    Comparison, Map (tile map), Statistics, Flowchart, Hierarchy
+    (pyramid), Anatomical and Animated.
+  - They use Bulma plus a `<style>` block, no `position`, and icons from the
+    set the Viewer draws.
+  - `data/templates.idx` stores each template's name, what it suits, and its
+    page. The prompt lists only the names and what each suits. Once the user
+    chooses, the model answers `TEMPLATE: <name>` (or puts it first in a
+    plan), and the chat sends that template's page with the `TEMPLATE`
+    section, once per question (`PC-TPL-LINE`, `PC-TPL-FIND`,
+    `PC-TEMPLATE-TEXT`).
+  - A template changed or described in the chat is saved with the answer's
+    page as its skeleton.
+- Tests:
+  - `powerchat_offers_report_templates_and_saves_a_new_one` (rewritten):
+    the eleven are listed, `TEMPLATE: Timeline` brings back its skeleton,
+    and a green variant is saved with its page.
+  - New `powerchat_main_prompt_is_every_instruction_and_the_user_edits_it`:
+    old versions are migrated; v1 is shipped, v2 is edited and used by the
+    orchestrator and the assistants with nothing added; v3 is restored.
+  - PowerChat 16/16 twice, compile 4/4.
+- Docs: PowerChat README, `data/README.md`, Developer's Guide (the
+  `chat-form` and `prompts-form` rows).
+
 ## [PowerRustCOBOL 1.70.331] — 2026-09-28
 
 ### Feature — PowerDemo3: "Passing Data to a Child Form"

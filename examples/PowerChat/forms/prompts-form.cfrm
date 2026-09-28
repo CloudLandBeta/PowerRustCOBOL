@@ -20,7 +20,20 @@
        01 WS-CONFIRM-VER     GLOBAL PIC 9(4) VALUE 0.
        01 WS-INDEX           GLOBAL PIC S9(4).
        01 WS-I               GLOBAL PIC 9(4).
-       01 WS-TEXT            GLOBAL PIC X(1000).
+       01 WS-TEXT            GLOBAL PIC X(32000).
+      *>   Which prompt the screen edits: "T" the open topic's, "M" the main
+      *>   prompt - every instruction, for every topic - kept in the same
+      *>   version file under the topic id "*MAIN" (operator, 2026-09-28).
+       01 WS-SCOPE           GLOBAL PIC X VALUE "T".
+       01 WS-TOPIC-ID        GLOBAL PIC X(16).
+       01 WS-OLDPRM-PATH     GLOBAL PIC X(240).
+       01 WS-MPSEED-PATH     GLOBAL PIC X(240).
+       01 WS-SAMPLES-DIR     GLOBAL PIC X(240).
+       01 WS-EMPTY           GLOBAL PIC X.
+       01 WS-SX-B            GLOBAL PIC 9(6).
+       01 WS-LN-BUF          GLOBAL PIC X(1000).
+       01 WS-LN-REV          GLOBAL PIC X(1000).
+       01 WS-LN-LEN          GLOBAL PIC 9(4).
        01 WS-ROW             GLOBAL PIC X(300).
        01 WS-LINE            GLOBAL PIC X(200).
        01 WS-VNUM            GLOBAL PIC Z(3)9.
@@ -269,8 +282,43 @@
           05 FILLER PIC X(130) VALUE "Texte".
           05 FILLER PIC X(130) VALUE "テキスト".
           05 FILLER PIC X(130) VALUE "文本".
+      *>   MAIN-PROMPT
+          05 FILLER PIC X(130) VALUE "Main prompt".
+          05 FILLER PIC X(130) VALUE "Prompt principal".
+          05 FILLER PIC X(130) VALUE "Prompt principal".
+          05 FILLER PIC X(130) VALUE "Prompt principal".
+          05 FILLER PIC X(130) VALUE "メインプロンプト".
+          05 FILLER PIC X(130) VALUE "主提示词".
+      *>   TOPIC-PROMPT
+          05 FILLER PIC X(130) VALUE "Topic prompt".
+          05 FILLER PIC X(130) VALUE "Prompt do tópico".
+          05 FILLER PIC X(130) VALUE "Prompt del tema".
+          05 FILLER PIC X(130) VALUE "Prompt du sujet".
+          05 FILLER PIC X(130) VALUE "トピックのプロンプト".
+          05 FILLER PIC X(130) VALUE "主题提示词".
+      *>   RESTORE-DEFAULT
+          05 FILLER PIC X(130) VALUE "Restore default".
+          05 FILLER PIC X(130) VALUE "Restaurar padrão".
+          05 FILLER PIC X(130) VALUE "Restaurar predeterminado".
+          05 FILLER PIC X(130) VALUE "Rétablir par défaut".
+          05 FILLER PIC X(130) VALUE "既定に戻す".
+          05 FILLER PIC X(130) VALUE "恢复默认".
+      *>   MAIN-TITLE
+          05 FILLER PIC X(130) VALUE "Main prompt - every instruction, for every topic".
+          05 FILLER PIC X(130) VALUE "Prompt principal - todas as instruções, para todos os tópicos".
+          05 FILLER PIC X(130) VALUE "Prompt principal: todas las instrucciones, para todos los temas".
+          05 FILLER PIC X(130) VALUE "Prompt principal : toutes les instructions, pour tous les sujets".
+          05 FILLER PIC X(130) VALUE "メインプロンプト - すべてのトピックへのすべての指示".
+          05 FILLER PIC X(130) VALUE "主提示词——适用于所有主题的全部指令".
+      *>   HINT-MAIN-EDITOR
+          05 FILLER PIC X(130) VALUE "Every instruction the models get, in English, section by section (=== NAME ===)".
+          05 FILLER PIC X(130) VALUE "Todas as instruções dadas aos modelos, em inglês, seção por seção (=== NAME ===)".
+          05 FILLER PIC X(130) VALUE "Todas las instrucciones que reciben los modelos, en inglés, sección por sección (=== NAME ===)".
+          05 FILLER PIC X(130) VALUE "Toutes les instructions données aux modèles, en anglais, section par section (=== NAME ===)".
+          05 FILLER PIC X(130) VALUE "モデルへのすべての指示（英語、セクションごと: === NAME ===）".
+          05 FILLER PIC X(130) VALUE "模型收到的全部指令（英文，按节：=== NAME ===）".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 32.
+          05 PC-TEXT-ROW     OCCURS 37.
              10 PC-TEXT      PIC X(130) OCCURS 6.
       *>   The texts in the current language, by name.
        01 PC-TEXTS-NOW       GLOBAL.
@@ -306,8 +354,13 @@
           05 T-COL-CREATED PIC X(130).
           05 T-COL-ACTIVE PIC X(130).
           05 T-COL-TEXT PIC X(130).
+          05 T-MAIN-PROMPT PIC X(130).
+          05 T-TOPIC-PROMPT PIC X(130).
+          05 T-RESTORE-DEFAULT PIC X(130).
+          05 T-MAIN-TITLE PIC X(130).
+          05 T-HINT-MAIN-EDITOR PIC X(130).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(130) OCCURS 32.
+          05 PC-TEXT-NOW     PIC X(130) OCCURS 37.
       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
        01 WS-FMT             GLOBAL PIC X(130).
        01 WS-ARG1            GLOBAL PIC X(300).
@@ -382,6 +435,15 @@
                RECORD KEY IS PRM-KEY
                FILE STATUS IS WS-FS
                STORAGE MODE IS DISK.
+           SELECT OLDPRM-FILE ASSIGN TO WS-OLDPRM-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS OLD-KEY
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT MPSEED-FILE ASSIGN TO WS-MPSEED-PATH
+               ORGANIZATION IS LINE SEQUENTIAL
+               FILE STATUS IS WS-FS.
 ]]></file-control>
   <file-section><![CDATA[       FD  SETTINGS-FILE IS GLOBAL.
        01  SETTINGS-REC.
@@ -396,15 +458,27 @@
       *>   "Y" for a topic the sample installer made, so it can be removed.
            05 TOP-SAMPLE        PIC X.
        FD  PROMPTS-FILE IS GLOBAL.
-      *>   Every version of each topic's system prompt (R48). The active one's
-      *>   text is also the topic's TOP-PROMPT, which is what the chat reads.
+      *>   Every version of each topic's system prompt (R48), and of the main
+      *>   prompt under "*MAIN": data/prompt-versions.idx. A topic's active
+      *>   text is also its TOP-PROMPT, which is what the chat reads.
        01  PROMPT-REC.
            05 PRM-KEY.
               10 PRM-TOPIC      PIC X(16).
               10 PRM-VERSION    PIC 9(4).
            05 PRM-CREATED       PIC X(14).
            05 PRM-ACTIVE        PIC X.
-           05 PRM-TEXT          PIC X(1000).
+           05 PRM-TEXT          PIC X(32000).
+      *>   The versions' file before 1.70.332, read once to move them over.
+       FD  OLDPRM-FILE IS GLOBAL.
+       01  OLD-PROMPT-REC.
+           05 OLD-KEY.
+              10 OLD-TOPIC      PIC X(16).
+              10 OLD-VERSION    PIC 9(4).
+           05 OLD-CREATED       PIC X(14).
+           05 OLD-ACTIVE        PIC X.
+           05 OLD-TEXT          PIC X(1000).
+       FD  MPSEED-FILE IS GLOBAL.
+       01  MPSEED-REC           PIC X(1000).
 ]]></file-section>
   <user-procedures>
     <Event name="PC-PATHS" paragraph="PC-PATHS"><![CDATA[       ENVIRONMENT DIVISION.
@@ -423,8 +497,19 @@
            STRING FUNCTION TRIM(WS-DATA-DIR) "/topics.idx"
                DELIMITED BY SIZE INTO WS-TOPICS-PATH
            MOVE SPACES TO WS-PROMPTS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/prompts.idx"
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/prompt-versions.idx"
                DELIMITED BY SIZE INTO WS-PROMPTS-PATH
+           MOVE SPACES TO WS-OLDPRM-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/prompts.idx"
+               DELIMITED BY SIZE INTO WS-OLDPRM-PATH
+           DISPLAY "POWERCHAT_SAMPLES" UPON ENVIRONMENT-NAME
+           ACCEPT WS-SAMPLES-DIR FROM ENVIRONMENT-VALUE
+           IF WS-SAMPLES-DIR = SPACES
+               MOVE "samples" TO WS-SAMPLES-DIR
+           END-IF
+           MOVE SPACES TO WS-MPSEED-PATH
+           STRING FUNCTION TRIM(WS-SAMPLES-DIR) "/main-prompt.md"
+               DELIMITED BY SIZE INTO WS-MPSEED-PATH
 ]]></Event>
     <Event name="PC-SETTING-GET" paragraph="PC-SETTING-GET"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -504,7 +589,15 @@
                MOVE FUNCTION CURRENT-DATE TO WS-NOW
                MOVE WS-NOW(1:14) TO PRM-CREATED
                MOVE "Y" TO PRM-ACTIVE
-               MOVE TOP-PROMPT TO PRM-TEXT
+               IF WS-CUR-TOPIC = "*MAIN"
+                   CALL "PC-MAIN-DEFAULT"
+                   MOVE WS-CUR-TOPIC TO PRM-TOPIC
+                   MOVE 1 TO PRM-VERSION
+                   MOVE "Y" TO PRM-ACTIVE
+                   MOVE WS-TEXT TO PRM-TEXT
+               ELSE
+                   MOVE TOP-PROMPT TO PRM-TEXT
+               END-IF
                WRITE PROMPT-REC
                    INVALID KEY CONTINUE
                END-WRITE
@@ -582,6 +675,10 @@
            END-PERFORM
            COMMIT
            CLOSE PROMPTS-FILE
+           MOVE WS-PICKED TO WS-ACTIVE-VER
+           IF WS-CUR-TOPIC = "*MAIN"
+               EXIT PROGRAM
+           END-IF
            OPEN I-O TOPICS-FILE
            IF WS-FS = "35"
                OPEN OUTPUT TOPICS-FILE
@@ -619,7 +716,7 @@
                WHEN OTHER MOVE "en" TO WS-LANG
                           MOVE 1 TO WS-LANG-IX
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 32
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 37
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
            MOVE FUNCTION TRIM(T-PROMPT-TITLE) TO Lbl-Title::Caption
@@ -629,6 +726,9 @@
            MOVE FUNCTION TRIM(T-SAVE) TO Btn-Save-Bottom::Caption
            MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel::Caption
            MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel-Bottom::Caption
+           MOVE FUNCTION TRIM(T-MAIN-PROMPT) TO Btn-Main::Caption
+           MOVE FUNCTION TRIM(T-TOPIC-PROMPT) TO Btn-Topic::Caption
+           MOVE FUNCTION TRIM(T-RESTORE-DEFAULT) TO Btn-Default::Caption
            MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
            MOVE SPACES TO WS-TABS
            STRING FUNCTION TRIM(T-TAB-BROWSE) X"0A" FUNCTION TRIM(T-TAB-EDIT)
@@ -682,10 +782,23 @@
        PROCEDURE DIVISION.
       *>   What the form shows: run on load, and again when it comes back.
            CALL "PC-PATHS"
+           CALL "PC-MIGRATE"
            CALL "PC-TEXTS"
            MOVE "CUR-TOPIC" TO WS-SET-NAME
            CALL "PC-SETTING-GET"
-           MOVE WS-SET-VALUE(1:16) TO WS-CUR-TOPIC
+           MOVE WS-SET-VALUE(1:16) TO WS-TOPIC-ID
+      *>   The main prompt: every topic's, whether one is open or not.
+           IF WS-SCOPE = "M"
+               MOVE "*MAIN" TO WS-CUR-TOPIC
+               MOVE FUNCTION TRIM(T-MAIN-TITLE) TO Lbl-Title::Caption
+               MOVE FUNCTION TRIM(T-HINT-MAIN-EDITOR) TO Txt-Prompt::HintText
+               SET Btn-Default::Visible TO TRUE
+               CALL "PC-LOAD-VERSIONS"
+               MOVE 0 TO Tab-Crud::SelectedTab
+               EXIT PROGRAM
+           END-IF
+           SET Btn-Default::Visible TO FALSE
+           MOVE WS-TOPIC-ID TO WS-CUR-TOPIC
            IF WS-CUR-TOPIC = SPACES
                MOVE FUNCTION TRIM(T-OPEN-TOPIC-FIRST) TO Lbl-Status::Caption
                EXIT PROGRAM
@@ -872,6 +985,85 @@
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
            CALL "PC-LOAD-VERSIONS"
 ]]></Event>
+    <Event name="PC-MIGRATE" paragraph="PC-MIGRATE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The versions moved to prompt-versions.idx (1.70.332), where a text
+      *>   holds 32,000 characters for the main prompt: while the new file is
+      *>   empty, every version of the old prompts.idx is copied over. The old
+      *>   file is only read, and left as it was.
+           OPEN I-O PROMPTS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT PROMPTS-FILE
+               CLOSE PROMPTS-FILE
+               OPEN I-O PROMPTS-FILE
+           END-IF
+           MOVE SPACES TO PRM-TOPIC
+           MOVE 0 TO PRM-VERSION
+           MOVE "N" TO WS-EMPTY
+           START PROMPTS-FILE KEY IS >= PRM-KEY
+               INVALID KEY MOVE "Y" TO WS-EMPTY
+           END-START
+           IF WS-EMPTY = "Y"
+               OPEN INPUT OLDPRM-FILE
+               IF WS-FS = "00"
+                   MOVE "N" TO WS-EOF
+                   PERFORM UNTIL WS-EOF = "Y"
+                       READ OLDPRM-FILE NEXT RECORD
+                           AT END MOVE "Y" TO WS-EOF
+                           NOT AT END
+                               MOVE OLD-TOPIC TO PRM-TOPIC
+                               MOVE OLD-VERSION TO PRM-VERSION
+                               MOVE OLD-CREATED TO PRM-CREATED
+                               MOVE OLD-ACTIVE TO PRM-ACTIVE
+                               MOVE OLD-TEXT TO PRM-TEXT
+                               WRITE PROMPT-REC
+                                   INVALID KEY CONTINUE
+                               END-WRITE
+                       END-READ
+                   END-PERFORM
+                   CLOSE OLDPRM-FILE
+                   COMMIT
+               END-IF
+           END-IF
+           CLOSE PROMPTS-FILE
+           MOVE "N" TO WS-EOF
+]]></Event>
+    <Event name="PC-MAIN-DEFAULT" paragraph="PC-MAIN-DEFAULT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-TEXT out: the main prompt as shipped - samples/main-prompt.md,
+      *>   each line's indentation kept.
+           MOVE SPACES TO WS-TEXT
+           MOVE 1 TO WS-SX-B
+           OPEN INPUT MPSEED-FILE
+           IF WS-FS NOT = "00"
+               EXIT PROGRAM
+           END-IF
+           MOVE "N" TO WS-EOF
+           PERFORM UNTIL WS-EOF = "Y"
+               READ MPSEED-FILE
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       MOVE MPSEED-REC TO WS-LN-BUF
+                       MOVE FUNCTION REVERSE(WS-LN-BUF) TO WS-LN-REV
+                       MOVE 0 TO WS-LN-LEN
+                       INSPECT WS-LN-REV TALLYING WS-LN-LEN FOR LEADING SPACES
+                       COMPUTE WS-LN-LEN = 1000 - WS-LN-LEN
+                       IF WS-LN-LEN > 0
+                           STRING WS-LN-BUF(1:WS-LN-LEN) X"0A"
+                               DELIMITED BY SIZE INTO WS-TEXT WITH POINTER WS-SX-B
+                           END-STRING
+                       ELSE
+                           STRING X"0A" DELIMITED BY SIZE INTO WS-TEXT
+                               WITH POINTER WS-SX-B
+                           END-STRING
+                       END-IF
+               END-READ
+           END-PERFORM
+           CLOSE MPSEED-FILE
+           MOVE "N" TO WS-EOF
+]]></Event>
     <Event name="PC-LANG-NOW" paragraph="PC-LANG-NOW"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -949,7 +1141,7 @@
   <Control id="Txt-Prompt" type="TextBox" x="40" y="152" w="944" h="224" tab-order="2" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="Multiline">true</Property>
     <Property name="ScrollBars">Vertical</Property>
-    <Property name="MaximumLength">1000</Property>
+    <Property name="MaximumLength">32000</Property>
     <Property name="HintText">What the assistant is for and how it answers - the topic&apos;s system prompt</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -1162,6 +1354,9 @@ Create/Update</Property>
     <Property name="VScroll">false</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
+    <Property name="ActiveTabForegroundColor"></Property>
+    <Property name="InactiveTabColor"></Property>
+    <Property name="InactiveTabForegroundColor"></Property>
   </Control>
   <Control id="Btn-New" type="Button" x="872" y="96" w="112" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
     <Property name="Caption">New</Property>
@@ -1206,6 +1401,150 @@ Create/Update</Property>
        DATA DIVISION.
        PROCEDURE DIVISION.
            CALL "PC-NEW"
+]]></Event>
+  </Control>
+  <Control id="Btn-Main" type="Button" x="672" y="14" w="160" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Main prompt</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-MAIN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The main prompt: every instruction the models get, every topic.
+           MOVE "M" TO WS-SCOPE
+           CALL "PC-OPEN"
+]]></Event>
+  </Control>
+  <Control id="Btn-Topic" type="Button" x="840" y="14" w="160" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Topic prompt</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-TOPIC--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Back to the open topic's own prompt.
+           MOVE "T" TO WS-SCOPE
+           CALL "PC-OPEN"
+]]></Event>
+  </Control>
+  <Control id="Btn-Default" type="Button" x="680" y="96" w="184" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
+    <Property name="Caption">Restore default</Property>
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#003758FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">0</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-DEFAULT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The main prompt as shipped, saved as a new version and made the
+      *>   active one - the versions before it stay in the list.
+           CALL "PC-MAIN-DEFAULT"
+           MOVE 0 TO WS-EDIT-VER
+           MOVE WS-TEXT TO Txt-Prompt::Text
+           CALL "PC-SAVE"
 ]]></Event>
   </Control>
   <Control id="Dg-List" type="DataGrid" x="40" y="144" w="944" h="272" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">

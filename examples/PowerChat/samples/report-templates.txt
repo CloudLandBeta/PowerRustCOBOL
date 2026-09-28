@@ -1,54 +1,755 @@
 === Executive
-Suits: any report for management, clients or an audit - the sober, professional choice; always offer it.
-Structure: a plain header (title, subtitle with date and scope) in a section with a thin bottom border; an "Executive summary" box of 3 to 5 sentences; a level of 3 or 4 key figures (heading + title is-4); then numbered sections (title is-5) with short paragraphs and, where there is data, a table is-striped is-fullwidth; a closing "Recommendations" list and a small footnote with the sources.
-Look: no hero colour, no emoji, no gradients. White background, grey text (has-text-grey-dark), ONE accent colour (#1f3a5f, navy) for titles and figures, thin #dbdbdb rules between sections, generous white space. Tags only for statuses, is-light.
+Suits: any report for management, clients or an audit - sober and professional: a plain header, a summary box, a row of key figures, numbered sections with tables, recommendations and sources.
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Contract portfolio review</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+<style>
+  :root { --navy: #1f3a5f; --ink: #26313d; --muted: #6b7785; --rule: #d9dee4; --paper: #ffffff; }
+  body { background: var(--paper); color: var(--ink); }
+  .ex-page { max-width: 820px; margin: 0 auto; padding: 36px 32px 40px; }
+  .ex-head { border-bottom: 3px solid var(--navy); padding-bottom: 14px; margin-bottom: 22px; }
+  .ex-kicker { color: var(--muted); font-size: 0.75rem; letter-spacing: 2px; text-transform: uppercase; }
+  .ex-title { color: var(--navy); font-size: 1.9rem; font-weight: 700; line-height: 1.2; margin-top: 4px; }
+  .ex-sub { color: var(--muted); font-size: 0.9rem; margin-top: 4px; }
+  .ex-summary { background: #f4f6f9; border-left: 4px solid var(--navy); padding: 16px 20px; margin-bottom: 24px; }
+  .ex-summary p { font-size: 0.95rem; line-height: 1.6; }
+  .ex-kpis { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--rule);
+             border-bottom: 1px solid var(--rule); margin-bottom: 26px; }
+  .ex-kpi { padding: 14px 12px; text-align: center; border-right: 1px solid var(--rule); }
+  .ex-kpi:last-child { border-right: none; }
+  .ex-kpi-value { color: var(--navy); font-size: 1.7rem; font-weight: 700; line-height: 1.1; }
+  .ex-kpi-label { color: var(--muted); font-size: 0.72rem; letter-spacing: 1px; text-transform: uppercase; margin-top: 4px; }
+  .ex-h2 { color: var(--navy); font-size: 1.05rem; font-weight: 700; border-bottom: 1px solid var(--rule);
+           padding-bottom: 6px; margin: 22px 0 12px; }
+  .ex-page p { line-height: 1.6; }
+  .ex-table { width: 100%; font-size: 0.88rem; }
+  .ex-table th { color: var(--navy); border-bottom: 2px solid var(--navy); padding: 6px 8px; text-align: left; }
+  .ex-table td { border-bottom: 1px solid var(--rule); padding: 6px 8px; }
+  .ex-status { font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 3px; }
+  .ex-ok { background: #e6f1ea; color: #256b3f; }
+  .ex-warn { background: #fbf1dc; color: #8a5a00; }
+  .ex-bad { background: #f8e3e3; color: #9b2c2c; }
+  .ex-recs { margin-left: 1.2rem; }
+  .ex-recs li { margin-bottom: 6px; }
+  .ex-note { color: var(--muted); font-size: 0.75rem; border-top: 1px solid var(--rule); padding-top: 10px; margin-top: 26px; }
+</style>
+</head>
+<body>
+<div class="ex-page">
+  <div class="ex-head">
+    <p class="ex-kicker">Legal department · Quarterly review</p>
+    <p class="ex-title">Contract portfolio review — Q3 2026</p>
+    <p class="ex-sub">Scope: 214 active contracts · Prepared 28 September 2026</p>
+  </div>
+
+  <div class="ex-summary">
+    <p>The portfolio is stable. Renewals are on schedule, two supplier contracts need a new confidentiality clause before
+      renewal, and approval time fell by a third since the new workflow started.</p>
+  </div>
+
+  <div class="ex-kpis">
+    <div class="ex-kpi"><p class="ex-kpi-value">214</p><p class="ex-kpi-label">Active contracts</p></div>
+    <div class="ex-kpi"><p class="ex-kpi-value">18</p><p class="ex-kpi-label">Renewals due</p></div>
+    <div class="ex-kpi"><p class="ex-kpi-value">6.2 d</p><p class="ex-kpi-label">Avg. approval</p></div>
+    <div class="ex-kpi"><p class="ex-kpi-value">2</p><p class="ex-kpi-label">Open risks</p></div>
+  </div>
+
+  <p class="ex-h2">1. Renewals due this quarter</p>
+  <table class="ex-table">
+    <thead><tr><th>Counterparty</th><th>Type</th><th>Renewal</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>Orbita Logistics</td><td>Services</td><td>15 Oct 2026</td><td><span class="ex-status ex-ok">On track</span></td></tr>
+      <tr><td>Nexa Components</td><td>Supply</td><td>02 Nov 2026</td><td><span class="ex-status ex-warn">Clause review</span></td></tr>
+      <tr><td>Vega Analytics</td><td>Licence</td><td>19 Nov 2026</td><td><span class="ex-status ex-bad">Blocked</span></td></tr>
+    </tbody>
+  </table>
+
+  <p class="ex-h2">2. Findings</p>
+  <p>Approval time dropped from 9.4 to 6.2 working days. The remaining delays come from contracts that reach legal
+    review without the requester's risk assessment.</p>
+
+  <p class="ex-h2">3. Recommendations</p>
+  <ol class="ex-recs">
+    <li>Add the new confidentiality clause to the two supply contracts before renewal.</li>
+    <li>Make the requester's risk assessment mandatory at submission.</li>
+    <li>Review the Vega licence terms with procurement this month.</li>
+  </ol>
+
+  <p class="ex-note">Sources: contract register (28 Sep 2026), approval workflow log Q3 2026.</p>
+</div>
+</body>
+</html>
 
 === Informational
-Suits: teaching a concept, a policy or a topic so the reader understands it quickly.
-Structure: a hero is-info is-bold with the question it answers; a short introduction; "What it is", "Why it matters" and "How it works" as three boxes in columns, each opened by an emoji; a Mermaid diagram or a simple labelled figure when it helps; a notification is-warning is-light with the one rule to remember.
-Look: friendly and clear - balanced text and visuals, a blue/teal palette, key terms bold.
+Suits: explaining a concept, a policy or a topic: a gradient header with the question it answers, three cards (what, why, how), a key-fact strip and a rule to remember.
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>What is an NDA</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+<style>
+  :root { --c1: #7c3aed; --c2: #06b6d4; --c3: #f43f5e; --ink: #1e1b4b; --muted: #5b5f77; --paper: #f5f3ff; }
+  body { background: var(--paper); color: var(--ink); }
+  .in-hero { background: linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%); text-align: center; padding: 40px 24px 70px; }
+  .in-kicker { color: #e0e7ff; font-size: 0.8rem; letter-spacing: 3px; text-transform: uppercase; }
+  .in-title { color: #ffffff; font-size: 2.4rem; font-weight: 800; line-height: 1.15; margin-top: 6px; }
+  .in-sub { color: #e0e7ff; font-size: 1rem; margin-top: 8px; }
+  .in-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; max-width: 900px; margin: -46px auto 0; padding: 0 22px; }
+  .in-card { background: #ffffff; border-radius: 16px; padding: 22px 20px; text-align: center; box-shadow: 0 8px 22px rgba(30, 27, 75, 0.12); }
+  .in-circle { display: flex; align-items: center; justify-content: center; width: 70px; height: 70px; border-radius: 50%;
+               margin: 0 auto 12px; color: #ffffff; font-size: 2rem; }
+  .in-card-title { font-weight: 800; font-size: 1.1rem; margin-bottom: 6px; }
+  .in-card-text { color: var(--muted); font-size: 0.88rem; line-height: 1.5; }
+  .in-fact { max-width: 856px; margin: 24px auto 0; background: #ffffff; border-radius: 16px; display: grid;
+             grid-template-columns: 170px 1fr; box-shadow: 0 4px 14px rgba(30, 27, 75, 0.08); }
+  .in-fact-num { display: flex; align-items: center; justify-content: center; background: var(--ink); color: #ffffff;
+                 font-size: 2.6rem; font-weight: 800; border-radius: 16px 0 0 16px; }
+  .in-fact-text { padding: 18px 22px; font-size: 0.95rem; line-height: 1.55; }
+  .in-tip { max-width: 856px; margin: 18px auto 34px; background: #fff1f2; border-left: 6px solid var(--c3);
+            border-radius: 10px; padding: 14px 20px; display: flex; align-items: center; gap: 14px; }
+  .in-tip-icon { color: var(--c3); font-size: 1.7rem; }
+</style>
+</head>
+<body>
+  <div class="in-hero">
+    <p class="in-kicker">Legal guide</p>
+    <p class="in-title">What is a confidentiality agreement?</p>
+    <p class="in-sub">The NDA, in three questions</p>
+  </div>
+
+  <div class="in-cards">
+    <div class="in-card"><div class="in-circle" style="background: var(--c1)">📄</div>
+      <p class="in-card-title">What it is</p>
+      <p class="in-card-text">A contract in which the parties promise not to disclose what they share.</p></div>
+    <div class="in-card"><div class="in-circle" style="background: var(--c2)">🎯</div>
+      <p class="in-card-title">Why it matters</p>
+      <p class="in-card-text">It protects prices, plans and personal data before a deal is signed.</p></div>
+    <div class="in-card"><div class="in-circle" style="background: var(--c3)">⚙️</div>
+      <p class="in-card-title">How it works</p>
+      <p class="in-card-text">Legal drafts it, both parties sign it, and it binds for the agreed term.</p></div>
+  </div>
+
+  <div class="in-fact">
+    <p class="in-fact-num">5 yrs</p>
+    <p class="in-fact-text"><strong>Standard term.</strong> Confidentiality lasts five years after the relationship ends,
+      unless the contract names another period.</p>
+  </div>
+
+  <div class="in-tip"><p class="in-tip-icon">⚠️</p>
+    <p><strong>Always:</strong> sign the NDA before sending any internal document to the other party.</p></div>
+</body>
+</html>
 
 === List
-Suits: tips, rules, checklists, requirements, "N things to know".
-Structure: a hero with the count in its title ("7 rules for ..."); each item a box with a flex row: a round numbered badge (48px circle, strong colour, white bold number) and, beside it, the item's title (strong) and one or two lines; the items in columns is-multiline, column is-half each; a closing notification with the one item that matters most.
-Look: each item distinct - rotate 4 or 5 accent colours on the badges; icons or emoji per item.
+Suits: tips, rules, checklists or 'N things to know': the count large beside the title, numbered coloured cards in two columns, one highlighted item.
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>6 rules for remote work</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+<style>
+  :root { --c1: #6366f1; --c2: #ec4899; --c3: #f59e0b; --c4: #10b981; --c5: #0ea5e9; --c6: #8b5cf6;
+          --ink: #1f2937; --muted: #6b7280; --paper: #fafaf9; }
+  body { background: var(--paper); color: var(--ink); }
+  .ls-head { display: flex; align-items: center; justify-content: center; gap: 22px; padding: 34px 20px 10px; }
+  .ls-count { color: var(--c1); font-size: 5rem; font-weight: 800; line-height: 1; }
+  .ls-title { color: var(--ink); font-size: 1.9rem; font-weight: 800; line-height: 1.15; text-transform: uppercase; }
+  .ls-sub { color: var(--muted); text-align: center; padding: 0 20px 22px; }
+  .ls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 880px; margin: 0 auto; padding: 0 22px 20px; }
+  .ls-item { display: flex; align-items: center; gap: 16px; background: #ffffff; border-radius: 14px; padding: 16px 18px;
+             box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06); }
+  .ls-num { display: flex; align-items: center; justify-content: center; width: 58px; height: 58px; border-radius: 14px;
+            color: #ffffff; font-size: 1.7rem; font-weight: 800; flex: none; }
+  .ls-icon { font-size: 1.6rem; color: var(--muted); flex: none; }
+  .ls-body { flex: 1; }
+  .ls-name { font-weight: 800; font-size: 1rem; }
+  .ls-text { color: var(--muted); font-size: 0.85rem; line-height: 1.45; margin-top: 2px; }
+  .ls-key { max-width: 836px; margin: 6px auto 30px; background: var(--ink); color: #ffffff; border-radius: 14px;
+            padding: 16px 22px; display: flex; align-items: center; gap: 16px; }
+  .ls-key-icon { font-size: 2rem; color: var(--c3); }
+</style>
+</head>
+<body>
+  <div class="ls-head">
+    <p class="ls-count">6</p>
+    <p class="ls-title">Rules for<br>remote work</p>
+  </div>
+  <p class="ls-sub">What the HR policy asks of every remote employee</p>
+
+  <div class="ls-grid">
+    <div class="ls-item"><div class="ls-num" style="background: var(--c1)">1</div>
+      <div class="ls-body"><p class="ls-name">Agree your days</p><p class="ls-text">Remote days are agreed with your manager each month.</p></div>
+      <p class="ls-icon">📅</p></div>
+    <div class="ls-item"><div class="ls-num" style="background: var(--c2)">2</div>
+      <div class="ls-body"><p class="ls-name">Be reachable</p><p class="ls-text">Core hours are 10:00 to 16:00, on chat and phone.</p></div>
+      <p class="ls-icon">📞</p></div>
+    <div class="ls-item"><div class="ls-num" style="background: var(--c3)">3</div>
+      <div class="ls-body"><p class="ls-name">Protect data</p><p class="ls-text">Work only on company devices, through the VPN.</p></div>
+      <p class="ls-icon">🔒</p></div>
+    <div class="ls-item"><div class="ls-num" style="background: var(--c4)">4</div>
+      <div class="ls-body"><p class="ls-name">Claim expenses</p><p class="ls-text">Internet and energy are refunded up to the monthly cap.</p></div>
+      <p class="ls-icon">💰</p></div>
+    <div class="ls-item"><div class="ls-num" style="background: var(--c5)">5</div>
+      <div class="ls-body"><p class="ls-name">Set up safely</p><p class="ls-text">An ergonomic workstation is checked once a year.</p></div>
+      <p class="ls-icon">💻</p></div>
+    <div class="ls-item"><div class="ls-num" style="background: var(--c6)">6</div>
+      <div class="ls-body"><p class="ls-name">Come in together</p><p class="ls-text">Team days on site are fixed by each department.</p></div>
+      <p class="ls-icon">🏢</p></div>
+  </div>
+
+  <div class="ls-key"><p class="ls-key-icon">⭐</p>
+    <p><strong style="color: #ffffff">Most important:</strong> rule 3 — a data leak from a personal device is a serious offence.</p></div>
+</body>
+</html>
 
 === Timeline
-Suits: history, a project's phases, a process over time, a biography, cause and effect.
-Structure: a hero with the period covered; a vertical timeline - each event a flex row: a fixed-width date column (tag is-medium, the accent colour), a 4px coloured vertical rule (border-left on the event box), and a box with the event's title and one or two lines; milestones marked with a star emoji and a stronger colour; a closing box "Where we are now".
-Look: clear left-to-right hierarchy date -> event; a gradient from the oldest (cool colour) to the newest (warm colour).
+Suits: history, a project's phases or milestones over time: a band of round icons, and under each the year, a title and a short text.
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Timeline of our company's history</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+<style>
+  :root { --brand: #2bb3a3; --brand-dark: #16806f; --ink: #1d2b3a; --muted: #5d6b79; }
+  body { background: #ffffff; color: var(--ink); }
+  .th-header { display: flex; align-items: center; justify-content: center; gap: 28px; padding: 30px 24px 22px; }
+  .th-logo { color: var(--brand-dark); font-weight: 800; font-size: 1.3rem; letter-spacing: 3px; }
+  .th-title { color: var(--ink); font-weight: 800; font-size: 1.8rem; letter-spacing: 1px; text-transform: uppercase; }
+  .th-band { display: grid; grid-template-columns: repeat(5, 1fr); background: var(--brand); padding: 20px 0; }
+  .th-node { display: flex; justify-content: center; }
+  .th-circle { display: flex; align-items: center; justify-content: center; width: 92px; height: 92px;
+               border-radius: 50%; background: #ffffff; border: 6px solid var(--brand-dark);
+               font-size: 2.3rem; color: var(--brand-dark); }
+  .th-cols { display: grid; grid-template-columns: repeat(5, 1fr); gap: 20px; padding: 24px 20px 34px; }
+  .th-year { color: var(--brand-dark); font-weight: 800; font-size: 2.1rem; line-height: 1.1; text-align: center; }
+  .th-name { color: var(--ink); font-weight: 700; font-size: 0.95rem; text-align: center; margin: 8px 0 10px; }
+  .th-text { color: var(--muted); font-size: 0.82rem; line-height: 1.5; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="th-header">
+    <span class="th-logo">◆ AEON</span>
+    <span class="th-title">Timeline of our company's history</span>
+  </div>
+
+  <div class="th-band">
+    <div class="th-node"><div class="th-circle">💬</div></div>
+    <div class="th-node"><div class="th-circle">📣</div></div>
+    <div class="th-node"><div class="th-circle">📈</div></div>
+    <div class="th-node"><div class="th-circle">🏅</div></div>
+    <div class="th-node"><div class="th-circle">💼</div></div>
+  </div>
+
+  <div class="th-cols">
+    <div>
+      <p class="th-year">2022</p>
+      <p class="th-name">Establishment of our digital agency</p>
+      <p class="th-text">A team of five creative marketers set out to help brands navigate the digital landscape.</p>
+    </div>
+    <div>
+      <p class="th-year">2023</p>
+      <p class="th-name">First major client and expansion</p>
+      <p class="th-text">A contract with a national retail chain grew the team with search and social media experts.</p>
+    </div>
+    <div>
+      <p class="th-year">2025</p>
+      <p class="th-name">Introduction of data-driven marketing</p>
+      <p class="th-text">An analytics core service refined campaign strategies from audience insights.</p>
+    </div>
+    <div>
+      <p class="th-year">2026</p>
+      <p class="th-name">"Best Digital Campaign" award</p>
+      <p class="th-text">An industry award recognised our campaign for a major lifestyle brand.</p>
+    </div>
+    <div>
+      <p class="th-year">2029</p>
+      <p class="th-name">Transition to full-service agency</p>
+      <p class="th-text">Web development, CRM integration and e-commerce support joined the offer.</p>
+    </div>
+  </div>
+</body>
+</html>
 
 === Comparison
-Suits: two or more options, products, plans, before/after, pros and cons.
-Structure: a hero naming what is compared; the options side by side in columns (one column per option, same structure in each): a card with a coloured card-header (the option's name), its key figure large, and the same list of criteria in the same order; below, a table is-bordered is-fullwidth with one row per criterion and a check or cross per option; a closing notification with the verdict ("Choose A when..., B when...").
-Look: symmetrical - one colour per option, used consistently in the header, the figures and the table.
+Suits: two options side by side - products, plans, before and after, pros and cons: coloured headers with a VS, criteria rows with ticks and crosses, a verdict for each.
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Office vs remote</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+<style>
+  :root { --a: #0ea5e9; --a-dark: #0369a1; --b: #f97316; --b-dark: #c2410c; --ink: #1e293b; --muted: #64748b; --paper: #ffffff; }
+  body { background: var(--paper); color: var(--ink); }
+  .cp-title { color: var(--ink); font-size: 2rem; font-weight: 800; text-align: center; padding: 30px 20px 4px; text-transform: uppercase; }
+  .cp-sub { color: var(--muted); text-align: center; padding-bottom: 24px; }
+  .cp-grid { display: grid; grid-template-columns: 1fr 70px 1fr; max-width: 860px; margin: 0 auto; padding: 0 20px; }
+  .cp-head { display: flex; flex-direction: column; align-items: center; padding: 22px 12px 18px; color: #ffffff; }
+  .cp-a { background: var(--a); }
+  .cp-b { background: var(--b); }
+  .cp-circle { display: flex; align-items: center; justify-content: center; width: 76px; height: 76px; border-radius: 50%;
+               background: #ffffff; font-size: 2.2rem; color: var(--ink); }
+  .cp-name { color: #ffffff; font-size: 1.4rem; font-weight: 800; margin-top: 10px; }
+  .cp-big { color: #ffffff; font-size: 2.6rem; font-weight: 800; line-height: 1.2; margin-top: 6px; }
+  .cp-big-label { color: #ffffff; font-size: 0.8rem; }
+  .cp-vs { display: flex; align-items: center; justify-content: center; background: var(--ink); }
+  .cp-vs-circle { display: flex; align-items: center; justify-content: center; width: 52px; height: 52px; border-radius: 50%;
+                  background: #ffffff; color: var(--ink); font-weight: 800; font-size: 1.1rem; }
+  .cp-row-a { background: #f0f9ff; padding: 12px 16px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; gap: 10px; }
+  .cp-row-b { background: #fff7ed; padding: 12px 16px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; gap: 10px; }
+  .cp-crit { display: flex; align-items: center; justify-content: center; background: #f8fafc; border-bottom: 1px solid #e2e8f0;
+             color: var(--muted); font-size: 1.3rem; }
+  .cp-yes { color: #16a34a; font-weight: 800; font-size: 1.1rem; }
+  .cp-no { color: #dc2626; font-weight: 800; font-size: 1.1rem; }
+  .cp-text { font-size: 0.88rem; }
+  .cp-verdict { max-width: 820px; margin: 22px auto 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 0 20px; }
+  .cp-v { border-radius: 12px; padding: 14px 18px; color: #ffffff; }
+</style>
+</head>
+<body>
+  <p class="cp-title">Office or remote?</p>
+  <p class="cp-sub">How the two ways of working compare under the new policy</p>
+
+  <div class="cp-grid">
+    <div class="cp-head cp-a"><div class="cp-circle">🏢</div><p class="cp-name">Office</p>
+      <p class="cp-big">3 days</p><p class="cp-big-label">minimum per week</p></div>
+    <div class="cp-vs"><div class="cp-vs-circle">VS</div></div>
+    <div class="cp-head cp-b"><div class="cp-circle">🏠</div><p class="cp-name">Remote</p>
+      <p class="cp-big">2 days</p><p class="cp-big-label">maximum per week</p></div>
+
+    <div class="cp-row-a"><span class="cp-yes">✓</span><span class="cp-text">Meal allowance paid in full</span></div>
+    <div class="cp-crit">💰</div>
+    <div class="cp-row-b"><span class="cp-yes">✓</span><span class="cp-text">Internet and energy refunded</span></div>
+
+    <div class="cp-row-a"><span class="cp-yes">✓</span><span class="cp-text">Any device, on the network</span></div>
+    <div class="cp-crit">🔒</div>
+    <div class="cp-row-b"><span class="cp-no">✗</span><span class="cp-text">Company device and VPN only</span></div>
+
+    <div class="cp-row-a"><span class="cp-no">✗</span><span class="cp-text">Fixed hours, 9:00 to 18:00</span></div>
+    <div class="cp-crit">⏰</div>
+    <div class="cp-row-b"><span class="cp-yes">✓</span><span class="cp-text">Flexible outside core hours</span></div>
+  </div>
+
+  <div class="cp-verdict">
+    <div class="cp-v" style="background: var(--a-dark)"><strong style="color: #ffffff">Choose office</strong> for onboarding and team days.</div>
+    <div class="cp-v" style="background: var(--b-dark)"><strong style="color: #ffffff">Choose remote</strong> for focused, individual work.</div>
+  </div>
+</body>
+</html>
 
 === Map
-Suits: data by region, state, country, branch or site.
-Structure: no map image - a tile map: a grid of equal square boxes, one per region, roughly in its geographic position (columns is-multiline), each showing the region's code and its value; the tiles coloured by intensity in 4 or 5 steps of ONE hue (light = low, dark = high) with a legend of the steps; beside it the top 5 regions as a ranked table; a note naming the source and date.
-Look: a single-hue scale, white text on the dark tiles, dark text on the light ones.
+Suits: figures by region, state, branch or site: a tile map coloured by intensity with a legend, beside a ranked top five with bars.
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sales by region</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+<style>
+  :root { --s1: #dbeafe; --s2: #93c5fd; --s3: #3b82f6; --s4: #1d4ed8; --s5: #1e3a8a; --ink: #0f172a; --muted: #475569; --paper: #ffffff; }
+  body { background: var(--paper); color: var(--ink); }
+  .mp-title { color: var(--ink); font-size: 2rem; font-weight: 800; text-align: center; padding: 30px 20px 4px; text-transform: uppercase; }
+  .mp-sub { color: var(--muted); text-align: center; padding-bottom: 24px; }
+  .mp-body { display: grid; grid-template-columns: 3fr 2fr; gap: 26px; max-width: 940px; margin: 0 auto; padding: 0 22px; }
+  .mp-map { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+  .mp-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 62px; border-radius: 8px; }
+  .mp-code { font-weight: 800; font-size: 0.9rem; }
+  .mp-val { font-size: 0.72rem; }
+  .mp-dark { color: #ffffff; }
+  .mp-light { color: var(--ink); }
+  .mp-legend { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 0.75rem; color: var(--muted); }
+  .mp-key { width: 26px; height: 12px; border-radius: 3px; }
+  .mp-rank-title { font-weight: 800; margin-bottom: 10px; }
+  .mp-rank { display: grid; grid-template-columns: 26px 44px 1fr 60px; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .mp-pos { color: var(--muted); font-weight: 800; }
+  .mp-rcode { font-weight: 800; }
+  .mp-track { background: #e2e8f0; border-radius: 999px; height: 12px; }
+  .mp-fill { background: var(--s4); border-radius: 999px; height: 12px; }
+  .mp-amount { font-weight: 800; font-size: 0.85rem; text-align: right; }
+  .mp-note { color: var(--muted); font-size: 0.75rem; text-align: center; padding: 22px 20px 30px; }
+</style>
+</head>
+<body>
+  <p class="mp-title">Sales by state</p>
+  <p class="mp-sub">Revenue in R$ million, 2026 · darker = higher</p>
+
+  <div class="mp-body">
+    <div>
+      <div class="mp-map">
+        <div></div><div class="mp-tile mp-light" style="background: var(--s1)"><p class="mp-code">RR</p><p class="mp-val">0.4</p></div>
+        <div class="mp-tile mp-light" style="background: var(--s1)"><p class="mp-code">AP</p><p class="mp-val">0.3</p></div>
+        <div></div><div></div><div></div>
+        <div class="mp-tile mp-light" style="background: var(--s2)"><p class="mp-code">AM</p><p class="mp-val">2.1</p></div>
+        <div class="mp-tile mp-light" style="background: var(--s2)"><p class="mp-code">PA</p><p class="mp-val">3.0</p></div>
+        <div class="mp-tile mp-light" style="background: var(--s1)"><p class="mp-code">MA</p><p class="mp-val">1.2</p></div>
+        <div class="mp-tile mp-light" style="background: var(--s1)"><p class="mp-code">CE</p><p class="mp-val">1.9</p></div>
+        <div class="mp-tile mp-light" style="background: var(--s1)"><p class="mp-code">RN</p><p class="mp-val">0.8</p></div>
+        <div></div>
+        <div class="mp-tile mp-light" style="background: var(--s1)"><p class="mp-code">AC</p><p class="mp-val">0.2</p></div>
+        <div class="mp-tile mp-light" style="background: var(--s1)"><p class="mp-code">RO</p><p class="mp-val">0.6</p></div>
+        <div class="mp-tile mp-light" style="background: var(--s2)"><p class="mp-code">TO</p><p class="mp-val">0.9</p></div>
+        <div class="mp-tile mp-dark" style="background: var(--s3)"><p class="mp-code">BA</p><p class="mp-val">6.4</p></div>
+        <div class="mp-tile mp-light" style="background: var(--s2)"><p class="mp-code">PE</p><p class="mp-val">3.3</p></div>
+        <div></div>
+        <div></div>
+        <div class="mp-tile mp-dark" style="background: var(--s3)"><p class="mp-code">MT</p><p class="mp-val">4.8</p></div>
+        <div class="mp-tile mp-dark" style="background: var(--s3)"><p class="mp-code">GO</p><p class="mp-val">5.2</p></div>
+        <div class="mp-tile mp-dark" style="background: var(--s4)"><p class="mp-code">MG</p><p class="mp-val">11.7</p></div>
+        <div class="mp-tile mp-dark" style="background: var(--s3)"><p class="mp-code">ES</p><p class="mp-val">3.9</p></div>
+        <div></div>
+        <div></div>
+        <div class="mp-tile mp-light" style="background: var(--s2)"><p class="mp-code">MS</p><p class="mp-val">2.7</p></div>
+        <div class="mp-tile mp-dark" style="background: var(--s5)"><p class="mp-code">SP</p><p class="mp-val">28.5</p></div>
+        <div class="mp-tile mp-dark" style="background: var(--s4)"><p class="mp-code">RJ</p><p class="mp-val">12.3</p></div>
+        <div></div><div></div>
+        <div></div>
+        <div class="mp-tile mp-dark" style="background: var(--s4)"><p class="mp-code">PR</p><p class="mp-val">9.8</p></div>
+        <div class="mp-tile mp-dark" style="background: var(--s3)"><p class="mp-code">SC</p><p class="mp-val">7.1</p></div>
+        <div class="mp-tile mp-dark" style="background: var(--s3)"><p class="mp-code">RS</p><p class="mp-val">8.0</p></div>
+        <div></div><div></div>
+      </div>
+      <div class="mp-legend"><span>Low</span>
+        <div class="mp-key" style="background: var(--s1)"></div><div class="mp-key" style="background: var(--s2)"></div>
+        <div class="mp-key" style="background: var(--s3)"></div><div class="mp-key" style="background: var(--s4)"></div>
+        <div class="mp-key" style="background: var(--s5)"></div><span>High</span></div>
+    </div>
+
+    <div>
+      <p class="mp-rank-title">🏆 Top 5 states</p>
+      <div class="mp-rank"><p class="mp-pos">1</p><p class="mp-rcode">SP</p><div class="mp-track"><div class="mp-fill" style="width: 100%"></div></div><p class="mp-amount">28.5</p></div>
+      <div class="mp-rank"><p class="mp-pos">2</p><p class="mp-rcode">RJ</p><div class="mp-track"><div class="mp-fill" style="width: 43%"></div></div><p class="mp-amount">12.3</p></div>
+      <div class="mp-rank"><p class="mp-pos">3</p><p class="mp-rcode">MG</p><div class="mp-track"><div class="mp-fill" style="width: 41%"></div></div><p class="mp-amount">11.7</p></div>
+      <div class="mp-rank"><p class="mp-pos">4</p><p class="mp-rcode">PR</p><div class="mp-track"><div class="mp-fill" style="width: 34%"></div></div><p class="mp-amount">9.8</p></div>
+      <div class="mp-rank"><p class="mp-pos">5</p><p class="mp-rcode">RS</p><div class="mp-track"><div class="mp-fill" style="width: 28%"></div></div><p class="mp-amount">8.0</p></div>
+    </div>
+  </div>
+  <p class="mp-note">Source: sales ledger, January–August 2026.</p>
+</body>
+</html>
 
 === Statistics
-Suits: survey results, KPIs, performance, research findings - when the numbers are the story.
-Structure: a hero with the headline number; a level of 3 or 4 big figures (title is-2 in the accent colour, heading above it, a tag with the change up or down); horizontal bars for comparisons - a grey track div (height 20px, rounded) holding a coloured div whose width is the percentage, the label and value beside it; a table for the detail; one notification with the insight.
-Look: numbers first and large; green for good, red for bad, grey for neutral; never more than 5 colours.
+Suits: survey results, KPIs or performance - when the numbers are the story: big figure cards with their change, horizontal bars, a pictogram row, an insight.
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Employee survey 2026</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+<style>
+  :root { --c1: #3b82f6; --c2: #10b981; --c3: #f59e0b; --c4: #ef4444; --ink: #1e293b; --muted: #64748b; --paper: #f1f5f9; }
+  body { background: var(--paper); color: var(--ink); }
+  .st-head { background: var(--ink); color: #ffffff; text-align: center; padding: 30px 20px 26px; }
+  .st-title { color: #ffffff; font-size: 2rem; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
+  .st-sub { color: #cbd5e1; font-size: 0.95rem; margin-top: 4px; }
+  .st-body { max-width: 860px; margin: 0 auto; padding: 26px 22px 32px; }
+  .st-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 26px; }
+  .st-kpi { background: #ffffff; border-radius: 12px; padding: 18px 14px; text-align: center;
+            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08); border-top: 6px solid var(--c1); }
+  .st-icon { font-size: 1.8rem; color: var(--muted); }
+  .st-value { font-size: 2.4rem; font-weight: 800; line-height: 1.1; margin-top: 4px; }
+  .st-label { color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
+  .st-delta { font-size: 0.75rem; font-weight: 700; margin-top: 6px; }
+  .st-card { background: #ffffff; border-radius: 12px; padding: 20px 22px; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+             margin-bottom: 22px; }
+  .st-card-title { font-weight: 800; font-size: 1.05rem; margin-bottom: 14px; }
+  .st-bar-row { display: grid; grid-template-columns: 150px 1fr 56px; gap: 12px; align-items: center; margin-bottom: 10px; }
+  .st-bar-label { font-size: 0.88rem; text-align: right; color: var(--ink); }
+  .st-track { background: #e2e8f0; border-radius: 999px; height: 18px; }
+  .st-fill { height: 18px; border-radius: 999px; }
+  .st-bar-value { font-weight: 800; font-size: 0.95rem; }
+  .st-people { display: flex; flex-wrap: wrap; gap: 6px; font-size: 1.8rem; margin: 6px 0 10px; }
+  .st-on { color: var(--c2); }
+  .st-off { color: #cbd5e1; }
+  .st-insight { background: var(--ink); color: #ffffff; border-radius: 12px; padding: 18px 22px; display: flex;
+                align-items: center; gap: 18px; }
+  .st-insight-icon { font-size: 2.2rem; color: var(--c3); }
+</style>
+</head>
+<body>
+  <div class="st-head">
+    <p class="st-title">Employee survey 2026</p>
+    <p class="st-sub">1,240 answers · 86 % participation</p>
+  </div>
+
+  <div class="st-body">
+    <div class="st-kpis">
+      <div class="st-kpi" style="border-top-color: var(--c1)"><p class="st-icon">👥</p>
+        <p class="st-value" style="color: var(--c1)">86%</p><p class="st-label">Participation</p>
+        <p class="st-delta" style="color: var(--c2)">▲ 9 pts</p></div>
+      <div class="st-kpi" style="border-top-color: var(--c2)"><p class="st-icon">👍</p>
+        <p class="st-value" style="color: var(--c2)">74%</p><p class="st-label">Satisfied</p>
+        <p class="st-delta" style="color: var(--c2)">▲ 5 pts</p></div>
+      <div class="st-kpi" style="border-top-color: var(--c3)"><p class="st-icon">⏰</p>
+        <p class="st-value" style="color: var(--c3)">41%</p><p class="st-label">Work remotely</p>
+        <p class="st-delta" style="color: var(--muted)">● stable</p></div>
+      <div class="st-kpi" style="border-top-color: var(--c4)"><p class="st-icon">⚠️</p>
+        <p class="st-value" style="color: var(--c4)">12%</p><p class="st-label">Plan to leave</p>
+        <p class="st-delta" style="color: var(--c4)">▲ 3 pts</p></div>
+    </div>
+
+    <div class="st-card">
+      <p class="st-card-title">What matters most</p>
+      <div class="st-bar-row"><p class="st-bar-label">Flexible hours</p>
+        <div class="st-track"><div class="st-fill" style="width: 82%; background: var(--c1)"></div></div><p class="st-bar-value">82%</p></div>
+      <div class="st-bar-row"><p class="st-bar-label">Career growth</p>
+        <div class="st-track"><div class="st-fill" style="width: 67%; background: var(--c2)"></div></div><p class="st-bar-value">67%</p></div>
+      <div class="st-bar-row"><p class="st-bar-label">Salary</p>
+        <div class="st-track"><div class="st-fill" style="width: 58%; background: var(--c3)"></div></div><p class="st-bar-value">58%</p></div>
+      <div class="st-bar-row"><p class="st-bar-label">Office location</p>
+        <div class="st-track"><div class="st-fill" style="width: 23%; background: var(--c4)"></div></div><p class="st-bar-value">23%</p></div>
+    </div>
+
+    <div class="st-card">
+      <p class="st-card-title">3 in 4 employees would recommend the company</p>
+      <div class="st-people">
+        <span class="st-on">👤</span><span class="st-on">👤</span><span class="st-on">👤</span><span class="st-on">👤</span><span class="st-on">👤</span>
+        <span class="st-on">👤</span><span class="st-on">👤</span><span class="st-on">👤</span><span class="st-on">👤</span><span class="st-on">👤</span>
+        <span class="st-on">👤</span><span class="st-on">👤</span><span class="st-on">👤</span><span class="st-on">👤</span><span class="st-on">👤</span>
+        <span class="st-off">👤</span><span class="st-off">👤</span><span class="st-off">👤</span><span class="st-off">👤</span><span class="st-off">👤</span>
+      </div>
+    </div>
+
+    <div class="st-insight">
+      <p class="st-insight-icon">💡</p>
+      <p><strong style="color: #ffffff">Insight:</strong> satisfaction rises with flexible hours — teams that offer them score 18 points higher.</p>
+    </div>
+  </div>
+</body>
+</html>
 
 === Flowchart
-Suits: a procedure, a decision path, "how to", an approval or support flow.
-Structure: a hero with the goal of the process; a Mermaid "flowchart TD" with the steps and the yes/no decisions; then the same steps as numbered cards in order (badge + title + who does it + what they need), a decision step marked with a tag is-warning; a closing notification with the rule that ends the flow.
-Look: directional and calm - one colour for steps, amber for decisions, green for the end.
+Suits: a procedure, an approval or a decision path: numbered step cards joined by arrows, a decision step in amber, the yes/no paths, and a Mermaid diagram.
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Contract approval flow</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+<style>
+  :root { --step: #2563eb; --step-light: #dbeafe; --decide: #d97706; --decide-light: #fef3c7; --end: #16a34a;
+          --end-light: #dcfce7; --ink: #0f172a; --muted: #475569; --paper: #f8fafc; }
+  body { background: var(--paper); color: var(--ink); }
+  .fl-title { color: var(--ink); font-size: 2rem; font-weight: 800; text-align: center; padding: 30px 20px 4px; text-transform: uppercase; }
+  .fl-sub { color: var(--muted); text-align: center; padding-bottom: 26px; }
+  .fl-row { display: grid; grid-template-columns: 1fr 40px 1fr 40px 1fr 40px 1fr; align-items: center;
+            max-width: 940px; margin: 0 auto; padding: 0 18px; }
+  .fl-step { background: #ffffff; border-radius: 14px; padding: 16px 12px; text-align: center;
+             box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08); border-top: 6px solid var(--step); }
+  .fl-num { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 50%;
+            margin: 0 auto 8px; color: #ffffff; font-weight: 800; font-size: 1.2rem; }
+  .fl-icon { font-size: 1.6rem; color: var(--muted); }
+  .fl-name { font-weight: 800; font-size: 0.95rem; margin-top: 4px; }
+  .fl-who { color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
+  .fl-arrow { color: #94a3b8; font-size: 1.6rem; text-align: center; }
+  .fl-branch { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 900px; margin: 22px auto 0; padding: 0 18px; }
+  .fl-path { border-radius: 14px; padding: 14px 18px; display: flex; align-items: center; gap: 14px; }
+  .fl-path-tag { font-weight: 800; font-size: 0.8rem; color: #ffffff; border-radius: 6px; padding: 3px 10px; }
+  .fl-diagram { max-width: 900px; margin: 24px auto 34px; background: #ffffff; border-radius: 14px; padding: 18px;
+                box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08); }
+</style>
+</head>
+<body>
+  <p class="fl-title">How a contract is approved</p>
+  <p class="fl-sub">Four steps, one decision</p>
+
+  <div class="fl-row">
+    <div class="fl-step"><div class="fl-num" style="background: var(--step)">1</div><p class="fl-icon">📝</p>
+      <p class="fl-name">Request</p><p class="fl-who">Requesting area</p></div>
+    <p class="fl-arrow">➡</p>
+    <div class="fl-step"><div class="fl-num" style="background: var(--step)">2</div><p class="fl-icon">✏️</p>
+      <p class="fl-name">Draft</p><p class="fl-who">Legal</p></div>
+    <p class="fl-arrow">➡</p>
+    <div class="fl-step" style="border-top-color: var(--decide); background: var(--decide-light)">
+      <div class="fl-num" style="background: var(--decide)">?</div><p class="fl-icon">⚖️</p>
+      <p class="fl-name">Critical clause?</p><p class="fl-who">Legal decides</p></div>
+    <p class="fl-arrow">➡</p>
+    <div class="fl-step" style="border-top-color: var(--end); background: var(--end-light)">
+      <div class="fl-num" style="background: var(--end)">4</div><p class="fl-icon">✍️</p>
+      <p class="fl-name">Signature</p><p class="fl-who">Directors</p></div>
+  </div>
+
+  <div class="fl-branch">
+    <div class="fl-path" style="background: var(--decide-light)"><span class="fl-path-tag" style="background: var(--decide)">YES</span>
+      <p>Legal review by the head of legal, then back to step 3.</p></div>
+    <div class="fl-path" style="background: var(--end-light)"><span class="fl-path-tag" style="background: var(--end)">NO</span>
+      <p>Straight to signature.</p></div>
+  </div>
+
+  <div class="fl-diagram">
+    <div class="mermaid">
+flowchart LR
+  A[Request] --> B[Draft]
+  B --> C{Critical clause?}
+  C -->|Yes| D[Legal review]
+  D --> C
+  C -->|No| E[Signature]
+    </div>
+  </div>
+</body>
+</html>
 
 === Hierarchy
-Suits: an organisation chart, priorities, levels, a ranking, Maslow-style pyramids.
-Structure: a pyramid of centred boxes, one per level, the top one narrowest (width 30%, then 45%, 60%, 75%, 90% - margin auto to centre), each coloured darker the higher it is, with the level's name bold and one line; or, for an organisation, a Mermaid "flowchart TD" tree; a table beside or below with each level's details.
-Look: size and colour carry importance - the top the strongest; white text on the dark levels.
+Suits: levels, priorities, rankings or approval limits: a centred pyramid of tiers, the strongest on top, with a note for each level.
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Approval levels</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+<style>
+  :root { --l1: #7f1d1d; --l2: #b91c1c; --l3: #ea580c; --l4: #f59e0b; --l5: #fcd34d; --ink: #1c1917; --muted: #57534e; --paper: #fffbeb; }
+  body { background: var(--paper); color: var(--ink); }
+  .hi-title { color: var(--ink); font-size: 2rem; font-weight: 800; text-align: center; padding: 30px 20px 4px; text-transform: uppercase; }
+  .hi-sub { color: var(--muted); text-align: center; padding-bottom: 24px; }
+  .hi-body { display: grid; grid-template-columns: 3fr 2fr; gap: 26px; max-width: 920px; margin: 0 auto; padding: 0 22px 34px; align-items: center; }
+  .hi-pyramid { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .hi-level { display: flex; align-items: center; justify-content: center; gap: 10px; height: 58px; border-radius: 10px;
+              color: #ffffff; font-weight: 800; font-size: 1rem; }
+  .hi-level-icon { font-size: 1.4rem; }
+  .hi-notes { display: flex; flex-direction: column; gap: 10px; }
+  .hi-note { display: flex; align-items: center; gap: 12px; background: #ffffff; border-radius: 10px; padding: 10px 14px;
+             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
+  .hi-dot { width: 16px; height: 16px; border-radius: 50%; flex: none; }
+  .hi-note-name { font-weight: 800; font-size: 0.9rem; }
+  .hi-note-text { color: var(--muted); font-size: 0.8rem; }
+</style>
+</head>
+<body>
+  <p class="hi-title">Who approves what</p>
+  <p class="hi-sub">Approval levels by contract value</p>
+
+  <div class="hi-body">
+    <div class="hi-pyramid">
+      <div class="hi-level" style="width: 30%; background: var(--l1)"><span class="hi-level-icon">🏆</span>Board</div>
+      <div class="hi-level" style="width: 46%; background: var(--l2)"><span class="hi-level-icon">💼</span>CEO</div>
+      <div class="hi-level" style="width: 62%; background: var(--l3)"><span class="hi-level-icon">⚖️</span>Directors</div>
+      <div class="hi-level" style="width: 78%; background: var(--l4)"><span class="hi-level-icon">👥</span>Managers</div>
+      <div class="hi-level" style="width: 94%; background: var(--l5); color: var(--ink)"><span class="hi-level-icon">👤</span>Team leads</div>
+    </div>
+    <div class="hi-notes">
+      <div class="hi-note"><div class="hi-dot" style="background: var(--l1)"></div><div><p class="hi-note-name">Above R$ 10 M</p><p class="hi-note-text">Board resolution</p></div></div>
+      <div class="hi-note"><div class="hi-dot" style="background: var(--l2)"></div><div><p class="hi-note-name">R$ 2 M – 10 M</p><p class="hi-note-text">CEO signature</p></div></div>
+      <div class="hi-note"><div class="hi-dot" style="background: var(--l3)"></div><div><p class="hi-note-name">R$ 500 k – 2 M</p><p class="hi-note-text">Two directors</p></div></div>
+      <div class="hi-note"><div class="hi-dot" style="background: var(--l4)"></div><div><p class="hi-note-name">R$ 50 k – 500 k</p><p class="hi-note-text">Area manager</p></div></div>
+      <div class="hi-note"><div class="hi-dot" style="background: var(--l5)"></div><div><p class="hi-note-name">Up to R$ 50 k</p><p class="hi-note-text">Team lead</p></div></div>
+    </div>
+  </div>
+</body>
+</html>
 
 === Anatomical
-Suits: the parts of a system, a product, a document, a contract or a process - "what it is made of".
-Structure: three columns: the left and right columns hold the parts as labelled callout boxes (a number badge, the part's name, one line) with a coloured border on the side facing the centre; the centre column holds the whole - a large box, card or emoji figure with the numbered zones listed on it; below, a table "part - role - note".
-Look: precise and labelled - numbers link each callout to its zone; neutral background, one accent per group of parts.
+Suits: the parts of a whole - a system, a product, a document or a contract: the whole in a central circle, numbered callouts on both sides.
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Anatomy of a contract</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+<style>
+  :root { --c1: #0d9488; --c2: #2563eb; --c3: #9333ea; --c4: #db2777; --c5: #ea580c; --c6: #65a30d;
+          --ink: #111827; --muted: #4b5563; --paper: #f9fafb; }
+  body { background: var(--paper); color: var(--ink); }
+  .an-title { color: var(--ink); font-size: 2rem; font-weight: 800; text-align: center; padding: 30px 20px 4px; text-transform: uppercase; }
+  .an-sub { color: var(--muted); text-align: center; padding-bottom: 24px; }
+  .an-body { display: grid; grid-template-columns: 1fr 260px 1fr; gap: 14px; align-items: center; max-width: 960px; margin: 0 auto; padding: 0 20px 34px; }
+  .an-side { display: flex; flex-direction: column; gap: 14px; }
+  .an-call { display: flex; align-items: center; gap: 10px; }
+  .an-left { justify-content: flex-end; text-align: right; }
+  .an-card { background: #ffffff; border-radius: 10px; padding: 10px 14px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
+  .an-name { font-weight: 800; font-size: 0.92rem; }
+  .an-text { color: var(--muted); font-size: 0.78rem; }
+  .an-num { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%;
+            color: #ffffff; font-weight: 800; font-size: 0.9rem; flex: none; }
+  .an-line { width: 26px; height: 3px; flex: none; }
+  .an-core { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 260px;
+             border-radius: 50%; background: var(--ink); color: #ffffff; text-align: center; }
+  .an-core-icon { font-size: 4rem; }
+  .an-core-name { color: #ffffff; font-weight: 800; font-size: 1.2rem; margin-top: 6px; }
+</style>
+</head>
+<body>
+  <p class="an-title">Anatomy of a contract</p>
+  <p class="an-sub">The six parts every agreement has</p>
+
+  <div class="an-body">
+    <div class="an-side">
+      <div class="an-call an-left"><div class="an-card"><p class="an-name">Parties</p><p class="an-text">Who signs, and in what capacity</p></div>
+        <div class="an-line" style="background: var(--c1)"></div><div class="an-num" style="background: var(--c1)">1</div></div>
+      <div class="an-call an-left"><div class="an-card"><p class="an-name">Object</p><p class="an-text">What is delivered or done</p></div>
+        <div class="an-line" style="background: var(--c2)"></div><div class="an-num" style="background: var(--c2)">2</div></div>
+      <div class="an-call an-left"><div class="an-card"><p class="an-name">Price</p><p class="an-text">Amounts, terms and adjustments</p></div>
+        <div class="an-line" style="background: var(--c3)"></div><div class="an-num" style="background: var(--c3)">3</div></div>
+    </div>
+
+    <div class="an-core"><p class="an-core-icon">📜</p><p class="an-core-name">Contract</p></div>
+
+    <div class="an-side">
+      <div class="an-call"><div class="an-num" style="background: var(--c4)">4</div><div class="an-line" style="background: var(--c4)"></div>
+        <div class="an-card"><p class="an-name">Term</p><p class="an-text">Start, end and renewal</p></div></div>
+      <div class="an-call"><div class="an-num" style="background: var(--c5)">5</div><div class="an-line" style="background: var(--c5)"></div>
+        <div class="an-card"><p class="an-name">Confidentiality</p><p class="an-text">What must stay private</p></div></div>
+      <div class="an-call"><div class="an-num" style="background: var(--c6)">6</div><div class="an-line" style="background: var(--c6)"></div>
+        <div class="an-card"><p class="an-name">Termination</p><p class="an-text">How either party may end it</p></div></div>
+    </div>
+  </div>
+</body>
+</html>
 
 === Animated
-Suits: announcements, launches, growth stories - when the page will be opened in a browser.
-Structure: any of the structures above, with CSS3 animations in the <style> block: @keyframes fade-in and slide-up on the sections (animation: 0.6s ease-out both, staggered with animation-delay), bars that grow to their width (@keyframes grow from width 0), a gentle pulse on the headline figure. No JavaScript.
-Look: subtle movement that highlights, never distracts. Note to the user that the Viewer shows it still; a browser plays it.
+Suits: announcements, launches and growth stories opened in a browser: CSS3 animations that rise, grow and pulse (the Viewer shows the page still).
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Launch 2026</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+<style>
+  :root { --c1: #f43f5e; --c2: #8b5cf6; --c3: #06b6d4; --ink: #0f172a; --paper: #0f172a; }
+  body { background: var(--paper); color: #e2e8f0; }
+  @keyframes rise { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+  @keyframes grow { from { width: 0; } }
+  @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+  .an-hero { text-align: center; padding: 46px 20px 30px; animation: rise 0.7s ease-out both; }
+  .an-kicker { color: var(--c3); font-size: 0.8rem; letter-spacing: 4px; text-transform: uppercase; }
+  .an-title { color: #ffffff; font-size: 2.6rem; font-weight: 800; line-height: 1.1; margin-top: 8px; }
+  .an-figure { color: var(--c1); font-size: 5rem; font-weight: 800; line-height: 1; margin-top: 14px; animation: pulse 2.4s ease-in-out infinite; }
+  .an-caption { color: #94a3b8; }
+  .an-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; max-width: 880px; margin: 0 auto; padding: 0 22px 20px; }
+  .an-card { background: #1e293b; border-radius: 16px; padding: 20px; text-align: center; animation: rise 0.7s ease-out both; }
+  .an-card:nth-child(2) { animation-delay: 0.15s; }
+  .an-card:nth-child(3) { animation-delay: 0.3s; }
+  .an-icon { font-size: 2rem; }
+  .an-value { font-size: 2.2rem; font-weight: 800; margin-top: 6px; }
+  .an-label { color: #94a3b8; font-size: 0.85rem; }
+  .an-bars { max-width: 836px; margin: 6px auto 40px; background: #1e293b; border-radius: 16px; padding: 20px 22px; }
+  .an-bar-row { display: grid; grid-template-columns: 110px 1fr 50px; gap: 12px; align-items: center; margin-bottom: 10px; }
+  .an-track { background: #334155; border-radius: 999px; height: 16px; }
+  .an-fill { height: 16px; border-radius: 999px; animation: grow 1.2s ease-out both; }
+</style>
+</head>
+<body>
+  <div class="an-hero">
+    <p class="an-kicker">Product launch</p>
+    <p class="an-title">Orbita 2.0 is live</p>
+    <p class="an-figure">+48%</p>
+    <p class="an-caption">sign-ups in the first week</p>
+  </div>
+  <div class="an-cards">
+    <div class="an-card"><p class="an-icon" style="color: var(--c1)">🚀</p><p class="an-value" style="color: var(--c1)">12k</p><p class="an-label">New users</p></div>
+    <div class="an-card"><p class="an-icon" style="color: var(--c2)">⭐</p><p class="an-value" style="color: var(--c2)">4.8</p><p class="an-label">Average rating</p></div>
+    <div class="an-card"><p class="an-icon" style="color: var(--c3)">🌍</p><p class="an-value" style="color: var(--c3)">31</p><p class="an-label">Countries</p></div>
+  </div>
+  <div class="an-bars">
+    <div class="an-bar-row"><p>Mobile</p><div class="an-track"><div class="an-fill" style="width: 64%; background: var(--c1)"></div></div><p>64%</p></div>
+    <div class="an-bar-row"><p>Desktop</p><div class="an-track"><div class="an-fill" style="width: 29%; background: var(--c2)"></div></div><p>29%</p></div>
+    <div class="an-bar-row"><p>Tablet</p><div class="an-track"><div class="an-fill" style="width: 7%; background: var(--c3)"></div></div><p>7%</p></div>
+  </div>
+</body>
+</html>
+

@@ -1658,6 +1658,8 @@ fn powerchat_counts_a_document_added_while_the_chat_is_open() {
     std::fs::create_dir_all(&docs).unwrap();
     plant_model(&root, false);
     std::env::set_var("POWERCHAT_DATA", &data);
+    // The note comes from the shipped main prompt's NO SOURCES section.
+    std::env::set_var("POWERCHAT_SAMPLES", project().join("samples"));
     seed_settings(&data, &[
         ("CUR-TOPIC", "HR"),
         ("KB-LOCATION", &kb.display().to_string()),
@@ -1821,9 +1823,10 @@ fn powerchat_browses_for_a_data_file_and_its_description() {
 }
 
 /// A scripted Ollama for the report templates: a planning request (it asks
-/// to split the question) is answered `ASK:` with the template question;
-/// every other request with `reply`. Every request is kept.
-fn report_server(reply: &'static str) -> (String, Arc<Mutex<Vec<String>>>) {
+/// to split the question) is answered `ASK:` with the template question; a
+/// request carrying a template's skeleton, with `reply`; any other with
+/// `first`. Every request is kept.
+fn report_server(first: &'static str, reply: &'static str) -> (String, Arc<Mutex<Vec<String>>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let seen = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -1860,8 +1863,10 @@ fn report_server(reply: &'static str) -> (String, Arc<Mutex<Vec<String>>>) {
             log.lock().unwrap().push(body.clone());
             let content = if body.contains("Split the user") {
                 "ASK: Which template should the report use? 1. Executive (recommended) 2. Timeline"
-            } else {
+            } else if body.contains("Skeleton:") {
                 reply
+            } else {
+                first
             };
             let reply = serde_json::json!({
                 "message": {"role": "assistant", "content": content},
@@ -1913,49 +1918,60 @@ fn report_setup(tag: &str, url: &str, agents: usize) -> (PathBuf, PathBuf) {
     (root, data)
 }
 
-/// Operator (2026-09-28): reports come from templates — fixed ones, ones
-/// changed by prompt and new ones described in the chat — built with Bulma,
-/// no JavaScript. The shipped templates reach the orchestrator's
-/// instructions; a template the model defines in its answer is saved under
-/// its name and cut out of what the user sees; the next session offers it.
+/// Operator (2026-09-28): reports come from templates - fixed ones, ones
+/// changed by prompt and new ones described in the chat - built with Bulma,
+/// no JavaScript; every instruction in the main prompt. The orchestrator's
+/// instructions are the main prompt's SYSTEM section with the topic's prompt
+/// and the eleven templates filled in; its "TEMPLATE: Timeline" brings the
+/// Timeline's skeleton back with the TEMPLATE section; a template the answer
+/// defines is saved with the answer's page as its skeleton, cut out of what
+/// the user sees, and offered in the next session.
 #[test]
 fn powerchat_offers_report_templates_and_saves_a_new_one() {
     let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     const REPLY: &str = "Here is your report.\n```html\n<html><head><link rel=\"stylesheet\" \
         href=\"https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css\"></head><body>\
-        <section class=\"hero is-success\"><div class=\"hero-body\"><p class=\"title\">Leave</p></div></section>\
-        </body></html>\n```\n<!--REPORT-TEMPLATE\nNAME: Green Timeline\nSuits: a year's milestones.\n\
-        Structure: the Timeline template.\nLook: shades of green, no icons.\n-->\n";
-    let (url, _requests) = report_server(REPLY);
+        <div class=\"th-band\" style=\"background: #2e7d32\"><p>GREEN-BAND</p></div>\
+        </body></html>\n```\n<!--REPORT-TEMPLATE\nNAME: Green Timeline\nSUITS: a year's milestones, in green.\n-->\n";
+    let (url, requests) = report_server("TEMPLATE: Timeline", REPLY);
     let (root, data) = report_setup("templates", &url, 1);
     let t = Instant::now();
     let mut s = Session::start("chat-form.cfrm");
-    let prompt = s.wait_for("AGENT-1", "SystemPrompt", |v| v.contains("### Animated"));
-    let shipped = prompt.matches("\n### ").count() + usize::from(prompt.starts_with("### "));
+    let prompt = s.wait_for("AGENT-1", "SystemPrompt", |v| v.contains("- Animated:"));
     for name in ["Executive", "Informational", "List", "Timeline", "Comparison", "Map", "Statistics",
                  "Flowchart", "Hierarchy", "Anatomical", "Animated"] {
-        assert!(prompt.contains(&format!("### {name}\n")), "the {name} template is offered");
+        assert!(prompt.contains(&format!("- {name}: ")), "the {name} template is offered");
     }
-    assert!(prompt.contains("bulma@0.9.4") && prompt.contains("always list") && prompt.contains("Executive"));
-    assert!(prompt.contains("Never JavaScript"));
+    assert!(prompt.contains("You answer HR questions."), "{{TOPIC}} is the topic's prompt");
+    assert!(prompt.contains("This topic has no documents") && prompt.contains("'Documents' in the menu"), "{{SOURCES NOTE}}");
+    assert!(prompt.contains("REPORTS") && prompt.contains("always include") && prompt.contains("TEMPLATE: <"));
+    assert!(!prompt.contains('{') && !prompt.contains("=== "), "no placeholder or section line is sent: {prompt}");
 
     s.type_into("Txt-Input", "A report of the leave year, green timeline, no icons");
     s.click("Btn-Send");
     let html = s.wait_for("Vwr-Chat", "_ConversationHtml", |v| v.contains("Here is your report"));
     s.quit();
+    let sent = requests.lock().unwrap().clone();
+    assert_eq!(sent.len(), 2, "the choice, then the report from its skeleton");
+    assert!(sent[1].contains("The user chose the report template") && sent[1].contains("Timeline"),
+        "the TEMPLATE section, the name filled in");
+    assert!(sent[1].contains("th-band") && sent[1].contains("Skeleton:"), "the Timeline's skeleton");
+    assert!(!sent[1].contains("{SKELETON}") && !sent[1].contains("{NAME}"));
     assert!(!html.contains("REPORT-TEMPLATE") && !html.contains("Green Timeline"), "the block is not shown: {html}");
-    let saved = String::from_utf8_lossy(&std::fs::read(data.join("report-templates.idx")).unwrap()).into_owned();
-    assert!(saved.contains("Green Timeline") && saved.contains("Look: shades of green, no icons."), "saved");
+    let saved = String::from_utf8_lossy(&std::fs::read(data.join("templates.idx")).unwrap()).into_owned();
+    assert!(saved.contains("Green Timeline") && saved.contains("in green.") && saved.contains("GREEN-BAND"),
+        "saved with the answer's page as its skeleton");
 
     // The next session offers it with the shipped ones.
     let mut s = Session::start("chat-form.cfrm");
-    let again = s.wait_for("AGENT-1", "SystemPrompt", |v| v.contains("### Green Timeline"));
+    let again = s.wait_for("AGENT-1", "SystemPrompt", |v| v.contains("- Green Timeline:"));
     s.quit();
-    assert!(again.contains("### Green Timeline\nSuits: a year's milestones."), "{again}");
+    assert!(again.contains("- Green Timeline: a year's milestones, in green."), "{again}");
     println!(
-        "\n  ── 071 PowerChat, report templates ──────────────────────\n  {shipped} shipped templates in the instructions ({} characters); \
-         one defined in an answer saved, hidden from the user, offered next session — {:.0} ms\n",
+        "\n  ── 071 PowerChat, report templates ──────────────────────\n  11 shipped templates in the instructions ({} characters); TEMPLATE: Timeline answered with its skeleton ({} characters sent); \
+         one defined in an answer saved with its page, hidden from the user, offered next session — {:.0} ms\n",
         prompt.len(),
+        sent[1].len(),
         t.elapsed().as_secs_f64() * 1000.0
     );
     let _ = std::fs::remove_dir_all(&root);
@@ -1967,7 +1983,7 @@ fn powerchat_offers_report_templates_and_saves_a_new_one() {
 #[test]
 fn powerchat_asks_which_template_before_planning_a_report() {
     let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let (url, requests) = report_server("unused");
+    let (url, requests) = report_server("unused", "unused");
     let (root, _data) = report_setup("ask", &url, 2);
     let mut s = Session::start("chat-form.cfrm");
     s.settle();
@@ -1979,5 +1995,75 @@ fn powerchat_asks_which_template_before_planning_a_report() {
     let asked = requests.lock().unwrap().len();
     assert_eq!(asked, 1, "one planning request, no task sent to another agent");
     println!("\n  ── 071 PowerChat, template asked before planning ────────\n  {asked} request; the question shown\n");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Operator (2026-09-28): "every instruction to the model in English, part of
+/// the main prompt, not inserted internally where the user cannot change
+/// them". The Prompt screen edits the main prompt - versions like a topic's,
+/// under "*MAIN" - and the chat's next question uses it: the orchestrator's
+/// SYSTEM section, the assistants' ASSISTANT section. Restore default brings
+/// the shipped text back as a new version. The versions of the old
+/// prompts.idx move to prompt-versions.idx the first time.
+#[test]
+fn powerchat_main_prompt_is_every_instruction_and_the_user_edits_it() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let (url, _requests) = report_server("Plain answer.", "unused");
+    let (root, data) = report_setup("mainprompt", &url, 2);
+    // The versions file as it was before 1.70.332: 1,000-character texts.
+    seed_indexed(
+        &data.join("prompts.idx"),
+        "           05 K.\n              10 T PIC X(16).\n              10 V PIC 9(4).\n           05 C PIC X(14).\n           05 A PIC X.\n           05 X PIC X(1000).\n",
+        "K",
+        "           MOVE \"HR\" TO T\n           MOVE 1 TO V\n           MOVE \"20260901120000\" TO C\n           MOVE \"Y\" TO A\n           MOVE \"OLD HR PROMPT FROM PROMPTS-IDX\" TO X\n           WRITE R\n",
+    );
+    let t = Instant::now();
+    let mut s = Session::start("prompts-form.cfrm");
+    let rows = s.wait_for("Dg-List", "Rows", |v| v.contains("OLD HR PROMPT"));
+    assert!(rows.starts_with("1\t") && rows.contains("[active]"), "the topic's version, moved over: {rows}");
+    s.click("Btn-Main");
+    let title = s.wait_for("Lbl-Title", "Caption", |v| v.starts_with("Main prompt"));
+    let main_rows = s.wait_for("Dg-List", "Rows", |v| v.contains("main prompt"));
+    assert!(main_rows.starts_with("1\t") && main_rows.contains("[active]"), "v1 is the shipped main prompt: {main_rows}");
+    s.click("Btn-New");
+    s.wait_for("Tab-Crud", "SelectedTab", |v| v == "1");
+    s.type_into(
+        "Txt-Prompt",
+        "=== SYSTEM ===\nCUSTOM SYSTEM RULES.\n{TOPIC}\n=== ASSISTANT ===\nCUSTOM ASSISTANT RULES.\n=== PLAN ===\nSplit the user question - CUSTOM PLAN.\n",
+    );
+    s.click("Btn-Save");
+    s.wait_for("Lbl-Status", "Caption", |v| v.contains("Saved as v2, now active"));
+    s.quit();
+
+    let mut s = Session::start("chat-form.cfrm");
+    let system = s.wait_for("AGENT-1", "SystemPrompt", |v| v.contains("CUSTOM") || v.contains("REPORTS"));
+    let helper = s.wait_for("AGENT-2", "SystemPrompt", |v| v.contains("CUSTOM") || v.contains("careful"));
+    s.quit();
+    let (orch, other) = if system.contains("CUSTOM SYSTEM") { (system, helper) } else { (helper, system) };
+    assert!(orch.contains("CUSTOM SYSTEM RULES.") && orch.contains("You answer HR questions."), "{orch}");
+    assert!(!orch.contains("REPORTS"), "nothing of the shipped text is added behind the user's back: {orch}");
+    assert_eq!(other.trim(), "CUSTOM ASSISTANT RULES.", "the assistants' instructions are the ASSISTANT section");
+
+    // Restore default: the shipped text, as v3.
+    let mut s = Session::start("prompts-form.cfrm");
+    s.settle();
+    s.click("Btn-Main");
+    s.wait_for("Lbl-Title", "Caption", |v| v.starts_with("Main prompt"));
+    s.click("Btn-Default");
+    s.wait_for("Lbl-Status", "Caption", |v| v.contains("Saved as v3, now active"));
+    s.quit();
+    let mut s = Session::start("chat-form.cfrm");
+    // Two agents on one model: which orchestrates is drawn (R57), so each
+    // holds one of the two shipped sections - SYSTEM or ASSISTANT.
+    let shipped = |v: &str| v.contains("REPORTS") || v.contains("careful research assistant");
+    let a1 = s.wait_for("AGENT-1", "SystemPrompt", shipped);
+    let a2 = s.wait_for("AGENT-2", "SystemPrompt", shipped);
+    s.quit();
+    assert!(a1.contains("REPORTS") != a2.contains("REPORTS"), "one orchestrator, one assistant, both shipped text");
+    let back = a1.len() + a2.len();
+    println!(
+        "\n  ── 071 PowerChat, the main prompt ───────────────────────\n  old versions moved; {title:?}: v1 shipped, v2 edited and used by both agents, v3 restored ({back} characters) — {:.0} ms\n",
+        t.elapsed().as_secs_f64() * 1000.0
+    );
     let _ = std::fs::remove_dir_all(&root);
 }

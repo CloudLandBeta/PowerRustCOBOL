@@ -471,7 +471,7 @@
               10 PRM-VERSION    PIC 9(4).
            05 PRM-CREATED       PIC X(14).
            05 PRM-ACTIVE        PIC X.
-           05 PRM-TEXT          PIC X(1000).
+           05 PRM-TEXT          PIC X(32000).
        FD  SAMPLES-FILE IS GLOBAL.
        01  SAMPLE-LINE          PIC X(1400).
 ]]></file-section>
@@ -495,7 +495,7 @@
            STRING FUNCTION TRIM(WS-DATA-DIR) "/topic-files.idx"
                DELIMITED BY SIZE INTO WS-TFILES-PATH
            MOVE SPACES TO WS-PROMPTS-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/prompts.idx"
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/prompt-versions.idx"
                DELIMITED BY SIZE INTO WS-PROMPTS-PATH
 ]]></Event>
     <Event name="PC-SETTING-GET" paragraph="PC-SETTING-GET"><![CDATA[       ENVIRONMENT DIVISION.
@@ -1680,6 +1680,9 @@ Create/Update</Property>
     <Property name="VScroll">false</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
+    <Property name="ActiveTabForegroundColor"></Property>
+    <Property name="InactiveTabColor"></Property>
+    <Property name="InactiveTabForegroundColor"></Property>
   </Control>
   <Control id="Btn-New" type="Button" x="40" y="96" w="120" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
     <Property name="Caption">New</Property>

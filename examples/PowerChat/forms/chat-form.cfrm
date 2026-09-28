@@ -452,12 +452,45 @@
       *>   Where the orchestrator's prompt ends, for what is added to it.
        01 WS-SYS-PT          GLOBAL PIC 9(6).
        01 WS-LOWQ            GLOBAL PIC X(64000).
-      *>   The report templates (operator, 2026-09-28): data/report-templates.idx,
-      *>   seeded from samples/report-templates.txt the first time.
+      *>   The report templates (operator, 2026-09-28): data/templates.idx,
+      *>   each a name, what it suits and its HTML skeleton, seeded from
+      *>   samples/report-templates.txt the first time.
+       01 WS-SAMPLES-DIR     GLOBAL PIC X(240).
        01 WS-RTPL-PATH       GLOBAL PIC X(240).
        01 WS-RTSEED-PATH     GLOBAL PIC X(240).
        01 WS-RT-NAME         GLOBAL PIC X(40).
-       01 WS-RT-BODY         GLOBAL PIC X(2000).
+       01 WS-RT-SUITS        GLOBAL PIC X(300).
+       01 WS-RT-SKEL         GLOBAL PIC X(12000).
+      *>   The template the user chose for this question, once per question.
+       01 WS-TPL-NAME        GLOBAL PIC X(40).
+       01 WS-TPL-SKEL        GLOBAL PIC X(12000).
+       01 WS-TPL-DONE        GLOBAL PIC X VALUE "N".
+       01 WS-CATALOG         GLOBAL PIC X(8000).
+      *>   The main prompt (operator, 2026-09-28: every instruction in English,
+      *>   in one prompt the user edits). Its versions live in
+      *>   data/prompt-versions.idx under the topic id "*MAIN"; before it has
+      *>   one, samples/main-prompt.md is the text.
+       01 WS-MAINP-PATH      GLOBAL PIC X(240).
+       01 WS-MPSEED-PATH     GLOBAL PIC X(240).
+       01 WS-MAIN            GLOBAL PIC X(32000).
+       01 WS-MAIN-ELECTED    GLOBAL PIC X(32000).
+      *>   One section of it (PC-SECTION), and its {PLACEHOLDERS} filled
+      *>   (PC-FILL).
+       01 WS-SEC-NAME        GLOBAL PIC X(20).
+       01 WS-SEC-MARK        GLOBAL PIC X(5) VALUE X"0A3D3D3D20".
+       01 WS-SEC             GLOBAL PIC X(64000).
+       01 WS-SPL             GLOBAL PIC X(64000).
+       01 WS-INS             GLOBAL PIC X(64000).
+       01 WS-TOKEN           GLOBAL PIC X(20).
+       01 WS-NOTE            GLOBAL PIC X(4000).
+       01 WS-SX-A            GLOBAL PIC 9(6).
+       01 WS-SX-B            GLOBAL PIC 9(6).
+       01 WS-SX-E            GLOBAL PIC 9(6).
+       01 WS-SX-L            GLOBAL PIC 9(6).
+      *>   A seed file's line and its length without the trailing spaces.
+       01 WS-LN-BUF          GLOBAL PIC X(1000).
+       01 WS-LN-REV          GLOBAL PIC X(1000).
+       01 WS-LN-LEN          GLOBAL PIC 9(4).
        01 WS-RT-PT           GLOBAL PIC 9(6).
        01 WS-RT-AT           GLOBAL PIC 9(6).
        01 WS-RT-LEN          GLOBAL PIC 9(6).
@@ -557,6 +590,15 @@
            SELECT RTSEED-FILE ASSIGN TO WS-RTSEED-PATH
                ORGANIZATION IS LINE SEQUENTIAL
                FILE STATUS IS WS-FS.
+           SELECT MAINP-FILE ASSIGN TO WS-MAINP-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS PRM-KEY
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT MPSEED-FILE ASSIGN TO WS-MPSEED-PATH
+               ORGANIZATION IS LINE SEQUENTIAL
+               FILE STATUS IS WS-FS.
 ]]></file-control>
   <file-section><![CDATA[       FD  SETTINGS-FILE IS GLOBAL.
        01  SETTINGS-REC.
@@ -611,9 +653,22 @@
       *>   its structure, its look - as the model reads it.
        01  RTPL-REC.
            05 RT-NAME           PIC X(40).
-           05 RT-BODY           PIC X(2000).
+           05 RT-SUITS          PIC X(300).
+           05 RT-SKEL           PIC X(12000).
        FD  RTSEED-FILE IS GLOBAL.
        01  RTSEED-REC           PIC X(1000).
+      *>   The Prompt screen's versions - the same file and layout
+      *>   (prompts-form); the chat reads the main prompt's active one.
+       FD  MAINP-FILE IS GLOBAL.
+       01  PROMPT-REC.
+           05 PRM-KEY.
+              10 PRM-TOPIC      PIC X(16).
+              10 PRM-VERSION    PIC 9(4).
+           05 PRM-CREATED       PIC X(14).
+           05 PRM-ACTIVE        PIC X.
+           05 PRM-TEXT          PIC X(32000).
+       FD  MPSEED-FILE IS GLOBAL.
+       01  MPSEED-REC           PIC X(1000).
 ]]></file-section>
   <user-procedures>
     <Event name="PC-PATHS" paragraph="PC-PATHS"><![CDATA[       ENVIRONMENT DIVISION.
@@ -644,19 +699,24 @@
            STRING FUNCTION TRIM(WS-DATA-DIR) "/topic-files.idx"
                DELIMITED BY SIZE INTO WS-TFILES-PATH
            MOVE SPACES TO WS-RTPL-PATH
-           STRING FUNCTION TRIM(WS-DATA-DIR) "/report-templates.idx"
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/templates.idx"
                DELIMITED BY SIZE INTO WS-RTPL-PATH
-      *>   The shipped templates sit beside the sample topics:
-      *>   POWERCHAT_SAMPLES, else "samples".
+           MOVE SPACES TO WS-MAINP-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/prompt-versions.idx"
+               DELIMITED BY SIZE INTO WS-MAINP-PATH
+      *>   What ships beside the sample topics - the templates and the main
+      *>   prompt's default: POWERCHAT_SAMPLES, else "samples".
            DISPLAY "POWERCHAT_SAMPLES" UPON ENVIRONMENT-NAME
-           ACCEPT WS-RTSEED-PATH FROM ENVIRONMENT-VALUE
-           IF WS-RTSEED-PATH = SPACES
-               MOVE "samples" TO WS-RTSEED-PATH
+           ACCEPT WS-SAMPLES-DIR FROM ENVIRONMENT-VALUE
+           IF WS-SAMPLES-DIR = SPACES
+               MOVE "samples" TO WS-SAMPLES-DIR
            END-IF
-           MOVE FUNCTION TRIM(WS-RTSEED-PATH) TO WS-RT-BODY
            MOVE SPACES TO WS-RTSEED-PATH
-           STRING FUNCTION TRIM(WS-RT-BODY) "/report-templates.txt"
+           STRING FUNCTION TRIM(WS-SAMPLES-DIR) "/report-templates.txt"
                DELIMITED BY SIZE INTO WS-RTSEED-PATH
+           MOVE SPACES TO WS-MPSEED-PATH
+           STRING FUNCTION TRIM(WS-SAMPLES-DIR) "/main-prompt.md"
+               DELIMITED BY SIZE INTO WS-MPSEED-PATH
 ]]></Event>
     <Event name="PC-SETTING-GET" paragraph="PC-SETTING-GET"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -855,100 +915,52 @@
       *>   Prompts: the topic's to the orchestrator only (R63); the others
       *>   keep their role prompts (R64). The Knowledge Base goes to the tool
       *>   worker alone; with none, the chat runs without tools (R66).
+           CALL "PC-MAIN-LOAD"
+           MOVE WS-MAIN TO WS-MAIN-ELECTED
            PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
                MOVE WS-A TO WS-FROM
                IF WS-A = WS-ORCH
-                   MOVE WS-TOPIC-PROMPT TO WS-TEXT
-      *>           No documents and no data files: the answer to "what can
-      *>           you do" is that it cannot yet answer about the user's
-      *>           data, and where to give it some (operator, 2026-09-27).
-      *>           The menu names go in the user's language.
+      *>           Every instruction is the main prompt's (operator,
+      *>           2026-09-28): its SYSTEM section, with the topic's prompt,
+      *>           the NO SOURCES section while the topic has no documents
+      *>           and no data files, and the template list, each where the
+      *>           text puts it.
+                   MOVE SPACES TO WS-NOTE
                    IF WS-SOURCES = 0 AND WS-CUR-TOPIC NOT = SPACES
-                       MOVE SPACES TO WS-TEXT
-                       STRING FUNCTION TRIM(WS-TOPIC-PROMPT) X"0A" X"0A"
-                           "This topic has no documents and no data files yet, "
-                           "so you have no source for the user's own information. "
-                           "When the user asks what you can do, or asks anything "
-                           "specific about their data, say so plainly: until they "
-                           "upload a file ('"
-                           FUNCTION TRIM(T-DOCS-TITLE)
-                           "' in the menu) or connect an indexed data file ('"
-                           FUNCTION TRIM(T-FILES-TITLE)
-                           "' in the menu), you cannot answer specific questions "
-                           "about their data. Never invent any. "
-                           "Answer in the user's language."
-                           DELIMITED BY SIZE INTO WS-TEXT
-                       END-STRING
+                       MOVE "NO SOURCES" TO WS-SEC-NAME
+                       CALL "PC-SECTION"
+                       MOVE "{DOCUMENTS MENU}" TO WS-TOKEN
+                       MOVE T-DOCS-TITLE TO WS-INS
+                       CALL "PC-FILL"
+                       MOVE "{DATA FILES MENU}" TO WS-TOKEN
+                       MOVE T-FILES-TITLE TO WS-INS
+                       CALL "PC-FILL"
+                       MOVE WS-SEC TO WS-NOTE
                    END-IF
-      *>           How a report should look (operator, 2026-09-28): the user
-      *>           picks one of the report templates - the model recommends
-      *>           the ones that fit, always offers the sober Executive one -
-      *>           and any template can be changed or a new one described;
-      *>           what the model then defines is saved (PC-SAVE-TEMPLATE).
-      *>           Pages link Bulma: a browser loads it, the chat's Viewer
-      *>           styles the same classes itself. No JavaScript.
-                   COMPUTE WS-SYS-PT =
-                       FUNCTION LENGTH(FUNCTION TRIM(WS-TEXT)) + 1
-                   STRING X"0A" X"0A"
-                       "REPORTS. When the user asks for a report, a "
-                       "presentation, an infographic or a formatted, visual "
-                       "or HTML answer and has not yet chosen a report "
-                       "template, do not write it yet: reply with a short "
-                       "numbered list of the report templates below - each "
-                       "name translated into the user's language and one "
-                       "line on what it suits - mark the two or three that "
-                       "best fit this content as recommended, always list "
-                       "Executive (the sober, professional one), and ask "
-                       "which one to use. Add that any template can be "
-                       "changed (for example: the timeline, in green, "
-                       "without icons) or a new one described. Once the "
-                       "user has chosen, by number or name, or named one in "
-                       "the request, write the report with that template, "
-                       "applying every change they asked for."
-                       X"0A" X"0A"
-                       "A report is ONE self-contained HTML page, fenced as "
-                       "```html, whose <head> links Bulma: <link "
-                       "rel=""stylesheet"" href=""https://cdn.jsdelivr.net"
-                       "/npm/bulma@0.9.4/css/bulma.min.css"">. Build it from "
-                       "Bulma classes: section, container, hero (is-primary, "
-                       "is-info, is-success, is-warning, is-danger, is-dark, "
-                       "is-bold) with hero-body, title and subtitle (is-1 to "
-                       "is-6), box, card with card-header, card-header-title "
-                       "and card-content, columns with column (is-half, "
-                       "is-one-third, is-one-quarter, is-2 to is-12), "
-                       "is-multiline, is-vcentered, level with level-item "
-                       "and heading, media, notification and tag (with a "
-                       "colour and is-light), message with message-header "
-                       "and message-body, table is-striped is-bordered "
-                       "is-fullwidth, and the helpers has-text-*, "
-                       "has-background-*, has-text-centered, "
-                       "has-text-weight-bold, is-size-1 to is-size-7, "
-                       "m-* and p-*. One <style> block may add a palette "
-                       "or what Bulma lacks (a round badge, a bar's width). "
-                       "Never JavaScript, position, float, external images "
-                       "or web fonts. For a diagram, use <div "
-                       "class=""mermaid""> holding REAL Mermaid syntax that "
-                       "starts with flowchart TD (or sequenceDiagram), one "
-                       "statement per line, never a drawing made of "
-                       "brackets and arrows. Write the page's text in the "
-                       "user's language."
-                       X"0A" X"0A"
-                       "SAVING TEMPLATES. Whenever the user changes a "
-                       "template or describes a new one, end that answer "
-                       "with the template as it now stands, in exactly this "
-                       "block, which is saved and not shown:" X"0A"
-                       "<!--REPORT-TEMPLATE" X"0A"
-                       "NAME: <the template's English name - the same name "
-                       "to replace it, a new one for a new template>" X"0A"
-                       "Suits: ..." X"0A" "Structure: ..." X"0A"
-                       "Look: ..." X"0A"
-                       "-->" X"0A" X"0A"
-                       "The report templates:" X"0A"
-                       DELIMITED BY SIZE INTO WS-TEXT WITH POINTER WS-SYS-PT
-                   END-STRING
                    CALL "PC-TEMPLATES"
+                   MOVE "SYSTEM" TO WS-SEC-NAME
+                   CALL "PC-SECTION"
+                   MOVE "{TOPIC}" TO WS-TOKEN
+                   MOVE WS-TOPIC-PROMPT TO WS-INS
+                   CALL "PC-FILL"
+                   MOVE "{SOURCES NOTE}" TO WS-TOKEN
+                   MOVE WS-NOTE TO WS-INS
+                   CALL "PC-FILL"
+                   MOVE "{TEMPLATES}" TO WS-TOKEN
+                   MOVE WS-CATALOG TO WS-INS
+                   CALL "PC-FILL"
+                   MOVE WS-SEC TO WS-TEXT
+      *>           No main prompt at all - no version and no shipped file -
+      *>           or one without a SYSTEM section: the topic's own prompt,
+      *>           which the user wrote, rather than no instructions.
+                   IF WS-TEXT = SPACES
+                       MOVE WS-TOPIC-PROMPT TO WS-TEXT
+                   END-IF
                ELSE
-                   MOVE WS-AG-ROLE(WS-A) TO WS-TEXT
+      *>           The assistants: the main prompt's ASSISTANT section.
+                   MOVE "ASSISTANT" TO WS-SEC-NAME
+                   CALL "PC-SECTION"
+                   MOVE WS-SEC TO WS-TEXT
                END-IF
            EVALUATE WS-FROM
                WHEN 1
@@ -998,13 +1010,232 @@
            MOVE WS-CUR-TOPIC TO WS-ALLOWED-TOPIC
            MOVE "IDLE" TO WS-STAGE
 ]]></Event>
+    <Event name="PC-MAIN-LOAD" paragraph="PC-MAIN-LOAD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-MAIN out: the main prompt - the active version the Prompt
+      *>   screen keeps under the topic id "*MAIN", or, before there is one,
+      *>   the shipped samples/main-prompt.md.
+           MOVE SPACES TO WS-MAIN
+           OPEN INPUT MAINP-FILE
+           IF WS-FS = "00"
+               MOVE "*MAIN" TO PRM-TOPIC
+               MOVE 0 TO PRM-VERSION
+               MOVE "N" TO WS-EOF
+               START MAINP-FILE KEY IS >= PRM-KEY
+                   INVALID KEY MOVE "Y" TO WS-EOF
+               END-START
+               PERFORM UNTIL WS-EOF = "Y"
+                   READ MAINP-FILE NEXT RECORD
+                       AT END MOVE "Y" TO WS-EOF
+                       NOT AT END
+                           IF PRM-TOPIC NOT = "*MAIN"
+                               MOVE "Y" TO WS-EOF
+                           ELSE
+                               IF PRM-ACTIVE = "Y"
+                                   MOVE PRM-TEXT TO WS-MAIN
+                               END-IF
+                           END-IF
+                   END-READ
+               END-PERFORM
+               CLOSE MAINP-FILE
+           END-IF
+           IF WS-MAIN = SPACES
+               MOVE 1 TO WS-SX-B
+               OPEN INPUT MPSEED-FILE
+               IF WS-FS = "00"
+                   MOVE "N" TO WS-EOF
+                   PERFORM UNTIL WS-EOF = "Y"
+                       READ MPSEED-FILE
+                           AT END MOVE "Y" TO WS-EOF
+                           NOT AT END
+                               MOVE MPSEED-REC TO WS-LN-BUF
+                               CALL "PC-LINE-LEN"
+                               IF WS-LN-LEN > 0
+                                   STRING WS-LN-BUF(1:WS-LN-LEN) X"0A"
+                                       DELIMITED BY SIZE INTO WS-MAIN
+                                       WITH POINTER WS-SX-B
+                                   END-STRING
+                               ELSE
+                                   STRING X"0A" DELIMITED BY SIZE INTO WS-MAIN
+                                       WITH POINTER WS-SX-B
+                                   END-STRING
+                               END-IF
+                       END-READ
+                   END-PERFORM
+                   CLOSE MPSEED-FILE
+               END-IF
+           END-IF
+           MOVE "N" TO WS-EOF
+]]></Event>
+    <Event name="PC-SECTION" paragraph="PC-SECTION"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-SEC-NAME in: WS-SEC out - that section of the main prompt, from
+      *>   the line after its "=== NAME ===" to the next "=== " line or the
+      *>   end. A section the text does not have is empty: nothing is sent.
+           MOVE SPACES TO WS-SEC WS-SPL
+           STRING X"0A" "=== " FUNCTION TRIM(WS-SEC-NAME) " ==="
+               DELIMITED BY SIZE INTO WS-SPL
+           END-STRING
+           COMPUTE WS-SX-L = FUNCTION LENGTH(FUNCTION TRIM(WS-SEC-NAME)) + 9
+      *>   WS-SX-A: where the header's "===" starts - the very first line
+      *>   counts too (a text whose first section has nothing above it).
+           IF WS-MAIN(1:WS-SX-L - 1) = WS-SPL(2:WS-SX-L - 1)
+               MOVE 1 TO WS-SX-A
+           ELSE
+               MOVE 0 TO WS-SX-A
+               INSPECT WS-MAIN TALLYING WS-SX-A
+                   FOR CHARACTERS BEFORE INITIAL WS-SPL(1:WS-SX-L)
+               IF WS-SX-A NOT < 32000
+                   MOVE SPACES TO WS-SPL
+                   EXIT PROGRAM
+               END-IF
+               ADD 2 TO WS-SX-A
+           END-IF
+      *>   Past the header line.
+           COMPUTE WS-SX-A = WS-SX-A + WS-SX-L - 1
+           MOVE 0 TO WS-SX-B
+           INSPECT WS-MAIN(WS-SX-A:) TALLYING WS-SX-B
+               FOR CHARACTERS BEFORE INITIAL X"0A"
+           COMPUTE WS-SX-A = WS-SX-A + WS-SX-B + 1
+           MOVE SPACES TO WS-SPL
+           IF WS-SX-A > 32000
+               EXIT PROGRAM
+           END-IF
+           MOVE 0 TO WS-SX-B
+           INSPECT WS-MAIN(WS-SX-A:) TALLYING WS-SX-B
+               FOR CHARACTERS BEFORE INITIAL WS-SEC-MARK
+           IF WS-SX-B > 0
+               MOVE WS-MAIN(WS-SX-A:WS-SX-B) TO WS-SEC
+           END-IF
+]]></Event>
+    <Event name="PC-FILL" paragraph="PC-FILL"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-TOKEN and WS-INS in: every WS-TOKEN in WS-SEC - "{TOPIC}" and
+      *>   the like - replaced by WS-INS (nothing, when it is spaces).
+           COMPUTE WS-SX-L = FUNCTION LENGTH(FUNCTION TRIM(WS-TOKEN))
+           PERFORM 20 TIMES
+               MOVE 0 TO WS-SX-A
+               INSPECT WS-SEC TALLYING WS-SX-A
+                   FOR CHARACTERS BEFORE INITIAL WS-TOKEN(1:WS-SX-L)
+               IF WS-SX-A NOT < 64000
+                   EXIT PERFORM
+               END-IF
+               MOVE SPACES TO WS-SPL
+               MOVE 1 TO WS-SX-B
+               IF WS-SX-A > 0
+                   STRING WS-SEC(1:WS-SX-A) DELIMITED BY SIZE
+                       INTO WS-SPL WITH POINTER WS-SX-B
+                   END-STRING
+               END-IF
+               IF WS-INS NOT = SPACES
+                   STRING FUNCTION TRIM(WS-INS) DELIMITED BY SIZE
+                       INTO WS-SPL WITH POINTER WS-SX-B
+                   END-STRING
+               END-IF
+               COMPUTE WS-SX-E = WS-SX-A + WS-SX-L + 1
+               IF WS-SX-E NOT > 64000
+                   STRING WS-SEC(WS-SX-E:) DELIMITED BY SIZE
+                       INTO WS-SPL WITH POINTER WS-SX-B
+                   END-STRING
+               END-IF
+               MOVE WS-SPL TO WS-SEC
+           END-PERFORM
+           MOVE SPACES TO WS-SPL
+]]></Event>
+    <Event name="PC-LINE-LEN" paragraph="PC-LINE-LEN"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-LN-BUF in: WS-LN-LEN out - its length without the trailing
+      *>   spaces, so a line's indentation is kept and its padding is not.
+           MOVE FUNCTION REVERSE(WS-LN-BUF) TO WS-LN-REV
+           MOVE 0 TO WS-LN-LEN
+           INSPECT WS-LN-REV TALLYING WS-LN-LEN FOR LEADING SPACES
+           COMPUTE WS-LN-LEN = 1000 - WS-LN-LEN
+]]></Event>
+    <Event name="PC-TPL-FIND" paragraph="PC-TPL-FIND"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-TPL-NAME in (any case): WS-TPL-SKEL out, and WS-TPL-NAME as
+      *>   the catalog spells it; spaces when there is no such template.
+           MOVE SPACES TO WS-TPL-SKEL
+           MOVE FUNCTION UPPER-CASE(FUNCTION TRIM(WS-TPL-NAME)) TO WS-RT-NAME
+           OPEN INPUT RTPL-FILE
+           IF WS-FS NOT = "00"
+               EXIT PROGRAM
+           END-IF
+           MOVE LOW-VALUES TO RT-NAME
+           MOVE "N" TO WS-EOF
+           START RTPL-FILE KEY IS >= RT-NAME
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ RTPL-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       IF FUNCTION UPPER-CASE(FUNCTION TRIM(RT-NAME)) = WS-RT-NAME
+                           MOVE RT-NAME TO WS-TPL-NAME
+                           MOVE RT-SKEL TO WS-TPL-SKEL
+                           MOVE "Y" TO WS-EOF
+                       END-IF
+               END-READ
+           END-PERFORM
+           CLOSE RTPL-FILE
+           MOVE "N" TO WS-EOF
+]]></Event>
+    <Event name="PC-TEMPLATE-TEXT" paragraph="PC-TEMPLATE-TEXT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-TPL-NAME and WS-TPL-SKEL in: WS-SEC out - the main prompt's
+      *>   TEMPLATE section with the chosen template filled in.
+           MOVE "TEMPLATE" TO WS-SEC-NAME
+           CALL "PC-SECTION"
+           MOVE "{NAME}" TO WS-TOKEN
+           MOVE WS-TPL-NAME TO WS-INS
+           CALL "PC-FILL"
+           MOVE "{SKELETON}" TO WS-TOKEN
+           MOVE WS-TPL-SKEL TO WS-INS
+           CALL "PC-FILL"
+]]></Event>
+    <Event name="PC-TPL-LINE" paragraph="PC-TPL-LINE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-REPLY in: when it opens with "TEMPLATE: name" - the user chose
+      *>   a report template - WS-TPL-NAME and WS-TPL-SKEL are that template.
+           MOVE 1 TO WS-FP
+           PERFORM UNTIL WS-FP > 200
+                   OR (WS-REPLY(WS-FP:1) NOT = SPACE
+                       AND WS-REPLY(WS-FP:1) NOT = X"0A"
+                       AND WS-REPLY(WS-FP:1) NOT = X"0D")
+               ADD 1 TO WS-FP
+           END-PERFORM
+           IF WS-FP > 200
+               EXIT PROGRAM
+           END-IF
+           IF FUNCTION UPPER-CASE(WS-REPLY(WS-FP:9)) NOT = "TEMPLATE:"
+               EXIT PROGRAM
+           END-IF
+           COMPUTE WS-FA = WS-FP + 9
+           MOVE 0 TO WS-FB
+           INSPECT WS-REPLY(WS-FA:) TALLYING WS-FB FOR CHARACTERS BEFORE INITIAL X"0A"
+           IF WS-FB > 80
+               MOVE 80 TO WS-FB
+           END-IF
+           IF WS-FB > 0
+               MOVE WS-REPLY(WS-FA:WS-FB) TO WS-TPL-NAME
+               CALL "PC-TPL-FIND"
+           END-IF
+]]></Event>
     <Event name="PC-TEMPLATES" paragraph="PC-TEMPLATES"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-      *>   WS-TEXT and WS-SYS-PT in: every report template appended, as
-      *>   "### name" and its text. An empty file - the first time - is
-      *>   filled from the shipped samples/report-templates.txt, where
-      *>   "=== name" opens each template.
+      *>   WS-CATALOG out: one line per report template - its name and what
+      *>   it suits - for the main prompt's {TEMPLATES}. An empty file - the
+      *>   first time - is filled from samples/report-templates.txt.
+           MOVE SPACES TO WS-CATALOG
+           MOVE 1 TO WS-SX-B
            OPEN I-O RTPL-FILE
            IF WS-FS = "35"
                OPEN OUTPUT RTPL-FILE
@@ -1028,9 +1259,9 @@
                READ RTPL-FILE NEXT RECORD
                    AT END MOVE "Y" TO WS-EOF
                    NOT AT END
-                       STRING "### " FUNCTION TRIM(RT-NAME) X"0A"
-                              FUNCTION TRIM(RT-BODY) X"0A" X"0A"
-                           DELIMITED BY SIZE INTO WS-TEXT WITH POINTER WS-SYS-PT
+                       STRING "- " FUNCTION TRIM(RT-NAME) ": "
+                              FUNCTION TRIM(RT-SUITS) X"0A"
+                           DELIMITED BY SIZE INTO WS-CATALOG WITH POINTER WS-SX-B
                        END-STRING
                END-READ
            END-PERFORM
@@ -1039,31 +1270,43 @@
     <Event name="PC-SEED-TEMPLATES" paragraph="PC-SEED-TEMPLATES"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-      *>   RTPL-FILE open I-O and empty: the shipped templates written in. A
-      *>   missing samples file leaves it empty - the chat still answers.
+      *>   RTPL-FILE open I-O and empty: the shipped templates written in.
+      *>   "=== name" opens each; its "Suits:" line says what it suits, and
+      *>   every other line is its HTML skeleton, indentation kept. A missing
+      *>   samples file leaves it empty - the chat still answers.
            OPEN INPUT RTSEED-FILE
            IF WS-FS NOT = "00"
                EXIT PROGRAM
            END-IF
-           MOVE SPACES TO WS-RT-NAME
+           MOVE SPACES TO WS-RT-NAME WS-RT-SUITS WS-RT-SKEL
+           MOVE 1 TO WS-RT-PT
            MOVE "N" TO WS-EOF
            PERFORM UNTIL WS-EOF = "Y"
                READ RTSEED-FILE
                    AT END MOVE "Y" TO WS-EOF
                    NOT AT END
-                       IF RTSEED-REC(1:4) = "=== "
-                           CALL "PC-PUT-TEMPLATE"
-                           MOVE FUNCTION TRIM(RTSEED-REC(5:)) TO WS-RT-NAME
-                           MOVE SPACES TO WS-RT-BODY
-                           MOVE 1 TO WS-RT-PT
-                       ELSE
-                           IF RTSEED-REC NOT = SPACES AND WS-RT-NAME NOT = SPACES
-                               STRING FUNCTION TRIM(RTSEED-REC) X"0A"
-                                   DELIMITED BY SIZE INTO WS-RT-BODY
-                                   WITH POINTER WS-RT-PT
-                               END-STRING
-                           END-IF
-                       END-IF
+                       EVALUATE TRUE
+                           WHEN RTSEED-REC(1:4) = "=== "
+                               CALL "PC-PUT-TEMPLATE"
+                               MOVE FUNCTION TRIM(RTSEED-REC(5:)) TO WS-RT-NAME
+                               MOVE SPACES TO WS-RT-SUITS WS-RT-SKEL
+                               MOVE 1 TO WS-RT-PT
+                           WHEN RTSEED-REC(1:6) = "Suits:"
+                               MOVE FUNCTION TRIM(RTSEED-REC(7:)) TO WS-RT-SUITS
+                           WHEN WS-RT-NAME NOT = SPACES
+                               MOVE RTSEED-REC TO WS-LN-BUF
+                               CALL "PC-LINE-LEN"
+                               IF WS-LN-LEN > 0
+                                   STRING WS-LN-BUF(1:WS-LN-LEN) X"0A"
+                                       DELIMITED BY SIZE INTO WS-RT-SKEL
+                                       WITH POINTER WS-RT-PT
+                                   END-STRING
+                               ELSE
+                                   STRING X"0A" DELIMITED BY SIZE INTO WS-RT-SKEL
+                                       WITH POINTER WS-RT-PT
+                                   END-STRING
+                               END-IF
+                       END-EVALUATE
                END-READ
            END-PERFORM
            CALL "PC-PUT-TEMPLATE"
@@ -1073,19 +1316,23 @@
     <Event name="PC-PUT-TEMPLATE" paragraph="PC-PUT-TEMPLATE"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-      *>   WS-RT-NAME and WS-RT-BODY in, RTPL-FILE open I-O: the template
-      *>   written, or rewritten when one of that name exists.
-           IF WS-RT-NAME = SPACES
+      *>   WS-RT-NAME, WS-RT-SUITS and WS-RT-SKEL in, RTPL-FILE open I-O: the
+      *>   template written, or rewritten when one of that name exists.
+           IF WS-RT-NAME = SPACES OR WS-RT-SKEL = SPACES
                EXIT PROGRAM
            END-IF
            MOVE WS-RT-NAME TO RT-NAME
            READ RTPL-FILE
                INVALID KEY
-                   MOVE WS-RT-BODY TO RT-BODY
+                   MOVE WS-RT-SUITS TO RT-SUITS
+                   MOVE WS-RT-SKEL TO RT-SKEL
                    WRITE RTPL-REC
                    END-WRITE
                NOT INVALID KEY
-                   MOVE WS-RT-BODY TO RT-BODY
+                   IF WS-RT-SUITS NOT = SPACES
+                       MOVE WS-RT-SUITS TO RT-SUITS
+                   END-IF
+                   MOVE WS-RT-SKEL TO RT-SKEL
                    REWRITE RTPL-REC
                    END-REWRITE
            END-READ
@@ -1094,11 +1341,11 @@
     <Event name="PC-SAVE-TEMPLATE" paragraph="PC-SAVE-TEMPLATE"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-      *>   WS-REPLY in: a template the model defined ("<!--REPORT-TEMPLATE"
-      *>   ... "-->", the SAVING TEMPLATES rule in PC-ELECT) is saved under
-      *>   its NAME - a new one added, a changed one replaced - and cut out
-      *>   of the reply, which the user sees without it. Every template is
-      *>   kept (operator, 2026-09-28: "always save").
+      *>   WS-REPLY in: a template the model defined - the
+      *>   "<!--REPORT-TEMPLATE" block, with NAME: and SUITS: - is saved with
+      *>   the page of this same answer as its skeleton: a new one added, a
+      *>   changed one replaced. The block is cut out of what the user sees
+      *>   and of what is kept (operator, 2026-09-28: "always save").
            MOVE 0 TO WS-RT-AT
            INSPECT WS-REPLY TALLYING WS-RT-AT
                FOR CHARACTERS BEFORE INITIAL "<!--REPORT-TEMPLATE"
@@ -1106,7 +1353,6 @@
                EXIT PROGRAM
            END-IF
            ADD 1 TO WS-RT-AT
-      *>   The block's text: past the marker to "-->", or to the end.
            COMPUTE WS-RT-PT = WS-RT-AT + 19
            MOVE 0 TO WS-RT-LEN
            INSPECT WS-REPLY(WS-RT-PT:) TALLYING WS-RT-LEN
@@ -1115,29 +1361,62 @@
            IF WS-RT-END > 64001
                MOVE 64001 TO WS-RT-END
            END-IF
-      *>   NAME: is its first line; the rest is the template.
-           MOVE SPACES TO WS-RT-NAME WS-RT-BODY
+           MOVE SPACES TO WS-RT-NAME WS-RT-SUITS WS-RT-SKEL WS-SEC
            IF WS-RT-LEN > 0
-               MOVE 0 TO WS-FC
-               INSPECT WS-REPLY(WS-RT-PT:WS-RT-LEN) TALLYING WS-FC
-                   FOR CHARACTERS BEFORE INITIAL "NAME:"
-               IF WS-FC < WS-RT-LEN
-                   COMPUTE WS-FA = WS-RT-PT + WS-FC + 5
-                   COMPUTE WS-REST = WS-RT-LEN - WS-FC - 5
-                   MOVE 0 TO WS-FB
-                   INSPECT WS-REPLY(WS-FA:WS-REST) TALLYING WS-FB
-                       FOR CHARACTERS BEFORE INITIAL X"0A"
-                   IF WS-FB > 0
-                       MOVE FUNCTION TRIM(WS-REPLY(WS-FA:WS-FB)) TO WS-RT-NAME
-                   END-IF
-                   COMPUTE WS-FA = WS-FA + WS-FB + 1
-                   COMPUTE WS-REST = WS-RT-PT + WS-RT-LEN - WS-FA
-                   IF WS-REST > 0
-                       MOVE FUNCTION TRIM(WS-REPLY(WS-FA:WS-REST)) TO WS-RT-BODY
-                   END-IF
+               MOVE WS-REPLY(WS-RT-PT:WS-RT-LEN) TO WS-SEC
+           END-IF
+      *>   NAME: and SUITS: - each to the end of its line.
+           MOVE 0 TO WS-FC
+           INSPECT WS-SEC TALLYING WS-FC FOR CHARACTERS BEFORE INITIAL "NAME:"
+           IF WS-FC < 64000
+               COMPUTE WS-FA = WS-FC + 6
+               MOVE 0 TO WS-FB
+               INSPECT WS-SEC(WS-FA:) TALLYING WS-FB FOR CHARACTERS BEFORE INITIAL X"0A"
+               IF WS-FB > 0
+                   MOVE FUNCTION TRIM(WS-SEC(WS-FA:WS-FB)) TO WS-RT-NAME
                END-IF
            END-IF
-           IF WS-RT-NAME NOT = SPACES AND WS-RT-BODY NOT = SPACES
+           MOVE 0 TO WS-FC
+           INSPECT WS-SEC TALLYING WS-FC FOR CHARACTERS BEFORE INITIAL "SUITS:"
+           IF WS-FC NOT < 64000
+               MOVE 0 TO WS-FC
+               INSPECT WS-SEC TALLYING WS-FC FOR CHARACTERS BEFORE INITIAL "Suits:"
+           END-IF
+           IF WS-FC < 64000
+               COMPUTE WS-FA = WS-FC + 7
+               MOVE 0 TO WS-FB
+               INSPECT WS-SEC(WS-FA:) TALLYING WS-FB FOR CHARACTERS BEFORE INITIAL X"0A"
+               IF WS-FB > 0
+                   MOVE FUNCTION TRIM(WS-SEC(WS-FA:WS-FB)) TO WS-RT-SUITS
+               END-IF
+           END-IF
+      *>   The skeleton: this answer's page - a ```html fence's content, or
+      *>   a page written straight in, to its </html>.
+           MOVE 0 TO WS-FC
+           INSPECT WS-REPLY TALLYING WS-FC FOR CHARACTERS BEFORE INITIAL "```html"
+           IF WS-FC < 64000
+               COMPUTE WS-FA = WS-FC + 8
+               MOVE 0 TO WS-FB
+               INSPECT WS-REPLY(WS-FA:) TALLYING WS-FB FOR CHARACTERS BEFORE INITIAL "```"
+           ELSE
+               MOVE 0 TO WS-FC
+               INSPECT WS-REPLY TALLYING WS-FC FOR CHARACTERS BEFORE INITIAL "<!DOCTYPE"
+               IF WS-FC NOT < 64000
+                   MOVE 0 TO WS-FC
+                   INSPECT WS-REPLY TALLYING WS-FC FOR CHARACTERS BEFORE INITIAL "<html"
+               END-IF
+               COMPUTE WS-FA = WS-FC + 1
+               MOVE 0 TO WS-FB
+               IF WS-FC < 64000
+                   INSPECT WS-REPLY(WS-FA:) TALLYING WS-FB FOR CHARACTERS BEFORE INITIAL "</html>"
+                   ADD 7 TO WS-FB
+               END-IF
+           END-IF
+           COMPUTE WS-SX-E = WS-FA + WS-FB
+           IF WS-FC < 64000 AND WS-FB > 0 AND WS-SX-E NOT > 64001
+               MOVE WS-REPLY(WS-FA:WS-FB) TO WS-RT-SKEL
+           END-IF
+           IF WS-RT-NAME NOT = SPACES AND WS-RT-SKEL NOT = SPACES
                OPEN I-O RTPL-FILE
                IF WS-FS = "35"
                    OPEN OUTPUT RTPL-FILE
@@ -1632,6 +1911,12 @@
            PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 6
                IF WS-TASK-COUNT < 3
                    MOVE FUNCTION TRIM(WS-L(WS-I)) TO WS-L(WS-I)
+      *>           A "TEMPLATE: name" line: the template the report takes.
+                   IF FUNCTION UPPER-CASE(WS-L(WS-I)(1:9)) = "TEMPLATE:"
+                       MOVE WS-L(WS-I)(10:) TO WS-TPL-NAME
+                       CALL "PC-TPL-FIND"
+                       MOVE "Y" TO WS-TPL-DONE
+                   END-IF
                    IF FUNCTION UPPER-CASE(WS-L(WS-I)(1:5)) = "TASK:"
                        ADD 1 TO WS-TASK-COUNT
                        MOVE FUNCTION TRIM(WS-L(WS-I)(6:495))
@@ -1676,11 +1961,17 @@
            END-PERFORM
            PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
                IF WS-AG-WAIT(WS-A) = "Y"
+      *>           The main prompt's TASK section, the task filled in.
+                   MOVE "TASK" TO WS-SEC-NAME
+                   CALL "PC-SECTION"
+                   MOVE "{TASK}" TO WS-TOKEN
+                   MOVE WS-AG-TASK(WS-A) TO WS-INS
+                   IF WS-INS(1:3) = " - "
+                       MOVE WS-AG-TASK(WS-A)(4:) TO WS-INS
+                   END-IF
+                   CALL "PC-FILL"
                    MOVE SPACES TO WS-PROMPT
-                   STRING "Task" FUNCTION TRIM(WS-AG-TASK(WS-A)) X"0A"
-                          "Answer with the facts that settle it, briefly."
-                          " Search the documents with your tools when you need to."
-                       DELIMITED BY SIZE INTO WS-PROMPT
+                   MOVE WS-SEC TO WS-PROMPT
                    MOVE WS-A TO WS-FROM
                    CALL "PC-ASK"
                END-IF
@@ -1697,24 +1988,34 @@
        DATA DIVISION.
        PROCEDURE DIVISION.
       *>   Every task has reported (R60): the orchestrator answers from the
-      *>   results. No agent answers the user directly (R61).
-           MOVE SPACES TO WS-PROMPT
-           MOVE 1 TO WS-PTR
-           STRING FUNCTION TRIM(WS-HISTORY) X"0A" X"0A"
-                  "Your assistants reported:" X"0A"
-               DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
-           END-STRING
+      *>   results, as the main prompt's COMPOSE section says - and from the
+      *>   chosen template, with its TEMPLATE section. No agent answers the
+      *>   user directly (R61).
+           MOVE SPACES TO WS-INS
+           MOVE 1 TO WS-SX-B
            PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
                IF WS-AG-TASK(WS-A) NOT = SPACES
                    STRING "- On" FUNCTION TRIM(WS-AG-TASK(WS-A)) ": "
                           FUNCTION TRIM(WS-AG-RESULT(WS-A)) X"0A"
-                       DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
+                       DELIMITED BY SIZE INTO WS-INS WITH POINTER WS-SX-B
                    END-STRING
                END-IF
            END-PERFORM
-           STRING X"0A" "Answer the user's last question from these results."
+           MOVE "COMPOSE" TO WS-SEC-NAME
+           CALL "PC-SECTION"
+           MOVE "{RESULTS}" TO WS-TOKEN
+           CALL "PC-FILL"
+           MOVE SPACES TO WS-PROMPT
+           MOVE 1 TO WS-PTR
+           STRING FUNCTION TRIM(WS-HISTORY) X"0A" X"0A" FUNCTION TRIM(WS-SEC)
                DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
            END-STRING
+           IF WS-TPL-SKEL NOT = SPACES
+               CALL "PC-TEMPLATE-TEXT"
+               STRING X"0A" X"0A" FUNCTION TRIM(WS-SEC)
+                   DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
+               END-STRING
+           END-IF
            MOVE "COMPOSE" TO WS-STAGE
            MOVE WS-ORCH TO WS-FROM
            CALL "PC-ASK"
@@ -1726,6 +2027,29 @@
        PROCEDURE DIVISION.
       *>   WS-FROM, WS-REPLY, WS-T-IN, WS-T-OUT in: an agent answered.
            CALL "PC-ADD-TOKENS"
+      *>   "TEMPLATE: name" from the orchestrator: the user chose a report
+      *>   template. Its skeleton goes back with the main prompt's TEMPLATE
+      *>   section, and the same stage answers again - once per question.
+           IF (WS-STAGE = "SINGLE" OR WS-STAGE = "COMPOSE")
+                   AND WS-TPL-DONE NOT = "Y"
+               CALL "PC-TPL-LINE"
+               IF WS-TPL-SKEL NOT = SPACES
+                   MOVE "Y" TO WS-TPL-DONE
+                   IF WS-STAGE = "COMPOSE"
+                       CALL "PC-COMPOSE"
+                   ELSE
+                       CALL "PC-TEMPLATE-TEXT"
+                       MOVE SPACES TO WS-PROMPT
+                       MOVE 1 TO WS-PTR
+                       STRING FUNCTION TRIM(WS-HISTORY) X"0A" X"0A"
+                              FUNCTION TRIM(WS-SEC)
+                           DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
+                       END-STRING
+                       CALL "PC-ASK"
+                   END-IF
+                   EXIT PROGRAM
+               END-IF
+           END-IF
            EVALUATE WS-STAGE
                WHEN "SINGLE"
                WHEN "COMPOSE"
@@ -2692,6 +3016,14 @@
            IF WS-STAGE NOT = "IDLE"
                EXIT PROGRAM
            END-IF
+      *>   The main prompt as it stands now: an edit in the Prompt screen
+      *>   reaches the next question, the agents' instructions included.
+           CALL "PC-MAIN-LOAD"
+           IF WS-MAIN NOT = WS-MAIN-ELECTED
+               CALL "PC-ELECT"
+           END-IF
+           MOVE SPACES TO WS-TPL-NAME WS-TPL-SKEL
+           MOVE "N" TO WS-TPL-DONE
            CALL "PC-COUNT-SOURCES"
            CALL "PC-START-CONV"
            MOVE "U" TO WS-ROLE
@@ -2708,13 +3040,10 @@
            ELSE
       *>       Several: the orchestrator plans first (R58).
                MOVE "PLAN" TO WS-STAGE
-               STRING X"0A" X"0A"
-                      "Split the user's last question into at most 3 independent"
-                      " tasks for assistants who can search this topic's documents."
-                      " Reply with one line per task, each starting with TASK:"
-                      " - unless it asks for a report whose template is not"
-                      " chosen yet: then reply ASK: and, after it, your"
-                      " question to the user, as the REPORTS rule says."
+      *>       The main prompt's PLAN section says how.
+               MOVE "PLAN" TO WS-SEC-NAME
+               CALL "PC-SECTION"
+               STRING X"0A" X"0A" FUNCTION TRIM(WS-SEC)
                    DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
                END-STRING
            END-IF

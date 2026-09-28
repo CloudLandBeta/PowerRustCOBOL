@@ -68,7 +68,16 @@ opens inside the window, in the content pane beside the menu.
 4. **Data files** — register indexed files for the topic by path (local, a
    network path, or `smb://`), each with its `.cidx`. They are only ever read.
 5. **Prompt** — keep versions of the topic's system prompt; save a new one or
-   bring an older one back (it asks first).
+   bring an older one back (it asks first). **Main prompt** switches the
+   screen to the prompt every topic shares: **every instruction the models
+   are given**, in English, section by section — the orchestrator's
+   (`=== SYSTEM ===`), the assistants' (`ASSISTANT`), the note for a topic
+   with no documents (`NO SOURCES`), how a question is split into tasks and
+   answered (`PLAN`, `TASK`, `COMPOSE`) and what goes with a chosen report
+   template (`TEMPLATE`). Nothing is added behind it: the program only fills
+   in the `{…}` words the text leaves for it. It keeps versions like a
+   topic's prompt, the next question uses the active one, and **Restore
+   default** saves the shipped `samples/main-prompt.md` as a new version.
 6. **Chat** — ask. Past conversations are listed in the menu; pick one to
    continue it. Select any part of the conversation and copy it with
    Cmd/Ctrl+C (or the right-click menu). **Save as PDF** writes the
@@ -83,12 +92,15 @@ opens inside the window, in the content pane beside the menu.
    Flowchart, Hierarchy, Anatomical and Animated. Answer with a number or a
    name, and add any change you like ("the timeline, in green, without
    icons"), or describe a template of your own. What you change or describe
-   is **saved** under its name and offered from then on. The report is one
-   HTML page built with Bulma and no JavaScript, so it looks the same in the
-   chat and in a browser. The shipped templates are in
+   is **saved** under its name and offered from then on. Each template is a
+   complete HTML page — Bulma, a `<style>` block, no JavaScript — that the
+   model fills with your content, so the report looks the same in the chat
+   and in a browser. Once you choose, the model answers `TEMPLATE: <name>`
+   and the chat sends it that template's page with the main prompt's
+   `TEMPLATE` section. The shipped templates are in
    `samples/report-templates.txt`, and the ones in use are in
-   `data/report-templates.idx`. Delete that file to start again from the
-   shipped ones.
+   `data/templates.idx`. Delete that file to start again from the shipped
+   ones.
 
 The flags at the foot of the menu switch the interface between English,
 Portuguese, Spanish, French, Japanese and Chinese, at once.
