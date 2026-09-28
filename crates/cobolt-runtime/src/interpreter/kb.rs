@@ -261,6 +261,7 @@ impl Interpreter {
                 // No interpreter-side timeout: indexing a large folder takes
                 // as long as it takes, and Cancel is the way out.
                 timeout_ms: 0,
+                awaiting_start: None,
             },
         );
         let tx = self.async_result_tx.clone();

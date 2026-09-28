@@ -42,6 +42,11 @@ pub enum AsyncOutcome {
     /// flight; the worker throttles these, and the finished stream arrives as
     /// an ordinary [`Self::AgentReply`].
     AgentPartial { text: String },
+    /// The model has begun answering (the first piece of a streamed call
+    /// arrived), and — repeated at most four times a second — is still answering.
+    /// Not final: it ends the wait for the answer to START and, for a plain
+    /// `Ask`, restarts the silence limit.
+    AgentAlive,
     /// An asynchronous `SqlDatabase` `Query` / `Execute` finished (spec 032).
     /// Carries the connection back: it is returned to the registry even when
     /// the result itself is stale (timed out, cancelled), or it would leak.
@@ -126,4 +131,9 @@ pub struct PendingOp {
     pub started_at: Instant,
     /// Effective timeout in milliseconds; `0` means "no interpreter-side timeout".
     pub timeout_ms: u64,
+    /// An `AgentObject` request that has not yet received the first piece of
+    /// its answer: when it was sent, and the longest it may wait for that
+    /// piece (`StartTimeoutSeconds`, in ms). `None` once the answer has begun,
+    /// and for every operation that has no such limit.
+    pub awaiting_start: Option<(Instant, u64)>,
 }

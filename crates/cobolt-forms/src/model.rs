@@ -5504,6 +5504,9 @@ impl Control {
                 // `StreamReply` is the real, opt-in switch — a new name, so no
                 // existing form starts streaming on its own.
                 props.insert("StreamReply".into(), PropValue::Bool(false));
+                // The longest the model may take to BEGIN its answer; a call it
+                // never starts is cancelled (operator, 2026-09-28).
+                props.insert("StartTimeoutSeconds".into(), PropValue::Int(60));
                 props.insert("TimeoutSeconds".into(), PropValue::Int(30));
                 // Target controls — comma-sep list of IDs this agent is allowed to modify
                 // `TargetControls` is retired: an agent never writes a control

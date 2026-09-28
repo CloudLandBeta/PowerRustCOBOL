@@ -75,6 +75,9 @@ pub(super) struct ToolLoop {
     url: String,
     headers: Vec<(String, String)>,
     timeout_ms: u64,
+    /// `StartTimeoutSeconds` in ms — every round is a new request, and each
+    /// one's answer must begin within it.
+    start_timeout_ms: u64,
     started_at: std::time::Instant,
     generation: u64,
     tools: Vec<ToolSpec>,
@@ -149,6 +152,7 @@ impl Interpreter {
         url: String,
         headers: Vec<(String, String)>,
         timeout_ms: u64,
+        start_timeout_ms: u64,
         generation: u64,
         tools: Vec<ToolSpec>,
     ) {
@@ -169,6 +173,7 @@ impl Interpreter {
                 url,
                 headers,
                 timeout_ms,
+                start_timeout_ms,
                 started_at: std::time::Instant::now(),
                 generation,
                 tools,
@@ -374,13 +379,14 @@ impl Interpreter {
                     generation: l.generation,
                     started_at: l.started_at,
                     timeout_ms: l.timeout_ms,
+                    awaiting_start: None,
                 },
             );
         }
     }
 
     /// Send the next round on a worker thread.
-    fn tool_loop_send(&mut self, obj: &str) {
+    pub(super) fn tool_loop_send(&mut self, obj: &str) {
         let Some(l) = self.tool_loops.get(obj).cloned() else {
             return;
         };
@@ -393,25 +399,31 @@ impl Interpreter {
             self.agent_log_block(obj, "payload", &body);
         }
         self.tool_loop_keep_pending(obj);
+        // This round's answer must BEGIN within the start limit, counted from
+        // now — never while a handler or a search had the loop waiting.
+        if let Some(op) = self.async_pending.get_mut(obj) {
+            op.awaiting_start =
+                (l.start_timeout_ms > 0).then(|| (std::time::Instant::now(), l.start_timeout_ms));
+        }
+        // The socket's per-read limit, as for a plain `Ask`: the start limit
+        // when there is one, so a model that sends nothing has its connection
+        // closed; otherwise the backstop a little past `TimeoutSeconds`.
         let cfg = crate::http_runtime::RequestConfig {
-            timeout_ms: if l.timeout_ms > 0 { l.timeout_ms.saturating_add(5_000) } else { 0 },
+            timeout_ms: if l.start_timeout_ms > 0 {
+                l.start_timeout_ms.saturating_add(2_000)
+            } else if l.timeout_ms > 0 {
+                l.timeout_ms.saturating_add(5_000)
+            } else {
+                0
+            },
             follow_redirects: true,
             verify_tls: true,
             headers: l.headers.clone(),
         };
-        let tx = self.async_result_tx.clone();
-        let http = self.http.clone();
-        let ctrl_id = obj.to_string();
-        let url = l.url.clone();
-        let generation = l.generation;
-        std::thread::spawn(move || {
-            let (body, status) = http.send_configured("POST", &url, Some(&body), &cfg);
-            let _ = tx.send(crate::async_op::AsyncOpResult {
-                ctrl_id,
-                generation,
-                outcome: crate::async_op::AsyncOutcome::AgentReply { status, body },
-            });
-        });
+        // Streamed like every agent request, so the loop can tell a model that
+        // has begun its answer from one that never will; its text is not
+        // shown on the way (the program answers a round, not the reader).
+        self.agent_spawn_streamed(obj, l.url.clone(), body, l.protocol, cfg, l.generation, false);
     }
 
     /// At every `COBOL-WAIT-EVENT`: a program-answered call whose handler has

@@ -161,6 +161,7 @@ fn declared_readers() -> Vec<(ControlType, Vec<(&'static str, Reader)>)> {
                 ("Verbose", Runtime),
                 // Read by `Ask`: stream the reply (PartialReply / onPartialReply).
                 ("StreamReply", Runtime),
+                ("StartTimeoutSeconds", Runtime),
                 // Spec 072 — how tools are offered, and how many rounds.
                 ("ToolProtocol", Runtime),
                 ("MaximumToolRounds", Runtime),

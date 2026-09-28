@@ -255,13 +255,58 @@ pub fn streaming_body(body: &str) -> String {
     }
 }
 
+/// [`streaming_body`] for `protocol`. An OpenAI-compatible stream reports no
+/// token usage unless asked to (`stream_options.include_usage`); without it
+/// every streamed call would count zero tokens.
+pub fn streaming_body_for(body: &str, protocol: Protocol) -> String {
+    match serde_json::from_str::<serde_json::Value>(body) {
+        Ok(mut v) => {
+            v["stream"] = serde_json::Value::Bool(true);
+            if protocol == Protocol::OpenAiChat {
+                v["stream_options"] = serde_json::json!({ "include_usage": true });
+            }
+            v.to_string()
+        }
+        Err(_) => body.to_owned(),
+    }
+}
+
+/// Which provider's stream the lines came in — what the finished reply is
+/// rebuilt as, so it reads exactly as that provider's unstreamed reply would.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StreamShape {
+    #[default]
+    Unknown,
+    OpenAi,
+    Anthropic,
+    Ollama,
+}
+
+/// One tool call being assembled from a stream.
+#[derive(Debug, Clone, Default)]
+struct StreamCall {
+    id: String,
+    name: String,
+    /// The arguments' JSON text, as the pieces arrive.
+    arguments: String,
+    /// Ollama sends the arguments whole, as an object.
+    object: Option<serde_json::Value>,
+}
+
 /// Reads a streamed reply line by line and assembles it.
 ///
 /// The three shapes: OpenAI-compatible SSE (`data: {"choices":[{"delta":…}]}`
-/// ending in `data: [DONE]`), Anthropic SSE (`content_block_delta` events,
-/// usage in `message_start` / `message_delta`), and Ollama's native NDJSON
+/// ending in `data: [DONE]`), Anthropic SSE (`content_block_*` events, usage
+/// in `message_start` / `message_delta`), and Ollama's native NDJSON
 /// (`{"message":{"content":…},"done":false}`). Every line is tried against
 /// every shape, as [`parse_reply`] does, so a `Custom` endpoint works too.
+///
+/// **Tool calls stream too** (every agent call is streamed, so the program can
+/// tell a model that has begun answering from one that never will): OpenAI's
+/// `delta.tool_calls` fragments by index, Anthropic's `tool_use` blocks and
+/// their `input_json_delta` pieces, Ollama's whole `message.tool_calls`. The
+/// finished reply is rebuilt in the provider's own unstreamed shape
+/// ([`Self::into_body`]), so everything that reads a reply reads it unchanged.
 #[derive(Debug, Default)]
 pub struct StreamAssembler {
     /// The reply so far.
@@ -270,11 +315,31 @@ pub struct StreamAssembler {
     pub output_tokens: u64,
     /// A provider error met inside the stream.
     pub error: Option<String>,
+    /// The provider said the answer is complete (`[DONE]`, `message_stop`,
+    /// `"done": true`).
+    pub finished: bool,
+    /// Whether any line carried anything at all — the answer has begun.
+    pub started: bool,
+    shape: StreamShape,
+    /// Tool calls by the index the stream gives them.
+    calls: std::collections::BTreeMap<u64, StreamCall>,
+    /// Anthropic's content blocks in order: `Some(call index)` for a
+    /// `tool_use`, `None` for text — what an Anthropic reply's `content` is.
+    anthropic_order: Vec<(u64, bool)>,
+    /// Each Anthropic text block's own text, by its index.
+    anthropic_texts: std::collections::BTreeMap<u64, String>,
+    /// Every line, as it came: a server that ignores `stream: true` and
+    /// answers with one ordinary document still has that document read.
+    raw: String,
 }
 
 impl StreamAssembler {
     /// Take one line. True when it added text to the reply.
     pub fn feed(&mut self, line: &str) -> bool {
+        if !self.raw.is_empty() {
+            self.raw.push('\n');
+        }
+        self.raw.push_str(line);
         let line = line.trim();
         let payload = match line.strip_prefix("data:") {
             Some(rest) => rest.trim(),
@@ -283,15 +348,32 @@ impl StreamAssembler {
             None if line.starts_with('{') => line,
             None => return false,
         };
-        if payload.is_empty() || payload == "[DONE]" {
+        if payload == "[DONE]" {
+            self.finished = true;
+            self.started = true;
+            return false;
+        }
+        if payload.is_empty() {
             return false;
         }
         let Ok(json) = serde_json::from_str::<serde_json::Value>(payload) else {
             return false;
         };
+        self.started = true;
         if let Some(text) = provider_error(&json) {
             self.error.get_or_insert(text);
             return false;
+        }
+        let kind = json.get("type").and_then(serde_json::Value::as_str).unwrap_or("");
+        if json.get("choices").is_some() {
+            self.shape = StreamShape::OpenAi;
+        } else if kind.starts_with("message_") || kind.starts_with("content_block") {
+            self.shape = StreamShape::Anthropic;
+        } else if json.get("done").is_some() || json.get("message").is_some() {
+            self.shape = StreamShape::Ollama;
+        }
+        if kind == "message_stop" || json.get("done").and_then(serde_json::Value::as_bool) == Some(true) {
+            self.finished = true;
         }
         let num = |p: &str| json.pointer(p).and_then(serde_json::Value::as_u64);
         if let Some(n) = num("/usage/prompt_tokens")
@@ -307,6 +389,7 @@ impl StreamAssembler {
         {
             self.output_tokens = n;
         }
+        self.feed_calls(&json, kind);
         let piece = [
             json.pointer("/choices/0/delta/content"),
             json.pointer("/delta/text"),
@@ -318,6 +401,13 @@ impl StreamAssembler {
         .find_map(|v| v.as_str());
         match piece {
             Some(p) if !p.is_empty() => {
+                if self.shape == StreamShape::Anthropic {
+                    let idx = json.get("index").and_then(serde_json::Value::as_u64).unwrap_or(0);
+                    if !self.anthropic_texts.contains_key(&idx) {
+                        self.anthropic_order.push((idx, false));
+                    }
+                    self.anthropic_texts.entry(idx).or_default().push_str(p);
+                }
                 self.text.push_str(p);
                 true
             }
@@ -325,18 +415,149 @@ impl StreamAssembler {
         }
     }
 
-    /// The finished stream as a whole, non-streamed reply document, so it is
-    /// read by the same [`parse_reply`] and usage code as any other reply.
-    pub fn into_body(self) -> String {
-        match self.error {
-            Some(e) => serde_json::json!({ "error": e }).to_string(),
-            None => serde_json::json!({
-                "message": { "content": self.text },
-                "prompt_eval_count": self.input_tokens,
-                "eval_count": self.output_tokens,
-            })
-            .to_string(),
+    /// The tool-call parts one line may carry, in any of the three shapes.
+    fn feed_calls(&mut self, json: &serde_json::Value, kind: &str) {
+        // OpenAI: fragments keyed by `index`, the id and name on the first.
+        if let Some(list) = json.pointer("/choices/0/delta/tool_calls").and_then(serde_json::Value::as_array) {
+            for (n, c) in list.iter().enumerate() {
+                let idx = c.get("index").and_then(serde_json::Value::as_u64).unwrap_or(n as u64);
+                let call = self.calls.entry(idx).or_default();
+                if let Some(id) = c.get("id").and_then(serde_json::Value::as_str) {
+                    call.id = id.to_owned();
+                }
+                if let Some(name) = c.pointer("/function/name").and_then(serde_json::Value::as_str) {
+                    call.name.push_str(name);
+                }
+                if let Some(args) = c.pointer("/function/arguments").and_then(serde_json::Value::as_str) {
+                    call.arguments.push_str(args);
+                }
+            }
         }
+        // Ollama: whole calls, arguments already an object.
+        if let Some(list) = json.pointer("/message/tool_calls").and_then(serde_json::Value::as_array) {
+            for c in list {
+                let idx = self.calls.len() as u64;
+                self.calls.insert(
+                    idx,
+                    StreamCall {
+                        id: String::new(),
+                        name: c.pointer("/function/name").and_then(serde_json::Value::as_str).unwrap_or("").to_owned(),
+                        arguments: String::new(),
+                        object: c.pointer("/function/arguments").cloned(),
+                    },
+                );
+            }
+        }
+        // Anthropic: a `tool_use` block opens, its input arrives in pieces.
+        if kind == "content_block_start" {
+            let idx = json.get("index").and_then(serde_json::Value::as_u64).unwrap_or(0);
+            if json.pointer("/content_block/type").and_then(serde_json::Value::as_str) == Some("tool_use") {
+                let block = &json["content_block"];
+                self.calls.insert(
+                    idx,
+                    StreamCall {
+                        id: block.get("id").and_then(serde_json::Value::as_str).unwrap_or("").to_owned(),
+                        name: block.get("name").and_then(serde_json::Value::as_str).unwrap_or("").to_owned(),
+                        arguments: String::new(),
+                        object: None,
+                    },
+                );
+                self.anthropic_order.push((idx, true));
+            }
+        }
+        if kind == "content_block_delta"
+            && json.pointer("/delta/type").and_then(serde_json::Value::as_str) == Some("input_json_delta")
+        {
+            let idx = json.get("index").and_then(serde_json::Value::as_u64).unwrap_or(0);
+            if let Some(piece) = json.pointer("/delta/partial_json").and_then(serde_json::Value::as_str) {
+                self.calls.entry(idx).or_default().arguments.push_str(piece);
+            }
+        }
+    }
+
+    /// The finished stream as a whole, non-streamed reply document in the
+    /// provider's own shape, so it is read by the same [`parse_reply`], tool
+    /// and usage code as any other reply.
+    pub fn into_body(self) -> String {
+        if let Some(e) = self.error {
+            return serde_json::json!({ "error": e }).to_string();
+        }
+        // A server that ignored `stream: true` sent one ordinary document.
+        if !self.started || (self.text.is_empty() && self.calls.is_empty() && !self.finished) {
+            if serde_json::from_str::<serde_json::Value>(self.raw.trim()).is_ok_and(|v| v.is_object()) {
+                return self.raw;
+            }
+        }
+        let object_of = |c: &StreamCall| -> serde_json::Value {
+            c.object.clone().unwrap_or_else(|| {
+                serde_json::from_str::<serde_json::Value>(c.arguments.trim())
+                    .ok()
+                    .filter(serde_json::Value::is_object)
+                    .unwrap_or_else(|| serde_json::json!({}))
+            })
+        };
+        if !self.calls.is_empty() {
+            return match self.shape {
+                StreamShape::Anthropic => {
+                    let mut content = Vec::new();
+                    for (idx, tool) in &self.anthropic_order {
+                        if *tool {
+                            if let Some(c) = self.calls.get(idx) {
+                                content.push(serde_json::json!({
+                                    "type": "tool_use", "id": c.id, "name": c.name, "input": object_of(c),
+                                }));
+                            }
+                        } else if let Some(text) = self.anthropic_texts.get(idx) {
+                            content.push(serde_json::json!({ "type": "text", "text": text }));
+                        }
+                    }
+                    serde_json::json!({
+                        "content": content,
+                        "usage": { "input_tokens": self.input_tokens, "output_tokens": self.output_tokens },
+                    })
+                    .to_string()
+                }
+                StreamShape::Ollama => {
+                    let calls: Vec<serde_json::Value> = self
+                        .calls
+                        .values()
+                        .map(|c| serde_json::json!({ "function": { "name": c.name, "arguments": object_of(c) } }))
+                        .collect();
+                    serde_json::json!({
+                        "message": { "role": "assistant", "content": self.text, "tool_calls": calls },
+                        "prompt_eval_count": self.input_tokens,
+                        "eval_count": self.output_tokens,
+                    })
+                    .to_string()
+                }
+                StreamShape::OpenAi | StreamShape::Unknown => {
+                    let calls: Vec<serde_json::Value> = self
+                        .calls
+                        .iter()
+                        .map(|(n, c)| {
+                            let id = if c.id.is_empty() { format!("call-{}", n + 1) } else { c.id.clone() };
+                            let args = if c.arguments.trim().is_empty() {
+                                object_of(c).to_string()
+                            } else {
+                                c.arguments.clone()
+                            };
+                            serde_json::json!({ "id": id, "type": "function", "function": { "name": c.name, "arguments": args } })
+                        })
+                        .collect();
+                    serde_json::json!({
+                        "choices": [{ "message": { "role": "assistant", "content": self.text, "tool_calls": calls } }],
+                        "usage": { "prompt_tokens": self.input_tokens, "completion_tokens": self.output_tokens },
+                    })
+                    .to_string()
+                }
+            };
+        }
+        serde_json::json!({
+            "message": { "content": self.text },
+            "prompt_eval_count": self.input_tokens,
+            "eval_count": self.output_tokens,
+        })
+        .to_string()
     }
 }
 
@@ -401,6 +622,82 @@ mod tests {
             let u = crate::agent_tools::usage_from_body(&body);
             assert_eq!((u.input, u.output), (7, 2));
         }
+    }
+
+    /// Every agent call is streamed, tool rounds included — so a streamed tool
+    /// call must come out of [`crate::agent_tools::parse_turn`] exactly as the
+    /// provider's unstreamed reply would have: same names, same arguments,
+    /// same ids, and for Anthropic the content blocks the next round replays.
+    #[test]
+    fn a_streamed_tool_call_reads_as_the_unstreamed_reply_in_every_provider_shape() {
+        use crate::agent_tools::{parse_turn, Reply};
+        let openai = [
+            r#"data: {"choices":[{"delta":{"role":"assistant","content":null,"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"search_kb","arguments":""}}]}}]}"#,
+            r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"query\":"}}]}}]}"#,
+            r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"leave\"}"}}]}}]}"#,
+            r#"data: {"choices":[],"usage":{"prompt_tokens":40,"completion_tokens":9}}"#,
+            "data: [DONE]",
+        ];
+        let anthropic = [
+            r#"data: {"type":"message_start","message":{"usage":{"input_tokens":40}}}"#,
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Let me look."}}"#,
+            r#"data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"search_kb","input":{}}}"#,
+            r#"data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"query\":"}}"#,
+            r#"data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\"leave\"}"}}"#,
+            r#"data: {"type":"message_delta","usage":{"output_tokens":9}}"#,
+            r#"data: {"type":"message_stop"}"#,
+        ];
+        let ollama = [
+            r#"{"message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"search_kb","arguments":{"query":"leave"}}}]},"done":false}"#,
+            r#"{"message":{"role":"assistant","content":""},"done":true,"prompt_eval_count":40,"eval_count":9}"#,
+        ];
+        for (name, lines) in [("openai", &openai[..]), ("anthropic", &anthropic[..]), ("ollama", &ollama[..])] {
+            let mut a = StreamAssembler::default();
+            for l in lines {
+                a.feed(l);
+            }
+            assert!(a.started && a.finished, "{name}: begun and finished");
+            let (reply, usage) = parse_turn(200, &a.into_body(), false).unwrap();
+            let Reply::Calls { calls, raw_content, text } = reply else { panic!("{name}: no calls") };
+            assert_eq!(calls.len(), 1, "{name}");
+            assert_eq!(calls[0].name, "search_kb", "{name}");
+            assert_eq!(calls[0].arguments, Some(serde_json::json!({"query": "leave"})), "{name}");
+            assert_eq!((usage.input, usage.output), (40, 9), "{name}: usage");
+            if name == "anthropic" {
+                assert_eq!(calls[0].id, "toolu_1");
+                assert_eq!(text, "Let me look.");
+                let blocks = raw_content.expect("anthropic replays its content blocks");
+                assert_eq!(blocks[0]["type"], "text");
+                assert_eq!(blocks[1]["type"], "tool_use");
+            }
+            if name == "openai" {
+                assert_eq!(calls[0].id, "call_1");
+            }
+        }
+    }
+
+    /// A server that ignores `stream: true` and answers with one ordinary
+    /// document — pretty-printed over several lines — is still read.
+    #[test]
+    fn a_server_that_does_not_stream_is_still_read() {
+        let doc = "{\n  \"choices\": [{\"message\": {\"content\": \"Plain.\"}}]\n}";
+        let mut a = StreamAssembler::default();
+        for l in doc.lines() {
+            a.feed(l);
+        }
+        assert_eq!(parse_reply(200, &a.into_body()), Ok("Plain.".to_string()));
+    }
+
+    #[test]
+    fn a_streamed_openai_call_asks_for_its_usage() {
+        let req = AskRequest { model: "m".into(), prompt: "q".into(), ..Default::default() };
+        let v: serde_json::Value =
+            serde_json::from_str(&streaming_body_for(&body_for(&req, Protocol::OpenAiChat), Protocol::OpenAiChat)).unwrap();
+        assert_eq!(v["stream_options"]["include_usage"], serde_json::Value::Bool(true));
+        let o: serde_json::Value =
+            serde_json::from_str(&streaming_body_for(&body_for(&req, Protocol::OllamaChat), Protocol::OllamaChat)).unwrap();
+        assert!(o.get("stream_options").is_none(), "only OpenAI's shape takes it");
     }
 
     /// An error inside a stream fails the Ask with the provider's own words.

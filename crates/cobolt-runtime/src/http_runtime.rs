@@ -327,6 +327,17 @@ impl HttpClient {
     ) -> (String, u16) {
         (HTTP_NOT_LINKED.to_owned(), 0)
     }
+
+    pub fn post_streaming_while(
+        &self,
+        _url: &str,
+        _body: &str,
+        _cfg: &RequestConfig,
+        _keep_going: &dyn Fn() -> bool,
+        _on_line: &mut dyn FnMut(&str),
+    ) -> (String, u16) {
+        (HTTP_NOT_LINKED.to_owned(), 0)
+    }
 }
 
 #[cfg(feature = "http")]
@@ -554,6 +565,25 @@ impl HttpClient {
         cfg: &RequestConfig,
         on_line: &mut dyn FnMut(&str),
     ) -> (String, u16) {
+        self.post_streaming_while(url, body, cfg, &|| true, on_line)
+    }
+
+    /// [`Self::post_streaming`], abandoned the moment `keep_going` says so.
+    ///
+    /// Asked between lines, so a call its program has cancelled — or timed
+    /// out — stops at the next piece of the answer and the connection is
+    /// DROPPED, which is what stops a local model generating for nobody.
+    /// `cfg.timeout_ms` is the socket's per-read limit: a server that sends
+    /// nothing for that long has its connection closed at that point, which
+    /// is the cancellation of a call that never begins at all.
+    pub fn post_streaming_while(
+        &self,
+        url: &str,
+        body: &str,
+        cfg: &RequestConfig,
+        keep_going: &dyn Fn() -> bool,
+        on_line: &mut dyn FnMut(&str),
+    ) -> (String, u16) {
         use std::io::BufRead;
         let url = url.trim();
         let mut builder = ureq::AgentBuilder::new();
@@ -590,6 +620,9 @@ impl HttpClient {
                 let mut reader = std::io::BufReader::new(resp.into_reader());
                 let mut line = String::new();
                 loop {
+                    if !keep_going() {
+                        return ("HTTP POST: cancelled".to_owned(), 0);
+                    }
                     line.clear();
                     match reader.read_line(&mut line) {
                         Ok(0) => break,

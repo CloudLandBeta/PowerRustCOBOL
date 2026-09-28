@@ -3285,6 +3285,7 @@ impl Interpreter {
                 generation,
                 started_at: std::time::Instant::now(),
                 timeout_ms,
+                awaiting_start: None,
             },
         );
 
@@ -3369,6 +3370,7 @@ impl Interpreter {
                 generation,
                 started_at: std::time::Instant::now(),
                 timeout_ms,
+                awaiting_start: None,
             },
         );
 
@@ -3428,6 +3430,7 @@ impl Interpreter {
                 generation,
                 started_at: std::time::Instant::now(),
                 timeout_ms,
+                awaiting_start: None,
             },
         );
 
@@ -3571,6 +3574,7 @@ impl Interpreter {
                 crate::async_op::AsyncOutcome::KbProgress { .. }
                     | crate::async_op::AsyncOutcome::KbToolResult { .. }
                     | crate::async_op::AsyncOutcome::AgentPartial { .. }
+                    | crate::async_op::AsyncOutcome::AgentAlive
             ) {
                 self.async_pending.remove(&r.ctrl_id);
             }
@@ -3590,6 +3594,9 @@ impl Interpreter {
                 }
                 crate::async_op::AsyncOutcome::AgentPartial { text } => {
                     self.agent_partial(&r.ctrl_id, text);
+                }
+                crate::async_op::AsyncOutcome::AgentAlive => {
+                    self.agent_alive(&r.ctrl_id);
                 }
                 crate::async_op::AsyncOutcome::SqlDone { handle, query, result, .. } => {
                     self.sql_delivered(&r.ctrl_id, handle, query, result);
@@ -3649,29 +3656,43 @@ impl Interpreter {
 
         // 2. Timeout sweep.
         let now = std::time::Instant::now();
-        let timed_out: Vec<(String, u64)> = self
+        let seconds = |ms: u64| match ms.div_ceil(1000) {
+            1 => "1 second".to_string(),
+            n => format!("{n} seconds"),
+        };
+        let timed_out: Vec<(String, String)> = self
             .async_pending
             .iter()
-            .filter(|(_, op)| {
-                op.timeout_ms > 0
-                    && now.duration_since(op.started_at).as_millis() as u64 > op.timeout_ms
+            .filter_map(|(id, op)| {
+                // An agent request whose answer has not begun: its own limit.
+                if let Some((sent, limit)) = op.awaiting_start {
+                    if limit > 0 && now.duration_since(sent).as_millis() as u64 > limit {
+                        return Some((
+                            id.clone(),
+                            format!(
+                                "The model did not start answering within {}: the call was cancelled.",
+                                seconds(limit)
+                            ),
+                        ));
+                    }
+                }
+                (op.timeout_ms > 0
+                    && now.duration_since(op.started_at).as_millis() as u64 > op.timeout_ms)
+                    .then(|| {
+                        (
+                            id.clone(),
+                            format!("No answer within {}: the call was cancelled.", seconds(op.timeout_ms)),
+                        )
+                    })
             })
-            .map(|(id, op)| (id.clone(), op.timeout_ms))
             .collect();
-        for (id, timeout_ms) in timed_out {
+        for (id, why) in timed_out {
             self.async_pending.remove(&id);
             // Say what happened: a handler that shows `LastError` on
             // `onTimeout` used to show nothing — or the previous call's error
             // (operator, 2026-09-28: a model that never answered left the
             // chat with no word of why).
-            self.obj_set(
-                &id,
-                "LastError",
-                match timeout_ms.div_ceil(1000) {
-                    1 => "No answer within 1 second: the call was cancelled.".to_string(),
-                    n => format!("No answer within {n} seconds: the call was cancelled."),
-                },
-            );
+            self.obj_set(&id, "LastError", why);
             if let Some(g) = self.async_generations.get(&id) {
                 g.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
@@ -12221,6 +12242,7 @@ impl Interpreter {
                 generation,
                 started_at: std::time::Instant::now(),
                 timeout_ms,
+                awaiting_start: None,
             },
         );
         let tx = self.async_result_tx.clone();
@@ -12428,82 +12450,54 @@ impl Interpreter {
                 url.clone(),
                 cfg.headers.clone(),
                 timeout_ms,
+                self.agent_start_timeout_ms(obj),
                 generation,
                 tools,
             );
         }
         self.obj_set(obj, "Busy", "1".to_owned());
+        let start_ms = self.agent_start_timeout_ms(obj);
         self.async_pending.insert(
             obj.to_string(),
             crate::async_op::PendingOp {
                 generation,
                 started_at: std::time::Instant::now(),
                 timeout_ms,
+                awaiting_start: (start_ms > 0).then(|| (std::time::Instant::now(), start_ms)),
             },
         );
-
-        // The transport timeout is a thread-lifetime backstop, deliberately
-        // longer than the one the interpreter sweeps on, so a stalled worker
-        // cannot leak without racing the sweep that owns `onTimeout`.
+        if offers_tools {
+            // The loop sends its own rounds, each streamed the same way.
+            self.tool_loop_send(obj);
+            return;
+        }
+        // The socket's per-read limit. With a start limit it is that limit
+        // (and 2 s), so a model that sends nothing has its connection CLOSED
+        // just after the sweep reports it; the same bound then applies to any
+        // silence mid-answer. Without one it is the older backstop, a little
+        // longer than the sweep that owns `onTimeout`.
         let mut cfg = cfg;
-        cfg.timeout_ms = if timeout_ms > 0 {
+        cfg.timeout_ms = if start_ms > 0 {
+            start_ms.saturating_add(2_000)
+        } else if timeout_ms > 0 {
             timeout_ms.saturating_add(5_000)
         } else {
             0
         };
-        // `StreamReply` — the reply is read as the provider writes it and
-        // shown on the way (`PartialReply` + `onPartialReply`). A tool-offering
-        // Ask is never streamed: its rounds are answered by the program, not
-        // shown. `Stream`, the retired switch seeded on older forms, is NOT
-        // this — it stays a no-op, so no existing form starts streaming.
-        // Streamed, `TimeoutSeconds` is a SILENCE limit: every piece that
-        // arrives restarts it (`agent_partial`), and the transport's own limit
-        // is per read, so a long answer that keeps coming is never cut off.
-        let stream = !offers_tools
-            && matches!(
-                self.obj_get(obj, "StreamReply").trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes"
-            );
+        // `StreamReply` — the reply is also SHOWN as the provider writes it
+        // (`PartialReply` + `onPartialReply`). A tool-offering Ask is never
+        // shown on the way: its rounds are answered by the program. `Stream`,
+        // the retired switch seeded on older forms, is NOT this — it stays a
+        // no-op. Every call is streamed on the wire regardless (see
+        // `agent_spawn_streamed`); `TimeoutSeconds` counts the silence between
+        // pieces, so a long answer that keeps coming is never cut off.
+        let show_partials = matches!(
+            self.obj_get(obj, "StreamReply").trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes"
+        );
         self.obj_set(obj, "PartialReply", String::new());
         self.obj_set(obj, "ReplyPiece", String::new());
-        let tx = self.async_result_tx.clone();
-        let http = self.http.clone();
-        let ctrl_id = obj.to_string();
-        std::thread::spawn(move || {
-            let (body, status) = if stream {
-                let mut asm = ag::StreamAssembler::default();
-                let mut last_sent = std::time::Instant::now();
-                let mut unsent = false;
-                let (err, status) = http.post_streaming(&url, &ag::streaming_body(&body), &cfg, &mut |line| {
-                    unsent |= asm.feed(line);
-                    // Throttled: a handler per token would drown the event
-                    // loop; ten a second reads as live.
-                    if unsent && last_sent.elapsed() >= std::time::Duration::from_millis(100) {
-                        unsent = false;
-                        last_sent = std::time::Instant::now();
-                        let _ = tx.send(crate::async_op::AsyncOpResult {
-                            ctrl_id: ctrl_id.clone(),
-                            generation,
-                            outcome: crate::async_op::AsyncOutcome::AgentPartial {
-                                text: asm.text.clone(),
-                            },
-                        });
-                    }
-                });
-                if status == 0 || !(200..300).contains(&status) {
-                    (err, status)
-                } else {
-                    (asm.into_body(), status)
-                }
-            } else {
-                http.send_configured("POST", &url, Some(&body), &cfg)
-            };
-            let _ = tx.send(crate::async_op::AsyncOpResult {
-                ctrl_id,
-                generation,
-                outcome: crate::async_op::AsyncOutcome::AgentReply { status, body },
-            });
-        });
+        self.agent_spawn_streamed(obj, url, body, protocol, cfg, generation, show_partials);
     }
 
     /// A streamed Ask's reply so far: `PartialReply` holds it, `ReplyPiece`
@@ -12514,12 +12508,111 @@ impl Interpreter {
     fn agent_partial(&mut self, obj: &str, text: String) {
         if let Some(op) = self.async_pending.get_mut(obj) {
             op.started_at = std::time::Instant::now();
+            op.awaiting_start = None;
         }
         let before = self.obj_get(obj, "PartialReply");
         let piece = text.strip_prefix(before.as_str()).unwrap_or(&text).to_owned();
         self.obj_set(obj, "ReplyPiece", piece);
         self.obj_set(obj, "PartialReply", text);
         self.queue_control_event(obj, "onPartialReply");
+    }
+
+    /// The model has begun answering — and, repeated, is still answering. The
+    /// wait for the answer to START is over; a plain `Ask`'s silence limit
+    /// restarts. A tool loop keeps its clock: `TimeoutSeconds` bounds its
+    /// whole question, handler waits included (072 Q3).
+    fn agent_alive(&mut self, obj: &str) {
+        let tool_loop = self.tool_loops.contains_key(obj);
+        if let Some(op) = self.async_pending.get_mut(obj) {
+            op.awaiting_start = None;
+            if !tool_loop {
+                op.started_at = std::time::Instant::now();
+            }
+        }
+    }
+
+    /// `StartTimeoutSeconds`, in milliseconds: the longest an agent request may
+    /// wait for the first piece of its answer. Unset reads as the default, 60 s;
+    /// `0` turns the limit off.
+    pub(crate) fn agent_start_timeout_ms(&self, obj: &str) -> u64 {
+        match self.obj_get(obj, "StartTimeoutSeconds").trim() {
+            "" => 60_000,
+            v => v.parse::<u64>().unwrap_or(60).saturating_mul(1000),
+        }
+    }
+
+    /// Send one agent request on a worker — STREAMED, as every agent request
+    /// is, tool rounds included: only a streamed answer shows the moment a
+    /// model BEGINS, which is what `StartTimeoutSeconds` measures.
+    ///
+    /// * The first piece, then one every quarter of a second while pieces keep
+    ///   coming, is reported as `AgentAlive`.
+    /// * `show_partials` (a `StreamReply` Ask) also reports the text so far.
+    /// * The finished stream is rebuilt as the provider's unstreamed reply
+    ///   (`StreamAssembler::into_body`) and delivered as `AgentReply`, so it is
+    ///   read exactly as before.
+    /// * When the call is cancelled or times out, its generation moves on and
+    ///   the worker stops at the next piece, DROPPING the connection — a local
+    ///   model is not left generating for nobody. A model that sends nothing
+    ///   at all is cut off by the socket's own limit, `cfg.timeout_ms`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn agent_spawn_streamed(
+        &self,
+        obj: &str,
+        url: String,
+        body: String,
+        protocol: crate::agent_runtime::Protocol,
+        cfg: crate::http_runtime::RequestConfig,
+        generation: u64,
+        show_partials: bool,
+    ) {
+        use crate::agent_runtime as ag;
+        use crate::async_op::{AsyncOpResult, AsyncOutcome};
+        let tx = self.async_result_tx.clone();
+        let http = self.http.clone();
+        let ctrl_id = obj.to_string();
+        let live = self.async_generations.get(obj).cloned();
+        let body = ag::streaming_body_for(&body, protocol);
+        std::thread::spawn(move || {
+            let send = |outcome: AsyncOutcome| {
+                let _ = tx.send(AsyncOpResult { ctrl_id: ctrl_id.clone(), generation, outcome });
+            };
+            let keep_going = || {
+                live.as_ref()
+                    .is_none_or(|g| g.load(std::sync::atomic::Ordering::Relaxed) == generation)
+            };
+            let mut asm = ag::StreamAssembler::default();
+            let mut last_alive: Option<std::time::Instant> = None;
+            let mut last_partial = std::time::Instant::now();
+            let mut unsent = false;
+            let (err, status) = http.post_streaming_while(&url, &body, &cfg, &keep_going, &mut |line| {
+                unsent |= asm.feed(line);
+                // A quarter of a second: well inside any silence limit worth
+                // setting, so `TimeoutSeconds` measures the model's silence and
+                // not this throttle's.
+                if asm.started
+                    && last_alive.is_none_or(|t| t.elapsed() >= std::time::Duration::from_millis(250))
+                {
+                    last_alive = Some(std::time::Instant::now());
+                    send(AsyncOutcome::AgentAlive);
+                }
+                // Throttled: a handler per token would drown the event loop;
+                // ten a second reads as live.
+                if show_partials && unsent && last_partial.elapsed() >= std::time::Duration::from_millis(100) {
+                    unsent = false;
+                    last_partial = std::time::Instant::now();
+                    send(AsyncOutcome::AgentPartial { text: asm.text.clone() });
+                }
+            });
+            // A transport error AFTER the provider said "done" is the end of
+            // the stream, not a failure of it.
+            let (body, status) = if (200..300).contains(&status) || (status == 0 && asm.finished) {
+                (asm.into_body(), if status == 0 { 200 } else { status })
+            } else {
+                (err, status)
+            };
+            send(AsyncOutcome::AgentReply { status, body });
+        });
     }
 
     /// Read one delivered `Ask` onto its control and raise the event it earned.
@@ -22038,6 +22131,7 @@ MAIN.
                 generation,
                 started_at: std::time::Instant::now(),
                 timeout_ms: 0,
+                awaiting_start: None,
             },
         );
         interp
@@ -22584,6 +22678,7 @@ MAIN.
                 generation,
                 started_at: std::time::Instant::now(),
                 timeout_ms: 0,
+                awaiting_start: None,
             },
         );
         interp
@@ -22669,6 +22764,7 @@ MAIN.
                 generation,
                 started_at: std::time::Instant::now(),
                 timeout_ms: 0,
+                awaiting_start: None,
             },
         );
         let body = r#"{"items":[{"title":"Best Pizza","snippet":"Great pies.","link":"https://example.com/1"}]}"#;

@@ -8,6 +8,63 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.316] — 2026-09-28
+
+### Feature — `StartTimeoutSeconds`: a model's answer must begin in time, or the call is cancelled
+
+The operator asked for "a timeout for the model's answer to start, 60 s by
+default; a call to the model that does not answer must be cancelled".
+
+- **Every agent request streams, tool rounds included.** Only a streamed
+  answer shows the moment a model begins. Until now a tool-offering `Ask`, as
+  PowerChat's always is, received its whole reply in one piece, so "started"
+  and "finished" were the same instant. `StreamAssembler` now assembles
+  streamed tool calls in all three shapes:
+  - OpenAI's `delta.tool_calls` fragments by index;
+  - Anthropic's `tool_use` blocks and their `input_json_delta` pieces;
+  - Ollama's whole `message.tool_calls`.
+
+  It rebuilds the finished stream as that provider's **unstreamed** reply,
+  Anthropic's content blocks included, so `parse_turn` and everything after
+  it read it unchanged. Further details:
+  - a streamed OpenAI-shaped call asks for its usage (`stream_options`);
+  - a server that ignores the stream request is read from its one document;
+  - an error after the provider said "done" is treated as the end of the
+    stream.
+- **`StartTimeoutSeconds`** on the AgentObject (default 60; 0 = no limit;
+  seeded on new controls, and read as 60 on older forms). It is the longest
+  a request may wait for the **first** piece of its answer, counted per
+  round. If it passes, the call is **cancelled**:
+  - `onTimeout` fires, and `LastError` says *The model did not start
+    answering within N seconds: the call was cancelled.*;
+  - the connection is **closed**, because the socket's per-read limit is the
+    start limit plus 2 s, so a local model stops working for nobody;
+  - a cancelled or timed-out call's worker also stops at the next piece and
+    drops its connection (`post_streaming_while`).
+- **`TimeoutSeconds`** on a plain `Ask` now counts **silence** between
+  pieces, for every call and not only `StreamReply`, so a long answer that
+  keeps coming is never cut off. A tool loop keeps the spec's rule that it
+  bounds the whole question (072 Q3).
+- One worker, `agent_spawn_streamed`, serves a plain `Ask` and every tool
+  round. It signals the start, and then being alive at most four times a
+  second (`AgentAlive`), and shows partial text only for `StreamReply`.
+- Property help in six languages (the new property, and `TimeoutSeconds`'s
+  new meaning), the property reference, the Developer's Guide (the two
+  limits, tool rounds, and the caveat that for an endpoint that will not
+  stream the start limit bounds the whole answer). `chunked.data` is
+  regenerated.
+- Tests:
+  - `a_model_that_never_begins_is_cut_off_at_the_start_limit`: `onTimeout`
+    at 1.0 s under `TimeoutSeconds = 30`, and the server sees the connection
+    closed at 3.0 s;
+  - `a_model_that_keeps_answering_is_never_cut_off`: a 3.3 s answer under
+    `TimeoutSeconds = 1`;
+  - `a_streamed_tool_round_reaches_the_program`;
+  - `a_streamed_tool_call_reads_as_the_unstreamed_reply_in_every_provider_shape`;
+  - `a_server_that_does_not_stream_is_still_read`;
+  - `a_streamed_openai_call_asks_for_its_usage`;
+  - the no-tools body test now pins the streamed body.
+
 ## [PowerRustCOBOL 1.70.315] — 2026-09-28
 
 ### Fix — a model that never answers no longer leaves PowerChat stuck; a timeout says why

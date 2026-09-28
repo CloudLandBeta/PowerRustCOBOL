@@ -9816,8 +9816,18 @@ while the model thinks. The answer therefore arrives in a *second* handler —
 > **Notes.** `Busy` is true from the `Ask` until `onResponse`, `onError` or
 > `onTimeout` fires, and a second `Ask` while it is true is ignored rather than
 > raced — test `Busy` (or disable the button) if the user can press twice.
-> `TimeoutSeconds` bounds the wait; raising `MaximumTokens` lengthens the
-> answer, so raise the timeout with it.
+> Two limits guard the wait, and both end in `onTimeout` with `LastError`
+> saying which:
+> - **`StartTimeoutSeconds`** (60 by default; 0 for none) — the longest the
+>   model may take to **begin** its answer. A model that never starts — stuck,
+>   overloaded, or asked for something it cannot do — is **cancelled** at that
+>   point: its connection is closed, not merely ignored, so a local model stops
+>   working for nobody. Raise it for a model that thinks before its first word,
+>   or for the first question to a local model that has to load.
+> - **`TimeoutSeconds`** — once the answer has begun, the longest it may fall
+>   **silent** between two pieces. Every agent request is streamed on the wire
+>   (you see the pieces only with `StreamReply`), so a long answer that keeps
+>   coming is never cut off, however long it takes in total.
 
 **Showing the reply while it arrives — `StreamReply`.** A long answer can take
 many seconds, and an empty box for all of them feels broken. Turn `StreamReply`
@@ -9841,15 +9851,19 @@ still ends the way it always did — `onResponse`, once, with the whole text in
            MOVE Agent1::LastReply TO WS-LAST-ANSWER.
 ```
 
-> **Notes.** Streamed, `TimeoutSeconds` is a limit on *silence*: every piece
-> that arrives restarts it, so a long answer that keeps coming is never cut
-> off, while a provider that goes quiet still times out. `Busy` stays true
-> until `onResponse` (or `onError`). An Ask that offers tools is never
-> streamed — its rounds are answered by your program, not shown.
+> **Notes.** `TimeoutSeconds` is a limit on *silence*: every piece that
+> arrives restarts it, so a long answer that keeps coming is never cut off,
+> while a provider that goes quiet still times out. `Busy` stays true until
+> `onResponse` (or `onError`). An Ask that offers tools is never *shown* on
+> the way — its rounds are answered by your program, not read — though each
+> round is streamed on the wire like any other request.
 >
 > ⚠️ **Caveat.** The OpenAI-compatible providers, Anthropic and Ollama all
-> stream. A `Custom` endpoint that cannot fails the Ask with its own error in
-> `LastError`; switch `StreamReply` off for it.
+> stream. A `Custom` endpoint that ignores the request to stream and answers
+> in one piece still works — its reply is read whole — but for it the first
+> piece IS the whole answer, so `StartTimeoutSeconds` bounds the entire
+> answer: raise it (or set it to 0) for such an endpoint if its answers are
+> slow.
 
 `WebSearch` is classified as a `RestApi`-kind binding **source** (the same
 kind `RestClient` uses — there is no separate `WebSearch` source kind), so
@@ -10247,7 +10261,8 @@ on every agent except the one doing the tool work.
 > ⚠️ **Caveats.**
 > - `TimeoutSeconds` bounds the **whole** question — every round, and every
 >   wait for your handler. A tool that runs a long batch job should hand the
->   work off and answer at once.
+>   work off and answer at once. `StartTimeoutSeconds` applies to each round
+>   on its own: every request to the model must begin in time.
 > - A model that keeps calling tools is stopped at `MaximumToolRounds` with
 >   `onError`, and `LastError` says so. Raise the limit only for a question
 >   that really needs many steps.

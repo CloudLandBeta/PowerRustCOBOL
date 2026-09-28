@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 
 use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::{parse, Severity};
-use cobolt_runtime::agent_runtime::{body_for, AskRequest, Protocol};
+use cobolt_runtime::agent_runtime::{body_for, streaming_body_for, AskRequest, Protocol};
 use cobolt_runtime::indexed::{status, KeySpec, OpenMode};
 use cobolt_runtime::Interpreter;
 
@@ -448,7 +448,11 @@ fn a_cobol_tool_is_answered_by_on_tool_call_in_every_protocol() {
     }
 }
 
-/// AC3 — an agent offering no tools sends exactly the bytes it always sent.
+/// AC3 — an agent offering no tools sends exactly the body a tool-less
+/// question always sent, asked for as a STREAM: every agent request streams
+/// since `StartTimeoutSeconds` (so the program can tell a model that has begun
+/// from one that never will), and an OpenAI-shaped stream asks for its usage.
+/// Nothing else moves.
 #[test]
 fn no_tools_means_the_request_is_byte_identical() {
     let (port, seen) = model_server(Box::new(|_, _| (200, openai_text("Hello."))));
@@ -458,7 +462,7 @@ fn no_tools_means_the_request_is_byte_identical() {
     let elapsed = started.elapsed();
     let seen = seen.lock().unwrap().clone();
 
-    let expected = body_for(
+    let expected = streaming_body_for(&body_for(
         &AskRequest {
             api: "OpenAI".into(),
             url: url.clone(),
@@ -470,7 +474,7 @@ fn no_tools_means_the_request_is_byte_identical() {
             ..Default::default()
         },
         Protocol::OpenAiChat,
-    );
+    ), Protocol::OpenAiChat);
     assert_eq!(seen.len(), 1);
     assert_eq!(seen[0], expected, "the no-tools body changed");
     assert_eq!(line(&out, "REPLY="), Some("Hello."), "{out:?}");
@@ -691,4 +695,136 @@ fn a_model_that_never_answers_times_out_and_says_so() {
         "{out:?}"
     );
     assert!(took < Duration::from_secs(10), "the timeout fires on time: {took:?}");
+}
+
+// ── StartTimeoutSeconds: every request streams, and must BEGIN in time ────────
+
+/// A model server that streams: for each request, `script(round)` gives the
+/// lines to send and the pause before each one. The body is delimited by the
+/// connection closing, as a streaming server without a length may do.
+fn streaming_server(script: Box<dyn Fn(usize) -> Vec<(u64, String)> + Send>) -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    thread::spawn(move || {
+        for (round, stream) in listener.incoming().enumerate() {
+            let Ok(mut stream) = stream else { break };
+            let _ = read_request_body(&mut stream);
+            let lines = script(round);
+            thread::spawn(move || {
+                let _ = stream.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
+                );
+                for (pause_ms, line) in lines {
+                    thread::sleep(Duration::from_millis(pause_ms));
+                    if stream.write_all(format!("{line}\n").as_bytes()).is_err() {
+                        return;
+                    }
+                    let _ = stream.flush();
+                }
+            });
+        }
+    });
+    port
+}
+
+fn sse_text(text: &str) -> String {
+    format!("data: {}", serde_json::json!({"choices":[{"delta":{"content": text}}]}))
+}
+
+/// A model that takes the question and never begins: `onTimeout` fires on
+/// `StartTimeoutSeconds` — long before `TimeoutSeconds` — `LastError` says
+/// the answer never began, and the CONNECTION IS CLOSED (the server sees it
+/// go), so a local model is not left working for nobody (operator,
+/// 2026-09-28: "a timeout for the model's answer to start, 60 s by default;
+/// a call that does not answer must be cancelled").
+#[test]
+fn a_model_that_never_begins_is_cut_off_at_the_start_limit() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (closed_tx, closed_rx) = mpsc::channel::<Duration>();
+    thread::spawn(move || {
+        if let Some(Ok(mut stream)) = listener.incoming().next() {
+            let _ = read_request_body(&mut stream);
+            let t = Instant::now();
+            // Hold the line, saying nothing, until the client lets go.
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(20)));
+            let mut buf = [0u8; 16];
+            let _ = stream.read(&mut buf);
+            let _ = closed_tx.send(t.elapsed());
+        }
+    });
+    let url = format!("http://127.0.0.1:{port}");
+    let mut props = agent_props("ollama", &url);
+    props.retain(|(k, _)| *k != "TimeoutSeconds");
+    props.push(("TimeoutSeconds", "30"));
+    props.push(("StartTimeoutSeconds", "1"));
+    let t = Instant::now();
+    let out = run(&program("       DATA DIVISION.", "", ""), &props);
+    let took = t.elapsed();
+    let closed = closed_rx.recv_timeout(Duration::from_secs(15)).ok();
+    println!("\n  ── StartTimeoutSeconds = 1, TimeoutSeconds = 30 ──");
+    println!("  onTimeout after {:.1} s: {out:?}", took.as_secs_f64());
+    println!("  connection closed by the client after {closed:?}\n");
+    assert!(out.iter().any(|l| l == "TIMEOUT"), "{out:?}");
+    assert_eq!(
+        line(&out, "TIMEOUT-ERROR="),
+        Some("The model did not start answering within 1 second: the call was cancelled."),
+    );
+    assert!(took < Duration::from_secs(5), "the start limit, not TimeoutSeconds: {took:?}");
+    let closed = closed.expect("the connection must be closed, not left open");
+    assert!(closed < Duration::from_secs(6), "closed at the start limit: {closed:?}");
+}
+
+/// A model that starts late — within its limit — and then streams steadily
+/// for longer than `TimeoutSeconds` in total is NOT cut off: once it has
+/// begun, `TimeoutSeconds` counts the silence between pieces.
+#[test]
+fn a_model_that_keeps_answering_is_never_cut_off() {
+    let port = streaming_server(Box::new(|_| {
+        let mut lines = vec![(800, sse_text("Twenty"))];
+        for _ in 0..6 {
+            lines.push((400, sse_text(" more")));
+        }
+        lines.push((50, "data: [DONE]".into()));
+        lines
+    }));
+    let url = format!("http://127.0.0.1:{port}/v1/chat/completions");
+    let mut props = agent_props("OpenAI", &url);
+    props.retain(|(k, _)| *k != "TimeoutSeconds");
+    props.push(("TimeoutSeconds", "1"));
+    props.push(("StartTimeoutSeconds", "2"));
+    let t = Instant::now();
+    let out = run(&program("       DATA DIVISION.", "", ""), &props);
+    let took = t.elapsed();
+    println!("\n  a steady answer of {:.1} s under TimeoutSeconds = 1: {out:?}\n", took.as_secs_f64());
+    assert_eq!(line(&out, "REPLY="), Some("Twenty more more more more more more"), "{out:?}");
+    assert!(took > Duration::from_secs(3), "the answer took longer than TimeoutSeconds in total");
+}
+
+/// A tool round is streamed too: an OpenAI-shaped streamed tool call reaches
+/// the program's `onToolCall`, its result goes back, and the streamed final
+/// answer arrives — the same conversation an unstreamed server gives.
+#[test]
+fn a_streamed_tool_round_reaches_the_program() {
+    let port = streaming_server(Box::new(|round| {
+        if round == 0 {
+            vec![
+                (10, r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_7","type":"function","function":{"name":"count_actors","arguments":""}}]}}]}"#.into()),
+                (10, r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"salary\":"}}]}}]}"#.into()),
+                (10, r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"100000}"}}]}}]}"#.into()),
+                (10, r#"data: {"choices":[],"usage":{"prompt_tokens":50,"completion_tokens":10}}"#.into()),
+                (10, "data: [DONE]".into()),
+            ]
+        } else {
+            vec![(10, sse_text("Two actors.")), (10, "data: [DONE]".into())]
+        }
+    }));
+    let url = format!("http://127.0.0.1:{port}/v1/chat/completions");
+    let setup = r#"           MOVE AGT-1::AddTool("count_actors", "Count actors by salary", "salary:number") TO WS-OK"#;
+    let handler = r#"                       MOVE AGT-1::SetToolResult(WS-CALL, "2") TO WS-OK"#;
+    let out = run(&program("       DATA DIVISION.", setup, handler), &agent_props("OpenAI", &url));
+    println!("\n  a streamed tool round: {out:?}\n");
+    assert_eq!(line(&out, "TOOL="), Some("count_actors"), "{out:?}");
+    assert_eq!(line(&out, "ARGS="), Some(r#"{"salary":100000}"#), "{out:?}");
+    assert_eq!(line(&out, "REPLY="), Some("Two actors."), "{out:?}");
 }
