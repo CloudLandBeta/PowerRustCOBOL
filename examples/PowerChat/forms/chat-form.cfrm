@@ -2492,6 +2492,25 @@
            CALL "PC-SHOW-AGENT"
            MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
 ]]></Event>
+    <Event name="onTimeout" paragraph="AGENT-1--ONTIMEOUT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The model never answered within TimeoutSeconds, and the runtime
+      *>   cancelled the call: the same as a failure - the chat goes back to
+      *>   idle and says why (LastError). Unhandled, the chat stayed stuck
+      *>   waiting for an answer that was never coming (operator,
+      *>   2026-09-28: "the interface froze").
+           MOVE "IDLE" TO WS-STAGE
+           MOVE AGENT-1::LastError TO WS-TEXT
+           MOVE T-AGENT-FAILED TO WS-FMT
+           MOVE "1" TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE SPACES TO WS-MSG
+           STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
+               DELIMITED BY SIZE INTO WS-MSG
+           CALL "PC-SHOW-AGENT"
+           MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
+]]></Event>
     <Event name="onModelChanged" paragraph="AGENT-1--ONMODELCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -2581,6 +2600,25 @@
            CALL "PC-SHOW-AGENT"
            MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
 ]]></Event>
+    <Event name="onTimeout" paragraph="AGENT-2--ONTIMEOUT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The model never answered within TimeoutSeconds, and the runtime
+      *>   cancelled the call: the same as a failure - the chat goes back to
+      *>   idle and says why (LastError). Unhandled, the chat stayed stuck
+      *>   waiting for an answer that was never coming (operator,
+      *>   2026-09-28: "the interface froze").
+           MOVE "IDLE" TO WS-STAGE
+           MOVE AGENT-2::LastError TO WS-TEXT
+           MOVE T-AGENT-FAILED TO WS-FMT
+           MOVE "2" TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE SPACES TO WS-MSG
+           STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
+               DELIMITED BY SIZE INTO WS-MSG
+           CALL "PC-SHOW-AGENT"
+           MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
+]]></Event>
     <Event name="onModelChanged" paragraph="AGENT-2--ONMODELCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -2659,6 +2697,25 @@
     <Event name="onError" paragraph="AGENT-3--ONERROR"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
+           MOVE "IDLE" TO WS-STAGE
+           MOVE AGENT-3::LastError TO WS-TEXT
+           MOVE T-AGENT-FAILED TO WS-FMT
+           MOVE "3" TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE SPACES TO WS-MSG
+           STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
+               DELIMITED BY SIZE INTO WS-MSG
+           CALL "PC-SHOW-AGENT"
+           MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
+]]></Event>
+    <Event name="onTimeout" paragraph="AGENT-3--ONTIMEOUT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The model never answered within TimeoutSeconds, and the runtime
+      *>   cancelled the call: the same as a failure - the chat goes back to
+      *>   idle and says why (LastError). Unhandled, the chat stayed stuck
+      *>   waiting for an answer that was never coming (operator,
+      *>   2026-09-28: "the interface froze").
            MOVE "IDLE" TO WS-STAGE
            MOVE AGENT-3::LastError TO WS-TEXT
            MOVE T-AGENT-FAILED TO WS-FMT

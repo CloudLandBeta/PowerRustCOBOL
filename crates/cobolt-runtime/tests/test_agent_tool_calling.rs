@@ -155,7 +155,9 @@ fn program(files: &str, setup: &str, on_tool_call: &str) -> String {
                        DISPLAY "CANCELLED"
                        MOVE 1 TO COBOL-QUIT
                    WHEN "onTimeout"
+                       MOVE AGT-1::LastError TO WS-TEXT
                        DISPLAY "TIMEOUT"
+                       DISPLAY "TIMEOUT-ERROR=" WS-TEXT
                        MOVE 1 TO COBOL-QUIT
                END-EVALUATE
            END-PERFORM.
@@ -655,4 +657,38 @@ fn tool_protocol_none_offers_this_agent_no_tools() {
     let first: serde_json::Value = serde_json::from_str(&seen[0]).unwrap();
     assert!(first["tools"].is_null(), "no tools offered: {}", seen[0]);
     report("ToolProtocol None", "OpenAI", "AllowFile + ToolProtocol=None", seen.len(), "0", started.elapsed());
+}
+
+/// A model that takes the question and never answers: the Ask times out on
+/// `TimeoutSeconds`, `onTimeout` fires, and `LastError` says why — a handler
+/// that shows it has something to show (operator, 2026-09-28: a model that
+/// never answered left PowerChat's chat stuck with no word of why).
+#[test]
+fn a_model_that_never_answers_times_out_and_says_so() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    thread::spawn(move || {
+        let mut held = Vec::new();
+        for stream in listener.incoming() {
+            // Accept, read the question, and hold the line open — no reply.
+            let Ok(mut stream) = stream else { break };
+            let _ = read_request_body(&mut stream);
+            held.push(stream);
+        }
+    });
+    let url = format!("http://127.0.0.1:{port}");
+    let mut props = agent_props("ollama", &url);
+    props.retain(|(k, _)| *k != "TimeoutSeconds");
+    props.push(("TimeoutSeconds", "1"));
+    let t = Instant::now();
+    let out = run(&program("       DATA DIVISION.", "", ""), &props);
+    let took = t.elapsed();
+    println!("\n  a model that never answers: {out:?} after {:.1} s\n", took.as_secs_f64());
+    assert!(out.iter().any(|l| l == "TIMEOUT"), "{out:?}");
+    assert_eq!(
+        line(&out, "TIMEOUT-ERROR="),
+        Some("No answer within 1 second: the call was cancelled."),
+        "{out:?}"
+    );
+    assert!(took < Duration::from_secs(10), "the timeout fires on time: {took:?}");
 }

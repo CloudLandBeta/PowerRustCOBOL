@@ -3649,17 +3649,29 @@ impl Interpreter {
 
         // 2. Timeout sweep.
         let now = std::time::Instant::now();
-        let timed_out: Vec<String> = self
+        let timed_out: Vec<(String, u64)> = self
             .async_pending
             .iter()
             .filter(|(_, op)| {
                 op.timeout_ms > 0
                     && now.duration_since(op.started_at).as_millis() as u64 > op.timeout_ms
             })
-            .map(|(id, _)| id.clone())
+            .map(|(id, op)| (id.clone(), op.timeout_ms))
             .collect();
-        for id in timed_out {
+        for (id, timeout_ms) in timed_out {
             self.async_pending.remove(&id);
+            // Say what happened: a handler that shows `LastError` on
+            // `onTimeout` used to show nothing — or the previous call's error
+            // (operator, 2026-09-28: a model that never answered left the
+            // chat with no word of why).
+            self.obj_set(
+                &id,
+                "LastError",
+                match timeout_ms.div_ceil(1000) {
+                    1 => "No answer within 1 second: the call was cancelled.".to_string(),
+                    n => format!("No answer within {n} seconds: the call was cancelled."),
+                },
+            );
             if let Some(g) = self.async_generations.get(&id) {
                 g.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }

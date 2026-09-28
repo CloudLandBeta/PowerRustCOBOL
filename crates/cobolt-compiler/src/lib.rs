@@ -5975,7 +5975,7 @@ fn event_reference(name: &str) -> &'static str {
         "onToolCall" => "the model called a tool the program declared with `AddTool` — read `ToolCallId` / `ToolName` / `ToolArguments`, answer with `SetToolResult`; a handler that sets nothing sends an empty result",
         "onToolUse" => "the model is using a tool the RUNTIME answers itself — a Knowledge Base search (`ToolKind` = `KnowledgeBase`) or a registered indexed file (`ToolKind` = `IndexedFile`); `ToolName` and `ToolArguments` say which and with what. Raised before the tool runs, while the model is still working — for showing \"searching the Knowledge Base…\"; nothing to answer, the result goes straight to the model",
         "onError" => "the operation failed (message in `LastError`)",
-        "onTimeout" => "the async operation exceeded its timeout",
+        "onTimeout" => "the async operation exceeded its timeout; it has been cancelled, and `LastError` says so (\"No answer within N seconds: the call was cancelled.\")",
         "onComplete" => "the async operation finished successfully",
         "onCancelled" => "the async operation was cancelled",
         "onQueryComplete" => "the SQL statement finished",

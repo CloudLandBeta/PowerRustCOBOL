@@ -9149,7 +9149,10 @@ response arrives later as an event on the same control:
 - `onError` — the transport failed (no HTTP status); `LastError` has the
   message and `StatusCode` is `0`.
 - `onCancelled` — you called `Cancel()` while a request was in flight.
-- `onTimeout` — the request exceeded `TimeoutMs` without completing.
+- `onTimeout` — the request exceeded `TimeoutMs` without completing. It has
+  been cancelled, and `LastError` says so — *No answer within N seconds: the
+  call was cancelled.* — so a handler that shows `LastError` for `onError` can
+  show it here too. The same holds for an AI agent's `Ask`.
 
 The control surface, on `RestClient` and `WebSearch`:
 

@@ -8,6 +8,33 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.315] — 2026-09-28
+
+### Fix — a model that never answers no longer leaves PowerChat stuck; a timeout says why
+
+The operator asked a local multimodal model for a diagram "and the interface
+froze". The saved conversation ends on that question, with no answer.
+
+- **PowerChat handled `onError` from its three agents, never
+  `onTimeout`.** When a model does not answer, the runtime cancels the call
+  after `TimeoutSeconds` and raises `onTimeout`. Nothing caught it, so the
+  chat stayed "thinking" forever, and to the operator it looked frozen. Each
+  agent now has an `onTimeout` handler that does what `onError` does: back
+  to idle, with the reason shown in the chat.
+- **The runtime said nothing on a timeout.** The sweep that raises
+  `onTimeout` (for every asynchronous control: agents, `RestClient`,
+  `WebSearch`) left `LastError` empty, or holding the previous call's error.
+  It now writes *No answer within N seconds: the call was cancelled.* All
+  three hosts share the interpreter, so this reaches all of them.
+- The Developer's Guide (async lifecycle) and the System KB (`onTimeout`)
+  say so. `chunked.data` is regenerated.
+- Test: `a_model_that_never_answers_times_out_and_says_so`: a model server
+  that takes the question and never replies. `onTimeout` fires after 1.0 s,
+  with the explanation in `LastError`.
+
+A timeout for the answer to **start** (`StartTimeoutSeconds`, default 60 s,
+with the call actually aborted) is a new capability and follows separately.
+
 ## [PowerRustCOBOL 1.70.314] — 2026-09-28
 
 ### Fix — breakpoints set in a form's event editors reach the debugger
