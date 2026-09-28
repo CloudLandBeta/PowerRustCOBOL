@@ -1,3 +1,8 @@
+> **Think before coding**
+> **Simplicity first**
+> **Surgical changes**
+> **Goal-driven**
+
 > **Before starting work, read [`CONVENTIONS.md`](CONVENTIONS.md)** — the project's
 > operational do/don't rules (versioning, git/commit signature, docs GOLDEN RULE #3,
 > cobolforo.es publishing, build/test commands, the spec-017 unified render engine).
@@ -587,9 +592,9 @@ When implementing a feature:
 
 14. Keep the project coherent.
 
-PowerRustCOBOL is already implemented as a complete platform with partially stubbed areas.
+PowerRustCOBOL is already implemented as a complete platform.
 
-Do not answer with generic architecture advice unless asked.
+Do not answer with generic architecture advice unless we are running into a dead end.
 
 When given a task, respond by:
 

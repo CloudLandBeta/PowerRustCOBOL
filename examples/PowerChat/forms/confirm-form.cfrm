@@ -237,9 +237,9 @@
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowColor">#000000</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowOpacity">1</Property>
     <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowDistance">1</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
@@ -286,9 +286,9 @@
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowColor">#000000</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowOpacity">1</Property>
     <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowDistance">1</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>

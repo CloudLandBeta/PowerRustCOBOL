@@ -1347,7 +1347,7 @@
     <Property name="Tabs">Browse
 Create/Update</Property>
     <Property name="TabPosition">Top</Property>
-    <Property name="SelectedTab">1</Property>
+    <Property name="SelectedTab">0</Property>
     <Property name="ActiveTabColor">#2C6FD2FF</Property>
     <Property name="TabPadding">16</Property>
     <Property name="HScroll">false</Property>

@@ -30,7 +30,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 destination_folder = "PowerChat"
 debug_compilation = true
-built_with_version = "1.70.282"
+built_with_version = "1.70.327"
 
 [files]
 sources = ["src/main.cbl"]
@@ -83,12 +83,6 @@ indexed = []
 [runtime]
 fixed_format = false
 
-# The application Knowledge Base embeds with the built-in semantic model
-# (multilingual-e5-small, the same one Grace uses), so a built PowerChat
-# links it. Run Form already carries it.
-[rag]
-embedder = "builtin"
-
 [ide]
 theme = "neumorphic-cobalt"
 background_image = ""
@@ -97,7 +91,7 @@ background_opacity = 70
 inspector_dump_enabled = true
 inspector_dump_path = "/tmp/prc_inspector_dump.txt"
 hide_ai_setup_prompt = false
-debug_watches = []
+debug_watches = ["WS-SAMPLES-DIR"]
 indexed_engine = ""
 
 [ide.theme_defaults]
@@ -565,3 +559,6 @@ For the FINAL assessment, END with exactly one fenced JSON block:
 google_search_engine_id = ""
 rest_connections = []
 search_connections = []
+
+[rag]
+embedder = "builtin"
