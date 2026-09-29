@@ -12151,10 +12151,13 @@ pane region — the menu and breadcrumb stay opaque.
 
 An Embedded form keeps the size you designed. The pane does **not** stretch to
 hold it and the form is **not** scaled down to fit — so if the form is larger
-than the pane, the surplus scrolls, and the scrollbars over a pane occupant are
-the thin floating kind that reserve no gutter. Nothing on screen announces that
-the form continues past the edge, so controls out there read as *missing*
-rather than as *off-screen*.
+than the pane, the surplus scrolls. The scrollbars float over the form and
+reserve no gutter, but they are **visible** whenever the form is larger than the
+pane — a thin handle along the pane's bottom (sideways) or right edge (up and
+down) that thickens under the pointer, so the operator can see the form
+continues and drag to it without a trackpad. Scrolling moves the form only: the
+SideMenu stands still, and whatever scrolls past the pane's left edge passes
+under the rail, never over it.
 
 Work out the pane before you design the form:
 

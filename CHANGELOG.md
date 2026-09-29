@@ -8,6 +8,22 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.348] — 2026-09-29
+
+### Fix — a form wider than its pane can be scrolled sideways, with a visible bar
+
+A form larger than the surface it runs in — a shell's ContentPane narrower
+than the Embedded form, or a window made smaller than its form — already
+scrolled, but its scroll bars were egui's floating kind, invisible until the
+pointer happened on the edge: nothing showed the form went on, and without a
+trackpad there was no way to reach it (operator, 2026-09-29: "we need to be
+able to scroll horizontally while the sidemenu stand still"). The bars still
+float over the form and take no room from its layout — no form moves — but
+their handle is now visible whenever there is something to scroll, and
+thicker (5 px) until hovered. The SideMenu is outside the pane's scroll area
+and stands still; with 1.70.347, what scrolls past the pane's edge passes
+under it.
+
 ## [PowerRustCOBOL 1.70.347] — 2026-09-29
 
 ### Fix — a form in a shell's pane no longer paints over the SideMenu

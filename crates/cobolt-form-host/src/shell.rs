@@ -2441,6 +2441,158 @@ mod tests {
         );
     }
 
+    /// A form wider than the pane shows a horizontal scroll bar — visible,
+    /// not hidden until the pointer finds it — and scrolling it moves the form
+    /// only: the SideMenu beside it paints exactly the same (operator,
+    /// 2026-09-29: "we need to be able to scroll horizontally while the
+    /// sidemenu stand still").
+    #[test]
+    fn a_wide_form_scrolls_sideways_under_a_visible_bar_and_the_rail_stands_still() {
+        use crate::host::{FormHostConfig, FormSource, NoHooks, Surface};
+        use std::collections::HashMap;
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        use std::sync::{mpsc, Arc};
+
+        fn program() -> cobolt_ast::program::Program {
+            let src = "IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.\n";
+            cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free))
+                .program
+                .expect("parses")
+        }
+        fn host_with(form_w: u32) -> crate::FormHost {
+            let source: FormSource = Box::new(move |id: &str| {
+                let up = id.trim().to_ascii_uppercase();
+                let mut f = cobolt_forms::Form::new(up.as_str(), up.as_str(), form_w, 400);
+                f.form_format = cobolt_forms::model::FormFormat::Embedded;
+                let mut c = cobolt_forms::Control::new("Btn-Far", cobolt_forms::ControlType::Button, 40, 40);
+                c.rect = cobolt_forms::model::Rect::new(form_w as i32 - 160, 40, 120, 40);
+                f.controls.push(c);
+                Ok((f, program()))
+            });
+            let form = cobolt_forms::Form::new("SHELL-FORM", "Shell", 1200, 700);
+            let (ev_tx, _ev_rx) = mpsc::channel();
+            let (input_tx, _input_rx) = mpsc::channel();
+            let (_state_tx, state_rx) = mpsc::channel();
+            let (_display_tx, display_rx) = mpsc::channel();
+            let (form_req_tx, form_req_rx) = mpsc::channel();
+            let (closed_tx, _closed_rx) = mpsc::channel();
+            let (mut host, _f) = crate::FormHost::new(FormHostConfig {
+                form,
+                flat: Vec::new(),
+                state: HashMap::new(),
+                ev_tx,
+                input_tx,
+                state_rx,
+                display_rx,
+                pending: Arc::new(AtomicUsize::new(0)),
+                finished: Arc::new(AtomicBool::new(false)),
+                form_req_rx,
+                closed_tx,
+                form_req_tx,
+                form_source: Some(source),
+                child_theme: None,
+                child_interpreter_setup: None,
+                shared_rust_bridge: None,
+                fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+                fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+                fx_restore: false,
+                theme_pack: None,
+                surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+                icon_path: None,
+                title_fallback: String::new(),
+                hooks: Box::new(NoHooks),
+                surface: Surface::Pane,
+            });
+            host.ensure_occupant("WIDE-FORM").expect("builds");
+            host.show_occupant(Some("WIDE-FORM"));
+            host
+        }
+        // Run frames (scrolling sideways on `scroll_at`), and report: the pane,
+        // the thin shapes lying along the pane's bottom edge (a horizontal bar),
+        // every shape visible left of the pane (the rail), and where the far
+        // button landed.
+        fn run(form_w: u32, scroll_at: Option<usize>) -> (Rect, usize, Vec<String>, Rect) {
+            let ctx = egui::Context::default();
+            let mut shell = Shell::default();
+            let mut host = host_with(form_w);
+            let mut last = None;
+            for frame in 0..8 {
+                let mut input = raw(Vec2::new(1200.0, 700.0));
+                // Over the pane while scrolling; then away, over the rail, so
+                // the bar is measured at rest — egui shows it on hover anyway.
+                let at = if frame < 5 { egui::pos2(700.0, 300.0) } else { egui::pos2(100.0, 300.0) };
+                input.events.push(egui::Event::PointerMoved(at));
+                // A second per frame, so every hover fade has finished.
+                input.time = Some(frame as f64);
+                if scroll_at == Some(frame) {
+                    input.events.push(egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: Vec2::new(-300.0, 0.0),
+                        modifiers: egui::Modifiers::NONE,
+                        phase: egui::TouchPhase::Move,
+                    });
+                }
+                let mut full = ctx.run_ui(input, |root_ui| {
+                    shell.show_with_host(root_ui, |_ui| {}, &mut host);
+                });
+                full.textures_delta.clear();
+                last = Some(full);
+            }
+            let pane = host.last_occupant_rect().expect("an occupant owns the pane");
+            let full = last.unwrap();
+            let mut bar = 0;
+            let mut rail = Vec::new();
+            for cs in &full.shapes {
+                let r = cs.shape.visual_bounding_rect().intersect(cs.clip_rect);
+                if !r.is_positive() {
+                    continue;
+                }
+                let visible = match &cs.shape {
+                    egui::Shape::Rect(rs) => rs.fill.a() > 0,
+                    _ => false,
+                };
+                if visible
+                    && r.min.x >= pane.min.x
+                    && r.height() >= 4.0
+                    && r.height() <= 12.0
+                    && r.width() >= 20.0
+                    && (pane.max.y - r.max.y).abs() <= 12.0
+                {
+                    bar += 1;
+                }
+                if r.max.x <= pane.min.x + 0.5 {
+                    rail.push(format!("{:?}", cs.shape));
+                }
+            }
+            let btn = host.last_control_rects()["Btn-Far"];
+            (pane, bar, rail, btn)
+        }
+
+        let (pane, bar_narrow, rail_still, _) = run(600, None);
+        assert!(pane.width() > 600.0, "premise: the pane ({:.0}) is wider than a 600 form", pane.width());
+        assert_eq!(bar_narrow, 0, "a form that fits shows no horizontal bar");
+
+        let (_, bar_wide, rail_before, btn_before) = run(1600, None);
+        assert!(bar_wide > 0, "a form wider than the pane shows its horizontal bar");
+
+        let (_, _, rail_after, btn_after) = run(1600, Some(2));
+        assert!(
+            btn_after.min.x < btn_before.min.x - 100.0,
+            "the form scrolls sideways: {:.0} -> {:.0}",
+            btn_before.min.x,
+            btn_after.min.x
+        );
+        assert_eq!(rail_after, rail_before, "the SideMenu stands still while the form scrolls");
+        assert_eq!(rail_before, rail_still, "and is the same whatever the form's width");
+        println!(
+            "pane {:.0} wide: 600-wide form -> {bar_narrow} bar shapes; 1600-wide form -> {bar_wide}; \
+             scrolled 300 px: form moved {:.0} px, rail's {} shapes unchanged",
+            pane.width(),
+            btn_before.min.x - btn_after.min.x,
+            rail_before.len()
+        );
+    }
+
     #[test]
     fn an_occupant_wider_than_the_pane_loses_its_right_hand_controls() {
         use crate::host::{FormHostConfig, FormSource, NoHooks, Surface};

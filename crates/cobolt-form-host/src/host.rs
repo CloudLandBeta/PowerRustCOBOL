@@ -263,6 +263,22 @@ pub(crate) fn fx_window_flags(entrance: &cobolt_forms::window_fx::FxSpec) -> (bo
 /// `disabled_alpha`, 0.5, inherited by every child `Ui`). The overlay is the
 /// deliberate "this form is waiting" signal and must paint at its designed
 /// strength whether or not the shell disabled the whole face above it.
+/// The scroll bars of a form's surface: floating — drawn over the form, taking
+/// no room from its layout, so no existing form moves — but with the handle
+/// VISIBLE whenever the form is larger than the surface. egui's floating
+/// style hides it until the pointer finds the edge, so a form wider than a
+/// shell's ContentPane showed no sign it could scroll sideways, and without a
+/// trackpad could not be (operator, 2026-09-29). The bars live inside the
+/// pane's own scroll area, so the SideMenu beside it never moves.
+pub(crate) fn form_scroll_style() -> egui::style::ScrollStyle {
+    let mut style = egui::style::ScrollStyle::floating();
+    // Visible at rest, and thick enough to find with the mouse: egui's
+    // floating bar is 2 px thin until hovered.
+    style.dormant_handle_opacity = 0.6;
+    style.floating_width = 5.0;
+    style
+}
+
 pub(crate) fn overlay_painter(ui: &egui::Ui) -> egui::Painter {
     ui.ctx()
         .layer_painter(ui.layer_id())
@@ -2714,7 +2730,7 @@ impl FormBody {
                         // below is the ONLY dimming (operator, 2026-09-19).
                         ui.set_opacity(1.0);
                     }
-                    ui.style_mut().spacing.scroll = egui::style::ScrollStyle::floating();
+                    ui.style_mut().spacing.scroll = form_scroll_style();
                     egui::ScrollArea::both()
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
@@ -5378,7 +5394,7 @@ impl FormHost {
                     // reserving a gutter, so no light track strip shows on the
                     // right/bottom edges when the form fits (only appears, as an
                     // overlay, if the user shrinks the resizable window).
-                    ui.style_mut().spacing.scroll = egui::style::ScrollStyle::floating();
+                    ui.style_mut().spacing.scroll = form_scroll_style();
                     let sa = egui::ScrollArea::both()
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
