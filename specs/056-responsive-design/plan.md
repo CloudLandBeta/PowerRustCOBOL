@@ -1,6 +1,6 @@
 # Plan — Responsive design (spec 056, revision 2)
 
-- **Status:** draft → awaiting approval (then `/tasks`)
+- **Status:** approved by the operator (2026-09-29)
 - **Spec:** ./spec.md (R1–R88, AC1–AC45)   **Date:** 2026-09-29
 - **Line:** `1.80.x` (local branch; pushed only when the operator allows)
 

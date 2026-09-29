@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.4] — 2026-09-29
+
+### Tasks — 056 Responsive design (plan approved)
+
+The operator approved `plan.md`. `specs/056-responsive-design/tasks.md` breaks
+it into 63 ordered tasks across the eleven phases, each naming the code it
+reads first, the files it touches, the requirements it satisfies and the exact
+verification; a coverage table maps every acceptance criterion (AC1–AC45) to
+its tasks. Two gates run throughout: the example-corpus golden (every
+PowerDemo3 and PowerChat form, their generated COBOL and their build/run tests)
+on every engine change, and the full test sweep at each phase's end. Tasks
+only; no code changes.
+
 ## [PowerRustCOBOL 1.80.3] — 2026-09-29
 
 ### Plan — 056 Responsive design
