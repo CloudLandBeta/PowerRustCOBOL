@@ -2711,6 +2711,7 @@
        01  WS-RESIZE-DATA.
            05  WS-DELTA                PIC S9(5) COMP-5 VALUE 0.
            05  WS-NEW-CHAT-HEIGHT      PIC S9(5) COMP-5 VALUE 0.
+           05  WS-NEW-CHAT-WIDTH       PIC S9(5) COMP-5 VALUE 0.
            05  WS-NEW-INPUT-Y          PIC S9(5) COMP-5 VALUE 0.
            05  WS-INPUT-HEIGHT         PIC S9(5) COMP-5 VALUE 0.
            05  WS-FORM-HEIGHT          PIC S9(5) COMP-5 VALUE 0.
@@ -2751,6 +2752,10 @@
                *> Keep Btn‑Send aligned with Txt‑Input
                SET Btn-Send::Y TO WS-NEW-INPUT-Y
            END-IF.
+
+           *> Horizontal: keep Vwr-Chat 25 px from right border
+           COMPUTE WS-NEW-CHAT-WIDTH = CHAT-FORM::Width - Vwr-Chat::X - 25.
+           SET Vwr-Chat::Width TO WS-NEW-CHAT-WIDTH.
 
            EXIT PROGRAM.]]></Event>
   </form-events>
@@ -3914,43 +3919,5 @@
            CALL "PC-SETTING-PUT"
            CALL "PC-RELABEL"
 ]]></Event>
-  </Control>
-  <Control id="Shape-1" type="Shape" x="288" y="96" w="888" h="544" tab-order="3" z-order="-1" visible="true" enabled="true">
-    <Property name="BackgroundColor">#00000000</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#000000</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="ShapeType">Rectangle</Property>
-    <Property name="FormStyle">false</Property>
-    <Property name="FillColor">#C0C0C0</Property>
-    <Property name="FillStyle">Solid</Property>
-    <Property name="LineColor">#000000</Property>
-    <Property name="LineThickness">1</Property>
-    <Property name="LineStyle">Solid</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
   </Control>
 </Form>

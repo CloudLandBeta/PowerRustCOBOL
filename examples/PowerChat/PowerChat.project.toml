@@ -30,7 +30,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 destination_folder = "PowerChat"
 debug_compilation = true
-built_with_version = "1.70.337"
+built_with_version = "1.70.342"
 
 [files]
 sources = ["src/main.cbl"]
