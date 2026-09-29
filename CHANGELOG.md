@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.1] — 2026-09-29
+
+### Spec — 056: every engine change is validated against PowerDemo3 and PowerChat
+
+The operator's golden rule for the line — do not break existing code — is now
+§4.16 of spec 056: a golden of all 62 forms of PowerDemo3 and PowerChat
+(rectangles, font sizes and a frame digest at three sizes) is captured before
+the first engine change and must be reproduced exactly by every later one; the
+examples' build and run tests stay green; their generated COBOL stays
+byte-identical; and each form turned responsive with default settings must
+render exactly as before. Spec only; no code changes.
+
 ## [PowerRustCOBOL 1.80.0] — 2026-09-29
 
 ### Spec — 056 Responsive design, revision 2 (draft), opening the 1.80.x line

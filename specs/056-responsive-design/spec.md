@@ -616,6 +616,43 @@ change them; it fixes their order.
   records the last full build, not the project's origin (§9 F28), and shall
   not be used to infer anything here.
 
+### 4.16 Validation against the example projects (operator's golden rule)
+
+> **Operator, 2026-09-29: the golden rule is not to break existing code. Every
+> change to the graphics engine made for this feature is validated against the
+> PowerDemo3 and PowerChat examples.** They are the product's two real
+> applications — 48 and 14 forms (`examples/PowerDemo3/forms`,
+> `examples/PowerChat/forms`, `.bak` files excluded) — and they exercise every
+> mechanism of §4.7: SideMenu shells, Splitters, repeating groups, AutoSize,
+> Viewers, charts, TabControls, child windows and COBOL-driven geometry.
+
+- **R78 (constraint):** No change to `cobolt-forms` (engine, paint, render,
+  layout), `cobolt-form-host` or the designer canvas shall be merged on the
+  1.80.x line unless the **example corpus** — every `.cfrm` of PowerDemo3 and
+  PowerChat — passes the checks of R79–R81 in the same change.
+- **R79 (constraint) — pixel parity of what exists:** a **golden** of the
+  corpus shall be captured on the line's base commit **before the first engine
+  change**: for every form, headless renders at three surface sizes (smaller
+  than, equal to and larger than designed) recording `control_rects`, the
+  effective font size of every control, and a shape-level digest of the frame.
+  Every later change shall reproduce the golden **exactly** for the corpus as
+  it is (no form responsive). A difference fails the change; a golden is
+  re-captured only when the operator accepts a named, intended visual change.
+- **R80 (constraint) — the programs still run:** the example tests that build
+  and run these projects shall stay green on every change —
+  `powerchat_compiles`, `powerchat_runs`, `props_demo_runs`, the
+  `*_demo_compiles` tests of `cobolt-ide`, and the PowerDemo3 form tests of
+  `cobolt-forms` and `cobolt-runtime` (`/plan` lists them all by reading
+  `crates/*/tests`); the forms' generated COBOL shall be byte-identical before
+  and after an engine change.
+- **R81 (constraint) — responsive on, nothing moves:** for every form of the
+  corpus, a copy with only `responsive="true"` added (default anchors,
+  `Absolute` containers, no overrides, `FontScaling = None`) shall render at its
+  designed size exactly as the golden does (R5), in every surface of R23.
+- **R82 (ubiquitous):** Each engine change shall report, in its test output,
+  the corpus it checked — forms, sizes, rectangles compared, differences
+  (GOLDEN RULE #7: quantified, human-readable results).
+
 ## 5. Acceptance criteria
 
 Each criterion is a test unless marked *(manual)*; the tasks phase turns them
@@ -625,11 +662,12 @@ into named tests. AC1–AC22 are revision 1's; revised ones are marked.
   `responsive == false`; one with `responsive="true"` loads true; saving writes
   the attribute only when true (so untouched forms stay byte-identical on
   save).
-- [ ] **AC2 (R3, G2)** — For every fixture form in the test corpus, rendering
-  headlessly at three surface sizes (smaller, equal, larger than designed) with
-  `responsive == false` yields `control_rects` identical to the pre-feature
-  engine (a golden captured before the change). Zero drift permitted. **This
-  is the first test written.**
+- [ ] **AC2 (R3, G2, R79)** — For **every form of PowerDemo3 and PowerChat**
+  and every fixture form in the test corpus, rendering headlessly at three
+  surface sizes (smaller, equal, larger than designed) with
+  `responsive == false` yields `control_rects`, font sizes and frame digest
+  identical to the pre-feature engine (a golden captured before the change).
+  Zero drift permitted. **This is the first test written.**
 - [ ] **AC3 (R5)** — A responsive form whose containers are `Absolute`, whose
   controls carry the default `Anchor`, with no overrides and `FontScaling =
   None`, renders identically to the non-responsive form at the designed size.
@@ -761,6 +799,17 @@ into named tests. AC1–AC22 are revision 1's; revised ones are marked.
   responsive" modifies no existing `.cfrm`; no project upgrade is offered for
   this feature; the compiler's manifest copy reads the key.
 
+- [ ] **AC36 (R78, R79)** — The golden of the 62 example forms exists on the
+  line before any engine change (its commit precedes the first engine commit)
+  and a test compares against it; `/analyze` checks the order.
+- [ ] **AC37 (R80)** — The example build/run tests listed in `plan.md` are green
+  on every commit that touches the engine, and the generated `.cbl` of both
+  projects is byte-identical to the base commit's.
+- [ ] **AC38 (R81)** — For each of the 62 forms, the `responsive="true"` copy at
+  its designed size equals the golden, on every surface of R23.
+- [ ] **AC39 (R82)** — The corpus test prints a summary block: forms checked,
+  sizes, rectangles and font sizes compared, differences (0 expected), timing.
+
 ## 6. Constraints & steering check
 
 - **i18n (6 languages):** new `Tr` fields for every label in AC19 —
@@ -785,6 +834,9 @@ into named tests. AC1–AC22 are revision 1's; revised ones are marked.
   criterion is ticked from a filtered grep (see the test-sweep rules in the
   project memory).
 - **Pixel parity (product promise):** R23/AC10 are the guard.
+- **Don't break existing code (operator's golden rule):** §4.16 — every engine
+  change is validated against the PowerDemo3 and PowerChat forms (golden
+  renders, their build/run tests, byte-identical generated COBOL).
 - **Rust only:** the layout function and all tests are Rust; no scripts in the
   tree.
 - **No self-resizing windows (GOLDEN RULE):** R18 sets a *minimum* inner size
@@ -859,8 +911,9 @@ be envious. Concretely, `/plan` must deliver, not merely permit:
 5. **Dock that composes** — sidebar + header + fill, in three clicks, nested
    in a Panel that is itself docked, holding a grid of cards that reflows from
    five columns to one.
-6. **Nothing breaks.** AC2's golden test is the promise to every existing
-   user, and it is the first test written.
+6. **Nothing breaks.** AC2's golden test over every form of PowerDemo3 and
+   PowerChat is the promise to every existing user, and it is the first test
+   written (§4.16).
 
 ## 9. Code read for this spec (evidence; `/plan` re-reads every one)
 
