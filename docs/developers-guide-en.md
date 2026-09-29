@@ -11180,8 +11180,8 @@ the run unit.
 
 Select the form itself (click empty canvas, or the form node), then open the
 **COBOL Structure** section in the property inspector. It lists the five shared
-blocks — each woven verbatim into the generated program in the correct
-division/section order — plus the form's user procedures:
+blocks, each woven verbatim into the generated program in the correct
+division/section order:
 
 
 | Block             | Goes into             | Use it for                                                                                        |
@@ -11195,13 +11195,17 @@ division/section order — plus the form's user procedures:
 Click a row to open a popup that edits **that one block**. The code box opens
 at about twelve lines and changes size only when you drag the grip in its
 bottom-right corner — the window follows the box, and neither ever grows on its
-own, however long the block is. User procedures are
-listed below the sections, **A–Z by name** — **➕ Add** creates one, the name
-and body are edited in the same popup, and 🗑 removes it. Once a form has
-procedures, a search box above the list narrows it to the names that contain
-what you type (case is ignored). Sorting the list does not reorder the
-procedures in the generated program: they are written in the order they were
-created, as before. Every edit marks the form dirty, so the
+own, however long the block is.
+
+User procedures have a tab of their own in the inspector, **User
+procedures**, after **Events** — the same list whichever control is selected,
+because the procedures belong to the form. They are listed **A–Z by name**;
+**➕ Add procedure** creates one, **Open** edits its name and body in the same
+popup, and 🗑 removes it. Once a form has procedures, a search box above the
+list narrows it to the names that contain what you type (case is ignored).
+Sorting the list does not reorder the procedures in the generated program:
+they are written in the order they were created, as before. Every edit marks
+the form dirty, so the
 next **Build / Run / Debug / Check** regenerates the `.cbl` with your changes.
 
 ### External switches and user-defined classes

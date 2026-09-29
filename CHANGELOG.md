@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.345] — 2026-09-29
+
+### User procedures get their own inspector tab
+
+The form's user procedures move out of the COBOL Structure section of the
+Visuals tab into a tab of their own, **User procedures**, placed after
+**Events** (operator, 2026-09-29). It shows the same A–Z, searchable list
+whichever control is selected, since the procedures belong to the form; the
+COBOL Structure section keeps its five blocks.
+
 ## [PowerRustCOBOL 1.70.344] — 2026-09-29
 
 ### The User procedures list is sorted A–Z and can be searched

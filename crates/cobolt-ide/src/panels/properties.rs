@@ -3628,6 +3628,10 @@ fn procedure_rows<'a>(
 enum InspectorTab {
     Visuals,
     Events,
+    /// The form's user procedures — a tab of their own, after Events
+    /// (operator, 2026-09-29). They belong to the form, so the tab shows the
+    /// same list whichever control is selected.
+    Procedures,
     Animations,
 }
 
@@ -3881,7 +3885,7 @@ impl PropertiesPanel {
             );
         });
         ui.separator();
-        self.show_tabs(ui);
+        self.show_tabs(ui, tr);
         self.property_split = self
             .property_split
             .clamp(72.0, ui.available_width().max(72.0));
@@ -4051,13 +4055,57 @@ impl PropertiesPanel {
             InspectorTab::Events => {
                 Self::show_events(ui, ctrl, &id, action, tr);
             }
+            InspectorTab::Procedures => {
+                self.show_user_procedures(ui, form, action, tr);
+            }
             InspectorTab::Animations => {
                 self.show_animations(ui, ctrl, &id, action, tr);
             }
         }
     }
 
-    fn show_tabs(&mut self, ui: &mut Ui) {
+    /// The User Procedures tab: the form's procedures A–Z, a search box once
+    /// there are any, and ➕ to add one. Moved here from the COBOL Structure
+    /// section of the form's Visuals tab (operator, 2026-09-29).
+    fn show_user_procedures(&mut self, ui: &mut Ui, form: &Form, action: &mut InspectorAction, tr: &Tr) {
+        use super::cobol_structure::CsTarget;
+        section_header(ui, tr.cs_user_procedures);
+        if ui
+            .small_button(format!("➕ {}", tr.cs_add_procedure))
+            .clicked()
+        {
+            action.cs_add_proc = true;
+        }
+        // A search box once there is a list to search, and the list
+        // itself A–Z (operator, 2026-09-29).
+        if !form.user_procedures.is_empty() {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.procedure_filter)
+                    .hint_text(tr.cs_search_procedures)
+                    .desired_width(f32::INFINITY),
+            );
+        }
+        let rows = procedure_rows(&form.user_procedures, &self.procedure_filter);
+        if rows.is_empty() && !form.user_procedures.is_empty() {
+            ui.label(egui::RichText::new(tr.cs_no_procedure_match).weak().italics());
+        }
+        for (i, name) in rows {
+            let name = if name.is_empty() { "(…)" } else { name };
+            property_row(ui, name, |ui| {
+                if ui.small_button("🗑").on_hover_text(tr.cs_delete).clicked() {
+                    action.cs_del_proc = Some(i);
+                }
+                if ui
+                    .selectable_label(false, egui::RichText::new("Open").monospace())
+                    .clicked()
+                {
+                    action.cs_open = Some(CsTarget::Procedure(i));
+                }
+            });
+        }
+    }
+
+    fn show_tabs(&mut self, ui: &mut Ui, tr: &Tr) {
         let theme = crate::theme::active();
         let fill = if theme.dark {
             Color32::from_rgba_unmultiplied(18, 22, 27, 160)
@@ -4073,6 +4121,7 @@ impl PropertiesPanel {
                     for (tab, label) in [
                         (InspectorTab::Visuals, "Visuals"),
                         (InspectorTab::Events, "Events"),
+                        (InspectorTab::Procedures, tr.cs_user_procedures),
                         (InspectorTab::Animations, "Animations"),
                     ] {
                         let selected = self.active_tab == tab;
@@ -10120,7 +10169,7 @@ impl PropertiesPanel {
     }
 
     fn show_form(&mut self, ui: &mut Ui, form: &Form, action: &mut InspectorAction, tr: &Tr) {
-        self.show_tabs(ui);
+        self.show_tabs(ui, tr);
         self.property_split = self
             .property_split
             .clamp(72.0, ui.available_width().max(72.0));
@@ -10144,7 +10193,7 @@ impl PropertiesPanel {
                 // List of sections + user procedures; clicking a row opens the popup
                 // editor for that single block.
                 section_header(ui, tr.sec_cobol_structure);
-                use super::cobol_structure::{section_text, CsTarget, SECTIONS};
+                use super::cobol_structure::{section_text, SECTIONS};
                 for t in SECTIONS {
                     let kw = t.section_keyword().unwrap_or("");
                     let filled = section_text(form, t)
@@ -10157,41 +10206,6 @@ impl PropertiesPanel {
                             .clicked()
                         {
                             action.cs_open = Some(t);
-                        }
-                    });
-                }
-                property_row(ui, tr.cs_user_procedures, |ui| {
-                    if ui
-                        .small_button(format!("➕ {}", tr.cs_add_procedure))
-                        .clicked()
-                    {
-                        action.cs_add_proc = true;
-                    }
-                });
-                // A search box once there is a list to search, and the list
-                // itself A–Z (operator, 2026-09-29).
-                if !form.user_procedures.is_empty() {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.procedure_filter)
-                            .hint_text(tr.cs_search_procedures)
-                            .desired_width(f32::INFINITY),
-                    );
-                }
-                let rows = procedure_rows(&form.user_procedures, &self.procedure_filter);
-                if rows.is_empty() && !form.user_procedures.is_empty() {
-                    ui.label(egui::RichText::new(tr.cs_no_procedure_match).weak().italics());
-                }
-                for (i, name) in rows {
-                    let name = if name.is_empty() { "(…)" } else { name };
-                    property_row(ui, name, |ui| {
-                        if ui.small_button("🗑").on_hover_text(tr.cs_delete).clicked() {
-                            action.cs_del_proc = Some(i);
-                        }
-                        if ui
-                            .selectable_label(false, egui::RichText::new("Open").monospace())
-                            .clicked()
-                        {
-                            action.cs_open = Some(CsTarget::Procedure(i));
                         }
                     });
                 }
@@ -11128,6 +11142,9 @@ impl PropertiesPanel {
                         }
                     });
                 }
+            }
+            InspectorTab::Procedures => {
+                self.show_user_procedures(ui, form, action, tr);
             }
             InspectorTab::Animations => {
                 section_header(ui, tr.sec_animations);
