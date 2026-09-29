@@ -470,7 +470,12 @@ impl Interpreter {
         self.kb_tools
             .iter()
             .filter(|t| t.agent == agent)
-            .map(|t| crate::agent_tools::ToolSpec {
+            .map(|t| {
+                // The default the call really gets is the control's
+                // `MaximumResults`; the description used to say 5 whatever it
+                // was set to.
+                let default = self.kb_config(&t.kb).max_results;
+                crate::agent_tools::ToolSpec {
                 name: t.name.clone(),
                 description: format!(
                     "Search the \"{}\" document collection. Returns the passages that best \
@@ -481,11 +486,11 @@ impl Interpreter {
                     "type": "object",
                     "properties": {
                         "query": {"type": "string", "description": "What to look for, in plain words"},
-                        "max_results": {"type": "integer", "description": "At most this many passages (default 5)"}
+                        "max_results": {"type": "integer", "description": format!("At most this many passages (default {default})")}
                     },
                     "required": ["query"]
                 }),
-            })
+            }})
             .collect()
     }
 }

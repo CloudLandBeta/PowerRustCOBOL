@@ -3560,7 +3560,7 @@
     <Property name="EmbeddingAPI">Ollama</Property>
     <Property name="EmbeddingModel">nomic-embed-text</Property>
     <Property name="WriteWaitMilliseconds">5000</Property>
-    <Property name="MaximumResults">5</Property>
+    <Property name="MaximumResults">12</Property>
     <Property name="ArchiveMaximumMegabytes">500</Property>
     <Property name="ArchiveMaximumFiles">10000</Property>
     <Property name="ArchiveMaximumDepth">3</Property>

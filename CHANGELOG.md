@@ -8,6 +8,25 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.346] — 2026-09-29
+
+### Fix — PowerChat answers from the whole document, not a tiny summary
+
+Reported: the Legal topic's document runs to about ten pages, yet every
+question came back as a short summary. The document is 89 sections of about
+370 characters; the chat's Knowledge Base handed the model at most **5**
+sections per search — about 2.5 KB of 33 KB — and the main prompt told the
+assistants to answer "briefly", which the composer then summarised again.
+
+- The chat's Knowledge Base now returns up to **12** sections per search.
+- The main prompt (`samples/main-prompt.md`, read by the chat on every
+  question) asks for complete answers: search more than once with different
+  words when needed, and give every rule, condition, exception, deadline,
+  amount and responsible party with the section it comes from — a new
+  ANSWERS block in SYSTEM, and ASSISTANT, TASK and COMPOSE rewritten to match.
+- The Knowledge Base search tool told the model "default 5" whatever the
+  control's `MaximumResults` was; it now states the real default.
+
 ## [PowerRustCOBOL 1.70.345] — 2026-09-29
 
 ### User procedures get their own inspector tab
