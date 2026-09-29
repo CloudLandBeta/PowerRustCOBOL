@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.3] — 2026-09-29
+
+### Plan — 056 Responsive design
+
+`specs/056-responsive-design/plan.md`: the design for spec 056 rev. 2, grounded
+in four surveys of the current code. A pure layout solver in `cobolt-forms`;
+each surface lays the form out before rendering, because the SideMenu rail,
+the Pane shift, the bar stretching and `onResize` all run before the engine
+today; the engine itself changes only by an AutoSize gate and one font
+resolver; non-responsive forms take no new path. Eleven phases, the first a
+golden of every PowerDemo3 and PowerChat form (rectangles, font sizes, shape
+digests, generated COBOL) that every later phase must reproduce. Plan only; no
+code changes.
+
 ## [PowerRustCOBOL 1.80.2] — 2026-09-29
 
 ### Spec — 056: every property designable and programmable, no static values; the operator's layout decisions
