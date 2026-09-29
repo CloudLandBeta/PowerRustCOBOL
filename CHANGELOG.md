@@ -8,6 +8,22 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.343] — 2026-09-29
+
+### Fix — collapsing a SideMenu does not resize the form's controls
+
+Since 1.70.341 a SideMenu form hears its window being resized. But a rail
+toggle resizes the window too — by the rail's width, precisely so the
+ContentPane keeps its size — and that was reported as an `onResize` with the
+narrower window's `Width`: PowerChat's handler, which keeps the chat 25 px
+from the right edge, shrank it by the rail's width on every collapse
+(operator, 2026-09-29). In a shell the form's size is now its ContentPane
+plus the rail's designed column — the coordinates its controls were designed
+in — which a rail toggle leaves as it was, so nothing fires. A real window
+resize reports that size. And a resize that settles where the last one did
+— the pane wobbling for a frame while the window catches up — raises no
+`onResize`.
+
 ## [PowerRustCOBOL 1.70.342] — 2026-09-29
 
 ### Fix — a PDF chosen in the Save panel is written at once

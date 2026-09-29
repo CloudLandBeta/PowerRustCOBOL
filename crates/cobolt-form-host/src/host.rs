@@ -589,6 +589,8 @@ impl FormHost {
             system_theme_actual: None,
             dpi_actual: None,
             window_size_actual: None,
+            window_size_reported: None,
+            rail_dx: side_dx as f32,
             window_pos_actual: None,
             resize_pending: false,
             move_pending: false,
@@ -3086,6 +3088,13 @@ pub struct FormHost {
     /// split `onResize` / `onResized`; the form catalogue offers `onResizing`
     /// instead, so the base name is the settled one here.)
     window_size_actual: Option<egui::Vec2>,
+    /// The size the last `onResize` reported. A drag that ends where it began
+    /// — or a pane that wobbles for a frame while the shell resizes its window
+    /// for a rail toggle — settles on no change, and raises nothing.
+    window_size_reported: Option<egui::Vec2>,
+    /// In a shell, the rail's DESIGNED width: the form's size in its own
+    /// coordinates is the ContentPane plus this column (0 in a window).
+    rail_dx: f32,
     window_pos_actual: Option<egui::Pos2>,
     /// A resize/move is in flight and its settle event is still owed.
     resize_pending: bool,
@@ -4937,8 +4946,20 @@ impl FormHost {
             };
             let (inner, outer) =
                 ctx.input(|i| (i.viewport().inner_rect, i.viewport().outer_rect));
-            if let Some(rect) = inner {
-                let size = rect.size();
+            // In a shell the form's size is its ContentPane plus the rail's
+            // designed column — the coordinates the form was designed in, and
+            // the ones its controls' X and Width are in. NOT the window: a
+            // rail toggle resizes the window by the rail's width precisely so
+            // the pane keeps its own, and reporting the window made every
+            // collapse an `onResize` that shrank the controls by the rail's
+            // width (operator, 2026-09-29).
+            let form_size = if self.surface == Surface::Pane {
+                let pane = root_ui.available_rect_before_wrap().size();
+                Some(egui::vec2(pane.x + self.rail_dx, pane.y))
+            } else {
+                inner.map(|r| r.size())
+            };
+            if let Some(size) = form_size {
                 match self.window_size_actual {
                     Some(was) if (was - size).length() > 0.5 => {
                         self.window_size_actual = Some(size);
@@ -4948,10 +4969,19 @@ impl FormHost {
                     }
                     Some(_) if self.resize_pending => {
                         self.resize_pending = false;
-                        mirror_size(size);
-                        raise("onResize");
+                        let moved = self
+                            .window_size_reported
+                            .is_none_or(|r| (r - size).length() > 0.5);
+                        if moved {
+                            self.window_size_reported = Some(size);
+                            mirror_size(size);
+                            raise("onResize");
+                        }
                     }
-                    None => self.window_size_actual = Some(size),
+                    None => {
+                        self.window_size_actual = Some(size);
+                        self.window_size_reported = Some(size);
+                    }
                     _ => {}
                 }
             }
@@ -9097,44 +9127,72 @@ mod parity {
     /// Twenty-one events that were designable and never sent. Each is driven
     /// here through the real input path, and the steady state is checked too:
     /// these are edges and gestures, not per-frame chatter.
-    /// A shell's main form owns the shell's window, so dragging that window's
-    /// edge raises its `onResizing`/`onResize` with the new size — as a form
-    /// in a window of its own does. They were behind a Window-only guard, and
-    /// PowerChat's CHAT-FORM `onResize` never ran (operator, 2026-09-29).
+    /// A shell's main form hears its window being resized — as a form in a
+    /// window of its own does — with the size of what it lays out in: the
+    /// ContentPane (plus the rail's designed column). They were behind a
+    /// Window-only guard, and PowerChat's CHAT-FORM `onResize` never ran
+    /// (operator, 2026-09-29). And a rail toggle, which resizes the WINDOW by
+    /// the rail's width so the pane keeps its own, is not a resize of the form
+    /// at all: reported as one, a collapse shrank the controls a handler laid
+    /// out from `Width` (operator, same day).
     #[test]
-    fn a_shell_form_hears_its_window_resize() {
+    fn a_shell_form_hears_its_pane_resize_and_not_a_rail_toggle() {
         let (mut app, pipes) = host_with_surface("none:0:linear", "none:0:linear", false, Surface::Pane);
         let ctx = egui::Context::default();
         app.fx_entrance_done = true;
         app.root.anim_started = true;
         app.root.lifecycle_sent = true;
-        let sized = |w: f32| egui::ViewportInfo {
-            focused: Some(true),
-            inner_rect: Some(egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(w, 600.0))),
-            outer_rect: Some(egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(w, 600.0))),
-            ..Default::default()
-        };
-        let mut step = |app: &mut FormHost, info: egui::ViewportInfo| {
+        // `pane` is what the shell leaves the form; `window` the OS window.
+        let mut step = |app: &mut FormHost, pane_w: f32, window_w: f32| {
             let mut input = raw();
-            input.viewports.insert(egui::ViewportId::ROOT, info);
+            input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(pane_w, 600.0)));
+            input.viewports.insert(
+                egui::ViewportId::ROOT,
+                egui::ViewportInfo {
+                    focused: Some(true),
+                    inner_rect: Some(egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(window_w, 600.0))),
+                    ..Default::default()
+                },
+            );
             frame(app, &ctx, input);
         };
         let names = |pipes: &Pipes| -> Vec<String> {
             drain_events(pipes).into_iter().map(|(_, e)| e).filter(|e| e.starts_with("onResiz")).collect()
         };
-        step(&mut app, sized(800.0));
-        let _ = names(&pipes);
-        step(&mut app, sized(900.0));
+        let sizes = |pipes: &Pipes| -> Vec<(String, String)> {
+            pipes
+                ._input_rx
+                .try_iter()
+                .filter(|u| u.prop == "Width" || u.prop == "Height")
+                .map(|u| (u.prop, u.value))
+                .collect()
+        };
+        step(&mut app, 800.0, 1064.0);
+        let _ = (names(&pipes), sizes(&pipes));
+
+        // The rail collapses: the window gives back its width, the pane stays.
+        step(&mut app, 800.0, 864.0);
+        step(&mut app, 800.0, 864.0);
+        assert!(names(&pipes).is_empty(), "a rail toggle is not a resize of the form");
+        assert!(sizes(&pipes).is_empty(), "…and changes no size the form reads");
+
+        // The operator drags the window wider: the pane grows with it.
+        step(&mut app, 900.0, 964.0);
         assert_eq!(names(&pipes), ["onResizing"]);
-        step(&mut app, sized(900.0));
+        step(&mut app, 900.0, 964.0);
         assert_eq!(names(&pipes), ["onResize"]);
-        let height: Vec<String> = pipes
-            ._input_rx
-            .try_iter()
-            .filter(|u| u.prop == "Height")
-            .map(|u| u.value)
-            .collect();
-        assert_eq!(height.last().map(String::as_str), Some("600"), "the handler reads the size");
+        let last = sizes(&pipes);
+        assert_eq!(
+            &last[last.len() - 2..],
+            &[("Width".to_string(), "900".to_string()), ("Height".to_string(), "600".to_string())],
+            "the handler reads the pane's size"
+        );
+
+        // A pane that wobbles for a frame and comes back settles on no change.
+        step(&mut app, 964.0, 964.0);
+        step(&mut app, 900.0, 964.0);
+        step(&mut app, 900.0, 964.0);
+        assert_eq!(names(&pipes), ["onResizing", "onResizing"], "no onResize for a size it already reported");
     }
 
     #[test]

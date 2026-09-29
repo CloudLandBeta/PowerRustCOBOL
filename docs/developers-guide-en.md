@@ -5790,7 +5790,10 @@ In words:
 >   `onShow`/`onActivate` (when the run window first appears) and `onResize`
 >   (when its size changes: `onResizing` repeats while the window is dragged,
 >   `onResize` fires once when it settles) — a form holding a `SideMenu`
->   hears them too, because its window is the shell. Both find the new size
+>   hears them too, because its window is the shell. Its size there is its
+>   content pane plus the rail's designed width — the coordinates its controls
+>   were designed in — so collapsing or opening the rail, which resizes the
+>   window to keep the pane as it was, is not a resize. Both find the new size
 >   already in the form's `Width` and `Height`, so the handler lays out from
 >   them:
 >
