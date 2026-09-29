@@ -8,6 +8,33 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.337] — 2026-09-28
+
+### Fix — a form's onResize handler reads the new size, and Grace's handlers are compile-checked
+
+The operator asked Grace for an `onResize` handler that lays out PowerChat's
+chat form. Three things went wrong, and each is fixed:
+
+- **The handler could not see the new size.** The run window raised
+  `onResizing`/`onResize` but never told the program the size it had
+  reached, so `CHAT-FORM::Height` stayed at the designed height and a
+  handler computing from it moved nothing. The window's `Width` and `Height`
+  are now set on the form before each of the two events, the way
+  `FullScreen` is before `onFullScreenChanged`.
+- **A form handler was never compile-checked.** Grace compiles every
+  change-set before it is applied, but that check looked for a *control*
+  named like the form, found none, and compiled the form without the
+  handler. It also found no form at all when the task named it as the form
+  names itself (`CHAT-FORM` for `chat-form.cfrm`). Both are fixed, so the
+  handler Grace applied — periods inside `IF … END-IF`, which leave the
+  `END-IF` orphaned — is now sent back with the parser's error instead.
+- **`Form::onResized` was refused.** A control's pair is
+  `onResize`/`onResized`; the form's is `onResizing`/`onResize`. A handler
+  for the form's `onResized` (or `onMoved`) is now filed under `onResize`
+  (`onMove`), which is what it means.
+
+The System KB says how the form's resize events carry the size.
+
 ## [PowerRustCOBOL 1.70.336] — 2026-09-28
 
 ### Fix — the Viewer's text selects in any column, and Cmd/Ctrl+C copies it

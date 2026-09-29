@@ -2792,8 +2792,35 @@ fn resolve_task_form(project_dir: Option<&Path>, objective: &str) -> Option<cobo
     let dir = project_dir?;
     let candidates =
         crate::project_model::recursive_category_files(dir, crate::project_model::Category::Forms);
-    let matched = crate::project_model::best_resource_match(objective, &candidates)?;
+    let matched = task_form_match(objective, &candidates)?;
     cobolt_forms::xml::load_form(&dir.join(matched)).ok()
+}
+
+/// The form file an objective names: first by its NAME — a word of the
+/// objective equal to a file's stem, ignoring case and punctuation, so
+/// "CHAT-FORM" finds `chat-form.cfrm` — then by the fuzzy path match.
+///
+/// The fuzzy match compares a word against the file name WITH its `.cfrm`,
+/// and "chatform" is four edits from "chatformcfrm" against a limit of two.
+/// Grace names a form the way the form names itself, so the compile gate found
+/// no form, said nothing, and a handler whose periods closed its IF early was
+/// applied as written (operator, 2026-09-28).
+fn task_form_match<'a>(objective: &str, candidates: &'a [String]) -> Option<&'a str> {
+    let norm = |s: &str| {
+        s.chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .flat_map(|c| c.to_lowercase())
+            .collect::<String>()
+    };
+    let words: Vec<String> = objective.split_whitespace().map(norm).filter(|w| !w.is_empty()).collect();
+    candidates
+        .iter()
+        .find(|c| {
+            let stem = Path::new(c.as_str()).file_stem().and_then(|s| s.to_str()).map(norm);
+            stem.is_some_and(|stem| words.contains(&stem))
+        })
+        .map(String::as_str)
+        .or_else(|| crate::project_model::best_resource_match(objective, candidates))
 }
 
 /// Compile the change-set against the form the task targets and return the hard
@@ -2849,7 +2876,7 @@ fn resolve_task_form_context(project_dir: Option<&Path>, objective: &str) -> Opt
     let dir = project_dir?;
     let candidates =
         crate::project_model::recursive_category_files(dir, crate::project_model::Category::Forms);
-    let matched = crate::project_model::best_resource_match(objective, &candidates)?;
+    let matched = task_form_match(objective, &candidates)?;
     let abs = dir.join(matched);
     let form = cobolt_forms::xml::load_form(&abs).ok()?;
     Some(crate::agent::build_context(&form))
@@ -5940,5 +5967,21 @@ mod change_accountability_tests {
     fn the_contract_forbids_inventing_a_reason() {
         assert!(RESPONSE_ROUTING_CONTRACT.contains("no record of that change"));
         assert!(RESPONSE_ROUTING_CONTRACT.contains("an invented reason is worse than an absent one"));
+    }
+}
+
+#[cfg(test)]
+mod task_form_match_tests {
+    use super::task_form_match;
+
+    /// Grace names a form the way the form names itself — "CHAT-FORM" — and
+    /// that has to find `chat-form.cfrm`, or the compile gate checks nothing.
+    #[test]
+    fn a_form_named_as_it_names_itself_is_found() {
+        let forms = vec!["forms/agents-form.cfrm".to_string(), "forms/chat-form.cfrm".to_string()];
+        let objective = "Implement the onResize event handler for CHAT-FORM according to the provided algorithm";
+        assert_eq!(task_form_match(objective, &forms), Some("forms/chat-form.cfrm"));
+        assert_eq!(task_form_match("Inspect forms/agents-form.cfrm", &forms), Some("forms/agents-form.cfrm"));
+        assert_eq!(task_form_match("Rename a button", &forms), None);
     }
 }

@@ -4684,6 +4684,7 @@ impl FormHost {
             let on_background = pointer_pos.is_some() && !over_control;
 
             let form = self.root.form_object.clone();
+            let input_tx = self.root.input_tx.clone();
             let mut raise = |ev: &str| {
                 self.root.send_event(FormEvent::new(form.clone(), ev));
             };
@@ -4725,6 +4726,21 @@ impl FormHost {
 
             // Size and position. The progressive name repeats while the drag is
             // in flight; the base name fires once when it settles.
+            //
+            // The new size is mirrored onto the form object first, the way
+            // FullScreen is, so the handler reads it: `me::Height` used to stay
+            // the designed height, and a handler laying the form out from it
+            // computed a change of zero (operator, 2026-09-28).
+            let mirror_size = |size: egui::Vec2| {
+                for (prop, v) in [("Width", size.x), ("Height", size.y)] {
+                    let _ = input_tx.send(StateUpdate {
+                        ctrl_id: form.clone(),
+                        prop: prop.into(),
+                        value: format!("{}", v.round() as i64),
+                        instance_index: 0,
+                    });
+                }
+            };
             let (inner, outer) =
                 ctx.input(|i| (i.viewport().inner_rect, i.viewport().outer_rect));
             if let Some(rect) = inner {
@@ -4733,10 +4749,12 @@ impl FormHost {
                     Some(was) if (was - size).length() > 0.5 => {
                         self.window_size_actual = Some(size);
                         self.resize_pending = true;
+                        mirror_size(size);
                         raise("onResizing");
                     }
                     Some(_) if self.resize_pending => {
                         self.resize_pending = false;
+                        mirror_size(size);
                         raise("onResize");
                     }
                     None => self.window_size_actual = Some(size),
@@ -8984,10 +9002,24 @@ mod parity {
             egui::pos2(0.0, 0.0),
             egui::vec2(900.0, 600.0),
         ));
+        // Each carries the new size on the form object, sent before the
+        // event, so the handler reads it.
+        let sizes = |pipes: &Pipes| -> Vec<(String, String)> {
+            pipes
+                ._input_rx
+                .try_iter()
+                .filter(|u| u.prop == "Width" || u.prop == "Height")
+                .map(|u| (u.prop, u.value))
+                .collect()
+        };
+        let _ = sizes(&pipes);
+        let resized = vec![("Width".to_string(), "900".to_string()), ("Height".to_string(), "600".to_string())];
         step(&mut app, bigger.clone(), &nothing);
         assert_eq!(names(&pipes), ["onResizing"], "while the size is changing");
+        assert_eq!(sizes(&pipes), resized, "the handler reads the size it is resizing to");
         step(&mut app, bigger.clone(), &nothing);
         assert_eq!(names(&pipes), ["onResize"], "…and once when it settles");
+        assert_eq!(sizes(&pipes), resized, "…and the size it settled at");
         step(&mut app, bigger.clone(), &nothing);
         assert!(names(&pipes).is_empty(), "a settled window repeats nothing");
 

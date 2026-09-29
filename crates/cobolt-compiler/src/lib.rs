@@ -4648,7 +4648,10 @@ nothing will ever call it.
   `onDeactivated`, `onGotFocus`, `onLostFocus`
 - **Window State** — `onResize`, `onResizing`, `onMove`, `onMoving`,
   `onMinimize`, `onMaximize`, `onRestore`, `onFullscreen`, `onExitFullscreen`,
-  `onFullScreenChanged`
+  `onFullScreenChanged`. `onResizing` repeats while the window is dragged and
+  `onResize` fires once when it settles — the form's counterpart of a
+  control's `onResized`. Both find the new size already in the form's `Width`
+  and `Height`, so a handler lays the controls out from those.
 - **Appearance** — `onThemeChanged`, `onDpiChanged`
 - **Mouse** — `onClick`, `onDoubleClick`, `onMouseDown`, `onMouseUp`,
   `onMouseMove`, `onMouseEnter`, `onMouseLeave`, `onMouseWheel`, `onContextMenu`

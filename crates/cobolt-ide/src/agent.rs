@@ -436,6 +436,27 @@ pub fn discarded_ops(cs: &AgentChangeSet, form: &Form) -> Vec<String> {
         .collect()
 }
 
+/// The event a handler for `control_id` is filed under: `event` itself, except
+/// that the FORM takes a control's past-tense geometry names for its own.
+///
+/// A control has `onResize`/`onResized` and `onMove`/`onMoved`; the form has
+/// `onResizing`/`onResize` and `onMoving`/`onMove`, its base name firing once
+/// the drag settles — which is what a control's `onResized` means. An agent
+/// that carried a control's spelling to the form was refused with "The form
+/// has no event 'onResized'" while the Events panel it had just read listed
+/// `onResized` (operator, 2026-09-28).
+pub(crate) fn canonical_event<'a>(form_name: &str, control_id: &str, event: &'a str) -> &'a str {
+    if is_form_id(form_name, control_id) {
+        if event.eq_ignore_ascii_case("onResized") {
+            return "onResize";
+        }
+        if event.eq_ignore_ascii_case("onMoved") {
+            return "onMove";
+        }
+    }
+    event
+}
+
 pub(crate) fn is_form_id(form_name: &str, id: &str) -> bool {
     id.is_empty() || id.eq_ignore_ascii_case("Form") || id.eq_ignore_ascii_case(form_name)
 }
@@ -825,6 +846,7 @@ fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>, form_name
             // (operator, 2026-09-07: "why is grace not doing what she said she
             // did?").
             let base = if is_form_id(form_name, control_id) {
+                let event = canonical_event(form_name, control_id, event);
                 cobolt_forms::model::form_supported_events()
                     .any(|e| e.eq_ignore_ascii_case(event))
                     .then_some(None)
@@ -3216,6 +3238,21 @@ mod tests {
                 "form event handler refused for control_id {id:?}"
             );
         }
+
+        // A control's past-tense geometry names reach the form's own events.
+        for (asked, filed) in [("onResized", "onResize"), ("onMoved", "onMove")] {
+            let cs = AgentChangeSet {
+                note: None,
+                operations: vec![AgentOp::GenerateEventHandler {
+                    control_id: "Form".into(),
+                    event: asked.into(),
+                    code: body.into(),
+                }],
+            };
+            assert_eq!(validate(&cs, &form)[0], None, "Form::{asked} refused");
+            assert_eq!(canonical_event(&form.name, "Form", asked), filed);
+        }
+        assert_eq!(canonical_event(&form.name, "Btn1", "onResized"), "onResized");
 
         // An event the FORM does not have is still refused — and named as the
         // form's, not as some control's.

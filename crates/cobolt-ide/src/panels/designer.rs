@@ -3597,6 +3597,8 @@ impl DesignerPanel {
                     event,
                     code,
                 } => {
+                    let event = &crate::agent::canonical_event(&self.form.name, control_id, event)
+                        .to_string();
                     // Snapshot from wherever the binding actually lives, or
                     // undo restores nothing for a form-level handler.
                     let old = if crate::agent::is_form_id(&self.form.name, control_id) {

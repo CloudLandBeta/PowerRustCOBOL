@@ -118,7 +118,26 @@ pub fn apply_for_probe(form: &mut Form, cs: &AgentChangeSet) {
                 event,
                 code,
             } => {
-                if let Some(c) = form
+                // A FORM handler lives in `form_events`, where the designer
+                // files it. The probe used to look for a control of the form's
+                // name, find none and compile the form without the handler, so
+                // a form handler's defects were never seen (operator,
+                // 2026-09-28: an onResize whose periods closed its IF early).
+                if crate::agent::is_form_id(&form.name, control_id) {
+                    let event = crate::agent::canonical_event(&form.name, control_id, event);
+                    let body = crate::llm::normalize_comments(code);
+                    match form.form_events.iter_mut().find(|b| b.event.eq_ignore_ascii_case(event)) {
+                        Some(b) => b.code = body,
+                        None => {
+                            let paragraph = cobolt_forms::model::derive_paragraph_name(&form.name, event);
+                            form.form_events.push(cobolt_forms::model::EventBinding {
+                                event: event.to_string(),
+                                paragraph,
+                                code: body,
+                            });
+                        }
+                    }
+                } else if let Some(c) = form
                     .controls
                     .iter_mut()
                     .find(|c| c.id.eq_ignore_ascii_case(control_id))
@@ -202,7 +221,7 @@ pub fn compile_defects(
         .iter()
         .filter(|d| d.severity == cobolt_parser::Severity::Error)
         .map(|d| CompileDefect {
-            op: attribute(cs, &map, d.span.line),
+            op: attribute(cs, &probe.name, &map, d.span.line),
             message: d.message.clone(),
         })
         .collect();
@@ -217,7 +236,7 @@ pub fn compile_defects(
                     .iter()
                     .filter(|d| d.severity == cobolt_semantic::Severity::Error)
                     .map(|d| CompileDefect {
-                        op: attribute(cs, &map, d.span.line),
+                        op: attribute(cs, &probe.name, &map, d.span.line),
                         message: d.message.clone(),
                     }),
             );
@@ -235,7 +254,12 @@ pub fn compile_defects(
 /// whatever program happened to precede them had codegen ever reordered. A
 /// line the map does not cover is generated scaffolding and belongs to no
 /// operation.
-fn attribute(cs: &AgentChangeSet, map: &cobolt_codegen::SourceMap, line: u32) -> Option<String> {
+fn attribute(
+    cs: &AgentChangeSet,
+    form_name: &str,
+    map: &cobolt_codegen::SourceMap,
+    line: u32,
+) -> Option<String> {
     use cobolt_forms::code_site::CodeSite;
     let (site, _site_line) = map.resolve(line)?;
 
@@ -249,6 +273,14 @@ fn attribute(cs: &AgentChangeSet, map: &cobolt_codegen::SourceMap, line: u32) ->
                 event: site_event,
             },
         ) => (site_id.eq_ignore_ascii_case(control_id) && site_event.eq_ignore_ascii_case(event))
+            .then(|| format!("generate_event_handler {control_id}.{event}")),
+        (
+            AgentOp::GenerateEventHandler {
+                control_id, event, ..
+            },
+            CodeSite::FormEvent { event: site_event },
+        ) => (crate::agent::is_form_id(form_name, control_id)
+            && site_event.eq_ignore_ascii_case(crate::agent::canonical_event(form_name, control_id, event)))
             .then(|| format!("generate_event_handler {control_id}.{event}")),
         (AgentOp::CreateProcedure { name, .. }, CodeSite::Procedure { name: site_name }) => {
             site_name
@@ -271,6 +303,35 @@ mod tests {
     fn form() -> Form {
         Form::new("CHECKBOXES-FORM", "Checkboxes", 640, 480)
     }
+
+    /// Grace's own onResize handler for PowerChat's chat form, as submitted
+    /// (operator, 2026-09-28): periods inside `IF … END-IF`. The first one
+    /// ends the IF, and the `END-IF` is left with nothing to close. The gate
+    /// must prove it, not leave it to a reviewer that may not be configured.
+    #[test]
+    fn a_period_inside_an_if_is_a_defect() {
+        let mut form = Form::new("CHAT-FORM", "Chat", 1350, 792);
+        for (id, ct) in [("Vwr-Chat", ControlType::Viewer), ("Txt-Input", ControlType::TextBox), ("Btn-Send", ControlType::Button)] {
+            form.controls.push(Control::new(id, ct, 0, 0));
+        }
+        let cs = parse_change_set(SUBMITTED).unwrap();
+        let defects = compile_defects(&form, &[], &cs);
+        assert!(
+            defects.iter().any(|d| d.op.as_deref() == Some("generate_event_handler CHAT-FORM.onResize")),
+            "the stray END-IF must be charged to the handler: {defects:?}"
+        );
+    }
+
+    const SUBMITTED: &str = r#"{
+  "operations": [
+    {
+      "op": "generate_event_handler",
+      "control_id": "CHAT-FORM",
+      "event": "onResize",
+      "code": "       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n       01  WS-RESIZE-DATA.\n           05  WS-DELTA                PIC S9(5) COMP-5 VALUE 0.\n           05  WS-NEW-CHAT-HEIGHT      PIC S9(5) COMP-5 VALUE 0.\n           05  WS-NEW-INPUT-Y          PIC S9(5) COMP-5 VALUE 0.\n           05  WS-INPUT-HEIGHT         PIC S9(5) COMP-5 VALUE 0.\n           05  WS-FORM-HEIGHT          PIC S9(5) COMP-5 VALUE 0.\n           05  WS-SUM                  PIC S9(5) COMP-5 VALUE 0.\n           05  WS-THRESH               PIC S9(5) COMP-5 VALUE 0.\n\n       PROCEDURE DIVISION.\n       MAIN SECTION.\n           *> Compute delta from design‑time height (792)\n           COMPUTE WS-DELTA = CHAT-FORM::Height - 792.\n\n           *> Adjust Vwr-Chat height\n           COMPUTE WS-NEW-CHAT-HEIGHT = 544 + WS-DELTA.\n           SET Vwr-Chat::Height TO WS-NEW-CHAT-HEIGHT.\n\n           *> Adjust Txt-Input Y position\n           COMPUTE WS-NEW-INPUT-Y = 660 + WS-DELTA.\n           SET Txt-Input::Y TO WS-NEW-INPUT-Y.\n\n           *> Align Btn‑Send Y with Txt‑Input\n           SET Btn-Send::Y TO WS-NEW-INPUT-Y.\n\n           *> Prepare values for conditional correction\n           MOVE Txt-Input::Height TO WS-INPUT-HEIGHT.\n           MOVE CHAT-FORM::Height TO WS-FORM-HEIGHT.\n           COMPUTE WS-SUM = WS-NEW-INPUT-Y + WS-INPUT-HEIGHT.\n           COMPUTE WS-THRESH = WS-FORM-HEIGHT - 25.\n\n           IF WS-SUM > WS-THRESH\n               *> Re‑position Txt‑Input to stay within bottom margin\n               COMPUTE WS-NEW-INPUT-Y = WS-FORM-HEIGHT - (WS-INPUT-HEIGHT + 25).\n               SET Txt-Input::Y TO WS-NEW-INPUT-Y.\n\n               *> Re‑size Vwr‑Chat based on new Txt‑Input Y\n               COMPUTE WS-NEW-CHAT-HEIGHT = WS-NEW-INPUT-Y - 20 - 96.\n               SET Vwr-Chat::Height TO WS-NEW-CHAT-HEIGHT.\n\n               *> Keep Btn‑Send aligned with Txt‑Input\n               SET Btn-Send::Y TO WS-NEW-INPUT-Y.\n           END-IF.\n\n           EXIT PROGRAM."
+    }
+  ]
+}"#;
 
     /// A clean change-set must produce ZERO defects. A false positive here is
     /// worse than the gap this closes, because it burns the correction budget

@@ -5788,7 +5788,22 @@ In words:
 >   focus change is never coalesced.
 > - **Form-level** fires `onLoad`/`onClose` (at start-up / shutdown),
 >   `onShow`/`onActivate` (when the run window first appears) and `onResize`
->   (when its size changes).
+>   (when its size changes: `onResizing` repeats while the window is dragged,
+>   `onResize` fires once when it settles). Both find the new size already in
+>   the form's `Width` and `Height`, so the handler lays out from them:
+>
+>   ```cobol
+>       *> CHAT-FORM onResize: the chat grows with the window,
+>       *> the question box stays 24 px above the bottom edge.
+>           COMPUTE WS-INPUT-Y = CHAT-FORM::Height - Txt-Input::Height - 24
+>           MOVE WS-INPUT-Y TO Txt-Input::Y
+>           MOVE WS-INPUT-Y TO Btn-Send::Y
+>           COMPUTE WS-CHAT-H = WS-INPUT-Y - Vwr-Chat::Y - 20
+>           MOVE WS-CHAT-H TO Vwr-Chat::Height
+>   ```
+>
+>   ⚠️ No period inside an `IF … END-IF`: the first one ends the `IF`, and
+>   the `END-IF` is left with nothing to close.
 >
 > Events with no engine behind them (drag-and-drop, column sorting/resizing,
 > chart zoom, tree-node expand/checkbox states…) are no longer listed in the
