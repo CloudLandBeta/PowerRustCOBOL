@@ -4563,6 +4563,12 @@ impl FormHost {
         // 051 — the children pass: finished interpreters release their
         // handles; every child viewport is re-declared for this frame.
         self.update_children(ctx);
+        // Each child window published ITS theme on the shared context before
+        // painting, so the root's goes back before the root paints — or a
+        // caller blocked by a differently themed Sync child wore the child's
+        // look until it closed (operator report, Windows, 2026-09-29).
+        self.publish_root_theme(ctx);
+        self.root.surface_theme.install_widget_visuals(ctx);
 
         // 038 R10/R11 — exit playback: once armed (allowed close or program
         // end), the window paints only the receding face and performs the
@@ -6492,6 +6498,121 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             );
         }
         println!("failed spawn — 2/2 failure modes release the handle visibly (R15)");
+    }
+
+    /// A root form blocked by a Sync child keeps ITS OWN theme. The child's
+    /// window paints first in the frame and publishes the child's theme on
+    /// the shared context; the root painted after it with whatever was left
+    /// there, so a themed caller turned into its child's look until the
+    /// child closed (operator report, Windows, 2026-09-29: "Cadastro de
+    /// Empresas" lost its theme while "Mensagem do Sistema" was open).
+    #[test]
+    fn a_blocked_root_keeps_its_own_theme_under_a_differently_themed_child() {
+        let mut form = cobolt_forms::Form::new("MAIN-FORM", "Main", 320, 200);
+        form.controls.push(cobolt_forms::Control::new("Btn-1", cobolt_forms::ControlType::Button, 20, 20));
+        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let source: Option<FormSource> = Some(Box::new(|id: &str| {
+            if id.eq_ignore_ascii_case("CHILD") {
+                Ok((
+                    cobolt_forms::Form::new("CHILD", "Child", 240, 160),
+                    program_from("IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.\n"),
+                ))
+            } else {
+                Err(format!("no form named '{id}'"))
+            }
+        }));
+        let (mut host, _form) = FormHost::new(FormHostConfig {
+            flat: form.controls.clone(),
+            form,
+            state: HashMap::new(),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx,
+            form_source: source,
+            // Children paint procedural Liquid Glass; the root is Elegance.
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::elegance(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Window,
+        });
+        let ctx = egui::Context::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(640.0, 480.0)));
+        let fills = |full: &egui::FullOutput| {
+            fn walk(s: &egui::Shape, out: &mut Vec<egui::Color32>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    egui::Shape::Rect(r) => out.push(r.fill),
+                    _ => {}
+                }
+            }
+            let mut out = Vec::new();
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut out);
+            }
+            out
+        };
+
+        // The root, blocked by a Sync child that has no window yet: its own look.
+        let (reply_tx, _reply_rx) = mpsc::channel();
+        let _ = host.supervisor.handle_request(cobolt_runtime::form_host::FormRequest::OpenForm {
+            caller: cobolt_runtime::form_host::ROOT_HANDLE.into(),
+            form_id: "CHILD".into(),
+            sync: true,
+            window_state: None,
+            x: None,
+            y: None,
+            width: None,
+            height: None,
+            modal: true,
+            reply: reply_tx,
+        });
+        assert!(host.root_modal_blocked());
+        let mut own = ctx.run_ui(input.clone(), |ui| host.ui_impl(ui));
+        own.textures_delta.clear();
+        let own = fills(&own);
+
+        // The child's window opens, in Liquid Glass, and stays open.
+        let mut f = ctx.run_ui(input.clone(), |ui| {
+            host.apply_host_actions(ui.ctx(), vec![spawn_action("W1", "CHILD")]);
+        });
+        f.textures_delta.clear();
+        let child = host.children.iter_mut().find(|c| c.handle == "W1").expect("child window exists");
+        child.body.finished = Arc::new(AtomicBool::new(false));
+        let mut with_child = ctx.run_ui(input.clone(), |ui| host.ui_impl(ui));
+        with_child.textures_delta.clear();
+        let with_child = fills(&with_child);
+
+        let lost: Vec<_> = own.iter().filter(|c| !with_child.contains(c)).collect();
+        assert!(lost.is_empty(), "the root lost its own fills while the child was open: {lost:?}");
+        // …and wears the overlay its design chose over it.
+        host.root.modal_overlay_style = cobolt_forms::model::ModalOverlayStyle::Greyed;
+        let mut greyed = ctx.run_ui(input.clone(), |ui| host.ui_impl(ui));
+        greyed.textures_delta.clear();
+        assert!(
+            fills(&greyed).contains(&egui::Color32::from_rgba_unmultiplied(60, 60, 64, 150)),
+            "Greyed paints its layer over the root while the child's window is open"
+        );
+        println!("root under a Liquid Glass child: all {} of its Elegance fills kept", own.len());
     }
 }
 

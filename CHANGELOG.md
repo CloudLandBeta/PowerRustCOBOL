@@ -8,6 +8,23 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.339] — 2026-09-29
+
+### Fix — a form waiting on OpenFormSync keeps its own theme
+
+Reported on Windows: while a form opened with `OpenFormSync` was on screen,
+the form that opened it lost its theme — its themed buttons, group boxes and
+text boxes turned into the child's plain look, its white labels unreadable
+on them — until the child closed. Each form window publishes its theme on
+the one context all windows share, and the child windows paint before the
+main form in every frame; the main form then painted with the last theme
+published, the child's. It re-publishes its own after the child windows
+now. Nothing about it was Windows-only: it shows whenever the two forms were
+designed with different themes.
+
+`ModalOverlayStyle` was painted all along. The Developer's Guide now says
+which form it belongs on — the opener, the form that waits.
+
 ## [PowerRustCOBOL 1.70.338] — 2026-09-29
 
 ### Fix — PowerChat no longer shows "TEMPLATE: name" above a report

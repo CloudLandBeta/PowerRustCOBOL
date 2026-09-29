@@ -6370,6 +6370,11 @@ Properties pane, is whether the blocked face shows it:
 | `SemiTransparent` | A light grey layer (25 % opaque) over the whole face. |
 | `Greyed` | The same grey layer, heavier (~60 %) — the classic dimmed backdrop. |
 
+Set it on the **opener** — the form that waits — not on the form it opens:
+the child's own `ModalOverlayStyle` only matters when *it* opens another form
+with `OpenFormSync`. The opener also keeps its own theme while it waits,
+whatever theme the child was designed with.
+
 The form keeps its own designed **Transparency** under any of them; when the
 opener lives in a sidebar's ContentPane, the layer covers the sidebar and
 breadcrumb too, so the whole window reads as one waiting face. Read it from
