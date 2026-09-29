@@ -367,8 +367,10 @@ fn parse_move(p: &mut Parser) -> Stmt {
     // Collect one or more receiving fields
     loop {
         to.push(parse_expr(p));
-        // Keep collecting if another identifier/literal follows but not a keyword
-        if !is_expr_start(p) {
+        // Keep collecting if another identifier/literal follows but not a
+        // keyword — nor a method call, which never receives a value and so is
+        // the next statement (`ME::SetProperty(…)` on the line after).
+        if !is_expr_start(p) || at_method_call(p) {
             break;
         }
     }
@@ -382,7 +384,12 @@ fn parse_move(p: &mut Parser) -> Stmt {
 /// `id1 [ROUNDED] id2 [ROUNDED] …`. Stops at `stop` tokens / end of sentence.
 fn parse_receivers(p: &mut Parser, stop: &dyn Fn(&Token) -> bool) -> Vec<(Expr, bool)> {
     let mut out = Vec::new();
-    while !stop(p.peek()) && !p.at_end_of_sentence() && !p.at(&Token::Eof) && is_expr_start(p) {
+    while !stop(p.peek())
+        && !p.at_end_of_sentence()
+        && !p.at(&Token::Eof)
+        && is_expr_start(p)
+        && !at_method_call(p)
+    {
         let e = parse_expr(p);
         let rounded = p.eat(&Token::Rounded);
         out.push((e, rounded));
@@ -3804,6 +3811,31 @@ pub(crate) fn is_expr_start(p: &Parser) -> bool {
             | Token::LParen
             | Token::Function
     )
+}
+
+/// At a method call — `root::member(…)`, down any `::` chain, whose member the
+/// runtime calls rather than indexes: a known method, or empty parentheses
+/// (`Items(4)` is an element, and a receiver). A method call can only be a
+/// statement, so a receiver list ends in front of one. Without this,
+/// `MOVE A TO B` followed by `ME::SetProperty("X", B)` made the call a second
+/// receiver of the MOVE, and the run failed with "is a method call, not a
+/// receiving field" (operator, 2026-09-29).
+pub(crate) fn at_method_call(p: &Parser) -> bool {
+    if !matches!(p.peek(), Token::Identifier(_)) {
+        return false;
+    }
+    let mut at = 0;
+    let mut member: Option<String> = None;
+    while *p.peek_at(at + 1) == Token::Colon && *p.peek_at(at + 2) == Token::Colon {
+        member = match p.peek_at(at + 3) {
+            Token::Identifier(m) | Token::StringLiteral(m) => Some(m.clone()),
+            _ => return false,
+        };
+        at += 3;
+    }
+    let Some(member) = member else { return false };
+    *p.peek_at(at + 1) == Token::LParen
+        && (cobolt_ast::methods::is_known_method(&member) || *p.peek_at(at + 2) == Token::RParen)
 }
 
 /// At `COBOL::` — the built-in CALL object ([`cobol_object_call`]).

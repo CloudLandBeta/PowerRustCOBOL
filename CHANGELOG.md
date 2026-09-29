@@ -8,6 +8,28 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.340] — 2026-09-29
+
+### Fix — a method call on the line after a MOVE is the next statement
+
+Reported on the forum: this sequence failed at run time with
+*"'FRM-CADEMP::SETPROPERTY' is a method call, not a receiving field"*:
+
+```cobol
+           MOVE ... TO WSE-STAT
+           ME::setProperty("meuParametro", WSE-STAT)
+           INVOKE ME::"OpenFormSync"("FRM-ERROARQ")
+```
+
+With no period after the `MOVE`, the parser read the call as a second
+receiving field of the `MOVE`. A method call never receives a value, so a
+`MOVE`'s receivers — and those of `ADD`, `SUBTRACT`, `MULTIPLY` and
+`DIVIDE` — now end in front of one, and the call runs as the statement it
+is. What counts as a method is the runtime's own list, now shared with the
+parser (`cobolt_ast::methods`), so an element such as `List::Items(4)` is
+still a receiver. The Developer's Guide caveat that told developers to add a
+period there is rewritten.
+
 ## [PowerRustCOBOL 1.70.339] — 2026-09-29
 
 ### Fix — a form waiting on OpenFormSync keeps its own theme

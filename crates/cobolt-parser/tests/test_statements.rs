@@ -66,6 +66,28 @@ fn move_to_multiple() {
 
 // ── ADD ──────────────────────────────────────────────────────────────────────
 
+/// A method call never receives a value, so it ends a MOVE's receivers and
+/// is the next statement — the forum report (2026-09-29): `ME::setProperty`
+/// on the line after `MOVE … TO WSE-STAT` ran as a second receiver and failed
+/// with "is a method call, not a receiving field". An element (`Items(4)`) is
+/// still a receiver, and so is anything that is not a call.
+#[test]
+fn a_method_call_after_a_move_is_the_next_statement() {
+    let stmts = parse_stmts(&prog(
+        "    MOVE '35' TO WSE-STAT\n    ME::setProperty(\"meuParametro\", WSE-STAT)\n    \
+         MOVE 1 TO WS-A Frm::Items(4)\n    SUPER::GetProperty(\"X\")\n    STOP RUN.\n",
+    ));
+    let receivers = |s: &Stmt| match s {
+        Stmt::Move { to, .. } => to.len(),
+        other => panic!("expected MOVE, got {other:?}"),
+    };
+    assert_eq!(receivers(&stmts[0]), 1, "WSE-STAT alone receives: {:?}", stmts[0]);
+    assert!(!matches!(stmts[1], Stmt::Move { .. }), "the call is a statement of its own: {:?}", stmts[1]);
+    assert_eq!(receivers(&stmts[2]), 2, "an element is still a receiver: {:?}", stmts[2]);
+    assert!(!matches!(stmts[3], Stmt::Move { .. }), "a call through SUPER ends the list too: {:?}", stmts[3]);
+    assert_eq!(stmts.len(), 5);
+}
+
 #[test]
 fn add_to() {
     let stmts = parse_stmts(&prog("    ADD 1 TO WS-CNT.\n    STOP RUN.\n"));

@@ -5983,34 +5983,26 @@ Arguments go in parentheses (inline / expression form) or after `USING`
 expression or captured with `RETURNING`. The editor's IntelliSense lists a
 control's methods after you type `::`, each with a one-line description.
 
-> ⚠️ **A method call is a statement, never a receiving field — mind the period.**
-> A property can receive a value; a method call cannot. Using one as a
-> `MOVE`/`SET` target raises *"is a method call, not a receiving field"* at run
-> time, so the handler compiles, reads correctly, and throws on the click.
+> ⚠️ **A method call is a statement, never a receiving field.** A property can
+> receive a value; a method call cannot, and writing one as a `MOVE` target —
+> `MOVE X TO Btn::SetFocus()` — raises *"is a method call, not a receiving
+> field"* at run time.
 >
-> You will almost never write that on purpose. What happens instead is a missing
-> period: a COBOL sentence runs until its period, so a `::` call written under an
-> unclosed `MOVE` becomes that statement's **second receiving field**, however
-> many blank lines sit between them.
+> A method call written on the line after a `MOVE` is **not** that mistake: a
+> `MOVE`'s receiving fields end in front of a method call, so the call is the
+> next statement even without a period between them.
 >
 > ```cobol
->       *> WRONG — the MOVE never ended, so AddRow(...) is one of its receivers
->            MOVE GLOBAL-TOTAL TO GLOBAL-TOTAL-ED
->
->            dgReceipt::AddRow("Total", GLOBAL-TOTAL-ED).
->
->       *> RIGHT — close the MOVE, and the call stands on its own
->            MOVE GLOBAL-TOTAL TO GLOBAL-TOTAL-ED.
->
->            dgReceipt::AddRow("Total", GLOBAL-TOTAL-ED).
+>            MOVE WSE-STAT TO WS-SENT
+>            me::"SetProperty"("meuParametro", WSE-STAT)
+>            INVOKE me::"OpenFormSync"("FRM-ERROARQ")
 > ```
 >
-> Several receivers under one `MOVE` stay perfectly legal as long as all of them
-> *are* receivers: `MOVE GLOBAL-TOTAL TO GLOBAL-TOTAL-ED  dgReceipt::X.` writes
-> the edited item **and** the `X` property, which is a useful idiom. Only a
-> method among them is the mistake. Fix it with a period on the line above, or by
-> writing the spelled-out `INVOKE dgReceipt "AddRow" USING …`, which can never be
-> read as a receiving field.
+> Several receivers under one `MOVE` stay legal as long as all of them *are*
+> receivers: `MOVE GLOBAL-TOTAL TO GLOBAL-TOTAL-ED dgReceipt::X` writes the
+> edited item **and** the `X` property, and `List::Items(4)` is an element, so
+> it receives too. The same holds for the receivers of `ADD`, `SUBTRACT`,
+> `MULTIPLY` and `DIVIDE`.
 
 **Universal methods** (every visible control):
 

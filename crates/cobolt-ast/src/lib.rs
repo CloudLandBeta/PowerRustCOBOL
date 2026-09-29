@@ -28,6 +28,7 @@
 
 pub mod data;
 pub mod intrinsics;
+pub mod methods;
 pub mod expr;
 pub mod program;
 pub mod rust_types;
