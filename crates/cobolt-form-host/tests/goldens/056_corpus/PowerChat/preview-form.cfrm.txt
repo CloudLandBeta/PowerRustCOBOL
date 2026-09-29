@@ -1,0 +1,25 @@
+# PowerChat/preview-form.cfrm
+## Window 0.75x 720x480
+Btn-Close rect=[832 16 936 52] font=14
+Lbl-Title rect=[24 16 816 52] font=16
+Vwr-Doc rect=[24 64 936 620] font=14
+## Occupant 0.75x 720x480
+Btn-Close rect=[1052 44 1156 80] font=14
+Lbl-Title rect=[244 44 1036 80] font=16
+Vwr-Doc rect=[244 92 1156 648] font=14
+## Window 1x 960x640
+Btn-Close rect=[832 16 936 52] font=14
+Lbl-Title rect=[24 16 816 52] font=16
+Vwr-Doc rect=[24 64 936 620] font=14
+## Occupant 1x 960x640
+Btn-Close rect=[1052 44 1156 80] font=14
+Lbl-Title rect=[244 44 1036 80] font=16
+Vwr-Doc rect=[244 92 1156 648] font=14
+## Window 1.5x 1440x960
+Btn-Close rect=[832 16 936 52] font=14
+Lbl-Title rect=[24 16 816 52] font=16
+Vwr-Doc rect=[24 64 936 620] font=14
+## Occupant 1.5x 1440x960
+Btn-Close rect=[1052 44 1156 80] font=14
+Lbl-Title rect=[244 44 1036 80] font=16
+Vwr-Doc rect=[244 92 1156 648] font=14

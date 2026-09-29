@@ -1,0 +1,79 @@
+# PowerDemo3/Data/treeview-form.cfrm
+## Window 0.75x 750x495
+Btn-Add rect=[204 380 360 412] font=14
+Btn-Checked rect=[376 380 532 412] font=14
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Reset rect=[548 380 704 412] font=14
+Btn-Walk rect=[32 380 188 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Walk-Cap rect=[500 130 800 150] font=12
+Trv-Sites rect=[48 130 468 354] font=13
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Walk rect=[500 154 960 354] font=12
+## Occupant 0.75x 750x495
+Btn-Add rect=[424 408 580 440] font=14
+Btn-Checked rect=[596 408 752 440] font=14
+Btn-Clear rect=[940 408 1096 440] font=14
+Btn-Reset rect=[768 408 924 440] font=14
+Btn-Walk rect=[252 408 408 440] font=14
+Lbl-Log-Cap rect=[252 452 552 472] font=12
+Lbl-Sub rect=[252 82 1188 120] font=13
+Lbl-Title rect=[252 48 1188 78] font=20
+Lbl-Walk-Cap rect=[720 158 1020 178] font=12
+Trv-Sites rect=[268 158 688 382] font=13
+Txt-Log rect=[252 476 1188 660] font=12
+Txt-Walk rect=[720 182 1180 382] font=12
+## Window 1x 1000x660
+Btn-Add rect=[204 380 360 412] font=14
+Btn-Checked rect=[376 380 532 412] font=14
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Reset rect=[548 380 704 412] font=14
+Btn-Walk rect=[32 380 188 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Walk-Cap rect=[500 130 800 150] font=12
+Trv-Sites rect=[48 130 468 354] font=13
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Walk rect=[500 154 960 354] font=12
+## Occupant 1x 1000x660
+Btn-Add rect=[424 408 580 440] font=14
+Btn-Checked rect=[596 408 752 440] font=14
+Btn-Clear rect=[940 408 1096 440] font=14
+Btn-Reset rect=[768 408 924 440] font=14
+Btn-Walk rect=[252 408 408 440] font=14
+Lbl-Log-Cap rect=[252 452 552 472] font=12
+Lbl-Sub rect=[252 82 1188 120] font=13
+Lbl-Title rect=[252 48 1188 78] font=20
+Lbl-Walk-Cap rect=[720 158 1020 178] font=12
+Trv-Sites rect=[268 158 688 382] font=13
+Txt-Log rect=[252 476 1188 660] font=12
+Txt-Walk rect=[720 182 1180 382] font=12
+## Window 1.5x 1500x990
+Btn-Add rect=[204 380 360 412] font=14
+Btn-Checked rect=[376 380 532 412] font=14
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Reset rect=[548 380 704 412] font=14
+Btn-Walk rect=[32 380 188 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Walk-Cap rect=[500 130 800 150] font=12
+Trv-Sites rect=[48 130 468 354] font=13
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Walk rect=[500 154 960 354] font=12
+## Occupant 1.5x 1500x990
+Btn-Add rect=[424 408 580 440] font=14
+Btn-Checked rect=[596 408 752 440] font=14
+Btn-Clear rect=[940 408 1096 440] font=14
+Btn-Reset rect=[768 408 924 440] font=14
+Btn-Walk rect=[252 408 408 440] font=14
+Lbl-Log-Cap rect=[252 452 552 472] font=12
+Lbl-Sub rect=[252 82 1188 120] font=13
+Lbl-Title rect=[252 48 1188 78] font=20
+Lbl-Walk-Cap rect=[720 158 1020 178] font=12
+Trv-Sites rect=[268 158 688 382] font=13
+Txt-Log rect=[252 476 1188 660] font=12
+Txt-Walk rect=[720 182 1180 382] font=12

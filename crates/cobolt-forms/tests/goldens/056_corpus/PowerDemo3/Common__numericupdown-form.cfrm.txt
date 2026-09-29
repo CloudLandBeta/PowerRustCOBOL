@@ -1,0 +1,154 @@
+# PowerDemo3/Common/numericupdown-form.cfrm
+## Canvas 0.75x 750x495
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Down rect=[204 380 360 412] font=14
+Btn-Reset rect=[376 380 532 412] font=14
+Btn-Up rect=[32 380 188 412] font=14
+Lbl-Hint rect=[48 220 768 244] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Price-Cap rect=[300 134 540 154] font=12
+Lbl-Qty-Cap rect=[48 134 288 154] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Total-Cap rect=[552 134 792 154] font=12
+Num-Price rect=[300 158 500 190] font=15
+Num-Qty rect=[48 158 248 190] font=15
+Num-Total rect=[552 158 772 190] font=15
+Txt-Log rect=[32 448 968 632] font=12
+shapes=42 digest=9561767be5f0c53b
+## Run 0.75x 750x495
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Down rect=[204 380 360 412] font=14
+Btn-Reset rect=[376 380 532 412] font=14
+Btn-Up rect=[32 380 188 412] font=14
+Lbl-Hint rect=[48 220 768 244] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Price-Cap rect=[300 134 540 154] font=12
+Lbl-Qty-Cap rect=[48 134 288 154] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Total-Cap rect=[552 134 792 154] font=12
+Num-Price rect=[300 158 500 190] font=15
+Num-Qty rect=[48 158 248 190] font=15
+Num-Total rect=[552 158 772 190] font=15
+Txt-Log rect=[32 448 968 632] font=12
+shapes=47 digest=2abfc8b40364e16c
+## Preview 0.75x 750x495
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Down rect=[204 380 360 412] font=14
+Btn-Reset rect=[376 380 532 412] font=14
+Btn-Up rect=[32 380 188 412] font=14
+Lbl-Hint rect=[48 220 768 244] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Price-Cap rect=[300 134 540 154] font=12
+Lbl-Qty-Cap rect=[48 134 288 154] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Total-Cap rect=[552 134 792 154] font=12
+Num-Price rect=[300 158 500 190] font=15
+Num-Qty rect=[48 158 248 190] font=15
+Num-Total rect=[552 158 772 190] font=15
+Txt-Log rect=[32 448 968 632] font=12
+shapes=47 digest=8b518a1239b1c77a
+## Canvas 1x 1000x660
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Down rect=[204 380 360 412] font=14
+Btn-Reset rect=[376 380 532 412] font=14
+Btn-Up rect=[32 380 188 412] font=14
+Lbl-Hint rect=[48 220 768 244] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Price-Cap rect=[300 134 540 154] font=12
+Lbl-Qty-Cap rect=[48 134 288 154] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Total-Cap rect=[552 134 792 154] font=12
+Num-Price rect=[300 158 500 190] font=15
+Num-Qty rect=[48 158 248 190] font=15
+Num-Total rect=[552 158 772 190] font=15
+Txt-Log rect=[32 448 968 632] font=12
+shapes=42 digest=1d0659e26cc0401d
+## Run 1x 1000x660
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Down rect=[204 380 360 412] font=14
+Btn-Reset rect=[376 380 532 412] font=14
+Btn-Up rect=[32 380 188 412] font=14
+Lbl-Hint rect=[48 220 768 244] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Price-Cap rect=[300 134 540 154] font=12
+Lbl-Qty-Cap rect=[48 134 288 154] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Total-Cap rect=[552 134 792 154] font=12
+Num-Price rect=[300 158 500 190] font=15
+Num-Qty rect=[48 158 248 190] font=15
+Num-Total rect=[552 158 772 190] font=15
+Txt-Log rect=[32 448 968 632] font=12
+shapes=47 digest=d69961f40b901d3d
+## Preview 1x 1000x660
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Down rect=[204 380 360 412] font=14
+Btn-Reset rect=[376 380 532 412] font=14
+Btn-Up rect=[32 380 188 412] font=14
+Lbl-Hint rect=[48 220 768 244] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Price-Cap rect=[300 134 540 154] font=12
+Lbl-Qty-Cap rect=[48 134 288 154] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Total-Cap rect=[552 134 792 154] font=12
+Num-Price rect=[300 158 500 190] font=15
+Num-Qty rect=[48 158 248 190] font=15
+Num-Total rect=[552 158 772 190] font=15
+Txt-Log rect=[32 448 968 632] font=12
+shapes=47 digest=281e30aa8440ff2b
+## Canvas 1.5x 1500x990
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Down rect=[204 380 360 412] font=14
+Btn-Reset rect=[376 380 532 412] font=14
+Btn-Up rect=[32 380 188 412] font=14
+Lbl-Hint rect=[48 220 768 244] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Price-Cap rect=[300 134 540 154] font=12
+Lbl-Qty-Cap rect=[48 134 288 154] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Total-Cap rect=[552 134 792 154] font=12
+Num-Price rect=[300 158 500 190] font=15
+Num-Qty rect=[48 158 248 190] font=15
+Num-Total rect=[552 158 772 190] font=15
+Txt-Log rect=[32 448 968 632] font=12
+shapes=42 digest=f89eb4a44b43c2ed
+## Run 1.5x 1500x990
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Down rect=[204 380 360 412] font=14
+Btn-Reset rect=[376 380 532 412] font=14
+Btn-Up rect=[32 380 188 412] font=14
+Lbl-Hint rect=[48 220 768 244] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Price-Cap rect=[300 134 540 154] font=12
+Lbl-Qty-Cap rect=[48 134 288 154] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Total-Cap rect=[552 134 792 154] font=12
+Num-Price rect=[300 158 500 190] font=15
+Num-Qty rect=[48 158 248 190] font=15
+Num-Total rect=[552 158 772 190] font=15
+Txt-Log rect=[32 448 968 632] font=12
+shapes=47 digest=118c736907451c1f
+## Preview 1.5x 1500x990
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Down rect=[204 380 360 412] font=14
+Btn-Reset rect=[376 380 532 412] font=14
+Btn-Up rect=[32 380 188 412] font=14
+Lbl-Hint rect=[48 220 768 244] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Price-Cap rect=[300 134 540 154] font=12
+Lbl-Qty-Cap rect=[48 134 288 154] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Total-Cap rect=[552 134 792 154] font=12
+Num-Price rect=[300 158 500 190] font=15
+Num-Qty rect=[48 158 248 190] font=15
+Num-Total rect=[552 158 772 190] font=15
+Txt-Log rect=[32 448 968 632] font=12
+shapes=47 digest=cb332937ce4d692d

@@ -1,0 +1,55 @@
+# PowerChat/pick-form.cfrm
+## Canvas 0.75x 390x315
+Btn-Cancel rect=[256 356 368 392] font=14
+Btn-Ok rect=[384 356 496 392] font=14
+Lbl-Question rect=[24 24 496 64] font=16
+Lst-Items rect=[24 80 496 320] font=14
+shapes=116 digest=6c2a69acc0d41fae
+## Run 0.75x 390x315
+Btn-Cancel rect=[256 356 368 392] font=14
+Btn-Ok rect=[384 356 496 392] font=14
+Lbl-Question rect=[24 24 496 64] font=16
+Lst-Items rect=[24 80 496 320] font=14
+shapes=118 digest=243fca7ea3d43ee3
+## Preview 0.75x 390x315
+Btn-Cancel rect=[256 356 368 392] font=14
+Btn-Ok rect=[384 356 496 392] font=14
+Lbl-Question rect=[24 24 496 64] font=16
+Lst-Items rect=[24 80 496 320] font=14
+shapes=118 digest=243fca7ea3d43ee3
+## Canvas 1x 520x420
+Btn-Cancel rect=[256 356 368 392] font=14
+Btn-Ok rect=[384 356 496 392] font=14
+Lbl-Question rect=[24 24 496 64] font=16
+Lst-Items rect=[24 80 496 320] font=14
+shapes=116 digest=020c2838a1445c23
+## Run 1x 520x420
+Btn-Cancel rect=[256 356 368 392] font=14
+Btn-Ok rect=[384 356 496 392] font=14
+Lbl-Question rect=[24 24 496 64] font=16
+Lst-Items rect=[24 80 496 320] font=14
+shapes=118 digest=61a570aeb1e1a12e
+## Preview 1x 520x420
+Btn-Cancel rect=[256 356 368 392] font=14
+Btn-Ok rect=[384 356 496 392] font=14
+Lbl-Question rect=[24 24 496 64] font=16
+Lst-Items rect=[24 80 496 320] font=14
+shapes=118 digest=61a570aeb1e1a12e
+## Canvas 1.5x 780x630
+Btn-Cancel rect=[256 356 368 392] font=14
+Btn-Ok rect=[384 356 496 392] font=14
+Lbl-Question rect=[24 24 496 64] font=16
+Lst-Items rect=[24 80 496 320] font=14
+shapes=116 digest=18dde7baaa3cadc3
+## Run 1.5x 780x630
+Btn-Cancel rect=[256 356 368 392] font=14
+Btn-Ok rect=[384 356 496 392] font=14
+Lbl-Question rect=[24 24 496 64] font=16
+Lst-Items rect=[24 80 496 320] font=14
+shapes=118 digest=6d9f7152cb2c8065
+## Preview 1.5x 780x630
+Btn-Cancel rect=[256 356 368 392] font=14
+Btn-Ok rect=[384 356 496 392] font=14
+Lbl-Question rect=[24 24 496 64] font=16
+Lst-Items rect=[24 80 496 320] font=14
+shapes=118 digest=6d9f7152cb2c8065

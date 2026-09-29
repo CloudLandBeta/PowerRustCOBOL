@@ -1,0 +1,136 @@
+# PowerDemo3/Common/checkbox-form.cfrm
+## Canvas 0.75x 750x495
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Confirm rect=[376 380 532 412] font=14
+Btn-Read rect=[204 380 360 412] font=14
+Btn-Toggle rect=[32 380 188 412] font=14
+Chk-Email rect=[48 130 348 154] font=14
+Chk-Push rect=[48 210 348 234] font=14
+Chk-Sms rect=[48 170 348 194] font=14
+Chk-Terms rect=[48 262 448 286] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Summary rect=[520 130 960 290] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Txt-Log rect=[32 448 968 632] font=12
+shapes=47 digest=e75d2fc20faf1e05
+## Run 0.75x 750x495
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Confirm rect=[376 380 532 412] font=14
+Btn-Read rect=[204 380 360 412] font=14
+Btn-Toggle rect=[32 380 188 412] font=14
+Chk-Email rect=[48 130 348 154] font=14
+Chk-Push rect=[48 210 348 234] font=14
+Chk-Sms rect=[48 170 348 194] font=14
+Chk-Terms rect=[48 262 448 286] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Summary rect=[520 130 960 290] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Txt-Log rect=[32 448 968 632] font=12
+shapes=52 digest=d64db10ee62c1a9f
+## Preview 0.75x 750x495
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Confirm rect=[376 380 532 412] font=14
+Btn-Read rect=[204 380 360 412] font=14
+Btn-Toggle rect=[32 380 188 412] font=14
+Chk-Email rect=[48 130 348 154] font=14
+Chk-Push rect=[48 210 348 234] font=14
+Chk-Sms rect=[48 170 348 194] font=14
+Chk-Terms rect=[48 262 448 286] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Summary rect=[520 130 960 290] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Txt-Log rect=[32 448 968 632] font=12
+shapes=52 digest=d64db10ee62c1a9f
+## Canvas 1x 1000x660
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Confirm rect=[376 380 532 412] font=14
+Btn-Read rect=[204 380 360 412] font=14
+Btn-Toggle rect=[32 380 188 412] font=14
+Chk-Email rect=[48 130 348 154] font=14
+Chk-Push rect=[48 210 348 234] font=14
+Chk-Sms rect=[48 170 348 194] font=14
+Chk-Terms rect=[48 262 448 286] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Summary rect=[520 130 960 290] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Txt-Log rect=[32 448 968 632] font=12
+shapes=47 digest=3e6c3a883d740843
+## Run 1x 1000x660
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Confirm rect=[376 380 532 412] font=14
+Btn-Read rect=[204 380 360 412] font=14
+Btn-Toggle rect=[32 380 188 412] font=14
+Chk-Email rect=[48 130 348 154] font=14
+Chk-Push rect=[48 210 348 234] font=14
+Chk-Sms rect=[48 170 348 194] font=14
+Chk-Terms rect=[48 262 448 286] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Summary rect=[520 130 960 290] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Txt-Log rect=[32 448 968 632] font=12
+shapes=52 digest=bab28e5e2a121c41
+## Preview 1x 1000x660
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Confirm rect=[376 380 532 412] font=14
+Btn-Read rect=[204 380 360 412] font=14
+Btn-Toggle rect=[32 380 188 412] font=14
+Chk-Email rect=[48 130 348 154] font=14
+Chk-Push rect=[48 210 348 234] font=14
+Chk-Sms rect=[48 170 348 194] font=14
+Chk-Terms rect=[48 262 448 286] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Summary rect=[520 130 960 290] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Txt-Log rect=[32 448 968 632] font=12
+shapes=52 digest=bab28e5e2a121c41
+## Canvas 1.5x 1500x990
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Confirm rect=[376 380 532 412] font=14
+Btn-Read rect=[204 380 360 412] font=14
+Btn-Toggle rect=[32 380 188 412] font=14
+Chk-Email rect=[48 130 348 154] font=14
+Chk-Push rect=[48 210 348 234] font=14
+Chk-Sms rect=[48 170 348 194] font=14
+Chk-Terms rect=[48 262 448 286] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Summary rect=[520 130 960 290] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Txt-Log rect=[32 448 968 632] font=12
+shapes=47 digest=9eaca439c66a9af3
+## Run 1.5x 1500x990
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Confirm rect=[376 380 532 412] font=14
+Btn-Read rect=[204 380 360 412] font=14
+Btn-Toggle rect=[32 380 188 412] font=14
+Chk-Email rect=[48 130 348 154] font=14
+Chk-Push rect=[48 210 348 234] font=14
+Chk-Sms rect=[48 170 348 194] font=14
+Chk-Terms rect=[48 262 448 286] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Summary rect=[520 130 960 290] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Txt-Log rect=[32 448 968 632] font=12
+shapes=52 digest=2a77fdafc512507f
+## Preview 1.5x 1500x990
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Confirm rect=[376 380 532 412] font=14
+Btn-Read rect=[204 380 360 412] font=14
+Btn-Toggle rect=[32 380 188 412] font=14
+Chk-Email rect=[48 130 348 154] font=14
+Chk-Push rect=[48 210 348 234] font=14
+Chk-Sms rect=[48 170 348 194] font=14
+Chk-Terms rect=[48 262 448 286] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Summary rect=[520 130 960 290] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Txt-Log rect=[32 448 968 632] font=12
+shapes=52 digest=2a77fdafc512507f

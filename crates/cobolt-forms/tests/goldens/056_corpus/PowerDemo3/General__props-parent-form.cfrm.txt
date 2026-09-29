@@ -1,0 +1,154 @@
+# PowerDemo3/General/props-parent-form.cfrm
+## Canvas 0.75x 720x480
+Btn-Edit rect=[40 504 400 552] font=14
+Chk-Vip rect=[200 278 420 308] font=14
+Lbl-Complex rect=[40 326 640 354] font=16
+Lbl-Intro rect=[40 76 920 132] font=14
+Lbl-Limit rect=[40 230 200 266] font=14
+Lbl-Line-1 rect=[60 396 920 424] font=14
+Lbl-Line-2 rect=[60 426 920 454] font=14
+Lbl-Line-3 rect=[60 456 920 484] font=14
+Lbl-Name rect=[40 184 200 220] font=14
+Lbl-Order rect=[40 362 920 392] font=14
+Lbl-Simple rect=[40 146 440 174] font=16
+Lbl-Status rect=[40 568 920 600] font=14
+Lbl-Title rect=[40 24 920 72] font=26
+Txt-Limit rect=[200 230 360 266] font=14
+Txt-Name rect=[200 184 520 220] font=14
+shapes=30 digest=fd9f88208e795ba1
+## Run 0.75x 720x480
+Btn-Edit rect=[40 504 400 552] font=14
+Chk-Vip rect=[200 278 420 308] font=14
+Lbl-Complex rect=[40 326 640 354] font=16
+Lbl-Intro rect=[40 76 920 132] font=14
+Lbl-Limit rect=[40 230 200 266] font=14
+Lbl-Line-1 rect=[60 396 920 424] font=14
+Lbl-Line-2 rect=[60 426 920 454] font=14
+Lbl-Line-3 rect=[60 456 920 484] font=14
+Lbl-Name rect=[40 184 200 220] font=14
+Lbl-Order rect=[40 362 920 392] font=14
+Lbl-Simple rect=[40 146 440 174] font=16
+Lbl-Status rect=[40 568 920 600] font=14
+Lbl-Title rect=[40 24 920 72] font=26
+Txt-Limit rect=[200 230 360 266] font=14
+Txt-Name rect=[200 184 520 220] font=14
+shapes=33 digest=d2a61173007d7e2c
+## Preview 0.75x 720x480
+Btn-Edit rect=[40 504 400 552] font=14
+Chk-Vip rect=[200 278 420 308] font=14
+Lbl-Complex rect=[40 326 640 354] font=16
+Lbl-Intro rect=[40 76 920 132] font=14
+Lbl-Limit rect=[40 230 200 266] font=14
+Lbl-Line-1 rect=[60 396 920 424] font=14
+Lbl-Line-2 rect=[60 426 920 454] font=14
+Lbl-Line-3 rect=[60 456 920 484] font=14
+Lbl-Name rect=[40 184 200 220] font=14
+Lbl-Order rect=[40 362 920 392] font=14
+Lbl-Simple rect=[40 146 440 174] font=16
+Lbl-Status rect=[40 568 920 600] font=14
+Lbl-Title rect=[40 24 920 72] font=26
+Txt-Limit rect=[200 230 360 266] font=14
+Txt-Name rect=[200 184 520 220] font=14
+shapes=33 digest=d2a61173007d7e2c
+## Canvas 1x 960x640
+Btn-Edit rect=[40 504 400 552] font=14
+Chk-Vip rect=[200 278 420 308] font=14
+Lbl-Complex rect=[40 326 640 354] font=16
+Lbl-Intro rect=[40 76 920 132] font=14
+Lbl-Limit rect=[40 230 200 266] font=14
+Lbl-Line-1 rect=[60 396 920 424] font=14
+Lbl-Line-2 rect=[60 426 920 454] font=14
+Lbl-Line-3 rect=[60 456 920 484] font=14
+Lbl-Name rect=[40 184 200 220] font=14
+Lbl-Order rect=[40 362 920 392] font=14
+Lbl-Simple rect=[40 146 440 174] font=16
+Lbl-Status rect=[40 568 920 600] font=14
+Lbl-Title rect=[40 24 920 72] font=26
+Txt-Limit rect=[200 230 360 266] font=14
+Txt-Name rect=[200 184 520 220] font=14
+shapes=30 digest=9ff75a476d662cc9
+## Run 1x 960x640
+Btn-Edit rect=[40 504 400 552] font=14
+Chk-Vip rect=[200 278 420 308] font=14
+Lbl-Complex rect=[40 326 640 354] font=16
+Lbl-Intro rect=[40 76 920 132] font=14
+Lbl-Limit rect=[40 230 200 266] font=14
+Lbl-Line-1 rect=[60 396 920 424] font=14
+Lbl-Line-2 rect=[60 426 920 454] font=14
+Lbl-Line-3 rect=[60 456 920 484] font=14
+Lbl-Name rect=[40 184 200 220] font=14
+Lbl-Order rect=[40 362 920 392] font=14
+Lbl-Simple rect=[40 146 440 174] font=16
+Lbl-Status rect=[40 568 920 600] font=14
+Lbl-Title rect=[40 24 920 72] font=26
+Txt-Limit rect=[200 230 360 266] font=14
+Txt-Name rect=[200 184 520 220] font=14
+shapes=33 digest=0a0a09bec97322a5
+## Preview 1x 960x640
+Btn-Edit rect=[40 504 400 552] font=14
+Chk-Vip rect=[200 278 420 308] font=14
+Lbl-Complex rect=[40 326 640 354] font=16
+Lbl-Intro rect=[40 76 920 132] font=14
+Lbl-Limit rect=[40 230 200 266] font=14
+Lbl-Line-1 rect=[60 396 920 424] font=14
+Lbl-Line-2 rect=[60 426 920 454] font=14
+Lbl-Line-3 rect=[60 456 920 484] font=14
+Lbl-Name rect=[40 184 200 220] font=14
+Lbl-Order rect=[40 362 920 392] font=14
+Lbl-Simple rect=[40 146 440 174] font=16
+Lbl-Status rect=[40 568 920 600] font=14
+Lbl-Title rect=[40 24 920 72] font=26
+Txt-Limit rect=[200 230 360 266] font=14
+Txt-Name rect=[200 184 520 220] font=14
+shapes=33 digest=0a0a09bec97322a5
+## Canvas 1.5x 1440x960
+Btn-Edit rect=[40 504 400 552] font=14
+Chk-Vip rect=[200 278 420 308] font=14
+Lbl-Complex rect=[40 326 640 354] font=16
+Lbl-Intro rect=[40 76 920 132] font=14
+Lbl-Limit rect=[40 230 200 266] font=14
+Lbl-Line-1 rect=[60 396 920 424] font=14
+Lbl-Line-2 rect=[60 426 920 454] font=14
+Lbl-Line-3 rect=[60 456 920 484] font=14
+Lbl-Name rect=[40 184 200 220] font=14
+Lbl-Order rect=[40 362 920 392] font=14
+Lbl-Simple rect=[40 146 440 174] font=16
+Lbl-Status rect=[40 568 920 600] font=14
+Lbl-Title rect=[40 24 920 72] font=26
+Txt-Limit rect=[200 230 360 266] font=14
+Txt-Name rect=[200 184 520 220] font=14
+shapes=30 digest=46e6dbe7092291ab
+## Run 1.5x 1440x960
+Btn-Edit rect=[40 504 400 552] font=14
+Chk-Vip rect=[200 278 420 308] font=14
+Lbl-Complex rect=[40 326 640 354] font=16
+Lbl-Intro rect=[40 76 920 132] font=14
+Lbl-Limit rect=[40 230 200 266] font=14
+Lbl-Line-1 rect=[60 396 920 424] font=14
+Lbl-Line-2 rect=[60 426 920 454] font=14
+Lbl-Line-3 rect=[60 456 920 484] font=14
+Lbl-Name rect=[40 184 200 220] font=14
+Lbl-Order rect=[40 362 920 392] font=14
+Lbl-Simple rect=[40 146 440 174] font=16
+Lbl-Status rect=[40 568 920 600] font=14
+Lbl-Title rect=[40 24 920 72] font=26
+Txt-Limit rect=[200 230 360 266] font=14
+Txt-Name rect=[200 184 520 220] font=14
+shapes=33 digest=72ad978a70e4cd54
+## Preview 1.5x 1440x960
+Btn-Edit rect=[40 504 400 552] font=14
+Chk-Vip rect=[200 278 420 308] font=14
+Lbl-Complex rect=[40 326 640 354] font=16
+Lbl-Intro rect=[40 76 920 132] font=14
+Lbl-Limit rect=[40 230 200 266] font=14
+Lbl-Line-1 rect=[60 396 920 424] font=14
+Lbl-Line-2 rect=[60 426 920 454] font=14
+Lbl-Line-3 rect=[60 456 920 484] font=14
+Lbl-Name rect=[40 184 200 220] font=14
+Lbl-Order rect=[40 362 920 392] font=14
+Lbl-Simple rect=[40 146 440 174] font=16
+Lbl-Status rect=[40 568 920 600] font=14
+Lbl-Title rect=[40 24 920 72] font=26
+Txt-Limit rect=[200 230 360 266] font=14
+Txt-Name rect=[200 184 520 220] font=14
+shapes=33 digest=72ad978a70e4cd54

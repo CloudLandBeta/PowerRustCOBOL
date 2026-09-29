@@ -1,0 +1,163 @@
+# PowerDemo3/Graphics/progressbar-form.cfrm
+## Canvas 0.75x 750x495
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Half rect=[376 380 532 412] font=14
+Btn-Reset rect=[548 380 704 412] font=14
+Btn-Start rect=[32 380 188 412] font=14
+Btn-Stop rect=[204 380 360 412] font=14
+Lbl-Blocks-Cap rect=[48 204 448 224] font=12
+Lbl-Copy-Cap rect=[48 134 448 154] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-State rect=[680 158 960 218] font=18
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Prg-Blocks rect=[48 228 548 256] font=14
+Prg-Copy rect=[48 158 548 186] font=14
+Prg-Vert rect=[600 158 640 358] font=14
+Tmr-Copy rect=[900 300 948 348] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=591 digest=1949f50a5bebb879
+## Run 0.75x 750x495
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Half rect=[376 380 532 412] font=14
+Btn-Reset rect=[548 380 704 412] font=14
+Btn-Start rect=[32 380 188 412] font=14
+Btn-Stop rect=[204 380 360 412] font=14
+Lbl-Blocks-Cap rect=[48 204 448 224] font=12
+Lbl-Copy-Cap rect=[48 134 448 154] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-State rect=[680 158 960 218] font=18
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Prg-Blocks rect=[48 228 548 256] font=14
+Prg-Copy rect=[48 158 548 186] font=14
+Prg-Vert rect=[600 158 640 358] font=14
+Tmr-Copy rect=[900 300 948 348] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=534 digest=dd36209c7d40140a
+## Preview 0.75x 750x495
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Half rect=[376 380 532 412] font=14
+Btn-Reset rect=[548 380 704 412] font=14
+Btn-Start rect=[32 380 188 412] font=14
+Btn-Stop rect=[204 380 360 412] font=14
+Lbl-Blocks-Cap rect=[48 204 448 224] font=12
+Lbl-Copy-Cap rect=[48 134 448 154] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-State rect=[680 158 960 218] font=18
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Prg-Blocks rect=[48 228 548 256] font=14
+Prg-Copy rect=[48 158 548 186] font=14
+Prg-Vert rect=[600 158 640 358] font=14
+Tmr-Copy rect=[900 300 948 348] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=534 digest=dd36209c7d40140a
+## Canvas 1x 1000x660
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Half rect=[376 380 532 412] font=14
+Btn-Reset rect=[548 380 704 412] font=14
+Btn-Start rect=[32 380 188 412] font=14
+Btn-Stop rect=[204 380 360 412] font=14
+Lbl-Blocks-Cap rect=[48 204 448 224] font=12
+Lbl-Copy-Cap rect=[48 134 448 154] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-State rect=[680 158 960 218] font=18
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Prg-Blocks rect=[48 228 548 256] font=14
+Prg-Copy rect=[48 158 548 186] font=14
+Prg-Vert rect=[600 158 640 358] font=14
+Tmr-Copy rect=[900 300 948 348] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=591 digest=b68501f04aec63bb
+## Run 1x 1000x660
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Half rect=[376 380 532 412] font=14
+Btn-Reset rect=[548 380 704 412] font=14
+Btn-Start rect=[32 380 188 412] font=14
+Btn-Stop rect=[204 380 360 412] font=14
+Lbl-Blocks-Cap rect=[48 204 448 224] font=12
+Lbl-Copy-Cap rect=[48 134 448 154] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-State rect=[680 158 960 218] font=18
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Prg-Blocks rect=[48 228 548 256] font=14
+Prg-Copy rect=[48 158 548 186] font=14
+Prg-Vert rect=[600 158 640 358] font=14
+Tmr-Copy rect=[900 300 948 348] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=534 digest=b6d63c6afb04a0bc
+## Preview 1x 1000x660
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Half rect=[376 380 532 412] font=14
+Btn-Reset rect=[548 380 704 412] font=14
+Btn-Start rect=[32 380 188 412] font=14
+Btn-Stop rect=[204 380 360 412] font=14
+Lbl-Blocks-Cap rect=[48 204 448 224] font=12
+Lbl-Copy-Cap rect=[48 134 448 154] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-State rect=[680 158 960 218] font=18
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Prg-Blocks rect=[48 228 548 256] font=14
+Prg-Copy rect=[48 158 548 186] font=14
+Prg-Vert rect=[600 158 640 358] font=14
+Tmr-Copy rect=[900 300 948 348] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=534 digest=b6d63c6afb04a0bc
+## Canvas 1.5x 1500x990
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Half rect=[376 380 532 412] font=14
+Btn-Reset rect=[548 380 704 412] font=14
+Btn-Start rect=[32 380 188 412] font=14
+Btn-Stop rect=[204 380 360 412] font=14
+Lbl-Blocks-Cap rect=[48 204 448 224] font=12
+Lbl-Copy-Cap rect=[48 134 448 154] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-State rect=[680 158 960 218] font=18
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Prg-Blocks rect=[48 228 548 256] font=14
+Prg-Copy rect=[48 158 548 186] font=14
+Prg-Vert rect=[600 158 640 358] font=14
+Tmr-Copy rect=[900 300 948 348] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=591 digest=f3fb2dd70660abab
+## Run 1.5x 1500x990
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Half rect=[376 380 532 412] font=14
+Btn-Reset rect=[548 380 704 412] font=14
+Btn-Start rect=[32 380 188 412] font=14
+Btn-Stop rect=[204 380 360 412] font=14
+Lbl-Blocks-Cap rect=[48 204 448 224] font=12
+Lbl-Copy-Cap rect=[48 134 448 154] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-State rect=[680 158 960 218] font=18
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Prg-Blocks rect=[48 228 548 256] font=14
+Prg-Copy rect=[48 158 548 186] font=14
+Prg-Vert rect=[600 158 640 358] font=14
+Tmr-Copy rect=[900 300 948 348] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=534 digest=74211a7131af6b3f
+## Preview 1.5x 1500x990
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Half rect=[376 380 532 412] font=14
+Btn-Reset rect=[548 380 704 412] font=14
+Btn-Start rect=[32 380 188 412] font=14
+Btn-Stop rect=[204 380 360 412] font=14
+Lbl-Blocks-Cap rect=[48 204 448 224] font=12
+Lbl-Copy-Cap rect=[48 134 448 154] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-State rect=[680 158 960 218] font=18
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Prg-Blocks rect=[48 228 548 256] font=14
+Prg-Copy rect=[48 158 548 186] font=14
+Prg-Vert rect=[600 158 640 358] font=14
+Tmr-Copy rect=[900 300 948 348] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=534 digest=74211a7131af6b3f

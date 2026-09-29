@@ -1,0 +1,118 @@
+# PowerDemo3/Common/buttons-form.cfrm
+## Canvas 0.75x 918x630
+Button-1 rect=[32 48 296 128] font=16
+Button-10 rect=[928 592 1192 672] font=16
+Button-2 rect=[928 40 1192 120] font=16
+Button-3 rect=[32 216 296 296] font=16
+Button-4 rect=[928 208 1192 288] font=16
+Button-5 rect=[32 344 296 424] font=16
+Button-6 rect=[928 344 1192 424] font=16
+Button-7 rect=[32 464 296 544] font=16
+Button-8 rect=[928 472 1192 552] font=16
+Button-9 rect=[32 592 296 672] font=16
+Label-1 rect=[40 800 1195 832] font=19
+shapes=687 digest=6a085981722346b7
+## Run 0.75x 918x630
+Button-1 rect=[32 48 296 128] font=16
+Button-10 rect=[928 592 1192 672] font=16
+Button-2 rect=[928 40 1192 120] font=16
+Button-3 rect=[32 216 296 296] font=16
+Button-4 rect=[928 208 1192 288] font=16
+Button-5 rect=[32 344 296 424] font=16
+Button-6 rect=[928 344 1192 424] font=16
+Button-7 rect=[32 464 296 544] font=16
+Button-8 rect=[928 472 1192 552] font=16
+Button-9 rect=[32 592 296 672] font=16
+Label-1 rect=[40 800 1195 832] font=19
+shapes=690 digest=21a359606380e6ea
+## Preview 0.75x 918x630
+Button-1 rect=[32 48 296 128] font=16
+Button-10 rect=[928 592 1192 672] font=16
+Button-2 rect=[928 40 1192 120] font=16
+Button-3 rect=[32 216 296 296] font=16
+Button-4 rect=[928 208 1192 288] font=16
+Button-5 rect=[32 344 296 424] font=16
+Button-6 rect=[928 344 1192 424] font=16
+Button-7 rect=[32 464 296 544] font=16
+Button-8 rect=[928 472 1192 552] font=16
+Button-9 rect=[32 592 296 672] font=16
+Label-1 rect=[40 800 1195 832] font=19
+shapes=690 digest=21a359606380e6ea
+## Canvas 1x 1224x840
+Button-1 rect=[32 48 296 128] font=16
+Button-10 rect=[928 592 1192 672] font=16
+Button-2 rect=[928 40 1192 120] font=16
+Button-3 rect=[32 216 296 296] font=16
+Button-4 rect=[928 208 1192 288] font=16
+Button-5 rect=[32 344 296 424] font=16
+Button-6 rect=[928 344 1192 424] font=16
+Button-7 rect=[32 464 296 544] font=16
+Button-8 rect=[928 472 1192 552] font=16
+Button-9 rect=[32 592 296 672] font=16
+Label-1 rect=[40 800 1195 832] font=19
+shapes=687 digest=a288795226d2bd3f
+## Run 1x 1224x840
+Button-1 rect=[32 48 296 128] font=16
+Button-10 rect=[928 592 1192 672] font=16
+Button-2 rect=[928 40 1192 120] font=16
+Button-3 rect=[32 216 296 296] font=16
+Button-4 rect=[928 208 1192 288] font=16
+Button-5 rect=[32 344 296 424] font=16
+Button-6 rect=[928 344 1192 424] font=16
+Button-7 rect=[32 464 296 544] font=16
+Button-8 rect=[928 472 1192 552] font=16
+Button-9 rect=[32 592 296 672] font=16
+Label-1 rect=[40 800 1195 832] font=19
+shapes=690 digest=5b80e42556f929bc
+## Preview 1x 1224x840
+Button-1 rect=[32 48 296 128] font=16
+Button-10 rect=[928 592 1192 672] font=16
+Button-2 rect=[928 40 1192 120] font=16
+Button-3 rect=[32 216 296 296] font=16
+Button-4 rect=[928 208 1192 288] font=16
+Button-5 rect=[32 344 296 424] font=16
+Button-6 rect=[928 344 1192 424] font=16
+Button-7 rect=[32 464 296 544] font=16
+Button-8 rect=[928 472 1192 552] font=16
+Button-9 rect=[32 592 296 672] font=16
+Label-1 rect=[40 800 1195 832] font=19
+shapes=690 digest=5b80e42556f929bc
+## Canvas 1.5x 1836x1260
+Button-1 rect=[32 48 296 128] font=16
+Button-10 rect=[928 592 1192 672] font=16
+Button-2 rect=[928 40 1192 120] font=16
+Button-3 rect=[32 216 296 296] font=16
+Button-4 rect=[928 208 1192 288] font=16
+Button-5 rect=[32 344 296 424] font=16
+Button-6 rect=[928 344 1192 424] font=16
+Button-7 rect=[32 464 296 544] font=16
+Button-8 rect=[928 472 1192 552] font=16
+Button-9 rect=[32 592 296 672] font=16
+Label-1 rect=[40 800 1195 832] font=19
+shapes=687 digest=5901a1f140daa376
+## Run 1.5x 1836x1260
+Button-1 rect=[32 48 296 128] font=16
+Button-10 rect=[928 592 1192 672] font=16
+Button-2 rect=[928 40 1192 120] font=16
+Button-3 rect=[32 216 296 296] font=16
+Button-4 rect=[928 208 1192 288] font=16
+Button-5 rect=[32 344 296 424] font=16
+Button-6 rect=[928 344 1192 424] font=16
+Button-7 rect=[32 464 296 544] font=16
+Button-8 rect=[928 472 1192 552] font=16
+Button-9 rect=[32 592 296 672] font=16
+Label-1 rect=[40 800 1195 832] font=19
+shapes=690 digest=6362719345e2ddbd
+## Preview 1.5x 1836x1260
+Button-1 rect=[32 48 296 128] font=16
+Button-10 rect=[928 592 1192 672] font=16
+Button-2 rect=[928 40 1192 120] font=16
+Button-3 rect=[32 216 296 296] font=16
+Button-4 rect=[928 208 1192 288] font=16
+Button-5 rect=[32 344 296 424] font=16
+Button-6 rect=[928 344 1192 424] font=16
+Button-7 rect=[32 464 296 544] font=16
+Button-8 rect=[928 472 1192 552] font=16
+Button-9 rect=[32 592 296 672] font=16
+Label-1 rect=[40 800 1195 832] font=19
+shapes=690 digest=15bcf5276559e1c5

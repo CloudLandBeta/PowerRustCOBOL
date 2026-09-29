@@ -1,0 +1,64 @@
+# PowerDemo3/General/call-form-demo.cfrm
+## Canvas 0.75x 750x450
+Button-1 rect=[40 200 360 264] font=16
+Label-1 rect=[40 32 640 88] font=32
+Label-2 rect=[40 104 940 176] font=14
+Label-3 rect=[40 304 540 336] font=16
+Lbl-Result rect=[40 344 940 400] font=20
+shapes=65 digest=573d308dcb8e5a42
+## Run 0.75x 750x450
+Button-1 rect=[40 200 360 264] font=16
+Label-1 rect=[40 32 640 88] font=32
+Label-2 rect=[40 104 940 176] font=14
+Label-3 rect=[40 304 540 336] font=16
+Lbl-Result rect=[40 344 940 400] font=20
+shapes=67 digest=57199924dd95ef19
+## Preview 0.75x 750x450
+Button-1 rect=[40 200 360 264] font=16
+Label-1 rect=[40 32 640 88] font=32
+Label-2 rect=[40 104 940 176] font=14
+Label-3 rect=[40 304 540 336] font=16
+Lbl-Result rect=[40 344 940 400] font=20
+shapes=67 digest=57199924dd95ef19
+## Canvas 1x 1000x600
+Button-1 rect=[40 200 360 264] font=16
+Label-1 rect=[40 32 640 88] font=32
+Label-2 rect=[40 104 940 176] font=14
+Label-3 rect=[40 304 540 336] font=16
+Lbl-Result rect=[40 344 940 400] font=20
+shapes=65 digest=f55afe3f9594e4ff
+## Run 1x 1000x600
+Button-1 rect=[40 200 360 264] font=16
+Label-1 rect=[40 32 640 88] font=32
+Label-2 rect=[40 104 940 176] font=14
+Label-3 rect=[40 304 540 336] font=16
+Lbl-Result rect=[40 344 940 400] font=20
+shapes=67 digest=e4c925aa5283ff66
+## Preview 1x 1000x600
+Button-1 rect=[40 200 360 264] font=16
+Label-1 rect=[40 32 640 88] font=32
+Label-2 rect=[40 104 940 176] font=14
+Label-3 rect=[40 304 540 336] font=16
+Lbl-Result rect=[40 344 940 400] font=20
+shapes=67 digest=e4c925aa5283ff66
+## Canvas 1.5x 1500x900
+Button-1 rect=[40 200 360 264] font=16
+Label-1 rect=[40 32 640 88] font=32
+Label-2 rect=[40 104 940 176] font=14
+Label-3 rect=[40 304 540 336] font=16
+Lbl-Result rect=[40 344 940 400] font=20
+shapes=65 digest=773de3902b4ba4a8
+## Run 1.5x 1500x900
+Button-1 rect=[40 200 360 264] font=16
+Label-1 rect=[40 32 640 88] font=32
+Label-2 rect=[40 104 940 176] font=14
+Label-3 rect=[40 304 540 336] font=16
+Lbl-Result rect=[40 344 940 400] font=20
+shapes=67 digest=29856895998a5228
+## Preview 1.5x 1500x900
+Button-1 rect=[40 200 360 264] font=16
+Label-1 rect=[40 32 640 88] font=32
+Label-2 rect=[40 104 940 176] font=14
+Label-3 rect=[40 304 540 336] font=16
+Lbl-Result rect=[40 344 940 400] font=20
+shapes=67 digest=29856895998a5228

@@ -1,0 +1,145 @@
+# PowerDemo3/Common/datetimepicker-form.cfrm
+## Canvas 0.75x 750x495
+Btn-Clear rect=[376 380 532 412] font=14
+Btn-Summary rect=[204 380 360 412] font=14
+Btn-Today rect=[32 380 188 412] font=14
+Dtp-From rect=[48 158 308 190] font=15
+Dtp-Slot rect=[632 158 852 190] font=15
+Dtp-To rect=[340 158 600 190] font=15
+Lbl-From-Cap rect=[48 134 288 154] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Slot-Cap rect=[632 134 872 154] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-To-Cap rect=[340 134 580 154] font=12
+Lbl-Trip rect=[48 220 868 246] font=15
+Txt-Log rect=[32 448 968 632] font=12
+shapes=418 digest=8f1e96e95d39de46
+## Run 0.75x 750x495
+Btn-Clear rect=[376 380 532 412] font=14
+Btn-Summary rect=[204 380 360 412] font=14
+Btn-Today rect=[32 380 188 412] font=14
+Dtp-From rect=[48 158 308 190] font=15
+Dtp-Slot rect=[632 158 852 190] font=15
+Dtp-To rect=[340 158 600 190] font=15
+Lbl-From-Cap rect=[48 134 288 154] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Slot-Cap rect=[632 134 872 154] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-To-Cap rect=[340 134 580 154] font=12
+Lbl-Trip rect=[48 220 868 246] font=15
+Txt-Log rect=[32 448 968 632] font=12
+shapes=423 digest=85d1fa9799245766
+## Preview 0.75x 750x495
+Btn-Clear rect=[376 380 532 412] font=14
+Btn-Summary rect=[204 380 360 412] font=14
+Btn-Today rect=[32 380 188 412] font=14
+Dtp-From rect=[48 158 308 190] font=15
+Dtp-Slot rect=[632 158 852 190] font=15
+Dtp-To rect=[340 158 600 190] font=15
+Lbl-From-Cap rect=[48 134 288 154] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Slot-Cap rect=[632 134 872 154] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-To-Cap rect=[340 134 580 154] font=12
+Lbl-Trip rect=[48 220 868 246] font=15
+Txt-Log rect=[32 448 968 632] font=12
+shapes=423 digest=85d1fa9799245766
+## Canvas 1x 1000x660
+Btn-Clear rect=[376 380 532 412] font=14
+Btn-Summary rect=[204 380 360 412] font=14
+Btn-Today rect=[32 380 188 412] font=14
+Dtp-From rect=[48 158 308 190] font=15
+Dtp-Slot rect=[632 158 852 190] font=15
+Dtp-To rect=[340 158 600 190] font=15
+Lbl-From-Cap rect=[48 134 288 154] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Slot-Cap rect=[632 134 872 154] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-To-Cap rect=[340 134 580 154] font=12
+Lbl-Trip rect=[48 220 868 246] font=15
+Txt-Log rect=[32 448 968 632] font=12
+shapes=418 digest=9282bdc39fe3b434
+## Run 1x 1000x660
+Btn-Clear rect=[376 380 532 412] font=14
+Btn-Summary rect=[204 380 360 412] font=14
+Btn-Today rect=[32 380 188 412] font=14
+Dtp-From rect=[48 158 308 190] font=15
+Dtp-Slot rect=[632 158 852 190] font=15
+Dtp-To rect=[340 158 600 190] font=15
+Lbl-From-Cap rect=[48 134 288 154] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Slot-Cap rect=[632 134 872 154] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-To-Cap rect=[340 134 580 154] font=12
+Lbl-Trip rect=[48 220 868 246] font=15
+Txt-Log rect=[32 448 968 632] font=12
+shapes=423 digest=1b4064baf4e0dda0
+## Preview 1x 1000x660
+Btn-Clear rect=[376 380 532 412] font=14
+Btn-Summary rect=[204 380 360 412] font=14
+Btn-Today rect=[32 380 188 412] font=14
+Dtp-From rect=[48 158 308 190] font=15
+Dtp-Slot rect=[632 158 852 190] font=15
+Dtp-To rect=[340 158 600 190] font=15
+Lbl-From-Cap rect=[48 134 288 154] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Slot-Cap rect=[632 134 872 154] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-To-Cap rect=[340 134 580 154] font=12
+Lbl-Trip rect=[48 220 868 246] font=15
+Txt-Log rect=[32 448 968 632] font=12
+shapes=423 digest=1b4064baf4e0dda0
+## Canvas 1.5x 1500x990
+Btn-Clear rect=[376 380 532 412] font=14
+Btn-Summary rect=[204 380 360 412] font=14
+Btn-Today rect=[32 380 188 412] font=14
+Dtp-From rect=[48 158 308 190] font=15
+Dtp-Slot rect=[632 158 852 190] font=15
+Dtp-To rect=[340 158 600 190] font=15
+Lbl-From-Cap rect=[48 134 288 154] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Slot-Cap rect=[632 134 872 154] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-To-Cap rect=[340 134 580 154] font=12
+Lbl-Trip rect=[48 220 868 246] font=15
+Txt-Log rect=[32 448 968 632] font=12
+shapes=418 digest=9715a6e8e354f984
+## Run 1.5x 1500x990
+Btn-Clear rect=[376 380 532 412] font=14
+Btn-Summary rect=[204 380 360 412] font=14
+Btn-Today rect=[32 380 188 412] font=14
+Dtp-From rect=[48 158 308 190] font=15
+Dtp-Slot rect=[632 158 852 190] font=15
+Dtp-To rect=[340 158 600 190] font=15
+Lbl-From-Cap rect=[48 134 288 154] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Slot-Cap rect=[632 134 872 154] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-To-Cap rect=[340 134 580 154] font=12
+Lbl-Trip rect=[48 220 868 246] font=15
+Txt-Log rect=[32 448 968 632] font=12
+shapes=423 digest=f92a85751e9851fd
+## Preview 1.5x 1500x990
+Btn-Clear rect=[376 380 532 412] font=14
+Btn-Summary rect=[204 380 360 412] font=14
+Btn-Today rect=[32 380 188 412] font=14
+Dtp-From rect=[48 158 308 190] font=15
+Dtp-Slot rect=[632 158 852 190] font=15
+Dtp-To rect=[340 158 600 190] font=15
+Lbl-From-Cap rect=[48 134 288 154] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Slot-Cap rect=[632 134 872 154] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-To-Cap rect=[340 134 580 154] font=12
+Lbl-Trip rect=[48 220 868 246] font=15
+Txt-Log rect=[32 448 968 632] font=12
+shapes=423 digest=f92a85751e9851fd

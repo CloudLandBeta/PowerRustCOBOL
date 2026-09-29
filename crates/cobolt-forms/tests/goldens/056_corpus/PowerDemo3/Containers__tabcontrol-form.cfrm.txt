@@ -1,0 +1,172 @@
+# PowerDemo3/Containers/tabcontrol-form.cfrm
+## Canvas 0.75x 750x495
+Btn-Bottom rect=[548 380 704 412] font=14
+Btn-Next rect=[32 380 188 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Btn-Ship rect=[204 380 360 412] font=14
+Cbo-Tier rect=[280 222 500 250] font=14
+Chk-Gift rect=- font=13
+Dtp-When rect=- font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-P0 rect=[76 186 276 210] font=13
+Lbl-P0b rect=[76 226 276 250] font=13
+Lbl-P1 rect=- font=13
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Items rect=- font=13
+Tab-Order rect=[48 130 960 350] font=14
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Name rect=[280 182 600 210] font=14
+shapes=46 digest=24094d58db41b8aa
+## Run 0.75x 750x495
+Btn-Bottom rect=[548 380 704 412] font=14
+Btn-Next rect=[32 380 188 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Btn-Ship rect=[204 380 360 412] font=14
+Cbo-Tier rect=[280 222 500 250] font=14
+Chk-Gift rect=- font=13
+Dtp-When rect=- font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-P0 rect=[76 186 276 210] font=13
+Lbl-P0b rect=[76 226 276 250] font=13
+Lbl-P1 rect=- font=13
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Items rect=- font=13
+Tab-Order rect=[48 130 960 350] font=14
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Name rect=[280 182 600 210] font=14
+shapes=55 digest=e2ef515d04d6c3c7
+## Preview 0.75x 750x495
+Btn-Bottom rect=[548 380 704 412] font=14
+Btn-Next rect=[32 380 188 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Btn-Ship rect=[204 380 360 412] font=14
+Cbo-Tier rect=[280 222 500 250] font=14
+Chk-Gift rect=- font=13
+Dtp-When rect=- font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-P0 rect=[76 186 276 210] font=13
+Lbl-P0b rect=[76 226 276 250] font=13
+Lbl-P1 rect=- font=13
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Items rect=- font=13
+Tab-Order rect=[48 130 960 350] font=14
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Name rect=[280 182 600 210] font=14
+shapes=55 digest=d36270fb96029a4c
+## Canvas 1x 1000x660
+Btn-Bottom rect=[548 380 704 412] font=14
+Btn-Next rect=[32 380 188 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Btn-Ship rect=[204 380 360 412] font=14
+Cbo-Tier rect=[280 222 500 250] font=14
+Chk-Gift rect=- font=13
+Dtp-When rect=- font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-P0 rect=[76 186 276 210] font=13
+Lbl-P0b rect=[76 226 276 250] font=13
+Lbl-P1 rect=- font=13
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Items rect=- font=13
+Tab-Order rect=[48 130 960 350] font=14
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Name rect=[280 182 600 210] font=14
+shapes=46 digest=7086397bef31b52c
+## Run 1x 1000x660
+Btn-Bottom rect=[548 380 704 412] font=14
+Btn-Next rect=[32 380 188 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Btn-Ship rect=[204 380 360 412] font=14
+Cbo-Tier rect=[280 222 500 250] font=14
+Chk-Gift rect=- font=13
+Dtp-When rect=- font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-P0 rect=[76 186 276 210] font=13
+Lbl-P0b rect=[76 226 276 250] font=13
+Lbl-P1 rect=- font=13
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Items rect=- font=13
+Tab-Order rect=[48 130 960 350] font=14
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Name rect=[280 182 600 210] font=14
+shapes=55 digest=063ea5668ef4a0cd
+## Preview 1x 1000x660
+Btn-Bottom rect=[548 380 704 412] font=14
+Btn-Next rect=[32 380 188 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Btn-Ship rect=[204 380 360 412] font=14
+Cbo-Tier rect=[280 222 500 250] font=14
+Chk-Gift rect=- font=13
+Dtp-When rect=- font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-P0 rect=[76 186 276 210] font=13
+Lbl-P0b rect=[76 226 276 250] font=13
+Lbl-P1 rect=- font=13
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Items rect=- font=13
+Tab-Order rect=[48 130 960 350] font=14
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Name rect=[280 182 600 210] font=14
+shapes=55 digest=244d444bbd2d0e7a
+## Canvas 1.5x 1500x990
+Btn-Bottom rect=[548 380 704 412] font=14
+Btn-Next rect=[32 380 188 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Btn-Ship rect=[204 380 360 412] font=14
+Cbo-Tier rect=[280 222 500 250] font=14
+Chk-Gift rect=- font=13
+Dtp-When rect=- font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-P0 rect=[76 186 276 210] font=13
+Lbl-P0b rect=[76 226 276 250] font=13
+Lbl-P1 rect=- font=13
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Items rect=- font=13
+Tab-Order rect=[48 130 960 350] font=14
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Name rect=[280 182 600 210] font=14
+shapes=46 digest=2cdec8c6b9e7133c
+## Run 1.5x 1500x990
+Btn-Bottom rect=[548 380 704 412] font=14
+Btn-Next rect=[32 380 188 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Btn-Ship rect=[204 380 360 412] font=14
+Cbo-Tier rect=[280 222 500 250] font=14
+Chk-Gift rect=- font=13
+Dtp-When rect=- font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-P0 rect=[76 186 276 210] font=13
+Lbl-P0b rect=[76 226 276 250] font=13
+Lbl-P1 rect=- font=13
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Items rect=- font=13
+Tab-Order rect=[48 130 960 350] font=14
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Name rect=[280 182 600 210] font=14
+shapes=55 digest=1fc646d7d9a0dfa7
+## Preview 1.5x 1500x990
+Btn-Bottom rect=[548 380 704 412] font=14
+Btn-Next rect=[32 380 188 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Btn-Ship rect=[204 380 360 412] font=14
+Cbo-Tier rect=[280 222 500 250] font=14
+Chk-Gift rect=- font=13
+Dtp-When rect=- font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-P0 rect=[76 186 276 210] font=13
+Lbl-P0b rect=[76 226 276 250] font=13
+Lbl-P1 rect=- font=13
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Items rect=- font=13
+Tab-Order rect=[48 130 960 350] font=14
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Name rect=[280 182 600 210] font=14
+shapes=55 digest=42bf6261d5b8902c

@@ -12,15 +12,16 @@
 //! that failed or timed out fired nothing at all and the form simply sat there
 //! — which is indistinguishable from "the REST control does not work".
 //!
-//! The form lives in the operator's demo project and carries a real API key, so
-//! nothing here reads or prints a property value: the assertions are about the
+//! Read from the REPOSITORY's own `examples/PowerDemo3` (spec 056 T0.5; it used
+//! to read `~/Documents/PowerDemo3` and skip when absent). The form carries a
+//! real API key, so nothing here reads or prints a property value: the assertions are about the
 //! generated COBOL and the control's shape, never its credentials.
 
 use std::path::PathBuf;
 
 fn demo_form() -> Option<PathBuf> {
-    let p = PathBuf::from(std::env::var("HOME").ok()?)
-        .join("Documents/PowerDemo3/forms/Non-Visual/restapi-form.cfrm");
+    // `CARGO_MANIFEST_DIR` is crates/<crate>; the example sits two levels up.
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/PowerDemo3/forms/Non-Visual/restapi-form.cfrm");
     p.exists().then_some(p)
 }
 

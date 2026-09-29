@@ -1,0 +1,154 @@
+# PowerDemo3/Containers/splitter-form.cfrm
+## Canvas 0.75x 750x495
+Btn-Even rect=[204 380 360 412] font=14
+Btn-Flip rect=[548 380 704 412] font=14
+Btn-Narrow rect=[32 380 188 412] font=14
+Btn-Wide rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Pane1 rect=[68 150 328 174] font=14
+Lbl-Pane2 rect=[380 150 780 174] font=14
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Nav rect=[68 180 328 330] font=13
+Spl-Work rect=[48 130 960 350] font=14
+Spl-Work-Pane1 rect=[50 132 367 348] font=14
+Spl-Work-Pane2 rect=[370 132 958 348] font=14
+Txt-Detail rect=[380 180 920 330] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=473 digest=79e74097af649dd6
+## Run 0.75x 750x495
+Btn-Even rect=[204 380 360 412] font=14
+Btn-Flip rect=[548 380 704 412] font=14
+Btn-Narrow rect=[32 380 188 412] font=14
+Btn-Wide rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Pane1 rect=[68 150 328 174] font=14
+Lbl-Pane2 rect=[380 150 780 174] font=14
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Nav rect=[68 180 328 330] font=13
+Spl-Work rect=[48 130 960 350] font=14
+Spl-Work-Pane1 rect=[50 132 367 348] font=14
+Spl-Work-Pane2 rect=[370 132 958 348] font=14
+Txt-Detail rect=[380 180 920 330] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=485 digest=43afff8042f14511
+## Preview 0.75x 750x495
+Btn-Even rect=[204 380 360 412] font=14
+Btn-Flip rect=[548 380 704 412] font=14
+Btn-Narrow rect=[32 380 188 412] font=14
+Btn-Wide rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Pane1 rect=[68 150 328 174] font=14
+Lbl-Pane2 rect=[380 150 780 174] font=14
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Nav rect=[68 180 328 330] font=13
+Spl-Work rect=[48 130 960 350] font=14
+Spl-Work-Pane1 rect=[50 132 367 348] font=14
+Spl-Work-Pane2 rect=[370 132 958 348] font=14
+Txt-Detail rect=[380 180 920 330] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=485 digest=43afff8042f14511
+## Canvas 1x 1000x660
+Btn-Even rect=[204 380 360 412] font=14
+Btn-Flip rect=[548 380 704 412] font=14
+Btn-Narrow rect=[32 380 188 412] font=14
+Btn-Wide rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Pane1 rect=[68 150 328 174] font=14
+Lbl-Pane2 rect=[380 150 780 174] font=14
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Nav rect=[68 180 328 330] font=13
+Spl-Work rect=[48 130 960 350] font=14
+Spl-Work-Pane1 rect=[50 132 367 348] font=14
+Spl-Work-Pane2 rect=[370 132 958 348] font=14
+Txt-Detail rect=[380 180 920 330] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=473 digest=2d51584a66fbcb94
+## Run 1x 1000x660
+Btn-Even rect=[204 380 360 412] font=14
+Btn-Flip rect=[548 380 704 412] font=14
+Btn-Narrow rect=[32 380 188 412] font=14
+Btn-Wide rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Pane1 rect=[68 150 328 174] font=14
+Lbl-Pane2 rect=[380 150 780 174] font=14
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Nav rect=[68 180 328 330] font=13
+Spl-Work rect=[48 130 960 350] font=14
+Spl-Work-Pane1 rect=[50 132 367 348] font=14
+Spl-Work-Pane2 rect=[370 132 958 348] font=14
+Txt-Detail rect=[380 180 920 330] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=485 digest=1afa9ae70db48467
+## Preview 1x 1000x660
+Btn-Even rect=[204 380 360 412] font=14
+Btn-Flip rect=[548 380 704 412] font=14
+Btn-Narrow rect=[32 380 188 412] font=14
+Btn-Wide rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Pane1 rect=[68 150 328 174] font=14
+Lbl-Pane2 rect=[380 150 780 174] font=14
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Nav rect=[68 180 328 330] font=13
+Spl-Work rect=[48 130 960 350] font=14
+Spl-Work-Pane1 rect=[50 132 367 348] font=14
+Spl-Work-Pane2 rect=[370 132 958 348] font=14
+Txt-Detail rect=[380 180 920 330] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=485 digest=1afa9ae70db48467
+## Canvas 1.5x 1500x990
+Btn-Even rect=[204 380 360 412] font=14
+Btn-Flip rect=[548 380 704 412] font=14
+Btn-Narrow rect=[32 380 188 412] font=14
+Btn-Wide rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Pane1 rect=[68 150 328 174] font=14
+Lbl-Pane2 rect=[380 150 780 174] font=14
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Nav rect=[68 180 328 330] font=13
+Spl-Work rect=[48 130 960 350] font=14
+Spl-Work-Pane1 rect=[50 132 367 348] font=14
+Spl-Work-Pane2 rect=[370 132 958 348] font=14
+Txt-Detail rect=[380 180 920 330] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=473 digest=aed7e68acddba544
+## Run 1.5x 1500x990
+Btn-Even rect=[204 380 360 412] font=14
+Btn-Flip rect=[548 380 704 412] font=14
+Btn-Narrow rect=[32 380 188 412] font=14
+Btn-Wide rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Pane1 rect=[68 150 328 174] font=14
+Lbl-Pane2 rect=[380 150 780 174] font=14
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Nav rect=[68 180 328 330] font=13
+Spl-Work rect=[48 130 960 350] font=14
+Spl-Work-Pane1 rect=[50 132 367 348] font=14
+Spl-Work-Pane2 rect=[370 132 958 348] font=14
+Txt-Detail rect=[380 180 920 330] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=485 digest=0969962da2ac35c6
+## Preview 1.5x 1500x990
+Btn-Even rect=[204 380 360 412] font=14
+Btn-Flip rect=[548 380 704 412] font=14
+Btn-Narrow rect=[32 380 188 412] font=14
+Btn-Wide rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Pane1 rect=[68 150 328 174] font=14
+Lbl-Pane2 rect=[380 150 780 174] font=14
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Nav rect=[68 180 328 330] font=13
+Spl-Work rect=[48 130 960 350] font=14
+Spl-Work-Pane1 rect=[50 132 367 348] font=14
+Spl-Work-Pane2 rect=[370 132 958 348] font=14
+Txt-Detail rect=[380 180 920 330] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=485 digest=0969962da2ac35c6

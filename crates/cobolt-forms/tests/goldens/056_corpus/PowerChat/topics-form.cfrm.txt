@@ -1,0 +1,163 @@
+# PowerChat/topics-form.cfrm
+## Canvas 0.75x 804x474
+Btn-Cancel rect=[904 96 1024 128] font=14
+Btn-Cancel2 rect=[904 528 1024 560] font=14
+Btn-Install rect=- font=14
+Btn-New rect=- font=14
+Btn-RemoveSamples rect=- font=14
+Btn-Save rect=[768 96 888 128] font=14
+Btn-Save2 rect=[768 528 888 560] font=14
+Dg-List rect=- font=14
+KB-T rect=[600 16 648 64] font=14
+Lbl-New rect=[40 144 560 168] font=14
+Lbl-Status rect=[24 584 1024 624] font=14
+Lbl-Title rect=[24 16 576 48] font=20
+Tab-Crud rect=[24 56 1048 576] font=14
+Tmr-Lang rect=[600 16 648 64] font=14
+Txt-Name rect=[40 176 760 208] font=14
+Txt-Prompt rect=[40 224 1024 504] font=14
+shapes=301 digest=ae1c6d70c883b6e3
+## Run 0.75x 804x474
+Btn-Cancel rect=[904 96 1024 128] font=14
+Btn-Cancel2 rect=[904 528 1024 560] font=14
+Btn-Install rect=- font=14
+Btn-New rect=- font=14
+Btn-RemoveSamples rect=- font=14
+Btn-Save rect=[768 96 888 128] font=14
+Btn-Save2 rect=[768 528 888 560] font=14
+Dg-List rect=- font=14
+KB-T rect=[600 16 648 64] font=14
+Lbl-New rect=[40 144 560 168] font=14
+Lbl-Status rect=[24 584 1024 624] font=14
+Lbl-Title rect=[24 16 576 48] font=20
+Tab-Crud rect=[24 56 1048 576] font=14
+Tmr-Lang rect=[600 16 648 64] font=14
+Txt-Name rect=[40 176 760 208] font=14
+Txt-Prompt rect=[40 224 1024 504] font=14
+shapes=221 digest=223380771814ec8a
+## Preview 0.75x 804x474
+Btn-Cancel rect=[904 96 1024 128] font=14
+Btn-Cancel2 rect=[904 528 1024 560] font=14
+Btn-Install rect=- font=14
+Btn-New rect=- font=14
+Btn-RemoveSamples rect=- font=14
+Btn-Save rect=[768 96 888 128] font=14
+Btn-Save2 rect=[768 528 888 560] font=14
+Dg-List rect=- font=14
+KB-T rect=[600 16 648 64] font=14
+Lbl-New rect=[40 144 560 168] font=14
+Lbl-Status rect=[24 584 1024 624] font=14
+Lbl-Title rect=[24 16 576 48] font=20
+Tab-Crud rect=[24 56 1048 576] font=14
+Tmr-Lang rect=[600 16 648 64] font=14
+Txt-Name rect=[40 176 760 208] font=14
+Txt-Prompt rect=[40 224 1024 504] font=14
+shapes=221 digest=223380771814ec8a
+## Canvas 1x 1072x632
+Btn-Cancel rect=[904 96 1024 128] font=14
+Btn-Cancel2 rect=[904 528 1024 560] font=14
+Btn-Install rect=- font=14
+Btn-New rect=- font=14
+Btn-RemoveSamples rect=- font=14
+Btn-Save rect=[768 96 888 128] font=14
+Btn-Save2 rect=[768 528 888 560] font=14
+Dg-List rect=- font=14
+KB-T rect=[600 16 648 64] font=14
+Lbl-New rect=[40 144 560 168] font=14
+Lbl-Status rect=[24 584 1024 624] font=14
+Lbl-Title rect=[24 16 576 48] font=20
+Tab-Crud rect=[24 56 1048 576] font=14
+Tmr-Lang rect=[600 16 648 64] font=14
+Txt-Name rect=[40 176 760 208] font=14
+Txt-Prompt rect=[40 224 1024 504] font=14
+shapes=301 digest=2af262ad73731c63
+## Run 1x 1072x632
+Btn-Cancel rect=[904 96 1024 128] font=14
+Btn-Cancel2 rect=[904 528 1024 560] font=14
+Btn-Install rect=- font=14
+Btn-New rect=- font=14
+Btn-RemoveSamples rect=- font=14
+Btn-Save rect=[768 96 888 128] font=14
+Btn-Save2 rect=[768 528 888 560] font=14
+Dg-List rect=- font=14
+KB-T rect=[600 16 648 64] font=14
+Lbl-New rect=[40 144 560 168] font=14
+Lbl-Status rect=[24 584 1024 624] font=14
+Lbl-Title rect=[24 16 576 48] font=20
+Tab-Crud rect=[24 56 1048 576] font=14
+Tmr-Lang rect=[600 16 648 64] font=14
+Txt-Name rect=[40 176 760 208] font=14
+Txt-Prompt rect=[40 224 1024 504] font=14
+shapes=221 digest=a6b74c34ac28a216
+## Preview 1x 1072x632
+Btn-Cancel rect=[904 96 1024 128] font=14
+Btn-Cancel2 rect=[904 528 1024 560] font=14
+Btn-Install rect=- font=14
+Btn-New rect=- font=14
+Btn-RemoveSamples rect=- font=14
+Btn-Save rect=[768 96 888 128] font=14
+Btn-Save2 rect=[768 528 888 560] font=14
+Dg-List rect=- font=14
+KB-T rect=[600 16 648 64] font=14
+Lbl-New rect=[40 144 560 168] font=14
+Lbl-Status rect=[24 584 1024 624] font=14
+Lbl-Title rect=[24 16 576 48] font=20
+Tab-Crud rect=[24 56 1048 576] font=14
+Tmr-Lang rect=[600 16 648 64] font=14
+Txt-Name rect=[40 176 760 208] font=14
+Txt-Prompt rect=[40 224 1024 504] font=14
+shapes=221 digest=a6b74c34ac28a216
+## Canvas 1.5x 1608x948
+Btn-Cancel rect=[904 96 1024 128] font=14
+Btn-Cancel2 rect=[904 528 1024 560] font=14
+Btn-Install rect=- font=14
+Btn-New rect=- font=14
+Btn-RemoveSamples rect=- font=14
+Btn-Save rect=[768 96 888 128] font=14
+Btn-Save2 rect=[768 528 888 560] font=14
+Dg-List rect=- font=14
+KB-T rect=[600 16 648 64] font=14
+Lbl-New rect=[40 144 560 168] font=14
+Lbl-Status rect=[24 584 1024 624] font=14
+Lbl-Title rect=[24 16 576 48] font=20
+Tab-Crud rect=[24 56 1048 576] font=14
+Tmr-Lang rect=[600 16 648 64] font=14
+Txt-Name rect=[40 176 760 208] font=14
+Txt-Prompt rect=[40 224 1024 504] font=14
+shapes=301 digest=84d1ec813e2327c6
+## Run 1.5x 1608x948
+Btn-Cancel rect=[904 96 1024 128] font=14
+Btn-Cancel2 rect=[904 528 1024 560] font=14
+Btn-Install rect=- font=14
+Btn-New rect=- font=14
+Btn-RemoveSamples rect=- font=14
+Btn-Save rect=[768 96 888 128] font=14
+Btn-Save2 rect=[768 528 888 560] font=14
+Dg-List rect=- font=14
+KB-T rect=[600 16 648 64] font=14
+Lbl-New rect=[40 144 560 168] font=14
+Lbl-Status rect=[24 584 1024 624] font=14
+Lbl-Title rect=[24 16 576 48] font=20
+Tab-Crud rect=[24 56 1048 576] font=14
+Tmr-Lang rect=[600 16 648 64] font=14
+Txt-Name rect=[40 176 760 208] font=14
+Txt-Prompt rect=[40 224 1024 504] font=14
+shapes=221 digest=95d372e5ee66cd90
+## Preview 1.5x 1608x948
+Btn-Cancel rect=[904 96 1024 128] font=14
+Btn-Cancel2 rect=[904 528 1024 560] font=14
+Btn-Install rect=- font=14
+Btn-New rect=- font=14
+Btn-RemoveSamples rect=- font=14
+Btn-Save rect=[768 96 888 128] font=14
+Btn-Save2 rect=[768 528 888 560] font=14
+Dg-List rect=- font=14
+KB-T rect=[600 16 648 64] font=14
+Lbl-New rect=[40 144 560 168] font=14
+Lbl-Status rect=[24 584 1024 624] font=14
+Lbl-Title rect=[24 16 576 48] font=20
+Tab-Crud rect=[24 56 1048 576] font=14
+Tmr-Lang rect=[600 16 648 64] font=14
+Txt-Name rect=[40 176 760 208] font=14
+Txt-Prompt rect=[40 224 1024 504] font=14
+shapes=221 digest=95d372e5ee66cd90

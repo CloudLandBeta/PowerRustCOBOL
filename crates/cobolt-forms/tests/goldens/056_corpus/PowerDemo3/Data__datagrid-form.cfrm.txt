@@ -1,0 +1,100 @@
+# PowerDemo3/Data/datagrid-form.cfrm
+## Canvas 0.75x 966x582
+Button-1 rect=[40 232 200 272] font=17
+DataGrid-1 rect=[64 328 1200 704] font=17
+Label-1 rect=[40 96 496 216] font=60
+Label-2 rect=[536 120 1224 264] font=16
+Panel-1 rect=[40 304 1224 728] font=17
+RadioButton-4 rect=[1112 24 1288 69] font=17
+RadioButton-5 rect=[988 24 1108 69] font=17
+RadioButton-6 rect=[864 24 984 69] font=17
+Snackbar-1 rect=[48 40 104 96] font=11
+shapes=156 digest=7fe2b54f48efc0b7
+## Run 0.75x 966x582
+Button-1 rect=[40 232 200 272] font=17
+DataGrid-1 rect=[64 328 1200 704] font=17
+Label-1 rect=[40 96 496 216] font=60
+Label-2 rect=[536 120 1224 264] font=16
+Panel-1 rect=[40 304 1224 728] font=17
+RadioButton-4 rect=[1112 24 1288 69] font=17
+RadioButton-5 rect=[988 24 1108 69] font=17
+RadioButton-6 rect=[864 24 984 69] font=17
+Snackbar-1 rect=[48 40 104 96] font=11
+shapes=963 digest=df6c654a823aebc9
+## Preview 0.75x 966x582
+Button-1 rect=[40 232 200 272] font=17
+DataGrid-1 rect=[64 328 1200 704] font=17
+Label-1 rect=[40 96 496 216] font=60
+Label-2 rect=[536 120 1224 264] font=16
+Panel-1 rect=[40 304 1224 728] font=17
+RadioButton-4 rect=[1112 24 1288 69] font=17
+RadioButton-5 rect=[988 24 1108 69] font=17
+RadioButton-6 rect=[864 24 984 69] font=17
+Snackbar-1 rect=[48 40 104 96] font=11
+shapes=963 digest=df6c654a823aebc9
+## Canvas 1x 1288x776
+Button-1 rect=[40 232 200 272] font=17
+DataGrid-1 rect=[64 328 1200 704] font=17
+Label-1 rect=[40 96 496 216] font=60
+Label-2 rect=[536 120 1224 264] font=16
+Panel-1 rect=[40 304 1224 728] font=17
+RadioButton-4 rect=[1112 24 1288 69] font=17
+RadioButton-5 rect=[988 24 1108 69] font=17
+RadioButton-6 rect=[864 24 984 69] font=17
+Snackbar-1 rect=[48 40 104 96] font=11
+shapes=156 digest=7777e574e1ca4e6b
+## Run 1x 1288x776
+Button-1 rect=[40 232 200 272] font=17
+DataGrid-1 rect=[64 328 1200 704] font=17
+Label-1 rect=[40 96 496 216] font=60
+Label-2 rect=[536 120 1224 264] font=16
+Panel-1 rect=[40 304 1224 728] font=17
+RadioButton-4 rect=[1112 24 1288 69] font=17
+RadioButton-5 rect=[988 24 1108 69] font=17
+RadioButton-6 rect=[864 24 984 69] font=17
+Snackbar-1 rect=[48 40 104 96] font=11
+shapes=964 digest=f6045b49fd0d0972
+## Preview 1x 1288x776
+Button-1 rect=[40 232 200 272] font=17
+DataGrid-1 rect=[64 328 1200 704] font=17
+Label-1 rect=[40 96 496 216] font=60
+Label-2 rect=[536 120 1224 264] font=16
+Panel-1 rect=[40 304 1224 728] font=17
+RadioButton-4 rect=[1112 24 1288 69] font=17
+RadioButton-5 rect=[988 24 1108 69] font=17
+RadioButton-6 rect=[864 24 984 69] font=17
+Snackbar-1 rect=[48 40 104 96] font=11
+shapes=964 digest=f6045b49fd0d0972
+## Canvas 1.5x 1932x1164
+Button-1 rect=[40 232 200 272] font=17
+DataGrid-1 rect=[64 328 1200 704] font=17
+Label-1 rect=[40 96 496 216] font=60
+Label-2 rect=[536 120 1224 264] font=16
+Panel-1 rect=[40 304 1224 728] font=17
+RadioButton-4 rect=[1112 24 1288 69] font=17
+RadioButton-5 rect=[988 24 1108 69] font=17
+RadioButton-6 rect=[864 24 984 69] font=17
+Snackbar-1 rect=[48 40 104 96] font=11
+shapes=156 digest=73dc012f5a560e7e
+## Run 1.5x 1932x1164
+Button-1 rect=[40 232 200 272] font=17
+DataGrid-1 rect=[64 328 1200 704] font=17
+Label-1 rect=[40 96 496 216] font=60
+Label-2 rect=[536 120 1224 264] font=16
+Panel-1 rect=[40 304 1224 728] font=17
+RadioButton-4 rect=[1112 24 1288 69] font=17
+RadioButton-5 rect=[988 24 1108 69] font=17
+RadioButton-6 rect=[864 24 984 69] font=17
+Snackbar-1 rect=[48 40 104 96] font=11
+shapes=964 digest=4e19f8644216e5ff
+## Preview 1.5x 1932x1164
+Button-1 rect=[40 232 200 272] font=17
+DataGrid-1 rect=[64 328 1200 704] font=17
+Label-1 rect=[40 96 496 216] font=60
+Label-2 rect=[536 120 1224 264] font=16
+Panel-1 rect=[40 304 1224 728] font=17
+RadioButton-4 rect=[1112 24 1288 69] font=17
+RadioButton-5 rect=[988 24 1108 69] font=17
+RadioButton-6 rect=[864 24 984 69] font=17
+Snackbar-1 rect=[48 40 104 96] font=11
+shapes=964 digest=fbd0b71e161ebbdd

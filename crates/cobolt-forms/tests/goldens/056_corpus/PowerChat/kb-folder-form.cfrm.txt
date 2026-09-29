@@ -1,0 +1,100 @@
+# PowerChat/kb-folder-form.cfrm
+## Canvas 0.75x 600x338
+Btn-BrowseKb rect=[704 156 776 188] font=14
+Btn-Cancel rect=[520 390 640 426] font=14
+Btn-CancelTop rect=[520 16 640 52] font=14
+Btn-Save rect=[656 390 776 426] font=14
+Btn-SaveTop rect=[656 16 776 52] font=14
+Lbl-KB rect=[24 128 776 152] font=14
+Lbl-Status rect=[24 232 776 372] font=14
+Lbl-Title rect=[24 16 504 52] font=20
+Txt-KbLocation rect=[24 156 696 188] font=14
+shapes=208 digest=f42f91847f1c108f
+## Run 0.75x 600x338
+Btn-BrowseKb rect=[704 156 776 188] font=14
+Btn-Cancel rect=[520 390 640 426] font=14
+Btn-CancelTop rect=[520 16 640 52] font=14
+Btn-Save rect=[656 390 776 426] font=14
+Btn-SaveTop rect=[656 16 776 52] font=14
+Lbl-KB rect=[24 128 776 152] font=14
+Lbl-Status rect=[24 232 776 372] font=14
+Lbl-Title rect=[24 16 504 52] font=20
+Txt-KbLocation rect=[24 156 696 188] font=14
+shapes=212 digest=22dad8832c44d125
+## Preview 0.75x 600x338
+Btn-BrowseKb rect=[704 156 776 188] font=14
+Btn-Cancel rect=[520 390 640 426] font=14
+Btn-CancelTop rect=[520 16 640 52] font=14
+Btn-Save rect=[656 390 776 426] font=14
+Btn-SaveTop rect=[656 16 776 52] font=14
+Lbl-KB rect=[24 128 776 152] font=14
+Lbl-Status rect=[24 232 776 372] font=14
+Lbl-Title rect=[24 16 504 52] font=20
+Txt-KbLocation rect=[24 156 696 188] font=14
+shapes=212 digest=22dad8832c44d125
+## Canvas 1x 800x450
+Btn-BrowseKb rect=[704 156 776 188] font=14
+Btn-Cancel rect=[520 390 640 426] font=14
+Btn-CancelTop rect=[520 16 640 52] font=14
+Btn-Save rect=[656 390 776 426] font=14
+Btn-SaveTop rect=[656 16 776 52] font=14
+Lbl-KB rect=[24 128 776 152] font=14
+Lbl-Status rect=[24 232 776 372] font=14
+Lbl-Title rect=[24 16 504 52] font=20
+Txt-KbLocation rect=[24 156 696 188] font=14
+shapes=208 digest=ab61b9f7132ebaef
+## Run 1x 800x450
+Btn-BrowseKb rect=[704 156 776 188] font=14
+Btn-Cancel rect=[520 390 640 426] font=14
+Btn-CancelTop rect=[520 16 640 52] font=14
+Btn-Save rect=[656 390 776 426] font=14
+Btn-SaveTop rect=[656 16 776 52] font=14
+Lbl-KB rect=[24 128 776 152] font=14
+Lbl-Status rect=[24 232 776 372] font=14
+Lbl-Title rect=[24 16 504 52] font=20
+Txt-KbLocation rect=[24 156 696 188] font=14
+shapes=212 digest=5d0f205d8ad53e28
+## Preview 1x 800x450
+Btn-BrowseKb rect=[704 156 776 188] font=14
+Btn-Cancel rect=[520 390 640 426] font=14
+Btn-CancelTop rect=[520 16 640 52] font=14
+Btn-Save rect=[656 390 776 426] font=14
+Btn-SaveTop rect=[656 16 776 52] font=14
+Lbl-KB rect=[24 128 776 152] font=14
+Lbl-Status rect=[24 232 776 372] font=14
+Lbl-Title rect=[24 16 504 52] font=20
+Txt-KbLocation rect=[24 156 696 188] font=14
+shapes=212 digest=5d0f205d8ad53e28
+## Canvas 1.5x 1200x675
+Btn-BrowseKb rect=[704 156 776 188] font=14
+Btn-Cancel rect=[520 390 640 426] font=14
+Btn-CancelTop rect=[520 16 640 52] font=14
+Btn-Save rect=[656 390 776 426] font=14
+Btn-SaveTop rect=[656 16 776 52] font=14
+Lbl-KB rect=[24 128 776 152] font=14
+Lbl-Status rect=[24 232 776 372] font=14
+Lbl-Title rect=[24 16 504 52] font=20
+Txt-KbLocation rect=[24 156 696 188] font=14
+shapes=208 digest=a47082bf401953f3
+## Run 1.5x 1200x675
+Btn-BrowseKb rect=[704 156 776 188] font=14
+Btn-Cancel rect=[520 390 640 426] font=14
+Btn-CancelTop rect=[520 16 640 52] font=14
+Btn-Save rect=[656 390 776 426] font=14
+Btn-SaveTop rect=[656 16 776 52] font=14
+Lbl-KB rect=[24 128 776 152] font=14
+Lbl-Status rect=[24 232 776 372] font=14
+Lbl-Title rect=[24 16 504 52] font=20
+Txt-KbLocation rect=[24 156 696 188] font=14
+shapes=212 digest=7378a4cf66226a43
+## Preview 1.5x 1200x675
+Btn-BrowseKb rect=[704 156 776 188] font=14
+Btn-Cancel rect=[520 390 640 426] font=14
+Btn-CancelTop rect=[520 16 640 52] font=14
+Btn-Save rect=[656 390 776 426] font=14
+Btn-SaveTop rect=[656 16 776 52] font=14
+Lbl-KB rect=[24 128 776 152] font=14
+Lbl-Status rect=[24 232 776 372] font=14
+Lbl-Title rect=[24 16 504 52] font=20
+Txt-KbLocation rect=[24 156 696 188] font=14
+shapes=212 digest=7378a4cf66226a43

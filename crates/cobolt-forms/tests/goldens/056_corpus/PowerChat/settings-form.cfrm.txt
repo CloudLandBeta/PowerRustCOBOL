@@ -1,0 +1,154 @@
+# PowerChat/settings-form.cfrm
+## Canvas 0.75x 546x465
+Btn-Agents rect=[368 154 696 198] font=16
+Btn-Export rect=[24 480 174 512] font=14
+Btn-Import rect=[182 480 332 512] font=14
+Btn-KbFolder rect=[24 64 352 108] font=16
+Btn-ModelSel rect=[24 154 352 198] font=16
+Btn-Providers rect=[368 64 696 108] font=16
+Lbl-AgentSum rect=[368 208 696 230] font=12
+Lbl-KbSum rect=[24 118 352 140] font=12
+Lbl-ModelSum rect=[24 208 352 230] font=12
+Lbl-Models rect=[24 240 696 262] font=14
+Lbl-ProvSum rect=[368 118 696 140] font=12
+Lbl-Status rect=[24 524 696 604] font=14
+Lbl-Title rect=[24 16 696 48] font=20
+Lst-Models rect=[24 264 696 464] font=14
+Tmr-Lang rect=[720 16 768 64] font=14
+shapes=285 digest=e265808b0c767997
+## Run 0.75x 546x465
+Btn-Agents rect=[368 154 696 198] font=16
+Btn-Export rect=[24 480 174 512] font=14
+Btn-Import rect=[182 480 332 512] font=14
+Btn-KbFolder rect=[24 64 352 108] font=16
+Btn-ModelSel rect=[24 154 352 198] font=16
+Btn-Providers rect=[368 64 696 108] font=16
+Lbl-AgentSum rect=[368 208 696 230] font=12
+Lbl-KbSum rect=[24 118 352 140] font=12
+Lbl-ModelSum rect=[24 208 352 230] font=12
+Lbl-Models rect=[24 240 696 262] font=14
+Lbl-ProvSum rect=[368 118 696 140] font=12
+Lbl-Status rect=[24 524 696 604] font=14
+Lbl-Title rect=[24 16 696 48] font=20
+Lst-Models rect=[24 264 696 464] font=14
+Tmr-Lang rect=[720 16 768 64] font=14
+shapes=245 digest=d1e713528a20efb8
+## Preview 0.75x 546x465
+Btn-Agents rect=[368 154 696 198] font=16
+Btn-Export rect=[24 480 174 512] font=14
+Btn-Import rect=[182 480 332 512] font=14
+Btn-KbFolder rect=[24 64 352 108] font=16
+Btn-ModelSel rect=[24 154 352 198] font=16
+Btn-Providers rect=[368 64 696 108] font=16
+Lbl-AgentSum rect=[368 208 696 230] font=12
+Lbl-KbSum rect=[24 118 352 140] font=12
+Lbl-ModelSum rect=[24 208 352 230] font=12
+Lbl-Models rect=[24 240 696 262] font=14
+Lbl-ProvSum rect=[368 118 696 140] font=12
+Lbl-Status rect=[24 524 696 604] font=14
+Lbl-Title rect=[24 16 696 48] font=20
+Lst-Models rect=[24 264 696 464] font=14
+Tmr-Lang rect=[720 16 768 64] font=14
+shapes=245 digest=d1e713528a20efb8
+## Canvas 1x 728x620
+Btn-Agents rect=[368 154 696 198] font=16
+Btn-Export rect=[24 480 174 512] font=14
+Btn-Import rect=[182 480 332 512] font=14
+Btn-KbFolder rect=[24 64 352 108] font=16
+Btn-ModelSel rect=[24 154 352 198] font=16
+Btn-Providers rect=[368 64 696 108] font=16
+Lbl-AgentSum rect=[368 208 696 230] font=12
+Lbl-KbSum rect=[24 118 352 140] font=12
+Lbl-ModelSum rect=[24 208 352 230] font=12
+Lbl-Models rect=[24 240 696 262] font=14
+Lbl-ProvSum rect=[368 118 696 140] font=12
+Lbl-Status rect=[24 524 696 604] font=14
+Lbl-Title rect=[24 16 696 48] font=20
+Lst-Models rect=[24 264 696 464] font=14
+Tmr-Lang rect=[720 16 768 64] font=14
+shapes=285 digest=1f7b07807db364d2
+## Run 1x 728x620
+Btn-Agents rect=[368 154 696 198] font=16
+Btn-Export rect=[24 480 174 512] font=14
+Btn-Import rect=[182 480 332 512] font=14
+Btn-KbFolder rect=[24 64 352 108] font=16
+Btn-ModelSel rect=[24 154 352 198] font=16
+Btn-Providers rect=[368 64 696 108] font=16
+Lbl-AgentSum rect=[368 208 696 230] font=12
+Lbl-KbSum rect=[24 118 352 140] font=12
+Lbl-ModelSum rect=[24 208 352 230] font=12
+Lbl-Models rect=[24 240 696 262] font=14
+Lbl-ProvSum rect=[368 118 696 140] font=12
+Lbl-Status rect=[24 524 696 604] font=14
+Lbl-Title rect=[24 16 696 48] font=20
+Lst-Models rect=[24 264 696 464] font=14
+Tmr-Lang rect=[720 16 768 64] font=14
+shapes=245 digest=0418f2234c1da512
+## Preview 1x 728x620
+Btn-Agents rect=[368 154 696 198] font=16
+Btn-Export rect=[24 480 174 512] font=14
+Btn-Import rect=[182 480 332 512] font=14
+Btn-KbFolder rect=[24 64 352 108] font=16
+Btn-ModelSel rect=[24 154 352 198] font=16
+Btn-Providers rect=[368 64 696 108] font=16
+Lbl-AgentSum rect=[368 208 696 230] font=12
+Lbl-KbSum rect=[24 118 352 140] font=12
+Lbl-ModelSum rect=[24 208 352 230] font=12
+Lbl-Models rect=[24 240 696 262] font=14
+Lbl-ProvSum rect=[368 118 696 140] font=12
+Lbl-Status rect=[24 524 696 604] font=14
+Lbl-Title rect=[24 16 696 48] font=20
+Lst-Models rect=[24 264 696 464] font=14
+Tmr-Lang rect=[720 16 768 64] font=14
+shapes=245 digest=0418f2234c1da512
+## Canvas 1.5x 1092x930
+Btn-Agents rect=[368 154 696 198] font=16
+Btn-Export rect=[24 480 174 512] font=14
+Btn-Import rect=[182 480 332 512] font=14
+Btn-KbFolder rect=[24 64 352 108] font=16
+Btn-ModelSel rect=[24 154 352 198] font=16
+Btn-Providers rect=[368 64 696 108] font=16
+Lbl-AgentSum rect=[368 208 696 230] font=12
+Lbl-KbSum rect=[24 118 352 140] font=12
+Lbl-ModelSum rect=[24 208 352 230] font=12
+Lbl-Models rect=[24 240 696 262] font=14
+Lbl-ProvSum rect=[368 118 696 140] font=12
+Lbl-Status rect=[24 524 696 604] font=14
+Lbl-Title rect=[24 16 696 48] font=20
+Lst-Models rect=[24 264 696 464] font=14
+Tmr-Lang rect=[720 16 768 64] font=14
+shapes=285 digest=a6b3899c202baf8a
+## Run 1.5x 1092x930
+Btn-Agents rect=[368 154 696 198] font=16
+Btn-Export rect=[24 480 174 512] font=14
+Btn-Import rect=[182 480 332 512] font=14
+Btn-KbFolder rect=[24 64 352 108] font=16
+Btn-ModelSel rect=[24 154 352 198] font=16
+Btn-Providers rect=[368 64 696 108] font=16
+Lbl-AgentSum rect=[368 208 696 230] font=12
+Lbl-KbSum rect=[24 118 352 140] font=12
+Lbl-ModelSum rect=[24 208 352 230] font=12
+Lbl-Models rect=[24 240 696 262] font=14
+Lbl-ProvSum rect=[368 118 696 140] font=12
+Lbl-Status rect=[24 524 696 604] font=14
+Lbl-Title rect=[24 16 696 48] font=20
+Lst-Models rect=[24 264 696 464] font=14
+Tmr-Lang rect=[720 16 768 64] font=14
+shapes=245 digest=9e58e98f380da667
+## Preview 1.5x 1092x930
+Btn-Agents rect=[368 154 696 198] font=16
+Btn-Export rect=[24 480 174 512] font=14
+Btn-Import rect=[182 480 332 512] font=14
+Btn-KbFolder rect=[24 64 352 108] font=16
+Btn-ModelSel rect=[24 154 352 198] font=16
+Btn-Providers rect=[368 64 696 108] font=16
+Lbl-AgentSum rect=[368 208 696 230] font=12
+Lbl-KbSum rect=[24 118 352 140] font=12
+Lbl-ModelSum rect=[24 208 352 230] font=12
+Lbl-Models rect=[24 240 696 262] font=14
+Lbl-ProvSum rect=[368 118 696 140] font=12
+Lbl-Status rect=[24 524 696 604] font=14
+Lbl-Title rect=[24 16 696 48] font=20
+Lst-Models rect=[24 264 696 464] font=14
+Tmr-Lang rect=[720 16 768 64] font=14
+shapes=245 digest=9e58e98f380da667

@@ -1,0 +1,127 @@
+# PowerDemo3/Data/treeview-form.cfrm
+## Canvas 0.75x 750x495
+Btn-Add rect=[204 380 360 412] font=14
+Btn-Checked rect=[376 380 532 412] font=14
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Reset rect=[548 380 704 412] font=14
+Btn-Walk rect=[32 380 188 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Walk-Cap rect=[500 130 800 150] font=12
+Trv-Sites rect=[48 130 468 354] font=13
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Walk rect=[500 154 960 354] font=12
+shapes=38 digest=768ef43818187ecf
+## Run 0.75x 750x495
+Btn-Add rect=[204 380 360 412] font=14
+Btn-Checked rect=[376 380 532 412] font=14
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Reset rect=[548 380 704 412] font=14
+Btn-Walk rect=[32 380 188 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Walk-Cap rect=[500 130 800 150] font=12
+Trv-Sites rect=[48 130 468 354] font=13
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Walk rect=[500 154 960 354] font=12
+shapes=47 digest=83878b6ed82ff2c6
+## Preview 0.75x 750x495
+Btn-Add rect=[204 380 360 412] font=14
+Btn-Checked rect=[376 380 532 412] font=14
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Reset rect=[548 380 704 412] font=14
+Btn-Walk rect=[32 380 188 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Walk-Cap rect=[500 130 800 150] font=12
+Trv-Sites rect=[48 130 468 354] font=13
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Walk rect=[500 154 960 354] font=12
+shapes=47 digest=83878b6ed82ff2c6
+## Canvas 1x 1000x660
+Btn-Add rect=[204 380 360 412] font=14
+Btn-Checked rect=[376 380 532 412] font=14
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Reset rect=[548 380 704 412] font=14
+Btn-Walk rect=[32 380 188 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Walk-Cap rect=[500 130 800 150] font=12
+Trv-Sites rect=[48 130 468 354] font=13
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Walk rect=[500 154 960 354] font=12
+shapes=38 digest=e54ebd2bfb962de5
+## Run 1x 1000x660
+Btn-Add rect=[204 380 360 412] font=14
+Btn-Checked rect=[376 380 532 412] font=14
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Reset rect=[548 380 704 412] font=14
+Btn-Walk rect=[32 380 188 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Walk-Cap rect=[500 130 800 150] font=12
+Trv-Sites rect=[48 130 468 354] font=13
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Walk rect=[500 154 960 354] font=12
+shapes=47 digest=84619749d8bfee10
+## Preview 1x 1000x660
+Btn-Add rect=[204 380 360 412] font=14
+Btn-Checked rect=[376 380 532 412] font=14
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Reset rect=[548 380 704 412] font=14
+Btn-Walk rect=[32 380 188 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Walk-Cap rect=[500 130 800 150] font=12
+Trv-Sites rect=[48 130 468 354] font=13
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Walk rect=[500 154 960 354] font=12
+shapes=47 digest=84619749d8bfee10
+## Canvas 1.5x 1500x990
+Btn-Add rect=[204 380 360 412] font=14
+Btn-Checked rect=[376 380 532 412] font=14
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Reset rect=[548 380 704 412] font=14
+Btn-Walk rect=[32 380 188 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Walk-Cap rect=[500 130 800 150] font=12
+Trv-Sites rect=[48 130 468 354] font=13
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Walk rect=[500 154 960 354] font=12
+shapes=38 digest=aaaaf1c8e2e971f5
+## Run 1.5x 1500x990
+Btn-Add rect=[204 380 360 412] font=14
+Btn-Checked rect=[376 380 532 412] font=14
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Reset rect=[548 380 704 412] font=14
+Btn-Walk rect=[32 380 188 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Walk-Cap rect=[500 130 800 150] font=12
+Trv-Sites rect=[48 130 468 354] font=13
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Walk rect=[500 154 960 354] font=12
+shapes=47 digest=26bf2d5599b403e6
+## Preview 1.5x 1500x990
+Btn-Add rect=[204 380 360 412] font=14
+Btn-Checked rect=[376 380 532 412] font=14
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Reset rect=[548 380 704 412] font=14
+Btn-Walk rect=[32 380 188 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Walk-Cap rect=[500 130 800 150] font=12
+Trv-Sites rect=[48 130 468 354] font=13
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Walk rect=[500 154 960 354] font=12
+shapes=47 digest=26bf2d5599b403e6

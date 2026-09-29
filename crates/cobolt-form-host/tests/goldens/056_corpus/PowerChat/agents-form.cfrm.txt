@@ -1,0 +1,79 @@
+# PowerChat/agents-form.cfrm
+## Window 0.75x 600x338
+Btn-Cancel rect=[520 390 640 426] font=14
+Btn-CancelTop rect=[520 16 640 52] font=14
+Btn-Save rect=[656 390 776 426] font=14
+Btn-SaveTop rect=[656 16 776 52] font=14
+Cmb-Agent-1 rect=[196 72 776 104] font=14
+Cmb-Agent-2 rect=[196 120 776 152] font=14
+Cmb-Agent-3 rect=[196 168 776 200] font=14
+Lbl-Agent-1 rect=[24 76 184 100] font=14
+Lbl-Agent-2 rect=[24 124 184 148] font=14
+Lbl-Agent-3 rect=[24 172 184 196] font=14
+Lbl-Status rect=[24 224 776 364] font=14
+Lbl-Title rect=[24 16 504 52] font=20
+## Occupant 0.75x 600x338
+Btn-Cancel rect=[740 418 860 454] font=14
+Btn-CancelTop rect=[740 44 860 80] font=14
+Btn-Save rect=[876 418 996 454] font=14
+Btn-SaveTop rect=[876 44 996 80] font=14
+Cmb-Agent-1 rect=[416 100 996 132] font=14
+Cmb-Agent-2 rect=[416 148 996 180] font=14
+Cmb-Agent-3 rect=[416 196 996 228] font=14
+Lbl-Agent-1 rect=[244 104 404 128] font=14
+Lbl-Agent-2 rect=[244 152 404 176] font=14
+Lbl-Agent-3 rect=[244 200 404 224] font=14
+Lbl-Status rect=[244 252 996 392] font=14
+Lbl-Title rect=[244 44 724 80] font=20
+## Window 1x 800x450
+Btn-Cancel rect=[520 390 640 426] font=14
+Btn-CancelTop rect=[520 16 640 52] font=14
+Btn-Save rect=[656 390 776 426] font=14
+Btn-SaveTop rect=[656 16 776 52] font=14
+Cmb-Agent-1 rect=[196 72 776 104] font=14
+Cmb-Agent-2 rect=[196 120 776 152] font=14
+Cmb-Agent-3 rect=[196 168 776 200] font=14
+Lbl-Agent-1 rect=[24 76 184 100] font=14
+Lbl-Agent-2 rect=[24 124 184 148] font=14
+Lbl-Agent-3 rect=[24 172 184 196] font=14
+Lbl-Status rect=[24 224 776 364] font=14
+Lbl-Title rect=[24 16 504 52] font=20
+## Occupant 1x 800x450
+Btn-Cancel rect=[740 418 860 454] font=14
+Btn-CancelTop rect=[740 44 860 80] font=14
+Btn-Save rect=[876 418 996 454] font=14
+Btn-SaveTop rect=[876 44 996 80] font=14
+Cmb-Agent-1 rect=[416 100 996 132] font=14
+Cmb-Agent-2 rect=[416 148 996 180] font=14
+Cmb-Agent-3 rect=[416 196 996 228] font=14
+Lbl-Agent-1 rect=[244 104 404 128] font=14
+Lbl-Agent-2 rect=[244 152 404 176] font=14
+Lbl-Agent-3 rect=[244 200 404 224] font=14
+Lbl-Status rect=[244 252 996 392] font=14
+Lbl-Title rect=[244 44 724 80] font=20
+## Window 1.5x 1200x675
+Btn-Cancel rect=[520 390 640 426] font=14
+Btn-CancelTop rect=[520 16 640 52] font=14
+Btn-Save rect=[656 390 776 426] font=14
+Btn-SaveTop rect=[656 16 776 52] font=14
+Cmb-Agent-1 rect=[196 72 776 104] font=14
+Cmb-Agent-2 rect=[196 120 776 152] font=14
+Cmb-Agent-3 rect=[196 168 776 200] font=14
+Lbl-Agent-1 rect=[24 76 184 100] font=14
+Lbl-Agent-2 rect=[24 124 184 148] font=14
+Lbl-Agent-3 rect=[24 172 184 196] font=14
+Lbl-Status rect=[24 224 776 364] font=14
+Lbl-Title rect=[24 16 504 52] font=20
+## Occupant 1.5x 1200x675
+Btn-Cancel rect=[740 418 860 454] font=14
+Btn-CancelTop rect=[740 44 860 80] font=14
+Btn-Save rect=[876 418 996 454] font=14
+Btn-SaveTop rect=[876 44 996 80] font=14
+Cmb-Agent-1 rect=[416 100 996 132] font=14
+Cmb-Agent-2 rect=[416 148 996 180] font=14
+Cmb-Agent-3 rect=[416 196 996 228] font=14
+Lbl-Agent-1 rect=[244 104 404 128] font=14
+Lbl-Agent-2 rect=[244 152 404 176] font=14
+Lbl-Agent-3 rect=[244 200 404 224] font=14
+Lbl-Status rect=[244 252 996 392] font=14
+Lbl-Title rect=[244 44 724 80] font=20

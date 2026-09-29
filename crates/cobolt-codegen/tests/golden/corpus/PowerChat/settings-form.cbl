@@ -1,0 +1,1410 @@
+      *> ───────────────────────────────────────────────────────────
+      *>  This code was generated automatically by PowerRustCOBOL RAD.
+      *>
+      *>  DO NOT MODIFY IT DIRECTLY: it is regenerated the next time
+      *>  you interact with the Form Designer, so manual edits are lost.
+      *>  Edit the form and its event handlers in the Form Designer
+      *>  instead.
+      *>
+      *>  PowerRustCOBOL may change the structure of this generated code
+      *>  at any time — without breaking your code's functionality — for
+      *>  reasons such as performance improvements, new observability
+      *>  features, and bug fixes.
+      *>
+      *>  PowerRustCOBOL and its components are distributed under the
+      *>  Apache 2.0 License.
+      *> ───────────────────────────────────────────────────────────
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SETTINGS-FORM.
+
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range".
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT SETTINGS-FILE ASSIGN TO WS-SETTINGS-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS SET-NAME
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT MODELS-FILE ASSIGN TO WS-MODELS-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS MDL-NAME
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT XML-FILE ASSIGN TO WS-XML-PATH
+               ORGANIZATION IS LINE SEQUENTIAL
+               FILE STATUS IS WS-FS.
+
+       DATA DIVISION.
+       FILE SECTION.
+       FD  SETTINGS-FILE IS GLOBAL.
+       01  SETTINGS-REC.
+           05 SET-NAME          PIC X(20).
+           05 SET-VALUE         PIC X(200).
+       FD  MODELS-FILE IS GLOBAL.
+       01  MODEL-REC.
+           05 MDL-NAME          PIC X(30).
+           05 MDL-API           PIC X(12).
+           05 MDL-URL           PIC X(200).
+           05 MDL-MODEL         PIC X(80).
+      *>   The capability table (spec 071 R31, 063 R72): whether the model
+      *>   can call tools, and how well it orchestrates, 1 (poorly) to 9.
+           05 MDL-TOOLS         PIC X.
+           05 MDL-RANK          PIC 9.
+       FD  XML-FILE IS GLOBAL.
+       01  XML-REC              PIC X(1000).
+       WORKING-STORAGE SECTION.
+      *>── Cobolt runtime fields ─────────────────────────────────────
+       01 COBOL-QUIT             PIC 9        VALUE 0.
+       01 COBOL-EVENT-ID         PIC X(64)   VALUE SPACES.
+       01 COBOL-CONTROL-ID       PIC X(64)   VALUE SPACES.
+       01 COBOL-LAST-STATUS       PIC X(256)  VALUE SPACES.
+       01 FORM-NAME               PIC X(64)   VALUE 'SETTINGS-FORM'.
+
+      *>── Timer: Tmr-Lang ──────────────────────────────────────────
+       01 WS-Tmr-Lang-INTERVAL   PIC 9(8) VALUE 1000.
+       01 WS-Tmr-Lang-ENABLED    PIC 9    VALUE 1.
+       01 WS-Tmr-Lang-ELAPSED-MS PIC 9(8) VALUE 0.
+
+      *>── User Working Storage ────────────────────────────────────────
+       01 WS-FS              GLOBAL PIC XX VALUE "00".
+       01 WS-DATA-DIR        GLOBAL PIC X(200).
+       01 WS-SET-NAME        GLOBAL PIC X(20).
+       01 WS-SET-VALUE       GLOBAL PIC X(200).
+       01 WS-NOW             GLOBAL PIC X(21).
+       01 WS-EOF             GLOBAL PIC X.
+       01 WS-OK              GLOBAL PIC X(4).
+       01 WS-SETTINGS-PATH  GLOBAL PIC X(240).
+       01 WS-MODELS-PATH  GLOBAL PIC X(240).
+       01 WS-MODEL-COUNT     GLOBAL PIC 9(4) VALUE 0.
+       01 WS-MODEL-NAMES     GLOBAL.
+          05 WS-MODEL-NAME   PIC X(30) OCCURS 200.
+       01 WS-INDEX           GLOBAL PIC S9(4).
+       01 WS-ACTIVE          GLOBAL PIC X(30).
+       01 WS-KEY-FLAG        GLOBAL PIC X.
+       01 WS-KEY             GLOBAL PIC X(300).
+       01 WS-STATUS          GLOBAL PIC X(200).
+       01 WS-ROW             GLOBAL PIC X(160).
+       01 WS-AGENT           GLOBAL PIC X.
+       01 WS-A               GLOBAL PIC 9.
+       01 WS-AGENT-ENTRIES   GLOBAL.
+          05 WS-AGENT-ENTRY  PIC X(30) OCCURS 3.
+       01 WS-RANK-TEXT       GLOBAL PIC X.
+       01 WS-TOOLS           GLOBAL PIC X(4).
+      *>   The interface texts (spec 071 R44): one row per text, one column
+      *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
+      *>   only the values are translated.
+       01 WS-LANG            GLOBAL PIC XX VALUE "en".
+       01 WS-LANG-NOW        GLOBAL PIC XX VALUE "en".
+       01 WS-LANG-IX         GLOBAL PIC 9 VALUE 1.
+       01 WS-TX-I            GLOBAL PIC 9(4).
+       01 PC-TEXT-DATA       GLOBAL.
+      *>   ROW-TOOLS
+          05 FILLER PIC X(120) VALUE ", tools".
+          05 FILLER PIC X(120) VALUE ", ferramentas".
+          05 FILLER PIC X(120) VALUE ", herramientas".
+          05 FILLER PIC X(120) VALUE ", outils".
+          05 FILLER PIC X(120) VALUE "、ツール".
+          05 FILLER PIC X(120) VALUE "，工具".
+      *>   ROW-RANK
+          05 FILLER PIC X(120) VALUE ", rank &1".
+          05 FILLER PIC X(120) VALUE ", nível &1".
+          05 FILLER PIC X(120) VALUE ", nivel &1".
+          05 FILLER PIC X(120) VALUE ", rang &1".
+          05 FILLER PIC X(120) VALUE "、ランク &1".
+          05 FILLER PIC X(120) VALUE "，等级 &1".
+      *>   ROW-KEY-SET
+          05 FILLER PIC X(120) VALUE "(key set)".
+          05 FILLER PIC X(120) VALUE "(chave definida)".
+          05 FILLER PIC X(120) VALUE "(clave definida)".
+          05 FILLER PIC X(120) VALUE "(clé définie)".
+          05 FILLER PIC X(120) VALUE "（キー設定済み）".
+          05 FILLER PIC X(120) VALUE "（已设置密钥）".
+      *>   ROW-AGENT
+          05 FILLER PIC X(120) VALUE "[agent &1]".
+          05 FILLER PIC X(120) VALUE "[agente &1]".
+          05 FILLER PIC X(120) VALUE "[agente &1]".
+          05 FILLER PIC X(120) VALUE "[agent &1]".
+          05 FILLER PIC X(120) VALUE "[エージェント &1]".
+          05 FILLER PIC X(120) VALUE "[代理 &1]".
+      *>   SETTINGS-TITLE
+          05 FILLER PIC X(120) VALUE "RAG settings".
+          05 FILLER PIC X(120) VALUE "Configurações de RAG".
+          05 FILLER PIC X(120) VALUE "Configuración de RAG".
+          05 FILLER PIC X(120) VALUE "Paramètres RAG".
+          05 FILLER PIC X(120) VALUE "RAG 設定".
+          05 FILLER PIC X(120) VALUE "RAG 设置".
+      *>   MODELS
+          05 FILLER PIC X(120) VALUE "Models".
+          05 FILLER PIC X(120) VALUE "Modelos".
+          05 FILLER PIC X(120) VALUE "Modelos".
+          05 FILLER PIC X(120) VALUE "Modèles".
+          05 FILLER PIC X(120) VALUE "モデル".
+          05 FILLER PIC X(120) VALUE "模型".
+      *>   EXPORT
+          05 FILLER PIC X(120) VALUE "Export...".
+          05 FILLER PIC X(120) VALUE "Exportar...".
+          05 FILLER PIC X(120) VALUE "Exportar...".
+          05 FILLER PIC X(120) VALUE "Exporter...".
+          05 FILLER PIC X(120) VALUE "エクスポート...".
+          05 FILLER PIC X(120) VALUE "导出...".
+      *>   IMPORT
+          05 FILLER PIC X(120) VALUE "Import...".
+          05 FILLER PIC X(120) VALUE "Importar...".
+          05 FILLER PIC X(120) VALUE "Importar...".
+          05 FILLER PIC X(120) VALUE "Importer...".
+          05 FILLER PIC X(120) VALUE "インポート...".
+          05 FILLER PIC X(120) VALUE "导入...".
+      *>   EXPORT-TITLE
+          05 FILLER PIC X(120) VALUE "Export RAG settings".
+          05 FILLER PIC X(120) VALUE "Exportar configurações de RAG".
+          05 FILLER PIC X(120) VALUE "Exportar configuración de RAG".
+          05 FILLER PIC X(120) VALUE "Exporter les paramètres RAG".
+          05 FILLER PIC X(120) VALUE "RAG 設定をエクスポート".
+          05 FILLER PIC X(120) VALUE "导出 RAG 设置".
+      *>   IMPORT-TITLE
+          05 FILLER PIC X(120) VALUE "Import RAG settings".
+          05 FILLER PIC X(120) VALUE "Importar configurações de RAG".
+          05 FILLER PIC X(120) VALUE "Importar configuración de RAG".
+          05 FILLER PIC X(120) VALUE "Importer les paramètres RAG".
+          05 FILLER PIC X(120) VALUE "RAG 設定をインポート".
+          05 FILLER PIC X(120) VALUE "导入 RAG 设置".
+      *>   EXPORTED
+          05 FILLER PIC X(120) VALUE "Settings exported to &1 (API keys are never exported).".
+          05 FILLER PIC X(120) VALUE "Configurações exportadas para &1 (as chaves de API nunca são exportadas).".
+          05 FILLER PIC X(120) VALUE "Configuración exportada a &1 (las claves de API nunca se exportan).".
+          05 FILLER PIC X(120) VALUE "Paramètres exportés vers &1 (les clés API ne sont jamais exportées).".
+          05 FILLER PIC X(120) VALUE "&1 にエクスポートしました（API キーは含まれません）。".
+          05 FILLER PIC X(120) VALUE "已导出到 &1（不包含 API 密钥）。".
+      *>   IMPORTED
+          05 FILLER PIC X(120) VALUE "&1 models imported.".
+          05 FILLER PIC X(120) VALUE "&1 modelos importados.".
+          05 FILLER PIC X(120) VALUE "&1 modelos importados.".
+          05 FILLER PIC X(120) VALUE "&1 modèles importés.".
+          05 FILLER PIC X(120) VALUE "&1 件のモデルをインポートしました。".
+          05 FILLER PIC X(120) VALUE "已导入 &1 个模型。".
+      *>   IMPORT-KEYS
+          05 FILLER PIC X(120) VALUE "Set the API key of: &1".
+          05 FILLER PIC X(120) VALUE "Defina a chave de API de: &1".
+          05 FILLER PIC X(120) VALUE "Define la clave de API de: &1".
+          05 FILLER PIC X(120) VALUE "Définissez la clé API de : &1".
+          05 FILLER PIC X(120) VALUE "API キーを設定してください: &1".
+          05 FILLER PIC X(120) VALUE "请设置以下模型的 API 密钥：&1".
+      *>   NOT-RAG-FILE
+          05 FILLER PIC X(120) VALUE "That file is not a PowerChat RAG settings file.".
+          05 FILLER PIC X(120) VALUE "Esse arquivo não é de configurações de RAG do PowerChat.".
+          05 FILLER PIC X(120) VALUE "Ese archivo no es de configuración de RAG de PowerChat.".
+          05 FILLER PIC X(120) VALUE "Ce fichier n'est pas un fichier de paramètres RAG de PowerChat.".
+          05 FILLER PIC X(120) VALUE "PowerChat の RAG 設定ファイルではありません。".
+          05 FILLER PIC X(120) VALUE "该文件不是 PowerChat 的 RAG 设置文件。".
+      *>   FILE-UNWRITABLE
+          05 FILLER PIC X(120) VALUE "Could not write &1: &2".
+          05 FILLER PIC X(120) VALUE "Não foi possível gravar &1: &2".
+          05 FILLER PIC X(120) VALUE "No se pudo escribir &1: &2".
+          05 FILLER PIC X(120) VALUE "Impossible d'écrire &1 : &2".
+          05 FILLER PIC X(120) VALUE "&1 に書き込めません: &2".
+          05 FILLER PIC X(120) VALUE "无法写入 &1：&2".
+      *>   STATUS
+          05 FILLER PIC X(120) VALUE "Status".
+          05 FILLER PIC X(120) VALUE "Status".
+          05 FILLER PIC X(120) VALUE "Estado".
+          05 FILLER PIC X(120) VALUE "État".
+          05 FILLER PIC X(120) VALUE "ステータス".
+          05 FILLER PIC X(120) VALUE "状态".
+      *>   KB-FOLDER-TITLE
+          05 FILLER PIC X(120) VALUE "Knowledge Base folder".
+          05 FILLER PIC X(120) VALUE "Pasta da base de conhecimento".
+          05 FILLER PIC X(120) VALUE "Carpeta de la base de conocimiento".
+          05 FILLER PIC X(120) VALUE "Dossier de la base de connaissances".
+          05 FILLER PIC X(120) VALUE "ナレッジベースのフォルダー".
+          05 FILLER PIC X(120) VALUE "知识库文件夹".
+      *>   PROVIDERS-TITLE
+          05 FILLER PIC X(120) VALUE "Model providers".
+          05 FILLER PIC X(120) VALUE "Provedores de modelos".
+          05 FILLER PIC X(120) VALUE "Proveedores de modelos".
+          05 FILLER PIC X(120) VALUE "Fournisseurs de modèles".
+          05 FILLER PIC X(120) VALUE "モデルプロバイダー".
+          05 FILLER PIC X(120) VALUE "模型提供商".
+      *>   MODEL-SEL-TITLE
+          05 FILLER PIC X(120) VALUE "Model selection".
+          05 FILLER PIC X(120) VALUE "Seleção de modelo".
+          05 FILLER PIC X(120) VALUE "Selección de modelo".
+          05 FILLER PIC X(120) VALUE "Choix du modèle".
+          05 FILLER PIC X(120) VALUE "モデルの選択".
+          05 FILLER PIC X(120) VALUE "模型选择".
+      *>   AGENTS-TITLE
+          05 FILLER PIC X(120) VALUE "Agents".
+          05 FILLER PIC X(120) VALUE "Agentes".
+          05 FILLER PIC X(120) VALUE "Agentes".
+          05 FILLER PIC X(120) VALUE "Agents".
+          05 FILLER PIC X(120) VALUE "エージェント".
+          05 FILLER PIC X(120) VALUE "代理".
+      *>   SUM-NO-CONNS
+          05 FILLER PIC X(120) VALUE "No connection yet: start here.".
+          05 FILLER PIC X(120) VALUE "Nenhuma conexão ainda: comece aqui.".
+          05 FILLER PIC X(120) VALUE "Aún no hay conexiones: empieza aquí.".
+          05 FILLER PIC X(120) VALUE "Aucune connexion : commencez ici.".
+          05 FILLER PIC X(120) VALUE "接続はまだありません。ここから始めます。".
+          05 FILLER PIC X(120) VALUE "还没有连接：从这里开始。".
+      *>   SUM-CONNS
+          05 FILLER PIC X(120) VALUE "&1 connection(s)".
+          05 FILLER PIC X(120) VALUE "&1 conexão(ões)".
+          05 FILLER PIC X(120) VALUE "&1 conexión(es)".
+          05 FILLER PIC X(120) VALUE "&1 connexion(s)".
+          05 FILLER PIC X(120) VALUE "接続 &1 件".
+          05 FILLER PIC X(120) VALUE "&1 个连接".
+      *>   SUM-NEED-PROVIDER
+          05 FILLER PIC X(120) VALUE "Set up a model provider first.".
+          05 FILLER PIC X(120) VALUE "Configure antes um provedor de modelos.".
+          05 FILLER PIC X(120) VALUE "Configura antes un proveedor de modelos.".
+          05 FILLER PIC X(120) VALUE "Configurez d'abord un fournisseur de modèles.".
+          05 FILLER PIC X(120) VALUE "先にモデルプロバイダーを設定してください。".
+          05 FILLER PIC X(120) VALUE "请先配置模型提供商。".
+      *>   SUM-MODELS
+          05 FILLER PIC X(120) VALUE "&1 of &2 connection(s) have a model".
+          05 FILLER PIC X(120) VALUE "&1 de &2 conexão(ões) com modelo".
+          05 FILLER PIC X(120) VALUE "&1 de &2 conexión(es) con modelo".
+          05 FILLER PIC X(120) VALUE "&1 connexion(s) sur &2 avec un modèle".
+          05 FILLER PIC X(120) VALUE "モデル設定済み: &1 / &2".
+          05 FILLER PIC X(120) VALUE "已选模型：&1 / &2".
+      *>   SUM-AGENTS
+          05 FILLER PIC X(120) VALUE "&1 of 3 agents on".
+          05 FILLER PIC X(120) VALUE "&1 de 3 agentes ligados".
+          05 FILLER PIC X(120) VALUE "&1 de 3 agentes activos".
+          05 FILLER PIC X(120) VALUE "&1 agent(s) sur 3 actif(s)".
+          05 FILLER PIC X(120) VALUE "稼働中のエージェント: &1 / 3".
+          05 FILLER PIC X(120) VALUE "已启用代理：&1 / 3".
+       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
+          05 PC-TEXT-ROW     OCCURS 25.
+             10 PC-TEXT      PIC X(120) OCCURS 6.
+      *>   The texts in the current language, by name.
+       01 PC-TEXTS-NOW       GLOBAL.
+          05 T-ROW-TOOLS PIC X(120).
+          05 T-ROW-RANK PIC X(120).
+          05 T-ROW-KEY-SET PIC X(120).
+          05 T-ROW-AGENT PIC X(120).
+          05 T-SETTINGS-TITLE PIC X(120).
+          05 T-MODELS PIC X(120).
+          05 T-EXPORT PIC X(120).
+          05 T-IMPORT PIC X(120).
+          05 T-EXPORT-TITLE PIC X(120).
+          05 T-IMPORT-TITLE PIC X(120).
+          05 T-EXPORTED PIC X(120).
+          05 T-IMPORTED PIC X(120).
+          05 T-IMPORT-KEYS PIC X(120).
+          05 T-NOT-RAG-FILE PIC X(120).
+          05 T-FILE-UNWRITABLE PIC X(120).
+          05 T-STATUS PIC X(120).
+          05 T-KB-FOLDER-TITLE PIC X(120).
+          05 T-PROVIDERS-TITLE PIC X(120).
+          05 T-MODEL-SEL-TITLE PIC X(120).
+          05 T-AGENTS-TITLE PIC X(120).
+          05 T-SUM-NO-CONNS PIC X(120).
+          05 T-SUM-CONNS PIC X(120).
+          05 T-SUM-NEED-PROVIDER PIC X(120).
+          05 T-SUM-MODELS PIC X(120).
+          05 T-SUM-AGENTS PIC X(120).
+       01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
+          05 PC-TEXT-NOW     PIC X(120) OCCURS 25.
+      *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
+       01 WS-FMT             GLOBAL PIC X(120).
+       01 WS-ARG1            GLOBAL PIC X(300).
+       01 WS-ARG2            GLOBAL PIC X(300).
+       01 WS-ARG3            GLOBAL PIC X(300).
+       01 WS-ARG4            GLOBAL PIC X(300).
+       01 WS-FMT-OUT         GLOBAL PIC X(1200).
+      *>   The provider list (the IDE's, from the runtime) and the selection.
+       01 WS-PROV-COUNT      GLOBAL PIC 9(3) VALUE 0.
+       01 WS-PROV-IX         GLOBAL PIC S9(3) VALUE 0.
+       01 WS-PROV-ID         GLOBAL PIC X(20).
+       01 WS-PROV-LABEL      GLOBAL PIC X(40).
+       01 WS-PROV-EP         GLOBAL PIC X(200).
+       01 WS-PROV-NEEDS      GLOBAL PIC X.
+       01 WS-LAST-DEFAULT    GLOBAL PIC X(200).
+       01 WS-P               GLOBAL PIC 9(3).
+       01 WS-N               GLOBAL PIC 9(4).
+       01 WS-M               GLOBAL PIC 9(4).
+       01 WS-MODEL-ID        GLOBAL PIC X(80).
+       01 WS-LONG            GLOBAL PIC X(600).
+       01 WS-PATH            GLOBAL PIC X(400).
+      *>   XML export and import.
+       01 WS-XML-PATH        GLOBAL PIC X(400).
+       01 WS-XLINE           GLOBAL PIC X(1000).
+       01 WS-XIN             GLOBAL PIC X(300).
+       01 WS-XOUT            GLOBAL PIC X(600).
+       01 WS-XNAME           GLOBAL PIC X(20).
+       01 WS-XVAL            GLOBAL PIC X(300).
+       01 WS-XFOUND          GLOBAL PIC X.
+       01 WS-XROOT           GLOBAL PIC X.
+       01 WS-IMPORTED        GLOBAL PIC 9(4).
+       01 WS-NE              GLOBAL PIC Z(3)9.
+       01 WS-NEED-KEYS       GLOBAL PIC X(400).
+       01 WS-AG-IX           GLOBAL PIC S9(4).
+      *>   The summaries under the four buttons.
+       01 WS-WITH-MODEL      GLOBAL PIC 9(4) VALUE 0.
+       01 WS-AGENTS-ON       GLOBAL PIC 9 VALUE 0.
+       01 WS-NE2             GLOBAL PIC Z(3)9.
+
+      *>── Form controls ───────────────────────────────────────────────
+       01 WS-Lbl-Title.
+          05 WS-Lbl-Title-TEXT       PIC X(256) VALUE 'RAG settings'.
+          05 WS-Lbl-Title-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Lbl-Title-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Btn-KbFolder.
+          05 WS-Btn-KbFolder-TEXT       PIC X(256) VALUE 'Knowledge Base folder'.
+          05 WS-Btn-KbFolder-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Btn-KbFolder-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Lbl-KbSum.
+          05 WS-Lbl-KbSum-TEXT       PIC X(256) VALUE 'Lbl-KbSum'.
+          05 WS-Lbl-KbSum-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Lbl-KbSum-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Btn-Providers.
+          05 WS-Btn-Providers-TEXT       PIC X(256) VALUE 'Model providers'.
+          05 WS-Btn-Providers-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Btn-Providers-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Lbl-ProvSum.
+          05 WS-Lbl-ProvSum-TEXT       PIC X(256) VALUE 'Lbl-ProvSum'.
+          05 WS-Lbl-ProvSum-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Lbl-ProvSum-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Btn-ModelSel.
+          05 WS-Btn-ModelSel-TEXT       PIC X(256) VALUE 'Model selection'.
+          05 WS-Btn-ModelSel-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Btn-ModelSel-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Lbl-ModelSum.
+          05 WS-Lbl-ModelSum-TEXT       PIC X(256) VALUE 'Lbl-ModelSum'.
+          05 WS-Lbl-ModelSum-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Lbl-ModelSum-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Btn-Agents.
+          05 WS-Btn-Agents-TEXT       PIC X(256) VALUE 'Agents'.
+          05 WS-Btn-Agents-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Btn-Agents-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Lbl-AgentSum.
+          05 WS-Lbl-AgentSum-TEXT       PIC X(256) VALUE 'Lbl-AgentSum'.
+          05 WS-Lbl-AgentSum-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Lbl-AgentSum-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Lbl-Models.
+          05 WS-Lbl-Models-TEXT       PIC X(256) VALUE 'Models'.
+          05 WS-Lbl-Models-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Lbl-Models-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Lst-Models.
+          05 WS-Lst-Models-TEXT       PIC X(256) VALUE 'Lst-Models'.
+          05 WS-Lst-Models-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Lst-Models-ENABLED    PIC 9      VALUE 1.
+          05 WS-Lst-Models-VALUE      PIC X(512) VALUE SPACES.
+
+       01 WS-Btn-Export.
+          05 WS-Btn-Export-TEXT       PIC X(256) VALUE 'Export...'.
+          05 WS-Btn-Export-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Btn-Export-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Btn-Import.
+          05 WS-Btn-Import-TEXT       PIC X(256) VALUE 'Import...'.
+          05 WS-Btn-Import-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Btn-Import-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Lbl-Status.
+          05 WS-Lbl-Status-TEXT       PIC X(256) VALUE 'Status'.
+          05 WS-Lbl-Status-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Lbl-Status-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Tmr-Lang.
+          05 WS-Tmr-Lang-TEXT       PIC X(256) VALUE 'Tmr-Lang'.
+          05 WS-Tmr-Lang-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Tmr-Lang-ENABLED    PIC 9      VALUE 1.
+
+       PROCEDURE DIVISION.
+       COBOL-MAIN.
+           COBOL::"INIT-FORM" ( FORM-NAME )
+           PERFORM COBOL-START-TIMERS
+           CALL "SETTINGS-FORM--ONLOAD"
+           PERFORM COBOL-EVENT-LOOP
+           CALL "SETTINGS-FORM--ONCLOSE"
+           STOP RUN.
+
+      *> <EVENT-LOOP>
+       COBOL-EVENT-LOOP.
+           PERFORM UNTIL COBOL-QUIT = 1
+               COBOL::"WAIT-EVENT" ( COBOL-EVENT-ID COBOL-CONTROL-ID )
+               EVALUATE COBOL-CONTROL-ID
+                   WHEN "SETTINGS-FORM"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onActivate"
+                               CALL "SETTINGS-FORM--ONACTIVATE"
+                       END-EVALUATE
+                   WHEN "Btn-KbFolder"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "BTN-KBFOLDER--ONCLICK"
+                       END-EVALUATE
+                   WHEN "Btn-Providers"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "BTN-PROVIDERS--ONCLICK"
+                       END-EVALUATE
+                   WHEN "Btn-ModelSel"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "BTN-MODELSEL--ONCLICK"
+                       END-EVALUATE
+                   WHEN "Btn-Agents"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "BTN-AGENTS--ONCLICK"
+                       END-EVALUATE
+                   WHEN "Btn-Export"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "BTN-EXPORT--ONCLICK"
+                       END-EVALUATE
+                   WHEN "Btn-Import"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "BTN-IMPORT--ONCLICK"
+                       END-EVALUATE
+                   WHEN "Tmr-Lang"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onTick"
+                               CALL "TMR-LANG--ONTICK"
+                       END-EVALUATE
+               END-EVALUATE
+           END-PERFORM.
+
+      *> </EVENT-LOOP>
+      *> <TIMER-STUBS>
+       COBOL-START-TIMERS.
+      *>    Called once from COBOL-MAIN to register timer intervals.
+           INVOKE Tmr-Lang 'SetInterval' USING BY VALUE 1000
+           CONTINUE.
+
+      *> </TIMER-STUBS>
+      *> <CSV-EXPORT>
+      *> </CSV-EXPORT>
+      *> <REST-CLIENT>
+      *> </REST-CLIENT>
+      *> <WEB-SEARCH>
+      *> </WEB-SEARCH>
+
+      *> ── Nested event-handler programs (COBOL-85) ─────────────────────
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SETTINGS-FORM--ONLOAD IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-PATHS"
+           CALL "PC-TEXTS"
+           COBOL::"PROVIDER-COUNT" ( WS-PROV-COUNT )
+           CALL "PC-REFRESH"
+
+           GOBACK.
+
+       END PROGRAM SETTINGS-FORM--ONLOAD.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SETTINGS-FORM--ONACTIVATE IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Back on the pane: the language may have changed meanwhile (R46).
+           CALL "PC-TEXTS"
+           CALL "PC-REFRESH"
+
+           GOBACK.
+
+       END PROGRAM SETTINGS-FORM--ONACTIVATE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SETTINGS-FORM--ONCLOSE IS COMMON PROGRAM.
+
+      *>    TODO: Form onClose handler
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           CONTINUE.
+
+           GOBACK.
+
+       END PROGRAM SETTINGS-FORM--ONCLOSE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BTN-KBFOLDER--ONCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The Knowledge Base folder in its own dialog; the summary is read again after.
+           INVOKE ME::"OpenFormSync"("KB-FOLDER-FORM")
+           CALL "PC-REFRESH"
+
+           GOBACK.
+
+       END PROGRAM BTN-KBFOLDER--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BTN-PROVIDERS--ONCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The connections: provider, address and key in its own dialog; the summary is read again after.
+           INVOKE ME::"OpenFormSync"("PROVIDERS-FORM")
+           CALL "PC-REFRESH"
+
+           GOBACK.
+
+       END PROGRAM BTN-PROVIDERS--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BTN-MODELSEL--ONCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Each connection's model, rank and tools, in its own dialog. Only
+      *>   once a provider is set up: the button is off until then.
+           IF WS-MODEL-COUNT = 0
+               MOVE FUNCTION TRIM(T-SUM-NEED-PROVIDER) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           INVOKE ME::"OpenFormSync"("MODEL-FORM")
+           CALL "PC-REFRESH"
+
+           GOBACK.
+
+       END PROGRAM BTN-MODELSEL--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BTN-AGENTS--ONCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Which connection each of the chat's three agents uses, in its own
+      *>   dialog. Only once a provider is set up.
+           IF WS-MODEL-COUNT = 0
+               MOVE FUNCTION TRIM(T-SUM-NEED-PROVIDER) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           INVOKE ME::"OpenFormSync"("AGENTS-FORM")
+           CALL "PC-REFRESH"
+
+           GOBACK.
+
+       END PROGRAM BTN-AGENTS--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BTN-EXPORT--ONCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   rag-settings.xml: the folder, every model and every agent. Keys are
+      *>   never written - they stay in the application's key store.
+           COBOL::"SAVE-FILE-DIALOG" ( T-EXPORT-TITLE "XML|xml"
+                "rag-settings.xml" WS-XML-PATH )
+           IF WS-XML-PATH = SPACES
+               EXIT PROGRAM
+           END-IF
+           MOVE "N" TO WS-XROOT
+           MOVE '<?xml version="1.0" encoding="UTF-8"?>' TO WS-XLINE
+           CALL "PC-XML-PUT"
+           IF WS-LONG NOT = SPACES
+               MOVE T-FILE-UNWRITABLE TO WS-FMT
+               MOVE WS-XML-PATH TO WS-ARG1
+               MOVE WS-LONG TO WS-ARG2
+               CALL "PC-FMT"
+               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           MOVE '<rag-settings application="PowerChat" version="1">' TO WS-XLINE
+           CALL "PC-XML-PUT"
+           MOVE "KB-LOCATION" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           MOVE WS-SET-VALUE TO WS-XIN
+           CALL "PC-XML-ESC"
+           MOVE SPACES TO WS-XLINE
+           STRING '  <knowledge-base folder="' FUNCTION TRIM(WS-XOUT) '"/>'
+               DELIMITED BY SIZE INTO WS-XLINE
+           CALL "PC-XML-PUT"
+           MOVE '  <models>' TO WS-XLINE
+           CALL "PC-XML-PUT"
+           OPEN INPUT MODELS-FILE
+           IF WS-FS = "00"
+               MOVE LOW-VALUES TO MDL-NAME
+               MOVE "N" TO WS-EOF
+               START MODELS-FILE KEY IS >= MDL-NAME
+                   INVALID KEY MOVE "Y" TO WS-EOF
+               END-START
+               PERFORM UNTIL WS-EOF = "Y"
+                   READ MODELS-FILE NEXT RECORD
+                       AT END MOVE "Y" TO WS-EOF
+                       NOT AT END
+                           MOVE SPACES TO WS-XLINE
+                           MOVE 1 TO WS-P
+                           STRING '    <model' DELIMITED BY SIZE INTO WS-XLINE WITH POINTER WS-P
+                           MOVE MDL-NAME TO WS-XIN
+                           CALL "PC-XML-ESC"
+                           STRING ' name="' FUNCTION TRIM(WS-XOUT) '"' DELIMITED BY SIZE
+                               INTO WS-XLINE WITH POINTER WS-P
+                           MOVE MDL-API TO WS-XIN
+                           CALL "PC-XML-ESC"
+                           STRING ' provider="' FUNCTION TRIM(WS-XOUT) '"' DELIMITED BY SIZE
+                               INTO WS-XLINE WITH POINTER WS-P
+                           MOVE MDL-URL TO WS-XIN
+                           CALL "PC-XML-ESC"
+                           STRING ' endpoint="' FUNCTION TRIM(WS-XOUT) '"' DELIMITED BY SIZE
+                               INTO WS-XLINE WITH POINTER WS-P
+                           MOVE MDL-MODEL TO WS-XIN
+                           CALL "PC-XML-ESC"
+                           STRING ' model="' FUNCTION TRIM(WS-XOUT) '"' DELIMITED BY SIZE
+                               INTO WS-XLINE WITH POINTER WS-P
+                           STRING ' tools="' MDL-TOOLS '" rank="' MDL-RANK '"/>'
+                               DELIMITED BY SIZE INTO WS-XLINE WITH POINTER WS-P
+                           CALL "PC-XML-PUT"
+                   END-READ
+               END-PERFORM
+               CLOSE MODELS-FILE
+           END-IF
+           MOVE '  </models>' TO WS-XLINE
+           CALL "PC-XML-PUT"
+           MOVE '  <agents>' TO WS-XLINE
+           CALL "PC-XML-PUT"
+           CALL "PC-LOAD-AGENTS"
+           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               MOVE WS-AGENT-ENTRY(WS-A) TO WS-XIN
+               CALL "PC-XML-ESC"
+               MOVE SPACES TO WS-XLINE
+               STRING '    <agent number="' WS-A '" model="' FUNCTION TRIM(WS-XOUT) '"/>'
+                   DELIMITED BY SIZE INTO WS-XLINE
+               CALL "PC-XML-PUT"
+           END-PERFORM
+           MOVE '  </agents>' TO WS-XLINE
+           CALL "PC-XML-PUT"
+           MOVE '</rag-settings>' TO WS-XLINE
+           CALL "PC-XML-PUT"
+           MOVE T-EXPORTED TO WS-FMT
+           MOVE WS-XML-PATH TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+
+           GOBACK.
+
+       END PROGRAM BTN-EXPORT--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BTN-IMPORT--ONCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Read a rag-settings.xml back: the folder, each model (added or
+      *>   replaced) and each agent. The export never writes a key, but a
+      *>   file may carry one - key="..." on a <model>, added by hand - and it
+      *>   is stored in the key store like one typed in Model providers. The
+      *>   models still without a key are named afterwards.
+           COBOL::"OPEN-FILE-DIALOG" ( T-IMPORT-TITLE "XML|xml" WS-XML-PATH )
+           IF WS-XML-PATH = SPACES
+               EXIT PROGRAM
+           END-IF
+           OPEN INPUT XML-FILE
+           IF WS-FS NOT = "00"
+               MOVE FUNCTION TRIM(T-NOT-RAG-FILE) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           MOVE "N" TO WS-XROOT WS-EOF
+           MOVE 0 TO WS-IMPORTED
+           MOVE SPACES TO WS-NEED-KEYS
+           OPEN I-O MODELS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT MODELS-FILE
+               CLOSE MODELS-FILE
+               OPEN I-O MODELS-FILE
+           END-IF
+           PERFORM UNTIL WS-EOF = "Y"
+               READ XML-FILE INTO WS-XLINE
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       MOVE FUNCTION TRIM(WS-XLINE) TO WS-XLINE
+                       EVALUATE TRUE
+                           WHEN WS-XLINE(1:13) = "<rag-settings"
+                               MOVE "Y" TO WS-XROOT
+                           WHEN WS-XROOT NOT = "Y"
+                               CONTINUE
+                           WHEN WS-XLINE(1:15) = "<knowledge-base"
+                               MOVE "folder" TO WS-XNAME
+                               CALL "PC-XML-ATTR"
+                               IF WS-XVAL NOT = SPACES
+                                   MOVE "KB-LOCATION" TO WS-SET-NAME
+                                   MOVE WS-XVAL TO WS-SET-VALUE
+                                   CALL "PC-SETTING-PUT"
+                               END-IF
+                           WHEN WS-XLINE(1:7) = "<model "
+                               MOVE SPACES TO MODEL-REC
+                               MOVE "name" TO WS-XNAME
+                               CALL "PC-XML-ATTR"
+                               MOVE WS-XVAL TO MDL-NAME
+                               MOVE "provider" TO WS-XNAME
+                               CALL "PC-XML-ATTR"
+                               MOVE WS-XVAL TO MDL-API
+                               MOVE "endpoint" TO WS-XNAME
+                               CALL "PC-XML-ATTR"
+                               MOVE WS-XVAL TO MDL-URL
+                               MOVE "model" TO WS-XNAME
+                               CALL "PC-XML-ATTR"
+                               MOVE WS-XVAL TO MDL-MODEL
+                               MOVE "tools" TO WS-XNAME
+                               CALL "PC-XML-ATTR"
+                               MOVE WS-XVAL(1:1) TO MDL-TOOLS
+                               MOVE "rank" TO WS-XNAME
+                               CALL "PC-XML-ATTR"
+                               IF WS-XVAL(1:1) IS NUMERIC
+                                   MOVE WS-XVAL(1:1) TO MDL-RANK
+                               ELSE
+                                   MOVE 5 TO MDL-RANK
+                               END-IF
+                               MOVE "key" TO WS-XNAME
+                               CALL "PC-XML-ATTR"
+                               MOVE WS-XVAL TO WS-KEY
+                               IF MDL-NAME NOT = SPACES
+                                   WRITE MODEL-REC
+                                       INVALID KEY REWRITE MODEL-REC
+                                   END-WRITE
+                                   COBOL::"MODEL-SET" ( MDL-NAME MDL-API MDL-URL MDL-MODEL )
+                                   IF WS-KEY NOT = SPACES
+                                       COBOL::"KEY-SET" ( MDL-NAME WS-KEY WS-STATUS )
+                                       MOVE SPACES TO WS-KEY
+                                   END-IF
+                                   ADD 1 TO WS-IMPORTED
+                                   MOVE MDL-API TO WS-PROV-ID
+                                   CALL "PC-PROVIDER-LABEL"
+                                   COBOL::"KEY-IS-SET" ( MDL-NAME WS-KEY-FLAG )
+                                   IF WS-PROV-NEEDS = "Y" AND WS-KEY-FLAG NOT = "Y"
+                                       IF WS-NEED-KEYS = SPACES
+                                           MOVE MDL-NAME TO WS-NEED-KEYS
+                                       ELSE
+                                           MOVE WS-NEED-KEYS TO WS-XOUT
+                                           MOVE SPACES TO WS-NEED-KEYS
+                                           STRING FUNCTION TRIM(WS-XOUT) ", " FUNCTION TRIM(MDL-NAME)
+                                               DELIMITED BY SIZE INTO WS-NEED-KEYS
+                                       END-IF
+                                   END-IF
+                               END-IF
+                           WHEN WS-XLINE(1:7) = "<agent "
+                               MOVE "number" TO WS-XNAME
+                               CALL "PC-XML-ATTR"
+                               MOVE WS-XVAL(1:1) TO WS-AGENT
+                               MOVE "model" TO WS-XNAME
+                               CALL "PC-XML-ATTR"
+                               IF WS-AGENT = "1" OR WS-AGENT = "2" OR WS-AGENT = "3"
+                                   MOVE SPACES TO WS-SET-NAME
+                                   STRING "AGENT-" WS-AGENT "-ENTRY" DELIMITED BY SIZE
+                                       INTO WS-SET-NAME
+                                   MOVE WS-XVAL TO WS-SET-VALUE
+                                   CALL "PC-SETTING-PUT"
+                               END-IF
+                       END-EVALUATE
+               END-READ
+           END-PERFORM
+           COMMIT
+           CLOSE MODELS-FILE
+           CLOSE XML-FILE
+           IF WS-XROOT NOT = "Y"
+               MOVE FUNCTION TRIM(T-NOT-RAG-FILE) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           CALL "PC-REFRESH"
+           MOVE T-IMPORTED TO WS-FMT
+           MOVE WS-IMPORTED TO WS-NE
+           MOVE WS-NE TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE WS-FMT-OUT TO WS-LONG
+           IF WS-NEED-KEYS NOT = SPACES
+               MOVE T-IMPORT-KEYS TO WS-FMT
+               MOVE WS-NEED-KEYS TO WS-ARG1
+               CALL "PC-FMT"
+               MOVE WS-LONG TO WS-XOUT
+               MOVE SPACES TO WS-LONG
+               STRING FUNCTION TRIM(WS-XOUT) " " FUNCTION TRIM(WS-FMT-OUT)
+                   DELIMITED BY SIZE INTO WS-LONG
+           END-IF
+           MOVE WS-LONG TO Lbl-Status::Caption
+
+           GOBACK.
+
+       END PROGRAM BTN-IMPORT--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TMR-LANG--ONTICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A flag in the chat's menu changes the language while this form is
+      *>   on the pane; nothing tells a pane occupant, so it looks (R46).
+           CALL "PC-LANG-NOW"
+           IF WS-LANG-NOW NOT = WS-LANG
+               CALL "SETTINGS-FORM--ONACTIVATE"
+           END-IF
+
+           GOBACK.
+
+       END PROGRAM TMR-LANG--ONTICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-PATHS IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Where PowerChat keeps its own files: POWERCHAT_DATA, else "data".
+           DISPLAY "POWERCHAT_DATA" UPON ENVIRONMENT-NAME
+           ACCEPT WS-DATA-DIR FROM ENVIRONMENT-VALUE
+           IF WS-DATA-DIR = SPACES
+               MOVE "data" TO WS-DATA-DIR
+           END-IF
+           MOVE SPACES TO WS-SETTINGS-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/settings.idx"
+               DELIMITED BY SIZE INTO WS-SETTINGS-PATH
+           MOVE SPACES TO WS-MODELS-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/models.idx"
+               DELIMITED BY SIZE INTO WS-MODELS-PATH
+
+           GOBACK.
+
+       END PROGRAM PC-PATHS.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-SETTING-GET IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-SET-NAME in, WS-SET-VALUE out (spaces when the setting is unset).
+           MOVE SPACES TO WS-SET-VALUE
+           OPEN I-O SETTINGS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT SETTINGS-FILE
+               CLOSE SETTINGS-FILE
+               OPEN I-O SETTINGS-FILE
+           END-IF
+           MOVE WS-SET-NAME TO SET-NAME
+           READ SETTINGS-FILE
+               INVALID KEY CONTINUE
+               NOT INVALID KEY MOVE SET-VALUE TO WS-SET-VALUE
+           END-READ
+           CLOSE SETTINGS-FILE
+
+           GOBACK.
+
+       END PROGRAM PC-SETTING-GET.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-SETTING-PUT IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-SET-NAME, WS-SET-VALUE in. Written and committed at once (R10f).
+           OPEN I-O SETTINGS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT SETTINGS-FILE
+               CLOSE SETTINGS-FILE
+               OPEN I-O SETTINGS-FILE
+           END-IF
+           MOVE WS-SET-NAME TO SET-NAME
+           MOVE WS-SET-VALUE TO SET-VALUE
+           WRITE SETTINGS-REC
+               INVALID KEY REWRITE SETTINGS-REC
+           END-WRITE
+           COMMIT
+           CLOSE SETTINGS-FILE
+
+           GOBACK.
+
+       END PROGRAM PC-SETTING-PUT.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-LOAD-AGENTS IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Which model each of the chat's three agents uses. Agent 1 falls
+      *>   back to MODEL-ENTRY, the single setting PowerChat 1 kept.
+           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               MOVE SPACES TO WS-SET-NAME
+               STRING "AGENT-" WS-A "-ENTRY" DELIMITED BY SIZE INTO WS-SET-NAME
+               CALL "PC-SETTING-GET"
+               MOVE WS-SET-VALUE TO WS-AGENT-ENTRY(WS-A)
+           END-PERFORM
+           IF WS-AGENT-ENTRY(1) = SPACES
+               MOVE "MODEL-ENTRY" TO WS-SET-NAME
+               CALL "PC-SETTING-GET"
+               MOVE WS-SET-VALUE TO WS-AGENT-ENTRY(1)
+           END-IF
+
+           GOBACK.
+
+       END PROGRAM PC-LOAD-AGENTS.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-LOAD-MODELS IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The model list, one row each: name, model, and whether a key is
+      *>   stored - never the key itself (spec 071 R37, 076 R6).
+           MOVE Lst-Models::Clear() TO WS-OK
+           MOVE 0 TO WS-MODEL-COUNT
+           MOVE 0 TO WS-WITH-MODEL
+           CALL "PC-LOAD-AGENTS"
+           OPEN I-O MODELS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT MODELS-FILE
+               CLOSE MODELS-FILE
+               OPEN I-O MODELS-FILE
+           END-IF
+           MOVE LOW-VALUES TO MDL-NAME
+           MOVE "N" TO WS-EOF
+           START MODELS-FILE KEY IS >= MDL-NAME
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ MODELS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       IF WS-MODEL-COUNT < 200
+                           ADD 1 TO WS-MODEL-COUNT
+                           MOVE MDL-NAME TO WS-MODEL-NAME(WS-MODEL-COUNT)
+                           IF MDL-MODEL NOT = SPACES
+                               ADD 1 TO WS-WITH-MODEL
+                           END-IF
+                           COBOL::"KEY-IS-SET" ( MDL-NAME WS-KEY-FLAG )
+                           MOVE MDL-API TO WS-PROV-ID
+                           CALL "PC-PROVIDER-LABEL"
+                           MOVE SPACES TO WS-ROW
+                           STRING FUNCTION TRIM(MDL-NAME) " - "
+                                  FUNCTION TRIM(WS-PROV-LABEL) " "
+                                  FUNCTION TRIM(MDL-MODEL)
+                               DELIMITED BY SIZE INTO WS-ROW
+                           IF MDL-TOOLS = "Y"
+                               MOVE T-ROW-TOOLS TO WS-FMT
+                               CALL "PC-FMT"
+                               MOVE WS-ROW TO WS-ARG4
+                               MOVE SPACES TO WS-ROW
+                               STRING FUNCTION TRIM(WS-ARG4) FUNCTION TRIM(WS-FMT-OUT)
+                                   DELIMITED BY SIZE INTO WS-ROW
+                           END-IF
+                           IF MDL-RANK IS NUMERIC AND MDL-RANK > 0
+                               MOVE T-ROW-RANK TO WS-FMT
+                               MOVE MDL-RANK TO WS-ARG1
+                               CALL "PC-FMT"
+                               MOVE WS-ROW TO WS-ARG4
+                               MOVE SPACES TO WS-ROW
+                               STRING FUNCTION TRIM(WS-ARG4) FUNCTION TRIM(WS-FMT-OUT)
+                                   DELIMITED BY SIZE INTO WS-ROW
+                           END-IF
+                           IF WS-KEY-FLAG = "Y"
+                               MOVE T-ROW-KEY-SET TO WS-FMT
+                               CALL "PC-FMT"
+                               MOVE WS-ROW TO WS-ARG4
+                               MOVE SPACES TO WS-ROW
+                               STRING FUNCTION TRIM(WS-ARG4) " " FUNCTION TRIM(WS-FMT-OUT)
+                                   DELIMITED BY SIZE INTO WS-ROW
+                           END-IF
+                           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+                               IF MDL-NAME = WS-AGENT-ENTRY(WS-A)
+                                   MOVE T-ROW-AGENT TO WS-FMT
+                                   MOVE WS-A TO WS-ARG1
+                                   CALL "PC-FMT"
+                                   MOVE WS-ROW TO WS-ARG4
+                                   MOVE SPACES TO WS-ROW
+                                   STRING FUNCTION TRIM(WS-ARG4) "  " FUNCTION TRIM(WS-FMT-OUT)
+                                       DELIMITED BY SIZE INTO WS-ROW
+                               END-IF
+                           END-PERFORM
+                           MOVE Lst-Models::AddItem(FUNCTION TRIM(WS-ROW)) TO WS-OK
+                       END-IF
+               END-READ
+           END-PERFORM
+           CLOSE MODELS-FILE
+
+           GOBACK.
+
+       END PROGRAM PC-LOAD-MODELS.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-PROVIDER-LABEL IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-PROV-ID in (any case - older entries say "Ollama", "OpenAI");
+      *>   out: WS-PROV-IX (1-based, 0 = unknown) and the provider's label,
+      *>   default endpoint and whether it needs a key.
+           MOVE 0 TO WS-PROV-IX
+           MOVE WS-PROV-ID TO WS-XVAL
+           MOVE FUNCTION LOWER-CASE(WS-XVAL) TO WS-XVAL
+           PERFORM VARYING WS-P FROM 1 BY 1
+                   UNTIL WS-P > WS-PROV-COUNT OR WS-PROV-IX > 0
+               COBOL::"PROVIDER-GET" ( WS-P WS-XNAME WS-PROV-LABEL
+                    WS-PROV-EP WS-PROV-NEEDS )
+               IF WS-XNAME = WS-XVAL(1:20)
+                   MOVE WS-P TO WS-PROV-IX
+               END-IF
+           END-PERFORM
+           IF WS-PROV-IX = 0
+               MOVE WS-PROV-ID TO WS-PROV-LABEL
+               MOVE SPACES TO WS-PROV-EP
+               MOVE "N" TO WS-PROV-NEEDS
+           ELSE
+               MOVE WS-XNAME TO WS-PROV-ID
+           END-IF
+
+           GOBACK.
+
+       END PROGRAM PC-PROVIDER-LABEL.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-XML-ESC IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-PT              PIC 9(4).
+       01 WS-CH              PIC 9(4).
+       PROCEDURE DIVISION.
+      *>   WS-XIN as XML text into WS-XOUT: & < > " ' written as entities.
+           MOVE SPACES TO WS-XOUT
+           MOVE 1 TO WS-PT
+           PERFORM VARYING WS-CH FROM 1 BY 1
+                   UNTIL WS-CH > FUNCTION LENGTH(FUNCTION TRIM(WS-XIN))
+                      OR WS-XIN = SPACES
+               EVALUATE WS-XIN(WS-CH:1)
+                   WHEN "&" STRING "&amp;" DELIMITED BY SIZE INTO WS-XOUT WITH POINTER WS-PT
+                   WHEN "<" STRING "&lt;" DELIMITED BY SIZE INTO WS-XOUT WITH POINTER WS-PT
+                   WHEN ">" STRING "&gt;" DELIMITED BY SIZE INTO WS-XOUT WITH POINTER WS-PT
+                   WHEN QUOTE STRING "&quot;" DELIMITED BY SIZE INTO WS-XOUT WITH POINTER WS-PT
+                   WHEN "'" STRING "&apos;" DELIMITED BY SIZE INTO WS-XOUT WITH POINTER WS-PT
+                   WHEN OTHER
+                       STRING WS-XIN(WS-CH:1) DELIMITED BY SIZE INTO WS-XOUT WITH POINTER WS-PT
+               END-EVALUATE
+           END-PERFORM
+
+           GOBACK.
+
+       END PROGRAM PC-XML-ESC.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-XML-ATTR IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-PT              PIC 9(4).
+       01 WS-CH              PIC 9(4).
+       01 WS-AT              PIC 9(4).
+       01 WS-KL              PIC 9(4).
+       01 WS-KEYTXT          PIC X(30).
+       PROCEDURE DIVISION.
+      *>   The value of attribute WS-XNAME in WS-XLINE into WS-XVAL (entities
+      *>   decoded); WS-XFOUND = "Y" when the line carries it.
+           MOVE SPACES TO WS-XVAL WS-KEYTXT
+           MOVE "N" TO WS-XFOUND
+           STRING " " FUNCTION TRIM(WS-XNAME) "=" QUOTE DELIMITED BY SIZE INTO WS-KEYTXT
+           MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-XNAME)) TO WS-KL
+           ADD 3 TO WS-KL
+           MOVE 0 TO WS-AT
+           PERFORM VARYING WS-CH FROM 1 BY 1
+                   UNTIL WS-CH + WS-KL > 1000 OR WS-AT > 0
+               IF WS-XLINE(WS-CH:WS-KL) = WS-KEYTXT(1:WS-KL)
+                   COMPUTE WS-AT = WS-CH + WS-KL
+               END-IF
+           END-PERFORM
+           IF WS-AT = 0
+               EXIT PROGRAM
+           END-IF
+           MOVE "Y" TO WS-XFOUND
+           MOVE 1 TO WS-PT
+           MOVE WS-AT TO WS-CH
+           PERFORM UNTIL WS-CH > 1000 OR WS-XLINE(WS-CH:1) = QUOTE
+               EVALUATE TRUE
+                   WHEN WS-XLINE(WS-CH:5) = "&amp;"
+                       STRING "&" DELIMITED BY SIZE INTO WS-XVAL WITH POINTER WS-PT
+                       ADD 5 TO WS-CH
+                   WHEN WS-XLINE(WS-CH:4) = "&lt;"
+                       STRING "<" DELIMITED BY SIZE INTO WS-XVAL WITH POINTER WS-PT
+                       ADD 4 TO WS-CH
+                   WHEN WS-XLINE(WS-CH:4) = "&gt;"
+                       STRING ">" DELIMITED BY SIZE INTO WS-XVAL WITH POINTER WS-PT
+                       ADD 4 TO WS-CH
+                   WHEN WS-XLINE(WS-CH:6) = "&quot;"
+                       STRING QUOTE DELIMITED BY SIZE INTO WS-XVAL WITH POINTER WS-PT
+                       ADD 6 TO WS-CH
+                   WHEN WS-XLINE(WS-CH:6) = "&apos;"
+                       STRING "'" DELIMITED BY SIZE INTO WS-XVAL WITH POINTER WS-PT
+                       ADD 6 TO WS-CH
+                   WHEN OTHER
+                       STRING WS-XLINE(WS-CH:1) DELIMITED BY SIZE INTO WS-XVAL WITH POINTER WS-PT
+                       ADD 1 TO WS-CH
+               END-EVALUATE
+           END-PERFORM
+
+           GOBACK.
+
+       END PROGRAM PC-XML-ATTR.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-XML-PUT IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Append WS-XLINE to the export file (the first line replaces it).
+           IF WS-XROOT = "N"
+               COBOL::"WRITE-FILE" ( WS-XML-PATH WS-XLINE WS-LONG )
+               MOVE "Y" TO WS-XROOT
+           ELSE
+               COBOL::"APPEND-FILE" ( WS-XML-PATH WS-XLINE WS-LONG )
+           END-IF
+
+           GOBACK.
+
+       END PROGRAM PC-XML-PUT.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-REFRESH IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   What each group holds, under its button. Model selection and Agents
+      *>   wait for a model provider: without a connection they have nothing
+      *>   to choose from (operator, 2026-09-25).
+      *>   The main form owns the menu, which opens once an agent has a model:
+      *>   it re-reads the settings now instead of when Chat is next clicked
+      *>   (operator, 2026-09-26).
+           INVOKE super::"PC-REFRESH"()
+           MOVE "KB-LOCATION" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           IF WS-SET-VALUE = SPACES
+               MOVE "assets/KB" TO WS-SET-VALUE
+           END-IF
+           MOVE WS-SET-VALUE TO Lbl-KbSum::Caption
+           CALL "PC-LOAD-MODELS"
+           IF WS-MODEL-COUNT = 0
+               MOVE FUNCTION TRIM(T-SUM-NO-CONNS) TO Lbl-ProvSum::Caption
+               MOVE FUNCTION TRIM(T-SUM-NEED-PROVIDER) TO Lbl-ModelSum::Caption
+               MOVE FUNCTION TRIM(T-SUM-NEED-PROVIDER) TO Lbl-AgentSum::Caption
+               MOVE "false" TO Btn-ModelSel::Enabled
+               MOVE "false" TO Btn-Agents::Enabled
+               EXIT PROGRAM
+           END-IF
+           MOVE "true" TO Btn-ModelSel::Enabled
+           MOVE "true" TO Btn-Agents::Enabled
+           MOVE T-SUM-CONNS TO WS-FMT
+           MOVE WS-MODEL-COUNT TO WS-NE
+           MOVE WS-NE TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-ProvSum::Caption
+           MOVE T-SUM-MODELS TO WS-FMT
+           MOVE WS-WITH-MODEL TO WS-NE2
+           MOVE WS-NE2 TO WS-ARG1
+           MOVE WS-NE TO WS-ARG2
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-ModelSum::Caption
+           MOVE 0 TO WS-AGENTS-ON
+           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               IF WS-AGENT-ENTRY(WS-A) NOT = SPACES
+                   ADD 1 TO WS-AGENTS-ON
+               END-IF
+           END-PERFORM
+           MOVE T-SUM-AGENTS TO WS-FMT
+           MOVE WS-AGENTS-ON TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-AgentSum::Caption
+
+           GOBACK.
+
+       END PROGRAM PC-REFRESH.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-TEXTS IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The language the user picked (LANG), the texts in it, and every
+      *>   designed caption and hint that shows one. Called on load and again
+      *>   whenever the language changes (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           MOVE WS-SET-VALUE(1:2) TO WS-LANG
+           EVALUATE WS-LANG
+               WHEN "en" MOVE 1 TO WS-LANG-IX
+               WHEN "pt" MOVE 2 TO WS-LANG-IX
+               WHEN "es" MOVE 3 TO WS-LANG-IX
+               WHEN "fr" MOVE 4 TO WS-LANG-IX
+               WHEN "jp" MOVE 5 TO WS-LANG-IX
+               WHEN "cn" MOVE 6 TO WS-LANG-IX
+               WHEN OTHER MOVE "en" TO WS-LANG
+                          MOVE 1 TO WS-LANG-IX
+           END-EVALUATE
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 25
+               MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
+           END-PERFORM
+           MOVE FUNCTION TRIM(T-SETTINGS-TITLE) TO Lbl-Title::Caption
+           MOVE FUNCTION TRIM(T-KB-FOLDER-TITLE) TO Btn-KbFolder::Caption
+           MOVE FUNCTION TRIM(T-PROVIDERS-TITLE) TO Btn-Providers::Caption
+           MOVE FUNCTION TRIM(T-MODEL-SEL-TITLE) TO Btn-ModelSel::Caption
+           MOVE FUNCTION TRIM(T-AGENTS-TITLE) TO Btn-Agents::Caption
+           MOVE FUNCTION TRIM(T-MODELS) TO Lbl-Models::Caption
+           MOVE FUNCTION TRIM(T-EXPORT) TO Btn-Export::Caption
+           MOVE FUNCTION TRIM(T-IMPORT) TO Btn-Import::Caption
+           MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
+
+           GOBACK.
+
+       END PROGRAM PC-TEXTS.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-FMT IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-PT              PIC 9(4).
+       01 WS-FROM            PIC 9(4).
+       01 WS-CNT             PIC 9(4).
+       01 WS-PART            PIC X(120).
+       01 WS-DELIM           PIC XX.
+       PROCEDURE DIVISION.
+      *>   A message whose words go round numbers and names differently in each
+      *>   language: WS-FMT holds "&1" .. "&4" where WS-ARG1..4 go.
+           MOVE SPACES TO WS-FMT-OUT
+           MOVE 1 TO WS-PT
+           MOVE 1 TO WS-FROM
+           PERFORM UNTIL WS-FROM > FUNCTION LENGTH(WS-FMT)
+               MOVE SPACES TO WS-PART WS-DELIM
+               MOVE 0 TO WS-CNT
+               UNSTRING WS-FMT DELIMITED BY "&1" OR "&2" OR "&3" OR "&4"
+                   INTO WS-PART DELIMITER IN WS-DELIM COUNT IN WS-CNT
+                   WITH POINTER WS-FROM
+               END-UNSTRING
+               IF WS-CNT > 0
+                   STRING WS-PART(1:WS-CNT) DELIMITED BY SIZE
+                       INTO WS-FMT-OUT WITH POINTER WS-PT
+               END-IF
+               EVALUATE WS-DELIM
+                   WHEN "&1" STRING FUNCTION TRIM(WS-ARG1) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&2" STRING FUNCTION TRIM(WS-ARG2) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&3" STRING FUNCTION TRIM(WS-ARG3) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&4" STRING FUNCTION TRIM(WS-ARG4) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN OTHER COMPUTE WS-FROM = FUNCTION LENGTH(WS-FMT) + 1
+               END-EVALUATE
+           END-PERFORM
+
+           GOBACK.
+
+       END PROGRAM PC-FMT.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-LANG-NOW IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The language saved now (LANG), into WS-LANG-NOW; "en" when unset.
+           MOVE "en" TO WS-LANG-NOW
+           OPEN INPUT SETTINGS-FILE
+           IF WS-FS NOT = "00"
+               EXIT PROGRAM
+           END-IF
+           MOVE "LANG" TO SET-NAME
+           READ SETTINGS-FILE
+               INVALID KEY CONTINUE
+               NOT INVALID KEY
+                   EVALUATE SET-VALUE(1:2)
+                       WHEN "pt" WHEN "es" WHEN "fr" WHEN "jp" WHEN "cn"
+                           MOVE SET-VALUE(1:2) TO WS-LANG-NOW
+                   END-EVALUATE
+           END-READ
+           CLOSE SETTINGS-FILE
+
+           GOBACK.
+
+       END PROGRAM PC-LANG-NOW.
+
+       END PROGRAM SETTINGS-FORM.

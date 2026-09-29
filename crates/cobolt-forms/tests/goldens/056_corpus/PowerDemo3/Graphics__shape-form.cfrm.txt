@@ -1,0 +1,163 @@
+# PowerDemo3/Graphics/shape-form.cfrm
+## Canvas 0.75x 750x495
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Cycle rect=[32 380 188 412] font=14
+Btn-Gradient rect=[204 380 360 412] font=14
+Btn-Outline rect=[376 380 532 412] font=14
+Btn-Plain rect=[548 380 704 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Note rect=[720 154 960 344] font=13
+Lbl-Shp-Circle rect=[264 128 464 148] font=12
+Lbl-Shp-Rect rect=[48 130 248 150] font=12
+Lbl-Shp-Tri rect=[472 128 672 148] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Shp-Circle rect=[268 154 458 344] font=14
+Shp-Rect rect=[48 154 238 344] font=14
+Shp-Tri rect=[480 144 670 334] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=41 digest=bb3abfa5a25fa895
+## Run 0.75x 750x495
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Cycle rect=[32 380 188 412] font=14
+Btn-Gradient rect=[204 380 360 412] font=14
+Btn-Outline rect=[376 380 532 412] font=14
+Btn-Plain rect=[548 380 704 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Note rect=[720 154 960 344] font=13
+Lbl-Shp-Circle rect=[264 128 464 148] font=12
+Lbl-Shp-Rect rect=[48 130 248 150] font=12
+Lbl-Shp-Tri rect=[472 128 672 148] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Shp-Circle rect=[268 154 458 344] font=14
+Shp-Rect rect=[48 154 238 344] font=14
+Shp-Tri rect=[480 144 670 334] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=46 digest=802a89d8bc20ea97
+## Preview 0.75x 750x495
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Cycle rect=[32 380 188 412] font=14
+Btn-Gradient rect=[204 380 360 412] font=14
+Btn-Outline rect=[376 380 532 412] font=14
+Btn-Plain rect=[548 380 704 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Note rect=[720 154 960 344] font=13
+Lbl-Shp-Circle rect=[264 128 464 148] font=12
+Lbl-Shp-Rect rect=[48 130 248 150] font=12
+Lbl-Shp-Tri rect=[472 128 672 148] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Shp-Circle rect=[268 154 458 344] font=14
+Shp-Rect rect=[48 154 238 344] font=14
+Shp-Tri rect=[480 144 670 334] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=46 digest=802a89d8bc20ea97
+## Canvas 1x 1000x660
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Cycle rect=[32 380 188 412] font=14
+Btn-Gradient rect=[204 380 360 412] font=14
+Btn-Outline rect=[376 380 532 412] font=14
+Btn-Plain rect=[548 380 704 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Note rect=[720 154 960 344] font=13
+Lbl-Shp-Circle rect=[264 128 464 148] font=12
+Lbl-Shp-Rect rect=[48 130 248 150] font=12
+Lbl-Shp-Tri rect=[472 128 672 148] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Shp-Circle rect=[268 154 458 344] font=14
+Shp-Rect rect=[48 154 238 344] font=14
+Shp-Tri rect=[480 144 670 334] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=41 digest=9531bd3baf2d5d23
+## Run 1x 1000x660
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Cycle rect=[32 380 188 412] font=14
+Btn-Gradient rect=[204 380 360 412] font=14
+Btn-Outline rect=[376 380 532 412] font=14
+Btn-Plain rect=[548 380 704 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Note rect=[720 154 960 344] font=13
+Lbl-Shp-Circle rect=[264 128 464 148] font=12
+Lbl-Shp-Rect rect=[48 130 248 150] font=12
+Lbl-Shp-Tri rect=[472 128 672 148] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Shp-Circle rect=[268 154 458 344] font=14
+Shp-Rect rect=[48 154 238 344] font=14
+Shp-Tri rect=[480 144 670 334] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=46 digest=a9a485eec2428ce9
+## Preview 1x 1000x660
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Cycle rect=[32 380 188 412] font=14
+Btn-Gradient rect=[204 380 360 412] font=14
+Btn-Outline rect=[376 380 532 412] font=14
+Btn-Plain rect=[548 380 704 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Note rect=[720 154 960 344] font=13
+Lbl-Shp-Circle rect=[264 128 464 148] font=12
+Lbl-Shp-Rect rect=[48 130 248 150] font=12
+Lbl-Shp-Tri rect=[472 128 672 148] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Shp-Circle rect=[268 154 458 344] font=14
+Shp-Rect rect=[48 154 238 344] font=14
+Shp-Tri rect=[480 144 670 334] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=46 digest=a9a485eec2428ce9
+## Canvas 1.5x 1500x990
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Cycle rect=[32 380 188 412] font=14
+Btn-Gradient rect=[204 380 360 412] font=14
+Btn-Outline rect=[376 380 532 412] font=14
+Btn-Plain rect=[548 380 704 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Note rect=[720 154 960 344] font=13
+Lbl-Shp-Circle rect=[264 128 464 148] font=12
+Lbl-Shp-Rect rect=[48 130 248 150] font=12
+Lbl-Shp-Tri rect=[472 128 672 148] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Shp-Circle rect=[268 154 458 344] font=14
+Shp-Rect rect=[48 154 238 344] font=14
+Shp-Tri rect=[480 144 670 334] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=41 digest=a9409ae7ff447a93
+## Run 1.5x 1500x990
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Cycle rect=[32 380 188 412] font=14
+Btn-Gradient rect=[204 380 360 412] font=14
+Btn-Outline rect=[376 380 532 412] font=14
+Btn-Plain rect=[548 380 704 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Note rect=[720 154 960 344] font=13
+Lbl-Shp-Circle rect=[264 128 464 148] font=12
+Lbl-Shp-Rect rect=[48 130 248 150] font=12
+Lbl-Shp-Tri rect=[472 128 672 148] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Shp-Circle rect=[268 154 458 344] font=14
+Shp-Rect rect=[48 154 238 344] font=14
+Shp-Tri rect=[480 144 670 334] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=46 digest=1f0bf2c6f45c5c37
+## Preview 1.5x 1500x990
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Cycle rect=[32 380 188 412] font=14
+Btn-Gradient rect=[204 380 360 412] font=14
+Btn-Outline rect=[376 380 532 412] font=14
+Btn-Plain rect=[548 380 704 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Note rect=[720 154 960 344] font=13
+Lbl-Shp-Circle rect=[264 128 464 148] font=12
+Lbl-Shp-Rect rect=[48 130 248 150] font=12
+Lbl-Shp-Tri rect=[472 128 672 148] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Shp-Circle rect=[268 154 458 344] font=14
+Shp-Rect rect=[48 154 238 344] font=14
+Shp-Tri rect=[480 144 670 334] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=46 digest=1f0bf2c6f45c5c37

@@ -1,0 +1,118 @@
+# PowerDemo3/Menus & Bars/sidebar-demo-form.cfrm
+## Canvas 0.75x 750x495
+Btn-Clear rect=[688 380 868 412] font=14
+Btn-Fold rect=[288 380 468 412] font=14
+Btn-Title rect=[488 380 668 412] font=14
+Lbl-Log-Cap rect=[272 424 332 444] font=12
+Lbl-Nav rect=[288 140 948 170] font=17
+Lbl-Rail rect=[288 184 948 344] font=13
+Lbl-Sub rect=[272 54 968 92] font=13
+Lbl-Title rect=[272 20 968 50] font=20
+SideMenu-Demo rect=[0 0 240 660] font=14
+SideMenu-Demo-Footer rect=[0 660 240 660] font=14
+Txt-Log rect=[272 448 968 632] font=12
+shapes=31 digest=f32858e410160350
+## Run 0.75x 750x495
+Btn-Clear rect=[688 380 868 412] font=14
+Btn-Fold rect=[288 380 468 412] font=14
+Btn-Title rect=[488 380 668 412] font=14
+Lbl-Log-Cap rect=[272 424 332 444] font=12
+Lbl-Nav rect=[288 140 948 170] font=17
+Lbl-Rail rect=[288 184 948 344] font=13
+Lbl-Sub rect=[272 54 968 92] font=13
+Lbl-Title rect=[272 20 968 50] font=20
+SideMenu-Demo rect=[0 0 240 660] font=14
+SideMenu-Demo-Footer rect=[0 660 240 660] font=14
+Txt-Log rect=[272 448 968 632] font=12
+shapes=36 digest=313e39a6477a4866
+## Preview 0.75x 750x495
+Btn-Clear rect=[688 380 868 412] font=14
+Btn-Fold rect=[288 380 468 412] font=14
+Btn-Title rect=[488 380 668 412] font=14
+Lbl-Log-Cap rect=[272 424 332 444] font=12
+Lbl-Nav rect=[288 140 948 170] font=17
+Lbl-Rail rect=[288 184 948 344] font=13
+Lbl-Sub rect=[272 54 968 92] font=13
+Lbl-Title rect=[272 20 968 50] font=20
+SideMenu-Demo rect=[0 0 240 660] font=14
+SideMenu-Demo-Footer rect=[0 660 240 660] font=14
+Txt-Log rect=[272 448 968 632] font=12
+shapes=36 digest=313e39a6477a4866
+## Canvas 1x 1000x660
+Btn-Clear rect=[688 380 868 412] font=14
+Btn-Fold rect=[288 380 468 412] font=14
+Btn-Title rect=[488 380 668 412] font=14
+Lbl-Log-Cap rect=[272 424 332 444] font=12
+Lbl-Nav rect=[288 140 948 170] font=17
+Lbl-Rail rect=[288 184 948 344] font=13
+Lbl-Sub rect=[272 54 968 92] font=13
+Lbl-Title rect=[272 20 968 50] font=20
+SideMenu-Demo rect=[0 0 240 660] font=14
+SideMenu-Demo-Footer rect=[0 660 240 660] font=14
+Txt-Log rect=[272 448 968 632] font=12
+shapes=31 digest=7464e2465fa1fdfe
+## Run 1x 1000x660
+Btn-Clear rect=[688 380 868 412] font=14
+Btn-Fold rect=[288 380 468 412] font=14
+Btn-Title rect=[488 380 668 412] font=14
+Lbl-Log-Cap rect=[272 424 332 444] font=12
+Lbl-Nav rect=[288 140 948 170] font=17
+Lbl-Rail rect=[288 184 948 344] font=13
+Lbl-Sub rect=[272 54 968 92] font=13
+Lbl-Title rect=[272 20 968 50] font=20
+SideMenu-Demo rect=[0 0 240 660] font=14
+SideMenu-Demo-Footer rect=[0 660 240 660] font=14
+Txt-Log rect=[272 448 968 632] font=12
+shapes=36 digest=74cf8f2f99993444
+## Preview 1x 1000x660
+Btn-Clear rect=[688 380 868 412] font=14
+Btn-Fold rect=[288 380 468 412] font=14
+Btn-Title rect=[488 380 668 412] font=14
+Lbl-Log-Cap rect=[272 424 332 444] font=12
+Lbl-Nav rect=[288 140 948 170] font=17
+Lbl-Rail rect=[288 184 948 344] font=13
+Lbl-Sub rect=[272 54 968 92] font=13
+Lbl-Title rect=[272 20 968 50] font=20
+SideMenu-Demo rect=[0 0 240 660] font=14
+SideMenu-Demo-Footer rect=[0 660 240 660] font=14
+Txt-Log rect=[272 448 968 632] font=12
+shapes=36 digest=74cf8f2f99993444
+## Canvas 1.5x 1500x990
+Btn-Clear rect=[688 380 868 412] font=14
+Btn-Fold rect=[288 380 468 412] font=14
+Btn-Title rect=[488 380 668 412] font=14
+Lbl-Log-Cap rect=[272 424 332 444] font=12
+Lbl-Nav rect=[288 140 948 170] font=17
+Lbl-Rail rect=[288 184 948 344] font=13
+Lbl-Sub rect=[272 54 968 92] font=13
+Lbl-Title rect=[272 20 968 50] font=20
+SideMenu-Demo rect=[0 0 240 660] font=14
+SideMenu-Demo-Footer rect=[0 660 240 660] font=14
+Txt-Log rect=[272 448 968 632] font=12
+shapes=31 digest=5460686ef6d442ee
+## Run 1.5x 1500x990
+Btn-Clear rect=[688 380 868 412] font=14
+Btn-Fold rect=[288 380 468 412] font=14
+Btn-Title rect=[488 380 668 412] font=14
+Lbl-Log-Cap rect=[272 424 332 444] font=12
+Lbl-Nav rect=[288 140 948 170] font=17
+Lbl-Rail rect=[288 184 948 344] font=13
+Lbl-Sub rect=[272 54 968 92] font=13
+Lbl-Title rect=[272 20 968 50] font=20
+SideMenu-Demo rect=[0 0 240 660] font=14
+SideMenu-Demo-Footer rect=[0 660 240 660] font=14
+Txt-Log rect=[272 448 968 632] font=12
+shapes=36 digest=b2e9f644610e37b4
+## Preview 1.5x 1500x990
+Btn-Clear rect=[688 380 868 412] font=14
+Btn-Fold rect=[288 380 468 412] font=14
+Btn-Title rect=[488 380 668 412] font=14
+Lbl-Log-Cap rect=[272 424 332 444] font=12
+Lbl-Nav rect=[288 140 948 170] font=17
+Lbl-Rail rect=[288 184 948 344] font=13
+Lbl-Sub rect=[272 54 968 92] font=13
+Lbl-Title rect=[272 20 968 50] font=20
+SideMenu-Demo rect=[0 0 240 660] font=14
+SideMenu-Demo-Footer rect=[0 660 240 660] font=14
+Txt-Log rect=[272 448 968 632] font=12
+shapes=36 digest=b2e9f644610e37b4

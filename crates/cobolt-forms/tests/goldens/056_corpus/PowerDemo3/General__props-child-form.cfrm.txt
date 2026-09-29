@@ -1,0 +1,181 @@
+# PowerDemo3/General/props-child-form.cfrm
+## Canvas 0.75x 480x420
+Btn-Cancel rect=[338 476 608 524] font=14
+Btn-Ok rect=[32 476 302 524] font=14
+Btn-Recalc rect=[440 404 608 452] font=14
+Chk-Vip rect=[172 184 392 214] font=14
+Lbl-From rect=[32 60 608 88] font=13
+Lbl-Item-1 rect=[32 268 332 304] font=14
+Lbl-Item-2 rect=[32 314 332 350] font=14
+Lbl-Item-3 rect=[32 360 332 396] font=14
+Lbl-Limit rect=[32 146 172 176] font=14
+Lbl-Limit-Value rect=[172 146 372 176] font=14
+Lbl-Name rect=[32 100 172 136] font=14
+Lbl-Order rect=[32 228 608 258] font=15
+Lbl-Title rect=[32 20 608 60] font=22
+Lbl-Total rect=[32 410 432 442] font=15
+Txt-Name rect=[172 100 472 136] font=14
+Txt-Qty-1 rect=[340 268 430 304] font=14
+Txt-Qty-2 rect=[340 314 430 350] font=14
+Txt-Qty-3 rect=[340 360 430 396] font=14
+shapes=36 digest=3ed8245896e31625
+## Run 0.75x 480x420
+Btn-Cancel rect=[338 476 608 524] font=14
+Btn-Ok rect=[32 476 302 524] font=14
+Btn-Recalc rect=[440 404 608 452] font=14
+Chk-Vip rect=[172 184 392 214] font=14
+Lbl-From rect=[32 60 608 88] font=13
+Lbl-Item-1 rect=[32 268 332 304] font=14
+Lbl-Item-2 rect=[32 314 332 350] font=14
+Lbl-Item-3 rect=[32 360 332 396] font=14
+Lbl-Limit rect=[32 146 172 176] font=14
+Lbl-Limit-Value rect=[172 146 372 176] font=14
+Lbl-Name rect=[32 100 172 136] font=14
+Lbl-Order rect=[32 228 608 258] font=15
+Lbl-Title rect=[32 20 608 60] font=22
+Lbl-Total rect=[32 410 432 442] font=15
+Txt-Name rect=[172 100 472 136] font=14
+Txt-Qty-1 rect=[340 268 430 304] font=14
+Txt-Qty-2 rect=[340 314 430 350] font=14
+Txt-Qty-3 rect=[340 360 430 396] font=14
+shapes=49 digest=6982ee5c0c4767c8
+## Preview 0.75x 480x420
+Btn-Cancel rect=[338 476 608 524] font=14
+Btn-Ok rect=[32 476 302 524] font=14
+Btn-Recalc rect=[440 404 608 452] font=14
+Chk-Vip rect=[172 184 392 214] font=14
+Lbl-From rect=[32 60 608 88] font=13
+Lbl-Item-1 rect=[32 268 332 304] font=14
+Lbl-Item-2 rect=[32 314 332 350] font=14
+Lbl-Item-3 rect=[32 360 332 396] font=14
+Lbl-Limit rect=[32 146 172 176] font=14
+Lbl-Limit-Value rect=[172 146 372 176] font=14
+Lbl-Name rect=[32 100 172 136] font=14
+Lbl-Order rect=[32 228 608 258] font=15
+Lbl-Title rect=[32 20 608 60] font=22
+Lbl-Total rect=[32 410 432 442] font=15
+Txt-Name rect=[172 100 472 136] font=14
+Txt-Qty-1 rect=[340 268 430 304] font=14
+Txt-Qty-2 rect=[340 314 430 350] font=14
+Txt-Qty-3 rect=[340 360 430 396] font=14
+shapes=49 digest=6982ee5c0c4767c8
+## Canvas 1x 640x560
+Btn-Cancel rect=[338 476 608 524] font=14
+Btn-Ok rect=[32 476 302 524] font=14
+Btn-Recalc rect=[440 404 608 452] font=14
+Chk-Vip rect=[172 184 392 214] font=14
+Lbl-From rect=[32 60 608 88] font=13
+Lbl-Item-1 rect=[32 268 332 304] font=14
+Lbl-Item-2 rect=[32 314 332 350] font=14
+Lbl-Item-3 rect=[32 360 332 396] font=14
+Lbl-Limit rect=[32 146 172 176] font=14
+Lbl-Limit-Value rect=[172 146 372 176] font=14
+Lbl-Name rect=[32 100 172 136] font=14
+Lbl-Order rect=[32 228 608 258] font=15
+Lbl-Title rect=[32 20 608 60] font=22
+Lbl-Total rect=[32 410 432 442] font=15
+Txt-Name rect=[172 100 472 136] font=14
+Txt-Qty-1 rect=[340 268 430 304] font=14
+Txt-Qty-2 rect=[340 314 430 350] font=14
+Txt-Qty-3 rect=[340 360 430 396] font=14
+shapes=36 digest=78467f440e5d4177
+## Run 1x 640x560
+Btn-Cancel rect=[338 476 608 524] font=14
+Btn-Ok rect=[32 476 302 524] font=14
+Btn-Recalc rect=[440 404 608 452] font=14
+Chk-Vip rect=[172 184 392 214] font=14
+Lbl-From rect=[32 60 608 88] font=13
+Lbl-Item-1 rect=[32 268 332 304] font=14
+Lbl-Item-2 rect=[32 314 332 350] font=14
+Lbl-Item-3 rect=[32 360 332 396] font=14
+Lbl-Limit rect=[32 146 172 176] font=14
+Lbl-Limit-Value rect=[172 146 372 176] font=14
+Lbl-Name rect=[32 100 172 136] font=14
+Lbl-Order rect=[32 228 608 258] font=15
+Lbl-Title rect=[32 20 608 60] font=22
+Lbl-Total rect=[32 410 432 442] font=15
+Txt-Name rect=[172 100 472 136] font=14
+Txt-Qty-1 rect=[340 268 430 304] font=14
+Txt-Qty-2 rect=[340 314 430 350] font=14
+Txt-Qty-3 rect=[340 360 430 396] font=14
+shapes=49 digest=c4f8543303e82412
+## Preview 1x 640x560
+Btn-Cancel rect=[338 476 608 524] font=14
+Btn-Ok rect=[32 476 302 524] font=14
+Btn-Recalc rect=[440 404 608 452] font=14
+Chk-Vip rect=[172 184 392 214] font=14
+Lbl-From rect=[32 60 608 88] font=13
+Lbl-Item-1 rect=[32 268 332 304] font=14
+Lbl-Item-2 rect=[32 314 332 350] font=14
+Lbl-Item-3 rect=[32 360 332 396] font=14
+Lbl-Limit rect=[32 146 172 176] font=14
+Lbl-Limit-Value rect=[172 146 372 176] font=14
+Lbl-Name rect=[32 100 172 136] font=14
+Lbl-Order rect=[32 228 608 258] font=15
+Lbl-Title rect=[32 20 608 60] font=22
+Lbl-Total rect=[32 410 432 442] font=15
+Txt-Name rect=[172 100 472 136] font=14
+Txt-Qty-1 rect=[340 268 430 304] font=14
+Txt-Qty-2 rect=[340 314 430 350] font=14
+Txt-Qty-3 rect=[340 360 430 396] font=14
+shapes=49 digest=c4f8543303e82412
+## Canvas 1.5x 960x840
+Btn-Cancel rect=[338 476 608 524] font=14
+Btn-Ok rect=[32 476 302 524] font=14
+Btn-Recalc rect=[440 404 608 452] font=14
+Chk-Vip rect=[172 184 392 214] font=14
+Lbl-From rect=[32 60 608 88] font=13
+Lbl-Item-1 rect=[32 268 332 304] font=14
+Lbl-Item-2 rect=[32 314 332 350] font=14
+Lbl-Item-3 rect=[32 360 332 396] font=14
+Lbl-Limit rect=[32 146 172 176] font=14
+Lbl-Limit-Value rect=[172 146 372 176] font=14
+Lbl-Name rect=[32 100 172 136] font=14
+Lbl-Order rect=[32 228 608 258] font=15
+Lbl-Title rect=[32 20 608 60] font=22
+Lbl-Total rect=[32 410 432 442] font=15
+Txt-Name rect=[172 100 472 136] font=14
+Txt-Qty-1 rect=[340 268 430 304] font=14
+Txt-Qty-2 rect=[340 314 430 350] font=14
+Txt-Qty-3 rect=[340 360 430 396] font=14
+shapes=36 digest=8833f580c06d9f6d
+## Run 1.5x 960x840
+Btn-Cancel rect=[338 476 608 524] font=14
+Btn-Ok rect=[32 476 302 524] font=14
+Btn-Recalc rect=[440 404 608 452] font=14
+Chk-Vip rect=[172 184 392 214] font=14
+Lbl-From rect=[32 60 608 88] font=13
+Lbl-Item-1 rect=[32 268 332 304] font=14
+Lbl-Item-2 rect=[32 314 332 350] font=14
+Lbl-Item-3 rect=[32 360 332 396] font=14
+Lbl-Limit rect=[32 146 172 176] font=14
+Lbl-Limit-Value rect=[172 146 372 176] font=14
+Lbl-Name rect=[32 100 172 136] font=14
+Lbl-Order rect=[32 228 608 258] font=15
+Lbl-Title rect=[32 20 608 60] font=22
+Lbl-Total rect=[32 410 432 442] font=15
+Txt-Name rect=[172 100 472 136] font=14
+Txt-Qty-1 rect=[340 268 430 304] font=14
+Txt-Qty-2 rect=[340 314 430 350] font=14
+Txt-Qty-3 rect=[340 360 430 396] font=14
+shapes=49 digest=489c831511cf2836
+## Preview 1.5x 960x840
+Btn-Cancel rect=[338 476 608 524] font=14
+Btn-Ok rect=[32 476 302 524] font=14
+Btn-Recalc rect=[440 404 608 452] font=14
+Chk-Vip rect=[172 184 392 214] font=14
+Lbl-From rect=[32 60 608 88] font=13
+Lbl-Item-1 rect=[32 268 332 304] font=14
+Lbl-Item-2 rect=[32 314 332 350] font=14
+Lbl-Item-3 rect=[32 360 332 396] font=14
+Lbl-Limit rect=[32 146 172 176] font=14
+Lbl-Limit-Value rect=[172 146 372 176] font=14
+Lbl-Name rect=[32 100 172 136] font=14
+Lbl-Order rect=[32 228 608 258] font=15
+Lbl-Title rect=[32 20 608 60] font=22
+Lbl-Total rect=[32 410 432 442] font=15
+Txt-Name rect=[172 100 472 136] font=14
+Txt-Qty-1 rect=[340 268 430 304] font=14
+Txt-Qty-2 rect=[340 314 430 350] font=14
+Txt-Qty-3 rect=[340 360 430 396] font=14
+shapes=49 digest=489c831511cf2836

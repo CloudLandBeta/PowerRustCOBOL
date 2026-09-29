@@ -1,0 +1,181 @@
+# PowerDemo3/Common/radiobuttons-form.cfrm
+## Canvas 0.75x 750x495
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Express rect=[32 380 188 412] font=14
+Btn-Pix rect=[204 380 360 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Payment rect=[520 290 820 314] font=15
+Lbl-Payment-Cap rect=[520 268 720 288] font=12
+Lbl-Shipping rect=[48 290 388 314] font=15
+Lbl-Shipping-Cap rect=[48 268 248 288] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Rad-Boleto rect=[520 216 820 240] font=14
+Rad-Card rect=[520 140 820 164] font=14
+Rad-Exp rect=[48 178 388 202] font=14
+Rad-Next rect=[48 216 388 240] font=14
+Rad-Pix rect=[520 178 820 202] font=14
+Rad-Std rect=[48 140 388 164] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=319 digest=5f956ac2e817ef31
+## Run 0.75x 750x495
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Express rect=[32 380 188 412] font=14
+Btn-Pix rect=[204 380 360 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Payment rect=[520 290 820 314] font=15
+Lbl-Payment-Cap rect=[520 268 720 288] font=12
+Lbl-Shipping rect=[48 290 388 314] font=15
+Lbl-Shipping-Cap rect=[48 268 248 288] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Rad-Boleto rect=[520 216 820 240] font=14
+Rad-Card rect=[520 140 820 164] font=14
+Rad-Exp rect=[48 178 388 202] font=14
+Rad-Next rect=[48 216 388 240] font=14
+Rad-Pix rect=[520 178 820 202] font=14
+Rad-Std rect=[48 140 388 164] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=324 digest=a22e992a0b4fccd5
+## Preview 0.75x 750x495
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Express rect=[32 380 188 412] font=14
+Btn-Pix rect=[204 380 360 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Payment rect=[520 290 820 314] font=15
+Lbl-Payment-Cap rect=[520 268 720 288] font=12
+Lbl-Shipping rect=[48 290 388 314] font=15
+Lbl-Shipping-Cap rect=[48 268 248 288] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Rad-Boleto rect=[520 216 820 240] font=14
+Rad-Card rect=[520 140 820 164] font=14
+Rad-Exp rect=[48 178 388 202] font=14
+Rad-Next rect=[48 216 388 240] font=14
+Rad-Pix rect=[520 178 820 202] font=14
+Rad-Std rect=[48 140 388 164] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=324 digest=a22e992a0b4fccd5
+## Canvas 1x 1000x660
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Express rect=[32 380 188 412] font=14
+Btn-Pix rect=[204 380 360 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Payment rect=[520 290 820 314] font=15
+Lbl-Payment-Cap rect=[520 268 720 288] font=12
+Lbl-Shipping rect=[48 290 388 314] font=15
+Lbl-Shipping-Cap rect=[48 268 248 288] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Rad-Boleto rect=[520 216 820 240] font=14
+Rad-Card rect=[520 140 820 164] font=14
+Rad-Exp rect=[48 178 388 202] font=14
+Rad-Next rect=[48 216 388 240] font=14
+Rad-Pix rect=[520 178 820 202] font=14
+Rad-Std rect=[48 140 388 164] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=319 digest=b7e5d29fb93d3ab7
+## Run 1x 1000x660
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Express rect=[32 380 188 412] font=14
+Btn-Pix rect=[204 380 360 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Payment rect=[520 290 820 314] font=15
+Lbl-Payment-Cap rect=[520 268 720 288] font=12
+Lbl-Shipping rect=[48 290 388 314] font=15
+Lbl-Shipping-Cap rect=[48 268 248 288] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Rad-Boleto rect=[520 216 820 240] font=14
+Rad-Card rect=[520 140 820 164] font=14
+Rad-Exp rect=[48 178 388 202] font=14
+Rad-Next rect=[48 216 388 240] font=14
+Rad-Pix rect=[520 178 820 202] font=14
+Rad-Std rect=[48 140 388 164] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=324 digest=35ff5e9ff8e95967
+## Preview 1x 1000x660
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Express rect=[32 380 188 412] font=14
+Btn-Pix rect=[204 380 360 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Payment rect=[520 290 820 314] font=15
+Lbl-Payment-Cap rect=[520 268 720 288] font=12
+Lbl-Shipping rect=[48 290 388 314] font=15
+Lbl-Shipping-Cap rect=[48 268 248 288] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Rad-Boleto rect=[520 216 820 240] font=14
+Rad-Card rect=[520 140 820 164] font=14
+Rad-Exp rect=[48 178 388 202] font=14
+Rad-Next rect=[48 216 388 240] font=14
+Rad-Pix rect=[520 178 820 202] font=14
+Rad-Std rect=[48 140 388 164] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=324 digest=35ff5e9ff8e95967
+## Canvas 1.5x 1500x990
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Express rect=[32 380 188 412] font=14
+Btn-Pix rect=[204 380 360 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Payment rect=[520 290 820 314] font=15
+Lbl-Payment-Cap rect=[520 268 720 288] font=12
+Lbl-Shipping rect=[48 290 388 314] font=15
+Lbl-Shipping-Cap rect=[48 268 248 288] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Rad-Boleto rect=[520 216 820 240] font=14
+Rad-Card rect=[520 140 820 164] font=14
+Rad-Exp rect=[48 178 388 202] font=14
+Rad-Next rect=[48 216 388 240] font=14
+Rad-Pix rect=[520 178 820 202] font=14
+Rad-Std rect=[48 140 388 164] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=319 digest=62cdf8c8b38f85e7
+## Run 1.5x 1500x990
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Express rect=[32 380 188 412] font=14
+Btn-Pix rect=[204 380 360 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Payment rect=[520 290 820 314] font=15
+Lbl-Payment-Cap rect=[520 268 720 288] font=12
+Lbl-Shipping rect=[48 290 388 314] font=15
+Lbl-Shipping-Cap rect=[48 268 248 288] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Rad-Boleto rect=[520 216 820 240] font=14
+Rad-Card rect=[520 140 820 164] font=14
+Rad-Exp rect=[48 178 388 202] font=14
+Rad-Next rect=[48 216 388 240] font=14
+Rad-Pix rect=[520 178 820 202] font=14
+Rad-Std rect=[48 140 388 164] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=324 digest=ceadef012c47bec0
+## Preview 1.5x 1500x990
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Express rect=[32 380 188 412] font=14
+Btn-Pix rect=[204 380 360 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Payment rect=[520 290 820 314] font=15
+Lbl-Payment-Cap rect=[520 268 720 288] font=12
+Lbl-Shipping rect=[48 290 388 314] font=15
+Lbl-Shipping-Cap rect=[48 268 248 288] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Rad-Boleto rect=[520 216 820 240] font=14
+Rad-Card rect=[520 140 820 164] font=14
+Rad-Exp rect=[48 178 388 202] font=14
+Rad-Next rect=[48 216 388 240] font=14
+Rad-Pix rect=[520 178 820 202] font=14
+Rad-Std rect=[48 140 388 164] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=324 digest=ceadef012c47bec0

@@ -1,0 +1,163 @@
+# PowerDemo3/Non-Visual/websearch-form.cfrm
+## Canvas 0.75x 756x540
+Btn-Cancel rect=[626 200 782 232] font=14
+Btn-Clear rect=[824 200 980 232] font=14
+Btn-More rect=[230 200 386 232] font=14
+Btn-Safe rect=[428 200 584 232] font=14
+Btn-Search rect=[32 200 188 232] font=14
+Lbl-Hits-Cap rect=[32 264 332 284] font=12
+Lbl-Log-Cap rect=[32 432 332 452] font=12
+Lbl-Note rect=[720 120 984 200] font=13
+Lbl-Q-Cap rect=[136 112 436 132] font=12
+Lbl-Sub rect=[32 54 912 92] font=13
+Lbl-Title rect=[32 20 240 50] font=20
+Lst-Hits rect=[32 296 972 420] font=14
+Snackbar-1 rect=[928 648 995 712] font=14
+Txt-Log rect=[32 464 984 632] font=14
+Txt-Query rect=[136 144 704 176] font=14
+Web-Find rect=[848 648 915 712] font=14
+shapes=596 digest=900a5cace8bf9c28
+## Run 0.75x 756x540
+Btn-Cancel rect=[626 200 782 232] font=14
+Btn-Clear rect=[824 200 980 232] font=14
+Btn-More rect=[230 200 386 232] font=14
+Btn-Safe rect=[428 200 584 232] font=14
+Btn-Search rect=[32 200 188 232] font=14
+Lbl-Hits-Cap rect=[32 264 332 284] font=12
+Lbl-Log-Cap rect=[32 432 332 452] font=12
+Lbl-Note rect=[720 120 984 200] font=13
+Lbl-Q-Cap rect=[136 112 436 132] font=12
+Lbl-Sub rect=[32 54 912 92] font=13
+Lbl-Title rect=[32 20 240 50] font=20
+Lst-Hits rect=[32 296 972 420] font=14
+Snackbar-1 rect=[928 648 995 712] font=14
+Txt-Log rect=[32 464 984 632] font=14
+Txt-Query rect=[136 144 704 176] font=14
+Web-Find rect=[848 648 915 712] font=14
+shapes=481 digest=742f3590664110bf
+## Preview 0.75x 756x540
+Btn-Cancel rect=[626 200 782 232] font=14
+Btn-Clear rect=[824 200 980 232] font=14
+Btn-More rect=[230 200 386 232] font=14
+Btn-Safe rect=[428 200 584 232] font=14
+Btn-Search rect=[32 200 188 232] font=14
+Lbl-Hits-Cap rect=[32 264 332 284] font=12
+Lbl-Log-Cap rect=[32 432 332 452] font=12
+Lbl-Note rect=[720 120 984 200] font=13
+Lbl-Q-Cap rect=[136 112 436 132] font=12
+Lbl-Sub rect=[32 54 912 92] font=13
+Lbl-Title rect=[32 20 240 50] font=20
+Lst-Hits rect=[32 296 972 420] font=14
+Snackbar-1 rect=[928 648 995 712] font=14
+Txt-Log rect=[32 464 984 632] font=14
+Txt-Query rect=[136 144 704 176] font=14
+Web-Find rect=[848 648 915 712] font=14
+shapes=481 digest=742f3590664110bf
+## Canvas 1x 1008x720
+Btn-Cancel rect=[626 200 782 232] font=14
+Btn-Clear rect=[824 200 980 232] font=14
+Btn-More rect=[230 200 386 232] font=14
+Btn-Safe rect=[428 200 584 232] font=14
+Btn-Search rect=[32 200 188 232] font=14
+Lbl-Hits-Cap rect=[32 264 332 284] font=12
+Lbl-Log-Cap rect=[32 432 332 452] font=12
+Lbl-Note rect=[720 120 984 200] font=13
+Lbl-Q-Cap rect=[136 112 436 132] font=12
+Lbl-Sub rect=[32 54 912 92] font=13
+Lbl-Title rect=[32 20 240 50] font=20
+Lst-Hits rect=[32 296 972 420] font=14
+Snackbar-1 rect=[928 648 995 712] font=14
+Txt-Log rect=[32 464 984 632] font=14
+Txt-Query rect=[136 144 704 176] font=14
+Web-Find rect=[848 648 915 712] font=14
+shapes=596 digest=adef97ef9b99df6f
+## Run 1x 1008x720
+Btn-Cancel rect=[626 200 782 232] font=14
+Btn-Clear rect=[824 200 980 232] font=14
+Btn-More rect=[230 200 386 232] font=14
+Btn-Safe rect=[428 200 584 232] font=14
+Btn-Search rect=[32 200 188 232] font=14
+Lbl-Hits-Cap rect=[32 264 332 284] font=12
+Lbl-Log-Cap rect=[32 432 332 452] font=12
+Lbl-Note rect=[720 120 984 200] font=13
+Lbl-Q-Cap rect=[136 112 436 132] font=12
+Lbl-Sub rect=[32 54 912 92] font=13
+Lbl-Title rect=[32 20 240 50] font=20
+Lst-Hits rect=[32 296 972 420] font=14
+Snackbar-1 rect=[928 648 995 712] font=14
+Txt-Log rect=[32 464 984 632] font=14
+Txt-Query rect=[136 144 704 176] font=14
+Web-Find rect=[848 648 915 712] font=14
+shapes=481 digest=200db7ca5d81b1c7
+## Preview 1x 1008x720
+Btn-Cancel rect=[626 200 782 232] font=14
+Btn-Clear rect=[824 200 980 232] font=14
+Btn-More rect=[230 200 386 232] font=14
+Btn-Safe rect=[428 200 584 232] font=14
+Btn-Search rect=[32 200 188 232] font=14
+Lbl-Hits-Cap rect=[32 264 332 284] font=12
+Lbl-Log-Cap rect=[32 432 332 452] font=12
+Lbl-Note rect=[720 120 984 200] font=13
+Lbl-Q-Cap rect=[136 112 436 132] font=12
+Lbl-Sub rect=[32 54 912 92] font=13
+Lbl-Title rect=[32 20 240 50] font=20
+Lst-Hits rect=[32 296 972 420] font=14
+Snackbar-1 rect=[928 648 995 712] font=14
+Txt-Log rect=[32 464 984 632] font=14
+Txt-Query rect=[136 144 704 176] font=14
+Web-Find rect=[848 648 915 712] font=14
+shapes=481 digest=200db7ca5d81b1c7
+## Canvas 1.5x 1512x1080
+Btn-Cancel rect=[626 200 782 232] font=14
+Btn-Clear rect=[824 200 980 232] font=14
+Btn-More rect=[230 200 386 232] font=14
+Btn-Safe rect=[428 200 584 232] font=14
+Btn-Search rect=[32 200 188 232] font=14
+Lbl-Hits-Cap rect=[32 264 332 284] font=12
+Lbl-Log-Cap rect=[32 432 332 452] font=12
+Lbl-Note rect=[720 120 984 200] font=13
+Lbl-Q-Cap rect=[136 112 436 132] font=12
+Lbl-Sub rect=[32 54 912 92] font=13
+Lbl-Title rect=[32 20 240 50] font=20
+Lst-Hits rect=[32 296 972 420] font=14
+Snackbar-1 rect=[928 648 995 712] font=14
+Txt-Log rect=[32 464 984 632] font=14
+Txt-Query rect=[136 144 704 176] font=14
+Web-Find rect=[848 648 915 712] font=14
+shapes=596 digest=48b7baf449597bc4
+## Run 1.5x 1512x1080
+Btn-Cancel rect=[626 200 782 232] font=14
+Btn-Clear rect=[824 200 980 232] font=14
+Btn-More rect=[230 200 386 232] font=14
+Btn-Safe rect=[428 200 584 232] font=14
+Btn-Search rect=[32 200 188 232] font=14
+Lbl-Hits-Cap rect=[32 264 332 284] font=12
+Lbl-Log-Cap rect=[32 432 332 452] font=12
+Lbl-Note rect=[720 120 984 200] font=13
+Lbl-Q-Cap rect=[136 112 436 132] font=12
+Lbl-Sub rect=[32 54 912 92] font=13
+Lbl-Title rect=[32 20 240 50] font=20
+Lst-Hits rect=[32 296 972 420] font=14
+Snackbar-1 rect=[928 648 995 712] font=14
+Txt-Log rect=[32 464 984 632] font=14
+Txt-Query rect=[136 144 704 176] font=14
+Web-Find rect=[848 648 915 712] font=14
+shapes=481 digest=32382c128073821d
+## Preview 1.5x 1512x1080
+Btn-Cancel rect=[626 200 782 232] font=14
+Btn-Clear rect=[824 200 980 232] font=14
+Btn-More rect=[230 200 386 232] font=14
+Btn-Safe rect=[428 200 584 232] font=14
+Btn-Search rect=[32 200 188 232] font=14
+Lbl-Hits-Cap rect=[32 264 332 284] font=12
+Lbl-Log-Cap rect=[32 432 332 452] font=12
+Lbl-Note rect=[720 120 984 200] font=13
+Lbl-Q-Cap rect=[136 112 436 132] font=12
+Lbl-Sub rect=[32 54 912 92] font=13
+Lbl-Title rect=[32 20 240 50] font=20
+Lst-Hits rect=[32 296 972 420] font=14
+Snackbar-1 rect=[928 648 995 712] font=14
+Txt-Log rect=[32 464 984 632] font=14
+Txt-Query rect=[136 144 704 176] font=14
+Web-Find rect=[848 648 915 712] font=14
+shapes=481 digest=32382c128073821d

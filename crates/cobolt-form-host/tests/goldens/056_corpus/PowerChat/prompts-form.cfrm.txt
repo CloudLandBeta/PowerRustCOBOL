@@ -1,0 +1,97 @@
+# PowerChat/prompts-form.cfrm
+## Window 0.75x 768x402
+Btn-Cancel rect=- font=14
+Btn-Cancel-Bottom rect=- font=14
+Btn-Default rect=[680 96 864 128] font=14
+Btn-Main rect=[672 14 832 46] font=14
+Btn-New rect=[872 96 984 128] font=14
+Btn-Save rect=- font=14
+Btn-Save-Bottom rect=- font=14
+Btn-Topic rect=[840 14 1000 46] font=14
+Dg-List rect=[40 144 984 416] font=14
+Lbl-Edit-Ver rect=- font=14
+Lbl-Status rect=[24 464 656 496] font=14
+Lbl-Title rect=[24 16 656 48] font=20
+Tab-Crud rect=[24 56 1000 456] font=14
+Tmr-Lang rect=[952 16 1000 64] font=14
+Txt-Prompt rect=- font=14
+## Occupant 0.75x 768x402
+Btn-Cancel rect=- font=14
+Btn-Cancel-Bottom rect=- font=14
+Btn-Default rect=[900 124 1084 156] font=14
+Btn-Main rect=[892 42 1052 74] font=14
+Btn-New rect=[1092 124 1204 156] font=14
+Btn-Save rect=- font=14
+Btn-Save-Bottom rect=- font=14
+Btn-Topic rect=[1060 42 1220 74] font=14
+Dg-List rect=[260 172 1204 444] font=14
+Lbl-Edit-Ver rect=- font=14
+Lbl-Status rect=[244 492 876 524] font=14
+Lbl-Title rect=[244 44 876 76] font=20
+Tab-Crud rect=[244 84 1220 484] font=14
+Tmr-Lang rect=[1172 44 1220 92] font=14
+Txt-Prompt rect=- font=14
+## Window 1x 1024x536
+Btn-Cancel rect=- font=14
+Btn-Cancel-Bottom rect=- font=14
+Btn-Default rect=[680 96 864 128] font=14
+Btn-Main rect=[672 14 832 46] font=14
+Btn-New rect=[872 96 984 128] font=14
+Btn-Save rect=- font=14
+Btn-Save-Bottom rect=- font=14
+Btn-Topic rect=[840 14 1000 46] font=14
+Dg-List rect=[40 144 984 416] font=14
+Lbl-Edit-Ver rect=- font=14
+Lbl-Status rect=[24 464 656 496] font=14
+Lbl-Title rect=[24 16 656 48] font=20
+Tab-Crud rect=[24 56 1000 456] font=14
+Tmr-Lang rect=[952 16 1000 64] font=14
+Txt-Prompt rect=- font=14
+## Occupant 1x 1024x536
+Btn-Cancel rect=- font=14
+Btn-Cancel-Bottom rect=- font=14
+Btn-Default rect=[900 124 1084 156] font=14
+Btn-Main rect=[892 42 1052 74] font=14
+Btn-New rect=[1092 124 1204 156] font=14
+Btn-Save rect=- font=14
+Btn-Save-Bottom rect=- font=14
+Btn-Topic rect=[1060 42 1220 74] font=14
+Dg-List rect=[260 172 1204 444] font=14
+Lbl-Edit-Ver rect=- font=14
+Lbl-Status rect=[244 492 876 524] font=14
+Lbl-Title rect=[244 44 876 76] font=20
+Tab-Crud rect=[244 84 1220 484] font=14
+Tmr-Lang rect=[1172 44 1220 92] font=14
+Txt-Prompt rect=- font=14
+## Window 1.5x 1536x804
+Btn-Cancel rect=- font=14
+Btn-Cancel-Bottom rect=- font=14
+Btn-Default rect=[680 96 864 128] font=14
+Btn-Main rect=[672 14 832 46] font=14
+Btn-New rect=[872 96 984 128] font=14
+Btn-Save rect=- font=14
+Btn-Save-Bottom rect=- font=14
+Btn-Topic rect=[840 14 1000 46] font=14
+Dg-List rect=[40 144 984 416] font=14
+Lbl-Edit-Ver rect=- font=14
+Lbl-Status rect=[24 464 656 496] font=14
+Lbl-Title rect=[24 16 656 48] font=20
+Tab-Crud rect=[24 56 1000 456] font=14
+Tmr-Lang rect=[952 16 1000 64] font=14
+Txt-Prompt rect=- font=14
+## Occupant 1.5x 1536x804
+Btn-Cancel rect=- font=14
+Btn-Cancel-Bottom rect=- font=14
+Btn-Default rect=[900 124 1084 156] font=14
+Btn-Main rect=[892 42 1052 74] font=14
+Btn-New rect=[1092 124 1204 156] font=14
+Btn-Save rect=- font=14
+Btn-Save-Bottom rect=- font=14
+Btn-Topic rect=[1060 42 1220 74] font=14
+Dg-List rect=[260 172 1204 444] font=14
+Lbl-Edit-Ver rect=- font=14
+Lbl-Status rect=[244 492 876 524] font=14
+Lbl-Title rect=[244 44 876 76] font=20
+Tab-Crud rect=[244 84 1220 484] font=14
+Tmr-Lang rect=[1172 44 1220 92] font=14
+Txt-Prompt rect=- font=14

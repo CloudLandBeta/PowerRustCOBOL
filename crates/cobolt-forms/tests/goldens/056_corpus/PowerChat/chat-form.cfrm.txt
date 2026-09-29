@@ -1,0 +1,181 @@
+# PowerChat/chat-form.cfrm
+## Canvas 0.75x 900x594
+AGENT-1 rect=[1200 16 1248 64] font=14
+AGENT-2 rect=[1200 80 1248 128] font=14
+AGENT-3 rect=[1200 144 1248 192] font=14
+Btn-Pdf rect=[1004 20 1176 56] font=14
+Btn-Send rect=[1064 656 1172 760] font=14
+Flag-cn rect=[216 748 256 780] font=14
+Flag-en rect=[6 748 46 780] font=14
+Flag-es rect=[90 748 130 780] font=14
+Flag-fr rect=[132 748 172 780] font=14
+Flag-jp rect=[174 748 214 780] font=14
+Flag-pt rect=[48 748 88 780] font=14
+KB-1 rect=[1200 208 1248 256] font=14
+Lbl-Status rect=[288 64 1176 88] font=14
+Lbl-Topic rect=[288 24 992 56] font=20
+SideMenu-1 rect=[0 0 264 792] font=14
+SideMenu-1-Footer rect=[0 720 264 792] font=14
+Txt-Input rect=[288 656 1048 760] font=14
+Vwr-Chat rect=[288 96 1176 640] font=14
+shapes=301 digest=4217a9e80525ebfd
+## Run 0.75x 900x594
+AGENT-1 rect=[1200 16 1248 64] font=14
+AGENT-2 rect=[1200 80 1248 128] font=14
+AGENT-3 rect=[1200 144 1248 192] font=14
+Btn-Pdf rect=[1004 20 1176 56] font=14
+Btn-Send rect=[1064 656 1172 760] font=14
+Flag-cn rect=[216 748 256 780] font=14
+Flag-en rect=[6 748 46 780] font=14
+Flag-es rect=[90 748 130 780] font=14
+Flag-fr rect=[132 748 172 780] font=14
+Flag-jp rect=[174 748 214 780] font=14
+Flag-pt rect=[48 748 88 780] font=14
+KB-1 rect=[1200 208 1248 256] font=14
+Lbl-Status rect=[288 64 1176 88] font=14
+Lbl-Topic rect=[288 24 992 56] font=20
+SideMenu-1 rect=[0 0 264 792] font=14
+SideMenu-1-Footer rect=[0 720 264 792] font=14
+Txt-Input rect=[288 656 1048 760] font=14
+Vwr-Chat rect=[288 96 1176 640] font=14
+shapes=128 digest=9cc34bf72fa9d709
+## Preview 0.75x 900x594
+AGENT-1 rect=[1200 16 1248 64] font=14
+AGENT-2 rect=[1200 80 1248 128] font=14
+AGENT-3 rect=[1200 144 1248 192] font=14
+Btn-Pdf rect=[1004 20 1176 56] font=14
+Btn-Send rect=[1064 656 1172 760] font=14
+Flag-cn rect=[216 748 256 780] font=14
+Flag-en rect=[6 748 46 780] font=14
+Flag-es rect=[90 748 130 780] font=14
+Flag-fr rect=[132 748 172 780] font=14
+Flag-jp rect=[174 748 214 780] font=14
+Flag-pt rect=[48 748 88 780] font=14
+KB-1 rect=[1200 208 1248 256] font=14
+Lbl-Status rect=[288 64 1176 88] font=14
+Lbl-Topic rect=[288 24 992 56] font=20
+SideMenu-1 rect=[0 0 264 792] font=14
+SideMenu-1-Footer rect=[0 720 264 792] font=14
+Txt-Input rect=[288 656 1048 760] font=14
+Vwr-Chat rect=[288 96 1176 640] font=14
+shapes=128 digest=9cc34bf72fa9d709
+## Canvas 1x 1200x792
+AGENT-1 rect=[1200 16 1248 64] font=14
+AGENT-2 rect=[1200 80 1248 128] font=14
+AGENT-3 rect=[1200 144 1248 192] font=14
+Btn-Pdf rect=[1004 20 1176 56] font=14
+Btn-Send rect=[1064 656 1172 760] font=14
+Flag-cn rect=[216 748 256 780] font=14
+Flag-en rect=[6 748 46 780] font=14
+Flag-es rect=[90 748 130 780] font=14
+Flag-fr rect=[132 748 172 780] font=14
+Flag-jp rect=[174 748 214 780] font=14
+Flag-pt rect=[48 748 88 780] font=14
+KB-1 rect=[1200 208 1248 256] font=14
+Lbl-Status rect=[288 64 1176 88] font=14
+Lbl-Topic rect=[288 24 992 56] font=20
+SideMenu-1 rect=[0 0 264 792] font=14
+SideMenu-1-Footer rect=[0 720 264 792] font=14
+Txt-Input rect=[288 656 1048 760] font=14
+Vwr-Chat rect=[288 96 1176 640] font=14
+shapes=301 digest=62c3dc18fc87f169
+## Run 1x 1200x792
+AGENT-1 rect=[1200 16 1248 64] font=14
+AGENT-2 rect=[1200 80 1248 128] font=14
+AGENT-3 rect=[1200 144 1248 192] font=14
+Btn-Pdf rect=[1004 20 1176 56] font=14
+Btn-Send rect=[1064 656 1172 760] font=14
+Flag-cn rect=[216 748 256 780] font=14
+Flag-en rect=[6 748 46 780] font=14
+Flag-es rect=[90 748 130 780] font=14
+Flag-fr rect=[132 748 172 780] font=14
+Flag-jp rect=[174 748 214 780] font=14
+Flag-pt rect=[48 748 88 780] font=14
+KB-1 rect=[1200 208 1248 256] font=14
+Lbl-Status rect=[288 64 1176 88] font=14
+Lbl-Topic rect=[288 24 992 56] font=20
+SideMenu-1 rect=[0 0 264 792] font=14
+SideMenu-1-Footer rect=[0 720 264 792] font=14
+Txt-Input rect=[288 656 1048 760] font=14
+Vwr-Chat rect=[288 96 1176 640] font=14
+shapes=130 digest=382594bc5c73d83f
+## Preview 1x 1200x792
+AGENT-1 rect=[1200 16 1248 64] font=14
+AGENT-2 rect=[1200 80 1248 128] font=14
+AGENT-3 rect=[1200 144 1248 192] font=14
+Btn-Pdf rect=[1004 20 1176 56] font=14
+Btn-Send rect=[1064 656 1172 760] font=14
+Flag-cn rect=[216 748 256 780] font=14
+Flag-en rect=[6 748 46 780] font=14
+Flag-es rect=[90 748 130 780] font=14
+Flag-fr rect=[132 748 172 780] font=14
+Flag-jp rect=[174 748 214 780] font=14
+Flag-pt rect=[48 748 88 780] font=14
+KB-1 rect=[1200 208 1248 256] font=14
+Lbl-Status rect=[288 64 1176 88] font=14
+Lbl-Topic rect=[288 24 992 56] font=20
+SideMenu-1 rect=[0 0 264 792] font=14
+SideMenu-1-Footer rect=[0 720 264 792] font=14
+Txt-Input rect=[288 656 1048 760] font=14
+Vwr-Chat rect=[288 96 1176 640] font=14
+shapes=130 digest=382594bc5c73d83f
+## Canvas 1.5x 1800x1188
+AGENT-1 rect=[1200 16 1248 64] font=14
+AGENT-2 rect=[1200 80 1248 128] font=14
+AGENT-3 rect=[1200 144 1248 192] font=14
+Btn-Pdf rect=[1004 20 1176 56] font=14
+Btn-Send rect=[1064 656 1172 760] font=14
+Flag-cn rect=[216 748 256 780] font=14
+Flag-en rect=[6 748 46 780] font=14
+Flag-es rect=[90 748 130 780] font=14
+Flag-fr rect=[132 748 172 780] font=14
+Flag-jp rect=[174 748 214 780] font=14
+Flag-pt rect=[48 748 88 780] font=14
+KB-1 rect=[1200 208 1248 256] font=14
+Lbl-Status rect=[288 64 1176 88] font=14
+Lbl-Topic rect=[288 24 992 56] font=20
+SideMenu-1 rect=[0 0 264 792] font=14
+SideMenu-1-Footer rect=[0 720 264 792] font=14
+Txt-Input rect=[288 656 1048 760] font=14
+Vwr-Chat rect=[288 96 1176 640] font=14
+shapes=301 digest=075f9a7c4c18e7e1
+## Run 1.5x 1800x1188
+AGENT-1 rect=[1200 16 1248 64] font=14
+AGENT-2 rect=[1200 80 1248 128] font=14
+AGENT-3 rect=[1200 144 1248 192] font=14
+Btn-Pdf rect=[1004 20 1176 56] font=14
+Btn-Send rect=[1064 656 1172 760] font=14
+Flag-cn rect=[216 748 256 780] font=14
+Flag-en rect=[6 748 46 780] font=14
+Flag-es rect=[90 748 130 780] font=14
+Flag-fr rect=[132 748 172 780] font=14
+Flag-jp rect=[174 748 214 780] font=14
+Flag-pt rect=[48 748 88 780] font=14
+KB-1 rect=[1200 208 1248 256] font=14
+Lbl-Status rect=[288 64 1176 88] font=14
+Lbl-Topic rect=[288 24 992 56] font=20
+SideMenu-1 rect=[0 0 264 792] font=14
+SideMenu-1-Footer rect=[0 720 264 792] font=14
+Txt-Input rect=[288 656 1048 760] font=14
+Vwr-Chat rect=[288 96 1176 640] font=14
+shapes=130 digest=1dd1b1aec64253aa
+## Preview 1.5x 1800x1188
+AGENT-1 rect=[1200 16 1248 64] font=14
+AGENT-2 rect=[1200 80 1248 128] font=14
+AGENT-3 rect=[1200 144 1248 192] font=14
+Btn-Pdf rect=[1004 20 1176 56] font=14
+Btn-Send rect=[1064 656 1172 760] font=14
+Flag-cn rect=[216 748 256 780] font=14
+Flag-en rect=[6 748 46 780] font=14
+Flag-es rect=[90 748 130 780] font=14
+Flag-fr rect=[132 748 172 780] font=14
+Flag-jp rect=[174 748 214 780] font=14
+Flag-pt rect=[48 748 88 780] font=14
+KB-1 rect=[1200 208 1248 256] font=14
+Lbl-Status rect=[288 64 1176 88] font=14
+Lbl-Topic rect=[288 24 992 56] font=20
+SideMenu-1 rect=[0 0 264 792] font=14
+SideMenu-1-Footer rect=[0 720 264 792] font=14
+Txt-Input rect=[288 656 1048 760] font=14
+Vwr-Chat rect=[288 96 1176 640] font=14
+shapes=130 digest=1dd1b1aec64253aa

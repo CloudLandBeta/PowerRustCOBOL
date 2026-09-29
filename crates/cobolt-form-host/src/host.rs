@@ -9517,4 +9517,351 @@ mod parity {
         println!("│    verbatim from the proven run-form host                   │");
         println!("└─────────────────────────────────────────────────────────────┘");
     }
+
+    // ── Spec 056 §4.16 — the host golden of the example corpus (R79; AC2) ──
+    //
+    // Every `.cfrm` of PowerDemo3 and PowerChat as the ROOT of a window, as the
+    // root of a SideMenu shell (Pane mode, forms with a SideMenu only) and as a
+    // ContentPane OCCUPANT of a plain shell, at 0.75×, 1× and 1.5× its designed
+    // size: what `last_control_rects` records, plus each control's font size.
+    // It is the only coverage of `stretch_window_bars`, the Pane construction
+    // shift and the running shell's `rail_view`. Captured before the first
+    // responsive-layout change; `COBOLT_WRITE_GOLDEN=1` rewrites it.
+
+    fn corpus_repo() -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+    }
+
+    fn corpus_forms(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+        fn walk(d: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            let Ok(rd) = std::fs::read_dir(d) else { return };
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().and_then(|e| e.to_str()) == Some("cfrm") {
+                    out.push(p);
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(dir, &mut out);
+        out.sort();
+        out
+    }
+
+    /// `[forms] theme` of a project manifest, read by line (the host crate has
+    /// no TOML parser, and this is the one key needed).
+    fn corpus_theme_default(project_dir: &std::path::Path, project: &str) -> Option<String> {
+        let text = std::fs::read_to_string(project_dir.join(format!("{project}.project.toml"))).ok()?;
+        let mut in_forms = false;
+        for line in text.lines() {
+            let t = line.trim();
+            if t.starts_with('[') {
+                in_forms = t == "[forms]";
+                continue;
+            }
+            if in_forms {
+                if let Some(v) = t.strip_prefix("theme") {
+                    let v = v.trim_start().strip_prefix('=')?.trim().trim_matches('"');
+                    return Some(v.to_owned());
+                }
+            }
+        }
+        None
+    }
+
+    fn corpus_theme(
+        form: &cobolt_forms::Form,
+        default: Option<&str>,
+    ) -> (
+        Option<Arc<cobolt_forms::theme_pack::ThemePack>>,
+        Arc<dyn cobolt_forms::surface_theme::SurfaceTheme>,
+    ) {
+        let id = cobolt_forms::theme::resolve_theme_id(form.theme.as_deref(), default);
+        let pack = if cobolt_forms::theme::ThemeCatalog::procedural_ids().contains(&id.as_str()) {
+            None
+        } else {
+            cobolt_forms::theme_pack::discover_packs(&corpus_repo().join("assets/themes"))
+                .into_iter()
+                .find(|p| p.id == id)
+                .map(Arc::new)
+        };
+        let st = match pack.as_ref() {
+            Some(p) => cobolt_forms::surface_theme::for_pack(p.manifest.self_contained),
+            None => cobolt_forms::surface_theme::for_theme_id(&id),
+        };
+        (pack, st)
+    }
+
+    fn corpus_program() -> cobolt_ast::program::Program {
+        let src = "IDENTIFICATION DIVISION.\nPROGRAM-ID. OCC.\nPROCEDURE DIVISION.\n    STOP RUN.\n";
+        cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free))
+            .program
+            .expect("parses")
+    }
+
+    /// A host for `form` exactly as the glue builds one: flattened controls,
+    /// state seeded from them, the resolved theme, no window effects.
+    fn corpus_host(
+        form: cobolt_forms::Form,
+        surface: Surface,
+        theme_default: Option<String>,
+        form_source: Option<FormSource>,
+    ) -> (FormHost, cobolt_forms::Form, Pipes) {
+        let mut flat = Vec::new();
+        crate::flatten_controls(&form.controls, &mut flat);
+        let state: HashMap<String, CtrlState> =
+            flat.iter().map(|c| (c.id.clone(), CtrlState::from_control(c))).collect();
+        let (theme_pack, surface_theme) = corpus_theme(&form, theme_default.as_deref());
+        let (ev_tx, ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let finished = Arc::new(AtomicBool::new(false));
+        let child_theme: ChildThemeSource =
+            Box::new(move |child: &cobolt_forms::Form| corpus_theme(child, theme_default.as_deref()));
+        let (mut app, form) = FormHost::new(FormHostConfig {
+            form,
+            flat,
+            state,
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::clone(&finished),
+            form_req_rx,
+            closed_tx,
+            form_req_tx: form_req_tx.clone(),
+            form_source,
+            child_theme: Some(child_theme),
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: FxSpec::default(),
+            fx_exit: FxSpec::default(),
+            fx_restore: false,
+            theme_pack,
+            surface_theme,
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface,
+        });
+        app.fx_entrance_done = true;
+        app.root.anim_started = true;
+        app.root.lifecycle_sent = true;
+        (
+            app,
+            form,
+            Pipes {
+                ev_rx,
+                _input_rx,
+                _state_tx,
+                _display_tx,
+                finished,
+                _form_req_tx: form_req_tx,
+                _closed_rx,
+            },
+        )
+    }
+
+    /// The shell `run_shell` builds around a Pane-mode root (`shell.rs`).
+    fn corpus_shell(form: &cobolt_forms::Form, forms_dir: &std::path::Path) -> crate::shell::Shell {
+        let mut shell = crate::shell::Shell::default();
+        shell.menu_background = form.menu_pane_background.clone();
+        let side = form.side_menu_control_id().and_then(|id| form.find_control(&id).cloned());
+        if let Some(side) = side.as_ref() {
+            shell.collapsed = side.side_menu_collapsed();
+            shell.full_height = side.side_menu_full_height();
+            shell.icon_effect = side
+                .get_prop("IconEffect")
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_else(|| "None".to_owned());
+            shell.breadcrumb_height = cobolt_forms::breadcrumb::height_of(side);
+            shell.breadcrumb_bg = side
+                .breadcrumb_background()
+                .map(|hex| cobolt_forms::paint::parse_color(&hex));
+            if side.rect.w > 0 {
+                shell.menu_open_width = side.rect.w as f32;
+            }
+            shell.menu_collapsed_width = side.side_menu_collapsed_width();
+            let yaml = cobolt_forms::menu::menu_yaml_path(forms_dir, &side.id);
+            if let Ok(def) = cobolt_forms::menu::load_menu(&yaml) {
+                shell.mount_root_menu(&form.name, def);
+            }
+        }
+        shell.side_ctrl = side;
+        shell.form_backdrop = Some(cobolt_forms::render::backdrop_color(
+            &form.background_color,
+            form.transparency,
+        ));
+        shell
+    }
+
+    fn corpus_input(size: egui::Vec2) -> egui::RawInput {
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+            max_texture_side: Some(8192),
+            time: Some(1.0),
+            ..Default::default()
+        }
+    }
+
+    /// Rects + font sizes of one body, sorted by control id.
+    fn corpus_rows(body: &FormBody, rects: &HashMap<String, egui::Rect>) -> Vec<String> {
+        fn q(v: f32) -> f32 {
+            (v * 4.0).round() / 4.0
+        }
+        let mut ids: Vec<&cobolt_forms::Control> = body.controls.iter().collect();
+        ids.sort_by(|a, b| a.id.cmp(&b.id));
+        ids.iter()
+            .map(|c| {
+                let rect = rects
+                    .get(&c.id)
+                    .map(|r| format!("[{} {} {} {}]", q(r.min.x), q(r.min.y), q(r.max.x), q(r.max.y)))
+                    .unwrap_or_else(|| "-".into());
+                let live = match body.state.get(&c.id) {
+                    Some(st) => cobolt_forms::render::merge_props(c, st.props.iter()),
+                    None => (*c).clone(),
+                };
+                format!("{} rect={rect} font={}", c.id, q(cobolt_forms::paint::ctrl_font_size(&live)))
+            })
+            .collect()
+    }
+
+    const CORPUS_FRAMES: usize = 3;
+
+    #[test]
+    fn corpus_golden() {
+        let started = Instant::now();
+        let write = std::env::var("COBOLT_WRITE_GOLDEN").is_ok();
+        let golden_root =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/goldens/056_corpus");
+        let factors = [(0.75f32, "0.75x"), (1.0, "1x"), (1.5, "1.5x")];
+        let (mut forms, mut rows, mut renders, mut panes, mut written) = (0usize, 0usize, 0usize, 0usize, 0usize);
+        let mut differences = Vec::new();
+        for project in ["PowerDemo3", "PowerChat"] {
+            let dir = corpus_repo().join("examples").join(project);
+            cobolt_forms::assets::set_base(&dir);
+            let theme_default = corpus_theme_default(&dir, project);
+            let forms_dir = dir.join("forms");
+            for path in corpus_forms(&forms_dir) {
+                let rel = path.strip_prefix(&forms_dir).unwrap().display().to_string();
+                let form = cobolt_forms::load_form(&path)
+                    .unwrap_or_else(|e| panic!("{} must parse: {e}", path.display()));
+                forms += 1;
+                let mut text = format!("# {project}/{rel}\n");
+                for (f, fname) in factors {
+                    let size = egui::vec2(
+                        (form.width as f32 * f).round().max(64.0),
+                        (form.height as f32 * f).round().max(64.0),
+                    );
+                    // Root Window.
+                    {
+                        let (mut app, _form, _pipes) =
+                            corpus_host(form.clone(), Surface::Window, theme_default.clone(), None);
+                        let ctx = egui::Context::default();
+                        ctx.set_fonts(cobolt_forms::fonts::base_font_definitions());
+                        for _ in 0..CORPUS_FRAMES {
+                            frame(&mut app, &ctx, corpus_input(size));
+                        }
+                        let r = corpus_rows(&app.root, app.last_control_rects());
+                        rows += r.len();
+                        renders += 1;
+                        text.push_str(&format!("## Window {fname} {}x{}\n{}\n", size.x, size.y, r.join("\n")));
+                    }
+                    // Root Pane — a SideMenu shell.
+                    if form.has_side_menu() {
+                        let (mut app, root_form, _pipes) =
+                            corpus_host(form.clone(), Surface::Pane, theme_default.clone(), None);
+                        let mut shell = corpus_shell(&root_form, &forms_dir);
+                        let ctx = egui::Context::default();
+                        ctx.set_fonts(cobolt_forms::fonts::base_font_definitions());
+                        for _ in 0..CORPUS_FRAMES {
+                            let mut full = ctx.run_ui(corpus_input(size), |ui| {
+                                shell.show_with_host(ui, |_ui| {}, &mut app);
+                            });
+                            full.textures_delta.clear();
+                        }
+                        let r = corpus_rows(&app.root, app.last_control_rects());
+                        rows += r.len();
+                        renders += 1;
+                        panes += 1;
+                        text.push_str(&format!("## Pane {fname} {}x{}\n{}\n", size.x, size.y, r.join("\n")));
+                    }
+                    // ContentPane occupant of a plain shell.
+                    {
+                        let occupant = form.clone();
+                        let key = occupant.name.trim().to_ascii_uppercase();
+                        let source: FormSource = Box::new(move |_id: &str| Ok((occupant.clone(), corpus_program())));
+                        let shell_form = cobolt_forms::Form::new("CORPUS-SHELL", "Shell", size.x as u32, size.y as u32);
+                        let (mut app, _f, _pipes) =
+                            corpus_host(shell_form, Surface::Pane, theme_default.clone(), Some(source));
+                        app.ensure_occupant(&key).expect("the occupant builds");
+                        app.show_occupant(Some(&key));
+                        let mut shell = crate::shell::Shell::default();
+                        let ctx = egui::Context::default();
+                        ctx.set_fonts(cobolt_forms::fonts::base_font_definitions());
+                        for _ in 0..CORPUS_FRAMES {
+                            let mut full = ctx.run_ui(corpus_input(size), |ui| {
+                                shell.show_with_host(ui, |_ui| {}, &mut app);
+                            });
+                            full.textures_delta.clear();
+                        }
+                        let occ = &app.occupants[&key];
+                        let r = corpus_rows(&occ.body, app.last_control_rects());
+                        rows += r.len();
+                        renders += 1;
+                        text.push_str(&format!("## Occupant {fname} {}x{}\n{}\n", size.x, size.y, r.join("\n")));
+                    }
+                }
+                let file = golden_root
+                    .join(project)
+                    .join(format!("{}.txt", rel.replace(['/', '\\'], "__")));
+                if write {
+                    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+                    std::fs::write(&file, &text).unwrap();
+                    written += 1;
+                    continue;
+                }
+                let expected = std::fs::read_to_string(&file).unwrap_or_else(|_| {
+                    panic!("golden {} missing — capture it with COBOLT_WRITE_GOLDEN=1", file.display())
+                });
+                if expected != text {
+                    let e: Vec<_> = expected.lines().collect();
+                    let g: Vec<_> = text.lines().collect();
+                    let differing = e.iter().zip(g.iter()).filter(|(a, b)| a != b).count()
+                        + e.len().abs_diff(g.len());
+                    let first = e.iter().zip(g.iter()).position(|(a, b)| a != b).unwrap_or(e.len().min(g.len()));
+                    differences.push(format!(
+                        "{project}/{rel}: {differing} line(s) differ; first at line {}:\n    expected: {}\n    got:      {}",
+                        first + 1,
+                        e.get(first).unwrap_or(&"<end>"),
+                        g.get(first).unwrap_or(&"<end>")
+                    ));
+                }
+            }
+        }
+        println!("── 056 host corpus golden ────────────────────────────────");
+        println!("  projects   : PowerDemo3, PowerChat");
+        println!("  forms      : {forms} ({panes} SideMenu shell renders)");
+        println!("  sizes      : 0.75x, 1x, 1.5x");
+        println!("  surfaces   : root Window, root Pane (SideMenu forms), ContentPane occupant");
+        println!("  renders    : {renders} ({CORPUS_FRAMES} frames each, last recorded)");
+        println!("  rects+fonts: {rows} control rows compared");
+        if write {
+            println!("  WROTE      : {written} golden files under {}", golden_root.display());
+        } else {
+            println!("  differences: {} form(s)", differences.len());
+        }
+        println!("  elapsed    : {:.1} s", started.elapsed().as_secs_f32());
+        assert!(
+            differences.is_empty(),
+            "the example corpus no longer lays out as its host golden:\n{}",
+            differences.join("\n")
+        );
+    }
 }

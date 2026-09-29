@@ -1,0 +1,169 @@
+# PowerChat/chat-form.cfrm
+## Window 0.75x 900x594
+AGENT-1 rect=[1200 16 1248 64] font=14
+AGENT-2 rect=[1200 80 1248 128] font=14
+AGENT-3 rect=[1200 144 1248 192] font=14
+Btn-Pdf rect=[1004 20 1176 56] font=14
+Btn-Send rect=[1064 656 1172 760] font=14
+Flag-cn rect=[216 748 256 780] font=14
+Flag-en rect=[6 748 46 780] font=14
+Flag-es rect=[90 748 130 780] font=14
+Flag-fr rect=[132 748 172 780] font=14
+Flag-jp rect=[174 748 214 780] font=14
+Flag-pt rect=[48 748 88 780] font=14
+KB-1 rect=[1200 208 1248 256] font=14
+Lbl-Status rect=[288 64 1176 88] font=14
+Lbl-Topic rect=[288 24 992 56] font=20
+SideMenu-1 rect=[0 0 264 792] font=14
+SideMenu-1-Footer rect=[0 720 264 792] font=14
+Txt-Input rect=[288 656 1048 760] font=14
+Vwr-Chat rect=[288 96 1176 640] font=14
+## Pane 0.75x 900x594
+AGENT-1 rect=[1200 16 1248 64] font=14
+AGENT-2 rect=[1200 80 1248 128] font=14
+AGENT-3 rect=[1200 144 1248 192] font=14
+Btn-Pdf rect=[1004 20 1176 56] font=14
+Btn-Send rect=[1064 656 1172 760] font=14
+Flag-cn rect=- font=14
+Flag-en rect=- font=14
+Flag-es rect=- font=14
+Flag-fr rect=- font=14
+Flag-jp rect=- font=14
+Flag-pt rect=- font=14
+KB-1 rect=[1200 208 1248 256] font=14
+Lbl-Status rect=[288 64 1176 88] font=14
+Lbl-Topic rect=[288 24 992 56] font=20
+SideMenu-1-Footer rect=- font=14
+Txt-Input rect=[288 656 1048 760] font=14
+Vwr-Chat rect=[288 96 1176 640] font=14
+## Occupant 0.75x 900x594
+AGENT-1 rect=[1420 44 1468 92] font=14
+AGENT-2 rect=[1420 108 1468 156] font=14
+AGENT-3 rect=[1420 172 1468 220] font=14
+Btn-Pdf rect=[1224 48 1396 84] font=14
+Btn-Send rect=[1284 684 1392 788] font=14
+Flag-cn rect=[436 776 476 808] font=14
+Flag-en rect=[226 776 266 808] font=14
+Flag-es rect=[310 776 350 808] font=14
+Flag-fr rect=[352 776 392 808] font=14
+Flag-jp rect=[394 776 434 808] font=14
+Flag-pt rect=[268 776 308 808] font=14
+KB-1 rect=[1420 236 1468 284] font=14
+Lbl-Status rect=[508 92 1396 116] font=14
+Lbl-Topic rect=[508 52 1212 84] font=20
+SideMenu-1 rect=[220 28 484 820] font=14
+SideMenu-1-Footer rect=[220 748 484 820] font=14
+Txt-Input rect=[508 684 1268 788] font=14
+Vwr-Chat rect=[508 124 1396 668] font=14
+## Window 1x 1200x792
+AGENT-1 rect=[1200 16 1248 64] font=14
+AGENT-2 rect=[1200 80 1248 128] font=14
+AGENT-3 rect=[1200 144 1248 192] font=14
+Btn-Pdf rect=[1004 20 1176 56] font=14
+Btn-Send rect=[1064 656 1172 760] font=14
+Flag-cn rect=[216 748 256 780] font=14
+Flag-en rect=[6 748 46 780] font=14
+Flag-es rect=[90 748 130 780] font=14
+Flag-fr rect=[132 748 172 780] font=14
+Flag-jp rect=[174 748 214 780] font=14
+Flag-pt rect=[48 748 88 780] font=14
+KB-1 rect=[1200 208 1248 256] font=14
+Lbl-Status rect=[288 64 1176 88] font=14
+Lbl-Topic rect=[288 24 992 56] font=20
+SideMenu-1 rect=[0 0 264 792] font=14
+SideMenu-1-Footer rect=[0 720 264 792] font=14
+Txt-Input rect=[288 656 1048 760] font=14
+Vwr-Chat rect=[288 96 1176 640] font=14
+## Pane 1x 1200x792
+AGENT-1 rect=[1200 16 1248 64] font=14
+AGENT-2 rect=[1200 80 1248 128] font=14
+AGENT-3 rect=[1200 144 1248 192] font=14
+Btn-Pdf rect=[1004 20 1176 56] font=14
+Btn-Send rect=[1064 656 1172 760] font=14
+Flag-cn rect=- font=14
+Flag-en rect=- font=14
+Flag-es rect=- font=14
+Flag-fr rect=- font=14
+Flag-jp rect=- font=14
+Flag-pt rect=- font=14
+KB-1 rect=[1200 208 1248 256] font=14
+Lbl-Status rect=[288 64 1176 88] font=14
+Lbl-Topic rect=[288 24 992 56] font=20
+SideMenu-1-Footer rect=- font=14
+Txt-Input rect=[288 656 1048 760] font=14
+Vwr-Chat rect=[288 96 1176 640] font=14
+## Occupant 1x 1200x792
+AGENT-1 rect=[1420 44 1468 92] font=14
+AGENT-2 rect=[1420 108 1468 156] font=14
+AGENT-3 rect=[1420 172 1468 220] font=14
+Btn-Pdf rect=[1224 48 1396 84] font=14
+Btn-Send rect=[1284 684 1392 788] font=14
+Flag-cn rect=[436 776 476 808] font=14
+Flag-en rect=[226 776 266 808] font=14
+Flag-es rect=[310 776 350 808] font=14
+Flag-fr rect=[352 776 392 808] font=14
+Flag-jp rect=[394 776 434 808] font=14
+Flag-pt rect=[268 776 308 808] font=14
+KB-1 rect=[1420 236 1468 284] font=14
+Lbl-Status rect=[508 92 1396 116] font=14
+Lbl-Topic rect=[508 52 1212 84] font=20
+SideMenu-1 rect=[220 28 484 820] font=14
+SideMenu-1-Footer rect=[220 748 484 820] font=14
+Txt-Input rect=[508 684 1268 788] font=14
+Vwr-Chat rect=[508 124 1396 668] font=14
+## Window 1.5x 1800x1188
+AGENT-1 rect=[1200 16 1248 64] font=14
+AGENT-2 rect=[1200 80 1248 128] font=14
+AGENT-3 rect=[1200 144 1248 192] font=14
+Btn-Pdf rect=[1004 20 1176 56] font=14
+Btn-Send rect=[1064 656 1172 760] font=14
+Flag-cn rect=[216 748 256 780] font=14
+Flag-en rect=[6 748 46 780] font=14
+Flag-es rect=[90 748 130 780] font=14
+Flag-fr rect=[132 748 172 780] font=14
+Flag-jp rect=[174 748 214 780] font=14
+Flag-pt rect=[48 748 88 780] font=14
+KB-1 rect=[1200 208 1248 256] font=14
+Lbl-Status rect=[288 64 1176 88] font=14
+Lbl-Topic rect=[288 24 992 56] font=20
+SideMenu-1 rect=[0 0 264 792] font=14
+SideMenu-1-Footer rect=[0 720 264 792] font=14
+Txt-Input rect=[288 656 1048 760] font=14
+Vwr-Chat rect=[288 96 1176 640] font=14
+## Pane 1.5x 1800x1188
+AGENT-1 rect=[1200 16 1248 64] font=14
+AGENT-2 rect=[1200 80 1248 128] font=14
+AGENT-3 rect=[1200 144 1248 192] font=14
+Btn-Pdf rect=[1004 20 1176 56] font=14
+Btn-Send rect=[1064 656 1172 760] font=14
+Flag-cn rect=- font=14
+Flag-en rect=- font=14
+Flag-es rect=- font=14
+Flag-fr rect=- font=14
+Flag-jp rect=- font=14
+Flag-pt rect=- font=14
+KB-1 rect=[1200 208 1248 256] font=14
+Lbl-Status rect=[288 64 1176 88] font=14
+Lbl-Topic rect=[288 24 992 56] font=20
+SideMenu-1-Footer rect=- font=14
+Txt-Input rect=[288 656 1048 760] font=14
+Vwr-Chat rect=[288 96 1176 640] font=14
+## Occupant 1.5x 1800x1188
+AGENT-1 rect=[1420 44 1468 92] font=14
+AGENT-2 rect=[1420 108 1468 156] font=14
+AGENT-3 rect=[1420 172 1468 220] font=14
+Btn-Pdf rect=[1224 48 1396 84] font=14
+Btn-Send rect=[1284 684 1392 788] font=14
+Flag-cn rect=[436 776 476 808] font=14
+Flag-en rect=[226 776 266 808] font=14
+Flag-es rect=[310 776 350 808] font=14
+Flag-fr rect=[352 776 392 808] font=14
+Flag-jp rect=[394 776 434 808] font=14
+Flag-pt rect=[268 776 308 808] font=14
+KB-1 rect=[1420 236 1468 284] font=14
+Lbl-Status rect=[508 92 1396 116] font=14
+Lbl-Topic rect=[508 52 1212 84] font=20
+SideMenu-1 rect=[220 28 484 820] font=14
+SideMenu-1-Footer rect=[220 748 484 820] font=14
+Txt-Input rect=[508 684 1268 788] font=14
+Vwr-Chat rect=[508 124 1396 668] font=14

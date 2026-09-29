@@ -1,0 +1,55 @@
+# PowerDemo3/Rust/ferris-says-form.cfrm
+## Window 0.75x 630x342
+Button-1 rect=[312 120 512 216] font=14
+Label-1 rect=[312 272 784 432] font=14
+Label-2 rect=[312 56 432 76] font=14
+Label-3 rect=[66 216 109 294] font=64
+Label-4 rect=[312 240 432 260] font=15
+PictureBox-1 rect=[24 304 144 424] font=14
+PictureBox-2 rect=[16 40 168 192] font=14
+TextBox-1 rect=[448 56 808 80] font=14
+## Occupant 0.75x 630x342
+Button-1 rect=[532 148 732 244] font=14
+Label-1 rect=[532 300 1004 460] font=14
+Label-2 rect=[532 84 652 104] font=14
+Label-3 rect=[286 244 329 322] font=64
+Label-4 rect=[532 268 652 288] font=15
+PictureBox-1 rect=[244 332 364 452] font=14
+PictureBox-2 rect=[236 68 388 220] font=14
+TextBox-1 rect=[668 84 1028 108] font=14
+## Window 1x 840x456
+Button-1 rect=[312 120 512 216] font=14
+Label-1 rect=[312 272 784 432] font=14
+Label-2 rect=[312 56 432 76] font=14
+Label-3 rect=[66 216 109 294] font=64
+Label-4 rect=[312 240 432 260] font=15
+PictureBox-1 rect=[24 304 144 424] font=14
+PictureBox-2 rect=[16 40 168 192] font=14
+TextBox-1 rect=[448 56 808 80] font=14
+## Occupant 1x 840x456
+Button-1 rect=[532 148 732 244] font=14
+Label-1 rect=[532 300 1004 460] font=14
+Label-2 rect=[532 84 652 104] font=14
+Label-3 rect=[286 244 329 322] font=64
+Label-4 rect=[532 268 652 288] font=15
+PictureBox-1 rect=[244 332 364 452] font=14
+PictureBox-2 rect=[236 68 388 220] font=14
+TextBox-1 rect=[668 84 1028 108] font=14
+## Window 1.5x 1260x684
+Button-1 rect=[312 120 512 216] font=14
+Label-1 rect=[312 272 784 432] font=14
+Label-2 rect=[312 56 432 76] font=14
+Label-3 rect=[66 216 109 294] font=64
+Label-4 rect=[312 240 432 260] font=15
+PictureBox-1 rect=[24 304 144 424] font=14
+PictureBox-2 rect=[16 40 168 192] font=14
+TextBox-1 rect=[448 56 808 80] font=14
+## Occupant 1.5x 1260x684
+Button-1 rect=[532 148 732 244] font=14
+Label-1 rect=[532 300 1004 460] font=14
+Label-2 rect=[532 84 652 104] font=14
+Label-3 rect=[286 244 329 322] font=64
+Label-4 rect=[532 268 652 288] font=15
+PictureBox-1 rect=[244 332 364 452] font=14
+PictureBox-2 rect=[236 68 388 220] font=14
+TextBox-1 rect=[668 84 1028 108] font=14

@@ -1,0 +1,127 @@
+# PowerChat/agents-form.cfrm
+## Canvas 0.75x 600x338
+Btn-Cancel rect=[520 390 640 426] font=14
+Btn-CancelTop rect=[520 16 640 52] font=14
+Btn-Save rect=[656 390 776 426] font=14
+Btn-SaveTop rect=[656 16 776 52] font=14
+Cmb-Agent-1 rect=[196 72 776 104] font=14
+Cmb-Agent-2 rect=[196 120 776 152] font=14
+Cmb-Agent-3 rect=[196 168 776 200] font=14
+Lbl-Agent-1 rect=[24 76 184 100] font=14
+Lbl-Agent-2 rect=[24 124 184 148] font=14
+Lbl-Agent-3 rect=[24 172 184 196] font=14
+Lbl-Status rect=[24 224 776 364] font=14
+Lbl-Title rect=[24 16 504 52] font=20
+shapes=237 digest=0f7ee32501fdc207
+## Run 0.75x 600x338
+Btn-Cancel rect=[520 390 640 426] font=14
+Btn-CancelTop rect=[520 16 640 52] font=14
+Btn-Save rect=[656 390 776 426] font=14
+Btn-SaveTop rect=[656 16 776 52] font=14
+Cmb-Agent-1 rect=[196 72 776 104] font=14
+Cmb-Agent-2 rect=[196 120 776 152] font=14
+Cmb-Agent-3 rect=[196 168 776 200] font=14
+Lbl-Agent-1 rect=[24 76 184 100] font=14
+Lbl-Agent-2 rect=[24 124 184 148] font=14
+Lbl-Agent-3 rect=[24 172 184 196] font=14
+Lbl-Status rect=[24 224 776 364] font=14
+Lbl-Title rect=[24 16 504 52] font=20
+shapes=241 digest=4d560e2c0b4be4c3
+## Preview 0.75x 600x338
+Btn-Cancel rect=[520 390 640 426] font=14
+Btn-CancelTop rect=[520 16 640 52] font=14
+Btn-Save rect=[656 390 776 426] font=14
+Btn-SaveTop rect=[656 16 776 52] font=14
+Cmb-Agent-1 rect=[196 72 776 104] font=14
+Cmb-Agent-2 rect=[196 120 776 152] font=14
+Cmb-Agent-3 rect=[196 168 776 200] font=14
+Lbl-Agent-1 rect=[24 76 184 100] font=14
+Lbl-Agent-2 rect=[24 124 184 148] font=14
+Lbl-Agent-3 rect=[24 172 184 196] font=14
+Lbl-Status rect=[24 224 776 364] font=14
+Lbl-Title rect=[24 16 504 52] font=20
+shapes=241 digest=4d560e2c0b4be4c3
+## Canvas 1x 800x450
+Btn-Cancel rect=[520 390 640 426] font=14
+Btn-CancelTop rect=[520 16 640 52] font=14
+Btn-Save rect=[656 390 776 426] font=14
+Btn-SaveTop rect=[656 16 776 52] font=14
+Cmb-Agent-1 rect=[196 72 776 104] font=14
+Cmb-Agent-2 rect=[196 120 776 152] font=14
+Cmb-Agent-3 rect=[196 168 776 200] font=14
+Lbl-Agent-1 rect=[24 76 184 100] font=14
+Lbl-Agent-2 rect=[24 124 184 148] font=14
+Lbl-Agent-3 rect=[24 172 184 196] font=14
+Lbl-Status rect=[24 224 776 364] font=14
+Lbl-Title rect=[24 16 504 52] font=20
+shapes=237 digest=c892d955922d15a7
+## Run 1x 800x450
+Btn-Cancel rect=[520 390 640 426] font=14
+Btn-CancelTop rect=[520 16 640 52] font=14
+Btn-Save rect=[656 390 776 426] font=14
+Btn-SaveTop rect=[656 16 776 52] font=14
+Cmb-Agent-1 rect=[196 72 776 104] font=14
+Cmb-Agent-2 rect=[196 120 776 152] font=14
+Cmb-Agent-3 rect=[196 168 776 200] font=14
+Lbl-Agent-1 rect=[24 76 184 100] font=14
+Lbl-Agent-2 rect=[24 124 184 148] font=14
+Lbl-Agent-3 rect=[24 172 184 196] font=14
+Lbl-Status rect=[24 224 776 364] font=14
+Lbl-Title rect=[24 16 504 52] font=20
+shapes=241 digest=96d70b56cf292063
+## Preview 1x 800x450
+Btn-Cancel rect=[520 390 640 426] font=14
+Btn-CancelTop rect=[520 16 640 52] font=14
+Btn-Save rect=[656 390 776 426] font=14
+Btn-SaveTop rect=[656 16 776 52] font=14
+Cmb-Agent-1 rect=[196 72 776 104] font=14
+Cmb-Agent-2 rect=[196 120 776 152] font=14
+Cmb-Agent-3 rect=[196 168 776 200] font=14
+Lbl-Agent-1 rect=[24 76 184 100] font=14
+Lbl-Agent-2 rect=[24 124 184 148] font=14
+Lbl-Agent-3 rect=[24 172 184 196] font=14
+Lbl-Status rect=[24 224 776 364] font=14
+Lbl-Title rect=[24 16 504 52] font=20
+shapes=241 digest=96d70b56cf292063
+## Canvas 1.5x 1200x675
+Btn-Cancel rect=[520 390 640 426] font=14
+Btn-CancelTop rect=[520 16 640 52] font=14
+Btn-Save rect=[656 390 776 426] font=14
+Btn-SaveTop rect=[656 16 776 52] font=14
+Cmb-Agent-1 rect=[196 72 776 104] font=14
+Cmb-Agent-2 rect=[196 120 776 152] font=14
+Cmb-Agent-3 rect=[196 168 776 200] font=14
+Lbl-Agent-1 rect=[24 76 184 100] font=14
+Lbl-Agent-2 rect=[24 124 184 148] font=14
+Lbl-Agent-3 rect=[24 172 184 196] font=14
+Lbl-Status rect=[24 224 776 364] font=14
+Lbl-Title rect=[24 16 504 52] font=20
+shapes=237 digest=3bfabea501f488eb
+## Run 1.5x 1200x675
+Btn-Cancel rect=[520 390 640 426] font=14
+Btn-CancelTop rect=[520 16 640 52] font=14
+Btn-Save rect=[656 390 776 426] font=14
+Btn-SaveTop rect=[656 16 776 52] font=14
+Cmb-Agent-1 rect=[196 72 776 104] font=14
+Cmb-Agent-2 rect=[196 120 776 152] font=14
+Cmb-Agent-3 rect=[196 168 776 200] font=14
+Lbl-Agent-1 rect=[24 76 184 100] font=14
+Lbl-Agent-2 rect=[24 124 184 148] font=14
+Lbl-Agent-3 rect=[24 172 184 196] font=14
+Lbl-Status rect=[24 224 776 364] font=14
+Lbl-Title rect=[24 16 504 52] font=20
+shapes=241 digest=0322707788834942
+## Preview 1.5x 1200x675
+Btn-Cancel rect=[520 390 640 426] font=14
+Btn-CancelTop rect=[520 16 640 52] font=14
+Btn-Save rect=[656 390 776 426] font=14
+Btn-SaveTop rect=[656 16 776 52] font=14
+Cmb-Agent-1 rect=[196 72 776 104] font=14
+Cmb-Agent-2 rect=[196 120 776 152] font=14
+Cmb-Agent-3 rect=[196 168 776 200] font=14
+Lbl-Agent-1 rect=[24 76 184 100] font=14
+Lbl-Agent-2 rect=[24 124 184 148] font=14
+Lbl-Agent-3 rect=[24 172 184 196] font=14
+Lbl-Status rect=[24 224 776 364] font=14
+Lbl-Title rect=[24 16 504 52] font=20
+shapes=241 digest=0322707788834942

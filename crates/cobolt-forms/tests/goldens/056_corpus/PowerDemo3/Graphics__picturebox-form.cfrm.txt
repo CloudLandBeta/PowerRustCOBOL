@@ -1,0 +1,163 @@
+# PowerDemo3/Graphics/picturebox-form.cfrm
+## Canvas 0.75x 750x495
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Frame rect=[376 380 532 412] font=14
+Btn-Missing rect=[204 380 360 412] font=14
+Btn-Swap rect=[32 380 188 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Pic-Center rect=[744 130 964 150] font=12
+Lbl-Pic-Normal rect=[48 130 268 150] font=12
+Lbl-Pic-Stretch rect=[280 130 500 150] font=12
+Lbl-Pic-Zoom rect=[512 130 732 150] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Pic-Center rect=[744 154 954 344] font=14
+Pic-Normal rect=[48 154 258 344] font=14
+Pic-Stretch rect=[280 154 490 344] font=14
+Pic-Zoom rect=[512 154 722 344] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=531 digest=7fec42c5c2d1e3e9
+## Run 0.75x 750x495
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Frame rect=[376 380 532 412] font=14
+Btn-Missing rect=[204 380 360 412] font=14
+Btn-Swap rect=[32 380 188 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Pic-Center rect=[744 130 964 150] font=12
+Lbl-Pic-Normal rect=[48 130 268 150] font=12
+Lbl-Pic-Stretch rect=[280 130 500 150] font=12
+Lbl-Pic-Zoom rect=[512 130 732 150] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Pic-Center rect=[744 154 954 344] font=14
+Pic-Normal rect=[48 154 258 344] font=14
+Pic-Stretch rect=[280 154 490 344] font=14
+Pic-Zoom rect=[512 154 722 344] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=536 digest=44ada830b76f1b1f
+## Preview 0.75x 750x495
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Frame rect=[376 380 532 412] font=14
+Btn-Missing rect=[204 380 360 412] font=14
+Btn-Swap rect=[32 380 188 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Pic-Center rect=[744 130 964 150] font=12
+Lbl-Pic-Normal rect=[48 130 268 150] font=12
+Lbl-Pic-Stretch rect=[280 130 500 150] font=12
+Lbl-Pic-Zoom rect=[512 130 732 150] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Pic-Center rect=[744 154 954 344] font=14
+Pic-Normal rect=[48 154 258 344] font=14
+Pic-Stretch rect=[280 154 490 344] font=14
+Pic-Zoom rect=[512 154 722 344] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=536 digest=44ada830b76f1b1f
+## Canvas 1x 1000x660
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Frame rect=[376 380 532 412] font=14
+Btn-Missing rect=[204 380 360 412] font=14
+Btn-Swap rect=[32 380 188 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Pic-Center rect=[744 130 964 150] font=12
+Lbl-Pic-Normal rect=[48 130 268 150] font=12
+Lbl-Pic-Stretch rect=[280 130 500 150] font=12
+Lbl-Pic-Zoom rect=[512 130 732 150] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Pic-Center rect=[744 154 954 344] font=14
+Pic-Normal rect=[48 154 258 344] font=14
+Pic-Stretch rect=[280 154 490 344] font=14
+Pic-Zoom rect=[512 154 722 344] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=531 digest=b73d6468a509f81b
+## Run 1x 1000x660
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Frame rect=[376 380 532 412] font=14
+Btn-Missing rect=[204 380 360 412] font=14
+Btn-Swap rect=[32 380 188 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Pic-Center rect=[744 130 964 150] font=12
+Lbl-Pic-Normal rect=[48 130 268 150] font=12
+Lbl-Pic-Stretch rect=[280 130 500 150] font=12
+Lbl-Pic-Zoom rect=[512 130 732 150] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Pic-Center rect=[744 154 954 344] font=14
+Pic-Normal rect=[48 154 258 344] font=14
+Pic-Stretch rect=[280 154 490 344] font=14
+Pic-Zoom rect=[512 154 722 344] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=536 digest=1c911d6509371b75
+## Preview 1x 1000x660
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Frame rect=[376 380 532 412] font=14
+Btn-Missing rect=[204 380 360 412] font=14
+Btn-Swap rect=[32 380 188 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Pic-Center rect=[744 130 964 150] font=12
+Lbl-Pic-Normal rect=[48 130 268 150] font=12
+Lbl-Pic-Stretch rect=[280 130 500 150] font=12
+Lbl-Pic-Zoom rect=[512 130 732 150] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Pic-Center rect=[744 154 954 344] font=14
+Pic-Normal rect=[48 154 258 344] font=14
+Pic-Stretch rect=[280 154 490 344] font=14
+Pic-Zoom rect=[512 154 722 344] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=536 digest=1c911d6509371b75
+## Canvas 1.5x 1500x990
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Frame rect=[376 380 532 412] font=14
+Btn-Missing rect=[204 380 360 412] font=14
+Btn-Swap rect=[32 380 188 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Pic-Center rect=[744 130 964 150] font=12
+Lbl-Pic-Normal rect=[48 130 268 150] font=12
+Lbl-Pic-Stretch rect=[280 130 500 150] font=12
+Lbl-Pic-Zoom rect=[512 130 732 150] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Pic-Center rect=[744 154 954 344] font=14
+Pic-Normal rect=[48 154 258 344] font=14
+Pic-Stretch rect=[280 154 490 344] font=14
+Pic-Zoom rect=[512 154 722 344] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=531 digest=516e74aad40ca58b
+## Run 1.5x 1500x990
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Frame rect=[376 380 532 412] font=14
+Btn-Missing rect=[204 380 360 412] font=14
+Btn-Swap rect=[32 380 188 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Pic-Center rect=[744 130 964 150] font=12
+Lbl-Pic-Normal rect=[48 130 268 150] font=12
+Lbl-Pic-Stretch rect=[280 130 500 150] font=12
+Lbl-Pic-Zoom rect=[512 130 732 150] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Pic-Center rect=[744 154 954 344] font=14
+Pic-Normal rect=[48 154 258 344] font=14
+Pic-Stretch rect=[280 154 490 344] font=14
+Pic-Zoom rect=[512 154 722 344] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=536 digest=dfe3fff3081032e6
+## Preview 1.5x 1500x990
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Frame rect=[376 380 532 412] font=14
+Btn-Missing rect=[204 380 360 412] font=14
+Btn-Swap rect=[32 380 188 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Pic-Center rect=[744 130 964 150] font=12
+Lbl-Pic-Normal rect=[48 130 268 150] font=12
+Lbl-Pic-Stretch rect=[280 130 500 150] font=12
+Lbl-Pic-Zoom rect=[512 130 732 150] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Pic-Center rect=[744 154 954 344] font=14
+Pic-Normal rect=[48 154 258 344] font=14
+Pic-Stretch rect=[280 154 490 344] font=14
+Pic-Zoom rect=[512 154 722 344] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=536 digest=dfe3fff3081032e6

@@ -1,0 +1,31 @@
+# PowerChat/pick-form.cfrm
+## Window 0.75x 390x315
+Btn-Cancel rect=[256 356 368 392] font=14
+Btn-Ok rect=[384 356 496 392] font=14
+Lbl-Question rect=[24 24 496 64] font=16
+Lst-Items rect=[24 80 496 320] font=14
+## Occupant 0.75x 390x315
+Btn-Cancel rect=[476 384 588 420] font=14
+Btn-Ok rect=[604 384 716 420] font=14
+Lbl-Question rect=[244 52 716 92] font=16
+Lst-Items rect=[244 108 716 348] font=14
+## Window 1x 520x420
+Btn-Cancel rect=[256 356 368 392] font=14
+Btn-Ok rect=[384 356 496 392] font=14
+Lbl-Question rect=[24 24 496 64] font=16
+Lst-Items rect=[24 80 496 320] font=14
+## Occupant 1x 520x420
+Btn-Cancel rect=[476 384 588 420] font=14
+Btn-Ok rect=[604 384 716 420] font=14
+Lbl-Question rect=[244 52 716 92] font=16
+Lst-Items rect=[244 108 716 348] font=14
+## Window 1.5x 780x630
+Btn-Cancel rect=[256 356 368 392] font=14
+Btn-Ok rect=[384 356 496 392] font=14
+Lbl-Question rect=[24 24 496 64] font=16
+Lst-Items rect=[24 80 496 320] font=14
+## Occupant 1.5x 780x630
+Btn-Cancel rect=[476 384 588 420] font=14
+Btn-Ok rect=[604 384 716 420] font=14
+Lbl-Question rect=[244 52 716 92] font=16
+Lst-Items rect=[244 108 716 348] font=14

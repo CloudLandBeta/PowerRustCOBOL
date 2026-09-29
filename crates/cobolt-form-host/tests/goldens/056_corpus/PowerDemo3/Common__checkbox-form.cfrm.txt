@@ -1,0 +1,85 @@
+# PowerDemo3/Common/checkbox-form.cfrm
+## Window 0.75x 750x495
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Confirm rect=[376 380 532 412] font=14
+Btn-Read rect=[204 380 360 412] font=14
+Btn-Toggle rect=[32 380 188 412] font=14
+Chk-Email rect=[48 130 348 154] font=14
+Chk-Push rect=[48 210 348 234] font=14
+Chk-Sms rect=[48 170 348 194] font=14
+Chk-Terms rect=[48 262 448 286] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Summary rect=[520 130 960 290] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Txt-Log rect=[32 448 968 632] font=12
+## Occupant 0.75x 750x495
+Btn-Clear rect=[768 408 924 440] font=14
+Btn-Confirm rect=[596 408 752 440] font=14
+Btn-Read rect=[424 408 580 440] font=14
+Btn-Toggle rect=[252 408 408 440] font=14
+Chk-Email rect=[268 158 568 182] font=14
+Chk-Push rect=[268 238 568 262] font=14
+Chk-Sms rect=[268 198 568 222] font=14
+Chk-Terms rect=[268 290 668 314] font=14
+Lbl-Log-Cap rect=[252 452 552 472] font=12
+Lbl-Sub rect=[252 82 1188 120] font=13
+Lbl-Summary rect=[740 158 1180 318] font=13
+Lbl-Title rect=[252 48 1188 78] font=20
+Txt-Log rect=[252 476 1188 660] font=12
+## Window 1x 1000x660
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Confirm rect=[376 380 532 412] font=14
+Btn-Read rect=[204 380 360 412] font=14
+Btn-Toggle rect=[32 380 188 412] font=14
+Chk-Email rect=[48 130 348 154] font=14
+Chk-Push rect=[48 210 348 234] font=14
+Chk-Sms rect=[48 170 348 194] font=14
+Chk-Terms rect=[48 262 448 286] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Summary rect=[520 130 960 290] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Txt-Log rect=[32 448 968 632] font=12
+## Occupant 1x 1000x660
+Btn-Clear rect=[768 408 924 440] font=14
+Btn-Confirm rect=[596 408 752 440] font=14
+Btn-Read rect=[424 408 580 440] font=14
+Btn-Toggle rect=[252 408 408 440] font=14
+Chk-Email rect=[268 158 568 182] font=14
+Chk-Push rect=[268 238 568 262] font=14
+Chk-Sms rect=[268 198 568 222] font=14
+Chk-Terms rect=[268 290 668 314] font=14
+Lbl-Log-Cap rect=[252 452 552 472] font=12
+Lbl-Sub rect=[252 82 1188 120] font=13
+Lbl-Summary rect=[740 158 1180 318] font=13
+Lbl-Title rect=[252 48 1188 78] font=20
+Txt-Log rect=[252 476 1188 660] font=12
+## Window 1.5x 1500x990
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Confirm rect=[376 380 532 412] font=14
+Btn-Read rect=[204 380 360 412] font=14
+Btn-Toggle rect=[32 380 188 412] font=14
+Chk-Email rect=[48 130 348 154] font=14
+Chk-Push rect=[48 210 348 234] font=14
+Chk-Sms rect=[48 170 348 194] font=14
+Chk-Terms rect=[48 262 448 286] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Summary rect=[520 130 960 290] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Txt-Log rect=[32 448 968 632] font=12
+## Occupant 1.5x 1500x990
+Btn-Clear rect=[768 408 924 440] font=14
+Btn-Confirm rect=[596 408 752 440] font=14
+Btn-Read rect=[424 408 580 440] font=14
+Btn-Toggle rect=[252 408 408 440] font=14
+Chk-Email rect=[268 158 568 182] font=14
+Chk-Push rect=[268 238 568 262] font=14
+Chk-Sms rect=[268 198 568 222] font=14
+Chk-Terms rect=[268 290 668 314] font=14
+Lbl-Log-Cap rect=[252 452 552 472] font=12
+Lbl-Sub rect=[252 82 1188 120] font=13
+Lbl-Summary rect=[740 158 1180 318] font=13
+Lbl-Title rect=[252 48 1188 78] font=20
+Txt-Log rect=[252 476 1188 660] font=12

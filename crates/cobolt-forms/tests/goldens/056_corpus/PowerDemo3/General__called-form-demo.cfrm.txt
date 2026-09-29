@@ -1,0 +1,55 @@
+# PowerDemo3/General/called-form-demo.cfrm
+## Canvas 0.75x 360x210
+Btn-Cancel rect=[266 180 416 236] font=16
+Btn-Ok rect=[64 180 214 236] font=16
+Label-1 rect=[24 20 456 52] font=18
+Label-2 rect=[24 60 456 132] font=12
+shapes=121 digest=2a04bf0040733cd0
+## Run 0.75x 360x210
+Btn-Cancel rect=[266 180 416 236] font=16
+Btn-Ok rect=[64 180 214 236] font=16
+Label-1 rect=[24 20 456 52] font=18
+Label-2 rect=[24 60 456 132] font=12
+shapes=122 digest=f7c093d88678695d
+## Preview 0.75x 360x210
+Btn-Cancel rect=[266 180 416 236] font=16
+Btn-Ok rect=[64 180 214 236] font=16
+Label-1 rect=[24 20 456 52] font=18
+Label-2 rect=[24 60 456 132] font=12
+shapes=122 digest=f7c093d88678695d
+## Canvas 1x 480x280
+Btn-Cancel rect=[266 180 416 236] font=16
+Btn-Ok rect=[64 180 214 236] font=16
+Label-1 rect=[24 20 456 52] font=18
+Label-2 rect=[24 60 456 132] font=12
+shapes=121 digest=c800e23ad80c6f39
+## Run 1x 480x280
+Btn-Cancel rect=[266 180 416 236] font=16
+Btn-Ok rect=[64 180 214 236] font=16
+Label-1 rect=[24 20 456 52] font=18
+Label-2 rect=[24 60 456 132] font=12
+shapes=122 digest=fa360862f4e16cbe
+## Preview 1x 480x280
+Btn-Cancel rect=[266 180 416 236] font=16
+Btn-Ok rect=[64 180 214 236] font=16
+Label-1 rect=[24 20 456 52] font=18
+Label-2 rect=[24 60 456 132] font=12
+shapes=122 digest=fa360862f4e16cbe
+## Canvas 1.5x 720x420
+Btn-Cancel rect=[266 180 416 236] font=16
+Btn-Ok rect=[64 180 214 236] font=16
+Label-1 rect=[24 20 456 52] font=18
+Label-2 rect=[24 60 456 132] font=12
+shapes=121 digest=2ee8adf79f2739c2
+## Run 1.5x 720x420
+Btn-Cancel rect=[266 180 416 236] font=16
+Btn-Ok rect=[64 180 214 236] font=16
+Label-1 rect=[24 20 456 52] font=18
+Label-2 rect=[24 60 456 132] font=12
+shapes=122 digest=f682353bb768d841
+## Preview 1.5x 720x420
+Btn-Cancel rect=[266 180 416 236] font=16
+Btn-Ok rect=[64 180 214 236] font=16
+Label-1 rect=[24 20 456 52] font=18
+Label-2 rect=[24 60 456 132] font=12
+shapes=122 digest=f682353bb768d841

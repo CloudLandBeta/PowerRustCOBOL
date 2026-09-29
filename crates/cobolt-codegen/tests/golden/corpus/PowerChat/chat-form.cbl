@@ -1,0 +1,3949 @@
+      *> ───────────────────────────────────────────────────────────
+      *>  This code was generated automatically by PowerRustCOBOL RAD.
+      *>
+      *>  DO NOT MODIFY IT DIRECTLY: it is regenerated the next time
+      *>  you interact with the Form Designer, so manual edits are lost.
+      *>  Edit the form and its event handlers in the Form Designer
+      *>  instead.
+      *>
+      *>  PowerRustCOBOL may change the structure of this generated code
+      *>  at any time — without breaking your code's functionality — for
+      *>  reasons such as performance improvements, new observability
+      *>  features, and bug fixes.
+      *>
+      *>  PowerRustCOBOL and its components are distributed under the
+      *>  Apache 2.0 License.
+      *> ───────────────────────────────────────────────────────────
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CHAT-FORM.
+
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range".
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT SETTINGS-FILE ASSIGN TO WS-SETTINGS-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS SET-NAME
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT TOPICS-FILE ASSIGN TO WS-TOPICS-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS TOP-ID
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT CONVS-FILE ASSIGN TO WS-CONVS-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS CNV-ID
+               ALTERNATE RECORD KEY IS CNV-TOPIC WITH DUPLICATES
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT TURNS-FILE ASSIGN TO WS-TURNS-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS TRN-KEY
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT MODELS-FILE ASSIGN TO WS-MODELS-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS MDL-NAME
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT TFILES-FILE ASSIGN TO WS-TFILES-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS TF-KEY
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT RTPL-FILE ASSIGN TO WS-RTPL-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS RT-NAME
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT RTSEED-FILE ASSIGN TO WS-RTSEED-PATH
+               ORGANIZATION IS LINE SEQUENTIAL
+               FILE STATUS IS WS-FS.
+           SELECT MAINP-FILE ASSIGN TO WS-MAINP-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS PRM-KEY
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT MPSEED-FILE ASSIGN TO WS-MPSEED-PATH
+               ORGANIZATION IS LINE SEQUENTIAL
+               FILE STATUS IS WS-FS.
+
+       DATA DIVISION.
+       FILE SECTION.
+       FD  SETTINGS-FILE IS GLOBAL.
+       01  SETTINGS-REC.
+           05 SET-NAME          PIC X(20).
+           05 SET-VALUE         PIC X(200).
+       FD  TOPICS-FILE IS GLOBAL.
+       01  TOPIC-REC.
+           05 TOP-ID            PIC X(16).
+           05 TOP-NAME          PIC X(40).
+           05 TOP-PROMPT        PIC X(1000).
+           05 TOP-CREATED       PIC X(14).
+      *>   "Y" for a topic the sample installer made, so it can be removed.
+           05 TOP-SAMPLE        PIC X.
+       FD  CONVS-FILE IS GLOBAL.
+       01  CONV-REC.
+           05 CNV-ID            PIC X(16).
+           05 CNV-TOPIC         PIC X(16).
+           05 CNV-TITLE         PIC X(60).
+           05 CNV-CREATED       PIC X(14).
+           05 CNV-IN-TOKENS     PIC 9(9).
+           05 CNV-OUT-TOKENS    PIC 9(9).
+           05 CNV-TURNS         PIC 9(5).
+       FD  TURNS-FILE IS GLOBAL.
+       01  TURN-REC.
+           05 TRN-KEY.
+              10 TRN-CONV       PIC X(16).
+              10 TRN-SEQ        PIC 9(5).
+           05 TRN-ROLE          PIC X.
+           05 TRN-TEXT          PIC X(2000).
+       FD  MODELS-FILE IS GLOBAL.
+       01  MODEL-REC.
+           05 MDL-NAME          PIC X(30).
+           05 MDL-API           PIC X(12).
+           05 MDL-URL           PIC X(200).
+           05 MDL-MODEL         PIC X(80).
+      *>   The capability table (spec 071 R31, 063 R72): whether the model
+      *>   can call tools, and how well it orchestrates, 1 (poorly) to 9.
+           05 MDL-TOOLS         PIC X.
+           05 MDL-RANK          PIC 9.
+       FD  TFILES-FILE IS GLOBAL.
+      *>   The users' indexed files each topic registers by path (R20-R25):
+      *>   the data file and its .cidx. Nothing is copied or attached.
+       01  TFILE-REC.
+           05 TF-KEY.
+              10 TF-TOPIC       PIC X(16).
+              10 TF-SEQ         PIC 9(3).
+           05 TF-NAME           PIC X(30).
+           05 TF-DATA           PIC X(250).
+           05 TF-CIDX           PIC X(250).
+       FD  RTPL-FILE IS GLOBAL.
+      *>   One report template: its name and what it says - what it suits,
+      *>   its structure, its look - as the model reads it.
+       01  RTPL-REC.
+           05 RT-NAME           PIC X(40).
+           05 RT-SUITS          PIC X(300).
+           05 RT-SKEL           PIC X(12000).
+       FD  RTSEED-FILE IS GLOBAL.
+       01  RTSEED-REC           PIC X(1000).
+      *>   The Prompt screen's versions - the same file and layout
+      *>   (prompts-form); the chat reads the main prompt's active one.
+       FD  MAINP-FILE IS GLOBAL.
+       01  PROMPT-REC.
+           05 PRM-KEY.
+              10 PRM-TOPIC      PIC X(16).
+              10 PRM-VERSION    PIC 9(4).
+           05 PRM-CREATED       PIC X(14).
+           05 PRM-ACTIVE        PIC X.
+           05 PRM-TEXT          PIC X(32000).
+       FD  MPSEED-FILE IS GLOBAL.
+       01  MPSEED-REC           PIC X(1000).
+       WORKING-STORAGE SECTION.
+      *>── Cobolt runtime fields ─────────────────────────────────────
+       01 COBOL-QUIT             PIC 9        VALUE 0.
+       01 COBOL-EVENT-ID         PIC X(64)   VALUE SPACES.
+       01 COBOL-CONTROL-ID       PIC X(64)   VALUE SPACES.
+       01 COBOL-LAST-STATUS       PIC X(256)  VALUE SPACES.
+       01 FORM-NAME               PIC X(64)   VALUE 'CHAT-FORM'.
+
+      *>── AI Agent infrastructure ────────────────────────────────────
+      *>   INVOKE agent-id 'Ask' USING BY VALUE WS-AGENT-PROMPT
+      *>   returns at once; the reply arrives as onResponse (LastReply)
+      *>   or onError (LastError).
+       01 WS-AGENT-PROMPT        PIC X(4096)  VALUE SPACES.
+       01 WS-AGENT-RESPONSE      PIC X(32767) VALUE SPACES.
+       01 WS-AGENT-ERROR         PIC X(512)   VALUE SPACES.
+
+      *>── User Working Storage ────────────────────────────────────────
+       01 WS-FS              GLOBAL PIC XX VALUE "00".
+       01 WS-DATA-DIR        GLOBAL PIC X(200).
+       01 WS-SET-NAME        GLOBAL PIC X(20).
+       01 WS-SET-VALUE       GLOBAL PIC X(200).
+       01 WS-NOW             GLOBAL PIC X(21).
+       01 WS-EOF             GLOBAL PIC X.
+       01 WS-OK              GLOBAL PIC X(4).
+       01 WS-SETTINGS-PATH  GLOBAL PIC X(240).
+       01 WS-TOPICS-PATH  GLOBAL PIC X(240).
+       01 WS-CONVS-PATH  GLOBAL PIC X(240).
+       01 WS-TURNS-PATH  GLOBAL PIC X(240).
+       01 WS-MODELS-PATH  GLOBAL PIC X(240).
+       01 WS-TFILES-PATH  GLOBAL PIC X(240).
+       01 WS-CUR-TOPIC       GLOBAL PIC X(16).
+       01 WS-ALLOWED-TOPIC   GLOBAL PIC X(16).
+       01 WS-CUR-CONV        GLOBAL PIC X(16).
+       01 WS-SEQ             GLOBAL PIC 9(5) VALUE 0.
+       01 WS-ITEM            GLOBAL PIC X(40).
+       01 WS-ROW-ID          GLOBAL PIC X(17).
+      *>   A question - and an answer - is not cut short (operator,
+      *>   2026-09-27: "do not limit the size of the question"): 64,000
+      *>   characters each, the prompt built from them 256,000. A turn longer
+      *>   than a TURNS-FILE record is saved over several records (see
+      *>   PC-SAVE-TURN), so the file's layout does not change.
+       01 WS-QUESTION        GLOBAL PIC X(64000).
+       01 WS-REPLY           GLOBAL PIC X(64000).
+       01 WS-ROLE            GLOBAL PIC X.
+       01 WS-TEXT            GLOBAL PIC X(64000).
+       01 WS-MSG             GLOBAL PIC X(64100).
+      *>   The conversation so far, sent with each question (R41). An
+      *>   AgentObject remembers nothing between questions.
+       01 WS-PROMPT          GLOBAL PIC X(256000).
+       01 WS-PTR             GLOBAL PIC 9(6).
+       01 WS-HISTORY-TURNS   GLOBAL PIC 9(3) VALUE 10.
+       01 WS-FIRST-SEQ       GLOBAL PIC 9(5).
+       01 WS-LINE            GLOBAL PIC X(300).
+       01 WS-MONTH           GLOBAL PIC X(6).
+       01 WS-SUM-IN          GLOBAL PIC 9(12).
+       01 WS-SUM-OUT         GLOBAL PIC 9(12).
+       01 WS-SUM-CONVS       GLOBAL PIC 9(6).
+       01 WS-E1              GLOBAL PIC Z(11)9.
+       01 WS-E2              GLOBAL PIC Z(11)9.
+       01 WS-E3              GLOBAL PIC Z(5)9.
+       01 WS-TOKENS          GLOBAL PIC 9(9).
+       01 WS-CONV-COUNT      GLOBAL PIC 9(4).
+       01 WS-CONV-LIST       GLOBAL.
+          05 WS-CONV-ROW     OCCURS 50.
+             10 WS-CL-ID     PIC X(16).
+             10 WS-CL-TITLE  PIC X(60).
+       01 WS-I               GLOBAL PIC 9(4).
+      *>   The mesh (spec 071 R26-R32; 063 R51-R71): three agents, each with
+      *>   the model-list entry the settings assign it, its capabilities from
+      *>   that entry, and the role prompt designed on it.
+       01 WS-AGENTS          GLOBAL.
+          05 WS-AG           OCCURS 3.
+             10 WS-AG-ENTRY  PIC X(30).
+             10 WS-AG-MODEL  PIC X(80).
+             10 WS-AG-TOOLS  PIC X.
+             10 WS-AG-RANK   PIC 9.
+             10 WS-AG-ROLE   PIC X(1000).
+             10 WS-AG-TASK   PIC X(2000).
+             10 WS-AG-RESULT PIC X(64000).
+             10 WS-AG-WAIT   PIC X.
+       01 WS-N-AGENTS        GLOBAL PIC 9 VALUE 0.
+       01 WS-N-TOOLS         GLOBAL PIC 9 VALUE 0.
+       01 WS-ORCH            GLOBAL PIC 9 VALUE 0.
+       01 WS-WORKER          GLOBAL PIC 9 VALUE 0.
+       01 WS-FROM            GLOBAL PIC 9.
+       01 WS-A               GLOBAL PIC 9.
+       01 WS-B               GLOBAL PIC 9.
+       01 WS-BEST            GLOBAL PIC 9.
+       01 WS-SAME-MODEL      GLOBAL PIC X.
+       01 WS-STAGE           GLOBAL PIC X(8) VALUE "IDLE".
+       01 WS-PENDING         GLOBAL PIC 9 VALUE 0.
+       01 WS-TOPIC-PROMPT    GLOBAL PIC X(1000).
+       01 WS-HISTORY         GLOBAL PIC X(256000).
+       01 WS-TASK-COUNT      GLOBAL PIC 9 VALUE 0.
+       01 WS-TASKS           GLOBAL.
+          05 WS-TASK         PIC X(500) OCCURS 3.
+       01 WS-LINES           GLOBAL.
+          05 WS-L            PIC X(500) OCCURS 6.
+       01 WS-T-IN            GLOBAL PIC 9(9).
+       01 WS-T-OUT           GLOBAL PIC 9(9).
+       01 WS-RANDOM          GLOBAL PIC 9V9(6).
+       01 WS-ROLES-SEEN      GLOBAL PIC X VALUE "N".
+      *>   The topic's registered data files (R20-R25), by the name each was
+      *>   registered under, and what went wrong with any that could not be.
+       01 WS-REG-COUNT       GLOBAL PIC 9(3) VALUE 0.
+       01 WS-REG-NAMES       GLOBAL.
+          05 WS-REG-NAME     PIC X(30) OCCURS 100.
+       01 WS-FILE-NOTE       GLOBAL PIC X(300).
+       01 WS-FAILED          GLOBAL PIC 9(3).
+       01 WS-RESULT          GLOBAL PIC X(30).
+      *>   New conversation's topic picker (PICK-FORM): the ids behind the
+      *>   names it shows, the preselected one and its answer.
+       01 WS-PICK-COUNT      GLOBAL PIC 9(4) VALUE 0.
+       01 WS-PICK-IDS        GLOBAL.
+          05 WS-PICK-ID      PIC X(16) OCCURS 200.
+       01 WS-PICK-LIST       GLOBAL PIC X(8400).
+       01 WS-PICK-PTR        GLOBAL PIC 9(5).
+       01 WS-PICK-SEL        GLOBAL PIC 9(4).
+       01 WS-PICK-ANSWER     GLOBAL PIC X(10).
+       01 WS-PICK-N          GLOBAL PIC S9(4).
+      *>   Whether any topic exists (the menu), and how many sources - KB
+      *>   documents plus data files - the current topic has (the prompt).
+       01 WS-HAS-TOPIC       GLOBAL PIC X VALUE "N".
+       01 WS-SOURCES         GLOBAL PIC 9(5) VALUE 0.
+       01 WS-SOURCES-WAS     GLOBAL PIC 9(5) VALUE 0.
+      *>   The interface texts (spec 071 R44): one row per text, one column
+      *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
+      *>   only the values are translated.
+       01 WS-LANG            GLOBAL PIC XX VALUE "en".
+       01 WS-LANG-IX         GLOBAL PIC 9 VALUE 1.
+       01 WS-TX-I            GLOBAL PIC 9(4).
+       01 PC-TEXT-DATA       GLOBAL.
+      *>   OPEN-TOPIC-MENU
+          05 FILLER PIC X(120) VALUE "Open a topic first - **Topics** in the menu.".
+          05 FILLER PIC X(120) VALUE "Abra um tópico primeiro - **Tópicos** no menu.".
+          05 FILLER PIC X(120) VALUE "Primero abre un tema: **Temas** en el menú.".
+          05 FILLER PIC X(120) VALUE "Ouvrez d'abord un sujet : **Sujets** dans le menu.".
+          05 FILLER PIC X(120) VALUE "先にトピックを開いてください - メニューの **トピック**。".
+          05 FILLER PIC X(120) VALUE "请先打开一个主题——菜单中的 **主题**。".
+      *>   ASSIGN-MODEL-MENU
+          05 FILLER PIC X(120) VALUE "Assign a model to an agent first - **RAG settings** in the menu.".
+          05 FILLER PIC X(120) VALUE "Atribua um modelo a um agente primeiro - **Configurações de RAG** no menu.".
+          05 FILLER PIC X(120) VALUE "Primero asigna un modelo a un agente: **Configuración de RAG** en el menú.".
+          05 FILLER PIC X(120) VALUE "Attribuez d'abord un modèle à un agent : **Paramètres RAG** dans le menu.".
+          05 FILLER PIC X(120) VALUE "先にエージェントにモデルを割り当ててください - メニューの **RAG 設定**。".
+          05 FILLER PIC X(120) VALUE "请先为代理分配模型——菜单中的 **RAG 设置**。".
+      *>   YOU
+          05 FILLER PIC X(120) VALUE "You".
+          05 FILLER PIC X(120) VALUE "Você".
+          05 FILLER PIC X(120) VALUE "Tú".
+          05 FILLER PIC X(120) VALUE "Vous".
+          05 FILLER PIC X(120) VALUE "あなた".
+          05 FILLER PIC X(120) VALUE "你".
+      *>   THINKING
+          05 FILLER PIC X(120) VALUE "Thinking...".
+          05 FILLER PIC X(120) VALUE "Pensando...".
+          05 FILLER PIC X(120) VALUE "Pensando...".
+          05 FILLER PIC X(120) VALUE "Réflexion...".
+          05 FILLER PIC X(120) VALUE "考え中...".
+          05 FILLER PIC X(120) VALUE "思考中...".
+      *>   AGENT-FAILED
+          05 FILLER PIC X(120) VALUE "Agent &1 could not answer:".
+          05 FILLER PIC X(120) VALUE "O agente &1 não conseguiu responder:".
+          05 FILLER PIC X(120) VALUE "El agente &1 no pudo responder:".
+          05 FILLER PIC X(120) VALUE "L'agent &1 n'a pas pu répondre :".
+          05 FILLER PIC X(120) VALUE "エージェント &1 は回答できませんでした：".
+          05 FILLER PIC X(120) VALUE "代理 &1 无法回答：".
+      *>   LAST-FAILED
+          05 FILLER PIC X(120) VALUE "The last question failed.".
+          05 FILLER PIC X(120) VALUE "A última pergunta falhou.".
+          05 FILLER PIC X(120) VALUE "La última pregunta falló.".
+          05 FILLER PIC X(120) VALUE "La dernière question a échoué.".
+          05 FILLER PIC X(120) VALUE "直前の質問は失敗しました。".
+          05 FILLER PIC X(120) VALUE "上一个问题失败了。".
+      *>   NO-MODEL
+          05 FILLER PIC X(120) VALUE "No model is assigned to an agent - open RAG settings.".
+          05 FILLER PIC X(120) VALUE "Nenhum modelo foi atribuído a um agente - abra as Configurações de RAG.".
+          05 FILLER PIC X(120) VALUE "No hay ningún modelo asignado a un agente: abre la Configuración de RAG.".
+          05 FILLER PIC X(120) VALUE "Aucun modèle n'est attribué à un agent : ouvrez les Paramètres RAG.".
+          05 FILLER PIC X(120) VALUE "どのエージェントにもモデルが割り当てられていません。RAG 設定を開いてください。".
+          05 FILLER PIC X(120) VALUE "没有为任何代理分配模型——请打开 RAG 设置。".
+      *>   NO-TOPIC
+          05 FILLER PIC X(120) VALUE "No topic - open Topics to create one.".
+          05 FILLER PIC X(120) VALUE "Nenhum tópico - abra Tópicos para criar um.".
+          05 FILLER PIC X(120) VALUE "Ningún tema: abre Temas para crear uno.".
+          05 FILLER PIC X(120) VALUE "Aucun sujet : ouvrez Sujets pour en créer un.".
+          05 FILLER PIC X(120) VALUE "トピックがありません。「トピック」を開いて作成してください。".
+          05 FILLER PIC X(120) VALUE "没有主题——打开“主题”创建一个。".
+      *>   TOPIC-GONE
+          05 FILLER PIC X(120) VALUE "That topic no longer exists - open Topics.".
+          05 FILLER PIC X(120) VALUE "Esse tópico não existe mais - abra Tópicos.".
+          05 FILLER PIC X(120) VALUE "Ese tema ya no existe: abre Temas.".
+          05 FILLER PIC X(120) VALUE "Ce sujet n'existe plus : ouvrez Sujets.".
+          05 FILLER PIC X(120) VALUE "そのトピックはもう存在しません。「トピック」を開いてください。".
+          05 FILLER PIC X(120) VALUE "该主题已不存在——请打开“主题”。".
+      *>   WORKING
+          05 FILLER PIC X(120) VALUE "Working: &1 task(s) across &2 agent(s)...".
+          05 FILLER PIC X(120) VALUE "Trabalhando: &1 tarefa(s) em &2 agente(s)...".
+          05 FILLER PIC X(120) VALUE "Trabajando: &1 tarea(s) entre &2 agente(s)...".
+          05 FILLER PIC X(120) VALUE "En cours : &1 tâche(s) sur &2 agent(s)...".
+          05 FILLER PIC X(120) VALUE "処理中：&1 件のタスクを &2 体のエージェントで実行中...".
+          05 FILLER PIC X(120) VALUE "处理中：&1 个任务，由 &2 个代理执行...".
+      *>   MENU-CHAT
+          05 FILLER PIC X(120) VALUE "Chat".
+          05 FILLER PIC X(120) VALUE "Chat".
+          05 FILLER PIC X(120) VALUE "Chat".
+          05 FILLER PIC X(120) VALUE "Discussion".
+          05 FILLER PIC X(120) VALUE "チャット".
+          05 FILLER PIC X(120) VALUE "聊天".
+      *>   MENU-NEWC
+          05 FILLER PIC X(120) VALUE "New conversation".
+          05 FILLER PIC X(120) VALUE "Nova conversa".
+          05 FILLER PIC X(120) VALUE "Nueva conversación".
+          05 FILLER PIC X(120) VALUE "Nouvelle conversation".
+          05 FILLER PIC X(120) VALUE "新しい会話".
+          05 FILLER PIC X(120) VALUE "新对话".
+      *>   TOPICS-TITLE
+          05 FILLER PIC X(120) VALUE "Topics".
+          05 FILLER PIC X(120) VALUE "Tópicos".
+          05 FILLER PIC X(120) VALUE "Temas".
+          05 FILLER PIC X(120) VALUE "Sujets".
+          05 FILLER PIC X(120) VALUE "トピック".
+          05 FILLER PIC X(120) VALUE "主题".
+      *>   DOCS-TITLE
+          05 FILLER PIC X(120) VALUE "Documents".
+          05 FILLER PIC X(120) VALUE "Documentos".
+          05 FILLER PIC X(120) VALUE "Documentos".
+          05 FILLER PIC X(120) VALUE "Documents".
+          05 FILLER PIC X(120) VALUE "文書".
+          05 FILLER PIC X(120) VALUE "文档".
+      *>   FILES-TITLE
+          05 FILLER PIC X(120) VALUE "Data files".
+          05 FILLER PIC X(120) VALUE "Arquivos de dados".
+          05 FILLER PIC X(120) VALUE "Archivos de datos".
+          05 FILLER PIC X(120) VALUE "Fichiers de données".
+          05 FILLER PIC X(120) VALUE "データファイル".
+          05 FILLER PIC X(120) VALUE "数据文件".
+      *>   PROMPT-TITLE
+          05 FILLER PIC X(120) VALUE "Prompt".
+          05 FILLER PIC X(120) VALUE "Prompt".
+          05 FILLER PIC X(120) VALUE "Prompt".
+          05 FILLER PIC X(120) VALUE "Prompt".
+          05 FILLER PIC X(120) VALUE "プロンプト".
+          05 FILLER PIC X(120) VALUE "提示词".
+      *>   SETTINGS-TITLE
+          05 FILLER PIC X(120) VALUE "RAG settings".
+          05 FILLER PIC X(120) VALUE "Configurações de RAG".
+          05 FILLER PIC X(120) VALUE "Configuración de RAG".
+          05 FILLER PIC X(120) VALUE "Paramètres RAG".
+          05 FILLER PIC X(120) VALUE "RAG 設定".
+          05 FILLER PIC X(120) VALUE "RAG 设置".
+      *>   CONVERSATIONS
+          05 FILLER PIC X(120) VALUE "Conversations".
+          05 FILLER PIC X(120) VALUE "Conversas".
+          05 FILLER PIC X(120) VALUE "Conversaciones".
+          05 FILLER PIC X(120) VALUE "Conversations".
+          05 FILLER PIC X(120) VALUE "会話".
+          05 FILLER PIC X(120) VALUE "对话".
+      *>   THIS-MONTH
+          05 FILLER PIC X(120) VALUE "This month: &1 conversation(s), &2 input and &3 output tokens.".
+          05 FILLER PIC X(120) VALUE "Este mês: &1 conversa(s), &2 tokens de entrada e &3 de saída.".
+          05 FILLER PIC X(120) VALUE "Este mes: &1 conversación(es), &2 tokens de entrada y &3 de salida.".
+          05 FILLER PIC X(120) VALUE "Ce mois-ci : &1 conversation(s), &2 jetons en entrée et &3 en sortie.".
+          05 FILLER PIC X(120) VALUE "今月：会話 &1 件、入力トークン &2、出力トークン &3。".
+          05 FILLER PIC X(120) VALUE "本月：&1 次对话，输入 &2 个令牌，输出 &3 个令牌。".
+      *>   FILES-UNUSABLE
+          05 FILLER PIC X(120) VALUE "Data files not usable: &1.".
+          05 FILLER PIC X(120) VALUE "Arquivos de dados inutilizáveis: &1.".
+          05 FILLER PIC X(120) VALUE "Archivos de datos no utilizables: &1.".
+          05 FILLER PIC X(120) VALUE "Fichiers de données inutilisables : &1.".
+          05 FILLER PIC X(120) VALUE "使用できないデータファイル：&1。".
+          05 FILLER PIC X(120) VALUE "无法使用的数据文件：&1。".
+      *>   ORCH-LINE
+          05 FILLER PIC X(120) VALUE "Orchestrator: agent &1, tools: agent &2.".
+          05 FILLER PIC X(120) VALUE "Orquestrador: agente &1, ferramentas: agente &2.".
+          05 FILLER PIC X(120) VALUE "Orquestador: agente &1, herramientas: agente &2.".
+          05 FILLER PIC X(120) VALUE "Orchestrateur : agent &1, outils : agent &2.".
+          05 FILLER PIC X(120) VALUE "オーケストレーター：エージェント &1、ツール：エージェント &2。".
+          05 FILLER PIC X(120) VALUE "编排：代理 &1，工具：代理 &2。".
+      *>   HINT-ASK
+          05 FILLER PIC X(120) VALUE "Ask about this topic".
+          05 FILLER PIC X(120) VALUE "Pergunte sobre este tópico".
+          05 FILLER PIC X(120) VALUE "Pregunta sobre este tema".
+          05 FILLER PIC X(120) VALUE "Posez une question sur ce sujet".
+          05 FILLER PIC X(120) VALUE "このトピックについて質問".
+          05 FILLER PIC X(120) VALUE "就此主题提问".
+      *>   SEND
+          05 FILLER PIC X(120) VALUE "Send".
+          05 FILLER PIC X(120) VALUE "Enviar".
+          05 FILLER PIC X(120) VALUE "Enviar".
+          05 FILLER PIC X(120) VALUE "Envoyer".
+          05 FILLER PIC X(120) VALUE "送信".
+          05 FILLER PIC X(120) VALUE "发送".
+      *>   STATUS
+          05 FILLER PIC X(120) VALUE "Status".
+          05 FILLER PIC X(120) VALUE "Status".
+          05 FILLER PIC X(120) VALUE "Estado".
+          05 FILLER PIC X(120) VALUE "État".
+          05 FILLER PIC X(120) VALUE "ステータス".
+          05 FILLER PIC X(120) VALUE "状态".
+      *>   MENU-WELC
+          05 FILLER PIC X(120) VALUE "Getting started".
+          05 FILLER PIC X(120) VALUE "Primeiros passos".
+          05 FILLER PIC X(120) VALUE "Primeros pasos".
+          05 FILLER PIC X(120) VALUE "Premiers pas".
+          05 FILLER PIC X(120) VALUE "はじめに".
+          05 FILLER PIC X(120) VALUE "入门".
+      *>   PICK-TOPIC
+          05 FILLER PIC X(120) VALUE "Choose the topic for the new conversation".
+          05 FILLER PIC X(120) VALUE "Escolha o tópico da nova conversa".
+          05 FILLER PIC X(120) VALUE "Elige el tema de la nueva conversación".
+          05 FILLER PIC X(120) VALUE "Choisissez le sujet de la nouvelle conversation".
+          05 FILLER PIC X(120) VALUE "新しい会話のトピックを選んでください".
+          05 FILLER PIC X(120) VALUE "请选择新对话的主题".
+      *>   PICK-START
+          05 FILLER PIC X(120) VALUE "Start".
+          05 FILLER PIC X(120) VALUE "Iniciar".
+          05 FILLER PIC X(120) VALUE "Iniciar".
+          05 FILLER PIC X(120) VALUE "Commencer".
+          05 FILLER PIC X(120) VALUE "開始".
+          05 FILLER PIC X(120) VALUE "开始".
+      *>   PICK-CANCEL
+          05 FILLER PIC X(120) VALUE "Cancel".
+          05 FILLER PIC X(120) VALUE "Cancelar".
+          05 FILLER PIC X(120) VALUE "Cancelar".
+          05 FILLER PIC X(120) VALUE "Annuler".
+          05 FILLER PIC X(120) VALUE "キャンセル".
+          05 FILLER PIC X(120) VALUE "取消".
+      *>   SAVE-PDF
+          05 FILLER PIC X(120) VALUE "Save as PDF".
+          05 FILLER PIC X(120) VALUE "Salvar como PDF".
+          05 FILLER PIC X(120) VALUE "Guardar como PDF".
+          05 FILLER PIC X(120) VALUE "Enregistrer en PDF".
+          05 FILLER PIC X(120) VALUE "PDF として保存".
+          05 FILLER PIC X(120) VALUE "另存为 PDF".
+      *>   PDF-SAVED
+          05 FILLER PIC X(120) VALUE "The conversation was saved as a PDF.".
+          05 FILLER PIC X(120) VALUE "A conversa foi salva como PDF.".
+          05 FILLER PIC X(120) VALUE "La conversación se guardó como PDF.".
+          05 FILLER PIC X(120) VALUE "La conversation a été enregistrée en PDF.".
+          05 FILLER PIC X(120) VALUE "会話を PDF として保存しました。".
+          05 FILLER PIC X(120) VALUE "对话已保存为 PDF。".
+      *>   PDF-EMPTY
+          05 FILLER PIC X(120) VALUE "There is no conversation to save yet.".
+          05 FILLER PIC X(120) VALUE "Ainda não há conversa para salvar.".
+          05 FILLER PIC X(120) VALUE "Todavía no hay ninguna conversación que guardar.".
+          05 FILLER PIC X(120) VALUE "Il n'y a pas encore de conversation à enregistrer.".
+          05 FILLER PIC X(120) VALUE "保存する会話はまだありません。".
+          05 FILLER PIC X(120) VALUE "还没有可保存的对话。".
+      *>   ST-COORD
+          05 FILLER PIC X(120) VALUE "Coordinating the agents...".
+          05 FILLER PIC X(120) VALUE "Coordenando os agentes...".
+          05 FILLER PIC X(120) VALUE "Coordinando los agentes...".
+          05 FILLER PIC X(120) VALUE "Coordination des agents...".
+          05 FILLER PIC X(120) VALUE "エージェントを調整中...".
+          05 FILLER PIC X(120) VALUE "正在协调各个智能体...".
+      *>   ST-SEARCH-KB
+          05 FILLER PIC X(120) VALUE "Searching the Knowledge Base...".
+          05 FILLER PIC X(120) VALUE "Consultando a base de conhecimento...".
+          05 FILLER PIC X(120) VALUE "Consultando la base de conocimiento...".
+          05 FILLER PIC X(120) VALUE "Recherche dans la base de connaissances...".
+          05 FILLER PIC X(120) VALUE "ナレッジベースを検索中...".
+          05 FILLER PIC X(120) VALUE "正在检索知识库...".
+      *>   ST-READ-DATA
+          05 FILLER PIC X(120) VALUE "Reading the data files...".
+          05 FILLER PIC X(120) VALUE "Lendo os arquivos de dados...".
+          05 FILLER PIC X(120) VALUE "Leyendo los archivos de datos...".
+          05 FILLER PIC X(120) VALUE "Lecture des fichiers de données...".
+          05 FILLER PIC X(120) VALUE "データファイルを読み込み中...".
+          05 FILLER PIC X(120) VALUE "正在读取数据文件...".
+      *>   ST-COMPOSING
+          05 FILLER PIC X(120) VALUE "Preparing the answer...".
+          05 FILLER PIC X(120) VALUE "Preparando a resposta...".
+          05 FILLER PIC X(120) VALUE "Preparando la respuesta...".
+          05 FILLER PIC X(120) VALUE "Préparation de la réponse...".
+          05 FILLER PIC X(120) VALUE "回答を準備中...".
+          05 FILLER PIC X(120) VALUE "正在准备回答...".
+       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
+          05 PC-TEXT-ROW     OCCURS 35.
+             10 PC-TEXT      PIC X(120) OCCURS 6.
+      *>   The texts in the current language, by name.
+       01 PC-TEXTS-NOW       GLOBAL.
+          05 T-OPEN-TOPIC-MENU PIC X(120).
+          05 T-ASSIGN-MODEL-MENU PIC X(120).
+          05 T-YOU PIC X(120).
+          05 T-THINKING PIC X(120).
+          05 T-AGENT-FAILED PIC X(120).
+          05 T-LAST-FAILED PIC X(120).
+          05 T-NO-MODEL PIC X(120).
+          05 T-NO-TOPIC PIC X(120).
+          05 T-TOPIC-GONE PIC X(120).
+          05 T-WORKING PIC X(120).
+          05 T-MENU-CHAT PIC X(120).
+          05 T-MENU-NEWC PIC X(120).
+          05 T-TOPICS-TITLE PIC X(120).
+          05 T-DOCS-TITLE PIC X(120).
+          05 T-FILES-TITLE PIC X(120).
+          05 T-PROMPT-TITLE PIC X(120).
+          05 T-SETTINGS-TITLE PIC X(120).
+          05 T-CONVERSATIONS PIC X(120).
+          05 T-THIS-MONTH PIC X(120).
+          05 T-FILES-UNUSABLE PIC X(120).
+          05 T-ORCH-LINE PIC X(120).
+          05 T-HINT-ASK PIC X(120).
+          05 T-SEND PIC X(120).
+          05 T-STATUS PIC X(120).
+          05 T-MENU-WELC PIC X(120).
+          05 T-PICK-TOPIC PIC X(120).
+          05 T-PICK-START PIC X(120).
+          05 T-PICK-CANCEL PIC X(120).
+          05 T-SAVE-PDF PIC X(120).
+          05 T-PDF-SAVED PIC X(120).
+          05 T-PDF-EMPTY PIC X(120).
+          05 T-ST-COORD PIC X(120).
+          05 T-ST-SEARCH-KB PIC X(120).
+          05 T-ST-READ-DATA PIC X(120).
+          05 T-ST-COMPOSING PIC X(120).
+       01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
+          05 PC-TEXT-NOW     PIC X(120) OCCURS 35.
+      *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
+       01 WS-FMT             GLOBAL PIC X(120).
+       01 WS-ARG1            GLOBAL PIC X(300).
+       01 WS-ARG2            GLOBAL PIC X(300).
+       01 WS-ARG3            GLOBAL PIC X(300).
+       01 WS-ARG4            GLOBAL PIC X(300).
+       01 WS-FMT-OUT         GLOBAL PIC X(1200).
+       01 WS-CONFIGURED      GLOBAL PIC X VALUE "N".
+       01 WS-SHOWN-TOPIC     GLOBAL PIC X(16) VALUE SPACES.
+      *>   The status bubble (operator, 2026-09-27): ONE agent message that
+      *>   says what is being done - thinking, coordinating the agents,
+      *>   searching the Knowledge Base, preparing the answer - and then
+      *>   BECOMES the answer. Its id, while it is on screen.
+       01 WS-STATUS-ID       GLOBAL PIC X(20) VALUE SPACES.
+       01 WS-STATUS-TEXT     GLOBAL PIC X(300).
+       01 WS-TOOL-KIND       GLOBAL PIC X(20).
+      *>   Saving and reading a turn in 2,000-character pieces.
+       01 WS-PIECE-AT        GLOBAL PIC 9(6).
+       01 WS-PIECE-ROLE      GLOBAL PIC X.
+       01 WS-JOIN-PT         GLOBAL PIC 9(6).
+       01 WS-JOIN-ROLE       GLOBAL PIC X VALUE SPACE.
+       01 WS-JOIN            GLOBAL PIC X(64000).
+      *>   Where a joined turn goes: "P" the prompt, "V" the Viewer.
+       01 WS-JOIN-TO         GLOBAL PIC X VALUE SPACE.
+      *>   A formatted answer - a table, a Markdown or HTML presentation - goes
+      *>   straight into the conversation, not into a bubble (operator,
+      *>   2026-09-27). PC-IS-FORMATTED decides, from WS-MSG and, for a live
+      *>   answer, the question that asked for it.
+       01 WS-FORMATTED       GLOBAL PIC X VALUE "N".
+       01 WS-FMT-HTML        GLOBAL PIC X VALUE "N".
+       01 WS-SHOW-ANSWER     GLOBAL PIC X VALUE "N".
+       01 WS-FMT-T           GLOBAL PIC 9(6).
+      *>   PC-APPEND-FORMATTED's place in WS-MSG, the fence it found, and
+      *>   the page inside it.
+       01 WS-FP              GLOBAL PIC 9(6).
+       01 WS-FA              GLOBAL PIC 9(6).
+       01 WS-FB              GLOBAL PIC 9(6).
+       01 WS-BS              GLOBAL PIC 9(6).
+       01 WS-FC              GLOBAL PIC 9(6).
+       01 WS-REST            GLOBAL PIC 9(6).
+      *>   The kind of page found: "F" a ```html fence, "R" a page written
+      *>   straight into the answer, space none.
+       01 WS-FKIND           GLOBAL PIC X.
+      *>   The Markdown before a page, and whether a fence the page sat in
+      *>   ("```" or "```HTML", not "```html") was cut off with it.
+       01 WS-FQ              GLOBAL PIC 9(6).
+       01 WS-FSTRIP          GLOBAL PIC X.
+      *>   Where the orchestrator's prompt ends, for what is added to it.
+       01 WS-SYS-PT          GLOBAL PIC 9(6).
+       01 WS-LOWQ            GLOBAL PIC X(64000).
+      *>   The report templates (operator, 2026-09-28): data/templates.idx,
+      *>   each a name, what it suits and its HTML skeleton, seeded from
+      *>   samples/report-templates.txt the first time.
+       01 WS-SAMPLES-DIR     GLOBAL PIC X(240).
+       01 WS-RTPL-PATH       GLOBAL PIC X(240).
+       01 WS-RTSEED-PATH     GLOBAL PIC X(240).
+       01 WS-RT-NAME         GLOBAL PIC X(40).
+       01 WS-RT-SUITS        GLOBAL PIC X(300).
+       01 WS-RT-SKEL         GLOBAL PIC X(12000).
+      *>   The template the user chose for this question, once per question.
+       01 WS-TPL-NAME        GLOBAL PIC X(40).
+       01 WS-TPL-SKEL        GLOBAL PIC X(12000).
+       01 WS-TPL-DONE        GLOBAL PIC X VALUE "N".
+       01 WS-CATALOG         GLOBAL PIC X(8000).
+      *>   The main prompt (operator, 2026-09-28: every instruction in English,
+      *>   in one prompt the user edits). Its versions live in
+      *>   data/prompt-versions.idx under the topic id "*MAIN"; before it has
+      *>   one, samples/main-prompt.md is the text.
+       01 WS-MAINP-PATH      GLOBAL PIC X(240).
+       01 WS-MPSEED-PATH     GLOBAL PIC X(240).
+       01 WS-MAIN            GLOBAL PIC X(32000).
+       01 WS-MAIN-ELECTED    GLOBAL PIC X(32000).
+      *>   One section of it (PC-SECTION), and its {PLACEHOLDERS} filled
+      *>   (PC-FILL).
+       01 WS-SEC-NAME        GLOBAL PIC X(20).
+       01 WS-SEC-MARK        GLOBAL PIC X(5) VALUE X"0A3D3D3D20".
+       01 WS-SEC             GLOBAL PIC X(64000).
+       01 WS-SPL             GLOBAL PIC X(64000).
+       01 WS-INS             GLOBAL PIC X(64000).
+       01 WS-TOKEN           GLOBAL PIC X(20).
+       01 WS-NOTE            GLOBAL PIC X(4000).
+       01 WS-SX-A            GLOBAL PIC 9(6).
+       01 WS-SX-B            GLOBAL PIC 9(6).
+       01 WS-SX-E            GLOBAL PIC 9(6).
+       01 WS-SX-L            GLOBAL PIC 9(6).
+      *>   A seed file's line and its length without the trailing spaces.
+       01 WS-LN-BUF          GLOBAL PIC X(1000).
+       01 WS-LN-REV          GLOBAL PIC X(1000).
+       01 WS-LN-LEN          GLOBAL PIC 9(4).
+       01 WS-RT-PT           GLOBAL PIC 9(6).
+       01 WS-RT-AT           GLOBAL PIC 9(6).
+       01 WS-RT-LEN          GLOBAL PIC 9(6).
+       01 WS-RT-END          GLOBAL PIC 9(6).
+
+      *>── Form controls ───────────────────────────────────────────────
+       01 WS-SideMenu-1.
+          05 WS-SideMenu-1-TEXT       PIC X(256) VALUE 'SideMenu-1'.
+          05 WS-SideMenu-1-VISIBLE    PIC 9      VALUE 1.
+          05 WS-SideMenu-1-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Lbl-Topic.
+          05 WS-Lbl-Topic-TEXT       PIC X(256) VALUE 'Lbl-Topic'.
+          05 WS-Lbl-Topic-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Lbl-Topic-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Lbl-Status.
+          05 WS-Lbl-Status-TEXT       PIC X(256) VALUE 'Status'.
+          05 WS-Lbl-Status-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Lbl-Status-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Vwr-Chat.
+          05 WS-Vwr-Chat-TEXT       PIC X(256) VALUE 'Vwr-Chat'.
+          05 WS-Vwr-Chat-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Vwr-Chat-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Txt-Input.
+          05 WS-Txt-Input-TEXT       PIC X(2048) VALUE SPACES.
+          05 WS-Txt-Input-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Txt-Input-ENABLED    PIC 9      VALUE 1.
+          05 WS-Txt-Input-VALUE      PIC X(2048) VALUE SPACES.
+
+       01 WS-Btn-Send.
+          05 WS-Btn-Send-TEXT       PIC X(256) VALUE 'Send'.
+          05 WS-Btn-Send-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Btn-Send-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Btn-Pdf.
+          05 WS-Btn-Pdf-TEXT       PIC X(256) VALUE 'Save as PDF'.
+          05 WS-Btn-Pdf-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Btn-Pdf-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-AGENT-1.
+          05 WS-AGENT-1-TEXT       PIC X(256) VALUE 'AGENT-1'.
+          05 WS-AGENT-1-VISIBLE    PIC 9      VALUE 1.
+          05 WS-AGENT-1-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-AGENT-2.
+          05 WS-AGENT-2-TEXT       PIC X(256) VALUE 'AGENT-2'.
+          05 WS-AGENT-2-VISIBLE    PIC 9      VALUE 1.
+          05 WS-AGENT-2-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-AGENT-3.
+          05 WS-AGENT-3-TEXT       PIC X(256) VALUE 'AGENT-3'.
+          05 WS-AGENT-3-VISIBLE    PIC 9      VALUE 1.
+          05 WS-AGENT-3-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-KB-1.
+          05 WS-KB-1-TEXT       PIC X(256) VALUE 'KB-1'.
+          05 WS-KB-1-VISIBLE    PIC 9      VALUE 1.
+          05 WS-KB-1-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-SideMenu-1-Footer.
+          05 WS-SideMenu-1-Footer-TEXT       PIC X(256) VALUE 'SideMenu-1-Footer'.
+          05 WS-SideMenu-1-Footer-VISIBLE    PIC 9      VALUE 1.
+          05 WS-SideMenu-1-Footer-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Flag-en.
+          05 WS-Flag-en-TEXT       PIC X(256) VALUE ''.
+          05 WS-Flag-en-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Flag-en-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Flag-pt.
+          05 WS-Flag-pt-TEXT       PIC X(256) VALUE ''.
+          05 WS-Flag-pt-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Flag-pt-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Flag-es.
+          05 WS-Flag-es-TEXT       PIC X(256) VALUE ''.
+          05 WS-Flag-es-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Flag-es-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Flag-fr.
+          05 WS-Flag-fr-TEXT       PIC X(256) VALUE ''.
+          05 WS-Flag-fr-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Flag-fr-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Flag-jp.
+          05 WS-Flag-jp-TEXT       PIC X(256) VALUE ''.
+          05 WS-Flag-jp-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Flag-jp-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Flag-cn.
+          05 WS-Flag-cn-TEXT       PIC X(256) VALUE ''.
+          05 WS-Flag-cn-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Flag-cn-ENABLED    PIC 9      VALUE 1.
+
+       PROCEDURE DIVISION.
+       COBOL-MAIN.
+           COBOL::"INIT-FORM" ( FORM-NAME )
+           CALL "CHAT-FORM--ONLOAD"
+           PERFORM COBOL-EVENT-LOOP
+           CALL "CHAT-FORM--ONCLOSE"
+           STOP RUN.
+
+      *> <EVENT-LOOP>
+       COBOL-EVENT-LOOP.
+           PERFORM UNTIL COBOL-QUIT = 1
+               COBOL::"WAIT-EVENT" ( COBOL-EVENT-ID COBOL-CONTROL-ID )
+               EVALUATE COBOL-CONTROL-ID
+                   WHEN "CHAT-FORM"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onActivate"
+                               CALL "CHAT-FORM--ONACTIVATE"
+                           WHEN "onResize"
+                               CALL "CHAT-FORM--ONRESIZE"
+                       END-EVALUATE
+                   WHEN "SideMenu-1"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onMenuItemClick"
+                               CALL "SIDEMENU-1--ONMENUITEMCLICK"
+                       END-EVALUATE
+                   WHEN "Vwr-Chat"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onSaveComplete"
+                               CALL "VWR-CHAT--ONSAVECOMPLETE"
+                           WHEN "onError"
+                               CALL "VWR-CHAT--ONERROR"
+                       END-EVALUATE
+                   WHEN "Btn-Send"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "BTN-SEND--ONCLICK"
+                       END-EVALUATE
+                   WHEN "Btn-Pdf"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "BTN-PDF--ONCLICK"
+                       END-EVALUATE
+                   WHEN "AGENT-1"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onResponse"
+                               CALL "AGENT-1--ONRESPONSE"
+                           WHEN "onError"
+                               CALL "AGENT-1--ONERROR"
+                           WHEN "onTimeout"
+                               CALL "AGENT-1--ONTIMEOUT"
+                           WHEN "onModelChanged"
+                               CALL "AGENT-1--ONMODELCHANGED"
+                           WHEN "onToolUse"
+                               CALL "AGENT-1--ONTOOLUSE"
+                       END-EVALUATE
+                   WHEN "AGENT-2"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onResponse"
+                               CALL "AGENT-2--ONRESPONSE"
+                           WHEN "onError"
+                               CALL "AGENT-2--ONERROR"
+                           WHEN "onTimeout"
+                               CALL "AGENT-2--ONTIMEOUT"
+                           WHEN "onModelChanged"
+                               CALL "AGENT-2--ONMODELCHANGED"
+                           WHEN "onToolUse"
+                               CALL "AGENT-2--ONTOOLUSE"
+                       END-EVALUATE
+                   WHEN "AGENT-3"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onResponse"
+                               CALL "AGENT-3--ONRESPONSE"
+                           WHEN "onError"
+                               CALL "AGENT-3--ONERROR"
+                           WHEN "onTimeout"
+                               CALL "AGENT-3--ONTIMEOUT"
+                           WHEN "onModelChanged"
+                               CALL "AGENT-3--ONMODELCHANGED"
+                           WHEN "onToolUse"
+                               CALL "AGENT-3--ONTOOLUSE"
+                       END-EVALUATE
+                   WHEN "Flag-en"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "FLAG-EN--ONCLICK"
+                       END-EVALUATE
+                   WHEN "Flag-pt"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "FLAG-PT--ONCLICK"
+                       END-EVALUATE
+                   WHEN "Flag-es"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "FLAG-ES--ONCLICK"
+                       END-EVALUATE
+                   WHEN "Flag-fr"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "FLAG-FR--ONCLICK"
+                       END-EVALUATE
+                   WHEN "Flag-jp"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "FLAG-JP--ONCLICK"
+                       END-EVALUATE
+                   WHEN "Flag-cn"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "FLAG-CN--ONCLICK"
+                       END-EVALUATE
+               END-EVALUATE
+           END-PERFORM.
+
+      *> </EVENT-LOOP>
+      *> <TIMER-STUBS>
+      *> </TIMER-STUBS>
+      *> <CSV-EXPORT>
+      *> </CSV-EXPORT>
+      *> <REST-CLIENT>
+      *> </REST-CLIENT>
+      *> <WEB-SEARCH>
+      *> </WEB-SEARCH>
+       AGENT-1-ASK.
+      *>    Ask the AI agent AGENT-1 (model: llama3.2, endpoint: http://localhost:11434)
+      *>    Set WS-AGENT-PROMPT before calling.
+      *>    Returns at once. The reply arrives as AGENT-1--ONRESPONSE
+      *>    (read LastReply) or --ONERROR (read LastError).
+           INVOKE AGENT-1 'Ask'
+               USING BY VALUE WS-AGENT-PROMPT.
+
+       AGENT-1-ON-RESPONSE.
+      *>    TODO: AGENT-1 — not called by the runtime; bind onResponse and read LastReply
+           CONTINUE.
+
+       AGENT-1-ON-ERROR.
+      *>    TODO: AGENT-1 — not called by the runtime; bind onError and read LastError
+           CONTINUE.
+
+       AGENT-2-ASK.
+      *>    Ask the AI agent AGENT-2 (model: llama3.2, endpoint: http://localhost:11434)
+      *>    Set WS-AGENT-PROMPT before calling.
+      *>    Returns at once. The reply arrives as AGENT-2--ONRESPONSE
+      *>    (read LastReply) or --ONERROR (read LastError).
+           INVOKE AGENT-2 'Ask'
+               USING BY VALUE WS-AGENT-PROMPT.
+
+       AGENT-2-ON-RESPONSE.
+      *>    TODO: AGENT-2 — not called by the runtime; bind onResponse and read LastReply
+           CONTINUE.
+
+       AGENT-2-ON-ERROR.
+      *>    TODO: AGENT-2 — not called by the runtime; bind onError and read LastError
+           CONTINUE.
+
+       AGENT-3-ASK.
+      *>    Ask the AI agent AGENT-3 (model: llama3.2, endpoint: http://localhost:11434)
+      *>    Set WS-AGENT-PROMPT before calling.
+      *>    Returns at once. The reply arrives as AGENT-3--ONRESPONSE
+      *>    (read LastReply) or --ONERROR (read LastError).
+           INVOKE AGENT-3 'Ask'
+               USING BY VALUE WS-AGENT-PROMPT.
+
+       AGENT-3-ON-RESPONSE.
+      *>    TODO: AGENT-3 — not called by the runtime; bind onResponse and read LastReply
+           CONTINUE.
+
+       AGENT-3-ON-ERROR.
+      *>    TODO: AGENT-3 — not called by the runtime; bind onError and read LastError
+           CONTINUE.
+
+
+      *> ── Nested event-handler programs (COBOL-85) ─────────────────────
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CHAT-FORM--ONLOAD IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-PATHS"
+           CALL "PC-TEXTS"
+           CALL "PC-READ-ROLES"
+           CALL "PC-HAND-MODELS"
+           MOVE SPACES TO WS-ALLOWED-TOPIC
+           CALL "PC-LOAD-TOPIC"
+           IF WS-CUR-TOPIC NOT = SPACES
+               CALL "PC-NEW-CONV"
+           END-IF
+      *>   No topic is forced open any more: with no model yet the menu is
+      *>   shut and the welcome form explains; with one, Topics is a click.
+           IF WS-CUR-TOPIC = SPACES
+               CALL "PC-ELECT"
+           END-IF
+           CALL "PC-LIST-CONVS"
+           CALL "PC-MENU-STATE"
+           CALL "PC-STATUS"
+      *>   Nothing configured yet: the ContentPane opens on the welcome form
+      *>   instead of an empty chat.
+           IF WS-CONFIGURED = "N"
+               MOVE SideMenu-1::ActivateItem("welc") TO WS-ITEM
+           END-IF
+
+           GOBACK.
+
+       END PROGRAM CHAT-FORM--ONLOAD.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CHAT-FORM--ONACTIVATE IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Home again (the Chat row): pick up what the other forms changed.
+           CALL "PC-REFRESH"
+
+           GOBACK.
+
+       END PROGRAM CHAT-FORM--ONACTIVATE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CHAT-FORM--ONCLOSE IS COMMON PROGRAM.
+
+      *>    TODO: Form onClose handler
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           CONTINUE.
+
+           GOBACK.
+
+       END PROGRAM CHAT-FORM--ONCLOSE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CHAT-FORM--ONRESIZE IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-RESIZE-DATA.
+           05  WS-DELTA                PIC S9(5) COMP-5 VALUE 0.
+           05  WS-NEW-CHAT-HEIGHT      PIC S9(5) COMP-5 VALUE 0.
+           05  WS-NEW-CHAT-WIDTH       PIC S9(5) COMP-5 VALUE 0.
+           05  WS-NEW-INPUT-Y          PIC S9(5) COMP-5 VALUE 0.
+           05  WS-INPUT-HEIGHT         PIC S9(5) COMP-5 VALUE 0.
+           05  WS-FORM-HEIGHT          PIC S9(5) COMP-5 VALUE 0.
+           05  WS-SUM                  PIC S9(5) COMP-5 VALUE 0.
+           05  WS-THRESH               PIC S9(5) COMP-5 VALUE 0.
+
+       PROCEDURE DIVISION.
+       MAIN SECTION.
+           *> Compute delta from design‑time height (792)
+           COMPUTE WS-DELTA = CHAT-FORM::Height - 792.
+
+           *> Adjust Vwr-Chat height
+           COMPUTE WS-NEW-CHAT-HEIGHT = 544 + WS-DELTA.
+           SET Vwr-Chat::Height TO WS-NEW-CHAT-HEIGHT.
+
+           *> Adjust Txt-Input Y position
+           COMPUTE WS-NEW-INPUT-Y = 660 + WS-DELTA.
+           SET Txt-Input::Y TO WS-NEW-INPUT-Y.
+
+           *> Align Btn‑Send Y with Txt‑Input
+           SET Btn-Send::Y TO WS-NEW-INPUT-Y.
+
+           *> Prepare values for conditional correction
+           MOVE Txt-Input::Height TO WS-INPUT-HEIGHT.
+           MOVE CHAT-FORM::Height TO WS-FORM-HEIGHT.
+           COMPUTE WS-SUM = WS-NEW-INPUT-Y + WS-INPUT-HEIGHT.
+           COMPUTE WS-THRESH = WS-FORM-HEIGHT - 32.
+
+           IF WS-SUM > WS-THRESH
+               *> Re‑position Txt‑Input to stay within bottom margin
+               COMPUTE WS-NEW-INPUT-Y = WS-FORM-HEIGHT - (WS-INPUT-HEIGHT + 32)
+               SET Txt-Input::Y TO WS-NEW-INPUT-Y
+
+               *> Re‑size Vwr‑Chat based on new Txt‑Input Y
+               COMPUTE WS-NEW-CHAT-HEIGHT = WS-NEW-INPUT-Y - 20 - 96
+               SET Vwr-Chat::Height TO WS-NEW-CHAT-HEIGHT
+
+               *> Keep Btn‑Send aligned with Txt‑Input
+               SET Btn-Send::Y TO WS-NEW-INPUT-Y
+           END-IF.
+
+           *> Horizontal: keep Vwr-Chat 25 px from right border
+           COMPUTE WS-NEW-CHAT-WIDTH = CHAT-FORM::Width - Vwr-Chat::X - 25.
+           SET Vwr-Chat::Width TO WS-NEW-CHAT-WIDTH.
+
+           EXIT PROGRAM.
+
+           GOBACK.
+
+       END PROGRAM CHAT-FORM--ONRESIZE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SIDEMENU-1--ONMENUITEMCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE SideMenu-1::SelectedItemId TO WS-ITEM
+           EVALUATE WS-ITEM
+               WHEN "chat"
+                   CONTINUE
+               WHEN "newc"
+                   CALL "PC-PICK-TOPIC"
+                   CALL "PC-SHOW-CHAT"
+               WHEN OTHER
+                   IF WS-ITEM(1:1) = "c"
+                       CALL "PC-OPEN-CONV"
+                       CALL "PC-SHOW-CHAT"
+                   END-IF
+           END-EVALUATE
+           CALL "PC-STATUS"
+
+           GOBACK.
+
+       END PROGRAM SIDEMENU-1--ONMENUITEMCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. VWR-CHAT--ONSAVECOMPLETE IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION TRIM(T-PDF-SAVED) TO Lbl-Status::Caption
+
+           GOBACK.
+
+       END PROGRAM VWR-CHAT--ONSAVECOMPLETE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. VWR-CHAT--ONERROR IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Saving as PDF is the chat's only way to fail: say why - in the
+      *>   interface's language when it is only that there is nothing yet.
+           MOVE Vwr-Chat::LastError TO WS-LINE
+           IF WS-LINE = "the conversation is empty"
+               MOVE FUNCTION TRIM(T-PDF-EMPTY) TO Lbl-Status::Caption
+           ELSE
+               MOVE WS-LINE TO Lbl-Status::Caption
+           END-IF
+
+           GOBACK.
+
+       END PROGRAM VWR-CHAT--ONERROR.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BTN-SEND--ONCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE Txt-Input::Text TO WS-QUESTION
+           IF WS-QUESTION = SPACES
+               EXIT PROGRAM
+           END-IF
+           IF WS-CUR-TOPIC = SPACES
+               MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(T-OPEN-TOPIC-MENU)) TO WS-OK
+               EXIT PROGRAM
+           END-IF
+           IF WS-ORCH = 0
+               MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(T-ASSIGN-MODEL-MENU)) TO WS-OK
+               EXIT PROGRAM
+           END-IF
+           IF WS-STAGE NOT = "IDLE"
+               EXIT PROGRAM
+           END-IF
+      *>   The main prompt as it stands now: an edit in the Prompt screen
+      *>   reaches the next question, the agents' instructions included.
+           CALL "PC-MAIN-LOAD"
+           IF WS-MAIN NOT = WS-MAIN-ELECTED
+               CALL "PC-ELECT"
+           END-IF
+           MOVE SPACES TO WS-TPL-NAME WS-TPL-SKEL
+           MOVE "N" TO WS-TPL-DONE
+           CALL "PC-COUNT-SOURCES"
+           CALL "PC-START-CONV"
+           MOVE "U" TO WS-ROLE
+           MOVE WS-QUESTION TO WS-TEXT
+           CALL "PC-SAVE-TURN"
+           MOVE WS-QUESTION TO WS-MSG
+           MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "user") TO WS-OK
+           MOVE SPACES TO Txt-Input::Text
+           CALL "PC-BUILD-PROMPT"
+           MOVE WS-PROMPT TO WS-HISTORY
+           IF WS-N-AGENTS = 1
+      *>       One agent answers by itself (R52).
+               MOVE "SINGLE" TO WS-STAGE
+           ELSE
+      *>       Several: the orchestrator plans first (R58).
+               MOVE "PLAN" TO WS-STAGE
+      *>       The main prompt's PLAN section says how.
+               MOVE "PLAN" TO WS-SEC-NAME
+               CALL "PC-SECTION"
+               STRING X"0A" X"0A" FUNCTION TRIM(WS-SEC)
+                   DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
+               END-STRING
+           END-IF
+           MOVE WS-ORCH TO WS-FROM
+           CALL "PC-ASK"
+           MOVE FUNCTION TRIM(T-THINKING) TO Lbl-Status::Caption
+           MOVE SPACES TO WS-STATUS-ID
+           IF WS-STAGE = "PLAN"
+               MOVE T-ST-COORD TO WS-STATUS-TEXT
+           ELSE
+               MOVE T-THINKING TO WS-STATUS-TEXT
+           END-IF
+           CALL "PC-SAY-STATUS"
+
+           GOBACK.
+
+       END PROGRAM BTN-SEND--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BTN-PDF--ONCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The conversation as a PDF, with its formatting; the platform's
+      *>   own Save panel asks where (the Viewer's SaveAsPdf).
+           MOVE Vwr-Chat::SaveAsPdf() TO WS-OK
+
+           GOBACK.
+
+       END PROGRAM BTN-PDF--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AGENT-1--ONRESPONSE IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE 1 TO WS-FROM
+           MOVE AGENT-1::LastReply TO WS-REPLY
+           MOVE AGENT-1::LastInputTokens TO WS-T-IN
+           MOVE AGENT-1::LastOutputTokens TO WS-T-OUT
+           CALL "PC-ON-REPLY"
+
+           GOBACK.
+
+       END PROGRAM AGENT-1--ONRESPONSE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AGENT-1--ONERROR IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE "IDLE" TO WS-STAGE
+           MOVE AGENT-1::LastError TO WS-TEXT
+           MOVE T-AGENT-FAILED TO WS-FMT
+           MOVE "1" TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE SPACES TO WS-MSG
+           STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
+               DELIMITED BY SIZE INTO WS-MSG
+           CALL "PC-SHOW-AGENT"
+           MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
+
+           GOBACK.
+
+       END PROGRAM AGENT-1--ONERROR.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AGENT-1--ONTIMEOUT IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The model never answered within TimeoutSeconds, and the runtime
+      *>   cancelled the call: the same as a failure - the chat goes back to
+      *>   idle and says why (LastError). Unhandled, the chat stayed stuck
+      *>   waiting for an answer that was never coming (operator,
+      *>   2026-09-28: "the interface froze").
+           MOVE "IDLE" TO WS-STAGE
+           MOVE AGENT-1::LastError TO WS-TEXT
+           MOVE T-AGENT-FAILED TO WS-FMT
+           MOVE "1" TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE SPACES TO WS-MSG
+           STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
+               DELIMITED BY SIZE INTO WS-MSG
+           CALL "PC-SHOW-AGENT"
+           MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
+
+           GOBACK.
+
+       END PROGRAM AGENT-1--ONTIMEOUT.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AGENT-1--ONMODELCHANGED IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A model an agent uses changed: a new election (R36; 063 R71).
+           CALL "PC-HAND-MODELS"
+           CALL "PC-ELECT"
+           CALL "PC-STATUS"
+
+           GOBACK.
+
+       END PROGRAM AGENT-1--ONMODELCHANGED.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AGENT-1--ONTOOLUSE IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The agent is searching the Knowledge Base or a data file: the
+      *>   status bubble says so while it happens.
+           MOVE AGENT-1::ToolKind TO WS-TOOL-KIND
+           CALL "PC-TOOL-USE"
+
+           GOBACK.
+
+       END PROGRAM AGENT-1--ONTOOLUSE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AGENT-2--ONRESPONSE IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE 2 TO WS-FROM
+           MOVE AGENT-2::LastReply TO WS-REPLY
+           MOVE AGENT-2::LastInputTokens TO WS-T-IN
+           MOVE AGENT-2::LastOutputTokens TO WS-T-OUT
+           CALL "PC-ON-REPLY"
+
+           GOBACK.
+
+       END PROGRAM AGENT-2--ONRESPONSE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AGENT-2--ONERROR IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE "IDLE" TO WS-STAGE
+           MOVE AGENT-2::LastError TO WS-TEXT
+           MOVE T-AGENT-FAILED TO WS-FMT
+           MOVE "2" TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE SPACES TO WS-MSG
+           STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
+               DELIMITED BY SIZE INTO WS-MSG
+           CALL "PC-SHOW-AGENT"
+           MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
+
+           GOBACK.
+
+       END PROGRAM AGENT-2--ONERROR.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AGENT-2--ONTIMEOUT IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The model never answered within TimeoutSeconds, and the runtime
+      *>   cancelled the call: the same as a failure - the chat goes back to
+      *>   idle and says why (LastError). Unhandled, the chat stayed stuck
+      *>   waiting for an answer that was never coming (operator,
+      *>   2026-09-28: "the interface froze").
+           MOVE "IDLE" TO WS-STAGE
+           MOVE AGENT-2::LastError TO WS-TEXT
+           MOVE T-AGENT-FAILED TO WS-FMT
+           MOVE "2" TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE SPACES TO WS-MSG
+           STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
+               DELIMITED BY SIZE INTO WS-MSG
+           CALL "PC-SHOW-AGENT"
+           MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
+
+           GOBACK.
+
+       END PROGRAM AGENT-2--ONTIMEOUT.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AGENT-2--ONMODELCHANGED IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A model an agent uses changed: a new election (R36; 063 R71).
+           CALL "PC-HAND-MODELS"
+           CALL "PC-ELECT"
+           CALL "PC-STATUS"
+
+           GOBACK.
+
+       END PROGRAM AGENT-2--ONMODELCHANGED.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AGENT-2--ONTOOLUSE IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The agent is searching the Knowledge Base or a data file: the
+      *>   status bubble says so while it happens.
+           MOVE AGENT-2::ToolKind TO WS-TOOL-KIND
+           CALL "PC-TOOL-USE"
+
+           GOBACK.
+
+       END PROGRAM AGENT-2--ONTOOLUSE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AGENT-3--ONRESPONSE IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE 3 TO WS-FROM
+           MOVE AGENT-3::LastReply TO WS-REPLY
+           MOVE AGENT-3::LastInputTokens TO WS-T-IN
+           MOVE AGENT-3::LastOutputTokens TO WS-T-OUT
+           CALL "PC-ON-REPLY"
+
+           GOBACK.
+
+       END PROGRAM AGENT-3--ONRESPONSE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AGENT-3--ONERROR IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE "IDLE" TO WS-STAGE
+           MOVE AGENT-3::LastError TO WS-TEXT
+           MOVE T-AGENT-FAILED TO WS-FMT
+           MOVE "3" TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE SPACES TO WS-MSG
+           STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
+               DELIMITED BY SIZE INTO WS-MSG
+           CALL "PC-SHOW-AGENT"
+           MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
+
+           GOBACK.
+
+       END PROGRAM AGENT-3--ONERROR.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AGENT-3--ONTIMEOUT IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The model never answered within TimeoutSeconds, and the runtime
+      *>   cancelled the call: the same as a failure - the chat goes back to
+      *>   idle and says why (LastError). Unhandled, the chat stayed stuck
+      *>   waiting for an answer that was never coming (operator,
+      *>   2026-09-28: "the interface froze").
+           MOVE "IDLE" TO WS-STAGE
+           MOVE AGENT-3::LastError TO WS-TEXT
+           MOVE T-AGENT-FAILED TO WS-FMT
+           MOVE "3" TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE SPACES TO WS-MSG
+           STRING "**" FUNCTION TRIM(WS-FMT-OUT) "** " FUNCTION TRIM(WS-TEXT)
+               DELIMITED BY SIZE INTO WS-MSG
+           CALL "PC-SHOW-AGENT"
+           MOVE FUNCTION TRIM(T-LAST-FAILED) TO Lbl-Status::Caption
+
+           GOBACK.
+
+       END PROGRAM AGENT-3--ONTIMEOUT.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AGENT-3--ONMODELCHANGED IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A model an agent uses changed: a new election (R36; 063 R71).
+           CALL "PC-HAND-MODELS"
+           CALL "PC-ELECT"
+           CALL "PC-STATUS"
+
+           GOBACK.
+
+       END PROGRAM AGENT-3--ONMODELCHANGED.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. AGENT-3--ONTOOLUSE IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The agent is searching the Knowledge Base or a data file: the
+      *>   status bubble says so while it happens.
+           MOVE AGENT-3::ToolKind TO WS-TOOL-KIND
+           CALL "PC-TOOL-USE"
+
+           GOBACK.
+
+       END PROGRAM AGENT-3--ONTOOLUSE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FLAG-EN--ONCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A flag in the menu's footer: the language changes at once (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           MOVE "en" TO WS-SET-VALUE
+           CALL "PC-SETTING-PUT"
+           CALL "PC-RELABEL"
+
+           GOBACK.
+
+       END PROGRAM FLAG-EN--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FLAG-PT--ONCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A flag in the menu's footer: the language changes at once (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           MOVE "pt" TO WS-SET-VALUE
+           CALL "PC-SETTING-PUT"
+           CALL "PC-RELABEL"
+
+           GOBACK.
+
+       END PROGRAM FLAG-PT--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FLAG-ES--ONCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A flag in the menu's footer: the language changes at once (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           MOVE "es" TO WS-SET-VALUE
+           CALL "PC-SETTING-PUT"
+           CALL "PC-RELABEL"
+
+           GOBACK.
+
+       END PROGRAM FLAG-ES--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FLAG-FR--ONCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A flag in the menu's footer: the language changes at once (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           MOVE "fr" TO WS-SET-VALUE
+           CALL "PC-SETTING-PUT"
+           CALL "PC-RELABEL"
+
+           GOBACK.
+
+       END PROGRAM FLAG-FR--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FLAG-JP--ONCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A flag in the menu's footer: the language changes at once (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           MOVE "jp" TO WS-SET-VALUE
+           CALL "PC-SETTING-PUT"
+           CALL "PC-RELABEL"
+
+           GOBACK.
+
+       END PROGRAM FLAG-JP--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FLAG-CN--ONCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A flag in the menu's footer: the language changes at once (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           MOVE "cn" TO WS-SET-VALUE
+           CALL "PC-SETTING-PUT"
+           CALL "PC-RELABEL"
+
+           GOBACK.
+
+       END PROGRAM FLAG-CN--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-PATHS IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Where PowerChat keeps its own files: POWERCHAT_DATA, else "data".
+           DISPLAY "POWERCHAT_DATA" UPON ENVIRONMENT-NAME
+           ACCEPT WS-DATA-DIR FROM ENVIRONMENT-VALUE
+           IF WS-DATA-DIR = SPACES
+               MOVE "data" TO WS-DATA-DIR
+           END-IF
+           MOVE SPACES TO WS-SETTINGS-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/settings.idx"
+               DELIMITED BY SIZE INTO WS-SETTINGS-PATH
+           MOVE SPACES TO WS-TOPICS-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/topics.idx"
+               DELIMITED BY SIZE INTO WS-TOPICS-PATH
+           MOVE SPACES TO WS-CONVS-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/convs.idx"
+               DELIMITED BY SIZE INTO WS-CONVS-PATH
+           MOVE SPACES TO WS-TURNS-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/turns.idx"
+               DELIMITED BY SIZE INTO WS-TURNS-PATH
+           MOVE SPACES TO WS-MODELS-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/models.idx"
+               DELIMITED BY SIZE INTO WS-MODELS-PATH
+           MOVE SPACES TO WS-TFILES-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/topic-files.idx"
+               DELIMITED BY SIZE INTO WS-TFILES-PATH
+           MOVE SPACES TO WS-RTPL-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/templates.idx"
+               DELIMITED BY SIZE INTO WS-RTPL-PATH
+           MOVE SPACES TO WS-MAINP-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/prompt-versions.idx"
+               DELIMITED BY SIZE INTO WS-MAINP-PATH
+      *>   What ships beside the sample topics - the templates and the main
+      *>   prompt's default: POWERCHAT_SAMPLES, else "samples".
+           DISPLAY "POWERCHAT_SAMPLES" UPON ENVIRONMENT-NAME
+           ACCEPT WS-SAMPLES-DIR FROM ENVIRONMENT-VALUE
+           IF WS-SAMPLES-DIR = SPACES
+               MOVE "samples" TO WS-SAMPLES-DIR
+           END-IF
+           MOVE SPACES TO WS-RTSEED-PATH
+           STRING FUNCTION TRIM(WS-SAMPLES-DIR) "/report-templates.txt"
+               DELIMITED BY SIZE INTO WS-RTSEED-PATH
+           MOVE SPACES TO WS-MPSEED-PATH
+           STRING FUNCTION TRIM(WS-SAMPLES-DIR) "/main-prompt.md"
+               DELIMITED BY SIZE INTO WS-MPSEED-PATH
+
+           GOBACK.
+
+       END PROGRAM PC-PATHS.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-SETTING-GET IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-SET-NAME in, WS-SET-VALUE out (spaces when the setting is unset).
+           MOVE SPACES TO WS-SET-VALUE
+           OPEN I-O SETTINGS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT SETTINGS-FILE
+               CLOSE SETTINGS-FILE
+               OPEN I-O SETTINGS-FILE
+           END-IF
+           MOVE WS-SET-NAME TO SET-NAME
+           READ SETTINGS-FILE
+               INVALID KEY CONTINUE
+               NOT INVALID KEY MOVE SET-VALUE TO WS-SET-VALUE
+           END-READ
+           CLOSE SETTINGS-FILE
+
+           GOBACK.
+
+       END PROGRAM PC-SETTING-GET.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-SETTING-PUT IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-SET-NAME, WS-SET-VALUE in. Written and committed at once (R10f).
+           OPEN I-O SETTINGS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT SETTINGS-FILE
+               CLOSE SETTINGS-FILE
+               OPEN I-O SETTINGS-FILE
+           END-IF
+           MOVE WS-SET-NAME TO SET-NAME
+           MOVE WS-SET-VALUE TO SET-VALUE
+           WRITE SETTINGS-REC
+               INVALID KEY REWRITE SETTINGS-REC
+           END-WRITE
+           COMMIT
+           CLOSE SETTINGS-FILE
+
+           GOBACK.
+
+       END PROGRAM PC-SETTING-PUT.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-HAND-MODELS IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The model list is ours, in MODELS; the runtime holds it for this run
+      *>   only, so it is handed over at start-up and after every edit (076).
+           OPEN I-O MODELS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT MODELS-FILE
+               CLOSE MODELS-FILE
+               OPEN I-O MODELS-FILE
+           END-IF
+           MOVE LOW-VALUES TO MDL-NAME
+           MOVE "N" TO WS-EOF
+           START MODELS-FILE KEY IS >= MDL-NAME
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ MODELS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       COBOL::"MODEL-SET" ( MDL-NAME MDL-API MDL-URL MDL-MODEL )
+               END-READ
+           END-PERFORM
+      *>   Each agent's entry, and what the entry says the model can do.
+           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               MOVE SPACES TO WS-SET-NAME
+               STRING "AGENT-" WS-A "-ENTRY" DELIMITED BY SIZE INTO WS-SET-NAME
+               CALL "PC-SETTING-GET"
+               IF WS-A = 1 AND WS-SET-VALUE = SPACES
+                   MOVE "MODEL-ENTRY" TO WS-SET-NAME
+                   CALL "PC-SETTING-GET"
+               END-IF
+               MOVE WS-SET-VALUE TO WS-AG-ENTRY(WS-A)
+               MOVE SPACES TO WS-AG-MODEL(WS-A)
+               MOVE "N" TO WS-AG-TOOLS(WS-A)
+               MOVE 0 TO WS-AG-RANK(WS-A)
+               IF WS-AG-ENTRY(WS-A) NOT = SPACES
+                   MOVE WS-AG-ENTRY(WS-A) TO MDL-NAME
+                   READ MODELS-FILE
+                       INVALID KEY MOVE SPACES TO WS-AG-ENTRY(WS-A)
+                       NOT INVALID KEY
+                           MOVE MDL-MODEL TO WS-AG-MODEL(WS-A)
+                           MOVE MDL-TOOLS TO WS-AG-TOOLS(WS-A)
+                           IF MDL-RANK IS NUMERIC
+                               MOVE MDL-RANK TO WS-AG-RANK(WS-A)
+                           END-IF
+                   END-READ
+               END-IF
+               MOVE WS-A TO WS-FROM
+           EVALUATE WS-FROM
+               WHEN 1
+                   MOVE WS-AG-ENTRY(1) TO AGENT-1::ModelEntry
+               WHEN 2
+                   MOVE WS-AG-ENTRY(2) TO AGENT-2::ModelEntry
+               WHEN 3
+                   MOVE WS-AG-ENTRY(3) TO AGENT-3::ModelEntry
+           END-EVALUATE
+           END-PERFORM
+           CLOSE MODELS-FILE
+           MOVE "KB-LOCATION" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           IF WS-SET-VALUE NOT = SPACES
+               MOVE WS-SET-VALUE TO KB-1::Location
+           END-IF
+
+           GOBACK.
+
+       END PROGRAM PC-HAND-MODELS.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-READ-ROLES IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The role prompt designed on each agent (R64), kept before the
+      *>   election gives the orchestrator the topic's prompt instead (R63).
+           IF WS-ROLES-SEEN = "Y"
+               EXIT PROGRAM
+           END-IF
+           MOVE "Y" TO WS-ROLES-SEEN
+           MOVE AGENT-1::SystemPrompt TO WS-AG-ROLE(1)
+           MOVE AGENT-2::SystemPrompt TO WS-AG-ROLE(2)
+           MOVE AGENT-3::SystemPrompt TO WS-AG-ROLE(3)
+
+           GOBACK.
+
+       END PROGRAM PC-READ-ROLES.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-ELECT IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Who orchestrates and who does the tool work (063 R52-R57, R66).
+      *>   Run once per session, and again when a model changes (R70, R71).
+           MOVE 0 TO WS-N-AGENTS WS-N-TOOLS WS-ORCH WS-WORKER
+           MOVE "Y" TO WS-SAME-MODEL
+           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               IF WS-AG-ENTRY(WS-A) NOT = SPACES
+                   ADD 1 TO WS-N-AGENTS
+                   IF WS-AG-TOOLS(WS-A) = "Y"
+                       ADD 1 TO WS-N-TOOLS
+                   END-IF
+                   IF WS-ORCH = 0
+                       MOVE WS-A TO WS-ORCH
+                   ELSE
+                       IF WS-AG-MODEL(WS-A) NOT = WS-AG-MODEL(WS-ORCH)
+                           MOVE "N" TO WS-SAME-MODEL
+                       END-IF
+                       IF WS-AG-RANK(WS-A) > WS-AG-RANK(WS-ORCH)
+                           MOVE WS-A TO WS-ORCH
+                       END-IF
+                   END-IF
+               END-IF
+           END-PERFORM
+           EVALUATE TRUE
+               WHEN WS-N-AGENTS = 0
+                   MOVE FUNCTION TRIM(T-NO-MODEL) TO Lbl-Status::Caption
+               WHEN WS-N-AGENTS = 1
+      *>           One agent answers by itself (R52).
+                   IF WS-AG-TOOLS(WS-ORCH) = "Y"
+                       MOVE WS-ORCH TO WS-WORKER
+                   END-IF
+               WHEN OTHER
+      *>           Every agent on the same model: any of them, at random (R57).
+                   IF WS-SAME-MODEL = "Y"
+                       MOVE FUNCTION RANDOM TO WS-RANDOM
+                       COMPUTE WS-B = WS-RANDOM * WS-N-AGENTS + 1
+                       MOVE 0 TO WS-A
+                       PERFORM VARYING WS-BEST FROM 1 BY 1 UNTIL WS-BEST > 3
+                           IF WS-AG-ENTRY(WS-BEST) NOT = SPACES
+                               ADD 1 TO WS-A
+                               IF WS-A = WS-B
+                                   MOVE WS-BEST TO WS-ORCH
+                               END-IF
+                           END-IF
+                       END-PERFORM
+                   END-IF
+      *>           The only tool-capable model does the tool work; the next
+      *>           best orchestrates (R55, R56).
+                   IF WS-N-TOOLS = 1 AND WS-AG-TOOLS(WS-ORCH) = "Y"
+                       MOVE WS-ORCH TO WS-WORKER
+                       MOVE 0 TO WS-ORCH
+                       PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+                           IF WS-AG-ENTRY(WS-A) NOT = SPACES AND WS-A NOT = WS-WORKER
+                               IF WS-ORCH = 0
+                                   MOVE WS-A TO WS-ORCH
+                               ELSE
+                                   IF WS-AG-RANK(WS-A) > WS-AG-RANK(WS-ORCH)
+                                       MOVE WS-A TO WS-ORCH
+                                   END-IF
+                               END-IF
+                           END-IF
+                       END-PERFORM
+                   ELSE
+      *>               The best-ranked tool-capable agent that is not orchestrating.
+                       PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+                           IF WS-AG-ENTRY(WS-A) NOT = SPACES AND WS-A NOT = WS-ORCH
+                                   AND WS-AG-TOOLS(WS-A) = "Y"
+                               IF WS-WORKER = 0
+                                   MOVE WS-A TO WS-WORKER
+                               ELSE
+                                   IF WS-AG-RANK(WS-A) > WS-AG-RANK(WS-WORKER)
+                                       MOVE WS-A TO WS-WORKER
+                                   END-IF
+                               END-IF
+                           END-IF
+                       END-PERFORM
+                   END-IF
+           END-EVALUATE
+      *>   Prompts: the topic's to the orchestrator only (R63); the others
+      *>   keep their role prompts (R64). The Knowledge Base goes to the tool
+      *>   worker alone; with none, the chat runs without tools (R66).
+           CALL "PC-MAIN-LOAD"
+           MOVE WS-MAIN TO WS-MAIN-ELECTED
+           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               MOVE WS-A TO WS-FROM
+               IF WS-A = WS-ORCH
+      *>           Every instruction is the main prompt's (operator,
+      *>           2026-09-28): its SYSTEM section, with the topic's prompt,
+      *>           the NO SOURCES section while the topic has no documents
+      *>           and no data files, and the template list, each where the
+      *>           text puts it.
+                   MOVE SPACES TO WS-NOTE
+                   IF WS-SOURCES = 0 AND WS-CUR-TOPIC NOT = SPACES
+                       MOVE "NO SOURCES" TO WS-SEC-NAME
+                       CALL "PC-SECTION"
+                       MOVE "{DOCUMENTS MENU}" TO WS-TOKEN
+                       MOVE T-DOCS-TITLE TO WS-INS
+                       CALL "PC-FILL"
+                       MOVE "{DATA FILES MENU}" TO WS-TOKEN
+                       MOVE T-FILES-TITLE TO WS-INS
+                       CALL "PC-FILL"
+                       MOVE WS-SEC TO WS-NOTE
+                   END-IF
+                   CALL "PC-TEMPLATES"
+                   MOVE "SYSTEM" TO WS-SEC-NAME
+                   CALL "PC-SECTION"
+                   MOVE "{TOPIC}" TO WS-TOKEN
+                   MOVE WS-TOPIC-PROMPT TO WS-INS
+                   CALL "PC-FILL"
+                   MOVE "{SOURCES NOTE}" TO WS-TOKEN
+                   MOVE WS-NOTE TO WS-INS
+                   CALL "PC-FILL"
+                   MOVE "{TEMPLATES}" TO WS-TOKEN
+                   MOVE WS-CATALOG TO WS-INS
+                   CALL "PC-FILL"
+                   MOVE WS-SEC TO WS-TEXT
+      *>           No main prompt at all - no version and no shipped file -
+      *>           or one without a SYSTEM section: the topic's own prompt,
+      *>           which the user wrote, rather than no instructions.
+                   IF WS-TEXT = SPACES
+                       MOVE WS-TOPIC-PROMPT TO WS-TEXT
+                   END-IF
+               ELSE
+      *>           The assistants: the main prompt's ASSISTANT section.
+                   MOVE "ASSISTANT" TO WS-SEC-NAME
+                   CALL "PC-SECTION"
+                   MOVE WS-SEC TO WS-TEXT
+               END-IF
+           EVALUATE WS-FROM
+               WHEN 1
+                   MOVE WS-TEXT TO AGENT-1::SystemPrompt
+      *>           Tools only for the tool worker; the others get none (R66).
+                   IF 1 = WS-WORKER
+                       MOVE "Native" TO AGENT-1::ToolProtocol
+                   ELSE
+                       MOVE "None" TO AGENT-1::ToolProtocol
+                   END-IF
+                   IF WS-ALLOWED-TOPIC NOT = SPACES
+                       MOVE AGENT-1::DenyKnowledgeBase("KB-1", WS-ALLOWED-TOPIC) TO WS-OK
+                   END-IF
+                   IF 1 = WS-WORKER AND WS-CUR-TOPIC NOT = SPACES
+                       MOVE AGENT-1::AllowKnowledgeBase("KB-1", WS-CUR-TOPIC) TO WS-OK
+                   END-IF
+               WHEN 2
+                   MOVE WS-TEXT TO AGENT-2::SystemPrompt
+      *>           Tools only for the tool worker; the others get none (R66).
+                   IF 2 = WS-WORKER
+                       MOVE "Native" TO AGENT-2::ToolProtocol
+                   ELSE
+                       MOVE "None" TO AGENT-2::ToolProtocol
+                   END-IF
+                   IF WS-ALLOWED-TOPIC NOT = SPACES
+                       MOVE AGENT-2::DenyKnowledgeBase("KB-1", WS-ALLOWED-TOPIC) TO WS-OK
+                   END-IF
+                   IF 2 = WS-WORKER AND WS-CUR-TOPIC NOT = SPACES
+                       MOVE AGENT-2::AllowKnowledgeBase("KB-1", WS-CUR-TOPIC) TO WS-OK
+                   END-IF
+               WHEN 3
+                   MOVE WS-TEXT TO AGENT-3::SystemPrompt
+      *>           Tools only for the tool worker; the others get none (R66).
+                   IF 3 = WS-WORKER
+                       MOVE "Native" TO AGENT-3::ToolProtocol
+                   ELSE
+                       MOVE "None" TO AGENT-3::ToolProtocol
+                   END-IF
+                   IF WS-ALLOWED-TOPIC NOT = SPACES
+                       MOVE AGENT-3::DenyKnowledgeBase("KB-1", WS-ALLOWED-TOPIC) TO WS-OK
+                   END-IF
+                   IF 3 = WS-WORKER AND WS-CUR-TOPIC NOT = SPACES
+                       MOVE AGENT-3::AllowKnowledgeBase("KB-1", WS-CUR-TOPIC) TO WS-OK
+                   END-IF
+           END-EVALUATE
+           END-PERFORM
+           MOVE WS-CUR-TOPIC TO WS-ALLOWED-TOPIC
+           MOVE "IDLE" TO WS-STAGE
+
+           GOBACK.
+
+       END PROGRAM PC-ELECT.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-MAIN-LOAD IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-MAIN out: the main prompt - the active version the Prompt
+      *>   screen keeps under the topic id "*MAIN", or, before there is one,
+      *>   the shipped samples/main-prompt.md.
+           MOVE SPACES TO WS-MAIN
+           OPEN INPUT MAINP-FILE
+           IF WS-FS = "00"
+               MOVE "*MAIN" TO PRM-TOPIC
+               MOVE 0 TO PRM-VERSION
+               MOVE "N" TO WS-EOF
+               START MAINP-FILE KEY IS >= PRM-KEY
+                   INVALID KEY MOVE "Y" TO WS-EOF
+               END-START
+               PERFORM UNTIL WS-EOF = "Y"
+                   READ MAINP-FILE NEXT RECORD
+                       AT END MOVE "Y" TO WS-EOF
+                       NOT AT END
+                           IF PRM-TOPIC NOT = "*MAIN"
+                               MOVE "Y" TO WS-EOF
+                           ELSE
+                               IF PRM-ACTIVE = "Y"
+                                   MOVE PRM-TEXT TO WS-MAIN
+                               END-IF
+                           END-IF
+                   END-READ
+               END-PERFORM
+               CLOSE MAINP-FILE
+           END-IF
+           IF WS-MAIN = SPACES
+               MOVE 1 TO WS-SX-B
+               OPEN INPUT MPSEED-FILE
+               IF WS-FS = "00"
+                   MOVE "N" TO WS-EOF
+                   PERFORM UNTIL WS-EOF = "Y"
+                       READ MPSEED-FILE
+                           AT END MOVE "Y" TO WS-EOF
+                           NOT AT END
+                               MOVE MPSEED-REC TO WS-LN-BUF
+                               CALL "PC-LINE-LEN"
+                               IF WS-LN-LEN > 0
+                                   STRING WS-LN-BUF(1:WS-LN-LEN) X"0A"
+                                       DELIMITED BY SIZE INTO WS-MAIN
+                                       WITH POINTER WS-SX-B
+                                   END-STRING
+                               ELSE
+                                   STRING X"0A" DELIMITED BY SIZE INTO WS-MAIN
+                                       WITH POINTER WS-SX-B
+                                   END-STRING
+                               END-IF
+                       END-READ
+                   END-PERFORM
+                   CLOSE MPSEED-FILE
+               END-IF
+           END-IF
+           MOVE "N" TO WS-EOF
+
+           GOBACK.
+
+       END PROGRAM PC-MAIN-LOAD.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-SECTION IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-SEC-NAME in: WS-SEC out - that section of the main prompt, from
+      *>   the line after its "=== NAME ===" to the next "=== " line or the
+      *>   end. A section the text does not have is empty: nothing is sent.
+           MOVE SPACES TO WS-SEC WS-SPL
+           STRING X"0A" "=== " FUNCTION TRIM(WS-SEC-NAME) " ==="
+               DELIMITED BY SIZE INTO WS-SPL
+           END-STRING
+           COMPUTE WS-SX-L = FUNCTION LENGTH(FUNCTION TRIM(WS-SEC-NAME)) + 9
+      *>   WS-SX-A: where the header's "===" starts - the very first line
+      *>   counts too (a text whose first section has nothing above it).
+           IF WS-MAIN(1:WS-SX-L - 1) = WS-SPL(2:WS-SX-L - 1)
+               MOVE 1 TO WS-SX-A
+           ELSE
+               MOVE 0 TO WS-SX-A
+               INSPECT WS-MAIN TALLYING WS-SX-A
+                   FOR CHARACTERS BEFORE INITIAL WS-SPL(1:WS-SX-L)
+               IF WS-SX-A NOT < 32000
+                   MOVE SPACES TO WS-SPL
+                   EXIT PROGRAM
+               END-IF
+               ADD 2 TO WS-SX-A
+           END-IF
+      *>   Past the header line.
+           COMPUTE WS-SX-A = WS-SX-A + WS-SX-L - 1
+           MOVE 0 TO WS-SX-B
+           INSPECT WS-MAIN(WS-SX-A:) TALLYING WS-SX-B
+               FOR CHARACTERS BEFORE INITIAL X"0A"
+           COMPUTE WS-SX-A = WS-SX-A + WS-SX-B + 1
+           MOVE SPACES TO WS-SPL
+           IF WS-SX-A > 32000
+               EXIT PROGRAM
+           END-IF
+           MOVE 0 TO WS-SX-B
+           INSPECT WS-MAIN(WS-SX-A:) TALLYING WS-SX-B
+               FOR CHARACTERS BEFORE INITIAL WS-SEC-MARK
+           IF WS-SX-B > 0
+               MOVE WS-MAIN(WS-SX-A:WS-SX-B) TO WS-SEC
+           END-IF
+
+           GOBACK.
+
+       END PROGRAM PC-SECTION.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-FILL IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-TOKEN and WS-INS in: every WS-TOKEN in WS-SEC - "{TOPIC}" and
+      *>   the like - replaced by WS-INS (nothing, when it is spaces).
+           COMPUTE WS-SX-L = FUNCTION LENGTH(FUNCTION TRIM(WS-TOKEN))
+           PERFORM 20 TIMES
+               MOVE 0 TO WS-SX-A
+               INSPECT WS-SEC TALLYING WS-SX-A
+                   FOR CHARACTERS BEFORE INITIAL WS-TOKEN(1:WS-SX-L)
+               IF WS-SX-A NOT < 64000
+                   EXIT PERFORM
+               END-IF
+               MOVE SPACES TO WS-SPL
+               MOVE 1 TO WS-SX-B
+               IF WS-SX-A > 0
+                   STRING WS-SEC(1:WS-SX-A) DELIMITED BY SIZE
+                       INTO WS-SPL WITH POINTER WS-SX-B
+                   END-STRING
+               END-IF
+               IF WS-INS NOT = SPACES
+                   STRING FUNCTION TRIM(WS-INS) DELIMITED BY SIZE
+                       INTO WS-SPL WITH POINTER WS-SX-B
+                   END-STRING
+               END-IF
+               COMPUTE WS-SX-E = WS-SX-A + WS-SX-L + 1
+               IF WS-SX-E NOT > 64000
+                   STRING WS-SEC(WS-SX-E:) DELIMITED BY SIZE
+                       INTO WS-SPL WITH POINTER WS-SX-B
+                   END-STRING
+               END-IF
+               MOVE WS-SPL TO WS-SEC
+           END-PERFORM
+           MOVE SPACES TO WS-SPL
+
+           GOBACK.
+
+       END PROGRAM PC-FILL.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-LINE-LEN IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-LN-BUF in: WS-LN-LEN out - its length without the trailing
+      *>   spaces, so a line's indentation is kept and its padding is not.
+           MOVE FUNCTION REVERSE(WS-LN-BUF) TO WS-LN-REV
+           MOVE 0 TO WS-LN-LEN
+           INSPECT WS-LN-REV TALLYING WS-LN-LEN FOR LEADING SPACES
+           COMPUTE WS-LN-LEN = 1000 - WS-LN-LEN
+
+           GOBACK.
+
+       END PROGRAM PC-LINE-LEN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-TPL-FIND IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-TPL-NAME in (any case): WS-TPL-SKEL out, and WS-TPL-NAME as
+      *>   the catalog spells it; spaces when there is no such template.
+           MOVE SPACES TO WS-TPL-SKEL
+           MOVE FUNCTION UPPER-CASE(FUNCTION TRIM(WS-TPL-NAME)) TO WS-RT-NAME
+           OPEN INPUT RTPL-FILE
+           IF WS-FS NOT = "00"
+               EXIT PROGRAM
+           END-IF
+           MOVE LOW-VALUES TO RT-NAME
+           MOVE "N" TO WS-EOF
+           START RTPL-FILE KEY IS >= RT-NAME
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ RTPL-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       IF FUNCTION UPPER-CASE(FUNCTION TRIM(RT-NAME)) = WS-RT-NAME
+                           MOVE RT-NAME TO WS-TPL-NAME
+                           MOVE RT-SKEL TO WS-TPL-SKEL
+                           MOVE "Y" TO WS-EOF
+                       END-IF
+               END-READ
+           END-PERFORM
+           CLOSE RTPL-FILE
+           MOVE "N" TO WS-EOF
+
+           GOBACK.
+
+       END PROGRAM PC-TPL-FIND.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-TEMPLATE-TEXT IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-TPL-NAME and WS-TPL-SKEL in: WS-SEC out - the main prompt's
+      *>   TEMPLATE section with the chosen template filled in.
+           MOVE "TEMPLATE" TO WS-SEC-NAME
+           CALL "PC-SECTION"
+           MOVE "{NAME}" TO WS-TOKEN
+           MOVE WS-TPL-NAME TO WS-INS
+           CALL "PC-FILL"
+           MOVE "{SKELETON}" TO WS-TOKEN
+           MOVE WS-TPL-SKEL TO WS-INS
+           CALL "PC-FILL"
+
+           GOBACK.
+
+       END PROGRAM PC-TEMPLATE-TEXT.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-TPL-LINE IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-REPLY in: when it opens with "TEMPLATE: name" - the user chose
+      *>   a report template - WS-TPL-NAME and WS-TPL-SKEL are that template.
+           MOVE 1 TO WS-FP
+           PERFORM UNTIL WS-FP > 200
+                   OR (WS-REPLY(WS-FP:1) NOT = SPACE
+                       AND WS-REPLY(WS-FP:1) NOT = X"0A"
+                       AND WS-REPLY(WS-FP:1) NOT = X"0D")
+               ADD 1 TO WS-FP
+           END-PERFORM
+           IF WS-FP > 200
+               EXIT PROGRAM
+           END-IF
+           IF FUNCTION UPPER-CASE(WS-REPLY(WS-FP:9)) NOT = "TEMPLATE:"
+               EXIT PROGRAM
+           END-IF
+           COMPUTE WS-FA = WS-FP + 9
+           MOVE 0 TO WS-FB
+           INSPECT WS-REPLY(WS-FA:) TALLYING WS-FB FOR CHARACTERS BEFORE INITIAL X"0A"
+           IF WS-FB > 80
+               MOVE 80 TO WS-FB
+           END-IF
+           IF WS-FB > 0
+               MOVE WS-REPLY(WS-FA:WS-FB) TO WS-TPL-NAME
+               CALL "PC-TPL-FIND"
+           END-IF
+
+           GOBACK.
+
+       END PROGRAM PC-TPL-LINE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-TEMPLATES IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-CATALOG out: one line per report template - its name and what
+      *>   it suits - for the main prompt's {TEMPLATES}. An empty file - the
+      *>   first time - is filled from samples/report-templates.txt.
+           MOVE SPACES TO WS-CATALOG
+           MOVE 1 TO WS-SX-B
+           OPEN I-O RTPL-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT RTPL-FILE
+               CLOSE RTPL-FILE
+               OPEN I-O RTPL-FILE
+           END-IF
+           MOVE LOW-VALUES TO RT-NAME
+           MOVE "N" TO WS-EOF
+           START RTPL-FILE KEY IS >= RT-NAME
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           IF WS-EOF = "Y"
+               CALL "PC-SEED-TEMPLATES"
+               MOVE LOW-VALUES TO RT-NAME
+               MOVE "N" TO WS-EOF
+               START RTPL-FILE KEY IS >= RT-NAME
+                   INVALID KEY MOVE "Y" TO WS-EOF
+               END-START
+           END-IF
+           PERFORM UNTIL WS-EOF = "Y"
+               READ RTPL-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       STRING "- " FUNCTION TRIM(RT-NAME) ": "
+                              FUNCTION TRIM(RT-SUITS) X"0A"
+                           DELIMITED BY SIZE INTO WS-CATALOG WITH POINTER WS-SX-B
+                       END-STRING
+               END-READ
+           END-PERFORM
+           CLOSE RTPL-FILE
+
+           GOBACK.
+
+       END PROGRAM PC-TEMPLATES.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-SEED-TEMPLATES IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   RTPL-FILE open I-O and empty: the shipped templates written in.
+      *>   "=== name" opens each; its "Suits:" line says what it suits, and
+      *>   every other line is its HTML skeleton, indentation kept. A missing
+      *>   samples file leaves it empty - the chat still answers.
+           OPEN INPUT RTSEED-FILE
+           IF WS-FS NOT = "00"
+               EXIT PROGRAM
+           END-IF
+           MOVE SPACES TO WS-RT-NAME WS-RT-SUITS WS-RT-SKEL
+           MOVE 1 TO WS-RT-PT
+           MOVE "N" TO WS-EOF
+           PERFORM UNTIL WS-EOF = "Y"
+               READ RTSEED-FILE
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       EVALUATE TRUE
+                           WHEN RTSEED-REC(1:4) = "=== "
+                               CALL "PC-PUT-TEMPLATE"
+                               MOVE FUNCTION TRIM(RTSEED-REC(5:)) TO WS-RT-NAME
+                               MOVE SPACES TO WS-RT-SUITS WS-RT-SKEL
+                               MOVE 1 TO WS-RT-PT
+                           WHEN RTSEED-REC(1:6) = "Suits:"
+                               MOVE FUNCTION TRIM(RTSEED-REC(7:)) TO WS-RT-SUITS
+                           WHEN WS-RT-NAME NOT = SPACES
+                               MOVE RTSEED-REC TO WS-LN-BUF
+                               CALL "PC-LINE-LEN"
+                               IF WS-LN-LEN > 0
+                                   STRING WS-LN-BUF(1:WS-LN-LEN) X"0A"
+                                       DELIMITED BY SIZE INTO WS-RT-SKEL
+                                       WITH POINTER WS-RT-PT
+                                   END-STRING
+                               ELSE
+                                   STRING X"0A" DELIMITED BY SIZE INTO WS-RT-SKEL
+                                       WITH POINTER WS-RT-PT
+                                   END-STRING
+                               END-IF
+                       END-EVALUATE
+               END-READ
+           END-PERFORM
+           CALL "PC-PUT-TEMPLATE"
+           CLOSE RTSEED-FILE
+           MOVE "N" TO WS-EOF
+
+           GOBACK.
+
+       END PROGRAM PC-SEED-TEMPLATES.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-PUT-TEMPLATE IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-RT-NAME, WS-RT-SUITS and WS-RT-SKEL in, RTPL-FILE open I-O: the
+      *>   template written, or rewritten when one of that name exists.
+           IF WS-RT-NAME = SPACES OR WS-RT-SKEL = SPACES
+               EXIT PROGRAM
+           END-IF
+           MOVE WS-RT-NAME TO RT-NAME
+           READ RTPL-FILE
+               INVALID KEY
+                   MOVE WS-RT-SUITS TO RT-SUITS
+                   MOVE WS-RT-SKEL TO RT-SKEL
+                   WRITE RTPL-REC
+                   END-WRITE
+               NOT INVALID KEY
+                   IF WS-RT-SUITS NOT = SPACES
+                       MOVE WS-RT-SUITS TO RT-SUITS
+                   END-IF
+                   MOVE WS-RT-SKEL TO RT-SKEL
+                   REWRITE RTPL-REC
+                   END-REWRITE
+           END-READ
+           COMMIT
+
+           GOBACK.
+
+       END PROGRAM PC-PUT-TEMPLATE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-SAVE-TEMPLATE IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-REPLY in: a template the model defined - the
+      *>   "<!--REPORT-TEMPLATE" block, with NAME: and SUITS: - is saved with
+      *>   the page of this same answer as its skeleton: a new one added, a
+      *>   changed one replaced. The block is cut out of what the user sees
+      *>   and of what is kept (operator, 2026-09-28: "always save").
+           MOVE 0 TO WS-RT-AT
+           INSPECT WS-REPLY TALLYING WS-RT-AT
+               FOR CHARACTERS BEFORE INITIAL "<!--REPORT-TEMPLATE"
+           IF WS-RT-AT NOT < 64000
+               EXIT PROGRAM
+           END-IF
+           ADD 1 TO WS-RT-AT
+           COMPUTE WS-RT-PT = WS-RT-AT + 19
+           MOVE 0 TO WS-RT-LEN
+           INSPECT WS-REPLY(WS-RT-PT:) TALLYING WS-RT-LEN
+               FOR CHARACTERS BEFORE INITIAL "-->"
+           COMPUTE WS-RT-END = WS-RT-PT + WS-RT-LEN + 3
+           IF WS-RT-END > 64001
+               MOVE 64001 TO WS-RT-END
+           END-IF
+           MOVE SPACES TO WS-RT-NAME WS-RT-SUITS WS-RT-SKEL WS-SEC
+           IF WS-RT-LEN > 0
+               MOVE WS-REPLY(WS-RT-PT:WS-RT-LEN) TO WS-SEC
+           END-IF
+      *>   NAME: and SUITS: - each to the end of its line.
+           MOVE 0 TO WS-FC
+           INSPECT WS-SEC TALLYING WS-FC FOR CHARACTERS BEFORE INITIAL "NAME:"
+           IF WS-FC < 64000
+               COMPUTE WS-FA = WS-FC + 6
+               MOVE 0 TO WS-FB
+               INSPECT WS-SEC(WS-FA:) TALLYING WS-FB FOR CHARACTERS BEFORE INITIAL X"0A"
+               IF WS-FB > 0
+                   MOVE FUNCTION TRIM(WS-SEC(WS-FA:WS-FB)) TO WS-RT-NAME
+               END-IF
+           END-IF
+           MOVE 0 TO WS-FC
+           INSPECT WS-SEC TALLYING WS-FC FOR CHARACTERS BEFORE INITIAL "SUITS:"
+           IF WS-FC NOT < 64000
+               MOVE 0 TO WS-FC
+               INSPECT WS-SEC TALLYING WS-FC FOR CHARACTERS BEFORE INITIAL "Suits:"
+           END-IF
+           IF WS-FC < 64000
+               COMPUTE WS-FA = WS-FC + 7
+               MOVE 0 TO WS-FB
+               INSPECT WS-SEC(WS-FA:) TALLYING WS-FB FOR CHARACTERS BEFORE INITIAL X"0A"
+               IF WS-FB > 0
+                   MOVE FUNCTION TRIM(WS-SEC(WS-FA:WS-FB)) TO WS-RT-SUITS
+               END-IF
+           END-IF
+      *>   The skeleton: this answer's page - a ```html fence's content, or
+      *>   a page written straight in, to its </html>.
+           MOVE 0 TO WS-FC
+           INSPECT WS-REPLY TALLYING WS-FC FOR CHARACTERS BEFORE INITIAL "```html"
+           IF WS-FC < 64000
+               COMPUTE WS-FA = WS-FC + 8
+               MOVE 0 TO WS-FB
+               INSPECT WS-REPLY(WS-FA:) TALLYING WS-FB FOR CHARACTERS BEFORE INITIAL "```"
+           ELSE
+               MOVE 0 TO WS-FC
+               INSPECT WS-REPLY TALLYING WS-FC FOR CHARACTERS BEFORE INITIAL "<!DOCTYPE"
+               IF WS-FC NOT < 64000
+                   MOVE 0 TO WS-FC
+                   INSPECT WS-REPLY TALLYING WS-FC FOR CHARACTERS BEFORE INITIAL "<html"
+               END-IF
+               COMPUTE WS-FA = WS-FC + 1
+               MOVE 0 TO WS-FB
+               IF WS-FC < 64000
+                   INSPECT WS-REPLY(WS-FA:) TALLYING WS-FB FOR CHARACTERS BEFORE INITIAL "</html>"
+                   ADD 7 TO WS-FB
+               END-IF
+           END-IF
+           COMPUTE WS-SX-E = WS-FA + WS-FB
+           IF WS-FC < 64000 AND WS-FB > 0 AND WS-SX-E NOT > 64001
+               MOVE WS-REPLY(WS-FA:WS-FB) TO WS-RT-SKEL
+           END-IF
+           IF WS-RT-NAME NOT = SPACES AND WS-RT-SKEL NOT = SPACES
+               OPEN I-O RTPL-FILE
+               IF WS-FS = "35"
+                   OPEN OUTPUT RTPL-FILE
+                   CLOSE RTPL-FILE
+                   OPEN I-O RTPL-FILE
+               END-IF
+               CALL "PC-PUT-TEMPLATE"
+               CLOSE RTPL-FILE
+           END-IF
+      *>   The block cut out of what the user sees and what is kept.
+           MOVE SPACES TO WS-TEXT
+           IF WS-RT-AT > 1
+               MOVE WS-REPLY(1:WS-RT-AT - 1) TO WS-TEXT
+           END-IF
+           IF WS-RT-END NOT > 64000
+               MOVE WS-REPLY(WS-RT-END:) TO WS-TEXT(WS-RT-AT:)
+           END-IF
+           MOVE WS-TEXT TO WS-REPLY
+
+           GOBACK.
+
+       END PROGRAM PC-SAVE-TEMPLATE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-REGISTER-FILES IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The topic's data files, registered for the agents to search. A file
+      *>   that cannot be reached or described is named with its reason, and
+      *>   the chat answers without it (R22). Registration is program-wide;
+      *>   only the tool worker is offered them (ToolProtocol, PC-ELECT).
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-REG-COUNT
+               MOVE AGENT-1::UnregisterFile(FUNCTION TRIM(WS-REG-NAME(WS-I))) TO WS-OK
+           END-PERFORM
+           MOVE 0 TO WS-REG-COUNT WS-FAILED
+           MOVE SPACES TO WS-FILE-NOTE
+           IF WS-CUR-TOPIC = SPACES
+               EXIT PROGRAM
+           END-IF
+           OPEN I-O TFILES-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TFILES-FILE
+               CLOSE TFILES-FILE
+               OPEN I-O TFILES-FILE
+           END-IF
+           MOVE WS-CUR-TOPIC TO TF-TOPIC
+           MOVE 0 TO TF-SEQ
+           MOVE "N" TO WS-EOF
+           START TFILES-FILE KEY IS >= TF-KEY
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ TFILES-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       IF TF-TOPIC NOT = WS-CUR-TOPIC
+                           MOVE "Y" TO WS-EOF
+                       ELSE
+                           MOVE AGENT-1::RegisterFile(FUNCTION TRIM(TF-DATA),
+                                FUNCTION TRIM(TF-CIDX)) TO WS-OK
+                           IF WS-OK = "1" AND WS-REG-COUNT < 100
+                               ADD 1 TO WS-REG-COUNT
+                               MOVE AGENT-1::RegisteredName TO WS-REG-NAME(WS-REG-COUNT)
+                           ELSE
+                               ADD 1 TO WS-FAILED
+                               MOVE AGENT-1::RegisterResult TO WS-RESULT
+                               STRING FUNCTION TRIM(WS-FILE-NOTE) " " FUNCTION TRIM(TF-NAME)
+                                      " (" FUNCTION TRIM(WS-RESULT) ")"
+                                   DELIMITED BY SIZE INTO WS-FILE-NOTE
+                           END-IF
+                       END-IF
+               END-READ
+           END-PERFORM
+           CLOSE TFILES-FILE
+
+           GOBACK.
+
+       END PROGRAM PC-REGISTER-FILES.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-LOAD-TOPIC IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The selected topic decides everything the agents may use: its system
+      *>   prompt and its Knowledge Base collection, and nothing else (R7).
+           MOVE "CUR-TOPIC" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           MOVE WS-SET-VALUE(1:16) TO WS-CUR-TOPIC
+           IF WS-CUR-TOPIC = SPACES
+               MOVE FUNCTION TRIM(T-NO-TOPIC) TO Lbl-Topic::Caption
+               EXIT PROGRAM
+           END-IF
+           OPEN I-O TOPICS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TOPICS-FILE
+               CLOSE TOPICS-FILE
+               OPEN I-O TOPICS-FILE
+           END-IF
+           MOVE WS-CUR-TOPIC TO TOP-ID
+           READ TOPICS-FILE
+               INVALID KEY
+                   MOVE SPACES TO WS-CUR-TOPIC
+                   MOVE FUNCTION TRIM(T-TOPIC-GONE) TO Lbl-Topic::Caption
+           END-READ
+           CLOSE TOPICS-FILE
+           IF WS-CUR-TOPIC = SPACES
+               EXIT PROGRAM
+           END-IF
+           MOVE TOP-NAME TO Lbl-Topic::Caption
+           MOVE TOP-PROMPT TO WS-TOPIC-PROMPT
+           MOVE WS-CUR-TOPIC TO KB-1::Collection
+           CALL "PC-REGISTER-FILES"
+      *>   What the agents can draw on for this topic: its documents and the
+      *>   data files that registered. None, and PC-ELECT tells the
+      *>   orchestrator to say so rather than guess.
+           MOVE KB-1::ListDocuments() TO WS-SOURCES
+           ADD WS-REG-COUNT TO WS-SOURCES
+           CALL "PC-ELECT"
+
+           GOBACK.
+
+       END PROGRAM PC-LOAD-TOPIC.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-COUNT-SOURCES IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The topic's sources counted again, before each question. They were
+      *>   counted only when the topic loaded, so a document uploaded while
+      *>   the chat was open left the orchestrator told "this topic has no
+      *>   documents - say so", and it did (operator, 2026-09-27: "not
+      *>   provided the internal documents", with the policy in the index).
+      *>   When the count crosses zero, either way, the agents' instructions
+      *>   are set again.
+           MOVE WS-SOURCES TO WS-SOURCES-WAS
+           MOVE KB-1::ListDocuments() TO WS-SOURCES
+           ADD WS-REG-COUNT TO WS-SOURCES
+           IF WS-SOURCES-WAS = 0
+               IF WS-SOURCES > 0
+                   CALL "PC-ELECT"
+               END-IF
+           ELSE
+               IF WS-SOURCES = 0
+                   CALL "PC-ELECT"
+               END-IF
+           END-IF
+
+           GOBACK.
+
+       END PROGRAM PC-COUNT-SOURCES.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-ASK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-FROM (1-3) and WS-PROMPT in: that agent's question goes out.
+           EVALUATE WS-FROM
+               WHEN 1
+                   MOVE AGENT-1::Ask(FUNCTION TRIM(WS-PROMPT)) TO WS-OK
+               WHEN 2
+                   MOVE AGENT-2::Ask(FUNCTION TRIM(WS-PROMPT)) TO WS-OK
+               WHEN 3
+                   MOVE AGENT-3::Ask(FUNCTION TRIM(WS-PROMPT)) TO WS-OK
+           END-EVALUATE
+
+           GOBACK.
+
+       END PROGRAM PC-ASK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-ADD-TOKENS IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-T-IN, WS-T-OUT in: one request's tokens, added to the
+      *>   conversation - every agent's requests count (R42).
+           OPEN I-O CONVS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT CONVS-FILE
+               CLOSE CONVS-FILE
+               OPEN I-O CONVS-FILE
+           END-IF
+           MOVE WS-CUR-CONV TO CNV-ID
+           READ CONVS-FILE
+               INVALID KEY CONTINUE
+               NOT INVALID KEY
+                   ADD WS-T-IN TO CNV-IN-TOKENS
+                   ADD WS-T-OUT TO CNV-OUT-TOKENS
+                   MOVE WS-SEQ TO CNV-TURNS
+                   REWRITE CONV-REC
+                   END-REWRITE
+                   COMMIT
+           END-READ
+           CLOSE CONVS-FILE
+
+           GOBACK.
+
+       END PROGRAM PC-ADD-TOKENS.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-IS-FORMATTED IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-MSG in: is it a presentation rather than a reply? HTML blocks
+      *>   (WS-FMT-HTML too), a Markdown table or a fenced block - or, when
+      *>   WS-SHOW-ANSWER says it answers the question in hand, a question
+      *>   that asked for a table, Markdown or HTML.
+           MOVE "N" TO WS-FORMATTED WS-FMT-HTML
+           MOVE 0 TO WS-FMT-T
+           INSPECT WS-MSG TALLYING WS-FMT-T FOR ALL "<table" ALL "<TABLE"
+               ALL "<html" ALL "<HTML" ALL "<div" ALL "<h1" ALL "<h2" ALL "<ul"
+           IF WS-FMT-T > 0
+               MOVE "Y" TO WS-FORMATTED
+      *>       HTML only when the answer IS HTML - it starts with a tag. A
+      *>       Markdown answer that shows a page inside a fenced block stays
+      *>       Markdown, or the HTML reader takes the page apart (operator,
+      *>       2026-09-27: "fenced blocks break the conversation").
+               PERFORM VARYING WS-FMT-T FROM 1 BY 1
+                   UNTIL WS-FMT-T > 200
+                      OR (WS-MSG(WS-FMT-T:1) NOT = SPACE
+                          AND WS-MSG(WS-FMT-T:1) NOT = X"0A"
+                          AND WS-MSG(WS-FMT-T:1) NOT = X"0D"
+                          AND WS-MSG(WS-FMT-T:1) NOT = X"09")
+               END-PERFORM
+               IF WS-FMT-T NOT > 200
+                   IF WS-MSG(WS-FMT-T:1) = "<"
+                       MOVE "Y" TO WS-FMT-HTML
+                   END-IF
+               END-IF
+               EXIT PROGRAM
+           END-IF
+           INSPECT WS-MSG TALLYING WS-FMT-T FOR ALL "|---" ALL "| ---"
+               ALL "|:--" ALL "```"
+           IF WS-FMT-T > 0
+               MOVE "Y" TO WS-FORMATTED
+               EXIT PROGRAM
+           END-IF
+           IF WS-SHOW-ANSWER = "Y"
+               MOVE FUNCTION LOWER-CASE(WS-QUESTION) TO WS-LOWQ
+      *>       " table" with its space: "acceptable" and "notable" are not
+      *>       asking for one; the same for the CJK words, not a bare 表.
+               INSPECT WS-LOWQ TALLYING WS-FMT-T FOR ALL "tabela" ALL " table"
+                   ALL "tabla" ALL "markdown" ALL "html" ALL "表格" ALL "テーブル"
+                   ALL "表を"
+               IF WS-FMT-T > 0
+                   MOVE "Y" TO WS-FORMATTED
+               END-IF
+           END-IF
+
+           GOBACK.
+
+       END PROGRAM PC-IS-FORMATTED.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-APPEND-FORMATTED IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-MSG in, a presentation (PC-IS-FORMATTED): straight into the
+      *>   conversation, no bubble. HTML is rendered as HTML. Markdown is
+      *>   rendered as Markdown - except a page inside it, fenced (```html)
+      *>   or written straight in (<!DOCTYPE, <html, <style), which is
+      *>   rendered as the page it is instead of shown as code (operator,
+      *>   2026-09-27 and 09-28). The text around each page stays Markdown,
+      *>   in order.
+      *>   An answer that starts with a tag is HTML - unless it goes on after
+      *>   its page's </html> (a closing fence, an explanation): then the page
+      *>   is cut out below like any other, or everything after </html> is
+      *>   shown as text (operator, 2026-09-28: "/html>" and "```" leaked).
+           IF WS-FMT-HTML = "Y"
+               MOVE 0 TO WS-FB
+               INSPECT WS-MSG TALLYING WS-FB
+                   FOR CHARACTERS BEFORE INITIAL "</html>"
+               IF WS-FB NOT < 64100
+                   MOVE 0 TO WS-FB
+                   INSPECT WS-MSG TALLYING WS-FB
+                       FOR CHARACTERS BEFORE INITIAL "</HTML>"
+               END-IF
+               COMPUTE WS-BS = WS-FB + 8
+               IF WS-FB NOT < 64093
+                   MOVE Vwr-Chat::AppendHtml(FUNCTION TRIM(WS-MSG)) TO WS-OK
+                   EXIT PROGRAM
+               END-IF
+               IF WS-MSG(WS-BS:) = SPACES
+                   MOVE Vwr-Chat::AppendHtml(FUNCTION TRIM(WS-MSG)) TO WS-OK
+                   EXIT PROGRAM
+               END-IF
+           END-IF
+           MOVE 1 TO WS-FP
+           PERFORM UNTIL WS-FP > 64100
+      *>       The next page in what is left: a ```html fence, or a page
+      *>       written straight into the answer - <!DOCTYPE, <html or
+      *>       <style. Markdown reads such a page only up to its first blank
+      *>       line and shows the indented rest as code (operator,
+      *>       2026-09-28: "it showed the generated code"), so it is cut out
+      *>       and rendered as HTML here. The nearest one wins.
+               COMPUTE WS-REST = 64100 - WS-FP + 1
+               MOVE WS-REST TO WS-FA
+               MOVE SPACE TO WS-FKIND
+               MOVE 0 TO WS-FC
+               INSPECT WS-MSG(WS-FP:) TALLYING WS-FC
+                   FOR CHARACTERS BEFORE INITIAL "```html"
+               IF WS-FC < WS-FA
+                   MOVE WS-FC TO WS-FA
+                   MOVE "F" TO WS-FKIND
+               END-IF
+               MOVE 0 TO WS-FC
+               INSPECT WS-MSG(WS-FP:) TALLYING WS-FC
+                   FOR CHARACTERS BEFORE INITIAL "<!DOCTYPE"
+               IF WS-FC < WS-FA
+                   MOVE WS-FC TO WS-FA
+                   MOVE "R" TO WS-FKIND
+               END-IF
+               MOVE 0 TO WS-FC
+               INSPECT WS-MSG(WS-FP:) TALLYING WS-FC
+                   FOR CHARACTERS BEFORE INITIAL "<!doctype"
+               IF WS-FC < WS-FA
+                   MOVE WS-FC TO WS-FA
+                   MOVE "R" TO WS-FKIND
+               END-IF
+               MOVE 0 TO WS-FC
+               INSPECT WS-MSG(WS-FP:) TALLYING WS-FC
+                   FOR CHARACTERS BEFORE INITIAL "<html"
+               IF WS-FC < WS-FA
+                   MOVE WS-FC TO WS-FA
+                   MOVE "R" TO WS-FKIND
+               END-IF
+               MOVE 0 TO WS-FC
+               INSPECT WS-MSG(WS-FP:) TALLYING WS-FC
+                   FOR CHARACTERS BEFORE INITIAL "<style"
+               IF WS-FC < WS-FA
+                   MOVE WS-FC TO WS-FA
+                   MOVE "R" TO WS-FKIND
+               END-IF
+      *>       No page left: the rest is Markdown.
+               IF WS-FKIND = SPACE
+                   IF WS-MSG(WS-FP:) NOT = SPACES
+                       MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG(WS-FP:)))
+                           TO WS-OK
+                   END-IF
+                   EXIT PERFORM
+               END-IF
+      *>       A page written straight in may still sit inside a fence the
+      *>       model opened as "```" or "```HTML": an odd count of "```" in
+      *>       the Markdown before it. That opening fence is cut off here and
+      *>       its closing one skipped after the page, or Markdown shows them.
+               MOVE WS-FA TO WS-FQ
+               MOVE "N" TO WS-FSTRIP
+               IF WS-FKIND = "R" AND WS-FA > 2
+                   MOVE 0 TO WS-FC
+                   INSPECT WS-MSG(WS-FP:WS-FA) TALLYING WS-FC FOR ALL "```"
+                   IF FUNCTION MOD(WS-FC, 2) = 1
+                       COMPUTE WS-FQ = WS-FA - 3
+                       PERFORM UNTIL WS-FQ = 0
+                               OR WS-MSG(WS-FP + WS-FQ:3) = "```"
+                           SUBTRACT 1 FROM WS-FQ
+                       END-PERFORM
+                       IF WS-MSG(WS-FP + WS-FQ:3) = "```"
+                           MOVE "Y" TO WS-FSTRIP
+                       ELSE
+                           MOVE WS-FA TO WS-FQ
+                       END-IF
+                   END-IF
+               END-IF
+               IF WS-FQ > 0
+                   IF WS-MSG(WS-FP:WS-FQ) NOT = SPACES
+                       MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG(WS-FP:WS-FQ)))
+                           TO WS-OK
+                   END-IF
+               END-IF
+               IF WS-FKIND = "F"
+      *>           A fence: from past "```html" to the closing fence (or the
+      *>           end of the answer, when the model left it open).
+                   COMPUTE WS-BS = WS-FP + WS-FA + 7
+                   IF WS-BS > 64100
+                       EXIT PERFORM
+                   END-IF
+                   MOVE 0 TO WS-FB
+                   INSPECT WS-MSG(WS-BS:) TALLYING WS-FB
+                       FOR CHARACTERS BEFORE INITIAL "```"
+                   MOVE 3 TO WS-FC
+               ELSE
+      *>           A page in the answer: to its </html>, or to the end.
+                   COMPUTE WS-BS = WS-FP + WS-FA
+                   COMPUTE WS-REST = 64100 - WS-BS + 1
+                   MOVE 0 TO WS-FB
+                   INSPECT WS-MSG(WS-BS:) TALLYING WS-FB
+                       FOR CHARACTERS BEFORE INITIAL "</html>"
+                   IF WS-FB NOT < WS-REST
+                       MOVE 0 TO WS-FB
+                       INSPECT WS-MSG(WS-BS:) TALLYING WS-FB
+                           FOR CHARACTERS BEFORE INITIAL "</HTML>"
+                   END-IF
+                   IF WS-FB < WS-REST
+                       ADD 7 TO WS-FB
+                   END-IF
+                   MOVE 0 TO WS-FC
+               END-IF
+               IF WS-FB > 0
+                   IF WS-MSG(WS-BS:WS-FB) NOT = SPACES
+                       MOVE Vwr-Chat::AppendHtml(FUNCTION TRIM(WS-MSG(WS-BS:WS-FB)))
+                           TO WS-OK
+                   END-IF
+               END-IF
+               COMPUTE WS-FP = WS-BS + WS-FB + WS-FC
+      *>       ...and the fence the page sat in is closed right after it: a
+      *>       bare "```" straight after a page written in is that fence's
+      *>       end, whether or not its opening was in this answer.
+               IF WS-FKIND = "R"
+                   MOVE WS-FP TO WS-FQ
+                   PERFORM UNTIL WS-FQ > 64097
+                           OR (WS-MSG(WS-FQ:1) NOT = SPACE
+                               AND WS-MSG(WS-FQ:1) NOT = X"0A"
+                               AND WS-MSG(WS-FQ:1) NOT = X"0D")
+                       ADD 1 TO WS-FQ
+                   END-PERFORM
+                   IF WS-FQ NOT > 64097
+                       IF WS-MSG(WS-FQ:3) = "```"
+                          AND (WS-FSTRIP = "Y"
+                               OR WS-MSG(WS-FQ + 3:1) = SPACE
+                               OR WS-MSG(WS-FQ + 3:1) = X"0A"
+                               OR WS-MSG(WS-FQ + 3:1) = X"0D")
+                           COMPUTE WS-FP = WS-FQ + 3
+                       END-IF
+                   END-IF
+               END-IF
+           END-PERFORM
+
+           GOBACK.
+
+       END PROGRAM PC-APPEND-FORMATTED.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-SAY-STATUS IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-STATUS-TEXT in: shown in the status bubble, in italics - made
+      *>   the first time, changed in place after that.
+           MOVE SPACES TO WS-MSG
+           STRING "*" FUNCTION TRIM(WS-STATUS-TEXT) "*"
+               DELIMITED BY SIZE INTO WS-MSG
+           IF WS-STATUS-ID = SPACES
+               MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "agent")
+                   TO WS-STATUS-ID
+           ELSE
+               MOVE Vwr-Chat::ReplaceMessage(FUNCTION TRIM(WS-STATUS-ID),
+                   FUNCTION TRIM(WS-MSG), "Markdown") TO WS-OK
+           END-IF
+           MOVE Vwr-Chat::JumpToLatest() TO WS-OK
+
+           GOBACK.
+
+       END PROGRAM PC-SAY-STATUS.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-SHOW-AGENT IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-MSG in: the agent's message - the answer, or what went wrong.
+      *>   It takes the status bubble's place, so the bubble becomes it -
+      *>   unless it is a presentation, which goes straight into the
+      *>   conversation, full width, with no bubble.
+           CALL "PC-IS-FORMATTED"
+           MOVE "N" TO WS-SHOW-ANSWER
+           IF WS-FORMATTED = "Y"
+               IF WS-STATUS-ID NOT = SPACES
+                   MOVE Vwr-Chat::RemoveMessage(FUNCTION TRIM(WS-STATUS-ID)) TO WS-OK
+                   MOVE SPACES TO WS-STATUS-ID
+               END-IF
+               CALL "PC-APPEND-FORMATTED"
+               MOVE Vwr-Chat::JumpToLatest() TO WS-OK
+               EXIT PROGRAM
+           END-IF
+           IF WS-STATUS-ID = SPACES
+               MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-MSG), "agent") TO WS-OK
+           ELSE
+               MOVE Vwr-Chat::ReplaceMessage(FUNCTION TRIM(WS-STATUS-ID),
+                   FUNCTION TRIM(WS-MSG), "Markdown") TO WS-OK
+               MOVE SPACES TO WS-STATUS-ID
+           END-IF
+           MOVE Vwr-Chat::JumpToLatest() TO WS-OK
+
+           GOBACK.
+
+       END PROGRAM PC-SHOW-AGENT.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-TOOL-USE IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-TOOL-KIND in: an agent is using a tool the runtime answers -
+      *>   the Knowledge Base, or a registered data file.
+           IF WS-STAGE = "IDLE"
+               EXIT PROGRAM
+           END-IF
+           EVALUATE WS-TOOL-KIND
+               WHEN "KnowledgeBase" MOVE T-ST-SEARCH-KB TO WS-STATUS-TEXT
+               WHEN "IndexedFile" MOVE T-ST-READ-DATA TO WS-STATUS-TEXT
+               WHEN OTHER EXIT PROGRAM
+           END-EVALUATE
+           CALL "PC-SAY-STATUS"
+
+           GOBACK.
+
+       END PROGRAM PC-TOOL-USE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-FINISH IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-REPLY in: the answer the user sees, kept as the next turn.
+           MOVE "IDLE" TO WS-STAGE
+           CALL "PC-SAVE-TEMPLATE"
+           MOVE WS-REPLY TO WS-MSG
+           CALL "PC-DROP-MARKER"
+           MOVE WS-MSG TO WS-REPLY
+           MOVE "Y" TO WS-SHOW-ANSWER
+           CALL "PC-SHOW-AGENT"
+           MOVE "A" TO WS-ROLE
+           MOVE WS-REPLY TO WS-TEXT
+           CALL "PC-SAVE-TURN"
+           CALL "PC-STATUS"
+
+           GOBACK.
+
+       END PROGRAM PC-FINISH.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-DROP-MARKER IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-MSG in and out: an answer that opens with a "TEMPLATE: name"
+      *>   line, and goes on after it, loses that line. The line is how the
+      *>   model chooses a template; a model that repeats it over the report
+      *>   it then writes had it shown, and printed in the PDF, above the page
+      *>   (operator, 2026-09-29).
+           MOVE 1 TO WS-FP
+           PERFORM UNTIL WS-FP > 200
+                   OR (WS-MSG(WS-FP:1) NOT = SPACE
+                       AND WS-MSG(WS-FP:1) NOT = X"0A"
+                       AND WS-MSG(WS-FP:1) NOT = X"0D")
+               ADD 1 TO WS-FP
+           END-PERFORM
+           IF WS-FP > 200
+               EXIT PROGRAM
+           END-IF
+           IF FUNCTION UPPER-CASE(WS-MSG(WS-FP:9)) NOT = "TEMPLATE:"
+               EXIT PROGRAM
+           END-IF
+           MOVE 0 TO WS-FB
+           INSPECT WS-MSG(WS-FP:) TALLYING WS-FB FOR CHARACTERS BEFORE INITIAL X"0A"
+           COMPUTE WS-FA = WS-FP + WS-FB + 1
+           IF WS-FA > 64000
+               EXIT PROGRAM
+           END-IF
+           IF WS-MSG(WS-FA:) = SPACES
+               EXIT PROGRAM
+           END-IF
+           MOVE WS-MSG(WS-FA:) TO WS-TEXT
+           MOVE FUNCTION TRIM(WS-TEXT) TO WS-MSG
+
+           GOBACK.
+
+       END PROGRAM PC-DROP-MARKER.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-DISPATCH IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The orchestrator's plan in WS-REPLY: its TASK: lines go to the other
+      *>   agents, all at once (R58, R59). The tool worker takes the first.
+      *>   A plan that starts ASK: is a question for the user instead - which
+      *>   report template to use - shown as the answer.
+           MOVE 1 TO WS-FP
+           PERFORM UNTIL WS-FP > 200
+                   OR (WS-REPLY(WS-FP:1) NOT = SPACE
+                       AND WS-REPLY(WS-FP:1) NOT = X"0A"
+                       AND WS-REPLY(WS-FP:1) NOT = X"0D")
+               ADD 1 TO WS-FP
+           END-PERFORM
+           IF WS-FP NOT > 200
+               IF FUNCTION UPPER-CASE(WS-REPLY(WS-FP:4)) = "ASK:"
+                   MOVE WS-REPLY(WS-FP + 4:) TO WS-TEXT
+                   MOVE FUNCTION TRIM(WS-TEXT) TO WS-REPLY
+                   CALL "PC-FINISH"
+                   EXIT PROGRAM
+               END-IF
+           END-IF
+           MOVE 0 TO WS-TASK-COUNT
+           MOVE SPACES TO WS-LINES
+           UNSTRING WS-REPLY DELIMITED BY X"0A"
+               INTO WS-L(1) WS-L(2) WS-L(3) WS-L(4) WS-L(5) WS-L(6)
+           END-UNSTRING
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 6
+               IF WS-TASK-COUNT < 3
+                   MOVE FUNCTION TRIM(WS-L(WS-I)) TO WS-L(WS-I)
+      *>           A "TEMPLATE: name" line: the template the report takes.
+                   IF FUNCTION UPPER-CASE(WS-L(WS-I)(1:9)) = "TEMPLATE:"
+                       MOVE WS-L(WS-I)(10:) TO WS-TPL-NAME
+                       CALL "PC-TPL-FIND"
+                       MOVE "Y" TO WS-TPL-DONE
+                   END-IF
+                   IF FUNCTION UPPER-CASE(WS-L(WS-I)(1:5)) = "TASK:"
+                       ADD 1 TO WS-TASK-COUNT
+                       MOVE FUNCTION TRIM(WS-L(WS-I)(6:495))
+                           TO WS-TASK(WS-TASK-COUNT)
+                   END-IF
+               END-IF
+           END-PERFORM
+           IF WS-TASK-COUNT = 0
+               MOVE 1 TO WS-TASK-COUNT
+               MOVE WS-QUESTION TO WS-TASK(1)
+           END-IF
+      *>   Round-robin over the agents that are not orchestrating, the tool
+      *>   worker first.
+           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               MOVE SPACES TO WS-AG-TASK(WS-A) WS-AG-RESULT(WS-A)
+               MOVE "N" TO WS-AG-WAIT(WS-A)
+           END-PERFORM
+           MOVE WS-WORKER TO WS-B
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-TASK-COUNT
+               PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+                   IF WS-B = 0 OR WS-B = WS-ORCH OR WS-AG-ENTRY(WS-B) = SPACES
+                       ADD 1 TO WS-B
+                       IF WS-B > 3
+                           MOVE 1 TO WS-B
+                       END-IF
+                   END-IF
+               END-PERFORM
+               STRING FUNCTION TRIM(WS-AG-TASK(WS-B)) " - " FUNCTION TRIM(WS-TASK(WS-I))
+                   DELIMITED BY SIZE INTO WS-AG-TASK(WS-B)
+               ADD 1 TO WS-B
+               IF WS-B > 3
+                   MOVE 1 TO WS-B
+               END-IF
+           END-PERFORM
+           MOVE 0 TO WS-PENDING
+           MOVE "WORK" TO WS-STAGE
+           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               IF WS-AG-TASK(WS-A) NOT = SPACES
+                   ADD 1 TO WS-PENDING
+                   MOVE "Y" TO WS-AG-WAIT(WS-A)
+               END-IF
+           END-PERFORM
+           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               IF WS-AG-WAIT(WS-A) = "Y"
+      *>           The main prompt's TASK section, the task filled in.
+                   MOVE "TASK" TO WS-SEC-NAME
+                   CALL "PC-SECTION"
+                   MOVE "{TASK}" TO WS-TOKEN
+                   MOVE WS-AG-TASK(WS-A) TO WS-INS
+                   IF WS-INS(1:3) = " - "
+                       MOVE WS-AG-TASK(WS-A)(4:) TO WS-INS
+                   END-IF
+                   CALL "PC-FILL"
+                   MOVE SPACES TO WS-PROMPT
+                   MOVE WS-SEC TO WS-PROMPT
+                   MOVE WS-A TO WS-FROM
+                   CALL "PC-ASK"
+               END-IF
+           END-PERFORM
+           MOVE T-WORKING TO WS-FMT
+           MOVE WS-TASK-COUNT TO WS-ARG1
+           MOVE WS-PENDING TO WS-ARG2
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+           MOVE WS-FMT-OUT TO WS-STATUS-TEXT
+           CALL "PC-SAY-STATUS"
+
+           GOBACK.
+
+       END PROGRAM PC-DISPATCH.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-COMPOSE IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Every task has reported (R60): the orchestrator answers from the
+      *>   results, as the main prompt's COMPOSE section says - and from the
+      *>   chosen template, with its TEMPLATE section. No agent answers the
+      *>   user directly (R61).
+           MOVE SPACES TO WS-INS
+           MOVE 1 TO WS-SX-B
+           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               IF WS-AG-TASK(WS-A) NOT = SPACES
+                   STRING "- On" FUNCTION TRIM(WS-AG-TASK(WS-A)) ": "
+                          FUNCTION TRIM(WS-AG-RESULT(WS-A)) X"0A"
+                       DELIMITED BY SIZE INTO WS-INS WITH POINTER WS-SX-B
+                   END-STRING
+               END-IF
+           END-PERFORM
+           MOVE "COMPOSE" TO WS-SEC-NAME
+           CALL "PC-SECTION"
+           MOVE "{RESULTS}" TO WS-TOKEN
+           CALL "PC-FILL"
+           MOVE SPACES TO WS-PROMPT
+           MOVE 1 TO WS-PTR
+           STRING FUNCTION TRIM(WS-HISTORY) X"0A" X"0A" FUNCTION TRIM(WS-SEC)
+               DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
+           END-STRING
+           IF WS-TPL-SKEL NOT = SPACES
+               CALL "PC-TEMPLATE-TEXT"
+               STRING X"0A" X"0A" FUNCTION TRIM(WS-SEC)
+                   DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
+               END-STRING
+           END-IF
+           MOVE "COMPOSE" TO WS-STAGE
+           MOVE WS-ORCH TO WS-FROM
+           CALL "PC-ASK"
+           MOVE T-ST-COMPOSING TO WS-STATUS-TEXT
+           CALL "PC-SAY-STATUS"
+
+           GOBACK.
+
+       END PROGRAM PC-COMPOSE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-ON-REPLY IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-FROM, WS-REPLY, WS-T-IN, WS-T-OUT in: an agent answered.
+           CALL "PC-ADD-TOKENS"
+      *>   "TEMPLATE: name" from the orchestrator: the user chose a report
+      *>   template. Its skeleton goes back with the main prompt's TEMPLATE
+      *>   section, and the same stage answers again - once per question.
+           IF (WS-STAGE = "SINGLE" OR WS-STAGE = "COMPOSE")
+                   AND WS-TPL-DONE NOT = "Y"
+               CALL "PC-TPL-LINE"
+               IF WS-TPL-SKEL NOT = SPACES
+                   MOVE "Y" TO WS-TPL-DONE
+                   IF WS-STAGE = "COMPOSE"
+                       CALL "PC-COMPOSE"
+                   ELSE
+                       CALL "PC-TEMPLATE-TEXT"
+                       MOVE SPACES TO WS-PROMPT
+                       MOVE 1 TO WS-PTR
+                       STRING FUNCTION TRIM(WS-HISTORY) X"0A" X"0A"
+                              FUNCTION TRIM(WS-SEC)
+                           DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
+                       END-STRING
+                       CALL "PC-ASK"
+                   END-IF
+                   EXIT PROGRAM
+               END-IF
+           END-IF
+           EVALUATE WS-STAGE
+               WHEN "SINGLE"
+               WHEN "COMPOSE"
+                   CALL "PC-FINISH"
+               WHEN "PLAN"
+                   CALL "PC-DISPATCH"
+               WHEN "WORK"
+                   IF WS-AG-WAIT(WS-FROM) = "Y"
+                       MOVE "N" TO WS-AG-WAIT(WS-FROM)
+                       MOVE WS-REPLY TO WS-AG-RESULT(WS-FROM)
+                       SUBTRACT 1 FROM WS-PENDING
+                       IF WS-PENDING = 0
+                           CALL "PC-COMPOSE"
+                       END-IF
+                   END-IF
+               WHEN OTHER
+                   CONTINUE
+           END-EVALUATE
+
+           GOBACK.
+
+       END PROGRAM PC-ON-REPLY.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-PICK-TOPIC IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   New conversation: the user chooses its topic first (operator,
+      *>   2026-09-27). The topics go to PICK-FORM by name, the current one
+      *>   preselected; the one chosen becomes the current topic and a fresh
+      *>   conversation starts in it. Cancel changes nothing.
+           MOVE 0 TO WS-PICK-COUNT WS-PICK-SEL
+           MOVE SPACES TO WS-PICK-LIST
+           MOVE 1 TO WS-PICK-PTR
+           OPEN I-O TOPICS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TOPICS-FILE
+               CLOSE TOPICS-FILE
+               OPEN I-O TOPICS-FILE
+           END-IF
+           MOVE LOW-VALUES TO TOP-ID
+           MOVE "N" TO WS-EOF
+           START TOPICS-FILE KEY IS >= TOP-ID
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y" OR WS-PICK-COUNT = 200
+               READ TOPICS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       ADD 1 TO WS-PICK-COUNT
+                       MOVE TOP-ID TO WS-PICK-ID(WS-PICK-COUNT)
+                       IF TOP-ID = WS-CUR-TOPIC
+                           COMPUTE WS-PICK-SEL = WS-PICK-COUNT - 1
+                       END-IF
+                       IF WS-PICK-COUNT > 1
+                           STRING X"0A" DELIMITED BY SIZE
+                               INTO WS-PICK-LIST WITH POINTER WS-PICK-PTR
+                           END-STRING
+                       END-IF
+                       STRING FUNCTION TRIM(TOP-NAME) DELIMITED BY SIZE
+                           INTO WS-PICK-LIST WITH POINTER WS-PICK-PTR
+                       END-STRING
+               END-READ
+           END-PERFORM
+           CLOSE TOPICS-FILE
+           IF WS-PICK-COUNT = 0
+               MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(T-OPEN-TOPIC-MENU)) TO WS-OK
+               EXIT PROGRAM
+           END-IF
+           INVOKE ME::"SetProperty"("PickTitle", T-PICK-TOPIC)
+           INVOKE ME::"SetProperty"("PickOk", T-PICK-START)
+           INVOKE ME::"SetProperty"("PickCancel", T-PICK-CANCEL)
+           INVOKE ME::"SetProperty"("PickItems", WS-PICK-LIST)
+           INVOKE ME::"SetProperty"("PickSelected", WS-PICK-SEL)
+           INVOKE ME::"SetProperty"("PickAnswer", "0")
+           INVOKE ME::"OpenFormSync"("PICK-FORM")
+           INVOKE ME::"GetProperty"("PickAnswer") RETURNING WS-PICK-ANSWER
+           MOVE FUNCTION NUMVAL(WS-PICK-ANSWER) TO WS-PICK-N
+           IF WS-PICK-N < 1 OR WS-PICK-N > WS-PICK-COUNT
+               EXIT PROGRAM
+           END-IF
+           MOVE "CUR-TOPIC" TO WS-SET-NAME
+           MOVE WS-PICK-ID(WS-PICK-N) TO WS-SET-VALUE
+           CALL "PC-SETTING-PUT"
+           CALL "PC-LOAD-TOPIC"
+           CALL "PC-NEW-CONV"
+           CALL "PC-LIST-CONVS"
+      *>   The topic is chosen: show the chat, wherever the user was - what a
+      *>   click on the Chat row does (operator, 2026-09-27).
+           MOVE SideMenu-1::ActivateItem("chat") TO WS-ITEM
+
+           GOBACK.
+
+       END PROGRAM PC-PICK-TOPIC.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-NEW-CONV IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE SPACES TO WS-CUR-CONV
+           MOVE 0 TO WS-SEQ
+           MOVE Vwr-Chat::NewConversation() TO WS-OK
+
+           GOBACK.
+
+       END PROGRAM PC-NEW-CONV.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-LIST-CONVS IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The topic's conversations as run-time rows, newest first (R39).
+           MOVE 0 TO WS-CONV-COUNT
+           OPEN I-O CONVS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT CONVS-FILE
+               CLOSE CONVS-FILE
+               OPEN I-O CONVS-FILE
+           END-IF
+           MOVE WS-CUR-TOPIC TO CNV-TOPIC
+           MOVE "N" TO WS-EOF
+           START CONVS-FILE KEY IS = CNV-TOPIC
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ CONVS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       IF CNV-TOPIC NOT = WS-CUR-TOPIC
+                           MOVE "Y" TO WS-EOF
+                       ELSE
+                           IF WS-CONV-COUNT < 50
+                               ADD 1 TO WS-CONV-COUNT
+                           ELSE
+                               PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 49
+                                   MOVE WS-CONV-ROW(WS-I + 1) TO WS-CONV-ROW(WS-I)
+                               END-PERFORM
+                           END-IF
+                           MOVE CNV-ID TO WS-CL-ID(WS-CONV-COUNT)
+                           MOVE CNV-TITLE TO WS-CL-TITLE(WS-CONV-COUNT)
+                       END-IF
+               END-READ
+           END-PERFORM
+           CLOSE CONVS-FILE
+           MOVE SideMenu-1::Clear() TO WS-OK
+      *>   The menu's own rows are designed (SideMenu-1.menu.yaml), so the
+      *>   designer and the preview show them; their labels follow the
+      *>   language here. Clear() keeps these labels - it takes only the
+      *>   conversation rows added below.
+           MOVE SideMenu-1::SetItemLabel("chat", FUNCTION TRIM(T-MENU-CHAT)) TO WS-OK
+           MOVE SideMenu-1::SetItemLabel("newc", FUNCTION TRIM(T-MENU-NEWC)) TO WS-OK
+           MOVE SideMenu-1::SetItemLabel("tpcs", FUNCTION TRIM(T-TOPICS-TITLE)) TO WS-OK
+           MOVE SideMenu-1::SetItemLabel("docs", FUNCTION TRIM(T-DOCS-TITLE)) TO WS-OK
+           MOVE SideMenu-1::SetItemLabel("fils", FUNCTION TRIM(T-FILES-TITLE)) TO WS-OK
+           MOVE SideMenu-1::SetItemLabel("prmt", FUNCTION TRIM(T-PROMPT-TITLE)) TO WS-OK
+           MOVE SideMenu-1::SetItemLabel("sett", FUNCTION TRIM(T-SETTINGS-TITLE)) TO WS-OK
+      *>   The welcome form's row is a run-time one, so Clear() took it:
+      *>   it comes back here, in the current language, and stays enabled.
+           MOVE SideMenu-1::AddItem("welc", FUNCTION TRIM(T-MENU-WELC),
+                "rocket", "", "open-form:welcome-form") TO WS-OK
+           IF WS-CONV-COUNT > 0
+               MOVE SideMenu-1::AddSection(FUNCTION TRIM(T-CONVERSATIONS)) TO WS-ITEM
+      *>       Row ids are "c" + the conversation id, apart from the menu's own.
+               PERFORM VARYING WS-I FROM WS-CONV-COUNT BY -1 UNTIL WS-I < 1
+                   MOVE SPACES TO WS-ROW-ID
+                   STRING "c" WS-CL-ID(WS-I) DELIMITED BY SIZE INTO WS-ROW-ID
+                   MOVE SideMenu-1::AddItem(WS-ROW-ID,
+                        FUNCTION TRIM(WS-CL-TITLE(WS-I)), "chat") TO WS-OK
+               END-PERFORM
+           END-IF
+
+           GOBACK.
+
+       END PROGRAM PC-LIST-CONVS.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-STATUS IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   This month's input and output tokens and conversations (R42).
+           MOVE FUNCTION CURRENT-DATE TO WS-NOW
+           MOVE WS-NOW(1:6) TO WS-MONTH
+           MOVE 0 TO WS-SUM-IN WS-SUM-OUT WS-SUM-CONVS
+           OPEN I-O CONVS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT CONVS-FILE
+               CLOSE CONVS-FILE
+               OPEN I-O CONVS-FILE
+           END-IF
+           MOVE LOW-VALUES TO CNV-ID
+           MOVE "N" TO WS-EOF
+           START CONVS-FILE KEY IS >= CNV-ID
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ CONVS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       IF CNV-CREATED(1:6) = WS-MONTH
+                           ADD 1 TO WS-SUM-CONVS
+                           ADD CNV-IN-TOKENS TO WS-SUM-IN
+                           ADD CNV-OUT-TOKENS TO WS-SUM-OUT
+                       END-IF
+               END-READ
+           END-PERFORM
+           CLOSE CONVS-FILE
+           MOVE WS-SUM-IN TO WS-E1
+           MOVE WS-SUM-OUT TO WS-E2
+           MOVE WS-SUM-CONVS TO WS-E3
+           MOVE T-THIS-MONTH TO WS-FMT
+           MOVE WS-E3 TO WS-ARG1
+           MOVE WS-E1 TO WS-ARG2
+           MOVE WS-E2 TO WS-ARG3
+           CALL "PC-FMT"
+           MOVE WS-FMT-OUT TO WS-LINE
+           IF WS-FAILED > 0
+               MOVE T-FILES-UNUSABLE TO WS-FMT
+               MOVE WS-FILE-NOTE TO WS-ARG1
+               CALL "PC-FMT"
+               MOVE WS-LINE TO WS-ARG4
+               MOVE SPACES TO WS-LINE
+               STRING FUNCTION TRIM(WS-ARG4) " " FUNCTION TRIM(WS-FMT-OUT)
+                   DELIMITED BY SIZE INTO WS-LINE
+           END-IF
+           IF WS-N-AGENTS > 1
+               MOVE T-ORCH-LINE TO WS-FMT
+               MOVE WS-ORCH TO WS-ARG1
+               MOVE WS-WORKER TO WS-ARG2
+               CALL "PC-FMT"
+               MOVE WS-LINE TO WS-ARG4
+               MOVE SPACES TO WS-LINE
+               STRING FUNCTION TRIM(WS-ARG4) " " FUNCTION TRIM(WS-FMT-OUT)
+                   DELIMITED BY SIZE INTO WS-LINE
+           END-IF
+           MOVE WS-LINE TO Lbl-Status::Caption
+
+           GOBACK.
+
+       END PROGRAM PC-STATUS.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-SAVE-TURN IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-ROLE ("U" or "A") and WS-TEXT in: the next turn of the current
+      *>   conversation, written and committed at once (R38, R10f).
+           ADD 1 TO WS-SEQ
+           OPEN I-O TURNS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TURNS-FILE
+               CLOSE TURNS-FILE
+               OPEN I-O TURNS-FILE
+           END-IF
+      *>   A turn longer than one record goes over several, in order: the
+      *>   first under its role ("U"/"A"), the rest under the same letter in
+      *>   lower case - "this continues the turn before it". A file written
+      *>   before holds no lower-case role, and reads exactly as it did.
+           MOVE WS-ROLE TO WS-PIECE-ROLE
+           MOVE 1 TO WS-PIECE-AT
+           PERFORM UNTIL WS-PIECE-AT > 64000
+               IF WS-PIECE-AT > 1
+                   IF WS-TEXT(WS-PIECE-AT:2000) = SPACES
+                       EXIT PERFORM
+                   END-IF
+                   ADD 1 TO WS-SEQ
+                   MOVE FUNCTION LOWER-CASE(WS-ROLE) TO WS-PIECE-ROLE
+               END-IF
+               MOVE WS-CUR-CONV TO TRN-CONV
+               MOVE WS-SEQ TO TRN-SEQ
+               MOVE WS-PIECE-ROLE TO TRN-ROLE
+               MOVE WS-TEXT(WS-PIECE-AT:2000) TO TRN-TEXT
+               WRITE TURN-REC
+                   INVALID KEY REWRITE TURN-REC
+               END-WRITE
+               ADD 2000 TO WS-PIECE-AT
+           END-PERFORM
+           COMMIT
+           CLOSE TURNS-FILE
+
+           GOBACK.
+
+       END PROGRAM PC-SAVE-TURN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-START-CONV IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A conversation is created by its first question, titled by it.
+           IF WS-CUR-CONV NOT = SPACES
+               EXIT PROGRAM
+           END-IF
+           MOVE FUNCTION CURRENT-DATE TO WS-NOW
+           MOVE WS-NOW(1:16) TO WS-CUR-CONV
+           MOVE 0 TO WS-SEQ
+           OPEN I-O CONVS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT CONVS-FILE
+               CLOSE CONVS-FILE
+               OPEN I-O CONVS-FILE
+           END-IF
+           MOVE WS-CUR-CONV TO CNV-ID
+           MOVE WS-CUR-TOPIC TO CNV-TOPIC
+           MOVE WS-QUESTION TO CNV-TITLE
+           MOVE WS-NOW(1:14) TO CNV-CREATED
+           MOVE 0 TO CNV-IN-TOKENS CNV-OUT-TOKENS CNV-TURNS
+           WRITE CONV-REC
+               INVALID KEY CONTINUE
+           END-WRITE
+           COMMIT
+           CLOSE CONVS-FILE
+           CALL "PC-LIST-CONVS"
+
+           GOBACK.
+
+       END PROGRAM PC-START-CONV.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-BUILD-PROMPT IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The last WS-HISTORY-TURNS turns of this conversation, oldest first,
+      *>   the current question last. Trimmed by turns, not tokens.
+           MOVE SPACES TO WS-PROMPT
+           MOVE 1 TO WS-PTR
+           IF WS-SEQ > WS-HISTORY-TURNS
+               COMPUTE WS-FIRST-SEQ = WS-SEQ - WS-HISTORY-TURNS + 1
+           ELSE
+               MOVE 1 TO WS-FIRST-SEQ
+           END-IF
+           OPEN I-O TURNS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TURNS-FILE
+               CLOSE TURNS-FILE
+               OPEN I-O TURNS-FILE
+           END-IF
+           MOVE WS-CUR-CONV TO TRN-CONV
+           MOVE WS-FIRST-SEQ TO TRN-SEQ
+           MOVE SPACE TO WS-JOIN-ROLE
+           MOVE "P" TO WS-JOIN-TO
+           MOVE "N" TO WS-EOF
+           START TURNS-FILE KEY IS >= TRN-KEY
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ TURNS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       IF TRN-CONV NOT = WS-CUR-CONV
+                           MOVE "Y" TO WS-EOF
+                       ELSE
+                           CALL "PC-JOIN-PIECE"
+                       END-IF
+               END-READ
+           END-PERFORM
+           CLOSE TURNS-FILE
+           MOVE "P" TO WS-JOIN-TO
+           CALL "PC-JOIN-FLUSH"
+
+           GOBACK.
+
+       END PROGRAM PC-BUILD-PROMPT.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-JOIN-PIECE IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   One TURNS-FILE record read: a continuation ("u"/"a") extends the
+      *>   turn in hand - one with no turn before it, left by a history
+      *>   window that starts mid-turn, is skipped; anything else ends the
+      *>   turn in hand (PC-JOIN-FLUSH) and starts the next.
+           IF TRN-ROLE = "u" OR TRN-ROLE = "a"
+               IF WS-JOIN-ROLE NOT = SPACE
+                   STRING TRN-TEXT DELIMITED BY SIZE
+                       INTO WS-JOIN WITH POINTER WS-JOIN-PT
+                   END-STRING
+               END-IF
+               EXIT PROGRAM
+           END-IF
+           CALL "PC-JOIN-FLUSH"
+           MOVE SPACES TO WS-JOIN
+           MOVE 1 TO WS-JOIN-PT
+           STRING TRN-TEXT DELIMITED BY SIZE
+               INTO WS-JOIN WITH POINTER WS-JOIN-PT
+           END-STRING
+           MOVE TRN-ROLE TO WS-JOIN-ROLE
+
+           GOBACK.
+
+       END PROGRAM PC-JOIN-PIECE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-JOIN-FLUSH IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The turn in hand, whole: into the prompt ("P") or the chat ("V").
+           IF WS-JOIN-ROLE = SPACE
+               EXIT PROGRAM
+           END-IF
+           IF WS-JOIN-TO = "P"
+               IF WS-JOIN-ROLE = "U"
+                   STRING "User: " FUNCTION TRIM(WS-JOIN) X"0A"
+                       DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
+                   END-STRING
+               ELSE
+                   STRING "Assistant: " FUNCTION TRIM(WS-JOIN) X"0A"
+                       DELIMITED BY SIZE INTO WS-PROMPT WITH POINTER WS-PTR
+                   END-STRING
+               END-IF
+           ELSE
+               IF WS-JOIN-ROLE = "U"
+                   MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-JOIN), "user") TO WS-OK
+               ELSE
+      *>           A presentation reopens as it was shown: in the stream.
+                   MOVE WS-JOIN TO WS-MSG
+                   CALL "PC-DROP-MARKER"
+                   MOVE "N" TO WS-SHOW-ANSWER
+                   CALL "PC-IS-FORMATTED"
+                   IF WS-FORMATTED = "Y"
+                       CALL "PC-APPEND-FORMATTED"
+                   ELSE
+                       MOVE Vwr-Chat::AppendMarkdown(FUNCTION TRIM(WS-JOIN), "agent") TO WS-OK
+                   END-IF
+               END-IF
+           END-IF
+           MOVE SPACE TO WS-JOIN-ROLE
+
+           GOBACK.
+
+       END PROGRAM PC-JOIN-FLUSH.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-OPEN-CONV IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-ITEM in: a conversation row from the sidebar ("c" + its id). Its turns go back
+      *>   into the chat, and the next question continues it (R40).
+           MOVE WS-ITEM(2:16) TO WS-CUR-CONV
+           MOVE 0 TO WS-SEQ
+           MOVE Vwr-Chat::NewConversation() TO WS-OK
+           OPEN I-O TURNS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TURNS-FILE
+               CLOSE TURNS-FILE
+               OPEN I-O TURNS-FILE
+           END-IF
+           MOVE WS-CUR-CONV TO TRN-CONV
+           MOVE 0 TO TRN-SEQ
+           MOVE SPACE TO WS-JOIN-ROLE
+           MOVE "V" TO WS-JOIN-TO
+           MOVE "N" TO WS-EOF
+           START TURNS-FILE KEY IS >= TRN-KEY
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ TURNS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       IF TRN-CONV NOT = WS-CUR-CONV
+                           MOVE "Y" TO WS-EOF
+                       ELSE
+                           MOVE TRN-SEQ TO WS-SEQ
+                           CALL "PC-JOIN-PIECE"
+                       END-IF
+               END-READ
+           END-PERFORM
+           CLOSE TURNS-FILE
+           MOVE "V" TO WS-JOIN-TO
+           CALL "PC-JOIN-FLUSH"
+
+           GOBACK.
+
+       END PROGRAM PC-OPEN-CONV.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-SHOW-CHAT IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Bring the chat into view. A conversation row and New conversation
+      *>   only raise onMenuItemClick: with Topics, Documents or the settings
+      *>   on the pane, the conversation loaded behind it and nothing seemed
+      *>   to happen (operator, 2026-09-28: "the history is listed, but the
+      *>   conversation does not load"). The Chat row's own action goes home.
+           MOVE SideMenu-1::ActivateItem("chat") TO WS-OK
+
+           GOBACK.
+
+       END PROGRAM PC-SHOW-CHAT.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-MENU-STATE IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Until one agent has a model, PowerChat can do nothing useful: the
+      *>   menu stays shut but for RAG settings, Getting started (the welcome
+      *>   form, which says what to do) and Chat, the way back home that
+      *>   opens it (item 1).
+           MOVE "N" TO WS-CONFIGURED
+           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               IF WS-AG-ENTRY(WS-A) NOT = SPACES
+                   MOVE "Y" TO WS-CONFIGURED
+               END-IF
+           END-PERFORM
+           IF WS-CONFIGURED = "Y"
+               MOVE "1" TO WS-OK
+           ELSE
+               MOVE "0" TO WS-OK
+           END-IF
+           MOVE SideMenu-1::SetItemEnabled("tpcs", WS-OK) TO WS-ITEM
+           MOVE SideMenu-1::SetItemEnabled("docs", WS-OK) TO WS-ITEM
+           MOVE SideMenu-1::SetItemEnabled("fils", WS-OK) TO WS-ITEM
+           MOVE SideMenu-1::SetItemEnabled("prmt", WS-OK) TO WS-ITEM
+      *>   Chat and New conversation need a topic to talk about as well: with
+      *>   none created they stay off, and Topics is where to make one. The
+      *>   Topics form calls PC-REFRESH after a save, so they come on at once.
+           MOVE "N" TO WS-HAS-TOPIC
+           OPEN I-O TOPICS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TOPICS-FILE
+               CLOSE TOPICS-FILE
+               OPEN I-O TOPICS-FILE
+           END-IF
+           MOVE LOW-VALUES TO TOP-ID
+           START TOPICS-FILE KEY IS >= TOP-ID
+               INVALID KEY CONTINUE
+               NOT INVALID KEY
+                   READ TOPICS-FILE NEXT RECORD
+                       AT END CONTINUE
+                       NOT AT END MOVE "Y" TO WS-HAS-TOPIC
+                   END-READ
+           END-START
+           CLOSE TOPICS-FILE
+           IF WS-HAS-TOPIC = "Y"
+               MOVE "1" TO WS-OK
+           ELSE
+               MOVE "0" TO WS-OK
+           END-IF
+           MOVE SideMenu-1::SetItemEnabled("chat", WS-OK) TO WS-ITEM
+      *>   A new conversation needs a model to answer in it, too.
+           IF WS-CONFIGURED NOT = "Y"
+               MOVE "0" TO WS-OK
+           END-IF
+           MOVE SideMenu-1::SetItemEnabled("newc", WS-OK) TO WS-ITEM
+
+           GOBACK.
+
+       END PROGRAM PC-MENU-STATE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-REFRESH IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Everything the other forms may have changed while the chat was out
+      *>   of sight: the models and agents, the topic, its files, the menu.
+           CALL "PC-HAND-MODELS"
+           MOVE WS-CUR-TOPIC TO WS-SHOWN-TOPIC
+           CALL "PC-LOAD-TOPIC"
+           IF WS-CUR-TOPIC NOT = WS-SHOWN-TOPIC AND WS-CUR-TOPIC NOT = SPACES
+               CALL "PC-NEW-CONV"
+           END-IF
+           IF WS-CUR-TOPIC = SPACES
+               CALL "PC-ELECT"
+           END-IF
+           CALL "PC-LIST-CONVS"
+           CALL "PC-MENU-STATE"
+           CALL "PC-STATUS"
+
+           GOBACK.
+
+       END PROGRAM PC-REFRESH.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-RELABEL IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Every text on this form in the language just picked: the designed
+      *>   ones, the menu, the status line, the topic heading when it is a
+      *>   message, and the open conversation's labels.
+           CALL "PC-TEXTS"
+           CALL "PC-LIST-CONVS"
+           IF WS-CUR-TOPIC = SPACES
+               CALL "PC-LOAD-TOPIC"
+           END-IF
+           IF WS-CUR-CONV NOT = SPACES
+               MOVE SPACES TO WS-ITEM
+               STRING "c" WS-CUR-CONV DELIMITED BY SIZE INTO WS-ITEM
+               CALL "PC-OPEN-CONV"
+           END-IF
+           CALL "PC-STATUS"
+
+           GOBACK.
+
+       END PROGRAM PC-RELABEL.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-TEXTS IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The language the user picked (LANG), the texts in it, and every
+      *>   designed caption and hint that shows one. Called on load and again
+      *>   whenever the language changes (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           MOVE WS-SET-VALUE(1:2) TO WS-LANG
+           EVALUATE WS-LANG
+               WHEN "en" MOVE 1 TO WS-LANG-IX
+               WHEN "pt" MOVE 2 TO WS-LANG-IX
+               WHEN "es" MOVE 3 TO WS-LANG-IX
+               WHEN "fr" MOVE 4 TO WS-LANG-IX
+               WHEN "jp" MOVE 5 TO WS-LANG-IX
+               WHEN "cn" MOVE 6 TO WS-LANG-IX
+               WHEN OTHER MOVE "en" TO WS-LANG
+                          MOVE 1 TO WS-LANG-IX
+           END-EVALUATE
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 35
+               MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
+           END-PERFORM
+           MOVE FUNCTION TRIM(T-HINT-ASK) TO Txt-Input::HintText
+           MOVE FUNCTION TRIM(T-SEND) TO Btn-Send::Caption
+           MOVE FUNCTION TRIM(T-SAVE-PDF) TO Btn-Pdf::Caption
+           MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
+
+           GOBACK.
+
+       END PROGRAM PC-TEXTS.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-FMT IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-PT              PIC 9(4).
+       01 WS-FROM            PIC 9(4).
+       01 WS-CNT             PIC 9(4).
+       01 WS-PART            PIC X(120).
+       01 WS-DELIM           PIC XX.
+       PROCEDURE DIVISION.
+      *>   A message whose words go round numbers and names differently in each
+      *>   language: WS-FMT holds "&1" .. "&4" where WS-ARG1..4 go.
+           MOVE SPACES TO WS-FMT-OUT
+           MOVE 1 TO WS-PT
+           MOVE 1 TO WS-FROM
+           PERFORM UNTIL WS-FROM > FUNCTION LENGTH(WS-FMT)
+               MOVE SPACES TO WS-PART WS-DELIM
+               MOVE 0 TO WS-CNT
+               UNSTRING WS-FMT DELIMITED BY "&1" OR "&2" OR "&3" OR "&4"
+                   INTO WS-PART DELIMITER IN WS-DELIM COUNT IN WS-CNT
+                   WITH POINTER WS-FROM
+               END-UNSTRING
+               IF WS-CNT > 0
+                   STRING WS-PART(1:WS-CNT) DELIMITED BY SIZE
+                       INTO WS-FMT-OUT WITH POINTER WS-PT
+               END-IF
+               EVALUATE WS-DELIM
+                   WHEN "&1" STRING FUNCTION TRIM(WS-ARG1) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&2" STRING FUNCTION TRIM(WS-ARG2) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&3" STRING FUNCTION TRIM(WS-ARG3) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&4" STRING FUNCTION TRIM(WS-ARG4) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN OTHER COMPUTE WS-FROM = FUNCTION LENGTH(WS-FMT) + 1
+               END-EVALUATE
+           END-PERFORM
+
+           GOBACK.
+
+       END PROGRAM PC-FMT.
+
+       END PROGRAM CHAT-FORM.

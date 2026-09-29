@@ -8,6 +8,33 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.5] — 2026-09-29
+
+### 056 Responsive design — Phase 0: the golden of the example projects
+
+Before any engine change for responsive layout, the product's two real
+applications are pinned, so every later change can be proved to move nothing
+(spec 056 §4.16, R78–R82). Tests only; no engine code changes.
+
+- **Engine golden** (`cobolt-forms/tests/example_corpus_golden.rs`): all 62
+  forms of PowerDemo3 and PowerChat on the designer canvas, the run form and
+  the preview, at 0.75×, 1× and 1.5× their designed size — 558 renders, 8,685
+  control rects and font sizes, and a digest of every painted shape. What a
+  Maps control paints inside its own rect (network tiles) is left out.
+- **Host golden** (`cobolt-form-host`, `parity::corpus_golden`): the same forms
+  as a root window, as the root of a SideMenu shell and as a ContentPane
+  occupant — 381 host renders, 6,045 rows.
+- **Generated-COBOL snapshot** (`cobolt-codegen/tests/example_corpus_codegen.rs`):
+  the 62 generated programs (43,836 lines), tracked in the repository because
+  `examples/*/generated/` is ignored.
+- **Example tests now run.** `maps_demo_compiles`, `charts_demo_compiles`,
+  `rest_demo_compiles`, `snackbar_demo_compiles` and `test_maps_demo_form`
+  read `~/Documents/PowerDemo3` and skipped when it was absent, so on most
+  machines they had never run. They now read the repository's own
+  `examples/PowerDemo3`. Running for the first time, `test_maps_demo_form`
+  found that the Maps example's OpenRouteService key field is not masked; that
+  is a fix for the `fixes` branch and stays red here until it lands.
+
 ## [PowerRustCOBOL 1.80.4] — 2026-09-29
 
 ### Tasks — 056 Responsive design (plan approved)

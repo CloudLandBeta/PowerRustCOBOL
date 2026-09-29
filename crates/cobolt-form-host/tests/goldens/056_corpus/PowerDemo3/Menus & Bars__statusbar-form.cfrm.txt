@@ -1,0 +1,85 @@
+# PowerDemo3/Menus & Bars/statusbar-form.cfrm
+## Window 0.75x 750x495
+Btn-Clear rect=[548 344 704 376] font=14
+Btn-Read rect=[376 344 532 376] font=14
+Btn-Start rect=[204 344 360 376] font=14
+Btn-Stop rect=[32 344 188 376] font=14
+Lbl-Doc rect=[48 140 948 230] font=13
+Lbl-Log-Cap rect=[40 384 340 404] font=12
+Lbl-Rows-Cap rect=[48 244 348 264] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Num-Rows rect=[48 268 228 300] font=15
+StatusBar-Demo rect=[0 634 1000 660] font=14
+Tmr-Clock rect=[904 176 952 224] font=14
+Txt-Log rect=[32 408 968 608] font=12
+## Occupant 0.75x 750x495
+Btn-Clear rect=[768 372 924 404] font=14
+Btn-Read rect=[596 372 752 404] font=14
+Btn-Start rect=[424 372 580 404] font=14
+Btn-Stop rect=[252 372 408 404] font=14
+Lbl-Doc rect=[268 168 1168 258] font=13
+Lbl-Log-Cap rect=[260 412 560 432] font=12
+Lbl-Rows-Cap rect=[268 272 568 292] font=12
+Lbl-Sub rect=[252 82 1188 120] font=13
+Lbl-Title rect=[252 48 1188 78] font=20
+Num-Rows rect=[268 296 448 328] font=15
+StatusBar-Demo rect=[220 662 1220 688] font=14
+Tmr-Clock rect=[1124 204 1172 252] font=14
+Txt-Log rect=[252 436 1188 636] font=12
+## Window 1x 1000x660
+Btn-Clear rect=[548 344 704 376] font=14
+Btn-Read rect=[376 344 532 376] font=14
+Btn-Start rect=[204 344 360 376] font=14
+Btn-Stop rect=[32 344 188 376] font=14
+Lbl-Doc rect=[48 140 948 230] font=13
+Lbl-Log-Cap rect=[40 384 340 404] font=12
+Lbl-Rows-Cap rect=[48 244 348 264] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Num-Rows rect=[48 268 228 300] font=15
+StatusBar-Demo rect=[0 634 1000 660] font=14
+Tmr-Clock rect=[904 176 952 224] font=14
+Txt-Log rect=[32 408 968 608] font=12
+## Occupant 1x 1000x660
+Btn-Clear rect=[768 372 924 404] font=14
+Btn-Read rect=[596 372 752 404] font=14
+Btn-Start rect=[424 372 580 404] font=14
+Btn-Stop rect=[252 372 408 404] font=14
+Lbl-Doc rect=[268 168 1168 258] font=13
+Lbl-Log-Cap rect=[260 412 560 432] font=12
+Lbl-Rows-Cap rect=[268 272 568 292] font=12
+Lbl-Sub rect=[252 82 1188 120] font=13
+Lbl-Title rect=[252 48 1188 78] font=20
+Num-Rows rect=[268 296 448 328] font=15
+StatusBar-Demo rect=[220 662 1220 688] font=14
+Tmr-Clock rect=[1124 204 1172 252] font=14
+Txt-Log rect=[252 436 1188 636] font=12
+## Window 1.5x 1500x990
+Btn-Clear rect=[548 344 704 376] font=14
+Btn-Read rect=[376 344 532 376] font=14
+Btn-Start rect=[204 344 360 376] font=14
+Btn-Stop rect=[32 344 188 376] font=14
+Lbl-Doc rect=[48 140 948 230] font=13
+Lbl-Log-Cap rect=[40 384 340 404] font=12
+Lbl-Rows-Cap rect=[48 244 348 264] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Num-Rows rect=[48 268 228 300] font=15
+StatusBar-Demo rect=[0 634 1500 660] font=14
+Tmr-Clock rect=[904 176 952 224] font=14
+Txt-Log rect=[32 408 968 608] font=12
+## Occupant 1.5x 1500x990
+Btn-Clear rect=[768 372 924 404] font=14
+Btn-Read rect=[596 372 752 404] font=14
+Btn-Start rect=[424 372 580 404] font=14
+Btn-Stop rect=[252 372 408 404] font=14
+Lbl-Doc rect=[268 168 1168 258] font=13
+Lbl-Log-Cap rect=[260 412 560 432] font=12
+Lbl-Rows-Cap rect=[268 272 568 292] font=12
+Lbl-Sub rect=[252 82 1188 120] font=13
+Lbl-Title rect=[252 48 1188 78] font=20
+Num-Rows rect=[268 296 448 328] font=15
+StatusBar-Demo rect=[220 662 1500 688] font=14
+Tmr-Clock rect=[1124 204 1172 252] font=14
+Txt-Log rect=[252 436 1188 636] font=12

@@ -1,0 +1,190 @@
+# PowerDemo3/Non-Visual/snackbar-form.cfrm
+## Canvas 0.75x 750x540
+Button-SNACK-ANCHOR rect=[24 320 488 360] font=14
+Button-SNACK-CATEGORIES rect=[24 128 488 168] font=14
+Button-SNACK-CRITICAL rect=[512 224 976 264] font=14
+Button-SNACK-DISMISS rect=[512 368 976 408] font=14
+Button-SNACK-ORDER rect=[24 368 488 408] font=14
+Button-SNACK-OVERFLOW rect=[512 128 976 168] font=14
+Button-SNACK-PIN rect=[512 272 976 312] font=14
+Button-SNACK-RESET rect=[24 424 976 464] font=14
+Button-SNACK-SIZES rect=[24 272 488 312] font=14
+Button-SNACK-STYLE rect=[512 176 976 216] font=14
+Button-SNACK-THREEBUTTONS rect=[24 224 488 264] font=14
+Button-SNACK-TWOBUTTONS rect=[24 176 488 216] font=14
+Button-SNACK-WRAP rect=[512 320 976 360] font=14
+Label-FOOT rect=[24 552 976 592] font=12
+Label-HINT rect=[24 56 976 112] font=13
+Label-LAST rect=[24 508 976 540] font=16
+Label-LASTCAP rect=[24 484 976 508] font=13
+Label-TITLE rect=[24 20 976 52] font=20
+Snackbar-1 rect=[24 616 80 672] font=14
+shapes=819 digest=55d0d2ebd78f1ab8
+## Run 0.75x 750x540
+Button-SNACK-ANCHOR rect=[24 320 488 360] font=14
+Button-SNACK-CATEGORIES rect=[24 128 488 168] font=14
+Button-SNACK-CRITICAL rect=[512 224 976 264] font=14
+Button-SNACK-DISMISS rect=[512 368 976 408] font=14
+Button-SNACK-ORDER rect=[24 368 488 408] font=14
+Button-SNACK-OVERFLOW rect=[512 128 976 168] font=14
+Button-SNACK-PIN rect=[512 272 976 312] font=14
+Button-SNACK-RESET rect=[24 424 976 464] font=14
+Button-SNACK-SIZES rect=[24 272 488 312] font=14
+Button-SNACK-STYLE rect=[512 176 976 216] font=14
+Button-SNACK-THREEBUTTONS rect=[24 224 488 264] font=14
+Button-SNACK-TWOBUTTONS rect=[24 176 488 216] font=14
+Button-SNACK-WRAP rect=[512 320 976 360] font=14
+Label-FOOT rect=[24 552 976 592] font=12
+Label-HINT rect=[24 56 976 112] font=13
+Label-LAST rect=[24 508 976 540] font=16
+Label-LASTCAP rect=[24 484 976 508] font=13
+Label-TITLE rect=[24 20 976 52] font=20
+Snackbar-1 rect=[24 616 80 672] font=14
+shapes=699 digest=a36fef6292631a2e
+## Preview 0.75x 750x540
+Button-SNACK-ANCHOR rect=[24 320 488 360] font=14
+Button-SNACK-CATEGORIES rect=[24 128 488 168] font=14
+Button-SNACK-CRITICAL rect=[512 224 976 264] font=14
+Button-SNACK-DISMISS rect=[512 368 976 408] font=14
+Button-SNACK-ORDER rect=[24 368 488 408] font=14
+Button-SNACK-OVERFLOW rect=[512 128 976 168] font=14
+Button-SNACK-PIN rect=[512 272 976 312] font=14
+Button-SNACK-RESET rect=[24 424 976 464] font=14
+Button-SNACK-SIZES rect=[24 272 488 312] font=14
+Button-SNACK-STYLE rect=[512 176 976 216] font=14
+Button-SNACK-THREEBUTTONS rect=[24 224 488 264] font=14
+Button-SNACK-TWOBUTTONS rect=[24 176 488 216] font=14
+Button-SNACK-WRAP rect=[512 320 976 360] font=14
+Label-FOOT rect=[24 552 976 592] font=12
+Label-HINT rect=[24 56 976 112] font=13
+Label-LAST rect=[24 508 976 540] font=16
+Label-LASTCAP rect=[24 484 976 508] font=13
+Label-TITLE rect=[24 20 976 52] font=20
+Snackbar-1 rect=[24 616 80 672] font=14
+shapes=699 digest=a36fef6292631a2e
+## Canvas 1x 1000x720
+Button-SNACK-ANCHOR rect=[24 320 488 360] font=14
+Button-SNACK-CATEGORIES rect=[24 128 488 168] font=14
+Button-SNACK-CRITICAL rect=[512 224 976 264] font=14
+Button-SNACK-DISMISS rect=[512 368 976 408] font=14
+Button-SNACK-ORDER rect=[24 368 488 408] font=14
+Button-SNACK-OVERFLOW rect=[512 128 976 168] font=14
+Button-SNACK-PIN rect=[512 272 976 312] font=14
+Button-SNACK-RESET rect=[24 424 976 464] font=14
+Button-SNACK-SIZES rect=[24 272 488 312] font=14
+Button-SNACK-STYLE rect=[512 176 976 216] font=14
+Button-SNACK-THREEBUTTONS rect=[24 224 488 264] font=14
+Button-SNACK-TWOBUTTONS rect=[24 176 488 216] font=14
+Button-SNACK-WRAP rect=[512 320 976 360] font=14
+Label-FOOT rect=[24 552 976 592] font=12
+Label-HINT rect=[24 56 976 112] font=13
+Label-LAST rect=[24 508 976 540] font=16
+Label-LASTCAP rect=[24 484 976 508] font=13
+Label-TITLE rect=[24 20 976 52] font=20
+Snackbar-1 rect=[24 616 80 672] font=14
+shapes=819 digest=624b8d7fcd2cdc1e
+## Run 1x 1000x720
+Button-SNACK-ANCHOR rect=[24 320 488 360] font=14
+Button-SNACK-CATEGORIES rect=[24 128 488 168] font=14
+Button-SNACK-CRITICAL rect=[512 224 976 264] font=14
+Button-SNACK-DISMISS rect=[512 368 976 408] font=14
+Button-SNACK-ORDER rect=[24 368 488 408] font=14
+Button-SNACK-OVERFLOW rect=[512 128 976 168] font=14
+Button-SNACK-PIN rect=[512 272 976 312] font=14
+Button-SNACK-RESET rect=[24 424 976 464] font=14
+Button-SNACK-SIZES rect=[24 272 488 312] font=14
+Button-SNACK-STYLE rect=[512 176 976 216] font=14
+Button-SNACK-THREEBUTTONS rect=[24 224 488 264] font=14
+Button-SNACK-TWOBUTTONS rect=[24 176 488 216] font=14
+Button-SNACK-WRAP rect=[512 320 976 360] font=14
+Label-FOOT rect=[24 552 976 592] font=12
+Label-HINT rect=[24 56 976 112] font=13
+Label-LAST rect=[24 508 976 540] font=16
+Label-LASTCAP rect=[24 484 976 508] font=13
+Label-TITLE rect=[24 20 976 52] font=20
+Snackbar-1 rect=[24 616 80 672] font=14
+shapes=699 digest=b2296187159df2f9
+## Preview 1x 1000x720
+Button-SNACK-ANCHOR rect=[24 320 488 360] font=14
+Button-SNACK-CATEGORIES rect=[24 128 488 168] font=14
+Button-SNACK-CRITICAL rect=[512 224 976 264] font=14
+Button-SNACK-DISMISS rect=[512 368 976 408] font=14
+Button-SNACK-ORDER rect=[24 368 488 408] font=14
+Button-SNACK-OVERFLOW rect=[512 128 976 168] font=14
+Button-SNACK-PIN rect=[512 272 976 312] font=14
+Button-SNACK-RESET rect=[24 424 976 464] font=14
+Button-SNACK-SIZES rect=[24 272 488 312] font=14
+Button-SNACK-STYLE rect=[512 176 976 216] font=14
+Button-SNACK-THREEBUTTONS rect=[24 224 488 264] font=14
+Button-SNACK-TWOBUTTONS rect=[24 176 488 216] font=14
+Button-SNACK-WRAP rect=[512 320 976 360] font=14
+Label-FOOT rect=[24 552 976 592] font=12
+Label-HINT rect=[24 56 976 112] font=13
+Label-LAST rect=[24 508 976 540] font=16
+Label-LASTCAP rect=[24 484 976 508] font=13
+Label-TITLE rect=[24 20 976 52] font=20
+Snackbar-1 rect=[24 616 80 672] font=14
+shapes=699 digest=b2296187159df2f9
+## Canvas 1.5x 1500x1080
+Button-SNACK-ANCHOR rect=[24 320 488 360] font=14
+Button-SNACK-CATEGORIES rect=[24 128 488 168] font=14
+Button-SNACK-CRITICAL rect=[512 224 976 264] font=14
+Button-SNACK-DISMISS rect=[512 368 976 408] font=14
+Button-SNACK-ORDER rect=[24 368 488 408] font=14
+Button-SNACK-OVERFLOW rect=[512 128 976 168] font=14
+Button-SNACK-PIN rect=[512 272 976 312] font=14
+Button-SNACK-RESET rect=[24 424 976 464] font=14
+Button-SNACK-SIZES rect=[24 272 488 312] font=14
+Button-SNACK-STYLE rect=[512 176 976 216] font=14
+Button-SNACK-THREEBUTTONS rect=[24 224 488 264] font=14
+Button-SNACK-TWOBUTTONS rect=[24 176 488 216] font=14
+Button-SNACK-WRAP rect=[512 320 976 360] font=14
+Label-FOOT rect=[24 552 976 592] font=12
+Label-HINT rect=[24 56 976 112] font=13
+Label-LAST rect=[24 508 976 540] font=16
+Label-LASTCAP rect=[24 484 976 508] font=13
+Label-TITLE rect=[24 20 976 52] font=20
+Snackbar-1 rect=[24 616 80 672] font=14
+shapes=819 digest=e635086a8b2eab81
+## Run 1.5x 1500x1080
+Button-SNACK-ANCHOR rect=[24 320 488 360] font=14
+Button-SNACK-CATEGORIES rect=[24 128 488 168] font=14
+Button-SNACK-CRITICAL rect=[512 224 976 264] font=14
+Button-SNACK-DISMISS rect=[512 368 976 408] font=14
+Button-SNACK-ORDER rect=[24 368 488 408] font=14
+Button-SNACK-OVERFLOW rect=[512 128 976 168] font=14
+Button-SNACK-PIN rect=[512 272 976 312] font=14
+Button-SNACK-RESET rect=[24 424 976 464] font=14
+Button-SNACK-SIZES rect=[24 272 488 312] font=14
+Button-SNACK-STYLE rect=[512 176 976 216] font=14
+Button-SNACK-THREEBUTTONS rect=[24 224 488 264] font=14
+Button-SNACK-TWOBUTTONS rect=[24 176 488 216] font=14
+Button-SNACK-WRAP rect=[512 320 976 360] font=14
+Label-FOOT rect=[24 552 976 592] font=12
+Label-HINT rect=[24 56 976 112] font=13
+Label-LAST rect=[24 508 976 540] font=16
+Label-LASTCAP rect=[24 484 976 508] font=13
+Label-TITLE rect=[24 20 976 52] font=20
+Snackbar-1 rect=[24 616 80 672] font=14
+shapes=699 digest=6481363c977e7d4c
+## Preview 1.5x 1500x1080
+Button-SNACK-ANCHOR rect=[24 320 488 360] font=14
+Button-SNACK-CATEGORIES rect=[24 128 488 168] font=14
+Button-SNACK-CRITICAL rect=[512 224 976 264] font=14
+Button-SNACK-DISMISS rect=[512 368 976 408] font=14
+Button-SNACK-ORDER rect=[24 368 488 408] font=14
+Button-SNACK-OVERFLOW rect=[512 128 976 168] font=14
+Button-SNACK-PIN rect=[512 272 976 312] font=14
+Button-SNACK-RESET rect=[24 424 976 464] font=14
+Button-SNACK-SIZES rect=[24 272 488 312] font=14
+Button-SNACK-STYLE rect=[512 176 976 216] font=14
+Button-SNACK-THREEBUTTONS rect=[24 224 488 264] font=14
+Button-SNACK-TWOBUTTONS rect=[24 176 488 216] font=14
+Button-SNACK-WRAP rect=[512 320 976 360] font=14
+Label-FOOT rect=[24 552 976 592] font=12
+Label-HINT rect=[24 56 976 112] font=13
+Label-LAST rect=[24 508 976 540] font=16
+Label-LASTCAP rect=[24 484 976 508] font=13
+Label-TITLE rect=[24 20 976 52] font=20
+Snackbar-1 rect=[24 616 80 672] font=14
+shapes=699 digest=6481363c977e7d4c

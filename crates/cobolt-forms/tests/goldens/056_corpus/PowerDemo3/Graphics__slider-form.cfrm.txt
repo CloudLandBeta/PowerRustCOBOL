@@ -1,0 +1,145 @@
+# PowerDemo3/Graphics/slider-form.cfrm
+## Canvas 0.75x 750x495
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Flat rect=[548 380 704 412] font=14
+Btn-Full rect=[204 380 360 412] font=14
+Btn-Mute rect=[32 380 188 412] font=14
+Btn-Nudge rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Read rect=[700 158 960 218] font=40
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Vol-Cap rect=[48 134 448 154] font=12
+Prg-Meter rect=[48 216 548 238] font=14
+Sld-Bass rect=[620 158 664 348] font=14
+Sld-Volume rect=[48 158 548 202] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=82 digest=60d8dd6609ee69be
+## Run 0.75x 750x495
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Flat rect=[548 380 704 412] font=14
+Btn-Full rect=[204 380 360 412] font=14
+Btn-Mute rect=[32 380 188 412] font=14
+Btn-Nudge rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Read rect=[700 158 960 218] font=40
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Vol-Cap rect=[48 134 448 154] font=12
+Prg-Meter rect=[48 216 548 238] font=14
+Sld-Bass rect=[620 158 664 348] font=14
+Sld-Volume rect=[48 158 548 202] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=87 digest=4ad5deb0499492ca
+## Preview 0.75x 750x495
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Flat rect=[548 380 704 412] font=14
+Btn-Full rect=[204 380 360 412] font=14
+Btn-Mute rect=[32 380 188 412] font=14
+Btn-Nudge rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Read rect=[700 158 960 218] font=40
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Vol-Cap rect=[48 134 448 154] font=12
+Prg-Meter rect=[48 216 548 238] font=14
+Sld-Bass rect=[620 158 664 348] font=14
+Sld-Volume rect=[48 158 548 202] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=87 digest=4ad5deb0499492ca
+## Canvas 1x 1000x660
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Flat rect=[548 380 704 412] font=14
+Btn-Full rect=[204 380 360 412] font=14
+Btn-Mute rect=[32 380 188 412] font=14
+Btn-Nudge rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Read rect=[700 158 960 218] font=40
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Vol-Cap rect=[48 134 448 154] font=12
+Prg-Meter rect=[48 216 548 238] font=14
+Sld-Bass rect=[620 158 664 348] font=14
+Sld-Volume rect=[48 158 548 202] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=82 digest=e15e4d1dd5a595f4
+## Run 1x 1000x660
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Flat rect=[548 380 704 412] font=14
+Btn-Full rect=[204 380 360 412] font=14
+Btn-Mute rect=[32 380 188 412] font=14
+Btn-Nudge rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Read rect=[700 158 960 218] font=40
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Vol-Cap rect=[48 134 448 154] font=12
+Prg-Meter rect=[48 216 548 238] font=14
+Sld-Bass rect=[620 158 664 348] font=14
+Sld-Volume rect=[48 158 548 202] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=87 digest=29f5b7af5fa531c4
+## Preview 1x 1000x660
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Flat rect=[548 380 704 412] font=14
+Btn-Full rect=[204 380 360 412] font=14
+Btn-Mute rect=[32 380 188 412] font=14
+Btn-Nudge rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Read rect=[700 158 960 218] font=40
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Vol-Cap rect=[48 134 448 154] font=12
+Prg-Meter rect=[48 216 548 238] font=14
+Sld-Bass rect=[620 158 664 348] font=14
+Sld-Volume rect=[48 158 548 202] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=87 digest=29f5b7af5fa531c4
+## Canvas 1.5x 1500x990
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Flat rect=[548 380 704 412] font=14
+Btn-Full rect=[204 380 360 412] font=14
+Btn-Mute rect=[32 380 188 412] font=14
+Btn-Nudge rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Read rect=[700 158 960 218] font=40
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Vol-Cap rect=[48 134 448 154] font=12
+Prg-Meter rect=[48 216 548 238] font=14
+Sld-Bass rect=[620 158 664 348] font=14
+Sld-Volume rect=[48 158 548 202] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=82 digest=a0ac65f7d59eb744
+## Run 1.5x 1500x990
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Flat rect=[548 380 704 412] font=14
+Btn-Full rect=[204 380 360 412] font=14
+Btn-Mute rect=[32 380 188 412] font=14
+Btn-Nudge rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Read rect=[700 158 960 218] font=40
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Vol-Cap rect=[48 134 448 154] font=12
+Prg-Meter rect=[48 216 548 238] font=14
+Sld-Bass rect=[620 158 664 348] font=14
+Sld-Volume rect=[48 158 548 202] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=87 digest=67cd94c9a569d2ea
+## Preview 1.5x 1500x990
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Flat rect=[548 380 704 412] font=14
+Btn-Full rect=[204 380 360 412] font=14
+Btn-Mute rect=[32 380 188 412] font=14
+Btn-Nudge rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Read rect=[700 158 960 218] font=40
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Vol-Cap rect=[48 134 448 154] font=12
+Prg-Meter rect=[48 216 548 238] font=14
+Sld-Bass rect=[620 158 664 348] font=14
+Sld-Volume rect=[48 158 548 202] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=87 digest=67cd94c9a569d2ea

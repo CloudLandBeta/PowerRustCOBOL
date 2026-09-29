@@ -1,0 +1,73 @@
+# PowerDemo3/Menus & Bars/toolbar-form.cfrm
+## Window 0.75x 750x495
+Btn-Clear rect=[376 380 532 412] font=14
+Btn-Hide rect=[32 380 188 412] font=14
+Btn-Show rect=[204 380 360 412] font=14
+Lbl-About rect=[48 254 948 344] font=13
+Lbl-Action rect=[48 208 948 242] font=20
+Lbl-Action-Cap rect=[48 184 348 204] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+ToolBar-Demo rect=[32 116 968 160] font=14
+Txt-Log rect=[32 448 968 632] font=12
+## Occupant 0.75x 750x495
+Btn-Clear rect=[596 408 752 440] font=14
+Btn-Hide rect=[252 408 408 440] font=14
+Btn-Show rect=[424 408 580 440] font=14
+Lbl-About rect=[268 282 1168 372] font=13
+Lbl-Action rect=[268 236 1168 270] font=20
+Lbl-Action-Cap rect=[268 212 568 232] font=12
+Lbl-Log-Cap rect=[252 452 552 472] font=12
+Lbl-Sub rect=[252 82 1188 120] font=13
+Lbl-Title rect=[252 48 1188 78] font=20
+ToolBar-Demo rect=[252 144 1188 188] font=14
+Txt-Log rect=[252 476 1188 660] font=12
+## Window 1x 1000x660
+Btn-Clear rect=[376 380 532 412] font=14
+Btn-Hide rect=[32 380 188 412] font=14
+Btn-Show rect=[204 380 360 412] font=14
+Lbl-About rect=[48 254 948 344] font=13
+Lbl-Action rect=[48 208 948 242] font=20
+Lbl-Action-Cap rect=[48 184 348 204] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+ToolBar-Demo rect=[32 116 968 160] font=14
+Txt-Log rect=[32 448 968 632] font=12
+## Occupant 1x 1000x660
+Btn-Clear rect=[596 408 752 440] font=14
+Btn-Hide rect=[252 408 408 440] font=14
+Btn-Show rect=[424 408 580 440] font=14
+Lbl-About rect=[268 282 1168 372] font=13
+Lbl-Action rect=[268 236 1168 270] font=20
+Lbl-Action-Cap rect=[268 212 568 232] font=12
+Lbl-Log-Cap rect=[252 452 552 472] font=12
+Lbl-Sub rect=[252 82 1188 120] font=13
+Lbl-Title rect=[252 48 1188 78] font=20
+ToolBar-Demo rect=[252 144 1188 188] font=14
+Txt-Log rect=[252 476 1188 660] font=12
+## Window 1.5x 1500x990
+Btn-Clear rect=[376 380 532 412] font=14
+Btn-Hide rect=[32 380 188 412] font=14
+Btn-Show rect=[204 380 360 412] font=14
+Lbl-About rect=[48 254 948 344] font=13
+Lbl-Action rect=[48 208 948 242] font=20
+Lbl-Action-Cap rect=[48 184 348 204] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+ToolBar-Demo rect=[32 116 968 160] font=14
+Txt-Log rect=[32 448 968 632] font=12
+## Occupant 1.5x 1500x990
+Btn-Clear rect=[596 408 752 440] font=14
+Btn-Hide rect=[252 408 408 440] font=14
+Btn-Show rect=[424 408 580 440] font=14
+Lbl-About rect=[268 282 1168 372] font=13
+Lbl-Action rect=[268 236 1168 270] font=20
+Lbl-Action-Cap rect=[268 212 568 232] font=12
+Lbl-Log-Cap rect=[252 452 552 472] font=12
+Lbl-Sub rect=[252 82 1188 120] font=13
+Lbl-Title rect=[252 48 1188 78] font=20
+ToolBar-Demo rect=[252 144 1188 188] font=14
+Txt-Log rect=[252 476 1188 660] font=12

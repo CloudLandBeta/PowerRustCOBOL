@@ -1,0 +1,181 @@
+# PowerChat/files-form.cfrm
+## Canvas 0.75x 732x402
+AGENT-F rect=[680 16 728 64] font=14
+Btn-BrowseCidx rect=- font=14
+Btn-BrowseData rect=- font=14
+Btn-Cancel rect=- font=14
+Btn-Cancel2 rect=- font=14
+Btn-New rect=[800 136 928 168] font=14
+Btn-Save rect=- font=14
+Btn-Save2 rect=- font=14
+Dg-List rect=[40 176 928 480] font=14
+Lbl-Cidx rect=- font=14
+Lbl-Data rect=- font=14
+Lbl-Help rect=[24 48 672 88] font=14
+Lbl-Status rect=- font=14
+Lbl-Title rect=[24 16 672 48] font=20
+Tab-Crud rect=[24 96 944 504] font=14
+Tmr-Lang rect=[680 16 728 64] font=14
+Txt-Cidx rect=- font=14
+Txt-Data rect=- font=14
+shapes=201 digest=9703024d8e8b12ca
+## Run 0.75x 732x402
+AGENT-F rect=[680 16 728 64] font=14
+Btn-BrowseCidx rect=- font=14
+Btn-BrowseData rect=- font=14
+Btn-Cancel rect=- font=14
+Btn-Cancel2 rect=- font=14
+Btn-New rect=[800 136 928 168] font=14
+Btn-Save rect=- font=14
+Btn-Save2 rect=- font=14
+Dg-List rect=[40 176 928 480] font=14
+Lbl-Cidx rect=- font=14
+Lbl-Data rect=- font=14
+Lbl-Help rect=[24 48 672 88] font=14
+Lbl-Status rect=- font=14
+Lbl-Title rect=[24 16 672 48] font=20
+Tab-Crud rect=[24 96 944 504] font=14
+Tmr-Lang rect=[680 16 728 64] font=14
+Txt-Cidx rect=- font=14
+Txt-Data rect=- font=14
+shapes=138 digest=de2705c29b463004
+## Preview 0.75x 732x402
+AGENT-F rect=[680 16 728 64] font=14
+Btn-BrowseCidx rect=- font=14
+Btn-BrowseData rect=- font=14
+Btn-Cancel rect=- font=14
+Btn-Cancel2 rect=- font=14
+Btn-New rect=[800 136 928 168] font=14
+Btn-Save rect=- font=14
+Btn-Save2 rect=- font=14
+Dg-List rect=[40 176 928 480] font=14
+Lbl-Cidx rect=- font=14
+Lbl-Data rect=- font=14
+Lbl-Help rect=[24 48 672 88] font=14
+Lbl-Status rect=- font=14
+Lbl-Title rect=[24 16 672 48] font=20
+Tab-Crud rect=[24 96 944 504] font=14
+Tmr-Lang rect=[680 16 728 64] font=14
+Txt-Cidx rect=- font=14
+Txt-Data rect=- font=14
+shapes=138 digest=de2705c29b463004
+## Canvas 1x 976x536
+AGENT-F rect=[680 16 728 64] font=14
+Btn-BrowseCidx rect=- font=14
+Btn-BrowseData rect=- font=14
+Btn-Cancel rect=- font=14
+Btn-Cancel2 rect=- font=14
+Btn-New rect=[800 136 928 168] font=14
+Btn-Save rect=- font=14
+Btn-Save2 rect=- font=14
+Dg-List rect=[40 176 928 480] font=14
+Lbl-Cidx rect=- font=14
+Lbl-Data rect=- font=14
+Lbl-Help rect=[24 48 672 88] font=14
+Lbl-Status rect=- font=14
+Lbl-Title rect=[24 16 672 48] font=20
+Tab-Crud rect=[24 96 944 504] font=14
+Tmr-Lang rect=[680 16 728 64] font=14
+Txt-Cidx rect=- font=14
+Txt-Data rect=- font=14
+shapes=201 digest=44f87e588a33874f
+## Run 1x 976x536
+AGENT-F rect=[680 16 728 64] font=14
+Btn-BrowseCidx rect=- font=14
+Btn-BrowseData rect=- font=14
+Btn-Cancel rect=- font=14
+Btn-Cancel2 rect=- font=14
+Btn-New rect=[800 136 928 168] font=14
+Btn-Save rect=- font=14
+Btn-Save2 rect=- font=14
+Dg-List rect=[40 176 928 480] font=14
+Lbl-Cidx rect=- font=14
+Lbl-Data rect=- font=14
+Lbl-Help rect=[24 48 672 88] font=14
+Lbl-Status rect=- font=14
+Lbl-Title rect=[24 16 672 48] font=20
+Tab-Crud rect=[24 96 944 504] font=14
+Tmr-Lang rect=[680 16 728 64] font=14
+Txt-Cidx rect=- font=14
+Txt-Data rect=- font=14
+shapes=138 digest=bc550b4ea1b2d56f
+## Preview 1x 976x536
+AGENT-F rect=[680 16 728 64] font=14
+Btn-BrowseCidx rect=- font=14
+Btn-BrowseData rect=- font=14
+Btn-Cancel rect=- font=14
+Btn-Cancel2 rect=- font=14
+Btn-New rect=[800 136 928 168] font=14
+Btn-Save rect=- font=14
+Btn-Save2 rect=- font=14
+Dg-List rect=[40 176 928 480] font=14
+Lbl-Cidx rect=- font=14
+Lbl-Data rect=- font=14
+Lbl-Help rect=[24 48 672 88] font=14
+Lbl-Status rect=- font=14
+Lbl-Title rect=[24 16 672 48] font=20
+Tab-Crud rect=[24 96 944 504] font=14
+Tmr-Lang rect=[680 16 728 64] font=14
+Txt-Cidx rect=- font=14
+Txt-Data rect=- font=14
+shapes=138 digest=bc550b4ea1b2d56f
+## Canvas 1.5x 1464x804
+AGENT-F rect=[680 16 728 64] font=14
+Btn-BrowseCidx rect=- font=14
+Btn-BrowseData rect=- font=14
+Btn-Cancel rect=- font=14
+Btn-Cancel2 rect=- font=14
+Btn-New rect=[800 136 928 168] font=14
+Btn-Save rect=- font=14
+Btn-Save2 rect=- font=14
+Dg-List rect=[40 176 928 480] font=14
+Lbl-Cidx rect=- font=14
+Lbl-Data rect=- font=14
+Lbl-Help rect=[24 48 672 88] font=14
+Lbl-Status rect=- font=14
+Lbl-Title rect=[24 16 672 48] font=20
+Tab-Crud rect=[24 96 944 504] font=14
+Tmr-Lang rect=[680 16 728 64] font=14
+Txt-Cidx rect=- font=14
+Txt-Data rect=- font=14
+shapes=201 digest=ac1badfc12bddec6
+## Run 1.5x 1464x804
+AGENT-F rect=[680 16 728 64] font=14
+Btn-BrowseCidx rect=- font=14
+Btn-BrowseData rect=- font=14
+Btn-Cancel rect=- font=14
+Btn-Cancel2 rect=- font=14
+Btn-New rect=[800 136 928 168] font=14
+Btn-Save rect=- font=14
+Btn-Save2 rect=- font=14
+Dg-List rect=[40 176 928 480] font=14
+Lbl-Cidx rect=- font=14
+Lbl-Data rect=- font=14
+Lbl-Help rect=[24 48 672 88] font=14
+Lbl-Status rect=- font=14
+Lbl-Title rect=[24 16 672 48] font=20
+Tab-Crud rect=[24 96 944 504] font=14
+Tmr-Lang rect=[680 16 728 64] font=14
+Txt-Cidx rect=- font=14
+Txt-Data rect=- font=14
+shapes=138 digest=666a9e17a3059a4a
+## Preview 1.5x 1464x804
+AGENT-F rect=[680 16 728 64] font=14
+Btn-BrowseCidx rect=- font=14
+Btn-BrowseData rect=- font=14
+Btn-Cancel rect=- font=14
+Btn-Cancel2 rect=- font=14
+Btn-New rect=[800 136 928 168] font=14
+Btn-Save rect=- font=14
+Btn-Save2 rect=- font=14
+Dg-List rect=[40 176 928 480] font=14
+Lbl-Cidx rect=- font=14
+Lbl-Data rect=- font=14
+Lbl-Help rect=[24 48 672 88] font=14
+Lbl-Status rect=- font=14
+Lbl-Title rect=[24 16 672 48] font=20
+Tab-Crud rect=[24 96 944 504] font=14
+Tmr-Lang rect=[680 16 728 64] font=14
+Txt-Cidx rect=- font=14
+Txt-Data rect=- font=14
+shapes=138 digest=666a9e17a3059a4a

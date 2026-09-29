@@ -1,0 +1,127 @@
+# PowerChat/providers-form.cfrm
+## Window 0.75x 804x414
+Btn-Cancel rect=[768 448 880 480] font=14
+Btn-Cancel-Top rect=[768 96 880 128] font=14
+Btn-Close rect=- font=14
+Btn-New rect=- font=14
+Btn-Save rect=[888 448 1000 480] font=14
+Btn-Save-Top rect=[888 96 1000 128] font=14
+Btn-Test rect=[40 360 232 392] font=14
+Cmb-Provider rect=[192 192 1000 224] font=14
+Dg-List rect=- font=14
+Lbl-Api rect=[40 192 184 224] font=14
+Lbl-Key rect=[40 288 184 320] font=14
+Lbl-List-Status rect=- font=14
+Lbl-Name rect=[40 144 184 176] font=14
+Lbl-Status rect=[248 360 760 432] font=14
+Lbl-Title rect=[24 16 776 48] font=20
+Lbl-Url rect=[40 240 184 272] font=14
+Tab-Crud rect=[24 56 1048 496] font=14
+Txt-Key rect=[192 288 1000 320] font=14
+Txt-Name rect=[192 144 1000 176] font=14
+Txt-Url rect=[192 240 1000 272] font=14
+## Occupant 0.75x 804x414
+Btn-Cancel rect=[988 476 1100 508] font=14
+Btn-Cancel-Top rect=[988 124 1100 156] font=14
+Btn-Close rect=- font=14
+Btn-New rect=- font=14
+Btn-Save rect=[1108 476 1220 508] font=14
+Btn-Save-Top rect=[1108 124 1220 156] font=14
+Btn-Test rect=[260 388 452 420] font=14
+Cmb-Provider rect=[412 220 1220 252] font=14
+Dg-List rect=- font=14
+Lbl-Api rect=[260 220 404 252] font=14
+Lbl-Key rect=[260 316 404 348] font=14
+Lbl-List-Status rect=- font=14
+Lbl-Name rect=[260 172 404 204] font=14
+Lbl-Status rect=[468 388 980 460] font=14
+Lbl-Title rect=[244 44 996 76] font=20
+Lbl-Url rect=[260 268 404 300] font=14
+Tab-Crud rect=[244 84 1268 524] font=14
+Txt-Key rect=[412 316 1220 348] font=14
+Txt-Name rect=[412 172 1220 204] font=14
+Txt-Url rect=[412 268 1220 300] font=14
+## Window 1x 1072x552
+Btn-Cancel rect=[768 448 880 480] font=14
+Btn-Cancel-Top rect=[768 96 880 128] font=14
+Btn-Close rect=- font=14
+Btn-New rect=- font=14
+Btn-Save rect=[888 448 1000 480] font=14
+Btn-Save-Top rect=[888 96 1000 128] font=14
+Btn-Test rect=[40 360 232 392] font=14
+Cmb-Provider rect=[192 192 1000 224] font=14
+Dg-List rect=- font=14
+Lbl-Api rect=[40 192 184 224] font=14
+Lbl-Key rect=[40 288 184 320] font=14
+Lbl-List-Status rect=- font=14
+Lbl-Name rect=[40 144 184 176] font=14
+Lbl-Status rect=[248 360 760 432] font=14
+Lbl-Title rect=[24 16 776 48] font=20
+Lbl-Url rect=[40 240 184 272] font=14
+Tab-Crud rect=[24 56 1048 496] font=14
+Txt-Key rect=[192 288 1000 320] font=14
+Txt-Name rect=[192 144 1000 176] font=14
+Txt-Url rect=[192 240 1000 272] font=14
+## Occupant 1x 1072x552
+Btn-Cancel rect=[988 476 1100 508] font=14
+Btn-Cancel-Top rect=[988 124 1100 156] font=14
+Btn-Close rect=- font=14
+Btn-New rect=- font=14
+Btn-Save rect=[1108 476 1220 508] font=14
+Btn-Save-Top rect=[1108 124 1220 156] font=14
+Btn-Test rect=[260 388 452 420] font=14
+Cmb-Provider rect=[412 220 1220 252] font=14
+Dg-List rect=- font=14
+Lbl-Api rect=[260 220 404 252] font=14
+Lbl-Key rect=[260 316 404 348] font=14
+Lbl-List-Status rect=- font=14
+Lbl-Name rect=[260 172 404 204] font=14
+Lbl-Status rect=[468 388 980 460] font=14
+Lbl-Title rect=[244 44 996 76] font=20
+Lbl-Url rect=[260 268 404 300] font=14
+Tab-Crud rect=[244 84 1268 524] font=14
+Txt-Key rect=[412 316 1220 348] font=14
+Txt-Name rect=[412 172 1220 204] font=14
+Txt-Url rect=[412 268 1220 300] font=14
+## Window 1.5x 1608x828
+Btn-Cancel rect=[768 448 880 480] font=14
+Btn-Cancel-Top rect=[768 96 880 128] font=14
+Btn-Close rect=- font=14
+Btn-New rect=- font=14
+Btn-Save rect=[888 448 1000 480] font=14
+Btn-Save-Top rect=[888 96 1000 128] font=14
+Btn-Test rect=[40 360 232 392] font=14
+Cmb-Provider rect=[192 192 1000 224] font=14
+Dg-List rect=- font=14
+Lbl-Api rect=[40 192 184 224] font=14
+Lbl-Key rect=[40 288 184 320] font=14
+Lbl-List-Status rect=- font=14
+Lbl-Name rect=[40 144 184 176] font=14
+Lbl-Status rect=[248 360 760 432] font=14
+Lbl-Title rect=[24 16 776 48] font=20
+Lbl-Url rect=[40 240 184 272] font=14
+Tab-Crud rect=[24 56 1048 496] font=14
+Txt-Key rect=[192 288 1000 320] font=14
+Txt-Name rect=[192 144 1000 176] font=14
+Txt-Url rect=[192 240 1000 272] font=14
+## Occupant 1.5x 1608x828
+Btn-Cancel rect=[988 476 1100 508] font=14
+Btn-Cancel-Top rect=[988 124 1100 156] font=14
+Btn-Close rect=- font=14
+Btn-New rect=- font=14
+Btn-Save rect=[1108 476 1220 508] font=14
+Btn-Save-Top rect=[1108 124 1220 156] font=14
+Btn-Test rect=[260 388 452 420] font=14
+Cmb-Provider rect=[412 220 1220 252] font=14
+Dg-List rect=- font=14
+Lbl-Api rect=[260 220 404 252] font=14
+Lbl-Key rect=[260 316 404 348] font=14
+Lbl-List-Status rect=- font=14
+Lbl-Name rect=[260 172 404 204] font=14
+Lbl-Status rect=[468 388 980 460] font=14
+Lbl-Title rect=[244 44 996 76] font=20
+Lbl-Url rect=[260 268 404 300] font=14
+Tab-Crud rect=[244 84 1268 524] font=14
+Txt-Key rect=[412 316 1220 348] font=14
+Txt-Name rect=[412 172 1220 204] font=14
+Txt-Url rect=[412 268 1220 300] font=14

@@ -1,0 +1,118 @@
+# PowerDemo3/Menus & Bars/toolbar-form.cfrm
+## Canvas 0.75x 750x495
+Btn-Clear rect=[376 380 532 412] font=14
+Btn-Hide rect=[32 380 188 412] font=14
+Btn-Show rect=[204 380 360 412] font=14
+Lbl-About rect=[48 254 948 344] font=13
+Lbl-Action rect=[48 208 948 242] font=20
+Lbl-Action-Cap rect=[48 184 348 204] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+ToolBar-Demo rect=[32 116 968 160] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=287 digest=63fe8c6329f7b15d
+## Run 0.75x 750x495
+Btn-Clear rect=[376 380 532 412] font=14
+Btn-Hide rect=[32 380 188 412] font=14
+Btn-Show rect=[204 380 360 412] font=14
+Lbl-About rect=[48 254 948 344] font=13
+Lbl-Action rect=[48 208 948 242] font=20
+Lbl-Action-Cap rect=[48 184 348 204] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+ToolBar-Demo rect=[32 116 968 160] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=292 digest=dc3cbca3f7f633af
+## Preview 0.75x 750x495
+Btn-Clear rect=[376 380 532 412] font=14
+Btn-Hide rect=[32 380 188 412] font=14
+Btn-Show rect=[204 380 360 412] font=14
+Lbl-About rect=[48 254 948 344] font=13
+Lbl-Action rect=[48 208 948 242] font=20
+Lbl-Action-Cap rect=[48 184 348 204] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+ToolBar-Demo rect=[32 116 968 160] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=292 digest=dc3cbca3f7f633af
+## Canvas 1x 1000x660
+Btn-Clear rect=[376 380 532 412] font=14
+Btn-Hide rect=[32 380 188 412] font=14
+Btn-Show rect=[204 380 360 412] font=14
+Lbl-About rect=[48 254 948 344] font=13
+Lbl-Action rect=[48 208 948 242] font=20
+Lbl-Action-Cap rect=[48 184 348 204] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+ToolBar-Demo rect=[32 116 968 160] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=287 digest=56463b633387cc7f
+## Run 1x 1000x660
+Btn-Clear rect=[376 380 532 412] font=14
+Btn-Hide rect=[32 380 188 412] font=14
+Btn-Show rect=[204 380 360 412] font=14
+Lbl-About rect=[48 254 948 344] font=13
+Lbl-Action rect=[48 208 948 242] font=20
+Lbl-Action-Cap rect=[48 184 348 204] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+ToolBar-Demo rect=[32 116 968 160] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=292 digest=b44231ac317ce3fd
+## Preview 1x 1000x660
+Btn-Clear rect=[376 380 532 412] font=14
+Btn-Hide rect=[32 380 188 412] font=14
+Btn-Show rect=[204 380 360 412] font=14
+Lbl-About rect=[48 254 948 344] font=13
+Lbl-Action rect=[48 208 948 242] font=20
+Lbl-Action-Cap rect=[48 184 348 204] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+ToolBar-Demo rect=[32 116 968 160] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=292 digest=b44231ac317ce3fd
+## Canvas 1.5x 1500x990
+Btn-Clear rect=[376 380 532 412] font=14
+Btn-Hide rect=[32 380 188 412] font=14
+Btn-Show rect=[204 380 360 412] font=14
+Lbl-About rect=[48 254 948 344] font=13
+Lbl-Action rect=[48 208 948 242] font=20
+Lbl-Action-Cap rect=[48 184 348 204] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+ToolBar-Demo rect=[32 116 968 160] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=287 digest=0f080bf568e6c7cf
+## Run 1.5x 1500x990
+Btn-Clear rect=[376 380 532 412] font=14
+Btn-Hide rect=[32 380 188 412] font=14
+Btn-Show rect=[204 380 360 412] font=14
+Lbl-About rect=[48 254 948 344] font=13
+Lbl-Action rect=[48 208 948 242] font=20
+Lbl-Action-Cap rect=[48 184 348 204] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+ToolBar-Demo rect=[32 116 968 160] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=292 digest=dcf4ff12d9e27dd2
+## Preview 1.5x 1500x990
+Btn-Clear rect=[376 380 532 412] font=14
+Btn-Hide rect=[32 380 188 412] font=14
+Btn-Show rect=[204 380 360 412] font=14
+Lbl-About rect=[48 254 948 344] font=13
+Lbl-Action rect=[48 208 948 242] font=20
+Lbl-Action-Cap rect=[48 184 348 204] font=12
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+ToolBar-Demo rect=[32 116 968 160] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=292 digest=dcf4ff12d9e27dd2

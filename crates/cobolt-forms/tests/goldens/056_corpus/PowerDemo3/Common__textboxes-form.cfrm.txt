@@ -1,0 +1,181 @@
+# PowerDemo3/Common/textboxes-form.cfrm
+## Canvas 0.75x 602x430
+Button-1 rect=[330 332 473 360] font=11
+Label-1 rect=[71 15 738 57] font=11
+lblSummary rect=[65 474 738 549] font=16
+txt1 rect=[61 66 261 96] font=16
+txt10 rect=[63 213 263 243] font=16
+txt11 rect=[303 213 503 243] font=16
+txt12 rect=[543 213 743 243] font=16
+txt13 rect=[183 263 383 293] font=16
+txt14 rect=[423 263 623 293] font=16
+txt15 rect=[66 376 739 457] font=16
+txt2 rect=[303 63 503 93] font=16
+txt3 rect=[543 63 743 93] font=16
+txt4 rect=[63 113 263 143] font=16
+txt5 rect=[303 113 503 143] font=16
+txt6 rect=[543 113 743 143] font=16
+txt7 rect=[63 163 263 193] font=16
+txt8 rect=[303 163 503 193] font=16
+txt9 rect=[543 163 743 193] font=16
+shapes=931 digest=ab42a9a98affd05f
+## Run 0.75x 602x430
+Button-1 rect=[330 332 473 360] font=11
+Label-1 rect=[71 15 738 57] font=11
+lblSummary rect=[65 474 738 549] font=16
+txt1 rect=[61 66 261 96] font=16
+txt10 rect=[63 213 263 243] font=16
+txt11 rect=[303 213 503 243] font=16
+txt12 rect=[543 213 743 243] font=16
+txt13 rect=[183 263 383 293] font=16
+txt14 rect=[423 263 623 293] font=16
+txt15 rect=[66 376 739 457] font=16
+txt2 rect=[303 63 503 93] font=16
+txt3 rect=[543 63 743 93] font=16
+txt4 rect=[63 113 263 143] font=16
+txt5 rect=[303 113 503 143] font=16
+txt6 rect=[543 113 743 143] font=16
+txt7 rect=[63 163 263 193] font=16
+txt8 rect=[303 163 503 193] font=16
+txt9 rect=[543 163 743 193] font=16
+shapes=945 digest=5f922bbdcd1e4a42
+## Preview 0.75x 602x430
+Button-1 rect=[330 332 473 360] font=11
+Label-1 rect=[71 15 738 57] font=11
+lblSummary rect=[65 474 738 549] font=16
+txt1 rect=[61 66 261 96] font=16
+txt10 rect=[63 213 263 243] font=16
+txt11 rect=[303 213 503 243] font=16
+txt12 rect=[543 213 743 243] font=16
+txt13 rect=[183 263 383 293] font=16
+txt14 rect=[423 263 623 293] font=16
+txt15 rect=[66 376 739 457] font=16
+txt2 rect=[303 63 503 93] font=16
+txt3 rect=[543 63 743 93] font=16
+txt4 rect=[63 113 263 143] font=16
+txt5 rect=[303 113 503 143] font=16
+txt6 rect=[543 113 743 143] font=16
+txt7 rect=[63 163 263 193] font=16
+txt8 rect=[303 163 503 193] font=16
+txt9 rect=[543 163 743 193] font=16
+shapes=945 digest=5f922bbdcd1e4a42
+## Canvas 1x 802x573
+Button-1 rect=[330 332 473 360] font=11
+Label-1 rect=[71 15 738 57] font=11
+lblSummary rect=[65 474 738 549] font=16
+txt1 rect=[61 66 261 96] font=16
+txt10 rect=[63 213 263 243] font=16
+txt11 rect=[303 213 503 243] font=16
+txt12 rect=[543 213 743 243] font=16
+txt13 rect=[183 263 383 293] font=16
+txt14 rect=[423 263 623 293] font=16
+txt15 rect=[66 376 739 457] font=16
+txt2 rect=[303 63 503 93] font=16
+txt3 rect=[543 63 743 93] font=16
+txt4 rect=[63 113 263 143] font=16
+txt5 rect=[303 113 503 143] font=16
+txt6 rect=[543 113 743 143] font=16
+txt7 rect=[63 163 263 193] font=16
+txt8 rect=[303 163 503 193] font=16
+txt9 rect=[543 163 743 193] font=16
+shapes=931 digest=28b2614be30b17a7
+## Run 1x 802x573
+Button-1 rect=[330 332 473 360] font=11
+Label-1 rect=[71 15 738 57] font=11
+lblSummary rect=[65 474 738 549] font=16
+txt1 rect=[61 66 261 96] font=16
+txt10 rect=[63 213 263 243] font=16
+txt11 rect=[303 213 503 243] font=16
+txt12 rect=[543 213 743 243] font=16
+txt13 rect=[183 263 383 293] font=16
+txt14 rect=[423 263 623 293] font=16
+txt15 rect=[66 376 739 457] font=16
+txt2 rect=[303 63 503 93] font=16
+txt3 rect=[543 63 743 93] font=16
+txt4 rect=[63 113 263 143] font=16
+txt5 rect=[303 113 503 143] font=16
+txt6 rect=[543 113 743 143] font=16
+txt7 rect=[63 163 263 193] font=16
+txt8 rect=[303 163 503 193] font=16
+txt9 rect=[543 163 743 193] font=16
+shapes=949 digest=7f82a9be620626ba
+## Preview 1x 802x573
+Button-1 rect=[330 332 473 360] font=11
+Label-1 rect=[71 15 738 57] font=11
+lblSummary rect=[65 474 738 549] font=16
+txt1 rect=[61 66 261 96] font=16
+txt10 rect=[63 213 263 243] font=16
+txt11 rect=[303 213 503 243] font=16
+txt12 rect=[543 213 743 243] font=16
+txt13 rect=[183 263 383 293] font=16
+txt14 rect=[423 263 623 293] font=16
+txt15 rect=[66 376 739 457] font=16
+txt2 rect=[303 63 503 93] font=16
+txt3 rect=[543 63 743 93] font=16
+txt4 rect=[63 113 263 143] font=16
+txt5 rect=[303 113 503 143] font=16
+txt6 rect=[543 113 743 143] font=16
+txt7 rect=[63 163 263 193] font=16
+txt8 rect=[303 163 503 193] font=16
+txt9 rect=[543 163 743 193] font=16
+shapes=949 digest=7f82a9be620626ba
+## Canvas 1.5x 1203x860
+Button-1 rect=[330 332 473 360] font=11
+Label-1 rect=[71 15 738 57] font=11
+lblSummary rect=[65 474 738 549] font=16
+txt1 rect=[61 66 261 96] font=16
+txt10 rect=[63 213 263 243] font=16
+txt11 rect=[303 213 503 243] font=16
+txt12 rect=[543 213 743 243] font=16
+txt13 rect=[183 263 383 293] font=16
+txt14 rect=[423 263 623 293] font=16
+txt15 rect=[66 376 739 457] font=16
+txt2 rect=[303 63 503 93] font=16
+txt3 rect=[543 63 743 93] font=16
+txt4 rect=[63 113 263 143] font=16
+txt5 rect=[303 113 503 143] font=16
+txt6 rect=[543 113 743 143] font=16
+txt7 rect=[63 163 263 193] font=16
+txt8 rect=[303 163 503 193] font=16
+txt9 rect=[543 163 743 193] font=16
+shapes=931 digest=3a73af7e36e8edf6
+## Run 1.5x 1203x860
+Button-1 rect=[330 332 473 360] font=11
+Label-1 rect=[71 15 738 57] font=11
+lblSummary rect=[65 474 738 549] font=16
+txt1 rect=[61 66 261 96] font=16
+txt10 rect=[63 213 263 243] font=16
+txt11 rect=[303 213 503 243] font=16
+txt12 rect=[543 213 743 243] font=16
+txt13 rect=[183 263 383 293] font=16
+txt14 rect=[423 263 623 293] font=16
+txt15 rect=[66 376 739 457] font=16
+txt2 rect=[303 63 503 93] font=16
+txt3 rect=[543 63 743 93] font=16
+txt4 rect=[63 113 263 143] font=16
+txt5 rect=[303 113 503 143] font=16
+txt6 rect=[543 113 743 143] font=16
+txt7 rect=[63 163 263 193] font=16
+txt8 rect=[303 163 503 193] font=16
+txt9 rect=[543 163 743 193] font=16
+shapes=949 digest=156a09266ad9133b
+## Preview 1.5x 1203x860
+Button-1 rect=[330 332 473 360] font=11
+Label-1 rect=[71 15 738 57] font=11
+lblSummary rect=[65 474 738 549] font=16
+txt1 rect=[61 66 261 96] font=16
+txt10 rect=[63 213 263 243] font=16
+txt11 rect=[303 213 503 243] font=16
+txt12 rect=[543 213 743 243] font=16
+txt13 rect=[183 263 383 293] font=16
+txt14 rect=[423 263 623 293] font=16
+txt15 rect=[66 376 739 457] font=16
+txt2 rect=[303 63 503 93] font=16
+txt3 rect=[543 63 743 93] font=16
+txt4 rect=[63 113 263 143] font=16
+txt5 rect=[303 113 503 143] font=16
+txt6 rect=[543 113 743 143] font=16
+txt7 rect=[63 163 263 193] font=16
+txt8 rect=[303 163 503 193] font=16
+txt9 rect=[543 163 743 193] font=16
+shapes=949 digest=156a09266ad9133b

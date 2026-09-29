@@ -16,15 +16,15 @@
 //! whatever it does, someone will copy — which is why its code is held to the
 //! same gate as the developer's own.
 //!
-//! The file lives in the operator's demo project, not in this repository, so
-//! the test SKIPS when it is absent: a fresh clone must not fail for missing
-//! something it was never given.
+//! Read from the REPOSITORY's own `examples/PowerDemo3` (spec 056 T0.5). It
+//! used to read `~/Documents/PowerDemo3` and skip when that copy was absent —
+//! on a machine without it the test had never run at all.
 
 use std::path::PathBuf;
 
 fn demo_form() -> Option<PathBuf> {
-    let p = PathBuf::from(std::env::var("HOME").ok()?)
-        .join("Documents/PowerDemo3/forms/Inner-Forms/maps-demo.cfrm");
+    // `CARGO_MANIFEST_DIR` is crates/<crate>; the example sits two levels up.
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/PowerDemo3/forms/Common/maps-demo.cfrm");
     p.exists().then_some(p)
 }
 

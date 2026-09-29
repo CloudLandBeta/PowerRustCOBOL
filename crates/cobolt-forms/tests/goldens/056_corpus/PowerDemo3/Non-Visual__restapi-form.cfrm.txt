@@ -1,0 +1,172 @@
+# PowerDemo3/Non-Visual/restapi-form.cfrm
+## Canvas 0.75x 960x540
+Button-REST-404 rect=[972 96 1256 136] font=13
+Button-REST-BADHOST rect=[24 152 324 192] font=13
+Button-REST-CANCEL rect=[656 152 956 192] font=13
+Button-REST-CLEAR rect=[972 152 1256 192] font=13
+Button-REST-GET rect=[24 96 324 136] font=13
+Button-REST-GETURL rect=[340 96 640 136] font=13
+Button-REST-POST rect=[656 96 956 136] font=13
+Button-REST-TIMEOUT rect=[340 152 640 192] font=13
+Label-BODYCAP rect=[648 240 1880 270] font=12
+Label-HINT rect=[24 56 1256 86] font=12
+Label-LOGCAP rect=[24 240 1256 270] font=12
+Label-STATUS rect=[96 208 1328 238] font=19
+Label-STATUSCAP rect=[24 208 96 238] font=19
+Label-TITLE rect=[24 20 1256 50] font=19
+RestClient-1 rect=[1096 16 1152 72] font=11
+TextBox-BODY rect=[648 272 1256 696] font=12
+TextBox-LOG rect=[24 272 624 696] font=12
+shapes=169 digest=8a9d3e6807fbf838
+## Run 0.75x 960x540
+Button-REST-404 rect=[972 96 1256 136] font=13
+Button-REST-BADHOST rect=[24 152 324 192] font=13
+Button-REST-CANCEL rect=[656 152 956 192] font=13
+Button-REST-CLEAR rect=[972 152 1256 192] font=13
+Button-REST-GET rect=[24 96 324 136] font=13
+Button-REST-GETURL rect=[340 96 640 136] font=13
+Button-REST-POST rect=[656 96 956 136] font=13
+Button-REST-TIMEOUT rect=[340 152 640 192] font=13
+Label-BODYCAP rect=[648 240 1880 270] font=12
+Label-HINT rect=[24 56 1256 86] font=12
+Label-LOGCAP rect=[24 240 1256 270] font=12
+Label-STATUS rect=[96 208 1328 238] font=19
+Label-STATUSCAP rect=[24 208 96 238] font=19
+Label-TITLE rect=[24 20 1256 50] font=19
+RestClient-1 rect=[1096 16 1152 72] font=11
+TextBox-BODY rect=[648 272 1256 696] font=12
+TextBox-LOG rect=[24 272 624 696] font=12
+shapes=171 digest=5e8f189974d0f68f
+## Preview 0.75x 960x540
+Button-REST-404 rect=[972 96 1256 136] font=13
+Button-REST-BADHOST rect=[24 152 324 192] font=13
+Button-REST-CANCEL rect=[656 152 956 192] font=13
+Button-REST-CLEAR rect=[972 152 1256 192] font=13
+Button-REST-GET rect=[24 96 324 136] font=13
+Button-REST-GETURL rect=[340 96 640 136] font=13
+Button-REST-POST rect=[656 96 956 136] font=13
+Button-REST-TIMEOUT rect=[340 152 640 192] font=13
+Label-BODYCAP rect=[648 240 1880 270] font=12
+Label-HINT rect=[24 56 1256 86] font=12
+Label-LOGCAP rect=[24 240 1256 270] font=12
+Label-STATUS rect=[96 208 1328 238] font=19
+Label-STATUSCAP rect=[24 208 96 238] font=19
+Label-TITLE rect=[24 20 1256 50] font=19
+RestClient-1 rect=[1096 16 1152 72] font=11
+TextBox-BODY rect=[648 272 1256 696] font=12
+TextBox-LOG rect=[24 272 624 696] font=12
+shapes=171 digest=5e8f189974d0f68f
+## Canvas 1x 1280x720
+Button-REST-404 rect=[972 96 1256 136] font=13
+Button-REST-BADHOST rect=[24 152 324 192] font=13
+Button-REST-CANCEL rect=[656 152 956 192] font=13
+Button-REST-CLEAR rect=[972 152 1256 192] font=13
+Button-REST-GET rect=[24 96 324 136] font=13
+Button-REST-GETURL rect=[340 96 640 136] font=13
+Button-REST-POST rect=[656 96 956 136] font=13
+Button-REST-TIMEOUT rect=[340 152 640 192] font=13
+Label-BODYCAP rect=[648 240 1880 270] font=12
+Label-HINT rect=[24 56 1256 86] font=12
+Label-LOGCAP rect=[24 240 1256 270] font=12
+Label-STATUS rect=[96 208 1328 238] font=19
+Label-STATUSCAP rect=[24 208 96 238] font=19
+Label-TITLE rect=[24 20 1256 50] font=19
+RestClient-1 rect=[1096 16 1152 72] font=11
+TextBox-BODY rect=[648 272 1256 696] font=12
+TextBox-LOG rect=[24 272 624 696] font=12
+shapes=169 digest=9cd9044e0108ab62
+## Run 1x 1280x720
+Button-REST-404 rect=[972 96 1256 136] font=13
+Button-REST-BADHOST rect=[24 152 324 192] font=13
+Button-REST-CANCEL rect=[656 152 956 192] font=13
+Button-REST-CLEAR rect=[972 152 1256 192] font=13
+Button-REST-GET rect=[24 96 324 136] font=13
+Button-REST-GETURL rect=[340 96 640 136] font=13
+Button-REST-POST rect=[656 96 956 136] font=13
+Button-REST-TIMEOUT rect=[340 152 640 192] font=13
+Label-BODYCAP rect=[648 240 1880 270] font=12
+Label-HINT rect=[24 56 1256 86] font=12
+Label-LOGCAP rect=[24 240 1256 270] font=12
+Label-STATUS rect=[96 208 1328 238] font=19
+Label-STATUSCAP rect=[24 208 96 238] font=19
+Label-TITLE rect=[24 20 1256 50] font=19
+RestClient-1 rect=[1096 16 1152 72] font=11
+TextBox-BODY rect=[648 272 1256 696] font=12
+TextBox-LOG rect=[24 272 624 696] font=12
+shapes=171 digest=7cfb8a95c1522cf8
+## Preview 1x 1280x720
+Button-REST-404 rect=[972 96 1256 136] font=13
+Button-REST-BADHOST rect=[24 152 324 192] font=13
+Button-REST-CANCEL rect=[656 152 956 192] font=13
+Button-REST-CLEAR rect=[972 152 1256 192] font=13
+Button-REST-GET rect=[24 96 324 136] font=13
+Button-REST-GETURL rect=[340 96 640 136] font=13
+Button-REST-POST rect=[656 96 956 136] font=13
+Button-REST-TIMEOUT rect=[340 152 640 192] font=13
+Label-BODYCAP rect=[648 240 1880 270] font=12
+Label-HINT rect=[24 56 1256 86] font=12
+Label-LOGCAP rect=[24 240 1256 270] font=12
+Label-STATUS rect=[96 208 1328 238] font=19
+Label-STATUSCAP rect=[24 208 96 238] font=19
+Label-TITLE rect=[24 20 1256 50] font=19
+RestClient-1 rect=[1096 16 1152 72] font=11
+TextBox-BODY rect=[648 272 1256 696] font=12
+TextBox-LOG rect=[24 272 624 696] font=12
+shapes=171 digest=7cfb8a95c1522cf8
+## Canvas 1.5x 1920x1080
+Button-REST-404 rect=[972 96 1256 136] font=13
+Button-REST-BADHOST rect=[24 152 324 192] font=13
+Button-REST-CANCEL rect=[656 152 956 192] font=13
+Button-REST-CLEAR rect=[972 152 1256 192] font=13
+Button-REST-GET rect=[24 96 324 136] font=13
+Button-REST-GETURL rect=[340 96 640 136] font=13
+Button-REST-POST rect=[656 96 956 136] font=13
+Button-REST-TIMEOUT rect=[340 152 640 192] font=13
+Label-BODYCAP rect=[648 240 1880 270] font=12
+Label-HINT rect=[24 56 1256 86] font=12
+Label-LOGCAP rect=[24 240 1256 270] font=12
+Label-STATUS rect=[96 208 1328 238] font=19
+Label-STATUSCAP rect=[24 208 96 238] font=19
+Label-TITLE rect=[24 20 1256 50] font=19
+RestClient-1 rect=[1096 16 1152 72] font=11
+TextBox-BODY rect=[648 272 1256 696] font=12
+TextBox-LOG rect=[24 272 624 696] font=12
+shapes=169 digest=7f486f6fa11e443b
+## Run 1.5x 1920x1080
+Button-REST-404 rect=[972 96 1256 136] font=13
+Button-REST-BADHOST rect=[24 152 324 192] font=13
+Button-REST-CANCEL rect=[656 152 956 192] font=13
+Button-REST-CLEAR rect=[972 152 1256 192] font=13
+Button-REST-GET rect=[24 96 324 136] font=13
+Button-REST-GETURL rect=[340 96 640 136] font=13
+Button-REST-POST rect=[656 96 956 136] font=13
+Button-REST-TIMEOUT rect=[340 152 640 192] font=13
+Label-BODYCAP rect=[648 240 1880 270] font=12
+Label-HINT rect=[24 56 1256 86] font=12
+Label-LOGCAP rect=[24 240 1256 270] font=12
+Label-STATUS rect=[96 208 1328 238] font=19
+Label-STATUSCAP rect=[24 208 96 238] font=19
+Label-TITLE rect=[24 20 1256 50] font=19
+RestClient-1 rect=[1096 16 1152 72] font=11
+TextBox-BODY rect=[648 272 1256 696] font=12
+TextBox-LOG rect=[24 272 624 696] font=12
+shapes=171 digest=baa29f4b71cbfc4f
+## Preview 1.5x 1920x1080
+Button-REST-404 rect=[972 96 1256 136] font=13
+Button-REST-BADHOST rect=[24 152 324 192] font=13
+Button-REST-CANCEL rect=[656 152 956 192] font=13
+Button-REST-CLEAR rect=[972 152 1256 192] font=13
+Button-REST-GET rect=[24 96 324 136] font=13
+Button-REST-GETURL rect=[340 96 640 136] font=13
+Button-REST-POST rect=[656 96 956 136] font=13
+Button-REST-TIMEOUT rect=[340 152 640 192] font=13
+Label-BODYCAP rect=[648 240 1880 270] font=12
+Label-HINT rect=[24 56 1256 86] font=12
+Label-LOGCAP rect=[24 240 1256 270] font=12
+Label-STATUS rect=[96 208 1328 238] font=19
+Label-STATUSCAP rect=[24 208 96 238] font=19
+Label-TITLE rect=[24 20 1256 50] font=19
+RestClient-1 rect=[1096 16 1152 72] font=11
+TextBox-BODY rect=[648 272 1256 696] font=12
+TextBox-LOG rect=[24 272 624 696] font=12
+shapes=171 digest=baa29f4b71cbfc4f

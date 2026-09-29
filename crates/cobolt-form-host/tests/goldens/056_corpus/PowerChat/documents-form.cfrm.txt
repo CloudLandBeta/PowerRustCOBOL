@@ -1,0 +1,133 @@
+# PowerChat/documents-form.cfrm
+## Window 0.75x 810x384
+Btn-Delete rect=[680 224 864 256] font=14
+Btn-Move rect=[680 416 864 448] font=14
+Btn-MoveTop rect=[872 416 1056 448] font=14
+Btn-NewFolder rect=[680 368 1056 400] font=14
+Btn-Preview rect=[872 224 1056 256] font=14
+Btn-Refresh rect=[680 272 1056 304] font=14
+Drop-Docs rect=[672 48 1064 192] font=14
+KB-D rect=[1000 8 1048 56] font=14
+Lbl-Chunk rect=- font=12
+Lbl-Count rect=[24 328 480 352] font=14
+Lbl-Embed rect=- font=12
+Lbl-Progress rect=[24 396 656 416] font=14
+Lbl-Status rect=[24 416 656 448] font=14
+Lbl-Title rect=[24 16 656 48] font=20
+Lbl-Types rect=[24 456 1056 504] font=12
+Prg-Chunk rect=- font=14
+Prg-Embed rect=- font=14
+Prg-Index rect=- font=14
+Tmr-Lang rect=[1000 0 1048 48] font=14
+Trv-Docs rect=[24 56 640 320] font=14
+Txt-Folder rect=[680 320 1056 352] font=14
+## Occupant 0.75x 810x384
+Btn-Delete rect=[900 252 1084 284] font=14
+Btn-Move rect=[900 444 1084 476] font=14
+Btn-MoveTop rect=[1092 444 1276 476] font=14
+Btn-NewFolder rect=[900 396 1276 428] font=14
+Btn-Preview rect=[1092 252 1276 284] font=14
+Btn-Refresh rect=[900 300 1276 332] font=14
+Drop-Docs rect=[892 76 1284 220] font=14
+KB-D rect=[1220 36 1268 84] font=14
+Lbl-Chunk rect=- font=12
+Lbl-Count rect=[244 356 700 380] font=14
+Lbl-Embed rect=- font=12
+Lbl-Progress rect=[244 424 876 444] font=14
+Lbl-Status rect=[244 444 876 476] font=14
+Lbl-Title rect=[244 44 876 76] font=20
+Lbl-Types rect=[244 484 1276 532] font=12
+Prg-Chunk rect=- font=14
+Prg-Embed rect=- font=14
+Prg-Index rect=- font=14
+Tmr-Lang rect=[1220 28 1268 76] font=14
+Trv-Docs rect=[244 84 860 348] font=14
+Txt-Folder rect=[900 348 1276 380] font=14
+## Window 1x 1080x512
+Btn-Delete rect=[680 224 864 256] font=14
+Btn-Move rect=[680 416 864 448] font=14
+Btn-MoveTop rect=[872 416 1056 448] font=14
+Btn-NewFolder rect=[680 368 1056 400] font=14
+Btn-Preview rect=[872 224 1056 256] font=14
+Btn-Refresh rect=[680 272 1056 304] font=14
+Drop-Docs rect=[672 48 1064 192] font=14
+KB-D rect=[1000 8 1048 56] font=14
+Lbl-Chunk rect=- font=12
+Lbl-Count rect=[24 328 480 352] font=14
+Lbl-Embed rect=- font=12
+Lbl-Progress rect=[24 396 656 416] font=14
+Lbl-Status rect=[24 416 656 448] font=14
+Lbl-Title rect=[24 16 656 48] font=20
+Lbl-Types rect=[24 456 1056 504] font=12
+Prg-Chunk rect=- font=14
+Prg-Embed rect=- font=14
+Prg-Index rect=- font=14
+Tmr-Lang rect=[1000 0 1048 48] font=14
+Trv-Docs rect=[24 56 640 320] font=14
+Txt-Folder rect=[680 320 1056 352] font=14
+## Occupant 1x 1080x512
+Btn-Delete rect=[900 252 1084 284] font=14
+Btn-Move rect=[900 444 1084 476] font=14
+Btn-MoveTop rect=[1092 444 1276 476] font=14
+Btn-NewFolder rect=[900 396 1276 428] font=14
+Btn-Preview rect=[1092 252 1276 284] font=14
+Btn-Refresh rect=[900 300 1276 332] font=14
+Drop-Docs rect=[892 76 1284 220] font=14
+KB-D rect=[1220 36 1268 84] font=14
+Lbl-Chunk rect=- font=12
+Lbl-Count rect=[244 356 700 380] font=14
+Lbl-Embed rect=- font=12
+Lbl-Progress rect=[244 424 876 444] font=14
+Lbl-Status rect=[244 444 876 476] font=14
+Lbl-Title rect=[244 44 876 76] font=20
+Lbl-Types rect=[244 484 1276 532] font=12
+Prg-Chunk rect=- font=14
+Prg-Embed rect=- font=14
+Prg-Index rect=- font=14
+Tmr-Lang rect=[1220 28 1268 76] font=14
+Trv-Docs rect=[244 84 860 348] font=14
+Txt-Folder rect=[900 348 1276 380] font=14
+## Window 1.5x 1620x768
+Btn-Delete rect=[680 224 864 256] font=14
+Btn-Move rect=[680 416 864 448] font=14
+Btn-MoveTop rect=[872 416 1056 448] font=14
+Btn-NewFolder rect=[680 368 1056 400] font=14
+Btn-Preview rect=[872 224 1056 256] font=14
+Btn-Refresh rect=[680 272 1056 304] font=14
+Drop-Docs rect=[672 48 1064 192] font=14
+KB-D rect=[1000 8 1048 56] font=14
+Lbl-Chunk rect=- font=12
+Lbl-Count rect=[24 328 480 352] font=14
+Lbl-Embed rect=- font=12
+Lbl-Progress rect=[24 396 656 416] font=14
+Lbl-Status rect=[24 416 656 448] font=14
+Lbl-Title rect=[24 16 656 48] font=20
+Lbl-Types rect=[24 456 1056 504] font=12
+Prg-Chunk rect=- font=14
+Prg-Embed rect=- font=14
+Prg-Index rect=- font=14
+Tmr-Lang rect=[1000 0 1048 48] font=14
+Trv-Docs rect=[24 56 640 320] font=14
+Txt-Folder rect=[680 320 1056 352] font=14
+## Occupant 1.5x 1620x768
+Btn-Delete rect=[900 252 1084 284] font=14
+Btn-Move rect=[900 444 1084 476] font=14
+Btn-MoveTop rect=[1092 444 1276 476] font=14
+Btn-NewFolder rect=[900 396 1276 428] font=14
+Btn-Preview rect=[1092 252 1276 284] font=14
+Btn-Refresh rect=[900 300 1276 332] font=14
+Drop-Docs rect=[892 76 1284 220] font=14
+KB-D rect=[1220 36 1268 84] font=14
+Lbl-Chunk rect=- font=12
+Lbl-Count rect=[244 356 700 380] font=14
+Lbl-Embed rect=- font=12
+Lbl-Progress rect=[244 424 876 444] font=14
+Lbl-Status rect=[244 444 876 476] font=14
+Lbl-Title rect=[244 44 876 76] font=20
+Lbl-Types rect=[244 484 1276 532] font=12
+Prg-Chunk rect=- font=14
+Prg-Embed rect=- font=14
+Prg-Index rect=- font=14
+Tmr-Lang rect=[1220 28 1268 76] font=14
+Trv-Docs rect=[244 84 860 348] font=14
+Txt-Folder rect=[900 348 1276 380] font=14

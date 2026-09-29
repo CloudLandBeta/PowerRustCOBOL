@@ -1,0 +1,37 @@
+# PowerDemo3/General/call-form-demo.cfrm
+## Window 0.75x 750x450
+Button-1 rect=[40 200 360 264] font=16
+Label-1 rect=[40 32 640 88] font=32
+Label-2 rect=[40 104 940 176] font=14
+Label-3 rect=[40 304 540 336] font=16
+Lbl-Result rect=[40 344 940 400] font=20
+## Occupant 0.75x 750x450
+Button-1 rect=[260 228 580 292] font=16
+Label-1 rect=[260 60 860 116] font=32
+Label-2 rect=[260 132 1160 204] font=14
+Label-3 rect=[260 332 760 364] font=16
+Lbl-Result rect=[260 372 1160 428] font=20
+## Window 1x 1000x600
+Button-1 rect=[40 200 360 264] font=16
+Label-1 rect=[40 32 640 88] font=32
+Label-2 rect=[40 104 940 176] font=14
+Label-3 rect=[40 304 540 336] font=16
+Lbl-Result rect=[40 344 940 400] font=20
+## Occupant 1x 1000x600
+Button-1 rect=[260 228 580 292] font=16
+Label-1 rect=[260 60 860 116] font=32
+Label-2 rect=[260 132 1160 204] font=14
+Label-3 rect=[260 332 760 364] font=16
+Lbl-Result rect=[260 372 1160 428] font=20
+## Window 1.5x 1500x900
+Button-1 rect=[40 200 360 264] font=16
+Label-1 rect=[40 32 640 88] font=32
+Label-2 rect=[40 104 940 176] font=14
+Label-3 rect=[40 304 540 336] font=16
+Lbl-Result rect=[40 344 940 400] font=20
+## Occupant 1.5x 1500x900
+Button-1 rect=[260 228 580 292] font=16
+Label-1 rect=[260 60 860 116] font=32
+Label-2 rect=[260 132 1160 204] font=14
+Label-3 rect=[260 332 760 364] font=16
+Lbl-Result rect=[260 372 1160 428] font=20

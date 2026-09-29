@@ -1,0 +1,61 @@
+# PowerDemo3/Data/datagrid-form.cfrm
+## Window 0.75x 966x582
+Button-1 rect=[40 232 200 272] font=17
+DataGrid-1 rect=[64 328 1200 704] font=17
+Label-1 rect=[40 96 496 216] font=60
+Label-2 rect=[536 120 1224 264] font=16
+Panel-1 rect=[40 304 1224 728] font=17
+RadioButton-4 rect=[1112 24 1288 69] font=17
+RadioButton-5 rect=[988 24 1108 69] font=17
+RadioButton-6 rect=[864 24 984 69] font=17
+Snackbar-1 rect=[48 40 104 96] font=11
+## Occupant 0.75x 966x582
+Button-1 rect=[260 260 420 300] font=17
+DataGrid-1 rect=[284 356 1420 732] font=17
+Label-1 rect=[260 124 716 244] font=60
+Label-2 rect=[756 148 1444 292] font=16
+Panel-1 rect=[260 332 1444 756] font=17
+RadioButton-4 rect=[1332 52 1508 97] font=17
+RadioButton-5 rect=[1208 52 1328 97] font=17
+RadioButton-6 rect=[1084 52 1204 97] font=17
+Snackbar-1 rect=[268 68 324 124] font=11
+## Window 1x 1288x776
+Button-1 rect=[40 232 200 272] font=17
+DataGrid-1 rect=[64 328 1200 704] font=17
+Label-1 rect=[40 96 496 216] font=60
+Label-2 rect=[536 120 1224 264] font=16
+Panel-1 rect=[40 304 1224 728] font=17
+RadioButton-4 rect=[1112 24 1288 69] font=17
+RadioButton-5 rect=[988 24 1108 69] font=17
+RadioButton-6 rect=[864 24 984 69] font=17
+Snackbar-1 rect=[48 40 104 96] font=11
+## Occupant 1x 1288x776
+Button-1 rect=[260 260 420 300] font=17
+DataGrid-1 rect=[284 356 1420 732] font=17
+Label-1 rect=[260 124 716 244] font=60
+Label-2 rect=[756 148 1444 292] font=16
+Panel-1 rect=[260 332 1444 756] font=17
+RadioButton-4 rect=[1332 52 1508 97] font=17
+RadioButton-5 rect=[1208 52 1328 97] font=17
+RadioButton-6 rect=[1084 52 1204 97] font=17
+Snackbar-1 rect=[268 68 324 124] font=11
+## Window 1.5x 1932x1164
+Button-1 rect=[40 232 200 272] font=17
+DataGrid-1 rect=[64 328 1200 704] font=17
+Label-1 rect=[40 96 496 216] font=60
+Label-2 rect=[536 120 1224 264] font=16
+Panel-1 rect=[40 304 1224 728] font=17
+RadioButton-4 rect=[1112 24 1288 69] font=17
+RadioButton-5 rect=[988 24 1108 69] font=17
+RadioButton-6 rect=[864 24 984 69] font=17
+Snackbar-1 rect=[48 40 104 96] font=11
+## Occupant 1.5x 1932x1164
+Button-1 rect=[260 260 420 300] font=17
+DataGrid-1 rect=[284 356 1420 732] font=17
+Label-1 rect=[260 124 716 244] font=60
+Label-2 rect=[756 148 1444 292] font=16
+Panel-1 rect=[260 332 1444 756] font=17
+RadioButton-4 rect=[1332 52 1508 97] font=17
+RadioButton-5 rect=[1208 52 1328 97] font=17
+RadioButton-6 rect=[1084 52 1204 97] font=17
+Snackbar-1 rect=[268 68 324 124] font=11

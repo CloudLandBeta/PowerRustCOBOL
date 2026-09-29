@@ -1,0 +1,1484 @@
+      *> ───────────────────────────────────────────────────────────
+      *>  This code was generated automatically by PowerRustCOBOL RAD.
+      *>
+      *>  DO NOT MODIFY IT DIRECTLY: it is regenerated the next time
+      *>  you interact with the Form Designer, so manual edits are lost.
+      *>  Edit the form and its event handlers in the Form Designer
+      *>  instead.
+      *>
+      *>  PowerRustCOBOL may change the structure of this generated code
+      *>  at any time — without breaking your code's functionality — for
+      *>  reasons such as performance improvements, new observability
+      *>  features, and bug fixes.
+      *>
+      *>  PowerRustCOBOL and its components are distributed under the
+      *>  Apache 2.0 License.
+      *> ───────────────────────────────────────────────────────────
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PROVIDERS-FORM.
+
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range".
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT SETTINGS-FILE ASSIGN TO WS-SETTINGS-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS SET-NAME
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+           SELECT MODELS-FILE ASSIGN TO WS-MODELS-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS MDL-NAME
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
+
+       DATA DIVISION.
+       FILE SECTION.
+       FD  SETTINGS-FILE IS GLOBAL.
+       01  SETTINGS-REC.
+           05 SET-NAME          PIC X(20).
+           05 SET-VALUE         PIC X(200).
+       FD  MODELS-FILE IS GLOBAL.
+       01  MODEL-REC.
+           05 MDL-NAME          PIC X(30).
+           05 MDL-API           PIC X(12).
+           05 MDL-URL           PIC X(200).
+           05 MDL-MODEL         PIC X(80).
+      *>   The capability table (spec 071 R31, 063 R72): whether the model
+      *>   can call tools, and how well it orchestrates, 1 (poorly) to 9.
+           05 MDL-TOOLS         PIC X.
+           05 MDL-RANK          PIC 9.
+       WORKING-STORAGE SECTION.
+      *>── Cobolt runtime fields ─────────────────────────────────────
+       01 COBOL-QUIT             PIC 9        VALUE 0.
+       01 COBOL-EVENT-ID         PIC X(64)   VALUE SPACES.
+       01 COBOL-CONTROL-ID       PIC X(64)   VALUE SPACES.
+       01 COBOL-LAST-STATUS       PIC X(256)  VALUE SPACES.
+       01 FORM-NAME               PIC X(64)   VALUE 'PROVIDERS-FORM'.
+
+      *>── DataGrid Dg-List CSV export ──────────────────────────
+       01 WS-Dg-List-CSV-PATH    PIC X(512)  VALUE SPACES.
+       01 WS-Dg-List-CSV-STATUS  PIC 9       VALUE 0.
+
+      *>── User Working Storage ────────────────────────────────────────
+       01 WS-FS              GLOBAL PIC XX VALUE "00".
+       01 WS-DATA-DIR        GLOBAL PIC X(200).
+       01 WS-SET-NAME        GLOBAL PIC X(20).
+       01 WS-SET-VALUE       GLOBAL PIC X(200).
+       01 WS-EOF             GLOBAL PIC X.
+       01 WS-OK              GLOBAL PIC X(4).
+       01 WS-SETTINGS-PATH   GLOBAL PIC X(240).
+       01 WS-MODELS-PATH     GLOBAL PIC X(240).
+      *>   The interface texts (spec 071 R44): one row per text, one column
+      *>   per language - en, pt, es, fr, jp, cn. Identifiers stay English;
+      *>   only the values are translated.
+       01 WS-LANG            GLOBAL PIC XX VALUE "en".
+       01 WS-LANG-IX         GLOBAL PIC 9 VALUE 1.
+       01 WS-TX-I            GLOBAL PIC 9(4).
+       01 PC-TEXT-DATA       GLOBAL.
+      *>   PROVIDERS-TITLE
+          05 FILLER PIC X(120) VALUE "Model providers".
+          05 FILLER PIC X(120) VALUE "Provedores de modelos".
+          05 FILLER PIC X(120) VALUE "Proveedores de modelos".
+          05 FILLER PIC X(120) VALUE "Fournisseurs de modèles".
+          05 FILLER PIC X(120) VALUE "モデルプロバイダー".
+          05 FILLER PIC X(120) VALUE "模型提供商".
+      *>   CONNECTION
+          05 FILLER PIC X(120) VALUE "Connection".
+          05 FILLER PIC X(120) VALUE "Conexão".
+          05 FILLER PIC X(120) VALUE "Conexión".
+          05 FILLER PIC X(120) VALUE "Connexion".
+          05 FILLER PIC X(120) VALUE "接続".
+          05 FILLER PIC X(120) VALUE "连接".
+      *>   NAME
+          05 FILLER PIC X(120) VALUE "Name".
+          05 FILLER PIC X(120) VALUE "Nome".
+          05 FILLER PIC X(120) VALUE "Nombre".
+          05 FILLER PIC X(120) VALUE "Nom".
+          05 FILLER PIC X(120) VALUE "名前".
+          05 FILLER PIC X(120) VALUE "名称".
+      *>   HINT-MODEL-NAME
+          05 FILLER PIC X(120) VALUE "e.g. company-model".
+          05 FILLER PIC X(120) VALUE "ex.: modelo-da-empresa".
+          05 FILLER PIC X(120) VALUE "p. ej. modelo-empresa".
+          05 FILLER PIC X(120) VALUE "ex. modele-entreprise".
+          05 FILLER PIC X(120) VALUE "例：company-model".
+          05 FILLER PIC X(120) VALUE "例如：company-model".
+      *>   PROVIDER
+          05 FILLER PIC X(120) VALUE "Provider".
+          05 FILLER PIC X(120) VALUE "Provedor".
+          05 FILLER PIC X(120) VALUE "Proveedor".
+          05 FILLER PIC X(120) VALUE "Fournisseur".
+          05 FILLER PIC X(120) VALUE "プロバイダー".
+          05 FILLER PIC X(120) VALUE "提供商".
+      *>   ENDPOINT
+          05 FILLER PIC X(120) VALUE "Endpoint".
+          05 FILLER PIC X(120) VALUE "Endpoint".
+          05 FILLER PIC X(120) VALUE "Endpoint".
+          05 FILLER PIC X(120) VALUE "Point de terminaison".
+          05 FILLER PIC X(120) VALUE "エンドポイント".
+          05 FILLER PIC X(120) VALUE "端点".
+      *>   HINT-ENDPOINT
+          05 FILLER PIC X(120) VALUE "Blank: the provider's own address".
+          05 FILLER PIC X(120) VALUE "Vazio: o endereço padrão do provedor".
+          05 FILLER PIC X(120) VALUE "Vacío: la dirección del proveedor".
+          05 FILLER PIC X(120) VALUE "Vide : l'adresse du fournisseur".
+          05 FILLER PIC X(120) VALUE "空欄: プロバイダーの既定のアドレス".
+          05 FILLER PIC X(120) VALUE "留空：使用提供商的默认地址".
+      *>   API-KEY
+          05 FILLER PIC X(120) VALUE "API key".
+          05 FILLER PIC X(120) VALUE "Chave de API".
+          05 FILLER PIC X(120) VALUE "Clave de API".
+          05 FILLER PIC X(120) VALUE "Clé API".
+          05 FILLER PIC X(120) VALUE "API キー".
+          05 FILLER PIC X(120) VALUE "API 密钥".
+      *>   HINT-KEY
+          05 FILLER PIC X(120) VALUE "Only to set or replace it - it is never shown again".
+          05 FILLER PIC X(120) VALUE "Só para definir ou trocar - ela nunca é mostrada de novo".
+          05 FILLER PIC X(120) VALUE "Solo para definirla o cambiarla: nunca se vuelve a mostrar".
+          05 FILLER PIC X(120) VALUE "Uniquement pour la définir ou la remplacer : elle ne sera plus jamais affichée".
+          05 FILLER PIC X(120) VALUE "設定または置き換えるときだけ入力 - 二度と表示されません".
+          05 FILLER PIC X(120) VALUE "仅用于设置或替换——之后不会再显示".
+      *>   TEST-CONN
+          05 FILLER PIC X(120) VALUE "Test connection".
+          05 FILLER PIC X(120) VALUE "Testar conexão".
+          05 FILLER PIC X(120) VALUE "Probar conexión".
+          05 FILLER PIC X(120) VALUE "Tester la connexion".
+          05 FILLER PIC X(120) VALUE "接続をテスト".
+          05 FILLER PIC X(120) VALUE "测试连接".
+      *>   SAVE
+          05 FILLER PIC X(120) VALUE "Save".
+          05 FILLER PIC X(120) VALUE "Salvar".
+          05 FILLER PIC X(120) VALUE "Guardar".
+          05 FILLER PIC X(120) VALUE "Enregistrer".
+          05 FILLER PIC X(120) VALUE "保存".
+          05 FILLER PIC X(120) VALUE "保存".
+      *>   CANCEL
+          05 FILLER PIC X(120) VALUE "Cancel".
+          05 FILLER PIC X(120) VALUE "Cancelar".
+          05 FILLER PIC X(120) VALUE "Cancelar".
+          05 FILLER PIC X(120) VALUE "Annuler".
+          05 FILLER PIC X(120) VALUE "キャンセル".
+          05 FILLER PIC X(120) VALUE "取消".
+      *>   STATUS
+          05 FILLER PIC X(120) VALUE "Status".
+          05 FILLER PIC X(120) VALUE "Status".
+          05 FILLER PIC X(120) VALUE "Estado".
+          05 FILLER PIC X(120) VALUE "État".
+          05 FILLER PIC X(120) VALUE "ステータス".
+          05 FILLER PIC X(120) VALUE "状态".
+      *>   PICK-PROVIDER
+          05 FILLER PIC X(120) VALUE "Pick the model's provider first.".
+          05 FILLER PIC X(120) VALUE "Escolha primeiro o provedor do modelo.".
+          05 FILLER PIC X(120) VALUE "Primero elige el proveedor del modelo.".
+          05 FILLER PIC X(120) VALUE "Choisissez d'abord le fournisseur du modèle.".
+          05 FILLER PIC X(120) VALUE "先にモデルのプロバイダーを選んでください。".
+          05 FILLER PIC X(120) VALUE "请先选择模型的提供商。".
+      *>   LISTING
+          05 FILLER PIC X(120) VALUE "Asking &1 for its models...".
+          05 FILLER PIC X(120) VALUE "Pedindo a lista de modelos a &1...".
+          05 FILLER PIC X(120) VALUE "Pidiendo a &1 sus modelos...".
+          05 FILLER PIC X(120) VALUE "Demande des modèles à &1...".
+          05 FILLER PIC X(120) VALUE "&1 にモデルを問い合わせ中...".
+          05 FILLER PIC X(120) VALUE "正在向 &1 获取模型...".
+      *>   CONN-OK-MODELS
+          05 FILLER PIC X(120) VALUE "Connection OK: &1 models available.".
+          05 FILLER PIC X(120) VALUE "Conexão OK: &1 modelos disponíveis.".
+          05 FILLER PIC X(120) VALUE "Conexión correcta: &1 modelos disponibles.".
+          05 FILLER PIC X(120) VALUE "Connexion OK : &1 modèles disponibles.".
+          05 FILLER PIC X(120) VALUE "接続 OK: 利用可能なモデル &1".
+          05 FILLER PIC X(120) VALUE "连接正常：可用模型 &1 个。".
+      *>   CONN-SAVED
+          05 FILLER PIC X(120) VALUE "Connection saved.".
+          05 FILLER PIC X(120) VALUE "Conexão salva.".
+          05 FILLER PIC X(120) VALUE "Conexión guardada.".
+          05 FILLER PIC X(120) VALUE "Connexion enregistrée.".
+          05 FILLER PIC X(120) VALUE "接続を保存しました。".
+          05 FILLER PIC X(120) VALUE "连接已保存。".
+      *>   CONN-KEY-SAVED
+          05 FILLER PIC X(120) VALUE "Connection and key saved.".
+          05 FILLER PIC X(120) VALUE "Conexão e chave salvas.".
+          05 FILLER PIC X(120) VALUE "Conexión y clave guardadas.".
+          05 FILLER PIC X(120) VALUE "Connexion et clé enregistrées.".
+          05 FILLER PIC X(120) VALUE "接続とキーを保存しました。".
+          05 FILLER PIC X(120) VALUE "连接和密钥已保存。".
+      *>   CONN-NEEDS
+          05 FILLER PIC X(120) VALUE "A connection needs at least a name and a provider.".
+          05 FILLER PIC X(120) VALUE "Uma conexão precisa de pelo menos um nome e um provedor.".
+          05 FILLER PIC X(120) VALUE "Una conexión necesita al menos un nombre y un proveedor.".
+          05 FILLER PIC X(120) VALUE "Une connexion a besoin au moins d'un nom et d'un fournisseur.".
+          05 FILLER PIC X(120) VALUE "接続には少なくとも名前とプロバイダーが必要です。".
+          05 FILLER PIC X(120) VALUE "连接至少需要名称和提供商。".
+      *>   CONN-NEEDS-KEY
+          05 FILLER PIC X(120) VALUE "Connection saved. It still needs its API key before it can answer.".
+          05 FILLER PIC X(120) VALUE "Conexão salva. Ainda falta a chave de API para ela responder.".
+          05 FILLER PIC X(120) VALUE "Conexión guardada. Aún necesita su clave de API para responder.".
+          05 FILLER PIC X(120) VALUE "Connexion enregistrée. Il lui faut encore sa clé API pour répondre.".
+          05 FILLER PIC X(120) VALUE "接続を保存しました。応答するには API キーが必要です。".
+          05 FILLER PIC X(120) VALUE "连接已保存。仍需设置 API 密钥才能应答。".
+      *>   CONN-REMOVED
+          05 FILLER PIC X(120) VALUE "Connection removed, with its key.".
+          05 FILLER PIC X(120) VALUE "Conexão removida, junto com a chave.".
+          05 FILLER PIC X(120) VALUE "Conexión quitada, junto con su clave.".
+          05 FILLER PIC X(120) VALUE "Connexion retirée, avec sa clé.".
+          05 FILLER PIC X(120) VALUE "接続をキーとともに削除しました。".
+          05 FILLER PIC X(120) VALUE "连接及其密钥已移除。".
+      *>   TIP-NAME
+          05 FILLER PIC X(120) VALUE "A short name you choose for this model, such as company-model. Agents are assigned by it.".
+          05 FILLER PIC X(120) VALUE "Um nome curto que você escolhe para este modelo, como modelo-da-empresa. Os agentes usam esse nome.".
+          05 FILLER PIC X(120) VALUE "Un nombre corto que eliges para este modelo, como modelo-empresa. Los agentes lo usan.".
+          05 FILLER PIC X(120) VALUE "Un nom court que vous choisissez pour ce modèle, comme modele-entreprise.".
+          05 FILLER PIC X(120) VALUE "このモデルの短い名前（例: company-model）。エージェントはこの名前で割り当てます。".
+          05 FILLER PIC X(120) VALUE "为此模型取的简短名称，例如 company-model。代理按此名称分配。".
+      *>   TIP-PROVIDER
+          05 FILLER PIC X(120) VALUE "Who serves the model: a cloud provider, or Ollama or Llamafile on this machine.".
+          05 FILLER PIC X(120) VALUE "Quem fornece o modelo: um provedor na nuvem, ou Ollama ou Llamafile nesta máquina.".
+          05 FILLER PIC X(120) VALUE "Quién sirve el modelo: un proveedor en la nube, u Ollama o Llamafile en este equipo.".
+          05 FILLER PIC X(120) VALUE "Qui sert le modèle : un fournisseur en ligne, ou Ollama ou Llamafile sur cette machine.".
+          05 FILLER PIC X(120) VALUE "モデルの提供元: クラウドのプロバイダー、またはこのマシンの Ollama / Llamafile。".
+          05 FILLER PIC X(120) VALUE "模型由谁提供：云端提供商，或本机上的 Ollama / Llamafile。".
+      *>   TIP-URL
+          05 FILLER PIC X(120) VALUE "The provider's address. Leave it blank or as filled in, unless your provider gave you another.".
+          05 FILLER PIC X(120) VALUE "O endereço do provedor. Deixe vazio ou como veio, a menos que o provedor indique outro.".
+          05 FILLER PIC X(120) VALUE "La dirección del proveedor. Déjala vacía o como está, salvo que te den otra.".
+          05 FILLER PIC X(120) VALUE "L'adresse du fournisseur. Laissez-la vide ou telle quelle, sauf indication contraire.".
+          05 FILLER PIC X(120) VALUE "プロバイダーのアドレス。指定がなければ空欄か既定のままにします。".
+          05 FILLER PIC X(120) VALUE "提供商的地址。除非提供商另有说明，请留空或保留默认值。".
+      *>   TIP-KEY
+          05 FILLER PIC X(120) VALUE "The API key from your provider. Typed only to set or replace it; it is never shown again.".
+          05 FILLER PIC X(120) VALUE "A chave de API do seu provedor. Digite só para definir ou trocar; ela nunca é mostrada de novo.".
+          05 FILLER PIC X(120) VALUE "La clave de API de tu proveedor. Escríbela solo para definirla o cambiarla; no se vuelve a mostrar.".
+          05 FILLER PIC X(120) VALUE "La clé API de votre fournisseur, tapée pour la définir ou la remplacer ; jamais réaffichée.".
+          05 FILLER PIC X(120) VALUE "プロバイダーの API キー。設定や置き換えのときだけ入力し、二度と表示されません。".
+          05 FILLER PIC X(120) VALUE "提供商的 API 密钥。仅在设置或替换时输入，之后不会再显示。".
+      *>   TIP-TEST-LIST
+          05 FILLER PIC X(120) VALUE "Ask the provider for its model list, to check the address and the key.".
+          05 FILLER PIC X(120) VALUE "Pede ao provedor a lista de modelos, para conferir endereço e chave.".
+          05 FILLER PIC X(120) VALUE "Pide al proveedor su lista de modelos para comprobar dirección y clave.".
+          05 FILLER PIC X(120) VALUE "Demande au fournisseur sa liste de modèles pour vérifier adresse et clé.".
+          05 FILLER PIC X(120) VALUE "モデル一覧を問い合わせ、アドレスとキーを確かめます。".
+          05 FILLER PIC X(120) VALUE "向提供商获取模型列表，以检查地址和密钥。".
+      *>   TAB-BROWSE
+          05 FILLER PIC X(120) VALUE "Browse".
+          05 FILLER PIC X(120) VALUE "Consultar".
+          05 FILLER PIC X(120) VALUE "Consultar".
+          05 FILLER PIC X(120) VALUE "Consulter".
+          05 FILLER PIC X(120) VALUE "一覧".
+          05 FILLER PIC X(120) VALUE "浏览".
+      *>   TAB-EDIT
+          05 FILLER PIC X(120) VALUE "Create/Update".
+          05 FILLER PIC X(120) VALUE "Criar/Atualizar".
+          05 FILLER PIC X(120) VALUE "Crear/Actualizar".
+          05 FILLER PIC X(120) VALUE "Créer/Modifier".
+          05 FILLER PIC X(120) VALUE "作成/更新".
+          05 FILLER PIC X(120) VALUE "创建/更新".
+      *>   NEW
+          05 FILLER PIC X(120) VALUE "New".
+          05 FILLER PIC X(120) VALUE "Novo".
+          05 FILLER PIC X(120) VALUE "Nuevo".
+          05 FILLER PIC X(120) VALUE "Nouveau".
+          05 FILLER PIC X(120) VALUE "新規".
+          05 FILLER PIC X(120) VALUE "新建".
+      *>   CLOSE
+          05 FILLER PIC X(120) VALUE "Close".
+          05 FILLER PIC X(120) VALUE "Fechar".
+          05 FILLER PIC X(120) VALUE "Cerrar".
+          05 FILLER PIC X(120) VALUE "Fermer".
+          05 FILLER PIC X(120) VALUE "閉じる".
+          05 FILLER PIC X(120) VALUE "关闭".
+      *>   MODEL
+          05 FILLER PIC X(120) VALUE "Model".
+          05 FILLER PIC X(120) VALUE "Modelo".
+          05 FILLER PIC X(120) VALUE "Modelo".
+          05 FILLER PIC X(120) VALUE "Modèle".
+          05 FILLER PIC X(120) VALUE "モデル".
+          05 FILLER PIC X(120) VALUE "模型".
+      *>   KEY-SET
+          05 FILLER PIC X(120) VALUE "Key set".
+          05 FILLER PIC X(120) VALUE "Chave definida".
+          05 FILLER PIC X(120) VALUE "Clave definida".
+          05 FILLER PIC X(120) VALUE "Clé définie".
+          05 FILLER PIC X(120) VALUE "キー設定済み".
+          05 FILLER PIC X(120) VALUE "已设密钥".
+      *>   YES
+          05 FILLER PIC X(120) VALUE "Yes".
+          05 FILLER PIC X(120) VALUE "Sim".
+          05 FILLER PIC X(120) VALUE "Sí".
+          05 FILLER PIC X(120) VALUE "Oui".
+          05 FILLER PIC X(120) VALUE "はい".
+          05 FILLER PIC X(120) VALUE "是".
+      *>   NO
+          05 FILLER PIC X(120) VALUE "No".
+          05 FILLER PIC X(120) VALUE "Não".
+          05 FILLER PIC X(120) VALUE "No".
+          05 FILLER PIC X(120) VALUE "Non".
+          05 FILLER PIC X(120) VALUE "いいえ".
+          05 FILLER PIC X(120) VALUE "否".
+      *>   CONFIRM-DELETE
+          05 FILLER PIC X(120) VALUE "Delete the connection &1 and its key?".
+          05 FILLER PIC X(120) VALUE "Excluir a conexão &1 e a sua chave?".
+          05 FILLER PIC X(120) VALUE "¿Eliminar la conexión &1 y su clave?".
+          05 FILLER PIC X(120) VALUE "Supprimer la connexion &1 et sa clé ?".
+          05 FILLER PIC X(120) VALUE "接続 &1 とそのキーを削除しますか?".
+          05 FILLER PIC X(120) VALUE "删除连接 &1 及其密钥？".
+      *>   CONN-REMOVED-AGENTS
+          05 FILLER PIC X(120) VALUE "Connection removed, with its key. &1 agent(s) that used it now have no model.".
+          05 FILLER PIC X(120) VALUE "Conexão removida, junto com a chave. &1 agente(s) que a usavam ficaram sem modelo.".
+          05 FILLER PIC X(120) VALUE "Conexión quitada, junto con su clave. &1 agente(s) que la usaban quedan sin modelo.".
+          05 FILLER PIC X(120) VALUE "Connexion retirée, avec sa clé. &1 agent(s) qui l'utilisaient n'ont plus de modèle.".
+          05 FILLER PIC X(120) VALUE "接続とキーを削除しました。&1 件のエージェントはモデルなしです。".
+          05 FILLER PIC X(120) VALUE "连接及其密钥已移除。&1 个代理已无模型。".
+      *>   SAVE-FAILED
+          05 FILLER PIC X(120) VALUE "The connection could not be saved (file status &1).".
+          05 FILLER PIC X(120) VALUE "Não foi possível salvar a conexão (status do arquivo &1).".
+          05 FILLER PIC X(120) VALUE "No se pudo guardar la conexión (estado de archivo &1).".
+          05 FILLER PIC X(120) VALUE "Impossible d'enregistrer la connexion (statut de fichier &1).".
+          05 FILLER PIC X(120) VALUE "接続を保存できませんでした（ファイル状態 &1）。".
+          05 FILLER PIC X(120) VALUE "无法保存连接（文件状态 &1）。".
+       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
+          05 PC-TEXT-ROW     OCCURS 37.
+             10 PC-TEXT      PIC X(120) OCCURS 6.
+      *>   The texts in the current language, by name.
+       01 PC-TEXTS-NOW       GLOBAL.
+          05 T-PROVIDERS-TITLE PIC X(120).
+          05 T-CONNECTION PIC X(120).
+          05 T-NAME PIC X(120).
+          05 T-HINT-MODEL-NAME PIC X(120).
+          05 T-PROVIDER PIC X(120).
+          05 T-ENDPOINT PIC X(120).
+          05 T-HINT-ENDPOINT PIC X(120).
+          05 T-API-KEY PIC X(120).
+          05 T-HINT-KEY PIC X(120).
+          05 T-TEST-CONN PIC X(120).
+          05 T-SAVE PIC X(120).
+          05 T-CANCEL PIC X(120).
+          05 T-STATUS PIC X(120).
+          05 T-PICK-PROVIDER PIC X(120).
+          05 T-LISTING PIC X(120).
+          05 T-CONN-OK-MODELS PIC X(120).
+          05 T-CONN-SAVED PIC X(120).
+          05 T-CONN-KEY-SAVED PIC X(120).
+          05 T-CONN-NEEDS PIC X(120).
+          05 T-CONN-NEEDS-KEY PIC X(120).
+          05 T-CONN-REMOVED PIC X(120).
+          05 T-TIP-NAME PIC X(120).
+          05 T-TIP-PROVIDER PIC X(120).
+          05 T-TIP-URL PIC X(120).
+          05 T-TIP-KEY PIC X(120).
+          05 T-TIP-TEST-LIST PIC X(120).
+          05 T-TAB-BROWSE PIC X(120).
+          05 T-TAB-EDIT PIC X(120).
+          05 T-NEW PIC X(120).
+          05 T-CLOSE PIC X(120).
+          05 T-MODEL PIC X(120).
+          05 T-KEY-SET PIC X(120).
+          05 T-YES PIC X(120).
+          05 T-NO PIC X(120).
+          05 T-CONFIRM-DELETE PIC X(120).
+          05 T-CONN-REMOVED-AGENTS PIC X(120).
+          05 T-SAVE-FAILED PIC X(120).
+       01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
+          05 PC-TEXT-NOW     PIC X(120) OCCURS 37.
+      *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
+       01 WS-FMT             GLOBAL PIC X(120).
+       01 WS-ARG1            GLOBAL PIC X(300).
+       01 WS-ARG2            GLOBAL PIC X(300).
+       01 WS-ARG3            GLOBAL PIC X(300).
+       01 WS-ARG4            GLOBAL PIC X(300).
+       01 WS-FMT-OUT         GLOBAL PIC X(1200).
+      *>   The saved connections, in name order.
+       01 WS-CONN-COUNT      GLOBAL PIC 9(4) VALUE 0.
+       01 WS-CONN-NAMES      GLOBAL.
+          05 WS-CONN-NAME    PIC X(30) OCCURS 200.
+       01 WS-INDEX           GLOBAL PIC S9(4).
+       01 WS-P               GLOBAL PIC 9(3).
+      *>   The provider list (the IDE's, from the runtime) and the selection.
+       01 WS-PROV-COUNT      GLOBAL PIC 9(3) VALUE 0.
+       01 WS-PROV-IX         GLOBAL PIC S9(3) VALUE 0.
+       01 WS-PROV-ID         GLOBAL PIC X(20).
+       01 WS-PROV-LABEL      GLOBAL PIC X(40).
+       01 WS-PROV-EP         GLOBAL PIC X(200).
+       01 WS-PROV-NEEDS      GLOBAL PIC X.
+       01 WS-LAST-DEFAULT    GLOBAL PIC X(200).
+       01 WS-XNAME           GLOBAL PIC X(20).
+       01 WS-XVAL            GLOBAL PIC X(300).
+       01 WS-KEY-FLAG        GLOBAL PIC X.
+       01 WS-KEY             GLOBAL PIC X(300).
+       01 WS-STATUS          GLOBAL PIC X(200).
+       01 WS-PATH            GLOBAL PIC X(400).
+       01 WS-LONG            GLOBAL PIC X(600).
+       01 WS-N               GLOBAL PIC 9(4).
+       01 WS-NE              GLOBAL PIC Z(3)9.
+       01 WS-FOUND           GLOBAL PIC X.
+      *>   The CRUD: whether the Create/Update page holds a new record ("N")
+      *>   or an existing one ("E", WS-EDIT-NAME); WS-KEY-NAME is the key of
+      *>   the grid row clicked; and the grid row being built.
+       01 WS-EDIT-MODE       GLOBAL PIC X VALUE "N".
+       01 WS-KEY-NAME        GLOBAL PIC X(30).
+       01 WS-EDIT-NAME       GLOBAL PIC X(30).
+       01 WS-G               GLOBAL PIC 9(4).
+       01 WS-A               GLOBAL PIC 9.
+       01 WS-ROW             GLOBAL PIC X(700).
+       01 WS-ROW-NO          GLOBAL PIC 9(4).
+       01 WS-COL-NO          GLOBAL PIC 9(4).
+       01 WS-YESNO           GLOBAL PIC X(120).
+       01 WS-TABS            GLOBAL PIC X(250).
+       01 WS-QUESTION        GLOBAL PIC X(300).
+       01 WS-ANSWER          GLOBAL PIC X.
+       01 WS-CLEARED         GLOBAL PIC 9.
+       01 WS-SAVED-OK        GLOBAL PIC X.
+
+      *>── Form controls ───────────────────────────────────────────────
+       01 WS-Lbl-Title.
+          05 WS-Lbl-Title-TEXT       PIC X(256) VALUE 'Model providers'.
+          05 WS-Lbl-Title-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Lbl-Title-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Tab-Crud.
+          05 WS-Tab-Crud-TEXT       PIC X(256) VALUE 'Tab-Crud'.
+          05 WS-Tab-Crud-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Tab-Crud-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Lbl-Name.
+          05 WS-Lbl-Name-TEXT       PIC X(256) VALUE 'Name'.
+          05 WS-Lbl-Name-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Lbl-Name-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Txt-Name.
+          05 WS-Txt-Name-TEXT       PIC X(30) VALUE SPACES.
+          05 WS-Txt-Name-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Txt-Name-ENABLED    PIC 9      VALUE 1.
+          05 WS-Txt-Name-VALUE      PIC X(30) VALUE SPACES.
+
+       01 WS-Lbl-Api.
+          05 WS-Lbl-Api-TEXT       PIC X(256) VALUE 'Provider'.
+          05 WS-Lbl-Api-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Lbl-Api-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Cmb-Provider.
+          05 WS-Cmb-Provider-TEXT       PIC X(256) VALUE 'Cmb-Provider'.
+          05 WS-Cmb-Provider-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Cmb-Provider-ENABLED    PIC 9      VALUE 1.
+          05 WS-Cmb-Provider-VALUE      PIC X(512) VALUE SPACES.
+
+       01 WS-Lbl-Url.
+          05 WS-Lbl-Url-TEXT       PIC X(256) VALUE 'Endpoint'.
+          05 WS-Lbl-Url-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Lbl-Url-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Txt-Url.
+          05 WS-Txt-Url-TEXT       PIC X(256) VALUE SPACES.
+          05 WS-Txt-Url-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Txt-Url-ENABLED    PIC 9      VALUE 1.
+          05 WS-Txt-Url-VALUE      PIC X(256) VALUE SPACES.
+
+       01 WS-Lbl-Key.
+          05 WS-Lbl-Key-TEXT       PIC X(256) VALUE 'API key'.
+          05 WS-Lbl-Key-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Lbl-Key-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Txt-Key.
+          05 WS-Txt-Key-TEXT       PIC X(256) VALUE SPACES.
+          05 WS-Txt-Key-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Txt-Key-ENABLED    PIC 9      VALUE 1.
+          05 WS-Txt-Key-VALUE      PIC X(256) VALUE SPACES.
+
+       01 WS-Lbl-Status.
+          05 WS-Lbl-Status-TEXT       PIC X(256) VALUE 'Status'.
+          05 WS-Lbl-Status-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Lbl-Status-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Btn-Test.
+          05 WS-Btn-Test-TEXT       PIC X(256) VALUE 'Test connection'.
+          05 WS-Btn-Test-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Btn-Test-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Btn-Cancel.
+          05 WS-Btn-Cancel-TEXT       PIC X(256) VALUE 'Cancel'.
+          05 WS-Btn-Cancel-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Btn-Cancel-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Btn-Save.
+          05 WS-Btn-Save-TEXT       PIC X(256) VALUE 'Save'.
+          05 WS-Btn-Save-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Btn-Save-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Btn-New.
+          05 WS-Btn-New-TEXT       PIC X(256) VALUE 'New'.
+          05 WS-Btn-New-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Btn-New-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Lbl-List-Status.
+          05 WS-Lbl-List-Status-TEXT       PIC X(256) VALUE ''.
+          05 WS-Lbl-List-Status-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Lbl-List-Status-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Btn-Close.
+          05 WS-Btn-Close-TEXT       PIC X(256) VALUE 'Close'.
+          05 WS-Btn-Close-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Btn-Close-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Dg-List.
+          05 WS-Dg-List-TEXT       PIC X(256) VALUE 'Dg-List'.
+          05 WS-Dg-List-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Dg-List-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Btn-Cancel-Top.
+          05 WS-Btn-Cancel-Top-TEXT       PIC X(256) VALUE 'Cancel'.
+          05 WS-Btn-Cancel-Top-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Btn-Cancel-Top-ENABLED    PIC 9      VALUE 1.
+
+       01 WS-Btn-Save-Top.
+          05 WS-Btn-Save-Top-TEXT       PIC X(256) VALUE 'Save'.
+          05 WS-Btn-Save-Top-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Btn-Save-Top-ENABLED    PIC 9      VALUE 1.
+
+       PROCEDURE DIVISION.
+       COBOL-MAIN.
+           COBOL::"INIT-FORM" ( FORM-NAME )
+           CALL "PROVIDERS-FORM--ONLOAD"
+           PERFORM COBOL-EVENT-LOOP
+           CALL "PROVIDERS-FORM--ONCLOSE"
+           STOP RUN.
+
+      *> <EVENT-LOOP>
+       COBOL-EVENT-LOOP.
+           PERFORM UNTIL COBOL-QUIT = 1
+               COBOL::"WAIT-EVENT" ( COBOL-EVENT-ID COBOL-CONTROL-ID )
+               EVALUATE COBOL-CONTROL-ID
+                   WHEN "Cmb-Provider"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onSelectedIndexChanged"
+                               CALL "CMB-PROVIDER--ONSELECTEDINDEXCHANGED"
+                       END-EVALUATE
+                   WHEN "Btn-Test"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "BTN-TEST--ONCLICK"
+                       END-EVALUATE
+                   WHEN "Btn-Cancel"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "BTN-CANCEL--ONCLICK"
+                       END-EVALUATE
+                   WHEN "Btn-Save"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "BTN-SAVE--ONCLICK"
+                       END-EVALUATE
+                   WHEN "Btn-New"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "BTN-NEW--ONCLICK"
+                       END-EVALUATE
+                   WHEN "Btn-Close"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "BTN-CLOSE--ONCLICK"
+                       END-EVALUATE
+                   WHEN "Dg-List"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onCellClick"
+                               CALL "DG-LIST--ONCELLCLICK"
+                       END-EVALUATE
+                   WHEN "Btn-Cancel-Top"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "BTN-CANCEL-TOP--ONCLICK"
+                       END-EVALUATE
+                   WHEN "Btn-Save-Top"
+                       EVALUATE COBOL-EVENT-ID
+                           WHEN "onClick"
+                               CALL "BTN-SAVE-TOP--ONCLICK"
+                       END-EVALUATE
+               END-EVALUATE
+           END-PERFORM.
+
+      *> </EVENT-LOOP>
+      *> <TIMER-STUBS>
+      *> </TIMER-STUBS>
+      *> <CSV-EXPORT>
+      *> </CSV-EXPORT>
+      *> <REST-CLIENT>
+      *> </REST-CLIENT>
+      *> <WEB-SEARCH>
+      *> </WEB-SEARCH>
+
+      *> ── Nested event-handler programs (COBOL-85) ─────────────────────
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PROVIDERS-FORM--ONLOAD IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           CALL "PC-PATHS"
+           CALL "PC-TEXTS"
+           CALL "PC-LOAD-PROVIDERS"
+      *>   Every saved connection in the Browse grid; the Create/Update page
+      *>   starts empty, ready for a new one.
+           CALL "PC-FILL-GRID"
+           MOVE SPACES TO WS-KEY-NAME
+           CALL "PC-SHOW-CONN"
+           MOVE 0 TO Tab-Crud::SelectedTab
+
+           GOBACK.
+
+       END PROGRAM PROVIDERS-FORM--ONLOAD.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PROVIDERS-FORM--ONCLOSE IS COMMON PROGRAM.
+
+      *>    TODO: Form onClose handler
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           CONTINUE.
+
+           GOBACK.
+
+       END PROGRAM PROVIDERS-FORM--ONCLOSE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CMB-PROVIDER--ONSELECTEDINDEXCHANGED IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A new provider brings its own address: fill it in, unless the field
+      *>   holds one the user typed.
+           CALL "PC-PICKED-PROVIDER"
+           IF WS-PROV-IX = 0
+               EXIT PROGRAM
+           END-IF
+           MOVE Txt-Url::Text TO WS-PATH
+           IF WS-PATH = SPACES OR WS-PATH = WS-LAST-DEFAULT
+               MOVE WS-PROV-EP TO Txt-Url::Text
+           END-IF
+           MOVE WS-PROV-EP TO WS-LAST-DEFAULT
+
+           GOBACK.
+
+       END PROGRAM CMB-PROVIDER--ONSELECTEDINDEXCHANGED.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BTN-TEST--ONCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The connection test: ask the provider for its models. That proves
+      *>   the address and the key; which model to use is chosen afterwards.
+           CALL "PC-PICKED-PROVIDER"
+           IF WS-PROV-IX = 0
+               MOVE FUNCTION TRIM(T-PICK-PROVIDER) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           MOVE T-LISTING TO WS-FMT
+           MOVE WS-PROV-LABEL TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+           MOVE Txt-Url::Text TO WS-PATH
+           MOVE Txt-Key::Text TO WS-KEY
+           MOVE Txt-Name::Text TO MDL-NAME
+           COBOL::"MODEL-LIST" ( WS-PROV-ID WS-PATH WS-KEY WS-N
+                WS-LONG MDL-NAME )
+           MOVE SPACES TO WS-KEY
+           IF WS-LONG = "OK"
+               MOVE T-CONN-OK-MODELS TO WS-FMT
+               MOVE WS-N TO WS-NE
+               MOVE WS-NE TO WS-ARG1
+               CALL "PC-FMT"
+               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+           ELSE
+               MOVE WS-LONG TO Lbl-Status::Caption
+           END-IF
+
+           GOBACK.
+
+       END PROGRAM BTN-TEST--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BTN-CANCEL--ONCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The bottom Cancel; Btn-Cancel-Top does the same.
+           CALL "PC-CANCEL-EDIT"
+
+           GOBACK.
+
+       END PROGRAM BTN-CANCEL--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BTN-SAVE--ONCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The bottom Save; Btn-Save-Top does the same.
+           CALL "PC-SAVE-CONN"
+
+           GOBACK.
+
+       END PROGRAM BTN-SAVE--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BTN-NEW--ONCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   An empty Create/Update page for a new connection.
+           MOVE SPACES TO WS-KEY-NAME
+           CALL "PC-SHOW-CONN"
+           MOVE SPACES TO Lbl-List-Status::Caption
+           MOVE 1 TO Tab-Crud::SelectedTab
+
+           GOBACK.
+
+       END PROGRAM BTN-NEW--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BTN-CLOSE--ONCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Every change was saved as it was made; RAG settings refreshes
+      *>   itself when this dialog returns.
+           INVOKE ME::Close()
+
+           GOBACK.
+
+       END PROGRAM BTN-CLOSE--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. DG-LIST--ONCELLCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   A row's pencil opens it on Create/Update; its trash can deletes it
+      *>   (after asking). Column 1 holds the connection name, the key.
+           MOVE Dg-List::ClickedRow TO WS-ROW-NO
+           MOVE Dg-List::ClickedColumn TO WS-COL-NO
+           IF WS-ROW-NO < 1
+               EXIT PROGRAM
+           END-IF
+           MOVE Dg-List::GetCellValue(WS-ROW-NO, 1) TO WS-KEY-NAME
+           IF WS-KEY-NAME = SPACES
+               EXIT PROGRAM
+           END-IF
+           EVALUATE WS-COL-NO
+               WHEN 6
+                   CALL "PC-SHOW-CONN"
+                   MOVE SPACES TO Lbl-List-Status::Caption
+                   MOVE 1 TO Tab-Crud::SelectedTab
+               WHEN 7
+                   CALL "PC-DELETE-CONN"
+           END-EVALUATE
+
+           GOBACK.
+
+       END PROGRAM DG-LIST--ONCELLCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BTN-CANCEL-TOP--ONCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The top Cancel; Btn-Cancel does the same.
+           CALL "PC-CANCEL-EDIT"
+
+           GOBACK.
+
+       END PROGRAM BTN-CANCEL-TOP--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BTN-SAVE-TOP--ONCLICK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The top Save; Btn-Save does the same.
+           CALL "PC-SAVE-CONN"
+
+           GOBACK.
+
+       END PROGRAM BTN-SAVE-TOP--ONCLICK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-PATHS IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Where PowerChat keeps its own files: POWERCHAT_DATA, else "data".
+           DISPLAY "POWERCHAT_DATA" UPON ENVIRONMENT-NAME
+           ACCEPT WS-DATA-DIR FROM ENVIRONMENT-VALUE
+           IF WS-DATA-DIR = SPACES
+               MOVE "data" TO WS-DATA-DIR
+           END-IF
+           MOVE SPACES TO WS-SETTINGS-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/settings.idx"
+               DELIMITED BY SIZE INTO WS-SETTINGS-PATH
+           MOVE SPACES TO WS-MODELS-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/models.idx"
+               DELIMITED BY SIZE INTO WS-MODELS-PATH
+
+           GOBACK.
+
+       END PROGRAM PC-PATHS.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-SETTING-GET IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-SET-NAME in, WS-SET-VALUE out (spaces when the setting is unset).
+           MOVE SPACES TO WS-SET-VALUE
+           OPEN I-O SETTINGS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT SETTINGS-FILE
+               CLOSE SETTINGS-FILE
+               OPEN I-O SETTINGS-FILE
+           END-IF
+           MOVE WS-SET-NAME TO SET-NAME
+           READ SETTINGS-FILE
+               INVALID KEY CONTINUE
+               NOT INVALID KEY MOVE SET-VALUE TO WS-SET-VALUE
+           END-READ
+           CLOSE SETTINGS-FILE
+
+           GOBACK.
+
+       END PROGRAM PC-SETTING-GET.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-SETTING-PUT IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-SET-NAME, WS-SET-VALUE in. Written and committed at once (R10f).
+           OPEN I-O SETTINGS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT SETTINGS-FILE
+               CLOSE SETTINGS-FILE
+               OPEN I-O SETTINGS-FILE
+           END-IF
+           MOVE WS-SET-NAME TO SET-NAME
+           MOVE WS-SET-VALUE TO SET-VALUE
+           WRITE SETTINGS-REC
+               INVALID KEY REWRITE SETTINGS-REC
+           END-WRITE
+           COMMIT
+           CLOSE SETTINGS-FILE
+
+           GOBACK.
+
+       END PROGRAM PC-SETTING-PUT.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-LOAD-CONNS IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Every saved connection's name, in key order, into WS-CONN-NAME.
+           MOVE 0 TO WS-CONN-COUNT
+           OPEN I-O MODELS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT MODELS-FILE
+               CLOSE MODELS-FILE
+               OPEN I-O MODELS-FILE
+           END-IF
+           MOVE LOW-VALUES TO MDL-NAME
+           MOVE "N" TO WS-EOF
+           START MODELS-FILE KEY IS >= MDL-NAME
+               INVALID KEY MOVE "Y" TO WS-EOF
+           END-START
+           PERFORM UNTIL WS-EOF = "Y"
+               READ MODELS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       IF WS-CONN-COUNT < 200
+                           ADD 1 TO WS-CONN-COUNT
+                           MOVE MDL-NAME TO WS-CONN-NAME(WS-CONN-COUNT)
+                       END-IF
+               END-READ
+           END-PERFORM
+           CLOSE MODELS-FILE
+
+           GOBACK.
+
+       END PROGRAM PC-LOAD-CONNS.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-FILL-GRID IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The Browse grid: one row per saved connection, in name order,
+      *>   ending with its pencil (edit) and trash can (delete) buttons.
+           CALL "PC-LOAD-CONNS"
+           MOVE Dg-List::ClearRows() TO WS-OK
+           IF WS-CONN-COUNT = 0
+               EXIT PROGRAM
+           END-IF
+           OPEN INPUT MODELS-FILE
+           PERFORM VARYING WS-G FROM 1 BY 1 UNTIL WS-G > WS-CONN-COUNT
+               MOVE WS-CONN-NAME(WS-G) TO MDL-NAME
+               READ MODELS-FILE
+                   INVALID KEY CONTINUE
+                   NOT INVALID KEY CALL "PC-GRID-ROW"
+               END-READ
+           END-PERFORM
+           CLOSE MODELS-FILE
+
+           GOBACK.
+
+       END PROGRAM PC-FILL-GRID.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-GRID-ROW IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   MODEL-REC in: its grid row - name, provider, endpoint, model,
+      *>   whether a key is stored (never the key itself), edit, delete.
+           MOVE MDL-API TO WS-PROV-ID
+           CALL "PC-PROVIDER-LABEL"
+           COBOL::"KEY-IS-SET" ( MDL-NAME WS-KEY-FLAG )
+           IF WS-KEY-FLAG = "Y"
+               MOVE T-YES TO WS-YESNO
+           ELSE
+               MOVE T-NO TO WS-YESNO
+           END-IF
+           MOVE SPACES TO WS-ROW
+           STRING FUNCTION TRIM(MDL-NAME) X"09"
+                  FUNCTION TRIM(WS-PROV-LABEL) X"09"
+                  FUNCTION TRIM(MDL-URL) X"09"
+                  FUNCTION TRIM(MDL-MODEL) X"09"
+                  FUNCTION TRIM(WS-YESNO) X"09"
+                  "icon:pencil" X"09" "icon:trash"
+               DELIMITED BY SIZE INTO WS-ROW
+           MOVE Dg-List::AddRow(WS-ROW) TO WS-OK
+
+           GOBACK.
+
+       END PROGRAM PC-GRID-ROW.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-SHOW-CONN IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The Create/Update page for WS-KEY-NAME (kept as WS-EDIT-NAME, the
+      *>   record the page holds); spaces empty it for a new
+      *>   connection. The key field always stays empty: a key is never read
+      *>   back. The name is the record key: it can be typed only for a new
+      *>   connection - renaming one is not a save of the same record.
+           MOVE SPACES TO Txt-Key::Text
+           MOVE SPACES TO WS-KEY
+           MOVE SPACES TO Lbl-Status::Caption
+           IF WS-KEY-NAME = SPACES
+               MOVE "N" TO WS-EDIT-MODE
+               MOVE SPACES TO WS-EDIT-NAME
+               MOVE SPACES TO Txt-Name::Text
+               MOVE SPACES TO Txt-Url::Text
+               MOVE SPACES TO WS-LAST-DEFAULT
+               MOVE "true" TO Txt-Name::Enabled
+               MOVE Cmb-Provider::SetSelectedIndex(-1) TO WS-OK
+               EXIT PROGRAM
+           END-IF
+           MOVE "E" TO WS-EDIT-MODE
+           MOVE WS-KEY-NAME TO WS-EDIT-NAME
+           MOVE "false" TO Txt-Name::Enabled
+           OPEN I-O MODELS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT MODELS-FILE
+               CLOSE MODELS-FILE
+               OPEN I-O MODELS-FILE
+           END-IF
+           MOVE WS-KEY-NAME TO MDL-NAME
+           READ MODELS-FILE
+               INVALID KEY CONTINUE
+               NOT INVALID KEY
+                   MOVE MDL-NAME TO Txt-Name::Text
+                   MOVE MDL-API TO WS-PROV-ID
+                   CALL "PC-PROVIDER-LABEL"
+                   IF WS-PROV-IX > 0
+                       COMPUTE WS-P = WS-PROV-IX - 1
+                       MOVE Cmb-Provider::SetSelectedIndex(WS-P) TO WS-OK
+                   END-IF
+                   MOVE WS-PROV-EP TO WS-LAST-DEFAULT
+                   MOVE MDL-URL TO Txt-Url::Text
+           END-READ
+           CLOSE MODELS-FILE
+
+           GOBACK.
+
+       END PROGRAM PC-SHOW-CONN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-SAVE-CONN IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Add or change a connection (both Save buttons). The key, when
+      *>   typed, goes straight to the key store and the field is cleared: it
+      *>   is never written to a file of ours, never shown again (spec 071
+      *>   R34, R37); an empty key field keeps the stored key. The model
+      *>   chosen for it survives, unless the provider changed.
+           CALL "PC-PICKED-PROVIDER"
+           MOVE Txt-Name::Text TO WS-XVAL
+           IF WS-EDIT-MODE = "E"
+               MOVE WS-EDIT-NAME TO WS-XVAL
+           END-IF
+           IF WS-XVAL = SPACES OR WS-PROV-IX = 0
+               MOVE FUNCTION TRIM(T-CONN-NEEDS) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           OPEN I-O MODELS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT MODELS-FILE
+               CLOSE MODELS-FILE
+               OPEN I-O MODELS-FILE
+           END-IF
+           MOVE WS-XVAL TO MDL-NAME
+           READ MODELS-FILE
+               INVALID KEY MOVE "N" TO WS-FOUND
+               NOT INVALID KEY MOVE "Y" TO WS-FOUND
+           END-READ
+           IF WS-FOUND = "N" OR MDL-API NOT = WS-PROV-ID
+               MOVE SPACES TO MDL-MODEL
+               MOVE "N" TO MDL-TOOLS
+               MOVE 5 TO MDL-RANK
+           END-IF
+           MOVE WS-XVAL TO MDL-NAME
+           MOVE WS-PROV-ID TO MDL-API
+           MOVE Txt-Url::Text TO MDL-URL
+           IF MDL-URL = SPACES
+               MOVE WS-PROV-EP TO MDL-URL
+           END-IF
+      *>   A new record is written; one that exists already is rewritten.
+           MOVE "Y" TO WS-SAVED-OK
+           WRITE MODEL-REC
+               INVALID KEY
+                   REWRITE MODEL-REC
+                       INVALID KEY MOVE "N" TO WS-SAVED-OK
+                   END-REWRITE
+           END-WRITE
+           IF WS-SAVED-OK = "N"
+               MOVE T-SAVE-FAILED TO WS-FMT
+               MOVE WS-FS TO WS-ARG1
+               CLOSE MODELS-FILE
+               CALL "PC-FMT"
+               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
+               EXIT PROGRAM
+           END-IF
+           COMMIT
+           CLOSE MODELS-FILE
+           COBOL::"MODEL-SET" ( MDL-NAME MDL-API MDL-URL MDL-MODEL )
+      *>   From here on the page holds this saved connection.
+           MOVE "E" TO WS-EDIT-MODE
+           MOVE WS-XVAL TO WS-EDIT-NAME
+           MOVE "false" TO Txt-Name::Enabled
+           MOVE T-CONN-SAVED TO WS-STATUS
+           MOVE Txt-Key::Text TO WS-KEY
+           IF WS-KEY NOT = SPACES
+               COBOL::"KEY-SET" ( MDL-NAME WS-KEY WS-STATUS )
+               IF WS-STATUS = "OK"
+                   MOVE T-CONN-KEY-SAVED TO WS-STATUS
+               END-IF
+               MOVE SPACES TO WS-KEY
+               MOVE SPACES TO Txt-Key::Text
+           ELSE
+      *>       A provider that needs a key, and none stored yet: say so, and
+      *>       stay on this page so it can be typed now.
+               COBOL::"KEY-IS-SET" ( MDL-NAME WS-KEY-FLAG )
+               IF WS-PROV-NEEDS = "Y" AND WS-KEY-FLAG NOT = "Y"
+                   MOVE FUNCTION TRIM(T-CONN-NEEDS-KEY) TO Lbl-Status::Caption
+                   CALL "PC-FILL-GRID"
+                   EXIT PROGRAM
+               END-IF
+           END-IF
+      *>   Saved: back to Browse, refreshed.
+           CALL "PC-FILL-GRID"
+           MOVE WS-STATUS TO Lbl-List-Status::Caption
+           MOVE 0 TO Tab-Crud::SelectedTab
+
+           GOBACK.
+
+       END PROGRAM PC-SAVE-CONN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-CANCEL-EDIT IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   Nothing is written: back to Browse as it was, not refreshed. A key
+      *>   typed and not saved is dropped, never kept in the field.
+           MOVE SPACES TO WS-KEY
+           MOVE SPACES TO Txt-Key::Text
+           MOVE 0 TO Tab-Crud::SelectedTab
+
+           GOBACK.
+
+       END PROGRAM PC-CANCEL-EDIT.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-DELETE-CONN IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-KEY-NAME, once the user confirms: the record, the runtime's copy,
+      *>   its key, and every agent setting that pointed at it.
+           MOVE T-CONFIRM-DELETE TO WS-FMT
+           MOVE WS-KEY-NAME TO WS-ARG1
+           CALL "PC-FMT"
+           MOVE WS-FMT-OUT TO WS-QUESTION
+           INVOKE ME::"SetProperty"("ConfirmText", WS-QUESTION)
+           INVOKE ME::"SetProperty"("ConfirmYes", T-YES)
+           INVOKE ME::"SetProperty"("ConfirmNo", T-NO)
+           INVOKE ME::"SetProperty"("ConfirmAnswer", "N")
+           INVOKE ME::"OpenFormSync"("CONFIRM-FORM")
+           INVOKE ME::"GetProperty"("ConfirmAnswer") RETURNING WS-ANSWER
+           IF WS-ANSWER NOT = "Y"
+               EXIT PROGRAM
+           END-IF
+           OPEN I-O MODELS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT MODELS-FILE
+               CLOSE MODELS-FILE
+               OPEN I-O MODELS-FILE
+           END-IF
+           MOVE WS-KEY-NAME TO MDL-NAME
+           DELETE MODELS-FILE
+               INVALID KEY CONTINUE
+           END-DELETE
+           COMMIT
+           CLOSE MODELS-FILE
+           COBOL::"MODEL-REMOVE" ( MDL-NAME )
+           COBOL::"KEY-REMOVE" ( MDL-NAME )
+           CALL "PC-CLEAR-AGENT-REFS"
+      *>   The Create/Update page must not keep holding a deleted record.
+           IF WS-EDIT-MODE = "E" AND WS-EDIT-NAME = WS-KEY-NAME
+               MOVE SPACES TO WS-KEY-NAME
+               CALL "PC-SHOW-CONN"
+           END-IF
+           CALL "PC-FILL-GRID"
+           IF WS-CLEARED > 0
+               MOVE T-CONN-REMOVED-AGENTS TO WS-FMT
+               MOVE WS-CLEARED TO WS-ARG1
+               CALL "PC-FMT"
+               MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-List-Status::Caption
+           ELSE
+               MOVE FUNCTION TRIM(T-CONN-REMOVED) TO Lbl-List-Status::Caption
+           END-IF
+
+           GOBACK.
+
+       END PROGRAM PC-DELETE-CONN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-CLEAR-AGENT-REFS IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-KEY-NAME was deleted: every chat agent that used it gets no
+      *>   connection, as "(off)" does in the agents dialog. Agent 1 reads
+      *>   AGENT-1-ENTRY and falls back to MODEL-ENTRY (PowerChat 1), so both
+      *>   are cleared together. WS-CLEARED out: how many agents lost it.
+           MOVE 0 TO WS-CLEARED
+           IF WS-KEY-NAME = SPACES
+               EXIT PROGRAM
+           END-IF
+           MOVE "AGENT-1-ENTRY" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           MOVE WS-SET-VALUE TO WS-XVAL
+           IF WS-XVAL = SPACES
+               MOVE "MODEL-ENTRY" TO WS-SET-NAME
+               CALL "PC-SETTING-GET"
+               MOVE WS-SET-VALUE TO WS-XVAL
+           END-IF
+           IF WS-XVAL = WS-KEY-NAME
+               ADD 1 TO WS-CLEARED
+               MOVE SPACES TO WS-SET-VALUE
+               MOVE "AGENT-1-ENTRY" TO WS-SET-NAME
+               CALL "PC-SETTING-PUT"
+               MOVE "MODEL-ENTRY" TO WS-SET-NAME
+               CALL "PC-SETTING-PUT"
+           ELSE
+      *>       Agent 1 uses another connection; a stale MODEL-ENTRY naming
+      *>       the deleted one is cleared all the same.
+               MOVE "MODEL-ENTRY" TO WS-SET-NAME
+               CALL "PC-SETTING-GET"
+               IF WS-SET-VALUE = WS-KEY-NAME
+                   MOVE SPACES TO WS-SET-VALUE
+                   CALL "PC-SETTING-PUT"
+               END-IF
+           END-IF
+           PERFORM VARYING WS-A FROM 2 BY 1 UNTIL WS-A > 3
+               MOVE SPACES TO WS-SET-NAME
+               STRING "AGENT-" WS-A "-ENTRY" DELIMITED BY SIZE INTO WS-SET-NAME
+               CALL "PC-SETTING-GET"
+               IF WS-SET-VALUE = WS-KEY-NAME
+                   ADD 1 TO WS-CLEARED
+                   MOVE SPACES TO WS-SET-VALUE
+                   CALL "PC-SETTING-PUT"
+               END-IF
+           END-PERFORM
+
+           GOBACK.
+
+       END PROGRAM PC-CLEAR-AGENT-REFS.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-LOAD-PROVIDERS IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The IDE's providers, from the runtime (never a copy of our own):
+      *>   the combo's items are their names, in the IDE's order.
+           COBOL::"PROVIDER-COUNT" ( WS-PROV-COUNT )
+           MOVE Cmb-Provider::Clear() TO WS-OK
+           PERFORM VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-PROV-COUNT
+               COBOL::"PROVIDER-GET" ( WS-P WS-PROV-ID WS-PROV-LABEL
+                    WS-PROV-EP WS-PROV-NEEDS )
+               MOVE Cmb-Provider::AddItem(FUNCTION TRIM(WS-PROV-LABEL)) TO WS-OK
+           END-PERFORM
+
+           GOBACK.
+
+       END PROGRAM PC-LOAD-PROVIDERS.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-PROVIDER-LABEL IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-PROV-ID in (any case - older entries say "Ollama", "OpenAI");
+      *>   out: WS-PROV-IX (1-based, 0 = unknown) and the provider's label,
+      *>   default endpoint and whether it needs a key.
+           MOVE 0 TO WS-PROV-IX
+           MOVE WS-PROV-ID TO WS-XVAL
+           MOVE FUNCTION LOWER-CASE(WS-XVAL) TO WS-XVAL
+           PERFORM VARYING WS-P FROM 1 BY 1
+                   UNTIL WS-P > WS-PROV-COUNT OR WS-PROV-IX > 0
+               COBOL::"PROVIDER-GET" ( WS-P WS-XNAME WS-PROV-LABEL
+                    WS-PROV-EP WS-PROV-NEEDS )
+               IF WS-XNAME = WS-XVAL(1:20)
+                   MOVE WS-P TO WS-PROV-IX
+               END-IF
+           END-PERFORM
+           IF WS-PROV-IX = 0
+               MOVE WS-PROV-ID TO WS-PROV-LABEL
+               MOVE SPACES TO WS-PROV-EP
+               MOVE "N" TO WS-PROV-NEEDS
+           ELSE
+               MOVE WS-XNAME TO WS-PROV-ID
+           END-IF
+
+           GOBACK.
+
+       END PROGRAM PC-PROVIDER-LABEL.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-PICKED-PROVIDER IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The provider the combo shows: WS-PROV-IX (0 = none) and its fields.
+           MOVE Cmb-Provider::GetSelectedIndex() TO WS-PROV-IX
+           ADD 1 TO WS-PROV-IX
+           IF WS-PROV-IX < 1 OR WS-PROV-IX > WS-PROV-COUNT
+               MOVE 0 TO WS-PROV-IX
+               MOVE SPACES TO WS-PROV-ID WS-PROV-EP
+               EXIT PROGRAM
+           END-IF
+           MOVE WS-PROV-IX TO WS-P
+           COBOL::"PROVIDER-GET" ( WS-P WS-PROV-ID WS-PROV-LABEL
+                WS-PROV-EP WS-PROV-NEEDS )
+
+           GOBACK.
+
+       END PROGRAM PC-PICKED-PROVIDER.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-TEXTS IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The language the user picked (LANG), the texts in it, and every
+      *>   designed caption and hint that shows one (R46).
+           MOVE "LANG" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           MOVE WS-SET-VALUE(1:2) TO WS-LANG
+           EVALUATE WS-LANG
+               WHEN "en" MOVE 1 TO WS-LANG-IX
+               WHEN "pt" MOVE 2 TO WS-LANG-IX
+               WHEN "es" MOVE 3 TO WS-LANG-IX
+               WHEN "fr" MOVE 4 TO WS-LANG-IX
+               WHEN "jp" MOVE 5 TO WS-LANG-IX
+               WHEN "cn" MOVE 6 TO WS-LANG-IX
+               WHEN OTHER MOVE "en" TO WS-LANG
+                          MOVE 1 TO WS-LANG-IX
+           END-EVALUATE
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 37
+               MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
+           END-PERFORM
+           MOVE FUNCTION TRIM(T-PROVIDERS-TITLE) TO Lbl-Title::Caption
+           MOVE FUNCTION TRIM(T-NAME) TO Lbl-Name::Caption
+           MOVE FUNCTION TRIM(T-HINT-MODEL-NAME) TO Txt-Name::HintText
+           MOVE FUNCTION TRIM(T-PROVIDER) TO Lbl-Api::Caption
+           MOVE FUNCTION TRIM(T-ENDPOINT) TO Lbl-Url::Caption
+           MOVE FUNCTION TRIM(T-HINT-ENDPOINT) TO Txt-Url::HintText
+           MOVE FUNCTION TRIM(T-API-KEY) TO Lbl-Key::Caption
+           MOVE FUNCTION TRIM(T-HINT-KEY) TO Txt-Key::HintText
+           MOVE FUNCTION TRIM(T-TEST-CONN) TO Btn-Test::Caption
+           MOVE FUNCTION TRIM(T-SAVE) TO Btn-Save::Caption
+           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel::Caption
+           MOVE FUNCTION TRIM(T-SAVE) TO Btn-Save-Top::Caption
+           MOVE FUNCTION TRIM(T-CANCEL) TO Btn-Cancel-Top::Caption
+           MOVE FUNCTION TRIM(T-NEW) TO Btn-New::Caption
+           MOVE FUNCTION TRIM(T-CLOSE) TO Btn-Close::Caption
+           MOVE FUNCTION TRIM(T-STATUS) TO Lbl-Status::Caption
+           MOVE FUNCTION TRIM(T-TIP-NAME) TO Txt-Name::Tooltip
+           MOVE FUNCTION TRIM(T-TIP-PROVIDER) TO Cmb-Provider::Tooltip
+           MOVE FUNCTION TRIM(T-TIP-URL) TO Txt-Url::Tooltip
+           MOVE FUNCTION TRIM(T-TIP-KEY) TO Txt-Key::Tooltip
+           MOVE FUNCTION TRIM(T-TIP-TEST-LIST) TO Btn-Test::Tooltip
+           MOVE SPACES TO WS-TABS
+           STRING FUNCTION TRIM(T-TAB-BROWSE) X"0A" FUNCTION TRIM(T-TAB-EDIT)
+               DELIMITED BY SIZE INTO WS-TABS
+           MOVE WS-TABS TO Tab-Crud::Tabs
+      *>   The grid's column titles; ids, widths and the two Button columns
+      *>   stay as designed.
+           INVOKE Dg-List::SetColumnTitle("name", T-CONNECTION)
+           INVOKE Dg-List::SetColumnTitle("provider", T-PROVIDER)
+           INVOKE Dg-List::SetColumnTitle("endpoint", T-ENDPOINT)
+           INVOKE Dg-List::SetColumnTitle("model", T-MODEL)
+           INVOKE Dg-List::SetColumnTitle("keyset", T-KEY-SET)
+
+           GOBACK.
+
+       END PROGRAM PC-TEXTS.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-FMT IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-PT              PIC 9(4).
+       01 WS-FROM            PIC 9(4).
+       01 WS-CNT             PIC 9(4).
+       01 WS-PART            PIC X(120).
+       01 WS-DELIM           PIC XX.
+       PROCEDURE DIVISION.
+      *>   A message whose words go round numbers and names differently in each
+      *>   language: WS-FMT holds "&1" .. "&4" where WS-ARG1..4 go.
+           MOVE SPACES TO WS-FMT-OUT
+           MOVE 1 TO WS-PT
+           MOVE 1 TO WS-FROM
+           PERFORM UNTIL WS-FROM > FUNCTION LENGTH(WS-FMT)
+               MOVE SPACES TO WS-PART WS-DELIM
+               MOVE 0 TO WS-CNT
+               UNSTRING WS-FMT DELIMITED BY "&1" OR "&2" OR "&3" OR "&4"
+                   INTO WS-PART DELIMITER IN WS-DELIM COUNT IN WS-CNT
+                   WITH POINTER WS-FROM
+               END-UNSTRING
+               IF WS-CNT > 0
+                   STRING WS-PART(1:WS-CNT) DELIMITED BY SIZE
+                       INTO WS-FMT-OUT WITH POINTER WS-PT
+               END-IF
+               EVALUATE WS-DELIM
+                   WHEN "&1" STRING FUNCTION TRIM(WS-ARG1) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&2" STRING FUNCTION TRIM(WS-ARG2) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&3" STRING FUNCTION TRIM(WS-ARG3) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN "&4" STRING FUNCTION TRIM(WS-ARG4) DELIMITED BY SIZE
+                                 INTO WS-FMT-OUT WITH POINTER WS-PT
+                   WHEN OTHER COMPUTE WS-FROM = FUNCTION LENGTH(WS-FMT) + 1
+               END-EVALUATE
+           END-PERFORM
+
+           GOBACK.
+
+       END PROGRAM PC-FMT.
+
+       END PROGRAM PROVIDERS-FORM.

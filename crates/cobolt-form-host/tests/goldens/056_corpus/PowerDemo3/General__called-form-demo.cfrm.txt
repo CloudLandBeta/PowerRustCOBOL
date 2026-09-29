@@ -1,0 +1,31 @@
+# PowerDemo3/General/called-form-demo.cfrm
+## Window 0.75x 360x210
+Btn-Cancel rect=[266 180 416 236] font=16
+Btn-Ok rect=[64 180 214 236] font=16
+Label-1 rect=[24 20 456 52] font=18
+Label-2 rect=[24 60 456 132] font=12
+## Occupant 0.75x 360x210
+Btn-Cancel rect=[486 208 636 264] font=16
+Btn-Ok rect=[284 208 434 264] font=16
+Label-1 rect=[244 48 676 80] font=18
+Label-2 rect=[244 88 676 160] font=12
+## Window 1x 480x280
+Btn-Cancel rect=[266 180 416 236] font=16
+Btn-Ok rect=[64 180 214 236] font=16
+Label-1 rect=[24 20 456 52] font=18
+Label-2 rect=[24 60 456 132] font=12
+## Occupant 1x 480x280
+Btn-Cancel rect=[486 208 636 264] font=16
+Btn-Ok rect=[284 208 434 264] font=16
+Label-1 rect=[244 48 676 80] font=18
+Label-2 rect=[244 88 676 160] font=12
+## Window 1.5x 720x420
+Btn-Cancel rect=[266 180 416 236] font=16
+Btn-Ok rect=[64 180 214 236] font=16
+Label-1 rect=[24 20 456 52] font=18
+Label-2 rect=[24 60 456 132] font=12
+## Occupant 1.5x 720x420
+Btn-Cancel rect=[486 208 636 264] font=16
+Btn-Ok rect=[284 208 434 264] font=16
+Label-1 rect=[244 48 676 80] font=18
+Label-2 rect=[244 88 676 160] font=12

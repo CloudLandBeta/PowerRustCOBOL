@@ -1,0 +1,55 @@
+# PowerDemo3/General/inner-form2.cfrm
+## Window 0.75x 1254x666
+Gauge-1 rect=[904 56 1044 146] font=16
+Gauge-2 rect=[720 56 860 146] font=16
+Gauge-3 rect=[528 48 668 138] font=16
+LineChart-1 rect=[512 160 1056 528] font=16
+Panel-1 rect=[488 48 1080 544] font=16
+PictureBox-1 rect=[0 104 1720 888] font=16
+PictureBox-2 rect=[-288 72 1680 920] font=16
+Timer-1 rect=[1608 8 1656 56] font=16
+## Occupant 0.75x 1254x666
+Gauge-1 rect=[1124 84 1264 174] font=16
+Gauge-2 rect=[940 84 1080 174] font=16
+Gauge-3 rect=[748 76 888 166] font=16
+LineChart-1 rect=[732 188 1276 556] font=16
+Panel-1 rect=[708 76 1300 572] font=16
+PictureBox-1 rect=[220 132 1940 916] font=16
+PictureBox-2 rect=[-68 100 1900 948] font=16
+Timer-1 rect=[1828 36 1876 84] font=16
+## Window 1x 1672x888
+Gauge-1 rect=[904 56 1044 146] font=16
+Gauge-2 rect=[720 56 860 146] font=16
+Gauge-3 rect=[528 48 668 138] font=16
+LineChart-1 rect=[512 160 1056 528] font=16
+Panel-1 rect=[488 48 1080 544] font=16
+PictureBox-1 rect=[0 104 1720 888] font=16
+PictureBox-2 rect=[-288 72 1680 920] font=16
+Timer-1 rect=[1608 8 1656 56] font=16
+## Occupant 1x 1672x888
+Gauge-1 rect=[1124 84 1264 174] font=16
+Gauge-2 rect=[940 84 1080 174] font=16
+Gauge-3 rect=[748 76 888 166] font=16
+LineChart-1 rect=[732 188 1276 556] font=16
+Panel-1 rect=[708 76 1300 572] font=16
+PictureBox-1 rect=[220 132 1940 916] font=16
+PictureBox-2 rect=[-68 100 1900 948] font=16
+Timer-1 rect=[1828 36 1876 84] font=16
+## Window 1.5x 2508x1332
+Gauge-1 rect=[904 56 1044 146] font=16
+Gauge-2 rect=[720 56 860 146] font=16
+Gauge-3 rect=[528 48 668 138] font=16
+LineChart-1 rect=[512 160 1056 528] font=16
+Panel-1 rect=[488 48 1080 544] font=16
+PictureBox-1 rect=[0 104 1720 888] font=16
+PictureBox-2 rect=[-288 72 1680 920] font=16
+Timer-1 rect=[1608 8 1656 56] font=16
+## Occupant 1.5x 2508x1332
+Gauge-1 rect=[1124 84 1264 174] font=16
+Gauge-2 rect=[940 84 1080 174] font=16
+Gauge-3 rect=[748 76 888 166] font=16
+LineChart-1 rect=[732 188 1276 556] font=16
+Panel-1 rect=[708 76 1300 572] font=16
+PictureBox-1 rect=[220 132 1940 916] font=16
+PictureBox-2 rect=[-68 100 1900 948] font=16
+Timer-1 rect=[1828 36 1876 84] font=16

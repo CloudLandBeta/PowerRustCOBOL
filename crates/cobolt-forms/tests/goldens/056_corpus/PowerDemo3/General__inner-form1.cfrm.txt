@@ -1,0 +1,181 @@
+# PowerDemo3/General/inner-form1.cfrm
+## Canvas 0.75x 960x636
+CheckBox-1 rect=[128 320 248 342] font=16
+ComboBox-1 rect=[128 432 336 464] font=16
+DateTimePicker-2 rect=[128 272 328 312] font=16
+FileDropZone-1 rect=[128 640 576 740] font=16
+Gauge-1 rect=[416 304 576 448] font=16
+Knob-1 rect=[416 144 576 288] font=16
+Line-1 rect=[0 64 1280 68] font=16
+ListBox-1 rect=[128 128 304 256] font=14
+ListBox-2 rect=[128 752 576 832] font=14
+Maps-1 rect=[608 96 1264 832] font=16
+NumericUpDown-1 rect=[128 512 192 536] font=14
+ProgressBar-1 rect=[128 608 328 630] font=16
+RadioButton-1 rect=[128 352 272 379] font=16
+RadioButton-2 rect=[128 384 272 411] font=16
+Slider-2 rect=[128 560 528 596] font=16
+Switch-1 rect=[128 480 176 504] font=14
+Timer-1 rect=[1232 0 1280 48] font=16
+ToolBar-1 rect=[16 0 1200 64] font=16
+shapes=299 digest=52df1b3db413fba2
+## Run 0.75x 960x636
+CheckBox-1 rect=[128 320 248 342] font=16
+ComboBox-1 rect=[128 432 336 464] font=16
+DateTimePicker-2 rect=[128 272 328 312] font=16
+FileDropZone-1 rect=[128 640 576 740] font=16
+Gauge-1 rect=[416 304 576 448] font=16
+Knob-1 rect=[416 144 576 288] font=16
+Line-1 rect=[0 64 1280 68] font=16
+ListBox-1 rect=[128 128 304 256] font=14
+ListBox-2 rect=[128 752 576 832] font=14
+Maps-1 rect=[608 96 1264 832] font=16
+NumericUpDown-1 rect=[128 512 192 536] font=14
+ProgressBar-1 rect=[128 608 328 630] font=16
+RadioButton-1 rect=[128 352 272 379] font=16
+RadioButton-2 rect=[128 384 272 411] font=16
+Slider-2 rect=[128 560 528 596] font=16
+Switch-1 rect=[128 480 176 504] font=14
+Timer-1 rect=[1232 0 1280 48] font=16
+ToolBar-1 rect=[16 0 1200 64] font=16
+shapes=197 digest=83608ba7eea174c5
+## Preview 0.75x 960x636
+CheckBox-1 rect=[128 320 248 342] font=16
+ComboBox-1 rect=[128 432 336 464] font=16
+DateTimePicker-2 rect=[128 272 328 312] font=16
+FileDropZone-1 rect=[128 640 576 740] font=16
+Gauge-1 rect=[416 304 576 448] font=16
+Knob-1 rect=[416 144 576 288] font=16
+Line-1 rect=[0 64 1280 68] font=16
+ListBox-1 rect=[128 128 304 256] font=14
+ListBox-2 rect=[128 752 576 832] font=14
+Maps-1 rect=[608 96 1264 832] font=16
+NumericUpDown-1 rect=[128 512 192 536] font=14
+ProgressBar-1 rect=[128 608 328 630] font=16
+RadioButton-1 rect=[128 352 272 379] font=16
+RadioButton-2 rect=[128 384 272 411] font=16
+Slider-2 rect=[128 560 528 596] font=16
+Switch-1 rect=[128 480 176 504] font=14
+Timer-1 rect=[1232 0 1280 48] font=16
+ToolBar-1 rect=[16 0 1200 64] font=16
+shapes=197 digest=83608ba7eea174c5
+## Canvas 1x 1280x848
+CheckBox-1 rect=[128 320 248 342] font=16
+ComboBox-1 rect=[128 432 336 464] font=16
+DateTimePicker-2 rect=[128 272 328 312] font=16
+FileDropZone-1 rect=[128 640 576 740] font=16
+Gauge-1 rect=[416 304 576 448] font=16
+Knob-1 rect=[416 144 576 288] font=16
+Line-1 rect=[0 64 1280 68] font=16
+ListBox-1 rect=[128 128 304 256] font=14
+ListBox-2 rect=[128 752 576 832] font=14
+Maps-1 rect=[608 96 1264 832] font=16
+NumericUpDown-1 rect=[128 512 192 536] font=14
+ProgressBar-1 rect=[128 608 328 630] font=16
+RadioButton-1 rect=[128 352 272 379] font=16
+RadioButton-2 rect=[128 384 272 411] font=16
+Slider-2 rect=[128 560 528 596] font=16
+Switch-1 rect=[128 480 176 504] font=14
+Timer-1 rect=[1232 0 1280 48] font=16
+ToolBar-1 rect=[16 0 1200 64] font=16
+shapes=299 digest=d92d5270aaeb6ba4
+## Run 1x 1280x848
+CheckBox-1 rect=[128 320 248 342] font=16
+ComboBox-1 rect=[128 432 336 464] font=16
+DateTimePicker-2 rect=[128 272 328 312] font=16
+FileDropZone-1 rect=[128 640 576 740] font=16
+Gauge-1 rect=[416 304 576 448] font=16
+Knob-1 rect=[416 144 576 288] font=16
+Line-1 rect=[0 64 1280 68] font=16
+ListBox-1 rect=[128 128 304 256] font=14
+ListBox-2 rect=[128 752 576 832] font=14
+Maps-1 rect=[608 96 1264 832] font=16
+NumericUpDown-1 rect=[128 512 192 536] font=14
+ProgressBar-1 rect=[128 608 328 630] font=16
+RadioButton-1 rect=[128 352 272 379] font=16
+RadioButton-2 rect=[128 384 272 411] font=16
+Slider-2 rect=[128 560 528 596] font=16
+Switch-1 rect=[128 480 176 504] font=14
+Timer-1 rect=[1232 0 1280 48] font=16
+ToolBar-1 rect=[16 0 1200 64] font=16
+shapes=315 digest=24a7272aa2c7dbe6
+## Preview 1x 1280x848
+CheckBox-1 rect=[128 320 248 342] font=16
+ComboBox-1 rect=[128 432 336 464] font=16
+DateTimePicker-2 rect=[128 272 328 312] font=16
+FileDropZone-1 rect=[128 640 576 740] font=16
+Gauge-1 rect=[416 304 576 448] font=16
+Knob-1 rect=[416 144 576 288] font=16
+Line-1 rect=[0 64 1280 68] font=16
+ListBox-1 rect=[128 128 304 256] font=14
+ListBox-2 rect=[128 752 576 832] font=14
+Maps-1 rect=[608 96 1264 832] font=16
+NumericUpDown-1 rect=[128 512 192 536] font=14
+ProgressBar-1 rect=[128 608 328 630] font=16
+RadioButton-1 rect=[128 352 272 379] font=16
+RadioButton-2 rect=[128 384 272 411] font=16
+Slider-2 rect=[128 560 528 596] font=16
+Switch-1 rect=[128 480 176 504] font=14
+Timer-1 rect=[1232 0 1280 48] font=16
+ToolBar-1 rect=[16 0 1200 64] font=16
+shapes=315 digest=24a7272aa2c7dbe6
+## Canvas 1.5x 1920x1272
+CheckBox-1 rect=[128 320 248 342] font=16
+ComboBox-1 rect=[128 432 336 464] font=16
+DateTimePicker-2 rect=[128 272 328 312] font=16
+FileDropZone-1 rect=[128 640 576 740] font=16
+Gauge-1 rect=[416 304 576 448] font=16
+Knob-1 rect=[416 144 576 288] font=16
+Line-1 rect=[0 64 1280 68] font=16
+ListBox-1 rect=[128 128 304 256] font=14
+ListBox-2 rect=[128 752 576 832] font=14
+Maps-1 rect=[608 96 1264 832] font=16
+NumericUpDown-1 rect=[128 512 192 536] font=14
+ProgressBar-1 rect=[128 608 328 630] font=16
+RadioButton-1 rect=[128 352 272 379] font=16
+RadioButton-2 rect=[128 384 272 411] font=16
+Slider-2 rect=[128 560 528 596] font=16
+Switch-1 rect=[128 480 176 504] font=14
+Timer-1 rect=[1232 0 1280 48] font=16
+ToolBar-1 rect=[16 0 1200 64] font=16
+shapes=299 digest=e88635270f6cf3f0
+## Run 1.5x 1920x1272
+CheckBox-1 rect=[128 320 248 342] font=16
+ComboBox-1 rect=[128 432 336 464] font=16
+DateTimePicker-2 rect=[128 272 328 312] font=16
+FileDropZone-1 rect=[128 640 576 740] font=16
+Gauge-1 rect=[416 304 576 448] font=16
+Knob-1 rect=[416 144 576 288] font=16
+Line-1 rect=[0 64 1280 68] font=16
+ListBox-1 rect=[128 128 304 256] font=14
+ListBox-2 rect=[128 752 576 832] font=14
+Maps-1 rect=[608 96 1264 832] font=16
+NumericUpDown-1 rect=[128 512 192 536] font=14
+ProgressBar-1 rect=[128 608 328 630] font=16
+RadioButton-1 rect=[128 352 272 379] font=16
+RadioButton-2 rect=[128 384 272 411] font=16
+Slider-2 rect=[128 560 528 596] font=16
+Switch-1 rect=[128 480 176 504] font=14
+Timer-1 rect=[1232 0 1280 48] font=16
+ToolBar-1 rect=[16 0 1200 64] font=16
+shapes=315 digest=83424329765d9298
+## Preview 1.5x 1920x1272
+CheckBox-1 rect=[128 320 248 342] font=16
+ComboBox-1 rect=[128 432 336 464] font=16
+DateTimePicker-2 rect=[128 272 328 312] font=16
+FileDropZone-1 rect=[128 640 576 740] font=16
+Gauge-1 rect=[416 304 576 448] font=16
+Knob-1 rect=[416 144 576 288] font=16
+Line-1 rect=[0 64 1280 68] font=16
+ListBox-1 rect=[128 128 304 256] font=14
+ListBox-2 rect=[128 752 576 832] font=14
+Maps-1 rect=[608 96 1264 832] font=16
+NumericUpDown-1 rect=[128 512 192 536] font=14
+ProgressBar-1 rect=[128 608 328 630] font=16
+RadioButton-1 rect=[128 352 272 379] font=16
+RadioButton-2 rect=[128 384 272 411] font=16
+Slider-2 rect=[128 560 528 596] font=16
+Switch-1 rect=[128 480 176 504] font=14
+Timer-1 rect=[1232 0 1280 48] font=16
+ToolBar-1 rect=[16 0 1200 64] font=16
+shapes=315 digest=83424329765d9298

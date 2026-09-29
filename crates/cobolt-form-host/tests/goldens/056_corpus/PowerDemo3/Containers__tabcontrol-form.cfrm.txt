@@ -1,0 +1,109 @@
+# PowerDemo3/Containers/tabcontrol-form.cfrm
+## Window 0.75x 750x495
+Btn-Bottom rect=[548 380 704 412] font=14
+Btn-Next rect=[32 380 188 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Btn-Ship rect=[204 380 360 412] font=14
+Cbo-Tier rect=[280 222 500 250] font=14
+Chk-Gift rect=- font=13
+Dtp-When rect=- font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-P0 rect=[76 186 276 210] font=13
+Lbl-P0b rect=[76 226 276 250] font=13
+Lbl-P1 rect=- font=13
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Items rect=- font=13
+Tab-Order rect=[48 130 960 350] font=14
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Name rect=[280 182 600 210] font=14
+## Occupant 0.75x 750x495
+Btn-Bottom rect=[768 408 924 440] font=14
+Btn-Next rect=[252 408 408 440] font=14
+Btn-Read rect=[596 408 752 440] font=14
+Btn-Ship rect=[424 408 580 440] font=14
+Cbo-Tier rect=[500 250 720 278] font=14
+Chk-Gift rect=- font=13
+Dtp-When rect=- font=14
+Lbl-Log-Cap rect=[252 452 552 472] font=12
+Lbl-P0 rect=[296 214 496 238] font=13
+Lbl-P0b rect=[296 254 496 278] font=13
+Lbl-P1 rect=- font=13
+Lbl-Sub rect=[252 82 1188 120] font=13
+Lbl-Title rect=[252 48 1188 78] font=20
+Lst-Items rect=- font=13
+Tab-Order rect=[268 158 1180 378] font=14
+Txt-Log rect=[252 476 1188 660] font=12
+Txt-Name rect=[500 210 820 238] font=14
+## Window 1x 1000x660
+Btn-Bottom rect=[548 380 704 412] font=14
+Btn-Next rect=[32 380 188 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Btn-Ship rect=[204 380 360 412] font=14
+Cbo-Tier rect=[280 222 500 250] font=14
+Chk-Gift rect=- font=13
+Dtp-When rect=- font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-P0 rect=[76 186 276 210] font=13
+Lbl-P0b rect=[76 226 276 250] font=13
+Lbl-P1 rect=- font=13
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Items rect=- font=13
+Tab-Order rect=[48 130 960 350] font=14
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Name rect=[280 182 600 210] font=14
+## Occupant 1x 1000x660
+Btn-Bottom rect=[768 408 924 440] font=14
+Btn-Next rect=[252 408 408 440] font=14
+Btn-Read rect=[596 408 752 440] font=14
+Btn-Ship rect=[424 408 580 440] font=14
+Cbo-Tier rect=[500 250 720 278] font=14
+Chk-Gift rect=- font=13
+Dtp-When rect=- font=14
+Lbl-Log-Cap rect=[252 452 552 472] font=12
+Lbl-P0 rect=[296 214 496 238] font=13
+Lbl-P0b rect=[296 254 496 278] font=13
+Lbl-P1 rect=- font=13
+Lbl-Sub rect=[252 82 1188 120] font=13
+Lbl-Title rect=[252 48 1188 78] font=20
+Lst-Items rect=- font=13
+Tab-Order rect=[268 158 1180 378] font=14
+Txt-Log rect=[252 476 1188 660] font=12
+Txt-Name rect=[500 210 820 238] font=14
+## Window 1.5x 1500x990
+Btn-Bottom rect=[548 380 704 412] font=14
+Btn-Next rect=[32 380 188 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Btn-Ship rect=[204 380 360 412] font=14
+Cbo-Tier rect=[280 222 500 250] font=14
+Chk-Gift rect=- font=13
+Dtp-When rect=- font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-P0 rect=[76 186 276 210] font=13
+Lbl-P0b rect=[76 226 276 250] font=13
+Lbl-P1 rect=- font=13
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Items rect=- font=13
+Tab-Order rect=[48 130 960 350] font=14
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Name rect=[280 182 600 210] font=14
+## Occupant 1.5x 1500x990
+Btn-Bottom rect=[768 408 924 440] font=14
+Btn-Next rect=[252 408 408 440] font=14
+Btn-Read rect=[596 408 752 440] font=14
+Btn-Ship rect=[424 408 580 440] font=14
+Cbo-Tier rect=[500 250 720 278] font=14
+Chk-Gift rect=- font=13
+Dtp-When rect=- font=14
+Lbl-Log-Cap rect=[252 452 552 472] font=12
+Lbl-P0 rect=[296 214 496 238] font=13
+Lbl-P0b rect=[296 254 496 278] font=13
+Lbl-P1 rect=- font=13
+Lbl-Sub rect=[252 82 1188 120] font=13
+Lbl-Title rect=[252 48 1188 78] font=20
+Lst-Items rect=- font=13
+Tab-Order rect=[268 158 1180 378] font=14
+Txt-Log rect=[252 476 1188 660] font=12
+Txt-Name rect=[500 210 820 238] font=14

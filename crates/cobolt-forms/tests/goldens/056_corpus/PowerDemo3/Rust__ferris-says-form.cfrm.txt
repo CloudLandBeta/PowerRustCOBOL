@@ -1,0 +1,91 @@
+# PowerDemo3/Rust/ferris-says-form.cfrm
+## Canvas 0.75x 630x342
+Button-1 rect=[312 120 512 216] font=14
+Label-1 rect=[312 272 784 432] font=14
+Label-2 rect=[312 56 432 76] font=14
+Label-3 rect=[66 216 114 280] font=64
+Label-4 rect=[312 240 432 260] font=15
+PictureBox-1 rect=[24 304 144 424] font=14
+PictureBox-2 rect=[16 40 168 192] font=14
+TextBox-1 rect=[448 56 808 80] font=14
+shapes=21 digest=3bd2fb45e0efbd5c
+## Run 0.75x 630x342
+Button-1 rect=[312 120 512 216] font=14
+Label-1 rect=[312 272 784 432] font=14
+Label-2 rect=[312 56 432 76] font=14
+Label-3 rect=[66 216 109 294] font=64
+Label-4 rect=[312 240 432 260] font=15
+PictureBox-1 rect=[24 304 144 424] font=14
+PictureBox-2 rect=[16 40 168 192] font=14
+TextBox-1 rect=[448 56 808 80] font=14
+shapes=25 digest=93bb2b478365e306
+## Preview 0.75x 630x342
+Button-1 rect=[312 120 512 216] font=14
+Label-1 rect=[312 272 784 432] font=14
+Label-2 rect=[312 56 432 76] font=14
+Label-3 rect=[66 216 109 294] font=64
+Label-4 rect=[312 240 432 260] font=15
+PictureBox-1 rect=[24 304 144 424] font=14
+PictureBox-2 rect=[16 40 168 192] font=14
+TextBox-1 rect=[448 56 808 80] font=14
+shapes=25 digest=93bb2b478365e306
+## Canvas 1x 840x456
+Button-1 rect=[312 120 512 216] font=14
+Label-1 rect=[312 272 784 432] font=14
+Label-2 rect=[312 56 432 76] font=14
+Label-3 rect=[66 216 114 280] font=64
+Label-4 rect=[312 240 432 260] font=15
+PictureBox-1 rect=[24 304 144 424] font=14
+PictureBox-2 rect=[16 40 168 192] font=14
+TextBox-1 rect=[448 56 808 80] font=14
+shapes=21 digest=812805eea44a9641
+## Run 1x 840x456
+Button-1 rect=[312 120 512 216] font=14
+Label-1 rect=[312 272 784 432] font=14
+Label-2 rect=[312 56 432 76] font=14
+Label-3 rect=[66 216 109 294] font=64
+Label-4 rect=[312 240 432 260] font=15
+PictureBox-1 rect=[24 304 144 424] font=14
+PictureBox-2 rect=[16 40 168 192] font=14
+TextBox-1 rect=[448 56 808 80] font=14
+shapes=25 digest=b68572368b5edb28
+## Preview 1x 840x456
+Button-1 rect=[312 120 512 216] font=14
+Label-1 rect=[312 272 784 432] font=14
+Label-2 rect=[312 56 432 76] font=14
+Label-3 rect=[66 216 109 294] font=64
+Label-4 rect=[312 240 432 260] font=15
+PictureBox-1 rect=[24 304 144 424] font=14
+PictureBox-2 rect=[16 40 168 192] font=14
+TextBox-1 rect=[448 56 808 80] font=14
+shapes=25 digest=b68572368b5edb28
+## Canvas 1.5x 1260x684
+Button-1 rect=[312 120 512 216] font=14
+Label-1 rect=[312 272 784 432] font=14
+Label-2 rect=[312 56 432 76] font=14
+Label-3 rect=[66 216 114 280] font=64
+Label-4 rect=[312 240 432 260] font=15
+PictureBox-1 rect=[24 304 144 424] font=14
+PictureBox-2 rect=[16 40 168 192] font=14
+TextBox-1 rect=[448 56 808 80] font=14
+shapes=21 digest=f8eff85c1a69a7bd
+## Run 1.5x 1260x684
+Button-1 rect=[312 120 512 216] font=14
+Label-1 rect=[312 272 784 432] font=14
+Label-2 rect=[312 56 432 76] font=14
+Label-3 rect=[66 216 109 294] font=64
+Label-4 rect=[312 240 432 260] font=15
+PictureBox-1 rect=[24 304 144 424] font=14
+PictureBox-2 rect=[16 40 168 192] font=14
+TextBox-1 rect=[448 56 808 80] font=14
+shapes=25 digest=79397cedd3f7c063
+## Preview 1.5x 1260x684
+Button-1 rect=[312 120 512 216] font=14
+Label-1 rect=[312 272 784 432] font=14
+Label-2 rect=[312 56 432 76] font=14
+Label-3 rect=[66 216 109 294] font=64
+Label-4 rect=[312 240 432 260] font=15
+PictureBox-1 rect=[24 304 144 424] font=14
+PictureBox-2 rect=[16 40 168 192] font=14
+TextBox-1 rect=[448 56 808 80] font=14
+shapes=25 digest=79397cedd3f7c063

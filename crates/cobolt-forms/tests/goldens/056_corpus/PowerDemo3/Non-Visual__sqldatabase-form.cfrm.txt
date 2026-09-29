@@ -1,0 +1,163 @@
+# PowerDemo3/Non-Visual/sqldatabase-form.cfrm
+## Canvas 0.75x 750x495
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Close rect=[548 380 704 412] font=14
+Btn-Open rect=[32 380 188 412] font=14
+Btn-Query rect=[204 380 360 412] font=14
+Btn-Tx rect=[376 380 532 412] font=14
+Db-Local rect=[48 250 112 314] font=14
+Lbl-Count rect=[728 154 960 214] font=22
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Rows-Cap rect=[140 232 440 252] font=12
+Lbl-Sql-Cap rect=[140 130 440 150] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Tray rect=[48 300 198 320] font=11
+Lst-Rows rect=[140 256 700 344] font=12
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Sql rect=[140 154 700 224] font=13
+shapes=536 digest=338857c6fa761c4f
+## Run 0.75x 750x495
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Close rect=[548 380 704 412] font=14
+Btn-Open rect=[32 380 188 412] font=14
+Btn-Query rect=[204 380 360 412] font=14
+Btn-Tx rect=[376 380 532 412] font=14
+Db-Local rect=[48 250 112 314] font=14
+Lbl-Count rect=[728 154 960 214] font=22
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Rows-Cap rect=[140 232 440 252] font=12
+Lbl-Sql-Cap rect=[140 130 440 150] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Tray rect=[48 300 198 320] font=11
+Lst-Rows rect=[140 256 700 344] font=12
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Sql rect=[140 154 700 224] font=13
+shapes=481 digest=b1be231b4e51971b
+## Preview 0.75x 750x495
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Close rect=[548 380 704 412] font=14
+Btn-Open rect=[32 380 188 412] font=14
+Btn-Query rect=[204 380 360 412] font=14
+Btn-Tx rect=[376 380 532 412] font=14
+Db-Local rect=[48 250 112 314] font=14
+Lbl-Count rect=[728 154 960 214] font=22
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Rows-Cap rect=[140 232 440 252] font=12
+Lbl-Sql-Cap rect=[140 130 440 150] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Tray rect=[48 300 198 320] font=11
+Lst-Rows rect=[140 256 700 344] font=12
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Sql rect=[140 154 700 224] font=13
+shapes=481 digest=b1be231b4e51971b
+## Canvas 1x 1000x660
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Close rect=[548 380 704 412] font=14
+Btn-Open rect=[32 380 188 412] font=14
+Btn-Query rect=[204 380 360 412] font=14
+Btn-Tx rect=[376 380 532 412] font=14
+Db-Local rect=[48 250 112 314] font=14
+Lbl-Count rect=[728 154 960 214] font=22
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Rows-Cap rect=[140 232 440 252] font=12
+Lbl-Sql-Cap rect=[140 130 440 150] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Tray rect=[48 300 198 320] font=11
+Lst-Rows rect=[140 256 700 344] font=12
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Sql rect=[140 154 700 224] font=13
+shapes=536 digest=f9cbeb0b0af35879
+## Run 1x 1000x660
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Close rect=[548 380 704 412] font=14
+Btn-Open rect=[32 380 188 412] font=14
+Btn-Query rect=[204 380 360 412] font=14
+Btn-Tx rect=[376 380 532 412] font=14
+Db-Local rect=[48 250 112 314] font=14
+Lbl-Count rect=[728 154 960 214] font=22
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Rows-Cap rect=[140 232 440 252] font=12
+Lbl-Sql-Cap rect=[140 130 440 150] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Tray rect=[48 300 198 320] font=11
+Lst-Rows rect=[140 256 700 344] font=12
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Sql rect=[140 154 700 224] font=13
+shapes=481 digest=193513b25d721b05
+## Preview 1x 1000x660
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Close rect=[548 380 704 412] font=14
+Btn-Open rect=[32 380 188 412] font=14
+Btn-Query rect=[204 380 360 412] font=14
+Btn-Tx rect=[376 380 532 412] font=14
+Db-Local rect=[48 250 112 314] font=14
+Lbl-Count rect=[728 154 960 214] font=22
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Rows-Cap rect=[140 232 440 252] font=12
+Lbl-Sql-Cap rect=[140 130 440 150] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Tray rect=[48 300 198 320] font=11
+Lst-Rows rect=[140 256 700 344] font=12
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Sql rect=[140 154 700 224] font=13
+shapes=481 digest=193513b25d721b05
+## Canvas 1.5x 1500x990
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Close rect=[548 380 704 412] font=14
+Btn-Open rect=[32 380 188 412] font=14
+Btn-Query rect=[204 380 360 412] font=14
+Btn-Tx rect=[376 380 532 412] font=14
+Db-Local rect=[48 250 112 314] font=14
+Lbl-Count rect=[728 154 960 214] font=22
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Rows-Cap rect=[140 232 440 252] font=12
+Lbl-Sql-Cap rect=[140 130 440 150] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Tray rect=[48 300 198 320] font=11
+Lst-Rows rect=[140 256 700 344] font=12
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Sql rect=[140 154 700 224] font=13
+shapes=536 digest=027aef7d9b6ac329
+## Run 1.5x 1500x990
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Close rect=[548 380 704 412] font=14
+Btn-Open rect=[32 380 188 412] font=14
+Btn-Query rect=[204 380 360 412] font=14
+Btn-Tx rect=[376 380 532 412] font=14
+Db-Local rect=[48 250 112 314] font=14
+Lbl-Count rect=[728 154 960 214] font=22
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Rows-Cap rect=[140 232 440 252] font=12
+Lbl-Sql-Cap rect=[140 130 440 150] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Tray rect=[48 300 198 320] font=11
+Lst-Rows rect=[140 256 700 344] font=12
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Sql rect=[140 154 700 224] font=13
+shapes=481 digest=2168aa240bfd71ae
+## Preview 1.5x 1500x990
+Btn-Clear rect=[720 380 876 412] font=14
+Btn-Close rect=[548 380 704 412] font=14
+Btn-Open rect=[32 380 188 412] font=14
+Btn-Query rect=[204 380 360 412] font=14
+Btn-Tx rect=[376 380 532 412] font=14
+Db-Local rect=[48 250 112 314] font=14
+Lbl-Count rect=[728 154 960 214] font=22
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-Rows-Cap rect=[140 232 440 252] font=12
+Lbl-Sql-Cap rect=[140 130 440 150] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Lbl-Tray rect=[48 300 198 320] font=11
+Lst-Rows rect=[140 256 700 344] font=12
+Txt-Log rect=[32 448 968 632] font=12
+Txt-Sql rect=[140 154 700 224] font=13
+shapes=481 digest=2168aa240bfd71ae

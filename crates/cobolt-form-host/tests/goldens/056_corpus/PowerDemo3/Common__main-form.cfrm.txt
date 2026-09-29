@@ -1,0 +1,13 @@
+# PowerDemo3/Common/main-form.cfrm
+## Window 0.75x 768x576
+
+## Occupant 0.75x 768x576
+
+## Window 1x 1024x768
+
+## Occupant 1x 1024x768
+
+## Window 1.5x 1536x1152
+
+## Occupant 1.5x 1536x1152
+

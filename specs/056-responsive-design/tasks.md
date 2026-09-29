@@ -41,7 +41,7 @@ satisfies, and how to verify it. Check off as completed.
 
 Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
 
-- [ ] **T0.1 — Corpus golden harness (canvas / run / preview)** (R79, R82; AC2, AC36, AC39)
+- [x] **T0.1 — Corpus golden harness (canvas / run / preview)** (R79, R82; AC2, AC36, AC39)
   - Read first: `crates/cobolt-forms/tests/inner_form2_corners_are_drawn_not_repaired.rs`,
     `tests/mask_corner_goldens.rs` (helpers `r2`, `fnv64`, `dump`),
     `cobolt-cli/src/form_gui.rs` theme resolution (~524-548),
@@ -66,7 +66,7 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
     writes 62 files; a second run without the variable reports 0
     differences; run twice more — identical (determinism).
 
-- [ ] **T0.2 — Host corpus golden (Window / Pane / occupant)** (R79; AC2, AC36)
+- [x] **T0.2 — Host corpus golden (Window / Pane / occupant)** (R79; AC2, AC36)
   - Read first: `cobolt-form-host/src/host.rs` test module (`host_with_surface`,
     `raw`, `frame`, `fx_entrance_done`/`anim_started`/`lifecycle_sent`),
     `ensure_occupant`/`occupant_handle`, `last_control_rects`,
@@ -80,7 +80,7 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
   - Verify: `COBOLT_WRITE_GOLDEN=1 cargo test -p cobolt-form-host corpus_golden`
     then without it → 0 differences, twice.
 
-- [ ] **T0.3 — Generated-COBOL snapshot** (R80; AC37)
+- [x] **T0.3 — Generated-COBOL snapshot** (R80; AC37)
   - Read first: `crates/cobolt-codegen/tests/generated_bytes_golden.rs`
     (`UPDATE_GOLDEN`), `cobolt-codegen/src/lib.rs` `generate`,
     `.gitignore:34` (`examples/*/generated/`).
@@ -90,13 +90,17 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
     differing line reported; `UPDATE_GOLDEN=1` rewrites; summary printed.
   - Verify: write, then compare → 62/62 byte-identical.
 
-- [ ] **T0.4 — Commit the golden** (AC36)
+- [x] **T0.4 — Commit the golden** (AC36)
   - Files: the three tests + goldens; version.rs; CHANGELOG.
   - Verify: `git log` shows this commit **before** any commit touching
     `crates/*/src` (checked again in `/analyze`); `git diff 0241901 --stat -- crates/*/src`
     lists only version.rs.
+  - **Note (2026-09-29):** measured against `main` (4b7d039), not 0241901 —
+    the line fast-forwarded from `main`'s 1.70.344–348 fixes after the spec
+    was written. Against `main`, `crates/*/src` differs by version.rs and the
+    `#[cfg(test)] mod parity` of `host.rs` (T0.2 lives there) only.
 
-- [ ] **T0.5 — R80 list in place** (R80; AC37)
+- [x] **T0.5 — R80 list in place** (R80; AC37)
   - Read first: every `crates/*/tests/*.rs` naming PowerDemo3/PowerChat;
     `powerchat_compiles.rs` (reads `generated/`, gitignored here).
   - Files: tests whose paths point at `~/Documents/PowerDemo3` or
@@ -111,6 +115,13 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
     `cargo test -p cobolt-runtime --test test_data_binding_runtime --test test_sql`
     — all green; skipped tests named. (Repointing a test is a test change the
     operator sees in the CHANGELOG, not a silent edit.)
+  - **Result (2026-09-29):** all five home-directory tests repointed at
+    `examples/PowerDemo3/forms/...` (every form exists there; nothing skipped).
+    Green: 8 `cobolt-ide` files (27 tests), 3 of 4 `cobolt-forms` files,
+    both `cobolt-runtime` files. **Known red, pre-existing:**
+    `test_maps_demo_form::the_maps_example_form_loads_and_is_embeddable` — the
+    example's `TXT-ORS-KEY` has no `PasswordCharacter`; it never ran before the
+    repoint. A fix for `fixes`, not this line; expected red until then.
 
 ## Phase 1 — Pure layout core (no egui, no callers)
 

@@ -1,0 +1,91 @@
+# PowerDemo3/General/inner-form2.cfrm
+## Canvas 0.75x 1254x666
+Gauge-1 rect=[904 56 1044 146] font=16
+Gauge-2 rect=[720 56 860 146] font=16
+Gauge-3 rect=[528 48 668 138] font=16
+LineChart-1 rect=[512 160 1056 528] font=16
+Panel-1 rect=[488 48 1080 544] font=16
+PictureBox-1 rect=[0 104 1720 888] font=16
+PictureBox-2 rect=[-288 72 1680 920] font=16
+Timer-1 rect=[1608 8 1656 56] font=16
+shapes=210 digest=2cd57d7f8e2aed81
+## Run 0.75x 1254x666
+Gauge-1 rect=[904 56 1044 146] font=16
+Gauge-2 rect=[720 56 860 146] font=16
+Gauge-3 rect=[528 48 668 138] font=16
+LineChart-1 rect=[512 160 1056 528] font=16
+Panel-1 rect=[488 48 1080 544] font=16
+PictureBox-1 rect=[0 104 1720 888] font=16
+PictureBox-2 rect=[-288 72 1680 920] font=16
+Timer-1 rect=[1608 8 1656 56] font=16
+shapes=203 digest=32aca33f5c792072
+## Preview 0.75x 1254x666
+Gauge-1 rect=[904 56 1044 146] font=16
+Gauge-2 rect=[720 56 860 146] font=16
+Gauge-3 rect=[528 48 668 138] font=16
+LineChart-1 rect=[512 160 1056 528] font=16
+Panel-1 rect=[488 48 1080 544] font=16
+PictureBox-1 rect=[0 104 1720 888] font=16
+PictureBox-2 rect=[-288 72 1680 920] font=16
+Timer-1 rect=[1608 8 1656 56] font=16
+shapes=203 digest=326789e9a5766623
+## Canvas 1x 1672x888
+Gauge-1 rect=[904 56 1044 146] font=16
+Gauge-2 rect=[720 56 860 146] font=16
+Gauge-3 rect=[528 48 668 138] font=16
+LineChart-1 rect=[512 160 1056 528] font=16
+Panel-1 rect=[488 48 1080 544] font=16
+PictureBox-1 rect=[0 104 1720 888] font=16
+PictureBox-2 rect=[-288 72 1680 920] font=16
+Timer-1 rect=[1608 8 1656 56] font=16
+shapes=210 digest=4977e4058168dfb4
+## Run 1x 1672x888
+Gauge-1 rect=[904 56 1044 146] font=16
+Gauge-2 rect=[720 56 860 146] font=16
+Gauge-3 rect=[528 48 668 138] font=16
+LineChart-1 rect=[512 160 1056 528] font=16
+Panel-1 rect=[488 48 1080 544] font=16
+PictureBox-1 rect=[0 104 1720 888] font=16
+PictureBox-2 rect=[-288 72 1680 920] font=16
+Timer-1 rect=[1608 8 1656 56] font=16
+shapes=203 digest=96ea723033d33497
+## Preview 1x 1672x888
+Gauge-1 rect=[904 56 1044 146] font=16
+Gauge-2 rect=[720 56 860 146] font=16
+Gauge-3 rect=[528 48 668 138] font=16
+LineChart-1 rect=[512 160 1056 528] font=16
+Panel-1 rect=[488 48 1080 544] font=16
+PictureBox-1 rect=[0 104 1720 888] font=16
+PictureBox-2 rect=[-288 72 1680 920] font=16
+Timer-1 rect=[1608 8 1656 56] font=16
+shapes=203 digest=6a41840a427a21ba
+## Canvas 1.5x 2508x1332
+Gauge-1 rect=[904 56 1044 146] font=16
+Gauge-2 rect=[720 56 860 146] font=16
+Gauge-3 rect=[528 48 668 138] font=16
+LineChart-1 rect=[512 160 1056 528] font=16
+Panel-1 rect=[488 48 1080 544] font=16
+PictureBox-1 rect=[0 104 1720 888] font=16
+PictureBox-2 rect=[-288 72 1680 920] font=16
+Timer-1 rect=[1608 8 1656 56] font=16
+shapes=210 digest=8c3eed18523d28bf
+## Run 1.5x 2508x1332
+Gauge-1 rect=[904 56 1044 146] font=16
+Gauge-2 rect=[720 56 860 146] font=16
+Gauge-3 rect=[528 48 668 138] font=16
+LineChart-1 rect=[512 160 1056 528] font=16
+Panel-1 rect=[488 48 1080 544] font=16
+PictureBox-1 rect=[0 104 1720 888] font=16
+PictureBox-2 rect=[-288 72 1680 920] font=16
+Timer-1 rect=[1608 8 1656 56] font=16
+shapes=203 digest=eeafd65114fc7ee3
+## Preview 1.5x 2508x1332
+Gauge-1 rect=[904 56 1044 146] font=16
+Gauge-2 rect=[720 56 860 146] font=16
+Gauge-3 rect=[528 48 668 138] font=16
+LineChart-1 rect=[512 160 1056 528] font=16
+Panel-1 rect=[488 48 1080 544] font=16
+PictureBox-1 rect=[0 104 1720 888] font=16
+PictureBox-2 rect=[-288 72 1680 920] font=16
+Timer-1 rect=[1608 8 1656 56] font=16
+shapes=203 digest=2fed997a64326493

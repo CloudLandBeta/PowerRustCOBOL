@@ -1,0 +1,136 @@
+# PowerDemo3/Common/listbox-form.cfrm
+## Canvas 0.75x 750x495
+Btn-Add rect=[48 384 204 416] font=14
+Btn-Clear rect=[564 384 720 416] font=14
+Btn-Count rect=[220 384 376 416] font=14
+Btn-Shout rect=[392 384 548 416] font=14
+Lbl-Done-Cap rect=[460 130 760 150] font=12
+Lbl-Log-Cap rect=[48 432 348 452] font=12
+Lbl-Stat rect=[872 208 982 268] font=22
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Tasks-Cap rect=[48 130 348 150] font=12
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Done rect=[460 168 840 352] font=14
+Lst-Tasks rect=[48 168 428 353] font=14
+Txt-Log rect=[48 464 965 630] font=12
+shapes=413 digest=19d71e120ad59129
+## Run 0.75x 750x495
+Btn-Add rect=[48 384 204 416] font=14
+Btn-Clear rect=[564 384 720 416] font=14
+Btn-Count rect=[220 384 376 416] font=14
+Btn-Shout rect=[392 384 548 416] font=14
+Lbl-Done-Cap rect=[460 130 760 150] font=12
+Lbl-Log-Cap rect=[48 432 348 452] font=12
+Lbl-Stat rect=[872 208 982 268] font=22
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Tasks-Cap rect=[48 130 348 150] font=12
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Done rect=[460 168 840 352] font=14
+Lst-Tasks rect=[48 168 428 353] font=14
+Txt-Log rect=[48 464 965 630] font=12
+shapes=425 digest=eec2b75c53ea3ee9
+## Preview 0.75x 750x495
+Btn-Add rect=[48 384 204 416] font=14
+Btn-Clear rect=[564 384 720 416] font=14
+Btn-Count rect=[220 384 376 416] font=14
+Btn-Shout rect=[392 384 548 416] font=14
+Lbl-Done-Cap rect=[460 130 760 150] font=12
+Lbl-Log-Cap rect=[48 432 348 452] font=12
+Lbl-Stat rect=[872 208 982 268] font=22
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Tasks-Cap rect=[48 130 348 150] font=12
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Done rect=[460 168 840 352] font=14
+Lst-Tasks rect=[48 168 428 353] font=14
+Txt-Log rect=[48 464 965 630] font=12
+shapes=425 digest=eec2b75c53ea3ee9
+## Canvas 1x 1000x660
+Btn-Add rect=[48 384 204 416] font=14
+Btn-Clear rect=[564 384 720 416] font=14
+Btn-Count rect=[220 384 376 416] font=14
+Btn-Shout rect=[392 384 548 416] font=14
+Lbl-Done-Cap rect=[460 130 760 150] font=12
+Lbl-Log-Cap rect=[48 432 348 452] font=12
+Lbl-Stat rect=[872 208 982 268] font=22
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Tasks-Cap rect=[48 130 348 150] font=12
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Done rect=[460 168 840 352] font=14
+Lst-Tasks rect=[48 168 428 353] font=14
+Txt-Log rect=[48 464 965 630] font=12
+shapes=413 digest=a5a40ad9c45d8af3
+## Run 1x 1000x660
+Btn-Add rect=[48 384 204 416] font=14
+Btn-Clear rect=[564 384 720 416] font=14
+Btn-Count rect=[220 384 376 416] font=14
+Btn-Shout rect=[392 384 548 416] font=14
+Lbl-Done-Cap rect=[460 130 760 150] font=12
+Lbl-Log-Cap rect=[48 432 348 452] font=12
+Lbl-Stat rect=[872 208 982 268] font=22
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Tasks-Cap rect=[48 130 348 150] font=12
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Done rect=[460 168 840 352] font=14
+Lst-Tasks rect=[48 168 428 353] font=14
+Txt-Log rect=[48 464 965 630] font=12
+shapes=425 digest=5216ef9ed627b2de
+## Preview 1x 1000x660
+Btn-Add rect=[48 384 204 416] font=14
+Btn-Clear rect=[564 384 720 416] font=14
+Btn-Count rect=[220 384 376 416] font=14
+Btn-Shout rect=[392 384 548 416] font=14
+Lbl-Done-Cap rect=[460 130 760 150] font=12
+Lbl-Log-Cap rect=[48 432 348 452] font=12
+Lbl-Stat rect=[872 208 982 268] font=22
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Tasks-Cap rect=[48 130 348 150] font=12
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Done rect=[460 168 840 352] font=14
+Lst-Tasks rect=[48 168 428 353] font=14
+Txt-Log rect=[48 464 965 630] font=12
+shapes=425 digest=5216ef9ed627b2de
+## Canvas 1.5x 1500x990
+Btn-Add rect=[48 384 204 416] font=14
+Btn-Clear rect=[564 384 720 416] font=14
+Btn-Count rect=[220 384 376 416] font=14
+Btn-Shout rect=[392 384 548 416] font=14
+Lbl-Done-Cap rect=[460 130 760 150] font=12
+Lbl-Log-Cap rect=[48 432 348 452] font=12
+Lbl-Stat rect=[872 208 982 268] font=22
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Tasks-Cap rect=[48 130 348 150] font=12
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Done rect=[460 168 840 352] font=14
+Lst-Tasks rect=[48 168 428 353] font=14
+Txt-Log rect=[48 464 965 630] font=12
+shapes=413 digest=1517644f3c8cc463
+## Run 1.5x 1500x990
+Btn-Add rect=[48 384 204 416] font=14
+Btn-Clear rect=[564 384 720 416] font=14
+Btn-Count rect=[220 384 376 416] font=14
+Btn-Shout rect=[392 384 548 416] font=14
+Lbl-Done-Cap rect=[460 130 760 150] font=12
+Lbl-Log-Cap rect=[48 432 348 452] font=12
+Lbl-Stat rect=[872 208 982 268] font=22
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Tasks-Cap rect=[48 130 348 150] font=12
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Done rect=[460 168 840 352] font=14
+Lst-Tasks rect=[48 168 428 353] font=14
+Txt-Log rect=[48 464 965 630] font=12
+shapes=425 digest=cda5c29100041b80
+## Preview 1.5x 1500x990
+Btn-Add rect=[48 384 204 416] font=14
+Btn-Clear rect=[564 384 720 416] font=14
+Btn-Count rect=[220 384 376 416] font=14
+Btn-Shout rect=[392 384 548 416] font=14
+Lbl-Done-Cap rect=[460 130 760 150] font=12
+Lbl-Log-Cap rect=[48 432 348 452] font=12
+Lbl-Stat rect=[872 208 982 268] font=22
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Tasks-Cap rect=[48 130 348 150] font=12
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Done rect=[460 168 840 352] font=14
+Lst-Tasks rect=[48 168 428 353] font=14
+Txt-Log rect=[48 464 965 630] font=12
+shapes=425 digest=cda5c29100041b80

@@ -1,0 +1,85 @@
+# PowerDemo3/Common/listbox-form.cfrm
+## Window 0.75x 750x495
+Btn-Add rect=[48 384 204 416] font=14
+Btn-Clear rect=[564 384 720 416] font=14
+Btn-Count rect=[220 384 376 416] font=14
+Btn-Shout rect=[392 384 548 416] font=14
+Lbl-Done-Cap rect=[460 130 760 150] font=12
+Lbl-Log-Cap rect=[48 432 348 452] font=12
+Lbl-Stat rect=[872 208 982 268] font=22
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Tasks-Cap rect=[48 130 348 150] font=12
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Done rect=[460 168 840 352] font=14
+Lst-Tasks rect=[48 168 428 353] font=14
+Txt-Log rect=[48 464 965 630] font=12
+## Occupant 0.75x 750x495
+Btn-Add rect=[268 412 424 444] font=14
+Btn-Clear rect=[784 412 940 444] font=14
+Btn-Count rect=[440 412 596 444] font=14
+Btn-Shout rect=[612 412 768 444] font=14
+Lbl-Done-Cap rect=[680 158 980 178] font=12
+Lbl-Log-Cap rect=[268 460 568 480] font=12
+Lbl-Stat rect=[1092 236 1202 296] font=22
+Lbl-Sub rect=[252 82 1188 120] font=13
+Lbl-Tasks-Cap rect=[268 158 568 178] font=12
+Lbl-Title rect=[252 48 1188 78] font=20
+Lst-Done rect=[680 196 1060 380] font=14
+Lst-Tasks rect=[268 196 648 381] font=14
+Txt-Log rect=[268 492 1185 658] font=12
+## Window 1x 1000x660
+Btn-Add rect=[48 384 204 416] font=14
+Btn-Clear rect=[564 384 720 416] font=14
+Btn-Count rect=[220 384 376 416] font=14
+Btn-Shout rect=[392 384 548 416] font=14
+Lbl-Done-Cap rect=[460 130 760 150] font=12
+Lbl-Log-Cap rect=[48 432 348 452] font=12
+Lbl-Stat rect=[872 208 982 268] font=22
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Tasks-Cap rect=[48 130 348 150] font=12
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Done rect=[460 168 840 352] font=14
+Lst-Tasks rect=[48 168 428 353] font=14
+Txt-Log rect=[48 464 965 630] font=12
+## Occupant 1x 1000x660
+Btn-Add rect=[268 412 424 444] font=14
+Btn-Clear rect=[784 412 940 444] font=14
+Btn-Count rect=[440 412 596 444] font=14
+Btn-Shout rect=[612 412 768 444] font=14
+Lbl-Done-Cap rect=[680 158 980 178] font=12
+Lbl-Log-Cap rect=[268 460 568 480] font=12
+Lbl-Stat rect=[1092 236 1202 296] font=22
+Lbl-Sub rect=[252 82 1188 120] font=13
+Lbl-Tasks-Cap rect=[268 158 568 178] font=12
+Lbl-Title rect=[252 48 1188 78] font=20
+Lst-Done rect=[680 196 1060 380] font=14
+Lst-Tasks rect=[268 196 648 381] font=14
+Txt-Log rect=[268 492 1185 658] font=12
+## Window 1.5x 1500x990
+Btn-Add rect=[48 384 204 416] font=14
+Btn-Clear rect=[564 384 720 416] font=14
+Btn-Count rect=[220 384 376 416] font=14
+Btn-Shout rect=[392 384 548 416] font=14
+Lbl-Done-Cap rect=[460 130 760 150] font=12
+Lbl-Log-Cap rect=[48 432 348 452] font=12
+Lbl-Stat rect=[872 208 982 268] font=22
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Tasks-Cap rect=[48 130 348 150] font=12
+Lbl-Title rect=[32 20 968 50] font=20
+Lst-Done rect=[460 168 840 352] font=14
+Lst-Tasks rect=[48 168 428 353] font=14
+Txt-Log rect=[48 464 965 630] font=12
+## Occupant 1.5x 1500x990
+Btn-Add rect=[268 412 424 444] font=14
+Btn-Clear rect=[784 412 940 444] font=14
+Btn-Count rect=[440 412 596 444] font=14
+Btn-Shout rect=[612 412 768 444] font=14
+Lbl-Done-Cap rect=[680 158 980 178] font=12
+Lbl-Log-Cap rect=[268 460 568 480] font=12
+Lbl-Stat rect=[1092 236 1202 296] font=22
+Lbl-Sub rect=[252 82 1188 120] font=13
+Lbl-Tasks-Cap rect=[268 158 568 178] font=12
+Lbl-Title rect=[252 48 1188 78] font=20
+Lst-Done rect=[680 196 1060 380] font=14
+Lst-Tasks rect=[268 196 648 381] font=14
+Txt-Log rect=[268 492 1185 658] font=12

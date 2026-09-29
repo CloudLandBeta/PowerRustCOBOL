@@ -1,0 +1,91 @@
+# PowerChat/welcome-form.cfrm
+## Canvas 0.75x 738x450
+Lbl-Step-1 rect=[352 248 888 304] font=14
+Lbl-Step-2 rect=[352 312 888 384] font=14
+Lbl-Step-3 rect=[352 392 888 448] font=14
+Lbl-Step-4 rect=[352 456 888 528] font=14
+Lbl-Title rect=[24 24 888 136] font=84
+Lbl-Welcome rect=[352 176 888 232] font=18
+Pic-Robot rect=[64 176 320 480] font=14
+Tmr-Lang rect=[600 16 648 64] font=14
+shapes=52 digest=e006e06958a678b8
+## Run 0.75x 738x450
+Lbl-Step-1 rect=[352 248 888 304] font=14
+Lbl-Step-2 rect=[352 312 888 384] font=14
+Lbl-Step-3 rect=[352 392 888 448] font=14
+Lbl-Step-4 rect=[352 456 888 528] font=14
+Lbl-Title rect=[24 24 888 136] font=84
+Lbl-Welcome rect=[352 176 888 232] font=18
+Pic-Robot rect=[64 176 320 480] font=14
+Tmr-Lang rect=[600 16 648 64] font=14
+shapes=11 digest=bc017783a1df86b7
+## Preview 0.75x 738x450
+Lbl-Step-1 rect=[352 248 888 304] font=14
+Lbl-Step-2 rect=[352 312 888 384] font=14
+Lbl-Step-3 rect=[352 392 888 448] font=14
+Lbl-Step-4 rect=[352 456 888 528] font=14
+Lbl-Title rect=[24 24 888 136] font=84
+Lbl-Welcome rect=[352 176 888 232] font=18
+Pic-Robot rect=[64 176 320 480] font=14
+Tmr-Lang rect=[600 16 648 64] font=14
+shapes=11 digest=bc017783a1df86b7
+## Canvas 1x 984x600
+Lbl-Step-1 rect=[352 248 888 304] font=14
+Lbl-Step-2 rect=[352 312 888 384] font=14
+Lbl-Step-3 rect=[352 392 888 448] font=14
+Lbl-Step-4 rect=[352 456 888 528] font=14
+Lbl-Title rect=[24 24 888 136] font=84
+Lbl-Welcome rect=[352 176 888 232] font=18
+Pic-Robot rect=[64 176 320 480] font=14
+Tmr-Lang rect=[600 16 648 64] font=14
+shapes=52 digest=1c493e4ba349b64b
+## Run 1x 984x600
+Lbl-Step-1 rect=[352 248 888 304] font=14
+Lbl-Step-2 rect=[352 312 888 384] font=14
+Lbl-Step-3 rect=[352 392 888 448] font=14
+Lbl-Step-4 rect=[352 456 888 528] font=14
+Lbl-Title rect=[24 24 888 136] font=84
+Lbl-Welcome rect=[352 176 888 232] font=18
+Pic-Robot rect=[64 176 320 480] font=14
+Tmr-Lang rect=[600 16 648 64] font=14
+shapes=11 digest=912229dc1996524c
+## Preview 1x 984x600
+Lbl-Step-1 rect=[352 248 888 304] font=14
+Lbl-Step-2 rect=[352 312 888 384] font=14
+Lbl-Step-3 rect=[352 392 888 448] font=14
+Lbl-Step-4 rect=[352 456 888 528] font=14
+Lbl-Title rect=[24 24 888 136] font=84
+Lbl-Welcome rect=[352 176 888 232] font=18
+Pic-Robot rect=[64 176 320 480] font=14
+Tmr-Lang rect=[600 16 648 64] font=14
+shapes=11 digest=912229dc1996524c
+## Canvas 1.5x 1476x900
+Lbl-Step-1 rect=[352 248 888 304] font=14
+Lbl-Step-2 rect=[352 312 888 384] font=14
+Lbl-Step-3 rect=[352 392 888 448] font=14
+Lbl-Step-4 rect=[352 456 888 528] font=14
+Lbl-Title rect=[24 24 888 136] font=84
+Lbl-Welcome rect=[352 176 888 232] font=18
+Pic-Robot rect=[64 176 320 480] font=14
+Tmr-Lang rect=[600 16 648 64] font=14
+shapes=52 digest=e6441bb366cb587f
+## Run 1.5x 1476x900
+Lbl-Step-1 rect=[352 248 888 304] font=14
+Lbl-Step-2 rect=[352 312 888 384] font=14
+Lbl-Step-3 rect=[352 392 888 448] font=14
+Lbl-Step-4 rect=[352 456 888 528] font=14
+Lbl-Title rect=[24 24 888 136] font=84
+Lbl-Welcome rect=[352 176 888 232] font=18
+Pic-Robot rect=[64 176 320 480] font=14
+Tmr-Lang rect=[600 16 648 64] font=14
+shapes=11 digest=19c62b898032574e
+## Preview 1.5x 1476x900
+Lbl-Step-1 rect=[352 248 888 304] font=14
+Lbl-Step-2 rect=[352 312 888 384] font=14
+Lbl-Step-3 rect=[352 392 888 448] font=14
+Lbl-Step-4 rect=[352 456 888 528] font=14
+Lbl-Title rect=[24 24 888 136] font=84
+Lbl-Welcome rect=[352 176 888 232] font=18
+Pic-Robot rect=[64 176 320 480] font=14
+Tmr-Lang rect=[600 16 648 64] font=14
+shapes=11 digest=19c62b898032574e

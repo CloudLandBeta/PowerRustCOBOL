@@ -1,0 +1,136 @@
+# PowerDemo3/Menus & Bars/statusbar-form.cfrm
+## Canvas 0.75x 750x495
+Btn-Clear rect=[548 344 704 376] font=14
+Btn-Read rect=[376 344 532 376] font=14
+Btn-Start rect=[204 344 360 376] font=14
+Btn-Stop rect=[32 344 188 376] font=14
+Lbl-Doc rect=[48 140 948 230] font=13
+Lbl-Log-Cap rect=[40 384 340 404] font=12
+Lbl-Rows-Cap rect=[48 244 348 264] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Num-Rows rect=[48 268 228 300] font=15
+StatusBar-Demo rect=[0 634 1000 660] font=14
+Tmr-Clock rect=[904 176 952 224] font=14
+Txt-Log rect=[32 408 968 608] font=12
+shapes=46 digest=926b9ab08e8c5dc9
+## Run 0.75x 750x495
+Btn-Clear rect=[548 344 704 376] font=14
+Btn-Read rect=[376 344 532 376] font=14
+Btn-Start rect=[204 344 360 376] font=14
+Btn-Stop rect=[32 344 188 376] font=14
+Lbl-Doc rect=[48 140 948 230] font=13
+Lbl-Log-Cap rect=[40 384 340 404] font=12
+Lbl-Rows-Cap rect=[48 244 348 264] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Num-Rows rect=[48 268 228 300] font=15
+StatusBar-Demo rect=[0 634 1000 660] font=14
+Tmr-Clock rect=[904 176 952 224] font=14
+Txt-Log rect=[32 408 968 608] font=12
+shapes=44 digest=53c386a737688c8c
+## Preview 0.75x 750x495
+Btn-Clear rect=[548 344 704 376] font=14
+Btn-Read rect=[376 344 532 376] font=14
+Btn-Start rect=[204 344 360 376] font=14
+Btn-Stop rect=[32 344 188 376] font=14
+Lbl-Doc rect=[48 140 948 230] font=13
+Lbl-Log-Cap rect=[40 384 340 404] font=12
+Lbl-Rows-Cap rect=[48 244 348 264] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Num-Rows rect=[48 268 228 300] font=15
+StatusBar-Demo rect=[0 634 1000 660] font=14
+Tmr-Clock rect=[904 176 952 224] font=14
+Txt-Log rect=[32 408 968 608] font=12
+shapes=44 digest=53c386a737688c8c
+## Canvas 1x 1000x660
+Btn-Clear rect=[548 344 704 376] font=14
+Btn-Read rect=[376 344 532 376] font=14
+Btn-Start rect=[204 344 360 376] font=14
+Btn-Stop rect=[32 344 188 376] font=14
+Lbl-Doc rect=[48 140 948 230] font=13
+Lbl-Log-Cap rect=[40 384 340 404] font=12
+Lbl-Rows-Cap rect=[48 244 348 264] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Num-Rows rect=[48 268 228 300] font=15
+StatusBar-Demo rect=[0 634 1000 660] font=14
+Tmr-Clock rect=[904 176 952 224] font=14
+Txt-Log rect=[32 408 968 608] font=12
+shapes=46 digest=a1c45d41c44de697
+## Run 1x 1000x660
+Btn-Clear rect=[548 344 704 376] font=14
+Btn-Read rect=[376 344 532 376] font=14
+Btn-Start rect=[204 344 360 376] font=14
+Btn-Stop rect=[32 344 188 376] font=14
+Lbl-Doc rect=[48 140 948 230] font=13
+Lbl-Log-Cap rect=[40 384 340 404] font=12
+Lbl-Rows-Cap rect=[48 244 348 264] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Num-Rows rect=[48 268 228 300] font=15
+StatusBar-Demo rect=[0 634 1000 660] font=14
+Tmr-Clock rect=[904 176 952 224] font=14
+Txt-Log rect=[32 408 968 608] font=12
+shapes=44 digest=cbca587162b05f8e
+## Preview 1x 1000x660
+Btn-Clear rect=[548 344 704 376] font=14
+Btn-Read rect=[376 344 532 376] font=14
+Btn-Start rect=[204 344 360 376] font=14
+Btn-Stop rect=[32 344 188 376] font=14
+Lbl-Doc rect=[48 140 948 230] font=13
+Lbl-Log-Cap rect=[40 384 340 404] font=12
+Lbl-Rows-Cap rect=[48 244 348 264] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Num-Rows rect=[48 268 228 300] font=15
+StatusBar-Demo rect=[0 634 1000 660] font=14
+Tmr-Clock rect=[904 176 952 224] font=14
+Txt-Log rect=[32 408 968 608] font=12
+shapes=44 digest=cbca587162b05f8e
+## Canvas 1.5x 1500x990
+Btn-Clear rect=[548 344 704 376] font=14
+Btn-Read rect=[376 344 532 376] font=14
+Btn-Start rect=[204 344 360 376] font=14
+Btn-Stop rect=[32 344 188 376] font=14
+Lbl-Doc rect=[48 140 948 230] font=13
+Lbl-Log-Cap rect=[40 384 340 404] font=12
+Lbl-Rows-Cap rect=[48 244 348 264] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Num-Rows rect=[48 268 228 300] font=15
+StatusBar-Demo rect=[0 634 1000 660] font=14
+Tmr-Clock rect=[904 176 952 224] font=14
+Txt-Log rect=[32 408 968 608] font=12
+shapes=46 digest=88fda08491ff7107
+## Run 1.5x 1500x990
+Btn-Clear rect=[548 344 704 376] font=14
+Btn-Read rect=[376 344 532 376] font=14
+Btn-Start rect=[204 344 360 376] font=14
+Btn-Stop rect=[32 344 188 376] font=14
+Lbl-Doc rect=[48 140 948 230] font=13
+Lbl-Log-Cap rect=[40 384 340 404] font=12
+Lbl-Rows-Cap rect=[48 244 348 264] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Num-Rows rect=[48 268 228 300] font=15
+StatusBar-Demo rect=[0 634 1000 660] font=14
+Tmr-Clock rect=[904 176 952 224] font=14
+Txt-Log rect=[32 408 968 608] font=12
+shapes=44 digest=5b055417dcc833dc
+## Preview 1.5x 1500x990
+Btn-Clear rect=[548 344 704 376] font=14
+Btn-Read rect=[376 344 532 376] font=14
+Btn-Start rect=[204 344 360 376] font=14
+Btn-Stop rect=[32 344 188 376] font=14
+Lbl-Doc rect=[48 140 948 230] font=13
+Lbl-Log-Cap rect=[40 384 340 404] font=12
+Lbl-Rows-Cap rect=[48 244 348 264] font=12
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Title rect=[32 20 968 50] font=20
+Num-Rows rect=[48 268 228 300] font=15
+StatusBar-Demo rect=[0 634 1000 660] font=14
+Tmr-Clock rect=[904 176 952 224] font=14
+Txt-Log rect=[32 408 968 608] font=12
+shapes=44 digest=5b055417dcc833dc

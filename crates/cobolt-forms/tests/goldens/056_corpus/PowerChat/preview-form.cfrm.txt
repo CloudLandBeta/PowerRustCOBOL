@@ -1,0 +1,46 @@
+# PowerChat/preview-form.cfrm
+## Canvas 0.75x 720x480
+Btn-Close rect=[832 16 936 52] font=14
+Lbl-Title rect=[24 16 816 52] font=16
+Vwr-Doc rect=[24 64 936 620] font=14
+shapes=151 digest=baed0e8417c45755
+## Run 0.75x 720x480
+Btn-Close rect=[832 16 936 52] font=14
+Lbl-Title rect=[24 16 816 52] font=16
+Vwr-Doc rect=[24 64 936 620] font=14
+shapes=152 digest=6862820c9699b72b
+## Preview 0.75x 720x480
+Btn-Close rect=[832 16 936 52] font=14
+Lbl-Title rect=[24 16 816 52] font=16
+Vwr-Doc rect=[24 64 936 620] font=14
+shapes=152 digest=6862820c9699b72b
+## Canvas 1x 960x640
+Btn-Close rect=[832 16 936 52] font=14
+Lbl-Title rect=[24 16 816 52] font=16
+Vwr-Doc rect=[24 64 936 620] font=14
+shapes=151 digest=783ecd09593131fd
+## Run 1x 960x640
+Btn-Close rect=[832 16 936 52] font=14
+Lbl-Title rect=[24 16 816 52] font=16
+Vwr-Doc rect=[24 64 936 620] font=14
+shapes=152 digest=5555f254b6c9ab63
+## Preview 1x 960x640
+Btn-Close rect=[832 16 936 52] font=14
+Lbl-Title rect=[24 16 816 52] font=16
+Vwr-Doc rect=[24 64 936 620] font=14
+shapes=152 digest=5555f254b6c9ab63
+## Canvas 1.5x 1440x960
+Btn-Close rect=[832 16 936 52] font=14
+Lbl-Title rect=[24 16 816 52] font=16
+Vwr-Doc rect=[24 64 936 620] font=14
+shapes=151 digest=d8d6ebd4b68cf1ff
+## Run 1.5x 1440x960
+Btn-Close rect=[832 16 936 52] font=14
+Lbl-Title rect=[24 16 816 52] font=16
+Vwr-Doc rect=[24 64 936 620] font=14
+shapes=152 digest=58bedb63ae87b3fc
+## Preview 1.5x 1440x960
+Btn-Close rect=[832 16 936 52] font=14
+Lbl-Title rect=[24 16 816 52] font=16
+Vwr-Doc rect=[24 64 936 620] font=14
+shapes=152 digest=58bedb63ae87b3fc

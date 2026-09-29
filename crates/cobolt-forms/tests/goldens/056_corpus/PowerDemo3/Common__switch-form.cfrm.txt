@@ -1,0 +1,154 @@
+# PowerDemo3/Common/switch-form.cfrm
+## Canvas 0.75x 750x495
+Btn-AllOff rect=[204 380 360 412] font=14
+Btn-AllOn rect=[32 380 188 412] font=14
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-State rect=[520 140 960 270] font=14
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Sw-Alerts rect=[48 200 368 224] font=15
+Lbl-Sw-Beta rect=[48 256 368 280] font=15
+Lbl-Sw-Dark rect=[48 144 368 168] font=15
+Lbl-Title rect=[32 20 968 50] font=20
+Sw-Alerts rect=[400 196 456 226] font=14
+Sw-Beta rect=[400 252 456 282] font=14
+Sw-Dark rect=[400 140 456 170] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=36 digest=9daf623e6eef6389
+## Run 0.75x 750x495
+Btn-AllOff rect=[204 380 360 412] font=14
+Btn-AllOn rect=[32 380 188 412] font=14
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-State rect=[520 140 960 270] font=14
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Sw-Alerts rect=[48 200 368 224] font=15
+Lbl-Sw-Beta rect=[48 256 368 280] font=15
+Lbl-Sw-Dark rect=[48 144 368 168] font=15
+Lbl-Title rect=[32 20 968 50] font=20
+Sw-Alerts rect=[400 196 456 226] font=14
+Sw-Beta rect=[400 252 456 282] font=14
+Sw-Dark rect=[400 140 456 170] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=41 digest=8c18eb2dfa230159
+## Preview 0.75x 750x495
+Btn-AllOff rect=[204 380 360 412] font=14
+Btn-AllOn rect=[32 380 188 412] font=14
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-State rect=[520 140 960 270] font=14
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Sw-Alerts rect=[48 200 368 224] font=15
+Lbl-Sw-Beta rect=[48 256 368 280] font=15
+Lbl-Sw-Dark rect=[48 144 368 168] font=15
+Lbl-Title rect=[32 20 968 50] font=20
+Sw-Alerts rect=[400 196 456 226] font=14
+Sw-Beta rect=[400 252 456 282] font=14
+Sw-Dark rect=[400 140 456 170] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=41 digest=8c18eb2dfa230159
+## Canvas 1x 1000x660
+Btn-AllOff rect=[204 380 360 412] font=14
+Btn-AllOn rect=[32 380 188 412] font=14
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-State rect=[520 140 960 270] font=14
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Sw-Alerts rect=[48 200 368 224] font=15
+Lbl-Sw-Beta rect=[48 256 368 280] font=15
+Lbl-Sw-Dark rect=[48 144 368 168] font=15
+Lbl-Title rect=[32 20 968 50] font=20
+Sw-Alerts rect=[400 196 456 226] font=14
+Sw-Beta rect=[400 252 456 282] font=14
+Sw-Dark rect=[400 140 456 170] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=36 digest=4cb33cf8b5bad3bb
+## Run 1x 1000x660
+Btn-AllOff rect=[204 380 360 412] font=14
+Btn-AllOn rect=[32 380 188 412] font=14
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-State rect=[520 140 960 270] font=14
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Sw-Alerts rect=[48 200 368 224] font=15
+Lbl-Sw-Beta rect=[48 256 368 280] font=15
+Lbl-Sw-Dark rect=[48 144 368 168] font=15
+Lbl-Title rect=[32 20 968 50] font=20
+Sw-Alerts rect=[400 196 456 226] font=14
+Sw-Beta rect=[400 252 456 282] font=14
+Sw-Dark rect=[400 140 456 170] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=41 digest=f9b0f6992edb532f
+## Preview 1x 1000x660
+Btn-AllOff rect=[204 380 360 412] font=14
+Btn-AllOn rect=[32 380 188 412] font=14
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-State rect=[520 140 960 270] font=14
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Sw-Alerts rect=[48 200 368 224] font=15
+Lbl-Sw-Beta rect=[48 256 368 280] font=15
+Lbl-Sw-Dark rect=[48 144 368 168] font=15
+Lbl-Title rect=[32 20 968 50] font=20
+Sw-Alerts rect=[400 196 456 226] font=14
+Sw-Beta rect=[400 252 456 282] font=14
+Sw-Dark rect=[400 140 456 170] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=41 digest=f9b0f6992edb532f
+## Canvas 1.5x 1500x990
+Btn-AllOff rect=[204 380 360 412] font=14
+Btn-AllOn rect=[32 380 188 412] font=14
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-State rect=[520 140 960 270] font=14
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Sw-Alerts rect=[48 200 368 224] font=15
+Lbl-Sw-Beta rect=[48 256 368 280] font=15
+Lbl-Sw-Dark rect=[48 144 368 168] font=15
+Lbl-Title rect=[32 20 968 50] font=20
+Sw-Alerts rect=[400 196 456 226] font=14
+Sw-Beta rect=[400 252 456 282] font=14
+Sw-Dark rect=[400 140 456 170] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=36 digest=8269807a0cb1280b
+## Run 1.5x 1500x990
+Btn-AllOff rect=[204 380 360 412] font=14
+Btn-AllOn rect=[32 380 188 412] font=14
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-State rect=[520 140 960 270] font=14
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Sw-Alerts rect=[48 200 368 224] font=15
+Lbl-Sw-Beta rect=[48 256 368 280] font=15
+Lbl-Sw-Dark rect=[48 144 368 168] font=15
+Lbl-Title rect=[32 20 968 50] font=20
+Sw-Alerts rect=[400 196 456 226] font=14
+Sw-Beta rect=[400 252 456 282] font=14
+Sw-Dark rect=[400 140 456 170] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=41 digest=0dcbd8a5dbe83839
+## Preview 1.5x 1500x990
+Btn-AllOff rect=[204 380 360 412] font=14
+Btn-AllOn rect=[32 380 188 412] font=14
+Btn-Clear rect=[548 380 704 412] font=14
+Btn-Read rect=[376 380 532 412] font=14
+Lbl-Log-Cap rect=[32 424 332 444] font=12
+Lbl-State rect=[520 140 960 270] font=14
+Lbl-Sub rect=[32 54 968 92] font=13
+Lbl-Sw-Alerts rect=[48 200 368 224] font=15
+Lbl-Sw-Beta rect=[48 256 368 280] font=15
+Lbl-Sw-Dark rect=[48 144 368 168] font=15
+Lbl-Title rect=[32 20 968 50] font=20
+Sw-Alerts rect=[400 196 456 226] font=14
+Sw-Beta rect=[400 252 456 282] font=14
+Sw-Dark rect=[400 140 456 170] font=14
+Txt-Log rect=[32 448 968 632] font=12
+shapes=41 digest=0dcbd8a5dbe83839

@@ -1,0 +1,190 @@
+# PowerDemo3/Charts/charts-form.cfrm
+## Canvas 0.75x 972x612
+AreaChart-1 rect=[24 320 416 560] font=11
+BarChart-1 rect=[24 64 416 304] font=11
+Button-CHART-ANIMMS rect=[24 680 976 720] font=13
+Button-CHART-CLEAR rect=[528 584 764 624] font=13
+Button-CHART-GRADIENT rect=[1032 584 1268 624] font=13
+Button-CHART-GRID rect=[24 632 260 672] font=13
+Button-CHART-HORIZONTAL rect=[528 632 764 672] font=13
+Button-CHART-LEGEND rect=[276 632 512 672] font=13
+Button-CHART-LOAD rect=[24 584 260 624] font=13
+Button-CHART-LOAD2 rect=[276 584 512 624] font=13
+Button-CHART-MONO rect=[780 584 1016 624] font=13
+Button-CHART-SLICES rect=[1032 632 1268 672] font=13
+Button-CHART-SMOOTH rect=[780 632 1016 672] font=13
+DonutChart-1 rect=[872 320 1264 560] font=11
+Label-STATUS rect=[24 732 1256 756] font=13
+Label-TITLE rect=[24 16 1256 46] font=19
+LineChart-1 rect=[448 64 840 304] font=11
+PieChart-1 rect=[872 64 1264 304] font=11
+ScatterChart-1 rect=[448 320 840 560] font=11
+shapes=1033 digest=c27d6e3407501db5
+## Run 0.75x 972x612
+AreaChart-1 rect=[24 320 416 560] font=11
+BarChart-1 rect=[24 64 416 304] font=11
+Button-CHART-ANIMMS rect=[24 680 976 720] font=13
+Button-CHART-CLEAR rect=[528 584 764 624] font=13
+Button-CHART-GRADIENT rect=[1032 584 1268 624] font=13
+Button-CHART-GRID rect=[24 632 260 672] font=13
+Button-CHART-HORIZONTAL rect=[528 632 764 672] font=13
+Button-CHART-LEGEND rect=[276 632 512 672] font=13
+Button-CHART-LOAD rect=[24 584 260 624] font=13
+Button-CHART-LOAD2 rect=[276 584 512 624] font=13
+Button-CHART-MONO rect=[780 584 1016 624] font=13
+Button-CHART-SLICES rect=[1032 632 1268 672] font=13
+Button-CHART-SMOOTH rect=[780 632 1016 672] font=13
+DonutChart-1 rect=[872 320 1264 560] font=11
+Label-STATUS rect=[24 732 1256 756] font=13
+Label-TITLE rect=[24 16 1256 46] font=19
+LineChart-1 rect=[448 64 840 304] font=11
+PieChart-1 rect=[872 64 1264 304] font=11
+ScatterChart-1 rect=[448 320 840 560] font=11
+shapes=1036 digest=4010f191f244d618
+## Preview 0.75x 972x612
+AreaChart-1 rect=[24 320 416 560] font=11
+BarChart-1 rect=[24 64 416 304] font=11
+Button-CHART-ANIMMS rect=[24 680 976 720] font=13
+Button-CHART-CLEAR rect=[528 584 764 624] font=13
+Button-CHART-GRADIENT rect=[1032 584 1268 624] font=13
+Button-CHART-GRID rect=[24 632 260 672] font=13
+Button-CHART-HORIZONTAL rect=[528 632 764 672] font=13
+Button-CHART-LEGEND rect=[276 632 512 672] font=13
+Button-CHART-LOAD rect=[24 584 260 624] font=13
+Button-CHART-LOAD2 rect=[276 584 512 624] font=13
+Button-CHART-MONO rect=[780 584 1016 624] font=13
+Button-CHART-SLICES rect=[1032 632 1268 672] font=13
+Button-CHART-SMOOTH rect=[780 632 1016 672] font=13
+DonutChart-1 rect=[872 320 1264 560] font=11
+Label-STATUS rect=[24 732 1256 756] font=13
+Label-TITLE rect=[24 16 1256 46] font=19
+LineChart-1 rect=[448 64 840 304] font=11
+PieChart-1 rect=[872 64 1264 304] font=11
+ScatterChart-1 rect=[448 320 840 560] font=11
+shapes=1036 digest=4010f191f244d618
+## Canvas 1x 1296x816
+AreaChart-1 rect=[24 320 416 560] font=11
+BarChart-1 rect=[24 64 416 304] font=11
+Button-CHART-ANIMMS rect=[24 680 976 720] font=13
+Button-CHART-CLEAR rect=[528 584 764 624] font=13
+Button-CHART-GRADIENT rect=[1032 584 1268 624] font=13
+Button-CHART-GRID rect=[24 632 260 672] font=13
+Button-CHART-HORIZONTAL rect=[528 632 764 672] font=13
+Button-CHART-LEGEND rect=[276 632 512 672] font=13
+Button-CHART-LOAD rect=[24 584 260 624] font=13
+Button-CHART-LOAD2 rect=[276 584 512 624] font=13
+Button-CHART-MONO rect=[780 584 1016 624] font=13
+Button-CHART-SLICES rect=[1032 632 1268 672] font=13
+Button-CHART-SMOOTH rect=[780 632 1016 672] font=13
+DonutChart-1 rect=[872 320 1264 560] font=11
+Label-STATUS rect=[24 732 1256 756] font=13
+Label-TITLE rect=[24 16 1256 46] font=19
+LineChart-1 rect=[448 64 840 304] font=11
+PieChart-1 rect=[872 64 1264 304] font=11
+ScatterChart-1 rect=[448 320 840 560] font=11
+shapes=1033 digest=66f9b8c28bb5c868
+## Run 1x 1296x816
+AreaChart-1 rect=[24 320 416 560] font=11
+BarChart-1 rect=[24 64 416 304] font=11
+Button-CHART-ANIMMS rect=[24 680 976 720] font=13
+Button-CHART-CLEAR rect=[528 584 764 624] font=13
+Button-CHART-GRADIENT rect=[1032 584 1268 624] font=13
+Button-CHART-GRID rect=[24 632 260 672] font=13
+Button-CHART-HORIZONTAL rect=[528 632 764 672] font=13
+Button-CHART-LEGEND rect=[276 632 512 672] font=13
+Button-CHART-LOAD rect=[24 584 260 624] font=13
+Button-CHART-LOAD2 rect=[276 584 512 624] font=13
+Button-CHART-MONO rect=[780 584 1016 624] font=13
+Button-CHART-SLICES rect=[1032 632 1268 672] font=13
+Button-CHART-SMOOTH rect=[780 632 1016 672] font=13
+DonutChart-1 rect=[872 320 1264 560] font=11
+Label-STATUS rect=[24 732 1256 756] font=13
+Label-TITLE rect=[24 16 1256 46] font=19
+LineChart-1 rect=[448 64 840 304] font=11
+PieChart-1 rect=[872 64 1264 304] font=11
+ScatterChart-1 rect=[448 320 840 560] font=11
+shapes=1036 digest=7f07c540cdfa7e44
+## Preview 1x 1296x816
+AreaChart-1 rect=[24 320 416 560] font=11
+BarChart-1 rect=[24 64 416 304] font=11
+Button-CHART-ANIMMS rect=[24 680 976 720] font=13
+Button-CHART-CLEAR rect=[528 584 764 624] font=13
+Button-CHART-GRADIENT rect=[1032 584 1268 624] font=13
+Button-CHART-GRID rect=[24 632 260 672] font=13
+Button-CHART-HORIZONTAL rect=[528 632 764 672] font=13
+Button-CHART-LEGEND rect=[276 632 512 672] font=13
+Button-CHART-LOAD rect=[24 584 260 624] font=13
+Button-CHART-LOAD2 rect=[276 584 512 624] font=13
+Button-CHART-MONO rect=[780 584 1016 624] font=13
+Button-CHART-SLICES rect=[1032 632 1268 672] font=13
+Button-CHART-SMOOTH rect=[780 632 1016 672] font=13
+DonutChart-1 rect=[872 320 1264 560] font=11
+Label-STATUS rect=[24 732 1256 756] font=13
+Label-TITLE rect=[24 16 1256 46] font=19
+LineChart-1 rect=[448 64 840 304] font=11
+PieChart-1 rect=[872 64 1264 304] font=11
+ScatterChart-1 rect=[448 320 840 560] font=11
+shapes=1036 digest=7f07c540cdfa7e44
+## Canvas 1.5x 1944x1224
+AreaChart-1 rect=[24 320 416 560] font=11
+BarChart-1 rect=[24 64 416 304] font=11
+Button-CHART-ANIMMS rect=[24 680 976 720] font=13
+Button-CHART-CLEAR rect=[528 584 764 624] font=13
+Button-CHART-GRADIENT rect=[1032 584 1268 624] font=13
+Button-CHART-GRID rect=[24 632 260 672] font=13
+Button-CHART-HORIZONTAL rect=[528 632 764 672] font=13
+Button-CHART-LEGEND rect=[276 632 512 672] font=13
+Button-CHART-LOAD rect=[24 584 260 624] font=13
+Button-CHART-LOAD2 rect=[276 584 512 624] font=13
+Button-CHART-MONO rect=[780 584 1016 624] font=13
+Button-CHART-SLICES rect=[1032 632 1268 672] font=13
+Button-CHART-SMOOTH rect=[780 632 1016 672] font=13
+DonutChart-1 rect=[872 320 1264 560] font=11
+Label-STATUS rect=[24 732 1256 756] font=13
+Label-TITLE rect=[24 16 1256 46] font=19
+LineChart-1 rect=[448 64 840 304] font=11
+PieChart-1 rect=[872 64 1264 304] font=11
+ScatterChart-1 rect=[448 320 840 560] font=11
+shapes=1033 digest=a6386cfe1ee49da4
+## Run 1.5x 1944x1224
+AreaChart-1 rect=[24 320 416 560] font=11
+BarChart-1 rect=[24 64 416 304] font=11
+Button-CHART-ANIMMS rect=[24 680 976 720] font=13
+Button-CHART-CLEAR rect=[528 584 764 624] font=13
+Button-CHART-GRADIENT rect=[1032 584 1268 624] font=13
+Button-CHART-GRID rect=[24 632 260 672] font=13
+Button-CHART-HORIZONTAL rect=[528 632 764 672] font=13
+Button-CHART-LEGEND rect=[276 632 512 672] font=13
+Button-CHART-LOAD rect=[24 584 260 624] font=13
+Button-CHART-LOAD2 rect=[276 584 512 624] font=13
+Button-CHART-MONO rect=[780 584 1016 624] font=13
+Button-CHART-SLICES rect=[1032 632 1268 672] font=13
+Button-CHART-SMOOTH rect=[780 632 1016 672] font=13
+DonutChart-1 rect=[872 320 1264 560] font=11
+Label-STATUS rect=[24 732 1256 756] font=13
+Label-TITLE rect=[24 16 1256 46] font=19
+LineChart-1 rect=[448 64 840 304] font=11
+PieChart-1 rect=[872 64 1264 304] font=11
+ScatterChart-1 rect=[448 320 840 560] font=11
+shapes=1036 digest=2342a58da3fbfa50
+## Preview 1.5x 1944x1224
+AreaChart-1 rect=[24 320 416 560] font=11
+BarChart-1 rect=[24 64 416 304] font=11
+Button-CHART-ANIMMS rect=[24 680 976 720] font=13
+Button-CHART-CLEAR rect=[528 584 764 624] font=13
+Button-CHART-GRADIENT rect=[1032 584 1268 624] font=13
+Button-CHART-GRID rect=[24 632 260 672] font=13
+Button-CHART-HORIZONTAL rect=[528 632 764 672] font=13
+Button-CHART-LEGEND rect=[276 632 512 672] font=13
+Button-CHART-LOAD rect=[24 584 260 624] font=13
+Button-CHART-LOAD2 rect=[276 584 512 624] font=13
+Button-CHART-MONO rect=[780 584 1016 624] font=13
+Button-CHART-SLICES rect=[1032 632 1268 672] font=13
+Button-CHART-SMOOTH rect=[780 632 1016 672] font=13
+DonutChart-1 rect=[872 320 1264 560] font=11
+Label-STATUS rect=[24 732 1256 756] font=13
+Label-TITLE rect=[24 16 1256 46] font=19
+LineChart-1 rect=[448 64 840 304] font=11
+PieChart-1 rect=[872 64 1264 304] font=11
+ScatterChart-1 rect=[448 320 840 560] font=11
+shapes=1036 digest=19c61533d055e533

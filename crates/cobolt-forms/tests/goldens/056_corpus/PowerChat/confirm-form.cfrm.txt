@@ -1,0 +1,46 @@
+# PowerChat/confirm-form.cfrm
+## Canvas 0.75x 390x165
+Btn-No rect=[256 156 368 192] font=14
+Btn-Yes rect=[384 156 496 192] font=14
+Lbl-Question rect=[24 24 496 120] font=16
+shapes=61 digest=cb9ec63864b50bec
+## Run 0.75x 390x165
+Btn-No rect=[256 156 368 192] font=14
+Btn-Yes rect=[384 156 496 192] font=14
+Lbl-Question rect=[24 24 496 120] font=16
+shapes=62 digest=6a48b21f511eac33
+## Preview 0.75x 390x165
+Btn-No rect=[256 156 368 192] font=14
+Btn-Yes rect=[384 156 496 192] font=14
+Lbl-Question rect=[24 24 496 120] font=16
+shapes=62 digest=6a48b21f511eac33
+## Canvas 1x 520x220
+Btn-No rect=[256 156 368 192] font=14
+Btn-Yes rect=[384 156 496 192] font=14
+Lbl-Question rect=[24 24 496 120] font=16
+shapes=61 digest=c5c3ad252da160d5
+## Run 1x 520x220
+Btn-No rect=[256 156 368 192] font=14
+Btn-Yes rect=[384 156 496 192] font=14
+Lbl-Question rect=[24 24 496 120] font=16
+shapes=62 digest=cb4739d0dad0bab8
+## Preview 1x 520x220
+Btn-No rect=[256 156 368 192] font=14
+Btn-Yes rect=[384 156 496 192] font=14
+Lbl-Question rect=[24 24 496 120] font=16
+shapes=62 digest=cb4739d0dad0bab8
+## Canvas 1.5x 780x330
+Btn-No rect=[256 156 368 192] font=14
+Btn-Yes rect=[384 156 496 192] font=14
+Lbl-Question rect=[24 24 496 120] font=16
+shapes=61 digest=dd3df11d9ba2ff1f
+## Run 1.5x 780x330
+Btn-No rect=[256 156 368 192] font=14
+Btn-Yes rect=[384 156 496 192] font=14
+Lbl-Question rect=[24 24 496 120] font=16
+shapes=62 digest=49a26a9e6e14c5fc
+## Preview 1.5x 780x330
+Btn-No rect=[256 156 368 192] font=14
+Btn-Yes rect=[384 156 496 192] font=14
+Lbl-Question rect=[24 24 496 120] font=16
+shapes=62 digest=49a26a9e6e14c5fc
