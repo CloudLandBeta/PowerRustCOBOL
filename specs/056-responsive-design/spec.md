@@ -1,6 +1,6 @@
 # Spec — Responsive design: anchoring, docking, flex/grid/flow, breakpoints and fluid type
 
-- **Status:** draft (revision 2) — awaiting approval
+- **Status:** revision 2 approved for `/plan` (2026-09-29); amended with the operator's rules and decisions (§4.17)
 - **Folder:** specs/056-responsive-design/
 - **Release line:** **1.80.x** (branch `1.80.x`)
 - **Author:** Claude (Fable 5.1) with the operator — revision 1 2026-09-04;
@@ -186,7 +186,7 @@ marked *(rev. 2)*. R43 onward are new in revision 2.
   dirty, and shall not move, resize or rewrite any designed rectangle.
 - **R5 (constraint):** The system shall not require any other change to a form
   for `Responsive design` to be turned on: with the switch on, every container
-  at `Layout = Absolute`, every control at the default anchor (§4.2), no
+  at `LayoutMode = Absolute`, every control at the default anchor (§4.2), no
   breakpoint overrides and `FontScaling = None`, a form shall render
   identically to the switch off at the designed size, and simply stop
   scrolling beyond it.
@@ -353,7 +353,7 @@ change them; it fixes their order.
   clicking a pin shall toggle that edge. A docked control shall show its dock
   edge instead of pins.
 - **R32 (ubiquitous) *(rev. 2)*:** The properties pane shall show a **Layout**
-  section — for the form and containers: `Layout` and the container properties
+  section — for the form and containers: `LayoutMode` and the container properties
   of §4.12; for every control that is not owner-positioned (R27): `Anchor`
   (four checkboxes) and `Dock` when its parent is `Absolute`, the item
   properties of its parent's layout (§4.12) otherwise, and the four size
@@ -402,19 +402,24 @@ change them; it fixes their order.
   them, the way it already mirrors the form's own `Width`/`Height` (§9 F24).
   (`Left`/`Top` are not properties today — §9 F22 — and this spec does not add
   them.)
-- **R38 (event):** When COBOL writes a geometry property on a responsive form,
-  the system shall treat the write as a change to the **designed** rectangle
-  and re-run the layout, so that the write composes with anchoring rather than
-  being overwritten by the next resize.
+- **R38 (event) *(rev. 2, operator decision 2026-09-29)*:** When COBOL writes
+  a geometry property on a responsive form, the written value shall be taken
+  as the **on-screen** value at the current size — the value R37 reads — and
+  converted to the **designed** rectangle by the same inverse mapping the
+  designer uses (R33); the layout then re-runs, so the write composes with
+  anchoring rather than being overwritten by the next resize, and what COBOL
+  reads is what it wrote (`ADD 10 TO Btn::X` moves the button 10 px on screen,
+  whatever its anchors).
 - **R39 (event) *(rev. 2)*:** When a responsive form's available size changes
   at run time, the system shall fire the form-level **`onResize`** event —
   which the host already raises for window and shell forms, with the form's
   `Width`/`Height` mirrored first (§9 F24) — **after** the layout has been
   applied and mirrored (R37), so a handler observing geometry sees the new
   values.
-- **R46 (ubiquitous):** The system shall expose two read-only form properties:
-  **`Breakpoint`** — the name of the active breakpoint (§4.13) — and
-  **`FontScale`** — the effective font factor as a decimal (§4.14).
+- **R46 (ubiquitous) *(rev. 2, amended by R84)*:** The system shall expose the
+  form properties **`Breakpoint`** — the name of the active breakpoint
+  (§4.13) — and **`FontScale`** — the effective font factor as a decimal
+  (§4.14) — both readable **and writable** (R84).
 - **R47 (event):** When the active breakpoint changes at run time, the system
   shall fire the form-level event **`onBreakpointChanged`** after the new
   layout is applied and mirrored, and before `onResize` for the same size
@@ -441,7 +446,7 @@ change them; it fixes their order.
 
 - **R49 (ubiquitous):** The system shall give the **form** and every container
   (`Panel`, `GroupBox`, `TabControl` — whose pages all use the TabControl's
-  layout) a **`Layout`** property with the values **`Absolute`** (default —
+  layout) a **`LayoutMode`** property with the values **`Absolute`** (default —
   §4.2 anchoring and §4.3 docking), **`Flex`**, **`Grid`** and **`Flow`**. The
   solver shall be new, pure code (R22). The Viewer's CSS engine lays out flex
   and grid by painting (§9 F25) and cannot be called on control rectangles;
@@ -455,7 +460,7 @@ change them; it fixes their order.
   size — R22).
 - **R51 (ubiquitous):** Every container shall have a **`Padding`** (uniform, in
   form pixels; `PaddingLeft/Top/Right/Bottom` override one side), default 0,
-  applied inside the client rectangle for every `Layout` value. `/plan` shall
+  applied inside the client rectangle for every `LayoutMode` value. `/plan` shall
   read whether a `Padding` property is already seeded on containers (it
   appears in saved Shape controls — §9 F26) and reuse it if so.
 - **R52 (ubiquitous) — Flex container properties:** `FlexDirection`
@@ -525,7 +530,7 @@ change them; it fixes their order.
   the active layout is always base + the active breakpoint's own overrides.
 - **R60 (ubiquitous):** The properties a breakpoint may override shall be
   exactly: `Visible`; the designed `X`, `Y`, `Width`, `Height`; `Anchor`,
-  `Dock`, the four size limits; `Layout`, every container property of §4.12
+  `Dock`, the four size limits; `LayoutMode`, every container property of §4.12
   and `Padding`; every item property of §4.12; `FontSize`; and, for the form,
   `FontScaling` factors (§4.14). Content — captions, text, items, bindings,
   handlers — shall not be overridable.
@@ -653,6 +658,54 @@ change them; it fixes their order.
   the corpus it checked — forms, sizes, rectangles compared, differences
   (GOLDEN RULE #7: quantified, human-readable results).
 
+### 4.17 Every property designable and programmable; no static values *(operator, 2026-09-29)*
+
+- **R83 (ubiquitous):** Every property this feature adds — on controls
+  (`Anchor`, `Dock`, `Locked`, the four size limits, `Padding` and its sides,
+  `LayoutMode` and every container property, every flex/grid/flow item
+  property, `MinFontSize`, `MaxFontSize`, `ScaleFont`) and on the form
+  (`Responsive design`, `LayoutMode` and its container properties, the
+  breakpoint table and each breakpoint's font factor, `FontScaling`,
+  `MinFontScale`, `MaxFontScale`) — shall be editable in the RAD **properties
+  pane**, the breakpoint table through an editor row (name, minimum width,
+  font factor; add, remove, rename).
+- **R84 (ubiquitous):** Every such property shall be readable **and writable**
+  from COBOL through the `::` surface at run time, and a write shall take
+  effect on the layout pass of the same frame (R25). `me::Breakpoint`: writing
+  a breakpoint name **pins** the layout to it, writing `SPACES` returns to
+  automatic selection, and a pin that changes the active breakpoint fires
+  `onBreakpointChanged` (R47). `me::FontScale`: writing a factor greater than 0
+  pins the **total** effective factor (so it reads back as written), writing 0
+  returns to `FontScaling`'s automatic factor. The table is exposed as
+  `me::Breakpoints`, text of the form `Name:MinWidth:FontFactor;…`; writing it
+  replaces the table, and overrides of a removed name are kept but inactive.
+- **R85 (constraint):** No static values. Every number or choice that shapes a
+  responsive layout — default breakpoints and thresholds, font-scale limits
+  and factors, gaps, paddings, size limits, the smallest form size (R18), the
+  default anchors of MenuBar and StatusBar on a responsive form (R43), the
+  flex/grid defaults — shall be a **property with a seeded default**, never a
+  constant in engine code. Those defaults appear as literals in exactly one
+  place, the layout defaults table, which `Control::new`, `Form::new`,
+  `xml::seed_missing_props` and the project's `[forms]` defaults all read (the
+  one-path pattern of §9 F14).
+- **R86 (ubiquitous) *(operator decision 2026-09-29)*:** The container layout
+  property is named **`LayoutMode`**, not `Layout`: the Viewer already has a
+  `Layout` property (`Page`/`Streamed`, §9 F30), and one name meaning two
+  different things per control type would mislead in the pane, the KB and
+  COBOL. (Revision 2's first draft said `Layout`; every occurrence now reads
+  `LayoutMode`.)
+- **R87 (constraint) *(operator decision 2026-09-29)*:** A `.cfrm` shall not
+  store a layout property whose value is its seeded default; loading re-seeds
+  it. Saved files do not grow by the ~20 new keys per control, and a form
+  that uses none of them saves byte-identical to today apart from the
+  `Anchor`→`Locked` migration (R35).
+- **R88 (state) *(operator decision 2026-09-29)*:** While a form is
+  responsive, dragging the designer canvas's resize grip shall change only the
+  **view size** (the layout reflows live, as "View at" does, R29/R30); the
+  designed `Width`/`Height` change through their property rows and a **"Use
+  this size as the design"** action. A non-responsive form's grip keeps
+  changing the designed size, as today.
+
 ## 5. Acceptance criteria
 
 Each criterion is a test unless marked *(manual)*; the tasks phase turns them
@@ -730,13 +783,13 @@ into named tests. AC1–AC22 are revision 1's; revised ones are marked.
   `::Width` and the next layout composes with it; `onResize` fires once per
   size change, after layout and after the mirror.
 - [ ] **AC19 (i18n) *(rev. 2)*** — Every new label (`Responsive design`,
-  `Layout`, `Anchor`, `Dock`, `Locked`, `View at`, the four limits, the "off"
+  the `Layout` section, `LayoutMode`, `Anchor`, `Dock`, `Locked`, `View at`, the four limits, the "off"
   hint, every §4.12 property and value, `Breakpoint`, the breakpoint editor,
   "reset to base", `FontScaling` and its limits, `ScaleFont`,
   `MinFontSize`/`MaxFontSize`, "New forms are responsive") exists in all six
   languages and the i18n completeness test is green.
 - [ ] **AC20 (KB) *(rev. 2)*** — The KB property tables carry every new control
-  property, the new form properties (`Responsive design`, `Layout` and its
+  property, the new form properties (`Responsive design`, `LayoutMode` and its
   container properties, the breakpoint table, `FontScaling`, `MinFontScale`,
   `MaxFontScale`, the read-only `Breakpoint` and `FontScale`) and the
   `onBreakpointChanged` event; the chunked store is rebuilt;
@@ -810,6 +863,27 @@ into named tests. AC1–AC22 are revision 1's; revised ones are marked.
 - [ ] **AC39 (R82)** — The corpus test prints a summary block: forms checked,
   sizes, rectangles and font sizes compared, differences (0 expected), timing.
 
+- [ ] **AC40 (R83)** — A designer test walks every new property on a control
+  of each type and on the form: each has a properties-pane row, and editing it
+  changes the model and marks the form dirty; the breakpoint editor adds,
+  renames and removes a breakpoint.
+- [ ] **AC41 (R84)** — A runtime test writes every new property from COBOL and
+  reads it back; a host test shows the layout reflects each write in the same
+  frame; `me::Breakpoint` pin/unpin and `me::FontScale` fix/unfix behave per
+  R84, and `me::Breakpoints` round-trips.
+- [ ] **AC42 (R85)** — A source scan of the layout module finds no numeric
+  literal outside the defaults table (tests and comments excluded; allow-list
+  0, 1, 2, 0.5); changing a seeded default in a test changes the layout.
+- [ ] **AC43 (R38)** — On a responsive form at a size other than designed,
+  `ADD 10 TO Btn::X` twice on a `Right`-anchored button moves it 20 px on
+  screen and `Btn::X` reads back each written value.
+- [ ] **AC44 (R87)** — A form using no new property saves with no layout keys;
+  one with a non-default `Dock` saves exactly that key; reload restores every
+  default.
+- [ ] **AC45 (R88)** — On a responsive canvas the grip changes the view size
+  and leaves `form.width`/`form.height` unchanged; "Use this size as the
+  design" sets them; on a non-responsive canvas the grip still sets them.
+
 ## 6. Constraints & steering check
 
 - **i18n (6 languages):** new `Tr` fields for every label in AC19 —
@@ -866,7 +940,7 @@ reversible at approval.
   R55). A React developer's intuition then transfers intact; inventing our own
   would make every tutorial on the web wrong for us.
 - **Q8 — Flow: a separate mode or just "flex with wrap"?** Decision: separate
-  `Layout = Flow` with WinForms/PowerCOBOL vocabulary (`FlowDirection`,
+  `LayoutMode = Flow` with WinForms/PowerCOBOL vocabulary (`FlowDirection`,
   `WrapContents`, `FlowBreak`), implemented on the flex solver (R57). The
   audience of this product knows `FlowLayoutPanel`, not `flex-wrap`.
 - **Q9 — Breakpoint cascade: mobile-first inheritance or base + own
@@ -892,6 +966,17 @@ reversible at approval.
   the form theme (which resolves at run time — §9 F28). A form's responsive
   switch changes how its controls are laid out, so it must travel with the
   form.
+
+- **Q15 — `Breakpoint` and `FontScale` read-only or writable?** Decision
+  (operator rule "every property is programmable"): writable, with pin
+  semantics (R84).
+- **Q16 — A COBOL geometry write: on-screen or designed value?** Operator
+  decision: on-screen, converted by the inverse mapping (R38).
+- **Q17 — Name of the container layout property?** Operator decision:
+  `LayoutMode` (R86).
+- **Q18 — Canvas grip and saved defaults?** Operator decisions: the grip
+  changes the view size on a responsive form (R88); layout keys at their
+  default are not saved (R87).
 
 ## 8. What "spectacular" means here (the bar for `/plan`)
 
@@ -926,7 +1011,7 @@ Re-read 2026-09-29 against branch `1.80.x` at `0241901`. Paths are under
 | F2 | `.cfrm` `<Form>` attributes: read in the `b"Form"` arm with `get_attr(…)` + defaults (a default-false bool is `main-form`, `:297-299`); a new attribute needs the enum variant (`:177-212`), the parse (`:254-340`), the construction (`:341-373`) and the assignment in `read_form` (`:483-544`); written in `form_to_string` (`:1424`, attributes `:1432-1527`), non-default booleans only when set (e.g. `main-form` `:1475-1478`); `get_attr_bool` (`:162`) is unused | `cobolt-forms/src/xml.rs` |
 | F3 | Root form (window and shell) and pane occupants all render inside `ScrollArea::both()` with `ui.set_min_size(form_size)` and `RenderInput { form_size }` at the designed size; occupants take the pane below the breadcrumb band | `cobolt-form-host/src/host.rs` root `5143`, `5382-5412`; occupant band `5249-5257`; `child_frame` `2592`, `2718-2737` |
 | F4 | The run window is created resizable at the designed inner size; no minimum inner size is set anywhere in `cobolt-form-host` or `cobolt-cli` | `cobolt-form-host/src/host.rs:292-316` (`with_inner_size` `304`, `with_resizable(true)` `305`) |
-| F5 | `Anchor` is a **boolean drag-lock** (`is_anchored`); legacy string values (`"Top,Left"`) read as unanchored; real forms carry 663 `false`, 1 `true`, 2 `Top,Left` (`examples/PowerDemo3/forms/Data/datagrid-form.cfrm`, plus two `.bak` copies in `forms/Common/`) | `cobolt-forms/src/model.rs:6350-6360`; `cobolt-compiler/src/lib.rs:4948, 5160`; `cobolt-ide/src/panels/designer.rs:4702, 12905, 13055` |
+| F5 | `Anchor` is a **boolean drag-lock** (`is_anchored`); legacy string values (`"Top,Left"`) read as unanchored; the example corpus carries 837 `false`, **2** `true` (`examples/PowerDemo3/forms/sidebar-form.cfrm`, `examples/PowerChat/forms/providers-form.cfrm`) and 2 `Top,Left` (`examples/PowerDemo3/forms/Data/datagrid-form.cfrm`, plus two `.bak` copies in `forms/Common/`) — re-counted for `/plan` | `cobolt-forms/src/model.rs:6350-6360`; `cobolt-compiler/src/lib.rs:4948, 5160`; `cobolt-ide/src/panels/designer.rs:4702, 12905, 13055` |
 | F6 | **Revision 1 said `AutoSize` was never read — now false.** A Label with `AutoSize` takes its caption's size (`label_autosize_rect`), PictureBox `SizeMode = AutoSize` the image's; the designer rewrites the stored rect, and at run time `render_form` resizes the live rect when COBOL changes the caption — a render-time rect rewrite this spec must order (R26) | seed `cobolt-forms/src/model.rs:4819`; `paint.rs:14228-14262`, `14264+`, `14289`; `render.rs:2310-2314`; `designer.rs:8342-8346`; `properties.rs:6112`; KB `cobolt-compiler/src/lib.rs:5202` |
 | F7 | `Control::content_rect()` is the container client area (GroupBox/Panel inset 2, TabControl minus the strip per `TabPosition`); `containers::clip_rect` intersects them up the parent chain | `cobolt-forms/src/model.rs:6235-6275` (`tab_strip_extent` `6336`); `containers.rs:201-229` |
 | F8 | Control rectangles are form-space absolute with `parent` links | `cobolt-forms/src/model.rs:14`; `containers.rs:10-11, 209-212`; `render.rs:1860` |
@@ -951,3 +1036,6 @@ Re-read 2026-09-29 against branch `1.80.x` at `0241901`. Paths are under
 | F27 | Font sizes: `ctrl_font_size` reads `FontSize` via `as_i64` (default 11 when missing, clamp 4–200); `as_i64` neither trims nor accepts decimals, so `"18.5"` paints at 4; several sites parse `FontSize` themselves with other defaults and bounds (render.rs `7461`, `8925`, `9090`, `11671`, `11687`; chart `paint.rs:12806, 12992` with `CHART_FONT_SCALE` `12495`; tab strip `model.rs:6282`); new controls are seeded 14; **no form-level font, zoom or scale exists**, the designer has no zoom, and **nothing reads an OS text-size setting** — only `native_pixels_per_point`, for `onDpiChanged`; a COBOL `FontSize` write does reach the paint | `cobolt-forms/src/paint.rs:16809-16813`; `model.rs:69-73, 4705-4710`; `fonts.rs:244-259`; `cobolt-form-host/src/host.rs:4739-4750`; `cobolt-runtime/src/interpreter.rs:14025-14038`; `cobolt-form-host/src/state.rs:152-156`; `render.rs:3360` |
 | F28 | New projects: `create_new_project_at` → `CoboltProject::new` (`structure: CURRENT_STRUCTURE`, `built_with_version` empty, `forms: FormsConfig::new_project_defaults()`); **`new_project_defaults()` vs `impl Default for FormsConfig`** is the existing split between what new projects get and what old manifests fall back to (038's entrance effect); `built_with_version` is stamped only after a successful full build; the compiler keeps its own copy of the manifest types; the form theme is a project default **resolved at run time** (`resolve_theme_id`); new forms are made by `create_new_form` / `save_new_form_to` | `cobolt-ide/src/app.rs:4312-4422, 13424-13510, 14590-14595, 2291-2315`; `cobolt-ide/src/project_model.rs:39-77, 331-433, 438, 597-639, 793-827`; `cobolt-compiler/src/lib.rs:689, 789, 857`; `cobolt-forms/src/theme.rs:199-207` |
 | F29 | Project upgrades are **offered, never imposed**, keyed on `[project] structure` (`CURRENT_STRUCTURE = STRUCTURE_MAIN_FORM_SEAL = 1`), one registered upgrade (`MainFormSeal`); a new project is born current | `cobolt-ide/src/project_upgrade.rs:7-35, 44-52, 55-104, 109-157, 273, 281`; `cobolt-ide/src/app.rs:12059-12140` |
+| F30 | **Name clashes found by `/plan`:** the Viewer already has `Layout` (`Page`/`Streamed`), written from COBOL in `examples/PowerDemo3/forms/Common/viewer-form.cfrm`; the MenuBar already has `Responsive`; `Padding` is seeded on every control but has no properties-pane row and is read only for caption/text insets | `cobolt-forms/src/model.rs:5926, 4722`; `paint.rs:14306`; `cobolt-ide/src/panels/properties.rs` (no `Padding` row) |
+| F31 | **The host cannot tell a COBOL write from a designed value:** `CtrlState::from_control` copies every designed property into the live state, so R64's precedence needs a `written` set | `cobolt-form-host/src/state.rs:40-53` |
+| F32 | **Font sites the revision-2 draft missed:** the Viewer's own base size and the Snackbar's | `cobolt-forms/src/paint.rs:10791`; `cobolt-forms/src/snackbar.rs:1076` |

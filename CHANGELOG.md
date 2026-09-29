@@ -8,6 +8,24 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.2] — 2026-09-29
+
+### Spec — 056: every property designable and programmable, no static values; the operator's layout decisions
+
+Spec 056 gains §4.17 with the operator's rules: every property the feature
+adds is editable in the RAD properties pane (R83) and readable and writable
+from COBOL, effective the same frame (R84) — `me::Breakpoint` and
+`me::FontScale` become writable, with pin semantics, and the breakpoint table
+is exposed as `me::Breakpoints`; and no static values (R85): every number or
+choice that shapes a layout is a property with a seeded default, kept in one
+defaults table. The decisions taken while planning are recorded: a COBOL
+geometry write is the on-screen value, converted by the designer's inverse
+mapping (R38); the container property is `LayoutMode` (the Viewer already has
+`Layout`); the canvas grip changes only the view size on a responsive form;
+layout keys at their default are not saved. Evidence corrected: 2 forms carry
+`Anchor=true`, not 1; the host cannot yet tell a COBOL write from a designed
+value; two font sites were missing. Spec only; no code changes.
+
 ## [PowerRustCOBOL 1.80.1] — 2026-09-29
 
 ### Spec — 056: every engine change is validated against PowerDemo3 and PowerChat
