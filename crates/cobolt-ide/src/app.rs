@@ -1083,11 +1083,6 @@ pub struct CoboltApp {
     /// The "Build details" window (resizable, movable, centered by default).
     /// Auto-opens when a build fails.
     build_details_open: bool,
-    /// Ticker state: how many `build_log` lines are revealed so far, and when
-    /// the last one appeared — one line every 250 ms so the log reads as a
-    /// feed instead of dumping all at once.
-    build_log_shown: usize,
-    build_log_last_reveal: Option<std::time::Instant>,
     /// Streamed build-phase progress (fraction + message) for the Building modal.
     pending_build_progress: Option<std::sync::mpsc::Receiver<cobolt_compiler::BuildProgress>>,
     /// Latest build phase: (fraction 0..1, message).
@@ -2160,8 +2155,6 @@ impl CoboltApp {
             build_outcome: None,
             build_log: Vec::new(),
             build_details_open: false,
-            build_log_shown: 0,
-            build_log_last_reveal: None,
             pending_build_progress: None,
             build_phase: (0.0, String::new()),
             pending_file: None,
@@ -4898,8 +4891,6 @@ impl CoboltApp {
         self.build_outcome = None;
         self.build_log.clear();
         self.build_details_open = false;
-        self.build_log_shown = 0;
-        self.build_log_last_reveal = None;
     }
 
     /// File → Reindex Knowledge Bases: run the same incremental sync a Grace
@@ -12857,23 +12848,12 @@ impl CoboltApp {
             return;
         }
         let tr = self.lang.tr();
-        // Ticker: reveal one more line every 75 ms while lines are pending,
-        // so the log reads as a feed. `stick_to_bottom` keeps the view
-        // following the newest line whenever the user is at the bottom.
-        // (250 ms originally — a forty-line build took ten seconds to read
-        // out, which read as the build being slow when it was the ticker.)
-        if self.build_log_shown < self.build_log.len() {
-            let now = std::time::Instant::now();
-            let due = self
-                .build_log_last_reveal
-                .map(|t| now.duration_since(t).as_millis() >= 75)
-                .unwrap_or(true);
-            if due {
-                self.build_log_shown += 1;
-                self.build_log_last_reveal = Some(now);
-            }
-            ctx.request_repaint_after(std::time::Duration::from_millis(50));
-        }
+        // Every line is shown the frame it arrives. The log used to be
+        // revealed one line every 75 ms "so it reads as a feed", which kept
+        // the window hundreds of lines — tens of seconds — behind a release
+        // build that compiles several hundred crates: the build looked slow
+        // when only its log was. `stick_to_bottom` keeps the view on the
+        // newest line; the building loop already repaints every frame.
         let mut open = true;
         let mut copy = false;
         let mut save = false;
@@ -12915,7 +12895,7 @@ impl CoboltApp {
                     .auto_shrink([false, false])
                     .stick_to_bottom(true)
                     .show(ui, |ui| {
-                        for (kind, line) in self.build_log.iter().take(self.build_log_shown) {
+                        for (kind, line) in &self.build_log {
                             let color = match kind {
                                 BuildLogKind::Phase => strong,
                                 BuildLogKind::Detail => weak,

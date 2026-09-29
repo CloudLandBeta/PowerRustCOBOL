@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.350] — 2026-09-29
+
+### Fix: Build details keeps up with the build
+
+The Build details window revealed its log one line every 75 ms, so it read as
+a feed. A release build compiles several hundred crates, so the window fell
+hundreds of lines — tens of seconds — behind cargo, and the build looked far
+slower than it was (operator, 2026-09-29: "verify if the Build modal window is
+running at top speed"). Every line now shows the frame it arrives.
+
+The rest of the path was checked and has no pause: cargo's output is relayed
+line by line as it is written, the build uses cargo's default parallelism and
+release profile, and the IDE repaints every frame while a build runs.
+
 ## [PowerRustCOBOL 1.70.349] — 2026-09-29
 
 ### Fix: an application without the Knowledge Base builds again
