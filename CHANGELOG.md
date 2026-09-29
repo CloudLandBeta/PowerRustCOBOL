@@ -8,6 +8,26 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.6] — 2026-09-29
+
+### 056 Responsive design — Phase 1: the pure layout solver
+
+`cobolt-forms/src/layout/` — one pure function that answers where every
+control of a responsive form lands, and at what font size, for the surface it
+is drawn on. No surface calls it yet; nothing a form does changes.
+
+- Anchoring on each axis (leading, trailing, stretch, proportional), docking
+  in z-order (Left/Top/Right/Bottom/Fill), `Min`/`Max` size limits, containers
+  laid out inside their own client area less `Padding`, the form's minimum
+  size, breakpoint selection and the `me::Breakpoints` text form, Fluid and
+  Stepped font factors, and the inverse mapping that turns an on-screen move
+  back into a designed one.
+- Every number that shapes a layout is a property with a seeded default,
+  written only in `layout/defaults.rs`; `layout_has_no_static_values` scans the
+  module and fails on any other literal.
+- 26 unit tests (the 16 anchor combinations at a larger and a smaller surface,
+  both dock orders, four tab positions, idempotence) and 3 scan tests.
+
 ## [PowerRustCOBOL 1.80.5] — 2026-09-29
 
 ### 056 Responsive design — Phase 0: the golden of the example projects

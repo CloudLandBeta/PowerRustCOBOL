@@ -32,6 +32,8 @@ pub mod icons;
 pub mod items_file;
 pub mod menu;
 pub mod connections;
+/// Spec 056 — responsive layout: one pure solver shared by every surface.
+pub mod layout;
 pub mod model;
 // The numeric-edited PICTURE engine. It lives here, not in `cobolt-runtime`,
 // because a TextBox carrying a `Picture` has to show the *same* edited text the

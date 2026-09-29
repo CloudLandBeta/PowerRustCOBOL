@@ -125,7 +125,7 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
 
 ## Phase 1 — Pure layout core (no egui, no callers)
 
-- [ ] **T1.1 — Module skeleton, types, defaults table** (R22, R24, R85)
+- [x] **T1.1 — Module skeleton, types, defaults table** (R22, R24, R85)
   - Read first: `cobolt-forms/src/lib.rs` module list and features;
     `model.rs` `Rect`, `Control`, `PropValue`, `content_rect`.
   - Files: `cobolt-forms/src/layout/{mod,defaults,props}.rs`, `lib.rs`.
@@ -134,37 +134,41 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
     default of plan §2; `props.rs` typed getters falling back to `defaults`.
   - Verify: `cargo build -p cobolt-forms` (no features) and
     `cargo test -p cobolt-forms layout::` green.
+  - **Note:** the crate's lib tests do not compile without `render` (existing
+    tests elsewhere in the crate use `paint`), so the layout tests run as
+    `cargo test -p cobolt-forms --features render --lib layout::`; the
+    no-feature `cargo build` is green.
 
-- [ ] **T1.2 — Anchoring** (R6–R10; AC4, AC5)
+- [x] **T1.2 — Anchoring** (R6–R10; AC4, AC5)
   - Files: `layout/anchor.rs`, tests in module.
   - Verify: 16 combinations × larger/smaller surface, expected rects derived in
     comments; idempotence `solve(solve(f,s),s)` and cold-vs-warm equality.
 
-- [ ] **T1.3 — Docking** (R11–R15; AC6)
+- [x] **T1.3 — Docking** (R11–R15; AC6)
   - Files: `layout/dock.rs`.
   - Verify: Top/Left/Fill and Left/Top/Fill orders; anchored sibling against
     the full client rect.
 
-- [ ] **T1.4 — Size limits and form minimum (pure)** (R16–R18; AC7, AC8 pure)
+- [x] **T1.4 — Size limits and form minimum (pure)** (R16–R18; AC7, AC8 pure)
   - Files: `layout/{limits,minsize}.rs`.
   - Verify: MaxWidth keeps Left attachment; Fill with MinHeight; hand-derived
     minimum for a docked+anchored fixture; `MinFormWidth/Height` from
     `defaults` honoured.
 
-- [ ] **T1.5 — Containers, recursion, padding (pure)** (R19–R21, R51; AC9 pure)
+- [x] **T1.5 — Containers, recursion, padding (pure)** (R19–R21, R51; AC9 pure)
   - Read first: `model.rs` `content_rect` (~6235-6275), `tab_strip_extent`.
   - Verify: children of TabControl (4 `TabPosition`s), GroupBox, Panel inside
     `content_rect` of the laid-out container less padding; outputs form-space
     absolute.
 
-- [ ] **T1.6 — Breakpoint selection, font factor, inverse mapping (pure)** (R58, R61, R66–R69, R33/R38 math)
+- [x] **T1.6 — Breakpoint selection, font factor, inverse mapping (pure)** (R58, R61, R66–R69, R33/R38 math)
   - Files: `layout/{breakpoints,fonts,inverse}.rs`.
   - Verify: selection exactly at thresholds; pin wins; Fluid clamps
     0.5×/1×/3× → 0.85/1.0/1.5; Stepped; `Min/MaxFontSize`, `ScaleFont=false`;
     inverse round-trip: `layout(inverse(layout(x)+d)) == layout(x)+d` for each
     placement kind; `me::Breakpoints` text round-trip.
 
-- [ ] **T1.7 — No-static-values scan** (R85; AC42)
+- [x] **T1.7 — No-static-values scan** (R85; AC42)
   - Files: `cobolt-forms/tests/layout_has_no_static_values.rs` (new).
   - Do: tokenise `src/layout/*.rs` except `defaults.rs`, skip comments,
     strings and `#[cfg(test)]` blocks; fail on numeric literals outside
@@ -172,7 +176,14 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
   - Verify: test green; deliberately adding a literal to `anchor.rs` (locally,
     not committed) turns it red.
 
-- [ ] **T1.8 — Phase gate** — Gate G + Gate F; commit.
+- [x] **T1.8 — Phase gate** — Gate G + Gate F; commit.
+  - **Result (2026-09-29):** Gate G green (engine golden 0 diffs, host golden 0
+    diffs, codegen 62/62). Gate F: `cobolt-forms` 1,078 unit + every
+    integration file green except the known `test_maps_demo_form` red (T0.5);
+    `cobolt-form-host` 141 + 21; `cobolt-codegen` 60 + 4 files. The
+    `cobolt-runtime` and `cobolt-ide` sweeps were stopped to start the operator's
+    GroupBox caption request and run on that commit instead (the layout module
+    has no caller yet, so they cannot see it).
 
 ## Phase 2 — Model, persistence, migration, pane rows, KB/i18n
 
