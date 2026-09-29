@@ -30,7 +30,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 destination_folder = "PowerChat"
 debug_compilation = true
-built_with_version = "1.70.327"
+built_with_version = "1.70.337"
 
 [files]
 sources = ["src/main.cbl"]
@@ -91,7 +91,7 @@ background_opacity = 70
 inspector_dump_enabled = true
 inspector_dump_path = "/tmp/prc_inspector_dump.txt"
 hide_ai_setup_prompt = false
-debug_watches = ["WS-SAMPLES-DIR"]
+debug_watches = []
 indexed_engine = ""
 
 [ide.theme_defaults]

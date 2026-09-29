@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="CALL-FORM-DEMO" title="Call Form Demo" width="1000" height="600" background="D7D7DBFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed" form-format="Both">
+<Form name="CALL-FORM-DEMO" title="Call Form Demo" width="1000" height="600" background="36383EFF" background-gradient-enabled="true" background-gradient-start="#4E4E4EFF" background-gradient-end="#000000FF" background-gradient-direction="South" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="cobalt-steel" glass-style="Neumorphic Dark" modal-overlay-style="Greyed" form-format="Both">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"
@@ -58,10 +58,10 @@
     <Property name="Caption">Call Form Demo (Sync)</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#000000</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="FontName">Arial Black</Property>
     <Property name="FontSize">32</Property>
     <Property name="Bold">true</Property>
@@ -75,8 +75,8 @@
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
@@ -93,10 +93,10 @@
     <Property name="Caption">Click the button to open CALLED-FORM-DEMO as a modal window. Pick OK or Cancel there — the called form closes itself and sends back the text it chose; this form picks it up and shows it below.</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#000000</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">14</Property>
     <Property name="Bold">false</Property>
@@ -110,8 +110,8 @@
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
@@ -146,7 +146,7 @@
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
@@ -178,10 +178,10 @@
     <Property name="Caption">Result from the called form:</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#000000</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">16</Property>
     <Property name="Bold">true</Property>
@@ -195,8 +195,8 @@
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
@@ -211,12 +211,12 @@
   </Control>
   <Control id="Lbl-Result" type="Label" x="40" y="344" w="900" h="56" tab-order="0" z-order="4" visible="true" enabled="true">
     <Property name="Caption">(not called yet)</Property>
-    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#1A1A1AFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">20</Property>
     <Property name="Bold">false</Property>
@@ -229,13 +229,13 @@
     <Property name="Padding">12</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowOpacity">17</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">-7</Property>
+    <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>

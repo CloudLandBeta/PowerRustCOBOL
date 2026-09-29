@@ -14,6 +14,7 @@ A form is one compilation unit: the form itself is the OUTERMOST program, and ev
 - `PERFORM` reaches only a paragraph or section declared in the same body you are writing, and never crosses a program boundary. A `PERFORM` naming a procedure of another program is a compile error, not a style preference.
 - The generated infrastructure paragraphs (`<id>-OPEN`, `<id>-READ-NEXT`, the timer, chart, CSV-export and data-binding helpers) live in the OUTER program, so form-level code may `PERFORM` them but a handler may not. From a handler, use the control's `::` methods.
 - Do not use `CALL` for a control's own properties or methods — `::` is the only form for those.
+- A RustCOBOL built-in — a `COBOL-…` runtime call (HTTP, SQL, files, dialogs, keys, models, charts) — is a method of the `COBOL` object and is written inline: `COBOL::"HTTP-GET"( WS-URL WS-RESPONSE WS-HTTP-STATUS )`, never `CALL "COBOL-HTTP-GET" USING WS-URL WS-RESPONSE WS-HTTP-STATUS`. It is the same call, with the same arguments in the same order: a data item is passed BY REFERENCE, so what the built-in returns lands in it. Common procedures are still reached with `CALL "NAME"`.
 
 ## `EXEC RUST` is the developer's choice, never yours
 

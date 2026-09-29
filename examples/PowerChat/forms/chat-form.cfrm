@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="CHAT-FORM" title="PowerChat" width="1350" height="808" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" main-form="true">
+<Form name="CHAT-FORM" title="PowerChat" width="1200" height="792" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" main-form="true">
   <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -2705,8 +2705,56 @@
 ]]></Event>
     <Event name="onClose" paragraph="CHAT-FORM--ONCLOSE">
     </Event>
+    <Event name="onResize" paragraph="CHAT-FORM--ONRESIZE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-RESIZE-DATA.
+           05  WS-DELTA                PIC S9(5) COMP-5 VALUE 0.
+           05  WS-NEW-CHAT-HEIGHT      PIC S9(5) COMP-5 VALUE 0.
+           05  WS-NEW-INPUT-Y          PIC S9(5) COMP-5 VALUE 0.
+           05  WS-INPUT-HEIGHT         PIC S9(5) COMP-5 VALUE 0.
+           05  WS-FORM-HEIGHT          PIC S9(5) COMP-5 VALUE 0.
+           05  WS-SUM                  PIC S9(5) COMP-5 VALUE 0.
+           05  WS-THRESH               PIC S9(5) COMP-5 VALUE 0.
+
+       PROCEDURE DIVISION.
+       MAIN SECTION.
+           *> Compute delta from design‑time height (792)
+           COMPUTE WS-DELTA = CHAT-FORM::Height - 792.
+
+           *> Adjust Vwr-Chat height
+           COMPUTE WS-NEW-CHAT-HEIGHT = 544 + WS-DELTA.
+           SET Vwr-Chat::Height TO WS-NEW-CHAT-HEIGHT.
+
+           *> Adjust Txt-Input Y position
+           COMPUTE WS-NEW-INPUT-Y = 660 + WS-DELTA.
+           SET Txt-Input::Y TO WS-NEW-INPUT-Y.
+
+           *> Align Btn‑Send Y with Txt‑Input
+           SET Btn-Send::Y TO WS-NEW-INPUT-Y.
+
+           *> Prepare values for conditional correction
+           MOVE Txt-Input::Height TO WS-INPUT-HEIGHT.
+           MOVE CHAT-FORM::Height TO WS-FORM-HEIGHT.
+           COMPUTE WS-SUM = WS-NEW-INPUT-Y + WS-INPUT-HEIGHT.
+           COMPUTE WS-THRESH = WS-FORM-HEIGHT - 32.
+
+           IF WS-SUM > WS-THRESH
+               *> Re‑position Txt‑Input to stay within bottom margin
+               COMPUTE WS-NEW-INPUT-Y = WS-FORM-HEIGHT - (WS-INPUT-HEIGHT + 32)
+               SET Txt-Input::Y TO WS-NEW-INPUT-Y
+
+               *> Re‑size Vwr‑Chat based on new Txt‑Input Y
+               COMPUTE WS-NEW-CHAT-HEIGHT = WS-NEW-INPUT-Y - 20 - 96
+               SET Vwr-Chat::Height TO WS-NEW-CHAT-HEIGHT
+
+               *> Keep Btn‑Send aligned with Txt‑Input
+               SET Btn-Send::Y TO WS-NEW-INPUT-Y
+           END-IF.
+
+           EXIT PROGRAM.]]></Event>
   </form-events>
-  <Control id="SideMenu-1" type="SideMenu" x="0" y="0" w="264" h="808" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="SideMenu-1" type="SideMenu" x="0" y="0" w="264" h="792" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -2945,7 +2993,7 @@
            END-IF
 ]]></Event>
   </Control>
-  <Control id="Txt-Input" type="TextBox" x="288" y="660" w="768" h="104" tab-order="1" z-order="0" visible="true" enabled="true">
+  <Control id="Txt-Input" type="TextBox" x="288" y="656" w="760" h="104" tab-order="1" z-order="0" visible="true" enabled="true">
     <Property name="HintText">Ask about this topic</Property>
     <Property name="Multiline">true</Property>
     <Property name="ScrollBars">Vertical</Property>
@@ -2993,7 +3041,7 @@
     <Property name="Picture"></Property>
     <Property name="PasswordCharacter"></Property>
   </Control>
-  <Control id="Btn-Send" type="Button" x="1068" y="660" w="108" h="104" tab-order="2" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Send" type="Button" x="1064" y="656" w="108" h="104" tab-order="2" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Send</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -3521,7 +3569,7 @@
     <Property name="ModelEntry"></Property>
     <Property name="EmbeddingAPIKey"></Property>
   </Control>
-  <Control id="SideMenu-1-Footer" type="Panel" x="0" y="736" w="264" h="72" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1">
+  <Control id="SideMenu-1-Footer" type="Panel" x="0" y="720" w="264" h="72" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-1">
     <Property name="IsSideMenuFooter">true</Property>
     <Property name="HideBackground">true</Property>
     <Property name="BorderStyle">None</Property>
