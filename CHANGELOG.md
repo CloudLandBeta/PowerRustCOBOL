@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.347] — 2026-09-29
+
+### Fix — a form in a shell's pane no longer paints over the SideMenu
+
+Reported with PowerChat's Prompt form: when the ContentPane is narrower than
+the form, the pane scrolls, and the form's left-hand controls — its title, the
+Save buttons, the text box — were drawn over the SideMenu instead of passing
+under it. Each control's clip was the form's own area, which moves with the
+scroll, and was never bounded by what the pane shows; the paths that set that
+clip on their widget (a Label's selectable text, a TextBox's editor) painted
+past the pane's edge. The clip is now bounded by the surface's own clip, so a
+control scrolled past the edge is hidden under the rail. The same bound applies
+on every surface; nothing inside a visible area changes.
+
 ## [PowerRustCOBOL 1.70.346] — 2026-09-29
 
 ### Fix — PowerChat answers from the whole document, not a tiny summary

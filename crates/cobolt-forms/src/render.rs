@@ -2158,6 +2158,8 @@ fn render_form_inner(
     let mut control_alphas: HashMap<String, f32> = HashMap::new();
     let origin = ui.min_rect().min;
     let painter = ui.painter().clone();
+    // What this surface shows — the viewport of the scroll area it renders in.
+    let surface_clip = ui.clip_rect();
 
     // ââ Backdrop: solid colour, gradient, theme art or image. âââââââââââââââââ
     let form_rect = Rect::from_min_size(origin, input.form_size);
@@ -2337,10 +2339,18 @@ fn render_form_inner(
         // containers (the instanced cards) move with -scroll while scroller
         // Panel clips stay fixed. Prevents the "growing transparent frame" over
         // databound card content on scroll.
+        // …and never past what the surface itself shows. `content_rect` is the
+        // form's own area, which moves with the surface's scroll; a control
+        // scrolled past the viewport's edge kept a clip reaching over whatever
+        // lies beside the viewport, and the paths that set this clip on their
+        // Ui (a Label's selectable text, a TextBox's editor) painted there — a
+        // form in a shell's ContentPane, scrolled right, showed through the
+        // SideMenu (operator, 2026-09-29).
         let clip = match ancestor_clip_rect(controls, idx, origin, scroll, input.state) {
             Some(c) => content_rect.intersect(c),
             None => content_rect,
-        };
+        }
+        .intersect(surface_clip);
         // How far this control's drop shadow may fall: its container's OUTER
         // rect (within what clips the container), not the content rect the
         // control itself is clipped to — see `paint::ShadowBoundsScope`.

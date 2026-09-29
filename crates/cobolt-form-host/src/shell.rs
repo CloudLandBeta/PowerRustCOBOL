@@ -2307,6 +2307,140 @@ mod tests {
     /// scrollbars, scale-to-fit, a design-time warning) must rewrite it.
     /// ⚠️ Clipping the form or shrinking it is not on that list — a window may
     /// never resize itself, and the designed size is a floor, not a ceiling.
+    /// A form in the ContentPane may sit partly behind the rail, but it may
+    /// never show THROUGH it: nothing the occupant paints is visible left of
+    /// the pane's edge (operator, 2026-09-29 — PowerChat's Prompt form drew
+    /// its title, buttons and text box over the SideMenu).
+    #[test]
+    fn an_occupant_never_paints_over_the_rail() {
+        use crate::host::{FormHostConfig, FormSource, NoHooks, Surface};
+        use std::collections::HashMap;
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        use std::sync::{mpsc, Arc};
+
+        fn program() -> cobolt_ast::program::Program {
+            let src = "IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.\n";
+            cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free))
+                .program
+                .expect("parses")
+        }
+        // The operator's case: a form WIDER than the pane (the Prompt form is
+        // 1024 wide), scrolled to the right, so its left-hand controls — a
+        // title, and a button and a text box inside a TabControl — have
+        // scrolled past the pane's edge, under the rail.
+        fn host_with(controls: bool) -> crate::FormHost {
+            let source: FormSource = Box::new(move |id: &str| {
+                let up = id.trim().to_ascii_uppercase();
+                let mut f = cobolt_forms::Form::new(up.as_str(), up.as_str(), 2000, 600);
+                f.form_format = cobolt_forms::model::FormFormat::Embedded;
+                if controls {
+                    let mut tab = cobolt_forms::Control::new("Tab-Crud", cobolt_forms::ControlType::TabControl, 24, 56);
+                    tab.rect = cobolt_forms::model::Rect::new(24, 56, 976, 400);
+                    f.controls.push(tab);
+                    for (cid, ty, y, parent) in [
+                        ("Lbl-Title", cobolt_forms::ControlType::Label, 16, None),
+                        ("Btn-Save", cobolt_forms::ControlType::Button, 104, Some("Tab-Crud")),
+                        ("Txt-Prompt", cobolt_forms::ControlType::TextBox, 152, Some("Tab-Crud")),
+                    ] {
+                        let mut c = cobolt_forms::Control::new(cid, ty, 40, y);
+                        c.rect = cobolt_forms::model::Rect::new(40, y, 400, 48);
+                        c.parent = parent.map(str::to_string);
+                        c.set_prop("Caption", cobolt_forms::PropValue::String("Prompt - Legal (sample)".into()));
+                        c.set_prop("Text", cobolt_forms::PropValue::String("You help staff with the company legal guidelines".into()));
+                        f.controls.push(c);
+                    }
+                }
+                Ok((f, program()))
+            });
+            let form = cobolt_forms::Form::new("SHELL-FORM", "Shell", 1200, 700);
+            let (ev_tx, _ev_rx) = mpsc::channel();
+            let (input_tx, _input_rx) = mpsc::channel();
+            let (_state_tx, state_rx) = mpsc::channel();
+            let (_display_tx, display_rx) = mpsc::channel();
+            let (form_req_tx, form_req_rx) = mpsc::channel();
+            let (closed_tx, _closed_rx) = mpsc::channel();
+            let (mut host, _f) = crate::FormHost::new(FormHostConfig {
+                form,
+                flat: Vec::new(),
+                state: HashMap::new(),
+                ev_tx,
+                input_tx,
+                state_rx,
+                display_rx,
+                pending: Arc::new(AtomicUsize::new(0)),
+                finished: Arc::new(AtomicBool::new(false)),
+                form_req_rx,
+                closed_tx,
+                form_req_tx,
+                form_source: Some(source),
+                child_theme: None,
+                child_interpreter_setup: None,
+                shared_rust_bridge: None,
+                fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+                fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+                fx_restore: false,
+                theme_pack: None,
+                surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+                icon_path: None,
+                title_fallback: String::new(),
+                hooks: Box::new(NoHooks),
+                surface: Surface::Pane,
+            });
+            host.ensure_occupant("PROMPTS-FORM").expect("builds");
+            host.show_occupant(Some("PROMPTS-FORM"));
+            host
+        }
+        // Every shape whose VISIBLE part (its bounds within its clip) lies
+        // left of the pane's edge, as (rect, clip) pairs, from the last frame.
+        fn over_rail(controls: bool) -> (Rect, Vec<(Rect, Rect)>) {
+            let ctx = egui::Context::default();
+            let mut shell = Shell::default();
+            let mut host = host_with(controls);
+            let mut last = None;
+            for frame in 0..6 {
+                let mut input = raw(Vec2::new(1200.0, 700.0));
+                // Scroll the pane 200 px to the right, the pointer over it.
+                input.events.push(egui::Event::PointerMoved(egui::pos2(700.0, 400.0)));
+                if frame == 2 {
+                    input.events.push(egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: Vec2::new(-200.0, 0.0),
+                        modifiers: egui::Modifiers::NONE,
+                        phase: egui::TouchPhase::Move,
+                    });
+                }
+                let mut full = ctx.run_ui(input, |root_ui| {
+                    shell.show_with_host(root_ui, |_ui| {}, &mut host);
+                });
+                full.textures_delta.clear();
+                last = Some(full);
+            }
+            let pane = host.last_occupant_rect().expect("an occupant owns the pane");
+            let mut out = Vec::new();
+            for cs in &last.unwrap().shapes {
+                let visible = cs.shape.visual_bounding_rect().intersect(cs.clip_rect);
+                if visible.is_positive() && visible.min.x < pane.min.x - 0.5 {
+                    out.push((cs.shape.visual_bounding_rect(), cs.clip_rect));
+                }
+            }
+            (pane, out)
+        }
+        let (pane, empty) = over_rail(false);
+        let (_, with) = over_rail(true);
+        println!(
+            "pane starts at x={:.0}; shapes visible left of it: {} with the rail alone, {} with the occupant's controls",
+            pane.min.x,
+            empty.len(),
+            with.len()
+        );
+        assert_eq!(
+            with.len(),
+            empty.len(),
+            "the occupant painted over the rail: {:?}",
+            &with[empty.len().min(with.len())..]
+        );
+    }
+
     #[test]
     fn an_occupant_wider_than_the_pane_loses_its_right_hand_controls() {
         use crate::host::{FormHostConfig, FormSource, NoHooks, Surface};
