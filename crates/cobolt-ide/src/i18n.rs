@@ -1737,6 +1737,10 @@ pub struct Tr {
     pub cs_proc_name: &'static str,
     pub cs_delete: &'static str,
     pub cs_hint: &'static str,
+    /// Hint of the User procedures search box.
+    pub cs_search_procedures: &'static str,
+    /// Shown when no user procedure matches the search.
+    pub cs_no_procedure_match: &'static str,
     pub cs_close: &'static str,
 
     // ── Form themes (spec 007) ────────────────────────────────────────────────
@@ -3204,6 +3208,8 @@ const EN: Tr = Tr {
     cs_proc_name:       "Procedure name",
     cs_delete:          "Delete",
     cs_hint:            "Declare GLOBAL / EXTERNAL on the items yourself; each block is woven verbatim into the generated program.",
+    cs_search_procedures: "Search procedures…",
+    cs_no_procedure_match: "No procedure matches the search.",
     cs_close:           "Close",
 
     // ── Form themes (spec 007) ────────────────────────────────────────────────
@@ -4600,6 +4606,8 @@ const ES: Tr = Tr {
     cs_proc_name:       "Nombre del procedimiento",
     cs_delete:          "Eliminar",
     cs_hint:            "Declara tú mismo GLOBAL / EXTERNAL en los elementos; cada bloque se inserta literalmente en el programa generado.",
+    cs_search_procedures: "Buscar procedimientos…",
+    cs_no_procedure_match: "Ningún procedimiento coincide con la búsqueda.",
     cs_close:           "Cerrar",
 
     // ── Form themes (spec 007) ────────────────────────────────────────────────
@@ -5996,6 +6004,8 @@ const PT: Tr = Tr {
     cs_proc_name:       "Nome do procedimento",
     cs_delete:          "Excluir",
     cs_hint:            "Declare você mesmo GLOBAL / EXTERNAL nos itens; cada bloco é inserido literalmente no programa gerado.",
+    cs_search_procedures: "Buscar procedimentos…",
+    cs_no_procedure_match: "Nenhum procedimento corresponde à busca.",
     cs_close:           "Fechar",
 
     // ── Form themes (spec 007) ────────────────────────────────────────────────
@@ -7391,6 +7401,8 @@ const JA: Tr = Tr {
     cs_proc_name:       "手続き名",
     cs_delete:          "削除",
     cs_hint:            "GLOBAL / EXTERNAL は項目にご自身で記述してください。各ブロックは生成プログラムにそのまま挿入されます。",
+    cs_search_procedures: "プロシージャを検索…",
+    cs_no_procedure_match: "検索に一致するプロシージャはありません。",
     cs_close:           "閉じる",
 
     // ── Form themes (spec 007) ────────────────────────────────────────────────
@@ -8794,6 +8806,8 @@ const ZH: Tr = Tr {
     cs_proc_name: "过程名称",
     cs_delete: "删除",
     cs_hint: "请自行在数据项上声明 GLOBAL / EXTERNAL；每个代码块都会原样写入生成的程序。",
+    cs_search_procedures: "搜索过程…",
+    cs_no_procedure_match: "没有与搜索匹配的过程。",
     cs_close: "关闭",
 
     // ── Form themes (spec 007) ────────────────────────────────────────────────
@@ -10190,6 +10204,8 @@ const FR: Tr = Tr {
     cs_proc_name:       "Nom de la procédure",
     cs_delete:          "Supprimer",
     cs_hint:            "Déclarez vous-même GLOBAL / EXTERNAL sur les éléments ; chaque bloc est inséré tel quel dans le programme généré.",
+    cs_search_procedures: "Rechercher des procédures…",
+    cs_no_procedure_match: "Aucune procédure ne correspond à la recherche.",
     cs_close:           "Fermer",
 
     // ── Form themes (spec 007) ────────────────────────────────────────────────
@@ -10358,6 +10374,8 @@ mod i18n_tests {
     /// A representative spread of common UI strings (across menus, panels, labels).
     fn sample(t: &Tr) -> Vec<&'static str> {
         vec![
+            t.cs_search_procedures,
+            t.cs_no_procedure_match,
             t.menu_file,
             t.menu_run,
             t.menu_run_btn,

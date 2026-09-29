@@ -3593,6 +3593,35 @@ pub struct PropertiesPanel {
     /// The key itself never comes here -- only the fact that there is one, so
     /// an empty box can say so instead of looking like a failed save.
     stored_credentials: std::collections::HashSet<String>,
+    /// What the developer typed in the User procedures search box.
+    procedure_filter: String,
+}
+
+/// The user procedures to list, as `(index into form.user_procedures, name)`:
+/// A–Z by name, ignoring case, unnamed ones last, and only those whose name
+/// contains `filter` (ignoring case; an empty filter keeps them all).
+///
+/// Only the LIST is sorted. The stored order is the order the procedures are
+/// written into the generated program, so reordering the form's own vector
+/// would change the `.cbl` of every existing form.
+fn procedure_rows<'a>(
+    procedures: &'a [cobolt_forms::model::UserProcedure],
+    filter: &str,
+) -> Vec<(usize, &'a str)> {
+    let needle = filter.trim().to_lowercase();
+    let mut rows: Vec<(usize, &str)> = procedures
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (i, p.name.trim()))
+        .filter(|(_, name)| needle.is_empty() || name.to_lowercase().contains(&needle))
+        .collect();
+    rows.sort_by(|(ia, a), (ib, b)| {
+        a.is_empty()
+            .cmp(&b.is_empty())
+            .then_with(|| a.to_lowercase().cmp(&b.to_lowercase()))
+            .then_with(|| ia.cmp(ib))
+    });
+    rows
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3629,6 +3658,7 @@ impl PropertiesPanel {
             search_connections: Vec::new(),
             agent_connections: Vec::new(),
             stored_credentials: Default::default(),
+            procedure_filter: String::new(),
         }
     }
 
@@ -10138,12 +10168,21 @@ impl PropertiesPanel {
                         action.cs_add_proc = true;
                     }
                 });
-                for (i, up) in form.user_procedures.iter().enumerate() {
-                    let name = if up.name.trim().is_empty() {
-                        "(…)"
-                    } else {
-                        up.name.trim()
-                    };
+                // A search box once there is a list to search, and the list
+                // itself A–Z (operator, 2026-09-29).
+                if !form.user_procedures.is_empty() {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.procedure_filter)
+                            .hint_text(tr.cs_search_procedures)
+                            .desired_width(f32::INFINITY),
+                    );
+                }
+                let rows = procedure_rows(&form.user_procedures, &self.procedure_filter);
+                if rows.is_empty() && !form.user_procedures.is_empty() {
+                    ui.label(egui::RichText::new(tr.cs_no_procedure_match).weak().italics());
+                }
+                for (i, name) in rows {
+                    let name = if name.is_empty() { "(…)" } else { name };
                     property_row(ui, name, |ui| {
                         if ui.small_button("🗑").on_hover_text(tr.cs_delete).clicked() {
                             action.cs_del_proc = Some(i);
@@ -12769,6 +12808,38 @@ pub fn color32_to_hex(c: Color32) -> String {
         )
     };
     format!("#{r:02X}{g:02X}{b:02X}{a:02X}")
+}
+
+#[cfg(test)]
+mod procedure_list_tests {
+    use super::procedure_rows;
+    use cobolt_forms::model::UserProcedure;
+
+    fn procs(names: &[&str]) -> Vec<UserProcedure> {
+        names
+            .iter()
+            .map(|n| UserProcedure { name: (*n).to_string(), ..Default::default() })
+            .collect()
+    }
+
+    /// The list reads A–Z whatever order the procedures were added in, and a
+    /// search narrows it — while each row still points at the procedure's own
+    /// slot, which is the order the generated program keeps (operator,
+    /// 2026-09-29).
+    #[test]
+    fn procedures_are_listed_a_to_z_and_searchable() {
+        let p = procs(&["VALIDATE-CUSTOMER", "calc-total", "", "Add-Item", "PRINT-REPORT"]);
+        let all = procedure_rows(&p, "");
+        assert_eq!(
+            all,
+            vec![(3, "Add-Item"), (1, "calc-total"), (4, "PRINT-REPORT"), (0, "VALIDATE-CUSTOMER"), (2, "")],
+            "A–Z ignoring case, the unnamed one last, each with its own index"
+        );
+        assert_eq!(procedure_rows(&p, "  CUST "), vec![(0, "VALIDATE-CUSTOMER")], "search ignores case and spaces");
+        assert_eq!(procedure_rows(&p, "t"), vec![(3, "Add-Item"), (1, "calc-total"), (4, "PRINT-REPORT"), (0, "VALIDATE-CUSTOMER")]);
+        assert!(procedure_rows(&p, "zzz").is_empty());
+        println!("5 procedures: listed A–Z with the unnamed last; 'cust' → 1, 't' → 4, 'zzz' → 0");
+    }
 }
 
 #[cfg(test)]

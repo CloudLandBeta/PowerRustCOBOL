@@ -11196,8 +11196,12 @@ Click a row to open a popup that edits **that one block**. The code box opens
 at about twelve lines and changes size only when you drag the grip in its
 bottom-right corner — the window follows the box, and neither ever grows on its
 own, however long the block is. User procedures are
-listed below the sections — **➕ Add** creates one, the name and body are edited
-in the same popup, and 🗑 removes it. Every edit marks the form dirty, so the
+listed below the sections, **A–Z by name** — **➕ Add** creates one, the name
+and body are edited in the same popup, and 🗑 removes it. Once a form has
+procedures, a search box above the list narrows it to the names that contain
+what you type (case is ignored). Sorting the list does not reorder the
+procedures in the generated program: they are written in the order they were
+created, as before. Every edit marks the form dirty, so the
 next **Build / Run / Debug / Check** regenerates the `.cbl` with your changes.
 
 ### External switches and user-defined classes

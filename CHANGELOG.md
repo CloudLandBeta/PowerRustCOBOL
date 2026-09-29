@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.344] — 2026-09-29
+
+### The User procedures list is sorted A–Z and can be searched
+
+In the form inspector's **COBOL Structure** section, the user procedures are
+listed A–Z by name (case ignored, an unnamed one last) instead of in the order
+they were created, and — once a form has any — a search box above the list
+narrows it to the names containing what you type (operator, 2026-09-29). Only
+the list is sorted: the procedures are still written into the generated
+program in the order they were created, so no form's `.cbl` changes.
+
 ## [PowerRustCOBOL 1.70.343] — 2026-09-29
 
 ### Fix — collapsing a SideMenu does not resize the form's controls
