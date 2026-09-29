@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.342] — 2026-09-29
+
+### Fix — a PDF chosen in the Save panel is written at once
+
+`SaveAsPdf()` wrote its file only whenever something else happened on the
+form: the Save panel's answer reached the program on its input channel, but
+an idle program waits for EVENTS, so the answer — and the PDF — sat there
+until the operator next moved over a control or a timer fired (operator,
+2026-09-29: "it took a long time before the pdf file actually hit the
+disk"). The host now wakes the program right after the answer, with an
+internal event the program's own event loop never sees; the PDF is written
+and `onSaveComplete` raised in the same moment. The same wake follows a
+Print or Share outcome and a DataGrid's CSV export destination, which
+waited the same way.
+
 ## [PowerRustCOBOL 1.70.341] — 2026-09-29
 
 ### Fix — a SideMenu form's onResize fires when its window is resized

@@ -3747,6 +3747,10 @@ impl Interpreter {
                     Self::DEBUG_WAIT_POLL_MS
                 };
                 match rx.recv_timeout(std::time::Duration::from_millis(poll)) {
+                    Ok(ev) if ev.event_id == crate::form_host::FormSupervisor::INPUT_WAKE_EVENT => {
+                        self.input_wake();
+                        continue;
+                    }
                     Ok(ev) if ev.event_id == crate::form_host::FormSupervisor::CALL_PROCEDURE_EVENT => {
                         self.run_called_procedure(&ev);
                         continue;
@@ -3759,6 +3763,10 @@ impl Interpreter {
                 }
             } else {
                 match rx.recv() {
+                    Ok(ev) if ev.event_id == crate::form_host::FormSupervisor::INPUT_WAKE_EVENT => {
+                        self.input_wake();
+                        continue;
+                    }
                     Ok(ev) if ev.event_id == crate::form_host::FormSupervisor::CALL_PROCEDURE_EVENT => {
                         self.run_called_procedure(&ev);
                         continue;
@@ -3768,6 +3776,21 @@ impl Interpreter {
                 }
             }
         }
+    }
+
+    /// The host wrote an answer on the input channel and woke this wait to
+    /// read it (`INPUT_WAKE_EVENT`): take it in now. Whatever it raises — a
+    /// Save As answer's `onSaveComplete` — is queued, and the wait presents
+    /// it on its next turn.
+    fn input_wake(&mut self) {
+        if let Some(c) = &self.event_pending {
+            let _ = c.fetch_update(
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+                |v| if v > 0 { Some(v - 1) } else { None },
+            );
+        }
+        self.drain_input();
     }
 
     /// Another form asked this one to run one of its procedures —

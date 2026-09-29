@@ -514,6 +514,15 @@ impl FormSupervisor {
     /// sees it.
     pub const CALL_PROCEDURE_EVENT: &'static str = "__CALL-PROCEDURE__";
 
+    /// The event a host sends right after an answer it wrote on the INPUT
+    /// channel — a Save panel's path, a print or share outcome, a CSV export
+    /// destination — so the interpreter reads it now. An idle interpreter
+    /// blocks on EVENTS only, and the answer used to wait there until some
+    /// unrelated event arrived: a PDF chosen in the Save panel reached the
+    /// disk whenever the operator next moved over a control (operator,
+    /// 2026-09-29). Reserved: the generated event loop never sees it.
+    pub const INPUT_WAKE_EVENT: &'static str = "__INPUT-WAKE__";
+
     fn handle_method(
         &mut self,
         handle: &str,

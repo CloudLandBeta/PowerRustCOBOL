@@ -1199,7 +1199,8 @@ impl FormBody {
             self.state_entry_mut(&id).set(what.answer_prop(), answer.to_owned());
             let _ = self
                 .input_tx
-                .send(StateUpdate::new(id, what.answer_prop(), answer));
+                .send(StateUpdate::new(id.clone(), what.answer_prop(), answer));
+            self.wake_for_input(&id);
         }
     }
 
@@ -1230,7 +1231,17 @@ impl FormBody {
             let _ = self
                 .input_tx
                 .send(StateUpdate::new(id.clone(), "_SaveAsAnswer", path));
+            self.wake_for_input(&id);
         }
+    }
+
+    /// Wake the interpreter to read an answer just written on the input
+    /// channel — see `FormSupervisor::INPUT_WAKE_EVENT`.
+    pub(crate) fn wake_for_input(&mut self, ctrl_id: &str) {
+        self.send_event(FormEvent::new(
+            ctrl_id,
+            cobolt_runtime::form_host::FormSupervisor::INPUT_WAKE_EVENT,
+        ));
     }
 
     pub(crate) fn snackbar_command(&mut self, ctrl_id: &str, prop: &str, value: &str) -> bool {
@@ -1782,6 +1793,7 @@ impl FormBody {
                     .input_tx
                     .send(StateUpdate::new(id.clone(), prop.to_owned(), value));
             }
+            self.wake_for_input(&id);
         }
         let file_drop_zone_ids: Vec<String> = self
             .controls
@@ -6939,7 +6951,7 @@ mod parity {
         crate::flatten_controls(&form.controls, &mut flat);
         let state: HashMap<String, CtrlState> =
             flat.iter().map(|c| (c.id.clone(), CtrlState::from_control(c))).collect();
-        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (ev_tx, ev_rx) = mpsc::channel::<FormEvent>();
         let (input_tx, input_rx) = mpsc::channel::<StateUpdate>();
         let (_state_tx, state_rx) = mpsc::channel();
         let (_display_tx, display_rx) = mpsc::channel();
@@ -6973,6 +6985,13 @@ mod parity {
             .collect();
         println!("root form: the Save panel's answer reached the program: {answers:?}");
         assert_eq!(answers, vec![chosen.display().to_string()], "the main form collects its Viewer's Save panel");
+        // …and wakes the program to read it: an idle program waits on events,
+        // so the answer — and the PDF it writes — used to wait for the next
+        // unrelated one (operator, 2026-09-29: "it took a long time").
+        let woken = ev_rx
+            .try_iter()
+            .any(|e| e.ctrl_id == "VWR-1" && e.event_id == cobolt_runtime::form_host::FormSupervisor::INPUT_WAKE_EVENT);
+        assert!(woken, "the program is woken to read the answer");
     }
 
     fn host_with_surface(

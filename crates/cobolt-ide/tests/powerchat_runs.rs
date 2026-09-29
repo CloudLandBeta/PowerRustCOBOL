@@ -1286,7 +1286,8 @@ fn powerchat_saves_the_conversation_as_a_pdf() {
     s.input
         .send(StateUpdate::new("Vwr-Chat", "_SaveAsAnswer", &root.join("empty.pdf").display().to_string()))
         .unwrap();
-    s.events.send(FormEvent::new("Txt-Input", "onGotFocus")).unwrap();
+    // What the host sends with the answer: nothing else happens on the form.
+    s.events.send(FormEvent::new("Vwr-Chat", cobolt_runtime::form_host::FormSupervisor::INPUT_WAKE_EVENT)).unwrap();
     s.wait_for("Lbl-Status", "Caption", |v| v == "There is no conversation to save yet.");
     assert!(!root.join("empty.pdf").exists(), "nothing is written for nothing");
 
@@ -1309,7 +1310,8 @@ fn powerchat_saves_the_conversation_as_a_pdf() {
     s.input
         .send(StateUpdate::new("Vwr-Chat", "_SaveAsAnswer", &chosen.display().to_string()))
         .unwrap();
-    s.events.send(FormEvent::new("Txt-Input", "onGotFocus")).unwrap();
+    // What the host sends with the answer: nothing else happens on the form.
+    s.events.send(FormEvent::new("Vwr-Chat", cobolt_runtime::form_host::FormSupervisor::INPUT_WAKE_EVENT)).unwrap();
     s.wait_for("Lbl-Status", "Caption", |v| v == "The conversation was saved as a PDF.");
     s.quit();
     let bytes = std::fs::read(&chosen).expect("the PDF is where the panel said");
