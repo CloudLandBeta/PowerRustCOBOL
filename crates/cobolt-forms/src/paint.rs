@@ -6705,20 +6705,81 @@ pub fn draw_groupbox_caption(
         .map(|v| v.as_str())
         .unwrap_or_default();
     let font_id = crate::fonts::font_id(painter.ctx(), &font_name, ctrl_font_size(ctrl));
-    let x = origin.x + corner_radius(ctrl).max(0.0) + 10.0;
-    let pos = Pos2::new(x, origin.y);
+    let style = GroupBoxCaptionStyle::of(ctrl);
+    let galley = painter.layout_no_wrap(cap.clone(), font_id.clone(), text);
+    let geom = groupbox_caption_geometry(ctrl, origin, galley.size(), &style);
 
-    // BackgroundColor on a GroupBox paints a band behind the caption text —
-    // only when the developer actually chose one. `user_background_color`
-    // filters the same seeded `#F0F0F0` sentinel `resolve_label_ink` filters
-    // on the ink side; reading the raw property painted an opaque near-white
-    // band directly behind literal white text on every untouched GroupBox,
-    // invisible regardless of theme or of what was really behind it.
+    // A caption box — the developer chose a Flat or Gradient background: the
+    // shape is filled, outlined in the GroupBox's own border, and the text's
+    // ink is resolved against THAT fill rather than the box's face.
+    if style.background != CaptionBackground::None {
+        let fade = |c: Color32| {
+            Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), ((c.a() as f32) * a) as u8)
+        };
+        let bounds = egui::Rect::from_points(&geom.outline);
+        let (start, end, dir) = match style.background {
+            CaptionBackground::Gradient => (
+                parse_color(&style.gradient_start),
+                parse_color(&style.gradient_end),
+                style.gradient_direction.as_str(),
+            ),
+            _ => {
+                let c = parse_color(&style.back_color);
+                (c, c, "South")
+            }
+        };
+        let mut mesh = egui::epaint::Mesh::default();
+        let centre = bounds.center();
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: centre,
+            uv: egui::epaint::WHITE_UV,
+            color: fade(gradient_color_at(bounds, start, end, dir, centre)),
+        });
+        for p in &geom.outline {
+            mesh.vertices.push(egui::epaint::Vertex {
+                pos: *p,
+                uv: egui::epaint::WHITE_UV,
+                color: fade(gradient_color_at(bounds, start, end, dir, *p)),
+            });
+        }
+        let n = geom.outline.len() as u32;
+        for i in 0..n {
+            mesh.indices.extend([0, i + 1, if i + 1 == n { 1 } else { i + 2 }]);
+        }
+        painter.add(egui::Shape::mesh(mesh));
+        let border_w = ctrl
+            .get_prop("BorderWidth")
+            .map(|v| v.as_i64() as f32)
+            .unwrap_or(1.0)
+            .max(0.0);
+        if border_w > 0.0 {
+            let border = ctrl
+                .get_prop("BorderColor")
+                .map(|v| parse_color(v.as_str()))
+                .unwrap_or(Color32::from_gray(0x88));
+            painter.add(egui::Shape::closed_line(
+                geom.outline.clone(),
+                egui::Stroke::new(border_w, fade(border)),
+            ));
+        }
+        let ink = resolve_label_ink(painter.ctx(), ctrl, is_neumorphic, lerp_color(start, end, 0.5), default_text);
+        let ink = Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), ((ink.a() as f32) * a) as u8);
+        styled_text(painter, ctrl, geom.text_pos, egui::Align2::LEFT_CENTER, &cap, font_id, ink);
+        return;
+    }
+
+    // No caption box (the default): the caption as it has always been drawn —
+    // a legend on the border, with a band behind it only when the developer
+    // chose a BackgroundColor. `BackgroundColor` on a GroupBox paints that
+    // band only when actually chosen: `user_background_color` filters the
+    // seeded `#F0F0F0` sentinel `resolve_label_ink` filters on the ink side;
+    // reading the raw property painted an opaque near-white band directly
+    // behind literal white text on every untouched GroupBox.
+    let pos = geom.text_pos;
     if let Some(bg) = user_background_color(ctrl) {
-        let galley = painter.layout_no_wrap(cap.clone(), font_id.clone(), text);
         let pad = 4.0_f32;
         let bg_rect = egui::Rect::from_min_size(
-            Pos2::new(x - pad, origin.y - galley.size().y * 0.5 - 1.0),
+            Pos2::new(pos.x - pad, origin.y - galley.size().y * 0.5 - 1.0),
             egui::Vec2::new(galley.size().x + pad * 2.0, galley.size().y + 2.0),
         );
         let bg_color = Color32::from_rgba_premultiplied(
@@ -6731,6 +6792,208 @@ pub fn draw_groupbox_caption(
     }
 
     styled_text(painter, ctrl, pos, egui::Align2::LEFT_CENTER, &cap, font_id, text);
+}
+
+/// How a GroupBox caption is filled (`CaptionBackgroundStyle`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaptionBackground {
+    /// No caption box: the classic legend on the border.
+    None,
+    Flat,
+    Gradient,
+}
+
+/// The outline of a GroupBox caption box (`CaptionShape`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaptionShape {
+    /// `[ caption ]`
+    Rectangle,
+    /// `( caption )`
+    Pill,
+    /// `\ caption \` — both sides lean left.
+    AngledLeft,
+    /// `/ caption /` — both sides lean right.
+    AngledRight,
+}
+
+/// How wide a GroupBox caption box is (`CaptionSize`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaptionSize {
+    /// The text plus its padding.
+    Text,
+    /// The whole top border, edge to edge.
+    Full,
+    /// The top border between the rounded corners: from just after the left
+    /// corner to just before the right one.
+    Inner,
+}
+
+/// Where the text sits in its caption (`CaptionAlignment`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaptionAlign {
+    /// Left for a `Text`-sized caption, centred for `Full` and `Inner`.
+    Auto,
+    Left,
+    Center,
+    Right,
+}
+
+/// A GroupBox's caption properties, read once.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GroupBoxCaptionStyle {
+    pub background: CaptionBackground,
+    pub back_color: String,
+    pub gradient_start: String,
+    pub gradient_end: String,
+    pub gradient_direction: String,
+    pub shape: CaptionShape,
+    pub size: CaptionSize,
+    pub padding: f32,
+    pub align: CaptionAlign,
+}
+
+impl GroupBoxCaptionStyle {
+    pub fn of(ctrl: &Control) -> Self {
+        let s = |k: &str, d: &str| {
+            ctrl.get_prop(k)
+                .map(|v| v.as_str().trim().to_owned())
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(|| d.to_owned())
+        };
+        let lower = |k: &str| s(k, "").to_ascii_lowercase();
+        GroupBoxCaptionStyle {
+            background: match lower("CaptionBackgroundStyle").as_str() {
+                "flat" => CaptionBackground::Flat,
+                "gradient" => CaptionBackground::Gradient,
+                _ => CaptionBackground::None,
+            },
+            back_color: s("CaptionBackColor", crate::model::GROUPBOX_CAPTION_BACK_COLOR),
+            gradient_start: s("CaptionGradientStart", crate::model::GROUPBOX_CAPTION_GRADIENT_START),
+            gradient_end: s("CaptionGradientEnd", crate::model::GROUPBOX_CAPTION_GRADIENT_END),
+            gradient_direction: s("CaptionGradientDirection", "South"),
+            shape: match lower("CaptionShape").as_str() {
+                "pill" => CaptionShape::Pill,
+                "angledleft" => CaptionShape::AngledLeft,
+                "angledright" => CaptionShape::AngledRight,
+                _ => CaptionShape::Rectangle,
+            },
+            size: match lower("CaptionSize").as_str() {
+                "full" => CaptionSize::Full,
+                "inner" => CaptionSize::Inner,
+                _ => CaptionSize::Text,
+            },
+            padding: ctrl
+                .get_prop("CaptionPadding")
+                .map(|v| v.as_i64() as f32)
+                .unwrap_or(crate::model::GROUPBOX_CAPTION_PADDING as f32)
+                .clamp(0.0, 64.0),
+            align: match lower("CaptionAlignment").as_str() {
+                "left" => CaptionAlign::Left,
+                "center" | "centre" => CaptionAlign::Center,
+                "right" => CaptionAlign::Right,
+                _ => CaptionAlign::Auto,
+            },
+        }
+    }
+}
+
+/// Where a GroupBox caption goes: the box outline (convex, clockwise) and the
+/// left-centre point its text is drawn from.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CaptionGeometry {
+    pub outline: Vec<Pos2>,
+    pub text_pos: Pos2,
+}
+
+/// Lay a caption of `text` size out on the top border of the GroupBox at
+/// `origin` (its top-left, in the painter's space). With every property at
+/// its default the text lands exactly where the classic legend always did:
+/// `CornerRadius + 10` in from the left, centred on the border line.
+pub fn groupbox_caption_geometry(
+    ctrl: &Control,
+    origin: Pos2,
+    text: egui::Vec2,
+    style: &GroupBoxCaptionStyle,
+) -> CaptionGeometry {
+    let r = corner_radius(ctrl).max(0.0);
+    let w = ctrl.rect.w.max(0) as f32;
+    let y = origin.y;
+    let pad = style.padding;
+    let h = text.y + pad;
+    let slant = match style.shape {
+        CaptionShape::AngledLeft | CaptionShape::AngledRight => h * 0.5,
+        _ => 0.0,
+    };
+    // The span the caption may occupy on the border.
+    let (span_l, span_r) = match style.size {
+        CaptionSize::Full => (origin.x, origin.x + w),
+        _ => (origin.x + r, origin.x + w - r),
+    };
+    let legend_x = origin.x + r + 10.0;
+    let inset = pad + slant * 0.5;
+    let (left, right, text_x) = match style.size {
+        CaptionSize::Text => {
+            let bw = text.x + 2.0 * inset;
+            let text_x = match style.align {
+                CaptionAlign::Auto | CaptionAlign::Left => legend_x,
+                CaptionAlign::Center => (span_l + span_r) * 0.5 - text.x * 0.5,
+                CaptionAlign::Right => span_r - 10.0 - text.x,
+            };
+            let l = text_x - inset;
+            (l, l + bw, text_x)
+        }
+        CaptionSize::Full | CaptionSize::Inner => {
+            let text_x = match style.align {
+                CaptionAlign::Left => span_l + inset,
+                CaptionAlign::Right => span_r - inset - text.x,
+                CaptionAlign::Auto | CaptionAlign::Center => (span_l + span_r) * 0.5 - text.x * 0.5,
+            };
+            (span_l, span_r, text_x)
+        }
+    };
+    let top = y - h * 0.5;
+    let bottom = y + h * 0.5;
+    let outline = match style.shape {
+        CaptionShape::Rectangle => vec![
+            Pos2::new(left, top),
+            Pos2::new(right, top),
+            Pos2::new(right, bottom),
+            Pos2::new(left, bottom),
+        ],
+        // `\ … \`: the top of each side sits left of its bottom.
+        CaptionShape::AngledLeft => vec![
+            Pos2::new(left, top),
+            Pos2::new(right - slant, top),
+            Pos2::new(right, bottom),
+            Pos2::new(left + slant, bottom),
+        ],
+        // `/ … /`: the top of each side sits right of its bottom.
+        CaptionShape::AngledRight => vec![
+            Pos2::new(left + slant, top),
+            Pos2::new(right, top),
+            Pos2::new(right - slant, bottom),
+            Pos2::new(left, bottom),
+        ],
+        CaptionShape::Pill => {
+            let rad = (h * 0.5).min((right - left) * 0.5).max(0.0);
+            let steps = 12;
+            let mut pts = Vec::with_capacity(2 * (steps + 1));
+            let arc = |cx: f32, from: f32, pts: &mut Vec<Pos2>| {
+                for i in 0..=steps {
+                    let t = from + std::f32::consts::PI * i as f32 / steps as f32;
+                    pts.push(Pos2::new(cx + rad * t.cos(), y + rad * t.sin()));
+                }
+            };
+            // Right cap from the top down, then the left cap from the bottom up.
+            arc(right - rad, -std::f32::consts::FRAC_PI_2, &mut pts);
+            arc(left + rad, std::f32::consts::FRAC_PI_2, &mut pts);
+            pts
+        }
+    };
+    CaptionGeometry {
+        outline,
+        text_pos: Pos2::new(text_x, y),
+    }
 }
 
 fn is_legacy_groupbox_generated_caption(value: &str) -> bool {

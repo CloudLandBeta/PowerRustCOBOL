@@ -8,6 +8,30 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.7] — 2026-09-29
+
+### GroupBox caption styles
+
+A GroupBox caption can now be a styled box instead of the classic legend on
+the border (operator request). Nine new GroupBox properties, all in the
+Properties pane, the hover help (six languages) and the System KB, and all
+settable from COBOL:
+
+- `CaptionBackgroundStyle` — `None` (default, the classic legend), `Flat`
+  (`CaptionBackColor`) or `Gradient` (`CaptionGradientStart`,
+  `CaptionGradientEnd`, `CaptionGradientDirection`).
+- `CaptionShape` — `Rectangle` `[ … ]`, `Pill` `( … )`, `AngledLeft` `\ … \`,
+  `AngledRight` `/ … /`.
+- `CaptionSize` — `Text` (the text plus its padding), `Full` (the whole top
+  border) or `Inner` (the top border between the rounded corners).
+- `CaptionPadding` (0–64, default 4) and `CaptionAlignment` (`Auto`, `Left`,
+  `Center`, `Right`; `Auto` is left for `Text`, centred for `Full`/`Inner`).
+
+The box is outlined in the GroupBox's `BorderColor` and the caption text takes
+an ink that reads on its fill. With the defaults nothing changes: the
+example-corpus golden (62 forms, 558 renders) shows 0 differences, and a
+GroupBox loaded from an older form gets the nine properties at their defaults.
+
 ## [PowerRustCOBOL 1.80.6] — 2026-09-29
 
 ### 056 Responsive design — Phase 1: the pure layout solver

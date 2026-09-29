@@ -2469,6 +2469,52 @@ Beyond the shared container properties, a **GroupBox** adds visual options in th
   from COBOL or supplied by a theme; the picker itself lists the eight compass
   points.)
 
+#### GroupBox caption styles
+
+By default a GroupBox caption is the classic legend of a PowerCOBOL or isCOBOL
+frame: plain text sitting on the top border, just past the rounded corner. Give
+it a **Caption background** and it becomes a styled caption box instead:
+
+| Property | Values | What it does |
+|---|---|---|
+| `CaptionBackgroundStyle` | `None` (default), `Flat`, `Gradient` | `None` keeps the classic legend. `Flat` fills the box with `CaptionBackColor`; `Gradient` fills it from `CaptionGradientStart` to `CaptionGradientEnd` along `CaptionGradientDirection`. |
+| `CaptionShape` | `Rectangle` (default), `Pill`, `AngledLeft`, `AngledRight` | The box's outline — see the sketches below. |
+| `CaptionSize` | `Text` (default), `Full`, `Inner` | `Text` hugs the text; `Full` spans the whole top border; `Inner` spans it between the rounded corners. |
+| `CaptionPadding` | 0–64 pixels (default 4) | Space between the text and its box. |
+| `CaptionAlignment` | `Auto` (default), `Left`, `Center`, `Right` | Where the text sits. `Auto` is left for a `Text` caption and centred for `Full` and `Inner`. |
+
+```text
+Rectangle      [ Customer ]
+Pill           ( Customer )
+AngledLeft     \ Customer \
+AngledRight    / Customer /
+
+Full           [               Customer               ]
+               |                                      |
+Inner        +--[             Customer             ]--+
+             |                                        |
+```
+
+The box is outlined in the GroupBox's own **Border color** at its **Border
+width**, and the caption text picks an ink that reads on the fill — so a dark
+gradient gets light text without you choosing it. Every property can be set
+from COBOL like any other:
+
+```cobol
+           MOVE "Gradient" TO GRP-CUSTOMER::CaptionBackgroundStyle
+           MOVE "Pill"     TO GRP-CUSTOMER::CaptionShape
+           MOVE "Inner"    TO GRP-CUSTOMER::CaptionSize
+```
+
+> **Note:** with `CaptionBackgroundStyle` left at `None`, `CaptionShape` draws
+> nothing — only `CaptionSize` and `CaptionAlignment` still decide where the
+> text sits. Existing forms keep their captions exactly as they were.
+
+📷 Screenshot needed — groupbox-caption-styles.png: four GroupBoxes on one
+form showing a Flat Rectangle `Text` caption, a Gradient Pill `Inner` caption,
+an AngledLeft `Full` caption and an AngledRight caption with `Right`
+alignment.
+
 #### Repeating groups (GroupBox arrays)
 
 A **GroupBox** can be turned into a **repeating group** — a visual template that

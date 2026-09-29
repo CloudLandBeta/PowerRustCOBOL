@@ -734,6 +734,13 @@ fn seed_missing_props(form: &mut Form) {
                 if c.get_prop("CaptionEnabled").is_none() {
                     c.set_prop("CaptionEnabled", PropValue::Bool(true));
                 }
+                // Caption-box styles arrived after GroupBoxes shipped: the rows
+                // appear, and `None` keeps the caption exactly as it was drawn.
+                for (key, value) in crate::model::groupbox_caption_defaults() {
+                    if c.get_prop(key).is_none() {
+                        c.set_prop(key, value);
+                    }
+                }
                 if c.get_prop("BorderWidth").is_none() {
                     c.set_prop("BorderWidth", PropValue::Int(1));
                 }

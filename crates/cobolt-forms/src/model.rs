@@ -4646,6 +4646,31 @@ pub(crate) fn seed_theme_owned_appearance(
 /// gets what a freshly dropped one gets. `every_control_types_seeded_border_style_matches`
 /// asserts the two agree for every type in [`ControlType::ALL`], so they cannot
 /// drift the way the flat `"Single"` default did.
+/// Default fill of a Flat GroupBox caption box.
+pub const GROUPBOX_CAPTION_BACK_COLOR: &str = "#2C6FD2";
+/// Default ends of a Gradient GroupBox caption box.
+pub const GROUPBOX_CAPTION_GRADIENT_START: &str = "#4A8FE8";
+pub const GROUPBOX_CAPTION_GRADIENT_END: &str = "#1F4F9A";
+/// Default space between a caption's text and its box, in pixels.
+pub const GROUPBOX_CAPTION_PADDING: i64 = 4;
+
+/// The GroupBox caption-box properties and their defaults — the one list both
+/// `Control::new` and the loader's backfill read, so the two cannot drift.
+pub fn groupbox_caption_defaults() -> Vec<(&'static str, PropValue)> {
+    let s = |v: &str| PropValue::String(v.to_owned());
+    vec![
+        ("CaptionBackgroundStyle", s("None")),
+        ("CaptionBackColor", s(GROUPBOX_CAPTION_BACK_COLOR)),
+        ("CaptionGradientStart", s(GROUPBOX_CAPTION_GRADIENT_START)),
+        ("CaptionGradientEnd", s(GROUPBOX_CAPTION_GRADIENT_END)),
+        ("CaptionGradientDirection", s("South")),
+        ("CaptionShape", s("Rectangle")),
+        ("CaptionSize", s("Text")),
+        ("CaptionPadding", PropValue::Int(GROUPBOX_CAPTION_PADDING)),
+        ("CaptionAlignment", s("Auto")),
+    ]
+}
+
 pub(crate) fn border_style_default(control_type: &ControlType) -> &'static str {
     match control_type {
         ControlType::TextBox => "Fixed3D",
@@ -5023,6 +5048,11 @@ impl Control {
                 // HideBackground); optional directional background gradient.
                 props.insert("HideCaption".into(), PropValue::Bool(false));
                 props.insert("CaptionEnabled".into(), PropValue::Bool(true));
+                // Caption box styles. `None` keeps the classic legend on the
+                // border, so every existing GroupBox looks exactly as before.
+                for (k, v) in groupbox_caption_defaults() {
+                    props.insert(k.into(), v);
+                }
                 props.insert("HideBackground".into(), PropValue::Bool(false));
                 // ── Repeating group / array template (spec 015, Phase 2) ───────
                 // Inert until IsRepeatingGroup is turned on (existing forms stay

@@ -7285,6 +7285,44 @@ impl PropertiesPanel {
                 if matches!(ctrl.control_type, ControlType::GroupBox) {
                     bool_row_inline(ui, id, "HideCaption", "Hide caption", ctrl, action);
                     bool_row_inline(ui, id, "CaptionEnabled", "Caption enabled", ctrl, action);
+                    // Caption box: None keeps the classic legend on the border;
+                    // Flat / Gradient draw the caption in a shaped box.
+                    combo_row_inline_labeled(
+                        ui, id, "CaptionBackgroundStyle", tr.lbl_caption_background, ctrl, action,
+                        &["None", "Flat", "Gradient"], "None",
+                    );
+                    match ctrl
+                        .get_prop("CaptionBackgroundStyle")
+                        .map(|v| v.as_str().to_ascii_lowercase())
+                        .as_deref()
+                    {
+                        Some("flat") => {
+                            color_row_labeled(ui, id, "CaptionBackColor", tr.lbl_caption_back_color, ctrl, action);
+                        }
+                        Some("gradient") => {
+                            color_row_labeled(ui, id, "CaptionGradientStart", tr.lbl_caption_gradient_start, ctrl, action);
+                            color_row_labeled(ui, id, "CaptionGradientEnd", tr.lbl_caption_gradient_end, ctrl, action);
+                            combo_row_inline_labeled(
+                                ui, id, "CaptionGradientDirection", tr.lbl_caption_gradient_dir, ctrl, action,
+                                &["South", "North", "East", "West", "SouthEast", "SouthWest", "NorthEast", "NorthWest", "Radial"],
+                                "South",
+                            );
+                        }
+                        _ => {}
+                    }
+                    combo_row_inline_labeled(
+                        ui, id, "CaptionShape", tr.lbl_caption_shape, ctrl, action,
+                        &["Rectangle", "Pill", "AngledLeft", "AngledRight"], "Rectangle",
+                    );
+                    combo_row_inline_labeled(
+                        ui, id, "CaptionSize", tr.lbl_caption_size, ctrl, action,
+                        &["Text", "Full", "Inner"], "Text",
+                    );
+                    int_row_inline(ui, id, "CaptionPadding", tr.lbl_caption_padding, ctrl, action, 0..=64);
+                    combo_row_inline_labeled(
+                        ui, id, "CaptionAlignment", tr.lbl_caption_alignment, ctrl, action,
+                        &["Auto", "Left", "Center", "Right"], "Auto",
+                    );
                 }
                 bool_row_inline(ui, id, "HideBackground", "Hide background", ctrl, action);
                 border_rows(ui, id, ctrl, action, &mut self.text_bufs);
