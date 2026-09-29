@@ -187,7 +187,7 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
 
 ## Phase 2 — Model, persistence, migration, pane rows, KB/i18n
 
-- [ ] **T2.1 — `Form.responsive` + form layout bag + XML** (R1, R2, R63, R87; AC1, AC29)
+- [x] **T2.1 — `Form.responsive` + form layout bag + XML** (R1, R2, R63, R87; AC1, AC29)
   - Read first: `model.rs` `Form`/`Form::new` (~7419-7595); `xml.rs`
     `OwnedEvent::FormStart`, `b"Form"` arm, `read_form`, `form_to_string`,
     `MenuPaneBackground` read/write and `menu_pane_background_round_trips_049`.
@@ -196,7 +196,7 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
     true); `<FormLayout>`/`<Breakpoints>` round-trip; defaults write nothing;
     Gate G (corpus unchanged).
 
-- [ ] **T2.2 — `seed_layout_props` + Anchor→Locked migration** (R34–R36, R16, R11, R51; AC16, AC17)
+- [x] **T2.2 — `seed_layout_props` + Anchor→Locked migration** (R34–R36, R16, R11, R51; AC16, AC17)
   - Read first: `Control::new` universal props (~4712-4733); `seed_missing_props`
     (~643-889) key list; `seed_theme_owned_appearance` (one-path pattern);
     `parse_prop_value`; every `is_anchored` reader (grep); `snackbar_template.rs`;
@@ -208,12 +208,12 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
     over `ControlType::ALL` covers the new keys; Viewer keeps its own `Layout`
     and gets no `LayoutMode`; Gate G.
 
-- [ ] **T2.3 — Save omits layout defaults** (R87; AC44)
+- [x] **T2.3 — Save omits layout defaults** (R87; AC44)
   - Files: `xml.rs` writer.
   - Verify: AC44; every corpus form round-trips (load → save → load equal);
     Gate G.
 
-- [ ] **T2.4 — Properties-pane Layout section (controls)** (R32, R83; AC40 controls)
+- [x] **T2.4 — Properties-pane Layout section (controls)** (R32, R83; AC40 controls)
   - Read first: `properties.rs` section order (~3860-4021), row helpers
     (`bool_prop_row`, `int_prop_row`, `combo_prop_row`, `section_header`),
     conditional-row idioms.
@@ -224,8 +224,13 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
     owner-positioned controls hidden (R27).
   - Verify: AC40 designer test (row per property, edit changes model, marks
     dirty); `cargo test -p cobolt-ide --bin cobolt-ide properties`.
+  - **Note (2026-09-29):** the pane test renders the section headlessly per
+    placement (off hint, Absolute, Flex item/container, Grid item, Flow item,
+    owner-positioned). Row edits go out through the pane's ordinary
+    `set_props` action, which marks the form dirty like every other row; the
+    form-level half (T2.5) drives `set_form_prop` and asserts `dirty`.
 
-- [ ] **T2.5 — Form-level properties + breakpoint editor** (R1, R4, R83; AC40 form)
+- [x] **T2.5 — Form-level properties + breakpoint editor** (R1, R4, R83; AC40 form)
   - Read first: `designer.rs` `set_form_prop`/`set_form_prop_direct`/
     `get_form_prop`/`FORM_PROP_KEYS`/`canonical_form_prop_key`;
     `agent.rs::form_property_valid`; test `form_property_lists_agree`;
@@ -234,7 +239,7 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
   - Verify: toggling `Responsive design` marks dirty and moves no rect (R4);
     breakpoint editor add/rename/remove; `form_property_lists_agree` green.
 
-- [ ] **T2.6 — Hover help + KB entries for every new property** (AC19 partial, AC20 partial)
+- [x] **T2.6 — Hover help + KB entries for every new property** (AC19 partial, AC20 partial)
   - Read first: `prop_help_data.rs`, `prop_help.rs` tests (~74, ~101);
     compiler `UNIVERSAL_PROPS`, `property_reference_for`, text at ~4581-4600,
     Anchor doc (~5160), coverage test (~10560).
@@ -247,7 +252,15 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
     `every_control_property_is_documented`,
     `prebuilt_chunked_kb_matches_the_published_documentation` green.
 
-- [ ] **T2.7 — Phase gate** — Gate G + Gate F; commit(s).
+- [x] **T2.7 — Phase gate** — Gate G + Gate F; commit(s).
+  - **Result (2026-09-29):** Gate G 0 differences (engine, host), 62/62
+    generated programs identical. Gate F green apart from the two known reds
+    (`test_maps_demo_form` — T0.5; `every_document_ships_in_every_language` —
+    the expected 1.80 translation-cycle red): `cobolt-ide --bin` 1,282 passed,
+    the eight R80 example tests green, `cobolt-compiler` and `cobolt-runtime`
+    green. One red of this phase was a wrong expectation in the updated
+    Snackbar test (a Snackbar is non-visual, so it gets `Locked` but no layout
+    `Anchor`) — the test was corrected, not the model.
 
 ## Phase 3 — One font resolver (R70)
 

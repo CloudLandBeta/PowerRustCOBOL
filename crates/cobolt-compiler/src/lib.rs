@@ -4593,21 +4593,53 @@ A form holds a **flat list** of controls; nesting is derived from each control's
 - **`z_order`** — higher is drawn on top; 0 is bottommost; negatives are legal.
 - **`tab_order`** — the keyboard traversal sequence.
 
-There is **no anchoring or docking layout engine**: a control does not resize
-with its container. Geometry is what the designer recorded, and COBOL changes it
-by writing `X`, `Y`, `Width` or `Height` at run time.
+A form that is **not responsive** (the default for every form that existed
+before 1.80) keeps exactly this: a control does not resize with its container.
+Geometry is what the designer recorded, and COBOL changes it by writing `X`,
+`Y`, `Width` or `Height` at run time.
 
-## `Anchor` is a design-time lock, not an edge constraint
+## Responsive design: anchoring, docking, flex, grid and flow
 
-`Anchor` (Boolean, default false) locks a control's position **against mouse
+A form whose **`Responsive design`** switch is on (form property `Responsive`,
+`.cfrm` attribute `responsive="true"`) lays its controls out for the surface it
+is drawn on — the window, a shell's ContentPane, the preview or the designer
+canvas — and reflows when that size changes. The designed rectangles stay the
+source of truth; layout is a view of them. Every layout number is a property
+with a default, and each is set in the Properties pane's **Layout** section or
+from COBOL.
+
+- **`Anchor`** — the parent edges a control follows: any of `Top`, `Bottom`,
+  `Left`, `Right` as comma-separated text (default `Top,Left`; a MenuBar
+  defaults to `Top,Left,Right`, a StatusBar to `Bottom,Left,Right`). One edge on
+  an axis keeps that distance; both stretch the control with its parent; neither
+  keeps its centre at the same proportion.
+- **`Dock`** — `Left`, `Top`, `Right`, `Bottom` or `Fill`, taken in z-order from
+  what remains of the parent; a docked control ignores `Anchor`.
+- **`MinWidth`/`MinHeight`/`MaxWidth`/`MaxHeight`** — limits on any stretched,
+  docked, grown or grid-sized dimension (0 = none).
+- **`LayoutMode`** on the form, a Panel, a GroupBox or a TabControl — `Absolute`
+  (anchors and docking, default), `Flex`, `Grid` or `Flow`, with the container
+  properties `FlexDirection`, `FlexWrap`, `JustifyContent`, `AlignItems`,
+  `AlignContent`, `Gap`, `RowGap`, `ColumnGap`, `GridColumns`, `GridRows`,
+  `JustifyItems`, `FlowDirection`, `WrapContents`, and `Padding` with
+  `PaddingLeft/Top/Right/Bottom`. Items of such a container use `FlexGrow`,
+  `FlexShrink`, `FlexBasis`, `AlignSelf`, `Order`, `GridColumn`, `GridRow`,
+  `ColumnSpan`, `RowSpan`, `JustifySelf` and `FlowBreak`.
+- **Breakpoints** — named ranges of available width (default `Compact` < 600 ≤
+  `Medium` < 1024 ≤ `Expanded`); each non-design breakpoint may override layout,
+  visibility, size and `FontSize` per control.
+- **Font scaling** — the form's `FontScaling` (`None`, `Fluid`, `Stepped`) with
+  `MinFontScale`/`MaxFontScale`; per control `ScaleFont`, `MinFontSize`,
+  `MaxFontSize`.
+
+## `Locked` is the design-time lock
+
+`Locked` (Boolean, default false) locks a control's position **against mouse
 dragging on the designer canvas**. Keyboard nudges and property-pane entry still
-move it, and it has no run-time effect whatsoever.
-
-It is **not** the `Top,Left`-style edge anchoring of other RAD tools. Forms
-saved with a legacy string value such as `"Top,Left"` read as **unanchored**, so
-loading an old form never silently locks every control. Do not offer `Anchor` as
-a way to make a control follow its container's size — nothing in the platform
-does that.
+move it, and it has no run-time effect. Before 1.80 this lock was stored as a
+boolean `Anchor`; a form saved that way is migrated on load (`Anchor` true or
+false becomes `Locked`, and `Anchor` then carries edges). A legacy string such as
+`"Top,Left"` is kept as the edge set it always described.
 
 ## The form's own geometry and `StartPosition`
 
@@ -4945,8 +4977,32 @@ const UNIVERSAL_PROPS: &[&str] = &[
     "Tooltip",
     "Cursor",
     "HoverDelayMs",
+    "Locked",
     "Anchor",
+    "Dock",
+    "MinWidth",
+    "MinHeight",
+    "MaxWidth",
+    "MaxHeight",
+    "FlexGrow",
+    "FlexShrink",
+    "FlexBasis",
+    "AlignSelf",
+    "Order",
+    "GridColumn",
+    "GridRow",
+    "ColumnSpan",
+    "RowSpan",
+    "JustifySelf",
+    "FlowBreak",
+    "ScaleFont",
+    "MinFontSize",
+    "MaxFontSize",
     "Padding",
+    "PaddingLeft",
+    "PaddingTop",
+    "PaddingRight",
+    "PaddingBottom",
     "Transparency",
     "ShadowEnabled",
     "ShadowOpacity",
@@ -5157,7 +5213,40 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             "Mouse cursor shown while hovering the control.",
         ),
         "HoverDelayMs" => ("milliseconds ≥ 0", "How long the pointer must rest before `onHoverEnter` fires."),
-        "Anchor" => (BOOL_DOMAIN, "Locks the control against mouse dragging on the design canvas."),
+        "Anchor" => ("comma-separated edges from `Top` | `Bottom` | `Left` | `Right` (default `Top,Left`; MenuBar `Top,Left,Right`, StatusBar `Bottom,Left,Right`)", "Responsive design: the parent edges the control follows. One edge on an axis keeps that distance, both stretch the control with its parent, neither keeps its centre at the same proportion. Ignored while the form is not responsive, and ignored by a docked control or an item of a Flex/Grid/Flow container."),
+        "Locked" => (BOOL_DOMAIN, "Locks the control against mouse dragging on the design canvas; keyboard and Properties-pane entry still move it. No run-time effect. (Stored as a boolean `Anchor` before 1.80; migrated on load.)"),
+        "Dock" => ("one of: `None` | `Left` | `Top` | `Right` | `Bottom` | `Fill` (default `None`)", "Responsive design: claims one edge of the parent's remaining area, in z-order, at the control's designed thickness; `Fill` takes what remains. A docked control ignores `Anchor`."),
+        "MinWidth" => ("form pixels ≥ 0 (0 = no limit, default)", "Responsive design: the smallest width a stretched, docked, grown or grid-sized control may take."),
+        "MinHeight" => ("form pixels ≥ 0 (0 = no limit, default)", "Responsive design: the smallest height a stretched, docked, grown or grid-sized control may take."),
+        "MaxWidth" => ("form pixels ≥ 0 (0 = no limit, default)", "Responsive design: the largest width a stretched, docked, grown or grid-sized control may take. A `Left,Right` control at its MaxWidth stays attached to Left."),
+        "MaxHeight" => ("form pixels ≥ 0 (0 = no limit, default)", "Responsive design: the largest height a stretched, docked, grown or grid-sized control may take."),
+        "FlexGrow" => ("decimal ≥ 0 (default 0)", "Flex item: its share of the container's free space on the main axis (CSS `flex-grow`)."),
+        "FlexShrink" => ("decimal ≥ 0 (default 1)", "Flex item: how much it gives up, in proportion to its basis, when the items overflow (CSS `flex-shrink`)."),
+        "FlexBasis" => ("`Auto` (default, the designed size), pixels, or a percentage", "Flex item: its starting size on the main axis (CSS `flex-basis`)."),
+        "AlignSelf" => ("one of: `Auto` | `Stretch` | `Start` | `Center` | `End` (default `Auto`)", "Flex or grid item: overrides the container's `AlignItems` for this item."),
+        "Order" => ("integer (default 0)", "Flex or flow item: its position among its siblings; ties keep the designed reading order."),
+        "GridColumn" => ("integer ≥ 0, 1-based (0 = auto-placed, default)", "Grid item: the column it starts in."),
+        "GridRow" => ("integer ≥ 0, 1-based (0 = auto-placed, default)", "Grid item: the row it starts in."),
+        "ColumnSpan" => ("integer ≥ 1 (default 1)", "Grid item: how many columns it covers."),
+        "RowSpan" => ("integer ≥ 1 (default 1)", "Grid item: how many rows it covers."),
+        "JustifySelf" => ("one of: `Auto` | `Stretch` | `Start` | `Center` | `End` (default `Auto`)", "Grid item: overrides the container's `JustifyItems` for this item."),
+        "FlowBreak" => (BOOL_DOMAIN, "Flow item: ends the line after this control (default 0)."),
+        "ScaleFont" => (BOOL_DOMAIN, "Whether the form's font scaling resizes this control's text (default 1). A COBOL read of `FontSize` always returns the designed size."),
+        "MinFontSize" => ("points ≥ 0 (0 = no limit, default)", "The smallest size font scaling may shrink this control's text to."),
+        "MaxFontSize" => ("points ≥ 0 (0 = no limit, default)", "The largest size font scaling may grow this control's text to."),
+        "PaddingLeft" | "PaddingTop" | "PaddingRight" | "PaddingBottom" => ("form pixels, or empty (default) to use `Padding`", "One side's padding inside a container's client area, when it should differ from `Padding`."),
+        "LayoutMode" => ("one of: `Absolute` | `Flex` | `Grid` | `Flow` (default `Absolute`)", "Form, Panel, GroupBox, TabControl: how the container places its children on a responsive form — anchors and docking, a flex row/column, a grid of tracks, or a wrapping flow. (The Viewer's own `Layout` is a different property.)"),
+        "FlexDirection" => ("one of: `Row` | `Column` | `RowReverse` | `ColumnReverse` (default `Row`)", "Flex container: the main axis."),
+        "FlexWrap" => ("one of: `NoWrap` | `Wrap` | `WrapReverse` (default `NoWrap`)", "Flex container: whether items that do not fit start a new line."),
+        "JustifyContent" => ("one of: `Start` | `Center` | `End` | `SpaceBetween` | `SpaceAround` | `SpaceEvenly` (default `Start`)", "Flex container: where the leftover main-axis space goes."),
+        "AlignItems" => ("one of: `Stretch` | `Start` | `Center` | `End` (default `Stretch`)", "Flex or grid container: how items sit across their line or cell."),
+        "AlignContent" => ("one of: `Stretch` | `Start` | `Center` | `End` | `SpaceBetween` | `SpaceAround` (default `Stretch`)", "Wrapping flex container: how the lines share the cross axis."),
+        "Gap" => ("form pixels ≥ 0 (default 0)", "Flex, grid or flow container: the space between items."),
+        "RowGap" | "ColumnGap" => ("form pixels, or empty (default) to use `Gap`", "Flex or grid container: the space between rows / between columns."),
+        "GridColumns" | "GridRows" => ("track list: `Npx` `N%` `Nfr` `Auto` `MinMax(a, b)` `Repeat(n, tracks)` `Repeat(AutoFill, MinMax(min, b))`", "Grid container: the column / row tracks, e.g. `200px 1fr 2fr`. An empty `GridRows` adds `Auto` rows as needed."),
+        "JustifyItems" => ("one of: `Stretch` | `Start` | `Center` | `End` (default `Stretch`)", "Grid container: how items sit horizontally in their cell."),
+        "FlowDirection" => ("one of: `LeftToRight` | `TopDown` | `RightToLeft` | `BottomUp` (default `LeftToRight`)", "Flow container: the direction items run."),
+        "WrapContents" => (BOOL_DOMAIN, "Flow container: start a new line when the next item does not fit (default 1)."),
         "Padding" => ("points, 0-128", "Extra space between the control's frame and its content: a caption moves away from the edges (Button, Label, CheckBox, RadioButton and other captioned controls), and a TextBox adds it to its InnerPadding."),
         "Transparency" => ("0-100 (percent)", "How much of what is behind the control shows through; 0 = opaque, 100 = the control's own face is not painted and the form (or the control underneath) shows in full. Replaces the former Opacity, which ran the other way round. A CheckBox defaults to 100."),
         "ShadowEnabled" => (BOOL_DOMAIN, "Enables the drop shadow."),

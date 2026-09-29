@@ -1168,6 +1168,14 @@ enum Cmd {
         old: String,
         new: String,
     },
+    /// Spec 056 — the whole breakpoint table, overrides included. Its text
+    /// form (`Name:MinWidth:FontFactor;…`) carries names only, so undoing a
+    /// removal through [`Cmd::SetFormProp`] would restore the row and lose
+    /// its overrides.
+    SetBreakpoints {
+        before: Vec<cobolt_forms::layout::breakpoints::Breakpoint>,
+        after: Vec<cobolt_forms::layout::breakpoints::Breakpoint>,
+    },
     /// One of the form's raw-COBOL structure blocks (SPECIAL-NAMES, REPOSITORY,
     /// FILE-CONTROL, FILE SECTION, WORKING-STORAGE) — the outermost program's
     /// own declarations, which only a `set_form_structure` operation or the
@@ -4086,6 +4094,10 @@ impl DesignerPanel {
             Cmd::SetFormProp { key, new, .. } => {
                 self.set_form_prop_direct(key, new.clone());
             }
+            Cmd::SetBreakpoints { after, .. } => {
+                self.form.breakpoints = after.clone();
+                self.dirty = true;
+            }
             Cmd::SetFormStructure { block, new, .. } => {
                 if let Some(slot) = crate::agent::form_structure_field(&mut self.form, block) {
                     *slot = new.clone();
@@ -4275,6 +4287,10 @@ impl DesignerPanel {
             }
             Cmd::SetFormProp { key, old, .. } => {
                 self.set_form_prop_direct(key, old.clone());
+            }
+            Cmd::SetBreakpoints { before, .. } => {
+                self.form.breakpoints = before.clone();
+                self.dirty = true;
             }
             Cmd::SetFormStructure { block, old, .. } => {
                 if let Some(slot) = crate::agent::form_structure_field(&mut self.form, block) {
@@ -4699,7 +4715,7 @@ impl DesignerPanel {
             .cascade_ids_for(&self.selected_ids)
             .iter()
             .filter_map(|id| self.form.find_control(id))
-            .filter(|c| !c.is_anchored())
+            .filter(|c| !c.is_locked())
             .map(|c| {
                 (
                     c.id.clone(),
@@ -6191,6 +6207,16 @@ impl DesignerPanel {
             });
             return;
         }
+        if canonical == "Breakpoints" {
+            let after =
+                cobolt_forms::layout::breakpoints::from_text(&value, &self.form.breakpoints);
+            if after == self.form.breakpoints {
+                return;
+            }
+            let before = self.form.breakpoints.clone();
+            self.apply(Cmd::SetBreakpoints { before, after });
+            return;
+        }
         let Some(old) = self.get_form_prop(canonical) else {
             return;
         };
@@ -6572,6 +6598,25 @@ impl DesignerPanel {
                 self.dirty = true;
             }
 
+            // 056 R4 — applied live and marks the form dirty; no designed
+            // rectangle moves.
+            "Responsive" => {
+                self.form.responsive = value == "true" || value == "1";
+                self.dirty = true;
+            }
+            "Breakpoints" => {
+                self.form.breakpoints =
+                    cobolt_forms::layout::breakpoints::from_text(&value, &self.form.breakpoints);
+                self.dirty = true;
+            }
+            k if cobolt_forms::layout::defaults::form_default(k).is_some() => {
+                self.form.layout.insert(
+                    k.to_owned(),
+                    cobolt_forms::model::PropValue::String(value.trim().to_owned()),
+                );
+                self.dirty = true;
+            }
+
             _ => {}
         }
     }
@@ -6671,6 +6716,12 @@ impl DesignerPanel {
             "X" => Some(self.form.x.to_string()),
             "Y" => Some(self.form.y.to_string()),
             "StartPosition" => Some(self.form.start_position.as_str().to_string()),
+            "Responsive" => Some(if self.form.responsive { "true".to_string() } else { "false".to_string() }),
+            "Breakpoints" => Some(cobolt_forms::layout::breakpoints::to_text(&self.form.breakpoints)),
+            k if cobolt_forms::layout::defaults::form_default(k).is_some() => {
+                use cobolt_forms::layout::props::PropSource;
+                Some(cobolt_forms::layout::props::FormBag(&self.form.layout).text(k))
+            }
             _ => None,
         }
     }
@@ -12902,7 +12953,7 @@ impl DesignerPanel {
                                 // puts it straight back. It is a normal container
                                 // in every other way, and it is the drop target
                                 // each half of a splitter offers.
-                                if ctrl.is_anchored()
+                                if ctrl.is_locked()
                                     || ctrl.is_side_menu_footer()
                                     || ctrl.is_splitter_pane()
                                 {
@@ -13052,7 +13103,7 @@ impl DesignerPanel {
                                 !self
                                     .form
                                     .find_control(id)
-                                    .map_or(false, |c| c.is_anchored())
+                                    .map_or(false, |c| c.is_locked())
                             })
                             .map(|(id, ox, oy)| (id.clone(), *ox, *oy, ox + mdx, oy + mdy))
                             .collect();
@@ -13903,6 +13954,34 @@ pub(crate) const FORM_PROP_KEYS: &[&str] = &[
     "X",
     "Y",
     "StartPosition",
+    // 056 Responsive design: the switch, the breakpoint table
+    // (`Name:MinWidth:FontFactor;…`) and the form's own layout bag.
+    "Responsive",
+    "Breakpoints",
+    "LayoutMode",
+    "FlexDirection",
+    "FlexWrap",
+    "JustifyContent",
+    "AlignItems",
+    "AlignContent",
+    "Gap",
+    "RowGap",
+    "ColumnGap",
+    "GridColumns",
+    "GridRows",
+    "JustifyItems",
+    "FlowDirection",
+    "WrapContents",
+    "Padding",
+    "PaddingLeft",
+    "PaddingTop",
+    "PaddingRight",
+    "PaddingBottom",
+    "FontScaling",
+    "MinFontScale",
+    "MaxFontScale",
+    "MinFormWidth",
+    "MinFormHeight",
 ];
 
 /// The spelling under which `key` is already stored on `ctrl`, or `key` itself
@@ -16399,13 +16478,65 @@ mod nudge_tests {
         assert_eq!(pos(&d, "B2"), (213, 139));
     }
 
-    /// `Anchor` locks a control against being dragged, and an arrow key is
-    /// dragging without the mouse. The property pane stays the way to move one.
+    /// Spec 056 R4 / AC40 (form) — toggling `Responsive design` applies live,
+    /// marks the form dirty, moves no designed rectangle, and is undoable; the
+    /// form's layout bag and breakpoint table are form properties too.
     #[test]
-    fn an_anchored_control_is_not_nudged() {
+    fn responsive_design_and_the_breakpoint_table_are_form_properties_056() {
+        let mut form = Form::new("F", "T", 800, 600);
+        let mut b = Control::new("B1", ControlType::Button, 30, 40);
+        b.set_prop("Anchor", PropValue::String("Top,Right".into()));
+        form.controls.push(b);
+        let mut d = DesignerPanel::new(form);
+        let rects_before: Vec<_> = d.form.controls.iter().map(|c| c.rect).collect();
+
+        d.set_form_prop("Responsive", "true".into());
+        assert!(d.form.responsive && d.dirty);
+        assert_eq!(d.get_form_prop("responsive").as_deref(), Some("true"));
+        let rects_after: Vec<_> = d.form.controls.iter().map(|c| c.rect).collect();
+        assert_eq!(rects_before, rects_after, "R4 — no designed rectangle moves");
+        d.undo();
+        assert!(!d.form.responsive, "the switch is undoable");
+        d.set_form_prop("Responsive", "true".into());
+
+        // The form's own layout bag.
+        assert_eq!(d.get_form_prop("LayoutMode").as_deref(), Some("Absolute"));
+        d.set_form_prop("layoutmode", "Grid".into());
+        assert_eq!(d.get_form_prop("LayoutMode").as_deref(), Some("Grid"));
+        d.set_form_prop("FontScaling", "Fluid".into());
+        assert_eq!(d.get_form_prop("MaxFontScale").as_deref(), Some("1.5"), "defaults read through");
+
+        // The breakpoint editor: add, rename, remove — and undo of a removal
+        // brings the overrides back with the row.
+        d.form.breakpoints[0].overrides.push(cobolt_forms::layout::breakpoints::Override {
+            control: "B1".into(),
+            property: "Visible".into(),
+            value: PropValue::Bool(false),
+        });
+        let with_override = d.form.breakpoints.clone();
+        d.set_form_prop("Breakpoints", "Compact:0:1;Medium:600:1;Expanded:1024:1;Wide:1600:1.2".into());
+        assert_eq!(d.form.breakpoints.len(), 4, "added");
+        assert_eq!(d.form.breakpoints[0].overrides.len(), 1, "a surviving name keeps its overrides");
+        d.set_form_prop("Breakpoints", "Phone:0:1;Medium:600:1;Expanded:1024:1;Wide:1600:1.2".into());
+        assert_eq!(d.form.breakpoints[0].name, "Phone", "renamed");
+        d.undo();
+        d.undo();
+        assert_eq!(d.form.breakpoints, with_override, "undo restores names AND overrides");
+        d.set_form_prop("Breakpoints", "Medium:600:1;Expanded:1024:1".into());
+        assert_eq!(d.form.breakpoints.len(), 2, "removed");
+        d.undo();
+        assert_eq!(d.form.breakpoints, with_override, "undoing a removal restores its overrides");
+        println!("056 AC40 (form): Responsive toggles live + undo, LayoutMode/FontScaling set and read, breakpoints add/rename/remove with overrides kept through undo");
+    }
+
+    /// `Locked` (the pre-056 boolean `Anchor`) locks a control against being
+    /// dragged, and an arrow key is dragging without the mouse. The property
+    /// pane stays the way to move one.
+    #[test]
+    fn a_locked_control_is_not_nudged() {
         let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
         let mut pinned = Control::new("A1", ControlType::Button, 10, 10);
-        pinned.set_prop("Anchor", PropValue::Bool(true));
+        pinned.set_prop("Locked", PropValue::Bool(true));
         d.form.controls.push(pinned);
         d.selected_ids = vec!["A1".to_owned()];
 
@@ -18991,6 +19122,8 @@ mod property_key_case_tests {
             "menupaneimagemode",
             // Window start position
             "x", "y", "startposition",
+            // 056 Responsive design
+            "responsive", "breakpoints", "layoutmode", "flexdirection", "flexwrap", "justifycontent", "alignitems", "aligncontent", "gap", "rowgap", "columngap", "gridcolumns", "gridrows", "justifyitems", "flowdirection", "wrapcontents", "padding", "paddingleft", "paddingtop", "paddingright", "paddingbottom", "fontscaling", "minfontscale", "maxfontscale", "minformwidth", "minformheight",
         ] {
             assert!(
                 canonical_form_prop_key(word).is_some(),

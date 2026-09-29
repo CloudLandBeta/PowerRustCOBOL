@@ -8,6 +8,41 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.8] — 2026-09-29
+
+### 056 Responsive design — Phase 2: model, file format, Properties pane, help and KB
+
+The responsive-design properties exist, load, save and can be edited. No
+surface lays a form out with them yet (Phase 4), so nothing a form does
+changes.
+
+- **Form:** `Responsive design` (`responsive="true"` in the `.cfrm`, written only
+  when on), the form's own layout properties (`<FormLayout …/>`) and the
+  breakpoint table with per-breakpoint overrides (`<Breakpoints>`). A form that
+  uses none of it saves exactly as before.
+- **Controls:** every visual control carries `Anchor` (edges), `Dock`, the four
+  size limits, the flex/grid/flow item properties and the font-scaling
+  properties; Panel, GroupBox and TabControl also carry `LayoutMode` and the
+  container properties. A property at its default is not written to the file,
+  so saved forms do not grow.
+- **`Anchor` → `Locked`:** the canvas drag-lock that used to be stored as a
+  boolean `Anchor` is now `Locked`. A form saved with `Anchor` true or false is
+  migrated on load; a legacy `"Top,Left"` is kept as the edges it describes.
+  The designer's drag, nudge and Properties-pane lock read `Locked`.
+- **Properties pane:** a Layout section on every visual control — the rows its
+  parent's layout needs (Anchor edges and Dock, flex, grid or flow item rows),
+  size limits, font scaling, and on a container its padding, `LayoutMode` and
+  container rows. Off a responsive form it is a one-line hint. The form's own
+  Layout section holds the switch, its layout mode, padding, font scaling,
+  smallest size and a breakpoint editor (add, rename, remove; undo brings a
+  removed breakpoint back with its overrides).
+- 58 new labels and 45 hover-help entries in all six languages; the System KB
+  documents every new property and no longer says there is no anchoring or
+  docking (`chunked.data` rebuilt, 2,003 records).
+
+Measured: all 62 example forms load, save and reload byte-identical and gain no
+responsive markup; the example-corpus goldens show 0 differences.
+
 ## [PowerRustCOBOL 1.80.7] — 2026-09-29
 
 ### GroupBox caption styles

@@ -113,6 +113,19 @@ fn get_attr_str(e: &BytesStart, key: &[u8]) -> Result<String, FormError> {
     Ok(get_attr(e, key)?.unwrap_or_default())
 }
 
+/// Every attribute of `e`, unescaped, in document order.
+fn attr_pairs(e: &BytesStart) -> Result<AttrPairs, FormError> {
+    let mut pairs = AttrPairs::new();
+    for attr in e.attributes() {
+        let attr = attr.map_err(xml_err)?;
+        pairs.push((
+            attr.key.as_ref().to_vec(),
+            attr.unescape_value().map_err(xml_err)?.into_owned(),
+        ));
+    }
+    Ok(pairs)
+}
+
 /// Parse a `<MenuPaneBackground …/>` element's attributes (049 R39). Every
 /// attribute is optional; an absent one keeps the struct default, so a
 /// hand-trimmed element still loads.
@@ -210,8 +223,16 @@ enum OwnedEvent {
         x: i32,
         y: i32,
         start_position: crate::model::FormStartPosition,
+        // 056 Responsive design
+        responsive: bool,
     },
     ControlStart(AttrPairs),
+    // 056 — the form's layout bag (`<FormLayout …/>`), attributes only.
+    FormLayout(AttrPairs),
+    // 056 — `<Breakpoints>`: the table and its overrides follow.
+    BreakpointsStart,
+    // 056 — `<Breakpoints/>`: an explicitly EMPTY table.
+    BreakpointsEmpty,
     // 049 R39 — the shell MenuPane's background, a self-closing attribute
     // element on the main form.
     MenuPaneBackground(crate::model::MenuPaneBackground),
@@ -337,6 +358,10 @@ fn next_owned<R: std::io::BufRead>(
                     let start_position = get_attr(e, b"start-position")?
                         .map(|v| crate::model::FormStartPosition::from_str(&v))
                         .unwrap_or_default();
+                    // 056 R2 — absent means false, so no existing form changes.
+                    let responsive = get_attr(e, b"responsive")?
+                        .map(|v| v == "true" || v == "1")
+                        .unwrap_or(false);
 
                     Ok(OwnedEvent::FormStart {
                         name,
@@ -370,8 +395,11 @@ fn next_owned<R: std::io::BufRead>(
                         x,
                         y,
                         start_position,
+                        responsive,
                     })
                 }
+                b"FormLayout" => Ok(OwnedEvent::FormLayout(attr_pairs(e)?)),
+                b"Breakpoints" => Ok(OwnedEvent::BreakpointsStart),
                 b"Control" => {
                     let mut pairs = AttrPairs::new();
                     for attr in e.attributes() {
@@ -421,6 +449,8 @@ fn next_owned<R: std::io::BufRead>(
             b"MenuPaneBackground" => {
                 Ok(OwnedEvent::MenuPaneBackground(parse_menu_pane_background(&e)?))
             }
+            b"FormLayout" => Ok(OwnedEvent::FormLayout(attr_pairs(e)?)),
+            b"Breakpoints" => Ok(OwnedEvent::BreakpointsEmpty),
             b"Animation" => {
                 let mut pairs = AttrPairs::new();
                 for attr in e.attributes() {
@@ -512,6 +542,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 x,
                 y,
                 start_position,
+                responsive,
             } => {
                 // Build a base Form using Form::new (populates default form_events)
                 let mut f = Form::new(&name, &title, width, height);
@@ -542,6 +573,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 f.x = x;
                 f.y = y;
                 f.start_position = start_position;
+                f.responsive = responsive;
                 // form_events was pre-populated with empty OnLoad/OnClose stubs;
                 // parse_form_body will overwrite them if <form-events> is present.
                 parse_form_body(reader, &mut buf, &mut f)?;
@@ -673,6 +705,10 @@ fn seed_missing_props(form: &mut Form) {
         // carrying the legacy `BorderRadius` must not be given a `CornerRadius`
         // beside it, because the canonical key is read first and a seeded 0
         // would shadow the developer's real radius.
+        // 056 — layout properties and the boolean-Anchor → Locked migration,
+        // through the same function `Control::new` uses.
+        let ct = c.control_type.clone();
+        crate::model::seed_layout_props(&ct, &mut c.properties);
         let seeded = crate::model::Control::new("seed", c.control_type.clone(), 0, 0);
         for key in crate::model::THEME_OWNED_PROPS {
             if matches!(*key, "CornerRadius" | "BorderStyle") || c.get_prop(key).is_some() {
@@ -945,6 +981,20 @@ fn parse_form_body<R: std::io::BufRead>(
             // ── <MenuPaneBackground/> (049 R39) ───────────────────────────────
             OwnedEvent::MenuPaneBackground(mp) => {
                 form.menu_pane_background = Some(mp);
+            }
+
+            // ── 056 <FormLayout …/> and <Breakpoints> ─────────────────────────
+            OwnedEvent::FormLayout(attrs) => {
+                for (k, v) in attrs {
+                    form.layout
+                        .insert(String::from_utf8_lossy(&k).into_owned(), parse_prop_value(&v));
+                }
+            }
+            OwnedEvent::BreakpointsStart => {
+                form.breakpoints = parse_breakpoints(reader, buf)?;
+            }
+            OwnedEvent::BreakpointsEmpty => {
+                form.breakpoints = Vec::new();
             }
 
             // ── <working-storage> ─────────────────────────────────────────────
@@ -1408,6 +1458,67 @@ fn migrate_opacity_property(name: &str, value: PropValue) -> (String, PropValue)
     ("Transparency".to_owned(), PropValue::Int(100 - opacity))
 }
 
+/// The body of `<Breakpoints>` (056 R63): one `<Breakpoint name min-width
+/// font-factor>` per entry, each holding `<Override control property>value
+/// </Override>` elements. Read up to `</Breakpoints>`.
+fn parse_breakpoints<R: std::io::BufRead>(
+    reader: &mut Reader<R>,
+    buf: &mut Vec<u8>,
+) -> Result<Vec<crate::layout::breakpoints::Breakpoint>, FormError> {
+    use crate::layout::breakpoints::{Breakpoint, Override};
+    let mut out: Vec<Breakpoint> = Vec::new();
+    // The override being read: (control, property, text so far).
+    let mut open: Option<(String, String, String)> = None;
+    loop {
+        buf.clear();
+        let ev = reader.read_event_into(buf)?;
+        match &ev {
+            Event::Start(e) | Event::Empty(e) if e.local_name().as_ref() == b"Breakpoint" => {
+                out.push(Breakpoint {
+                    name: get_attr_str(e, b"name")?,
+                    min_width: get_attr(e, b"min-width")?
+                        .and_then(|v| v.trim().parse().ok())
+                        .unwrap_or_default(),
+                    font_factor: get_attr(e, b"font-factor")?
+                        .and_then(|v| v.trim().parse().ok())
+                        .unwrap_or(crate::layout::defaults::BREAKPOINT_FONT_FACTOR),
+                    overrides: Vec::new(),
+                });
+            }
+            Event::Start(e) if e.local_name().as_ref() == b"Override" => {
+                open = Some((get_attr_str(e, b"control")?, get_attr_str(e, b"property")?, String::new()));
+            }
+            Event::Empty(e) if e.local_name().as_ref() == b"Override" => {
+                if let Some(bp) = out.last_mut() {
+                    bp.overrides.push(Override {
+                        control: get_attr_str(e, b"control")?,
+                        property: get_attr_str(e, b"property")?,
+                        value: parse_prop_value(""),
+                    });
+                }
+            }
+            Event::Text(t) => {
+                if let Some((_, _, text)) = open.as_mut() {
+                    text.push_str(&t.unescape().map_err(xml_err)?);
+                }
+            }
+            Event::End(e) if e.local_name().as_ref() == b"Override" => {
+                if let (Some((control, property, text)), Some(bp)) = (open.take(), out.last_mut()) {
+                    bp.overrides.push(Override {
+                        control,
+                        property,
+                        value: parse_prop_value(&text),
+                    });
+                }
+            }
+            Event::End(e) if e.local_name().as_ref() == b"Breakpoints" => break,
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
 fn parse_prop_value(s: &str) -> PropValue {
     let trimmed = s.trim();
     if trimmed == "true" {
@@ -1532,6 +1643,10 @@ pub fn form_to_string(form: &Form) -> Result<String, FormError> {
         if form.start_position != crate::model::FormStartPosition::System {
             elem.push_attribute(("start-position", form.start_position.as_str()));
         }
+        // 056 R1 — written only when on, so every other form is unchanged.
+        if form.responsive {
+            elem.push_attribute(("responsive", "true"));
+        }
         w.write_event(Event::Start(elem))?;
 
         // ── <working-storage> ─────────────────────────────────────────────────
@@ -1555,6 +1670,56 @@ pub fn form_to_string(form: &Form) -> Result<String, FormError> {
                 e.push_attribute(("image-mode", mp.image_mode.as_str()));
             }
             w.write_event(Event::Empty(e))?;
+        }
+
+        // ── 056 <FormLayout …/> and <Breakpoints> — additive: only what differs
+        // from the seeded defaults is written (R63, R87), so a form that uses
+        // none of it keeps its exact on-disk shape.
+        let layout: Vec<(&String, String)> = form
+            .layout
+            .iter()
+            .filter(|(k, v)| {
+                crate::layout::defaults::form_default(k)
+                    .map_or(true, |d| d.to_xml_string() != v.to_xml_string())
+            })
+            .map(|(k, v)| (k, v.to_xml_string()))
+            .collect();
+        if !layout.is_empty() {
+            let mut e = BytesStart::new("FormLayout");
+            for (k, v) in &layout {
+                e.push_attribute((k.as_str(), v.as_str()));
+            }
+            w.write_event(Event::Empty(e))?;
+        }
+        if form.breakpoints != crate::layout::defaults::default_breakpoints() {
+            if form.breakpoints.is_empty() {
+                w.write_event(Event::Empty(BytesStart::new("Breakpoints")))?;
+            } else {
+                w.write_event(Event::Start(BytesStart::new("Breakpoints")))?;
+                for bp in &form.breakpoints {
+                    let mut e = BytesStart::new("Breakpoint");
+                    let min = bp.min_width.to_string();
+                    let factor = bp.font_factor.to_string();
+                    e.push_attribute(("name", bp.name.as_str()));
+                    e.push_attribute(("min-width", min.as_str()));
+                    e.push_attribute(("font-factor", factor.as_str()));
+                    if bp.overrides.is_empty() {
+                        w.write_event(Event::Empty(e))?;
+                        continue;
+                    }
+                    w.write_event(Event::Start(e))?;
+                    for o in &bp.overrides {
+                        let mut oe = BytesStart::new("Override");
+                        oe.push_attribute(("control", o.control.as_str()));
+                        oe.push_attribute(("property", o.property.as_str()));
+                        w.write_event(Event::Start(oe))?;
+                        w.write_event(Event::Text(BytesText::new(&o.value.to_xml_string())))?;
+                        w.write_event(Event::End(BytesEnd::new("Override")))?;
+                    }
+                    w.write_event(Event::End(BytesEnd::new("Breakpoint")))?;
+                }
+                w.write_event(Event::End(BytesEnd::new("Breakpoints")))?;
+            }
         }
 
         if !form.user_ws_source.trim().is_empty() {
@@ -1671,6 +1836,21 @@ fn write_event_with_code<W: std::io::Write>(
     Ok(())
 }
 
+/// Whether `name = value` on `ctrl` is one of spec 056's layout properties at
+/// its seeded default — left out of the file (R87). `Padding` predates 056 and
+/// is written as it always was.
+fn is_layout_default(ctrl: &Control, name: &str, value: &PropValue) -> bool {
+    use crate::layout::defaults;
+    let owned = defaults::item_defaults(&ctrl.control_type)
+        .into_iter()
+        .chain(defaults::container_defaults())
+        .find(|(k, _)| k.eq_ignore_ascii_case(name));
+    match owned {
+        Some((_, d)) => d.to_xml_string() == value.to_xml_string(),
+        None => false,
+    }
+}
+
 fn write_control<W: std::io::Write>(w: &mut Writer<W>, ctrl: &Control) -> Result<(), FormError> {
     let mut elem = BytesStart::new("Control");
     elem.push_attribute(("id", ctrl.id.as_str()));
@@ -1695,6 +1875,12 @@ fn write_control<W: std::io::Write>(w: &mut Writer<W>, ctrl: &Control) -> Result
 
     // Properties
     for (name, value) in &ctrl.properties {
+        // 056 R87 — a layout property at its seeded default is not stored; the
+        // loader seeds it back. Saved files do not grow by the new keys, and a
+        // form that uses none of them keeps its shape.
+        if is_layout_default(ctrl, name, value) {
+            continue;
+        }
         // R31 — a `.cfrm` NEVER carries a credential's value. The property is
         // still written, so the file's shape and every round trip are
         // unchanged; what is withheld is the secret itself.
@@ -2421,6 +2607,230 @@ Actor Caption:string</Property>
             loaded.title_visible
         );
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn responsive_design_round_trips_and_is_absent_by_default_056() {
+        use crate::layout::breakpoints::Override;
+        // AC1 — absent → false; `responsive="true"` → true; written only when true.
+        let plain = Form::new("PLAIN-FORM", "Plain", 400, 300);
+        let plain_xml = form_to_string(&plain).unwrap();
+        for token in ["responsive", "FormLayout", "Breakpoints"] {
+            assert!(!plain_xml.contains(token), "a default form writes no `{token}`");
+        }
+        let back = load_form_from_str(&plain_xml).unwrap();
+        assert!(!back.responsive);
+        assert!(back.layout.is_empty());
+        assert_eq!(back.breakpoints, crate::layout::defaults::default_breakpoints());
+
+        let mut f = Form::new("RESP-FORM", "Responsive", 800, 600);
+        f.responsive = true;
+        f.layout.insert("LayoutMode".into(), PropValue::String("Flex".into()));
+        f.layout.insert("Gap".into(), PropValue::Int(12));
+        f.layout.insert("FontScaling".into(), PropValue::String("Fluid".into()));
+        // A key at its default is not written (R87).
+        f.layout.insert("Padding".into(), PropValue::Int(0));
+        f.breakpoints[0].overrides.push(Override {
+            control: "PNL-SIDE".into(),
+            property: "Dock".into(),
+            value: PropValue::String("Top".into()),
+        });
+        f.breakpoints[0].overrides.push(Override {
+            control: "PNL-HELP".into(),
+            property: "Visible".into(),
+            value: PropValue::Bool(false),
+        });
+        f.breakpoints[2].font_factor = 1.25;
+        let xml = form_to_string(&f).unwrap();
+        assert!(xml.contains(r#"responsive="true""#));
+        assert!(xml.contains("<FormLayout") && !xml.contains(r#"Padding="0""#), "{xml}");
+        let r = load_form_from_str(&xml).unwrap();
+        assert!(r.responsive);
+        assert_eq!(r.layout.get("LayoutMode").map(|v| v.to_xml_string()).as_deref(), Some("Flex"));
+        assert_eq!(r.layout.get("Gap").map(|v| v.to_xml_string()).as_deref(), Some("12"));
+        assert_eq!(r.layout.get("FontScaling").map(|v| v.to_xml_string()).as_deref(), Some("Fluid"));
+        assert!(!r.layout.contains_key("Padding"));
+        assert_eq!(r.breakpoints.len(), 3);
+        assert_eq!(r.breakpoints[2].font_factor, 1.25);
+        let o = &r.breakpoints[0].overrides;
+        assert_eq!((o[0].control.as_str(), o[0].property.as_str(), o[0].value.to_xml_string().as_str()), ("PNL-SIDE", "Dock", "Top"));
+        assert!(!o[1].value.as_bool(), "a hidden override stays hidden");
+        // A second trip is byte-identical.
+        assert_eq!(form_to_string(&r).unwrap(), xml);
+
+        // An explicitly EMPTY table survives as empty, not as the default.
+        let mut e = Form::new("NO-BP", "No breakpoints", 400, 300);
+        e.breakpoints.clear();
+        let ex = form_to_string(&e).unwrap();
+        assert!(ex.contains("<Breakpoints/>"));
+        assert!(load_form_from_str(&ex).unwrap().breakpoints.is_empty());
+        println!("056 T2.1: responsive attribute, FormLayout (3 keys, the default one omitted) and 3 breakpoints with 2 overrides round-trip; defaults write nothing");
+    }
+
+#[test]
+    fn a_boolean_anchor_becomes_locked_and_edges_survive_056() {
+        // AC16 — through XML, the way a saved form really arrives.
+        let xml = |anchor: &str| {
+            format!(
+                r#"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="F" title="F" width="400" height="300">
+  <Control id="B" type="Button" x="10" y="20" w="80" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Anchor">{anchor}</Property>
+  </Control>
+</Form>"#
+            )
+        };
+        let load = |a: &str| {
+            let f = load_form_from_str(&xml(a)).unwrap();
+            f.controls.into_iter().find(|c| c.id == "B").unwrap()
+        };
+        let t = load("true");
+        assert!(t.is_locked());
+        assert_eq!(t.get_prop("Anchor").map(|v| v.to_xml_string()).as_deref(), Some("Top,Left"));
+        let f = load("false");
+        assert!(!f.is_locked());
+        assert_eq!(f.get_prop("Anchor").map(|v| v.to_xml_string()).as_deref(), Some("Top,Left"));
+        let e = load("Bottom, Right");
+        assert!(!e.is_locked());
+        assert_eq!(e.get_prop("Anchor").map(|v| v.to_xml_string()).as_deref(), Some("Bottom, Right"), "a valid edge set is kept as written");
+        let junk = load("Anchor to the outer edge");
+        assert_eq!(junk.get_prop("Anchor").map(|v| v.to_xml_string()).as_deref(), Some("Top,Left"), "not an edge set → the default");
+        let one = load("1");
+        assert!(one.is_locked(), "an integer lock migrates too");
+
+        // Control::new seeds the same shape.
+        let n = Control::new("N", ControlType::Button, 0, 0);
+        assert!(!n.is_locked());
+        for (k, v) in [("Anchor", "Top,Left"), ("Dock", "None"), ("MinWidth", "0"), ("MinHeight", "0"), ("MaxWidth", "0"), ("MaxHeight", "0")] {
+            assert_eq!(n.get_prop(k).map(|p| p.to_xml_string()).as_deref(), Some(v), "{k}");
+        }
+        // The Viewer keeps its own `Layout` and is not a layout container.
+        let v = Control::new("V", ControlType::Viewer, 0, 0);
+        assert!(v.get_prop("Layout").is_some() && v.get_prop("LayoutMode").is_none());
+        println!("056 AC16: Anchor true/false/1/edges/junk migrate as specified; Control::new seeds Locked, Anchor, Dock and the four limits");
+    }
+
+    /// Drift guard over every control type: a control read from a file that
+    /// carries no layout property ends up with exactly the layout properties
+    /// `Control::new` gives it.
+    #[test]
+    fn loaded_and_new_controls_carry_the_same_layout_properties_056() {
+        let layout_keys: Vec<&str> = crate::layout::defaults::item_defaults(&ControlType::Button)
+            .into_iter()
+            .chain(crate::layout::defaults::container_defaults())
+            .map(|(k, _)| k)
+            .collect();
+        let mut types = 0;
+        for ct in ControlType::ALL {
+            let xml = format!(
+                r#"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="F" title="F" width="400" height="300">
+  <Control id="C" type="{}" x="0" y="0" w="50" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
+  </Control>
+</Form>"#,
+                ct.as_str()
+            );
+            let loaded = load_form_from_str(&xml).unwrap().controls.remove(0);
+            let fresh = Control::new("C", ct.clone(), 0, 0);
+            for k in layout_keys.iter().chain(["Locked"].iter()) {
+                assert_eq!(
+                    loaded.get_prop(k).map(|v| v.to_xml_string()),
+                    fresh.get_prop(k).map(|v| v.to_xml_string()),
+                    "{ct:?}.{k}: loaded vs new"
+                );
+            }
+            types += 1;
+        }
+        println!("056 drift guard: {types} control types, {} layout keys each, loaded == new", layout_keys.len() + 1);
+    }
+
+    #[test]
+    fn layout_properties_at_their_defaults_are_not_saved_056() {
+        // AC44 — a form using no new property saves with no layout keys.
+        let mut f = Form::new("F", "F", 400, 300);
+        f.controls.push(Control::new("B", ControlType::Button, 10, 10));
+        f.controls.push(Control::new("P", ControlType::Panel, 10, 60));
+        let xml = form_to_string(&f).unwrap();
+        let keys: Vec<&str> = crate::layout::defaults::item_defaults(&ControlType::Button)
+            .into_iter()
+            .chain(crate::layout::defaults::container_defaults())
+            .map(|(k, _)| k)
+            .collect();
+        for k in &keys {
+            assert!(!xml.contains(&format!(r#"name="{k}""#)), "default `{k}` was written");
+        }
+        assert!(xml.contains(r#"name="Padding""#), "Padding predates 056 and is still written");
+        // One with a non-default Dock saves exactly that key.
+        f.controls[0].set_prop("Dock", PropValue::String("Top".into()));
+        let xml = form_to_string(&f).unwrap();
+        let written: Vec<&&str> = keys.iter().filter(|k| xml.contains(&format!(r#"name="{k}""#))).collect();
+        assert_eq!(written, vec![&"Dock"]);
+        // Reload restores every default.
+        let back = load_form_from_str(&xml).unwrap();
+        let b = back.controls.iter().find(|c| c.id == "B").unwrap();
+        let fresh = Control::new("B", ControlType::Button, 0, 0);
+        for k in &keys {
+            if *k == "Dock" {
+                assert_eq!(b.get_prop(k).map(|v| v.to_xml_string()).as_deref(), Some("Top"));
+            } else {
+                assert_eq!(b.get_prop(k).map(|v| v.to_xml_string()), fresh.get_prop(k).map(|v| v.to_xml_string()), "{k}");
+            }
+        }
+        println!("056 AC44: {} layout keys omitted at default, a non-default Dock written alone, reload restores every default", keys.len());
+    }
+
+    /// Every example form survives load → save → load unchanged.
+    #[test]
+    fn every_example_form_round_trips_056() {
+        let repo = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+        let mut checked = 0;
+        for project in ["PowerDemo3", "PowerChat"] {
+            let mut stack = vec![repo.join(project).join("forms")];
+            while let Some(d) = stack.pop() {
+                for e in std::fs::read_dir(&d).unwrap().flatten() {
+                    let p = e.path();
+                    if p.is_dir() {
+                        stack.push(p);
+                    } else if p.extension().and_then(|x| x.to_str()) == Some("cfrm") {
+                        let once = form_to_string(&load_form(&p).unwrap()).unwrap();
+                        let twice = form_to_string(&load_form_from_str(&once).unwrap()).unwrap();
+                        assert_eq!(once, twice, "{} does not round-trip", p.display());
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, 62);
+        println!("056 T2.3: {checked} example forms load → save → load byte-identical");
+    }
+
+        /// No example form uses responsive design, so none may gain a byte of it
+    /// on save (R63, R87).
+    #[test]
+    fn no_example_form_gains_responsive_markup_on_save_056() {
+        let repo = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+        let mut checked = 0;
+        for project in ["PowerDemo3", "PowerChat"] {
+            let mut stack = vec![repo.join(project).join("forms")];
+            while let Some(d) = stack.pop() {
+                for e in std::fs::read_dir(&d).unwrap().flatten() {
+                    let p = e.path();
+                    if p.is_dir() {
+                        stack.push(p);
+                    } else if p.extension().and_then(|x| x.to_str()) == Some("cfrm") {
+                        let form = load_form(&p).unwrap();
+                        assert!(!form.responsive && form.layout.is_empty(), "{}", p.display());
+                        let xml = form_to_string(&form).unwrap();
+                        for token in ["responsive=", "<FormLayout", "<Breakpoints"] {
+                            assert!(!xml.contains(token), "{} gained `{token}`", p.display());
+                        }
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, 62);
+        println!("056 T2.1: {checked} example forms load non-responsive and save without responsive markup");
     }
 
     #[test]

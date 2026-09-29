@@ -244,45 +244,55 @@ fn every_category_icon_is_a_real_catalogue_name() {
 }
 
 #[test]
-fn the_stack_anchor_does_not_collide_with_the_canvas_anchor_lock() {
-    // `Anchor` is a BASE property on every control — a boolean that locks the
-    // control's X/Y against mouse dragging on the design canvas
-    // (`Control::is_anchored`). Spec §6 originally named the Snackbar's
-    // nine-position stack placement `Anchor` too, which put two different
-    // meanings on one key in one property map: toggling the designer's lock
-    // checkbox (non-visual controls still show the geometry section) would have
-    // written `Anchor: Bool(false)` straight over the notification's placement,
-    // and `SnackAnchor::from_prop` would have read that back as BottomRight.
-    //
-    // They are separate keys now. This pins both halves.
+fn the_stack_anchor_does_not_collide_with_the_anchor_edges_or_the_lock() {
+    // Spec 056 R34/R36 and AC17. `Anchor` is now the set of parent EDGES a
+    // visual control follows under responsive layout (`"Top,Left"` by
+    // default); the canvas drag-lock it used to be is `Locked`. The Snackbar's
+    // nine-position stack placement is a third, separate key: `StackAnchor`.
+    // Spec §6 originally named it `Anchor` too, which would have put two
+    // meanings on one key in one property map. This pins all three apart.
     let mut c = Control::new("SNACK-1", ControlType::Snackbar, 0, 0);
 
-    // The base lock is still there, still boolean, still false by default.
-    assert_eq!(c.get_prop("Anchor"), Some(&PropValue::Bool(false)));
-    assert!(!c.is_anchored());
+    // A Snackbar is non-visual — it floats over the form, placed by its
+    // `StackAnchor` — so responsive layout seeds it no `Anchor`; the canvas
+    // lock is its own boolean, as on every control.
+    assert_eq!(c.get_prop("Anchor"), None);
+    assert_eq!(c.get_prop("Locked"), Some(&PropValue::Bool(false)));
+    assert!(!c.is_locked());
 
     // The stack placement is its own key.
     assert_eq!(c.get_prop("StackAnchor").map(shown).as_deref(), Some("BottomRight"));
 
-    // Locking the control on the canvas does NOT move its notifications…
-    c.set_prop("StackAnchor", PropValue::String("TopLeft".into()));
-    c.set_prop("Anchor", PropValue::Bool(true));
-    assert!(c.is_anchored(), "the canvas lock still works");
+    // AC17 — StackAnchor = BottomCenter and Anchor = "Top,Left" keep both.
+    c.set_prop("StackAnchor", PropValue::String("BottomCenter".into()));
+    c.set_prop("Anchor", PropValue::String("Top,Left".into()));
     assert_eq!(
         cobolt_forms::snackbar::mint(&c).0.anchor,
-        cobolt_forms::snackbar::SnackAnchor::TopLeft,
+        cobolt_forms::snackbar::SnackAnchor::BottomCenter,
+        "the anchor edges must not touch the stack anchor"
+    );
+    assert_eq!(c.get_prop("Anchor").map(shown).as_deref(), Some("Top,Left"));
+
+    // Locking the control on the canvas does not move its notifications…
+    c.set_prop("Locked", PropValue::Bool(true));
+    assert!(c.is_locked(), "the canvas lock still works");
+    assert_eq!(
+        cobolt_forms::snackbar::mint(&c).0.anchor,
+        cobolt_forms::snackbar::SnackAnchor::BottomCenter,
         "the canvas lock must not touch the stack anchor"
     );
 
-    // …and choosing a stack anchor does not lock the control on the canvas.
+    // …and choosing a stack anchor neither locks the control nor moves its edges.
     let mut d = Control::new("SNACK-2", ControlType::Snackbar, 0, 0);
-    d.set_prop("StackAnchor", PropValue::String("BottomCenter".into()));
-    assert!(!d.is_anchored(), "the stack anchor must not lock the control");
+    d.set_prop("StackAnchor", PropValue::String("TopLeft".into()));
+    assert!(!d.is_locked(), "the stack anchor must not lock the control");
+    assert_eq!(d.get_prop("Anchor"), None, "nor give it anchor edges");
 
     eprintln!(
-        "\n  Anchor (bool canvas lock) and StackAnchor (9-position placement) are \
-         independent: lock=true + StackAnchor=TopLeft → anchored={}, stack={:?}\n",
-        c.is_anchored(),
+        "\n  Anchor (edges), Locked (canvas lock) and StackAnchor (9-position placement) are \
+         independent: Anchor={:?}, locked={}, stack={:?}\n",
+        c.get_prop("Anchor").map(shown),
+        c.is_locked(),
         cobolt_forms::snackbar::mint(&c).0.anchor
     );
 }

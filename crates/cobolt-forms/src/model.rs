@@ -4646,6 +4646,66 @@ pub(crate) fn seed_theme_owned_appearance(
 /// gets what a freshly dropped one gets. `every_control_types_seeded_border_style_matches`
 /// asserts the two agree for every type in [`ControlType::ALL`], so they cannot
 /// drift the way the flat `"Single"` default did.
+/// 056 — the layout properties a control carries, from the one defaults table
+/// (`layout::defaults`), and the migration of the pre-056 canvas drag-lock.
+///
+/// One function for both boundaries — `Control::new` and the loader's
+/// `seed_missing_props` — so a control made in the designer and one read from
+/// a file cannot disagree (R35, the `seed_theme_owned_appearance` pattern).
+///
+/// Migration (R35): `Anchor` used to be a BOOLEAN drag-lock. A boolean or
+/// integer `Anchor` becomes `Locked` and leaves `Anchor` to carry edges only; a
+/// string that is a valid edge set (`"Top,Left"`, present in real forms) is
+/// kept as edges; any other string is dropped and the type's default edges
+/// take its place. Nothing is added that is not absent, so a value the
+/// developer set is never replaced.
+pub(crate) fn seed_layout_props(ct: &ControlType, props: &mut IndexMap<String, PropValue>) {
+    let has = |props: &IndexMap<String, PropValue>, key: &str| {
+        props.keys().any(|k| k.eq_ignore_ascii_case(key))
+    };
+    if let Some(key) = props.keys().find(|k| k.eq_ignore_ascii_case("Anchor")).cloned() {
+        let lock = match &props[&key] {
+            PropValue::Bool(b) => Some(*b),
+            PropValue::Int(n) => Some(*n != 0),
+            PropValue::String(s) if !is_edge_set(s) => {
+                props.shift_remove(&key);
+                None
+            }
+            PropValue::String(_) => None,
+        };
+        if let Some(lock) = lock {
+            props.shift_remove(&key);
+            if !has(props, "Locked") {
+                props.insert("Locked".into(), PropValue::Bool(lock));
+            }
+        }
+    }
+    if !has(props, "Locked") {
+        props.insert("Locked".into(), PropValue::Bool(crate::layout::defaults::LOCKED));
+    }
+    if ct.is_non_visual() {
+        return;
+    }
+    let mut defaults = crate::layout::defaults::item_defaults(ct);
+    if matches!(ct, ControlType::Panel | ControlType::GroupBox | ControlType::TabControl) {
+        defaults.extend(crate::layout::defaults::container_defaults());
+    }
+    for (k, v) in defaults {
+        if !has(props, k) {
+            props.insert(k.into(), v);
+        }
+    }
+}
+
+/// Every word of `s` is one of `Top`, `Bottom`, `Left`, `Right` (any case);
+/// the empty set counts.
+fn is_edge_set(s: &str) -> bool {
+    s.split(',')
+        .map(|w| w.trim().to_ascii_lowercase())
+        .filter(|w| !w.is_empty())
+        .all(|w| matches!(w.as_str(), "top" | "bottom" | "left" | "right"))
+}
+
 /// Default fill of a Flat GroupBox caption box.
 pub const GROUPBOX_CAPTION_BACK_COLOR: &str = "#2C6FD2";
 /// Default ends of a Gradient GroupBox caption box.
@@ -4740,10 +4800,6 @@ impl Control {
         // How long the pointer must rest on the control before onHoverEnter
         // fires (was a hardcoded 200 ms).
         props.insert("HoverDelayMs".into(), PropValue::Int(200));
-        // Anchor is a boolean lock: when true, the control's X/Y can't be changed
-        // by dragging it with the mouse on the canvas (keyboard/property-pane entry
-        // still works). See `Control::is_anchored`.
-        props.insert("Anchor".into(), PropValue::Bool(false));
         props.insert("Padding".into(), PropValue::Int(0));
         // How much of what is BEHIND the control shows through, 0–100:
         // 0 = opaque, 100 = the control's own face is not painted at all and
@@ -5929,12 +5985,13 @@ impl Control {
                 // `crate::snackbar::effective_timeout_ms`.
                 props.insert("Timeout".into(), PropValue::Int(-1));
                 props.insert("PauseTimeoutOnHover".into(), PropValue::Bool(true));
-                // `StackAnchor`, NOT `Anchor`: every control already has a base
-                // `Anchor` — a BOOLEAN that locks its X/Y against mouse dragging
-                // on the canvas (`Control::is_anchored`). Same name, different
-                // meaning, one property map: the designer's lock checkbox would
-                // have overwritten the notification's placement with `false`.
-                // It joins `StackSpacing`/`StackOrder` as one family instead.
+                // `StackAnchor`, NOT `Anchor`: every visual control already has
+                // a base `Anchor` — the parent edges it follows under responsive
+                // layout (spec 056; before 056 it was the canvas drag-lock now
+                // called `Locked`). Same name, different meaning, one property
+                // map: the notification's nine-position placement would have
+                // been read as edges, or overwritten by them (R36). It joins
+                // `StackSpacing`/`StackOrder` as one family instead.
                 props.insert("StackAnchor".into(), PropValue::String("BottomRight".into()));
                 props.insert("Margin".into(), PropValue::Int(16));
                 props.insert("StackSpacing".into(), PropValue::Int(8));
@@ -6139,6 +6196,7 @@ impl Control {
         }
 
         seed_theme_owned_appearance(&control_type, &mut props);
+        seed_layout_props(&control_type, &mut props);
 
         if control_type.is_data_input_control() {
             props.insert(
@@ -6376,16 +6434,12 @@ impl Control {
         }
     }
 
-    /// Whether the control's position is anchored (locked against mouse dragging).
-    /// Only an explicit boolean/integer `Anchor` counts as anchored; legacy string
-    /// values (e.g. the old `"Top,Left"` anchor edges) are treated as unanchored so
-    /// existing forms don't silently lock every control on load.
-    pub fn is_anchored(&self) -> bool {
-        match self.get_prop("Anchor") {
-            Some(PropValue::Bool(b)) => *b,
-            Some(PropValue::Int(n)) => *n != 0,
-            _ => false,
-        }
+    /// Whether the control is locked against mouse dragging on the design
+    /// canvas (`Locked`, spec 056 R34). Keyboard and property-pane entry still
+    /// move it. This was the boolean `Anchor` before 056; the loader migrates
+    /// it ([`seed_layout_props`]).
+    pub fn is_locked(&self) -> bool {
+        self.get_prop("Locked").map(|v| v.as_bool()).unwrap_or(false)
     }
 
     /// The COBOL `PICTURE` this control's contents obey, as a template string.
@@ -7550,6 +7604,18 @@ pub struct Form {
     /// decides, `x`/`y` unused) so a form that predates this field opens
     /// exactly where it always has.
     pub start_position: FormStartPosition,
+
+    // ── 056 Responsive design ───────────────────────────────────────────────
+    /// `Responsive design` (R1). False unless the `.cfrm` says `responsive="true"`
+    /// (R2), so no form that exists changes behaviour on load.
+    pub responsive: bool,
+    /// The form's own layout properties — `LayoutMode` and its container
+    /// properties, `Padding`, `FontScaling`, the font-scale limits and the
+    /// smallest form size. Only what differs from the seeded default is held
+    /// or saved (R87); the layout reads the defaults table for the rest.
+    pub layout: std::collections::BTreeMap<String, PropValue>,
+    /// The breakpoint table and its overrides (R58, R63).
+    pub breakpoints: Vec<crate::layout::breakpoints::Breakpoint>,
 }
 
 impl Form {
@@ -7619,6 +7685,9 @@ impl Form {
             x: 0,
             y: 0,
             start_position: FormStartPosition::default(),
+            responsive: false,
+            layout: std::collections::BTreeMap::new(),
+            breakpoints: crate::layout::defaults::default_breakpoints(),
         };
         form.seed_repository_if_empty();
         form

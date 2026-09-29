@@ -3946,6 +3946,9 @@ impl PropertiesPanel {
                     return;
                 }
 
+                // ── Layout (spec 056) ────────────────────────────────────────────────
+                self.show_layout_section(ui, form, ctrl, &id, action, tr);
+
                 // ── Appearance ────────────────────────────────────────────────────────
                 self.show_appearance_grid(ui, ctrl, &id, action, tr);
 
@@ -4067,6 +4070,212 @@ impl PropertiesPanel {
     /// The User Procedures tab: the form's procedures A–Z, a search box once
     /// there are any, and ➕ to add one. Moved here from the COBOL Structure
     /// section of the form's Visuals tab (operator, 2026-09-29).
+    /// Spec 056 R32 — the Layout section: how this control is placed by its
+    /// parent, its size limits and font scaling, and — on a container — how it
+    /// places its own children. Shown only on a responsive form; a one-line
+    /// hint otherwise. A control whose position another control owns (R27)
+    /// shows that instead of rows.
+    fn show_layout_section(
+        &mut self,
+        ui: &mut Ui,
+        form: &Form,
+        ctrl: &Control,
+        id: &str,
+        action: &mut InspectorAction,
+        tr: &Tr,
+    ) {
+        use cobolt_forms::layout::{defaults as d, props, LayoutMode};
+        section_header(ui, tr.sec_layout);
+        let hint = |ui: &mut Ui, text: &str| {
+            ui.label(RichText::new(text).small().italics().color(Color32::GRAY));
+            ui.add_space(4.0);
+        };
+        if !form.responsive {
+            hint(ui, tr.layout_off_hint);
+            return;
+        }
+        if layout_owner_positioned(form, ctrl) {
+            hint(ui, tr.layout_owner_hint);
+            return;
+        }
+        let parent = ctrl.parent.as_deref().and_then(|p| form.find_control(p));
+        let mode = match parent {
+            Some(p) => props::layout_mode(p),
+            None => props::layout_mode(&props::FormBag(&form.layout)),
+        };
+        const ALIGN: [&str; 5] = ["Auto", "Stretch", "Start", "Center", "End"];
+        match mode {
+            LayoutMode::Absolute => {
+                layout_edges_row(ui, id, ctrl, action, tr);
+                combo_row_inline_labeled(
+                    ui, id, "Dock", tr.lbl_dock, ctrl, action,
+                    &["None", "Left", "Top", "Right", "Bottom", "Fill"], d::DOCK,
+                );
+            }
+            LayoutMode::Flex => {
+                layout_text_row(ui, &mut self.text_bufs, id, "FlexGrow", tr.lbl_flex_grow, ctrl, action, None);
+                layout_text_row(ui, &mut self.text_bufs, id, "FlexShrink", tr.lbl_flex_shrink, ctrl, action, None);
+                layout_text_row(ui, &mut self.text_bufs, id, "FlexBasis", tr.lbl_flex_basis, ctrl, action, None);
+                combo_row_inline_labeled(ui, id, "AlignSelf", tr.lbl_align_self, ctrl, action, &ALIGN, d::ALIGN_SELF);
+                int_row_inline(ui, id, "Order", tr.lbl_order, ctrl, action, -999..=999);
+            }
+            LayoutMode::Flow => {
+                int_row_inline(ui, id, "Order", tr.lbl_order, ctrl, action, -999..=999);
+                bool_row_inline(ui, id, "FlowBreak", tr.lbl_flow_break, ctrl, action);
+            }
+            LayoutMode::Grid => {
+                int_row_inline(ui, id, "GridColumn", tr.lbl_grid_column, ctrl, action, 0..=999);
+                int_row_inline(ui, id, "GridRow", tr.lbl_grid_row, ctrl, action, 0..=999);
+                int_row_inline(ui, id, "ColumnSpan", tr.lbl_column_span, ctrl, action, 1..=999);
+                int_row_inline(ui, id, "RowSpan", tr.lbl_row_span, ctrl, action, 1..=999);
+                combo_row_inline_labeled(ui, id, "JustifySelf", tr.lbl_justify_self, ctrl, action, &ALIGN, d::JUSTIFY_SELF);
+                combo_row_inline_labeled(ui, id, "AlignSelf", tr.lbl_align_self, ctrl, action, &ALIGN, d::ALIGN_SELF);
+            }
+        }
+        for (key, label) in [
+            ("MinWidth", tr.lbl_min_width),
+            ("MinHeight", tr.lbl_min_height),
+            ("MaxWidth", tr.lbl_max_width),
+            ("MaxHeight", tr.lbl_max_height),
+        ] {
+            int_row_inline(ui, id, key, label, ctrl, action, 0..=20000);
+        }
+        bool_row_inline(ui, id, "ScaleFont", tr.lbl_scale_font, ctrl, action);
+        int_row_inline(ui, id, "MinFontSize", tr.lbl_min_font_size, ctrl, action, 0..=200);
+        int_row_inline(ui, id, "MaxFontSize", tr.lbl_max_font_size, ctrl, action, 0..=200);
+
+        if matches!(ctrl.control_type, ControlType::Panel | ControlType::GroupBox | ControlType::TabControl) {
+            ui.add_space(4.0);
+            int_row_inline(ui, id, "Padding", tr.lbl_padding, ctrl, action, 0..=500);
+            for (key, label) in [
+                ("PaddingLeft", tr.lbl_padding_left),
+                ("PaddingTop", tr.lbl_padding_top),
+                ("PaddingRight", tr.lbl_padding_right),
+                ("PaddingBottom", tr.lbl_padding_bottom),
+            ] {
+                layout_text_row(ui, &mut self.text_bufs, id, key, label, ctrl, action, Some(tr.layout_inherit_hint));
+            }
+            combo_row_inline_labeled(
+                ui, id, "LayoutMode", tr.lbl_layout_mode, ctrl, action,
+                &["Absolute", "Flex", "Grid", "Flow"], d::LAYOUT_MODE,
+            );
+            layout_container_rows(ui, &mut self.text_bufs, id, props::layout_mode(ctrl), ctrl, action, tr);
+        }
+        ui.add_space(4.0);
+    }
+
+    /// Spec 056 R1, R32, R83 — the form's Layout section: the `Responsive
+    /// design` switch and, when it is on, the form's own layout mode and
+    /// container properties, padding, font scaling, smallest size and the
+    /// breakpoint table.
+    fn show_form_layout(&mut self, ui: &mut Ui, form: &Form, action: &mut InspectorAction, tr: &Tr) {
+        use cobolt_forms::layout::{defaults as d, props, LayoutMode};
+        use LayoutRowKind::*;
+        section_header(ui, tr.sec_layout);
+        let mut on = form.responsive;
+        property_row_keyed(ui, tr.lbl_responsive, Some("Responsive"), |ui| {
+            if ui.checkbox(&mut on, "").changed() {
+                action.form_props.push(("Responsive".into(), on.to_string()));
+            }
+        });
+        if !form.responsive {
+            ui.add_space(4.0);
+            return;
+        }
+        let bufs = &mut self.text_bufs;
+        form_layout_row(ui, bufs, form, "LayoutMode", tr.lbl_layout_mode,
+            Combo(&["Absolute", "Flex", "Grid", "Flow"], d::LAYOUT_MODE), action);
+        let mode: LayoutMode = props::layout_mode(&props::FormBag(&form.layout));
+        form_layout_rows(ui, bufs, form, mode, action, tr);
+        form_layout_row(ui, bufs, form, "Padding", tr.lbl_padding, Int(0, 500), action);
+        for (key, label) in [
+            ("PaddingLeft", tr.lbl_padding_left),
+            ("PaddingTop", tr.lbl_padding_top),
+            ("PaddingRight", tr.lbl_padding_right),
+            ("PaddingBottom", tr.lbl_padding_bottom),
+        ] {
+            form_layout_row(ui, bufs, form, key, label, Text(tr.layout_inherit_hint), action);
+        }
+        form_layout_row(ui, bufs, form, "FontScaling", tr.lbl_font_scaling,
+            Combo(&["None", "Fluid", "Stepped"], d::FONT_SCALING), action);
+        form_layout_row(ui, bufs, form, "MinFontScale", tr.lbl_min_font_scale, Text(d::MIN_FONT_SCALE), action);
+        form_layout_row(ui, bufs, form, "MaxFontScale", tr.lbl_max_font_scale, Text(d::MAX_FONT_SCALE), action);
+        form_layout_row(ui, bufs, form, "MinFormWidth", tr.lbl_min_form_width, Int(1, 20000), action);
+        form_layout_row(ui, bufs, form, "MinFormHeight", tr.lbl_min_form_height, Int(1, 20000), action);
+        self.show_breakpoint_editor(ui, form, action, tr);
+        ui.add_space(4.0);
+    }
+
+    /// The breakpoint table (spec 056 R58, R83): name, minimum width and font
+    /// factor per row; add, rename, remove. Every change goes out as the whole
+    /// table in its `Name:MinWidth:FontFactor;…` form, which keeps the
+    /// overrides of every name that survives.
+    fn show_breakpoint_editor(&mut self, ui: &mut Ui, form: &Form, action: &mut InspectorAction, tr: &Tr) {
+        use cobolt_forms::layout::breakpoints::{to_text, Breakpoint};
+        ui.add_space(2.0);
+        ui.label(RichText::new(tr.lbl_breakpoints).strong());
+        let mut table: Vec<Breakpoint> = form.breakpoints.clone();
+        let mut changed = false;
+        let mut remove: Option<usize> = None;
+        let vp = ui.ctx().viewport_id();
+        egui::Grid::new("bp_editor").num_columns(4).striped(true).show(ui, |ui| {
+            ui.label(RichText::new(tr.bp_col_name).small());
+            ui.label(RichText::new(tr.bp_col_min_width).small());
+            ui.label(RichText::new(tr.bp_col_factor).small());
+            ui.label("");
+            ui.end_row();
+            for (i, bp) in table.iter_mut().enumerate() {
+                let buf_key = format!("bp-name-{i}:{vp:?}");
+                let wid = egui::Id::new(&buf_key);
+                let focused = ui.memory(|m| m.has_focus(wid));
+                let buf = self.text_bufs.entry(buf_key).or_insert_with(|| bp.name.clone());
+                if *buf != bp.name && !focused {
+                    *buf = bp.name.clone();
+                }
+                let resp = ui.add(egui::TextEdit::singleline(buf).id(wid).desired_width(90.0));
+                let name = buf.trim().to_owned();
+                if resp.lost_focus() && !name.is_empty() && name != bp.name && !name.contains([':', ';']) {
+                    bp.name = name;
+                    changed = true;
+                }
+                if ui.add(DragValue::new(&mut bp.min_width).speed(1).range(0..=20000)).changed() {
+                    changed = true;
+                }
+                if ui
+                    .add(DragValue::new(&mut bp.font_factor).speed(0.01).range(0.25..=4.0).max_decimals(2))
+                    .changed()
+                {
+                    changed = true;
+                }
+                if ui.small_button("🗑").on_hover_text(tr.bp_remove).clicked() {
+                    remove = Some(i);
+                }
+                ui.end_row();
+            }
+        });
+        if let Some(i) = remove {
+            table.remove(i);
+            changed = true;
+        }
+        if ui.small_button(tr.bp_add).clicked() {
+            let next = table.iter().map(|b| b.min_width).max().unwrap_or(0) + 400;
+            let mut n = table.len() + 1;
+            while table.iter().any(|b| b.name == format!("Breakpoint{n}")) {
+                n += 1;
+            }
+            table.push(Breakpoint {
+                name: format!("Breakpoint{n}"),
+                min_width: next,
+                font_factor: cobolt_forms::layout::defaults::BREAKPOINT_FONT_FACTOR,
+                overrides: Vec::new(),
+            });
+            changed = true;
+        }
+        if changed {
+            action.form_props.push(("Breakpoints".into(), to_text(&table)));
+        }
+    }
+
     fn show_user_procedures(&mut self, ui: &mut Ui, form: &Form, action: &mut InspectorAction, tr: &Tr) {
         use super::cobol_structure::CsTarget;
         section_header(ui, tr.cs_user_procedures);
@@ -4219,18 +4428,19 @@ impl PropertiesPanel {
             }
             ui.label(RichText::new("(z-order)").small().color(Color32::GRAY));
         });
-        // Anchor: a boolean position lock. When on, the control can't be moved by
-        // dragging it with the mouse on the canvas; X/Y above still accept keyboard
-        // entry. (Moved here from the removed Layout section.)
-        let mut anchored = ctrl.is_anchored();
-        property_row_keyed(ui, tr.lbl_anchor, Some("Anchor"), |ui| {
-            if ui.checkbox(&mut anchored, "").changed() {
+        // Locked: the canvas position lock (spec 056 R34 — this was the boolean
+        // `Anchor`, which now carries the parent edges a responsive control
+        // follows). When on, the control can't be moved by dragging it with the
+        // mouse on the canvas; X/Y above still accept keyboard entry.
+        let mut locked = ctrl.is_locked();
+        property_row_keyed(ui, tr.lbl_locked, Some("Locked"), |ui| {
+            if ui.checkbox(&mut locked, "").changed() {
                 action
                     .set_props
-                    .push((id.to_owned(), "Anchor".into(), PropValue::Bool(anchored)));
+                    .push((id.to_owned(), "Locked".into(), PropValue::Bool(locked)));
             }
             ui.label(
-                RichText::new("(lock X/Y from mouse)")
+                RichText::new(tr.lbl_locked_hint)
                     .small()
                     .color(Color32::GRAY),
             );
@@ -10227,6 +10437,9 @@ impl PropertiesPanel {
                     ui.label(format!("{} × {}", form.width, form.height));
                 });
 
+                // ── Layout (spec 056) ─────────────────────────────────────────────────
+                self.show_form_layout(ui, form, action, tr);
+
                 // ── COBOL Structure (spec 005) ────────────────────────────────────────
                 // List of sections + user procedures; clicking a row opens the popup
                 // editor for that single block.
@@ -12383,6 +12596,232 @@ fn combo_row_inline_labeled(
     });
 }
 
+/// Spec 056 R27 — a control whose position another control owns: a
+/// Splitter's pane, a SideMenu's footer, anything inside a Splitter or a
+/// SideMenu, and everything inside a repeating group's template.
+fn layout_owner_positioned(form: &Form, ctrl: &Control) -> bool {
+    if ctrl.is_splitter_pane() || ctrl.is_side_menu_footer() {
+        return true;
+    }
+    let mut cur = ctrl.parent.as_deref().and_then(|p| form.find_control(p));
+    let mut first = true;
+    while let Some(p) = cur {
+        let repeating = p.control_type == ControlType::GroupBox
+            && p.get_prop("IsRepeatingGroup").is_some_and(|v| v.as_bool());
+        if repeating || (first && !p.is_container()) {
+            return true;
+        }
+        first = false;
+        cur = p.parent.as_deref().and_then(|q| form.find_control(q));
+    }
+    false
+}
+
+/// `Anchor` as four edge checkboxes (spec 056 R32), written back as the
+/// canonical edge text.
+fn layout_edges_row(ui: &mut Ui, id: &str, ctrl: &Control, action: &mut InspectorAction, tr: &Tr) {
+    let mut e = cobolt_forms::layout::props::anchor(ctrl);
+    property_row_keyed(ui, tr.lbl_anchor, Some("Anchor"), |ui| {
+        let before = e;
+        ui.checkbox(&mut e.top, tr.lbl_edge_top);
+        ui.checkbox(&mut e.bottom, tr.lbl_edge_bottom);
+        ui.checkbox(&mut e.left, tr.lbl_edge_left);
+        ui.checkbox(&mut e.right, tr.lbl_edge_right);
+        if e != before {
+            action
+                .set_props
+                .push((id.to_owned(), "Anchor".into(), PropValue::String(e.to_text())));
+        }
+    });
+}
+
+/// A free-text layout value (a decimal, a track list, an optional side
+/// padding), committed when the field loses focus.
+#[allow(clippy::too_many_arguments)]
+fn layout_text_row(
+    ui: &mut Ui,
+    bufs: &mut std::collections::HashMap<String, String>,
+    id: &str,
+    key: &str,
+    label: &str,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+    hint: Option<&str>,
+) {
+    let cur = ctrl
+        .get_prop(key)
+        .map(|v| v.to_xml_string())
+        .or_else(|| cobolt_forms::layout::defaults::control_default(&ctrl.control_type, key).map(|v| v.to_xml_string()))
+        .unwrap_or_default();
+    let vp = ui.ctx().viewport_id();
+    let buf_key = format!("{id}-{key}:{vp:?}");
+    let wid = egui::Id::new(&buf_key);
+    let focused = ui.memory(|m| m.has_focus(wid));
+    let buf = bufs.entry(buf_key).or_insert_with(|| cur.clone());
+    if *buf != cur && !focused {
+        *buf = cur.clone();
+    }
+    property_row_keyed(ui, label, Some(key), |ui| {
+        let mut edit = egui::TextEdit::singleline(buf).id(wid).desired_width(120.0);
+        if let Some(h) = hint {
+            edit = edit.hint_text(h);
+        }
+        let resp = ui.add(edit);
+        if resp.lost_focus() && buf.trim() != cur {
+            action
+                .set_props
+                .push((id.to_owned(), key.to_owned(), PropValue::String(buf.trim().to_owned())));
+        }
+    });
+}
+
+/// One row of a layout container's properties (spec 056 R52, R55, R57),
+/// described once and drawn for a control ([`layout_container_rows`]) or for
+/// the form ([`form_layout_rows`]).
+#[derive(Clone, Copy)]
+enum LayoutRowKind {
+    Combo(&'static [&'static str], &'static str),
+    Int(i64, i64),
+    Text(&'static str),
+    Bool,
+}
+
+/// The container rows for `mode`, in display order.
+fn container_row_specs(
+    mode: cobolt_forms::layout::LayoutMode,
+    tr: &Tr,
+) -> Vec<(&'static str, &'static str, LayoutRowKind)> {
+    use cobolt_forms::layout::{defaults as d, LayoutMode};
+    use LayoutRowKind::*;
+    const ALIGN: &[&str] = &["Stretch", "Start", "Center", "End"];
+    let mut rows = match mode {
+        LayoutMode::Absolute => vec![],
+        LayoutMode::Flex => vec![
+            ("FlexDirection", tr.lbl_flex_direction, Combo(&["Row", "Column", "RowReverse", "ColumnReverse"], d::FLEX_DIRECTION)),
+            ("FlexWrap", tr.lbl_flex_wrap, Combo(&["NoWrap", "Wrap", "WrapReverse"], d::FLEX_WRAP)),
+            ("JustifyContent", tr.lbl_justify_content, Combo(&["Start", "Center", "End", "SpaceBetween", "SpaceAround", "SpaceEvenly"], d::JUSTIFY_CONTENT)),
+            ("AlignItems", tr.lbl_align_items, Combo(ALIGN, d::ALIGN_ITEMS)),
+            ("AlignContent", tr.lbl_align_content, Combo(&["Stretch", "Start", "Center", "End", "SpaceBetween", "SpaceAround"], d::ALIGN_CONTENT)),
+        ],
+        LayoutMode::Grid => vec![
+            ("GridColumns", tr.lbl_grid_columns, Text("1fr 1fr")),
+            ("GridRows", tr.lbl_grid_rows, Text("Auto")),
+            ("JustifyItems", tr.lbl_justify_items, Combo(ALIGN, d::JUSTIFY_ITEMS)),
+            ("AlignItems", tr.lbl_align_items, Combo(ALIGN, d::ALIGN_ITEMS)),
+        ],
+        LayoutMode::Flow => vec![
+            ("FlowDirection", tr.lbl_flow_direction, Combo(&["LeftToRight", "TopDown", "RightToLeft", "BottomUp"], d::FLOW_DIRECTION)),
+            ("WrapContents", tr.lbl_wrap_contents, Bool),
+        ],
+    };
+    if mode != LayoutMode::Absolute {
+        rows.push(("Gap", tr.lbl_gap, Int(0, 500)));
+        if mode != LayoutMode::Flow {
+            rows.push(("RowGap", tr.lbl_row_gap, Text("Gap")));
+            rows.push(("ColumnGap", tr.lbl_column_gap, Text("Gap")));
+        }
+    }
+    rows
+}
+
+/// A container control's own layout rows.
+fn layout_container_rows(
+    ui: &mut Ui,
+    bufs: &mut std::collections::HashMap<String, String>,
+    id: &str,
+    mode: cobolt_forms::layout::LayoutMode,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+    tr: &Tr,
+) {
+    for (key, label, kind) in container_row_specs(mode, tr) {
+        match kind {
+            LayoutRowKind::Combo(opts, fallback) => combo_row_inline_labeled(ui, id, key, label, ctrl, action, opts, fallback),
+            LayoutRowKind::Int(lo, hi) => int_row_inline(ui, id, key, label, ctrl, action, lo..=hi),
+            LayoutRowKind::Text(hint) => layout_text_row(ui, bufs, id, key, label, ctrl, action, Some(hint)),
+            LayoutRowKind::Bool => bool_row_inline(ui, id, key, label, ctrl, action),
+        }
+    }
+}
+
+/// One form-level layout row: the value is read from the form's layout bag
+/// (defaults included) and a change goes out as a form property.
+fn form_layout_row(
+    ui: &mut Ui,
+    bufs: &mut std::collections::HashMap<String, String>,
+    form: &Form,
+    key: &str,
+    label: &str,
+    kind: LayoutRowKind,
+    action: &mut InspectorAction,
+) {
+    use cobolt_forms::layout::props::{FormBag, PropSource};
+    let bag = FormBag(&form.layout);
+    let cur = bag.text(key);
+    match kind {
+        LayoutRowKind::Combo(opts, _) => {
+            property_row_keyed(ui, label, Some(key), |ui| {
+                egui::ComboBox::from_id_salt(format!("form_layout_{key}"))
+                    .selected_text(&cur)
+                    .width(ui.available_width())
+                    .show_ui(ui, |ui| {
+                        for &opt in opts {
+                            if ui.selectable_label(cur == opt, opt).clicked() {
+                                action.form_props.push((key.to_owned(), opt.to_owned()));
+                            }
+                        }
+                    });
+            });
+        }
+        LayoutRowKind::Int(lo, hi) => {
+            let mut v = bag.number(key) as i64;
+            property_row_keyed(ui, label, Some(key), |ui| {
+                if ui.add(DragValue::new(&mut v).speed(1).range(lo..=hi)).changed() {
+                    action.form_props.push((key.to_owned(), v.to_string()));
+                }
+            });
+        }
+        LayoutRowKind::Bool => {
+            let mut v = bag.flag(key);
+            property_row_keyed(ui, label, Some(key), |ui| {
+                if ui.checkbox(&mut v, "").changed() {
+                    action.form_props.push((key.to_owned(), v.to_string()));
+                }
+            });
+        }
+        LayoutRowKind::Text(hint) => {
+            let vp = ui.ctx().viewport_id();
+            let buf_key = format!("form-{key}:{vp:?}");
+            let wid = egui::Id::new(&buf_key);
+            let focused = ui.memory(|m| m.has_focus(wid));
+            let buf = bufs.entry(buf_key).or_insert_with(|| cur.clone());
+            if *buf != cur && !focused {
+                *buf = cur.clone();
+            }
+            property_row_keyed(ui, label, Some(key), |ui| {
+                let resp = ui.add(egui::TextEdit::singleline(buf).id(wid).desired_width(120.0).hint_text(hint));
+                if resp.lost_focus() && buf.trim() != cur {
+                    action.form_props.push((key.to_owned(), buf.trim().to_owned()));
+                }
+            });
+        }
+    }
+}
+
+/// The form's own container rows for `mode`.
+fn form_layout_rows(
+    ui: &mut Ui,
+    bufs: &mut std::collections::HashMap<String, String>,
+    form: &Form,
+    mode: cobolt_forms::layout::LayoutMode,
+    action: &mut InspectorAction,
+    tr: &Tr,
+) {
+    for (key, label, kind) in container_row_specs(mode, tr) {
+        form_layout_row(ui, bufs, form, key, label, kind, action);
+    }
+}
+
 /// Combo row — inline horizontal style.
 fn combo_row_inline(
     ui: &mut Ui,
@@ -13072,6 +13511,149 @@ mod tests {
     /// reading the key directly, and it is what the fix's own diff branches
     /// on — the same shape-walk `the_maps_pane_offers_the_starting_location`
     /// above already uses for this panel.
+    /// Spec 056 AC40 (controls) — the Layout section shows the rows each
+    /// placement needs, and only on a responsive form.
+    #[test]
+    fn the_layout_section_offers_the_rows_each_placement_needs_056() {
+        fn labels(form: &Form, ctrl: &Control, tr: &Tr) -> Vec<String> {
+            let ctx = egui::Context::default();
+            let mut panel = PropertiesPanel::new();
+            let mut out = Vec::new();
+            let mut full = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 4000.0))),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::CentralPanel::default().show_inside(ui, |ui| {
+                        let _ = panel.show(ui, form, Some(ctrl), &[], tr);
+                    });
+                },
+            );
+            fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+                match shape {
+                    egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut out);
+            }
+            full.textures_delta.clear();
+            out
+        }
+        let tr = &crate::i18n::Language::English.tr();
+        let has = |l: &[String], s: &str| l.iter().any(|t| t == s || t.starts_with(s));
+
+        let mut form = Form::new("F", "F", 800, 600);
+        let btn = Control::new("BTN", ControlType::Button, 10, 10);
+        form.controls.push(btn.clone());
+
+        // Not responsive: only the hint.
+        let off = labels(&form, &btn, tr);
+        assert!(has(&off, tr.layout_off_hint), "the off hint is shown");
+        assert!(!has(&off, tr.lbl_dock), "no Dock row on a non-responsive form");
+
+        form.responsive = true;
+        // An Absolute child: the anchor edges and Dock, limits and font rows.
+        let abs = labels(&form, &btn, tr);
+        for want in [tr.lbl_anchor, tr.lbl_edge_top, tr.lbl_edge_right, tr.lbl_dock, tr.lbl_min_width,
+                     tr.lbl_max_height, tr.lbl_scale_font, tr.lbl_max_font_size] {
+            assert!(has(&abs, want), "absolute child shows {want:?}");
+        }
+        assert!(!has(&abs, tr.lbl_flex_grow), "no flex rows in an Absolute parent");
+
+        // A Flex container and its child.
+        let mut panel = Control::new("PNL", ControlType::Panel, 0, 0);
+        panel.set_prop("LayoutMode", PropValue::String("Flex".into()));
+        let mut kid = Control::new("KID", ControlType::Button, 0, 0);
+        kid.parent = Some("PNL".into());
+        form.controls.push(panel.clone());
+        form.controls.push(kid.clone());
+        let item = labels(&form, &kid, tr);
+        for want in [tr.lbl_flex_grow, tr.lbl_flex_shrink, tr.lbl_flex_basis, tr.lbl_align_self, tr.lbl_order] {
+            assert!(has(&item, want), "flex item shows {want:?}");
+        }
+        assert!(!has(&item, tr.lbl_dock), "a flex item has no Dock row");
+        let cont = labels(&form, &panel, tr);
+        for want in [tr.lbl_layout_mode, tr.lbl_flex_direction, tr.lbl_flex_wrap, tr.lbl_justify_content,
+                     tr.lbl_align_items, tr.lbl_align_content, tr.lbl_gap, tr.lbl_row_gap, tr.lbl_padding,
+                     tr.lbl_padding_left] {
+            assert!(has(&cont, want), "flex container shows {want:?}");
+        }
+
+        // Grid and Flow parents switch the item rows.
+        form.controls[1].set_prop("LayoutMode", PropValue::String("Grid".into()));
+        let grid_item = labels(&form, &kid, tr);
+        for want in [tr.lbl_grid_column, tr.lbl_grid_row, tr.lbl_column_span, tr.lbl_row_span, tr.lbl_justify_self] {
+            assert!(has(&grid_item, want), "grid item shows {want:?}");
+        }
+        form.controls[1].set_prop("LayoutMode", PropValue::String("Flow".into()));
+        assert!(has(&labels(&form, &kid, tr), tr.lbl_flow_break));
+
+        // A Splitter pane is placed by its splitter (R27).
+        let mut sp = Control::new("SPL", ControlType::Splitter, 0, 0);
+        sp.rect = cobolt_forms::model::Rect::new(0, 0, 400, 300);
+        form.controls.push(sp);
+        let mut pane = Control::new("PANE", ControlType::Panel, 0, 0);
+        pane.parent = Some("SPL".into());
+        form.controls.push(pane.clone());
+        let owned = labels(&form, &pane, tr);
+        assert!(has(&owned, tr.layout_owner_hint), "a Splitter's child shows the owner hint");
+        assert!(!has(&owned, tr.lbl_dock));
+        println!("056 AC40 (controls): off hint, Absolute, Flex item + container, Grid item, Flow item and owner-positioned rows all as specified");
+    }
+
+    /// Spec 056 AC40 (form) — the form inspector's Layout section: the switch
+    /// always, the rest and the breakpoint editor only when it is on.
+    #[test]
+    fn the_form_inspector_shows_responsive_design_and_its_breakpoints_056() {
+        fn labels(form: &Form, tr: &Tr) -> Vec<String> {
+            let ctx = egui::Context::default();
+            let mut panel = PropertiesPanel::new();
+            let mut out = Vec::new();
+            let mut full = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 4000.0))),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::CentralPanel::default().show_inside(ui, |ui| {
+                        let _ = panel.show(ui, form, None, &[], tr);
+                    });
+                },
+            );
+            fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+                match shape {
+                    egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut out);
+            }
+            full.textures_delta.clear();
+            out
+        }
+        let tr = &crate::i18n::Language::English.tr();
+        let has = |l: &[String], s: &str| l.iter().any(|t| t == s || t.starts_with(s));
+        let mut form = Form::new("F", "F", 800, 600);
+        let off = labels(&form, tr);
+        assert!(has(&off, tr.lbl_responsive));
+        assert!(!has(&off, tr.lbl_breakpoints), "no breakpoint editor while off");
+        form.responsive = true;
+        let on = labels(&form, tr);
+        for want in [tr.lbl_layout_mode, tr.lbl_padding, tr.lbl_font_scaling, tr.lbl_min_font_scale,
+                     tr.lbl_min_form_width, tr.lbl_breakpoints, tr.bp_col_name, tr.bp_add] {
+            assert!(has(&on, want), "form layout shows {want:?}");
+        }
+        form.layout.insert("LayoutMode".into(), PropValue::String("Flex".into()));
+        assert!(has(&labels(&form, tr), tr.lbl_flex_direction), "the form's own flex rows follow its LayoutMode");
+        println!("056 AC40 (form inspector): Responsive switch always; layout, font scaling, minimum size and the breakpoint editor when on");
+    }
+
     #[test]
     fn a_radio_buttons_default_state_row_says_selected_not_checked() {
         let form = Form::new("F", "F", 800, 600);
