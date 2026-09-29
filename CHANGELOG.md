@@ -8,6 +8,23 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.349] — 2026-09-29
+
+### Fix: an application without the Knowledge Base builds again
+
+1.70.346 made a KnowledgeBase tool's description state the control's real
+`MaximumResults`, and read it through a helper that exists only when the
+runtime links the Knowledge Base (`kb` feature). The caller is compiled either
+way, so every compiled application that does not use a KnowledgeBase — the
+build trims that feature — failed to compile the runtime:
+`no method named kb_config found for Interpreter`. The compiler's own
+end-to-end build tests (`resolve_main_tests`) went red with it.
+
+The value is now read through a small helper that has a body in both builds;
+without the Knowledge Base no tool is ever registered, so nothing reads it.
+Verified: `cargo build -p cobolt-runtime --no-default-features` fails on
+1.70.348 with that error and succeeds here; the default build is unchanged.
+
 ## [PowerRustCOBOL 1.70.348] — 2026-09-29
 
 ### Fix — a form wider than its pane can be scrolled sideways, with a visible bar

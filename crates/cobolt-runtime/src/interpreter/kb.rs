@@ -465,6 +465,25 @@ impl Interpreter {
             .any(|t| t.agent == agent && t.name.eq_ignore_ascii_case(name))
     }
 
+    /// A KnowledgeBase control's `MaximumResults`, as a tool description
+    /// states it.
+    ///
+    /// This impl block is compiled WITHOUT the `kb` feature too, and
+    /// `kb_config` exists only with it: calling it straight from
+    /// [`Self::kb_tool_specs`] (1.70.346) made `cobolt-runtime` fail to build
+    /// for every compiled application that does not link the Knowledge Base.
+    #[cfg(feature = "kb")]
+    fn kb_default_max_results(&self, kb: &str) -> usize {
+        self.kb_config(kb).max_results
+    }
+
+    /// Without `kb` no tool is ever registered (`AllowKnowledgeBase` lives in
+    /// the gated block), so there is no description to write.
+    #[cfg(not(feature = "kb"))]
+    fn kb_default_max_results(&self, _kb: &str) -> usize {
+        0
+    }
+
     pub(crate) fn kb_tool_specs(&self, agent: &str) -> Vec<crate::agent_tools::ToolSpec> {
         let agent = agent.trim().to_ascii_uppercase();
         self.kb_tools
@@ -474,7 +493,7 @@ impl Interpreter {
                 // The default the call really gets is the control's
                 // `MaximumResults`; the description used to say 5 whatever it
                 // was set to.
-                let default = self.kb_config(&t.kb).max_results;
+                let default = self.kb_default_max_results(&t.kb);
                 crate::agent_tools::ToolSpec {
                 name: t.name.clone(),
                 description: format!(
