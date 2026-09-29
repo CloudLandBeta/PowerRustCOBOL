@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.341] — 2026-09-29
+
+### Fix — a SideMenu form's onResize fires when its window is resized
+
+A form holding a `SideMenu` runs as the shell: its window is the shell's
+window. Its `onResizing`/`onResize` (and `onMoving`/`onMove`) were raised
+only for a form in a window of its own, so in a shell they never ran — the
+operator's breakpoint in PowerChat's CHAT-FORM `onResize` was never hit.
+They fire for the shell's form now, with the new size already in the form's
+`Width` and `Height`. The other window events keep their guard.
+
 ## [PowerRustCOBOL 1.70.340] — 2026-09-29
 
 ### Fix — a method call on the line after a MOVE is the next statement

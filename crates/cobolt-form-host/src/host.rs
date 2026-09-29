@@ -4690,7 +4690,6 @@ impl FormHost {
             let on_background = pointer_pos.is_some() && !over_control;
 
             let form = self.root.form_object.clone();
-            let input_tx = self.root.input_tx.clone();
             let mut raise = |ev: &str| {
                 self.root.send_event(FormEvent::new(form.clone(), ev));
             };
@@ -4726,60 +4725,6 @@ impl FormHost {
                         raise("onDpiChanged");
                     }
                     None => self.dpi_actual = Some(now),
-                    _ => {}
-                }
-            }
-
-            // Size and position. The progressive name repeats while the drag is
-            // in flight; the base name fires once when it settles.
-            //
-            // The new size is mirrored onto the form object first, the way
-            // FullScreen is, so the handler reads it: `me::Height` used to stay
-            // the designed height, and a handler laying the form out from it
-            // computed a change of zero (operator, 2026-09-28).
-            let mirror_size = |size: egui::Vec2| {
-                for (prop, v) in [("Width", size.x), ("Height", size.y)] {
-                    let _ = input_tx.send(StateUpdate {
-                        ctrl_id: form.clone(),
-                        prop: prop.into(),
-                        value: format!("{}", v.round() as i64),
-                        instance_index: 0,
-                    });
-                }
-            };
-            let (inner, outer) =
-                ctx.input(|i| (i.viewport().inner_rect, i.viewport().outer_rect));
-            if let Some(rect) = inner {
-                let size = rect.size();
-                match self.window_size_actual {
-                    Some(was) if (was - size).length() > 0.5 => {
-                        self.window_size_actual = Some(size);
-                        self.resize_pending = true;
-                        mirror_size(size);
-                        raise("onResizing");
-                    }
-                    Some(_) if self.resize_pending => {
-                        self.resize_pending = false;
-                        mirror_size(size);
-                        raise("onResize");
-                    }
-                    None => self.window_size_actual = Some(size),
-                    _ => {}
-                }
-            }
-            if let Some(rect) = outer {
-                let pos = rect.min;
-                match self.window_pos_actual {
-                    Some(was) if (was - pos).length() > 0.5 => {
-                        self.window_pos_actual = Some(pos);
-                        self.move_pending = true;
-                        raise("onMoving");
-                    }
-                    Some(_) if self.move_pending => {
-                        self.move_pending = false;
-                        raise("onMove");
-                    }
-                    None => self.window_pos_actual = Some(pos),
                     _ => {}
                 }
             }
@@ -4946,6 +4891,73 @@ impl FormHost {
             // is the only name for them.
             if gesture {
                 raise("onGesture");
+            }
+        }
+
+        // Size and position — in Pane mode too. A FormHost in Pane mode is the
+        // SHELL's main form (a form loaded into the pane is a body of its own,
+        // never this), and the shell's window is that form's window: its size
+        // is the form's size. Behind the Window-only guard above, a shell
+        // form's onResize was never raised (operator, 2026-09-29: PowerChat's
+        // CHAT-FORM onResize breakpoint was never hit).
+        {
+            let form = self.root.form_object.clone();
+            let input_tx = self.root.input_tx.clone();
+            let mut raise = |ev: &str| {
+                self.root.send_event(FormEvent::new(form.clone(), ev));
+            };
+            // Size and position. The progressive name repeats while the drag is
+            // in flight; the base name fires once when it settles.
+            //
+            // The new size is mirrored onto the form object first, the way
+            // FullScreen is, so the handler reads it: `me::Height` used to stay
+            // the designed height, and a handler laying the form out from it
+            // computed a change of zero (operator, 2026-09-28).
+            let mirror_size = |size: egui::Vec2| {
+                for (prop, v) in [("Width", size.x), ("Height", size.y)] {
+                    let _ = input_tx.send(StateUpdate {
+                        ctrl_id: form.clone(),
+                        prop: prop.into(),
+                        value: format!("{}", v.round() as i64),
+                        instance_index: 0,
+                    });
+                }
+            };
+            let (inner, outer) =
+                ctx.input(|i| (i.viewport().inner_rect, i.viewport().outer_rect));
+            if let Some(rect) = inner {
+                let size = rect.size();
+                match self.window_size_actual {
+                    Some(was) if (was - size).length() > 0.5 => {
+                        self.window_size_actual = Some(size);
+                        self.resize_pending = true;
+                        mirror_size(size);
+                        raise("onResizing");
+                    }
+                    Some(_) if self.resize_pending => {
+                        self.resize_pending = false;
+                        mirror_size(size);
+                        raise("onResize");
+                    }
+                    None => self.window_size_actual = Some(size),
+                    _ => {}
+                }
+            }
+            if let Some(rect) = outer {
+                let pos = rect.min;
+                match self.window_pos_actual {
+                    Some(was) if (was - pos).length() > 0.5 => {
+                        self.window_pos_actual = Some(pos);
+                        self.move_pending = true;
+                        raise("onMoving");
+                    }
+                    Some(_) if self.move_pending => {
+                        self.move_pending = false;
+                        raise("onMove");
+                    }
+                    None => self.window_pos_actual = Some(pos),
+                    _ => {}
+                }
             }
         }
 
@@ -9066,6 +9078,46 @@ mod parity {
     /// Twenty-one events that were designable and never sent. Each is driven
     /// here through the real input path, and the steady state is checked too:
     /// these are edges and gestures, not per-frame chatter.
+    /// A shell's main form owns the shell's window, so dragging that window's
+    /// edge raises its `onResizing`/`onResize` with the new size — as a form
+    /// in a window of its own does. They were behind a Window-only guard, and
+    /// PowerChat's CHAT-FORM `onResize` never ran (operator, 2026-09-29).
+    #[test]
+    fn a_shell_form_hears_its_window_resize() {
+        let (mut app, pipes) = host_with_surface("none:0:linear", "none:0:linear", false, Surface::Pane);
+        let ctx = egui::Context::default();
+        app.fx_entrance_done = true;
+        app.root.anim_started = true;
+        app.root.lifecycle_sent = true;
+        let sized = |w: f32| egui::ViewportInfo {
+            focused: Some(true),
+            inner_rect: Some(egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(w, 600.0))),
+            outer_rect: Some(egui::Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(w, 600.0))),
+            ..Default::default()
+        };
+        let mut step = |app: &mut FormHost, info: egui::ViewportInfo| {
+            let mut input = raw();
+            input.viewports.insert(egui::ViewportId::ROOT, info);
+            frame(app, &ctx, input);
+        };
+        let names = |pipes: &Pipes| -> Vec<String> {
+            drain_events(pipes).into_iter().map(|(_, e)| e).filter(|e| e.starts_with("onResiz")).collect()
+        };
+        step(&mut app, sized(800.0));
+        let _ = names(&pipes);
+        step(&mut app, sized(900.0));
+        assert_eq!(names(&pipes), ["onResizing"]);
+        step(&mut app, sized(900.0));
+        assert_eq!(names(&pipes), ["onResize"]);
+        let height: Vec<String> = pipes
+            ._input_rx
+            .try_iter()
+            .filter(|u| u.prop == "Height")
+            .map(|u| u.value)
+            .collect();
+        assert_eq!(height.last().map(String::as_str), Some("600"), "the handler reads the size");
+    }
+
     #[test]
     fn the_input_and_environment_events_reach_the_form() {
         let (mut app, pipes) = host_with("none:0:linear", "none:0:linear", false);

@@ -5789,8 +5789,10 @@ In words:
 > - **Form-level** fires `onLoad`/`onClose` (at start-up / shutdown),
 >   `onShow`/`onActivate` (when the run window first appears) and `onResize`
 >   (when its size changes: `onResizing` repeats while the window is dragged,
->   `onResize` fires once when it settles). Both find the new size already in
->   the form's `Width` and `Height`, so the handler lays out from them:
+>   `onResize` fires once when it settles) — a form holding a `SideMenu`
+>   hears them too, because its window is the shell. Both find the new size
+>   already in the form's `Width` and `Height`, so the handler lays out from
+>   them:
 >
 >   ```cobol
 >       *> CHAT-FORM onResize: the chat grows with the window,
