@@ -1874,12 +1874,47 @@
            MOVE "IDLE" TO WS-STAGE
            CALL "PC-SAVE-TEMPLATE"
            MOVE WS-REPLY TO WS-MSG
+           CALL "PC-DROP-MARKER"
+           MOVE WS-MSG TO WS-REPLY
            MOVE "Y" TO WS-SHOW-ANSWER
            CALL "PC-SHOW-AGENT"
            MOVE "A" TO WS-ROLE
            MOVE WS-REPLY TO WS-TEXT
            CALL "PC-SAVE-TURN"
            CALL "PC-STATUS"
+]]></Event>
+    <Event name="PC-DROP-MARKER" paragraph="PC-DROP-MARKER"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-MSG in and out: an answer that opens with a "TEMPLATE: name"
+      *>   line, and goes on after it, loses that line. The line is how the
+      *>   model chooses a template; a model that repeats it over the report
+      *>   it then writes had it shown, and printed in the PDF, above the page
+      *>   (operator, 2026-09-29).
+           MOVE 1 TO WS-FP
+           PERFORM UNTIL WS-FP > 200
+                   OR (WS-MSG(WS-FP:1) NOT = SPACE
+                       AND WS-MSG(WS-FP:1) NOT = X"0A"
+                       AND WS-MSG(WS-FP:1) NOT = X"0D")
+               ADD 1 TO WS-FP
+           END-PERFORM
+           IF WS-FP > 200
+               EXIT PROGRAM
+           END-IF
+           IF FUNCTION UPPER-CASE(WS-MSG(WS-FP:9)) NOT = "TEMPLATE:"
+               EXIT PROGRAM
+           END-IF
+           MOVE 0 TO WS-FB
+           INSPECT WS-MSG(WS-FP:) TALLYING WS-FB FOR CHARACTERS BEFORE INITIAL X"0A"
+           COMPUTE WS-FA = WS-FP + WS-FB + 1
+           IF WS-FA > 64000
+               EXIT PROGRAM
+           END-IF
+           IF WS-MSG(WS-FA:) = SPACES
+               EXIT PROGRAM
+           END-IF
+           MOVE WS-MSG(WS-FA:) TO WS-TEXT
+           MOVE FUNCTION TRIM(WS-TEXT) TO WS-MSG
 ]]></Event>
     <Event name="PC-DISPATCH" paragraph="PC-DISPATCH"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -2419,6 +2454,7 @@
                ELSE
       *>           A presentation reopens as it was shown: in the stream.
                    MOVE WS-JOIN TO WS-MSG
+                   CALL "PC-DROP-MARKER"
                    MOVE "N" TO WS-SHOW-ANSWER
                    CALL "PC-IS-FORMATTED"
                    IF WS-FORMATTED = "Y"

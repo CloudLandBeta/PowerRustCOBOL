@@ -1929,7 +1929,9 @@ fn report_setup(tag: &str, url: &str, agents: usize) -> (PathBuf, PathBuf) {
 #[test]
 fn powerchat_offers_report_templates_and_saves_a_new_one() {
     let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    const REPLY: &str = "Here is your report.\n```html\n<html><head><link rel=\"stylesheet\" \
+    // The model repeats its choice over the report — what one sent
+    // (operator, 2026-09-29) — and the line is not shown.
+    const REPLY: &str = "TEMPLATE: Timeline\n\nHere is your report.\n```html\n<html><head><link rel=\"stylesheet\" \
         href=\"https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css\"></head><body>\
         <div class=\"th-band\" style=\"background: #2e7d32\"><p>GREEN-BAND</p></div>\
         </body></html>\n```\n<!--REPORT-TEMPLATE\nNAME: Green Timeline\nSUITS: a year's milestones, in green.\n-->\n";
@@ -1958,6 +1960,9 @@ fn powerchat_offers_report_templates_and_saves_a_new_one() {
     assert!(sent[1].contains("th-band") && sent[1].contains("Skeleton:"), "the Timeline's skeleton");
     assert!(!sent[1].contains("{SKELETON}") && !sent[1].contains("{NAME}"));
     assert!(!html.contains("REPORT-TEMPLATE") && !html.contains("Green Timeline"), "the block is not shown: {html}");
+    assert!(!html.contains("TEMPLATE: Timeline"), "the choice is not shown over the report: {html}");
+    let turns = String::from_utf8_lossy(&std::fs::read(data.join("turns.idx")).unwrap()).into_owned();
+    assert!(turns.contains("Here is your report") && !turns.contains("TEMPLATE: Timeline"), "nor kept with it");
     let saved = String::from_utf8_lossy(&std::fs::read(data.join("templates.idx")).unwrap()).into_owned();
     assert!(saved.contains("Green Timeline") && saved.contains("in green.") && saved.contains("GREEN-BAND"),
         "saved with the answer's page as its skeleton");

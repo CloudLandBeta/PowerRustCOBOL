@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.338] — 2026-09-29
+
+### Fix — PowerChat no longer shows "TEMPLATE: name" above a report
+
+A model that has chosen a report template answers `TEMPLATE: name`, and
+PowerChat sends it that template's skeleton. Some models repeat the line at
+the top of the report they then write, and PowerChat showed it — above the
+page in the chat, and in the PDF saved from it (operator's
+`conversation.pdf`, 2026-09-29: "TEMPLATE: Informational" printed between the
+question and the report). An answer that opens with that line and goes on
+after it now loses the line, both when it arrives and when a conversation
+saved with it is reopened; it is not kept in the conversation either.
+
 ## [PowerRustCOBOL 1.70.337] — 2026-09-28
 
 ### Fix — a form's onResize handler reads the new size, and Grace's handlers are compile-checked
