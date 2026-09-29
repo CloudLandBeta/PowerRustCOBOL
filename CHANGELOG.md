@@ -8,6 +8,25 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.0] — 2026-09-29
+
+### Spec — 056 Responsive design, revision 2 (draft), opening the 1.80.x line
+
+The operator opened the **1.80.x** line (branch `1.80.x`) for responsive
+design and set its scope: spec 056 now covers, beyond revision 1's anchoring,
+docking and size limits, **flex / grid / flow container layouts**,
+**per-breakpoint layouts** (named width ranges with per-control overrides of
+layout, visibility, size and type) and **font scaling** (fluid between limits,
+stepped per breakpoint, times the system text size where the platform has
+one). **New projects created with 1.80.x start responsive**: their forms are
+created with the switch on, while every existing project and form keeps its
+exact behaviour.
+
+Every code citation of revision 1 was re-read against the current code: all
+had moved and one had become false (`AutoSize` is implemented now), and the
+spec orders the six mechanisms that already move controls at render time. 77
+EARS requirements, 35 acceptance criteria, 14 decided questions. Spec only; no
+code changes.
 ## [PowerRustCOBOL 1.70.350] — 2026-09-29
 
 ### Fix: Build details keeps up with the build
