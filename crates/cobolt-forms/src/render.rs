@@ -4633,6 +4633,28 @@ fn viewer_release_fullscreen(ctx: &egui::Context, id: &str) {
     }
 }
 
+/// The run a point selects in: the one under it, else the nearest — first
+/// by height, then, among runs side by side (grid cells, flex columns, the
+/// cards of a report), by how far across. Measured by height alone, a point
+/// in the right-hand column always landed in the left-hand one, and that
+/// column's text could not be selected (operator, 2026-09-28: "let me mark
+/// any text of the conversation").
+pub(crate) fn viewer_run_at(runs: &[crate::paint::TextRun], p: egui::Pos2) -> Option<usize> {
+    let gap = |a: f32, lo: f32, hi: f32| if a < lo { lo - a } else if a > hi { a - hi } else { 0.0 };
+    let mut best: Option<(usize, f32, f32)> = None;
+    for (i, run) in runs.iter().enumerate() {
+        let dy = gap(p.y, run.rect.min.y, run.rect.max.y);
+        let dx = gap(p.x, run.rect.min.x, run.rect.max.x);
+        if best.is_none_or(|(_, by, bx)| dy < by || (dy == by && dx < bx)) {
+            best = Some((i, dy, dx));
+        }
+        if dy == 0.0 && dx == 0.0 {
+            break;
+        }
+    }
+    best.map(|(i, _, _)| i)
+}
+
 /// The text a selection covers, assembled from the runs the paint laid down.
 ///
 /// Runs are joined with a newline rather than a space: they are separate
@@ -5350,23 +5372,7 @@ fn viewer_view_interactive(
         // one above — dragging into the gap between two paragraphs must
         // extend the selection, not abandon it.
         let anchor_at = |p: egui::Pos2| -> Option<vw::TextAnchor> {
-            let mut best: Option<(usize, f32)> = None;
-            for (i, run) in painted.text_runs.iter().enumerate() {
-                let dy = if p.y < run.rect.min.y {
-                    run.rect.min.y - p.y
-                } else if p.y > run.rect.max.y {
-                    p.y - run.rect.max.y
-                } else {
-                    0.0
-                };
-                if best.map(|(_, d)| dy < d).unwrap_or(true) {
-                    best = Some((i, dy));
-                }
-                if dy == 0.0 {
-                    break;
-                }
-            }
-            let (i, _) = best?;
+            let i = viewer_run_at(&painted.text_runs, p)?;
             let run = &painted.text_runs[i];
             let cursor = run.galley.cursor_from_pos(p - run.origin);
             Some(vw::TextAnchor::new(i, cursor.index.0))
@@ -5379,6 +5385,9 @@ fn viewer_view_interactive(
             if let Some(a) = pointer.and_then(anchor_at) {
                 selection = Some(vw::TextSelection::at(a));
             }
+            // Selecting takes the keyboard: a TextBox that had it (a chat's
+            // question box) would otherwise receive the Cmd/Ctrl+C.
+            ui.ctx().memory_mut(|m| m.request_focus(vid));
         } else if dragging {
             if let (Some(mut sel), Some(head)) = (selection, pointer.and_then(anchor_at)) {
                 sel.head = head;
@@ -5402,7 +5411,9 @@ fn viewer_view_interactive(
 
         // Select All, and Copy. Only while this view has the keyboard, so two
         // views of one control never both answer one keystroke.
-        if keyboard_free && resp.hovered() {
+        // The keyboard is the Viewer's while it has the focus — the pointer
+        // may have moved on to the menu or the input after selecting.
+        if keyboard_free && (resp.hovered() || focus == Some(vid)) {
             if command && keys_select_all {
                 selection = Some(vw::TextSelection::all(&lengths));
             }
@@ -27626,5 +27637,37 @@ mod container_enabled_tests {
                 "{kind:?}: …and everything outside it must be untouched: {off:?}"
             );
         }
+    }
+}
+
+/// A point selects in the run under it, or the nearest: by height first,
+/// then, among runs side by side, by how far across — a report's columns and
+/// cards can each be selected.
+#[cfg(test)]
+mod viewer_run_at_tests {
+    use super::*;
+
+    #[test]
+    fn a_point_in_a_right_hand_column_selects_that_column() {
+        let ctx = egui::Context::default();
+        let mut warm = ctx.run_ui(egui::RawInput::default(), |_| {});
+        warm.textures_delta.clear();
+        let galley = ctx.fonts_mut(|f| {
+            f.layout_no_wrap("cell".into(), egui::FontId::proportional(14.0), egui::Color32::BLACK)
+        });
+        let run = |x: f32, y: f32| crate::paint::TextRun {
+            rect: egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(100.0, 20.0)),
+            origin: egui::pos2(x, y),
+            galley: galley.clone(),
+        };
+        // Row one: three cells side by side; row two: one paragraph.
+        let runs = [run(0.0, 0.0), run(150.0, 0.0), run(300.0, 0.0), run(0.0, 60.0)];
+        assert_eq!(viewer_run_at(&runs, egui::pos2(350.0, 10.0)), Some(2), "inside the third cell");
+        assert_eq!(viewer_run_at(&runs, egui::pos2(160.0, 10.0)), Some(1), "inside the second");
+        assert_eq!(viewer_run_at(&runs, egui::pos2(285.0, 10.0)), Some(2), "in the gap: the nearer cell across");
+        assert_eq!(viewer_run_at(&runs, egui::pos2(265.0, 10.0)), Some(1), "and the other side of the gap");
+        assert_eq!(viewer_run_at(&runs, egui::pos2(350.0, 40.0)), Some(2), "between rows: the nearer row, then across");
+        assert_eq!(viewer_run_at(&runs, egui::pos2(20.0, 75.0)), Some(3), "the paragraph below");
+        assert_eq!(viewer_run_at(&[], egui::pos2(0.0, 0.0)), None);
     }
 }

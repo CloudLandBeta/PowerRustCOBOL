@@ -4988,7 +4988,11 @@ no capability in this control that COBOL cannot reach.
   selection spans headings, paragraphs, list items and table cells the way a
   reader expects. `Ctrl`/`Cmd+A` selects the whole page, `Ctrl`/`Cmd+C` copies
   what is selected, and a right-click opens a two-item menu — **Select All**
-  and **Copy** — where the pointer is. What reaches the clipboard keeps its
+  and **Copy** — where the pointer is. Starting a selection gives the Viewer
+  the keyboard, so `Ctrl`/`Cmd+C` copies it even after the pointer has moved
+  on — to a chat's question box, say, which would otherwise take the
+  keystroke. Text laid out side by side (table cells, columns, the cards of a
+  report) selects where you press, in whichever column that is. What reaches the clipboard keeps its
   blocks on separate lines, because they are separate blocks. Cards and images
   are not selectable: a contact sheet is not a page, and a picture has no text.
 - **The wheel belongs to the Viewer.** While the pointer is over the control,

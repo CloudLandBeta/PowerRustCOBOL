@@ -8,6 +8,22 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.336] — 2026-09-28
+
+### Fix — the Viewer's text selects in any column, and Cmd/Ctrl+C copies it
+
+The operator asked to be able to mark any text of a PowerChat conversation
+and copy it. Two things stood in the way:
+
+- **A press in a right-hand column selected in the left-hand one.** The
+  Viewer found the text under the pointer by height alone, so among runs
+  side by side (table cells, flex columns, a report's cards) the first one
+  always won. It now measures height first and then distance across.
+- **Cmd/Ctrl+C went to the question box.** Copy only answered while the
+  pointer hovered the Viewer, and a TextBox that held the keyboard took the
+  keystroke. Starting a selection now gives the Viewer the focus, and it
+  copies while it has the focus, wherever the pointer is.
+
 ## [PowerRustCOBOL 1.70.335] — 2026-09-28
 
 ### Spec — 077 National and UTF-8 character data (draft)
