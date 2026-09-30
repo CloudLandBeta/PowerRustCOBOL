@@ -72,6 +72,31 @@ pub fn overridable(c: &Control, property: &str) -> bool {
         || crate::layout::defaults::control_default(&c.control_type, property).is_some()
 }
 
+/// The properties a running program has written on a control, as a list of
+/// names. A breakpoint never overrides one of them (R64: a COBOL write, else
+/// the active breakpoint, else the design). Never saved.
+pub const WRITTEN: &str = "_Written";
+
+/// Whether the program has written `property` on `c`.
+pub fn is_written(c: &Control, property: &str) -> bool {
+    c.get_prop(WRITTEN)
+        .map(|v| v.to_xml_string().split(',').any(|p| p.trim().eq_ignore_ascii_case(property)))
+        .unwrap_or(false)
+}
+
+/// Record that the program wrote `property` on `c`.
+pub fn mark_written(c: &mut Control, property: &str) {
+    if is_written(c, property) {
+        return;
+    }
+    let mut list = c.get_prop(WRITTEN).map(|v| v.to_xml_string()).unwrap_or_default();
+    if !list.is_empty() {
+        list.push(',');
+    }
+    list.push_str(property);
+    c.set_prop(WRITTEN, PropValue::String(list));
+}
+
 /// What layout sees while a breakpoint is active: see [`apply_overrides`].
 pub struct Seen {
     pub controls: Vec<Control>,
@@ -90,7 +115,7 @@ pub fn apply_overrides(controls: &[Control], bp: Option<&Breakpoint>) -> Option<
     let mut out: Vec<Control> = controls.to_vec();
     for o in &bp.overrides {
         let Some(c) = out.iter_mut().find(|c| c.id.eq_ignore_ascii_case(&o.control)) else { continue };
-        if !overridable(c, &o.property) {
+        if !overridable(c, &o.property) || is_written(c, &o.property) {
             continue;
         }
         let number = || crate::layout::props::number_of(&o.value).map(|v| v.round() as i32);
@@ -109,6 +134,7 @@ pub fn apply_overrides(controls: &[Control], bp: Option<&Breakpoint>) -> Option<
         .iter()
         .filter(|o| o.property.eq_ignore_ascii_case("Visible") && !o.value.as_bool())
         .filter_map(|o| out.iter().find(|c| c.id.eq_ignore_ascii_case(&o.control)).map(|c| c.id.clone()))
+        .filter(|id| out.iter().find(|c| &c.id == id).is_some_and(|c| !is_written(c, "Visible")))
         .collect();
     loop {
         let before = hidden.len();
@@ -125,7 +151,12 @@ pub fn apply_overrides(controls: &[Control], bp: Option<&Breakpoint>) -> Option<
         .overrides
         .iter()
         .filter(|o| o.property.eq_ignore_ascii_case("Visible") && o.value.as_bool())
-        .filter_map(|o| controls.iter().find(|c| c.id.eq_ignore_ascii_case(&o.control) && !c.visible).map(|c| c.id.clone()))
+        .filter_map(|o| {
+            controls
+                .iter()
+                .find(|c| c.id.eq_ignore_ascii_case(&o.control) && !c.visible && !is_written(c, "Visible"))
+                .map(|c| c.id.clone())
+        })
         .collect();
     out.retain(|c| !hidden.contains(&c.id));
     Some(Seen { controls: out, hidden, shown })

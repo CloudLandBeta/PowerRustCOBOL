@@ -42,6 +42,9 @@ pub struct FormSpec<'a> {
     pub breakpoints: &'a [Breakpoint],
     /// The operating system's text-size factor (R68), 1.0 where it has none.
     pub system_text_factor: f32,
+    /// `me::Breakpoint` and `me::FontScale` pinned by the program (R84).
+    pub pinned_breakpoint: Option<&'a str>,
+    pub pinned_font_scale: Option<f32>,
 }
 
 /// The result of [`prepare`].
@@ -73,6 +76,8 @@ pub fn prepare(
         form.breakpoints,
     );
     first.system_text_factor = form.system_text_factor;
+    first.pinned_breakpoint = form.pinned_breakpoint;
+    first.pinned_font_scale = form.pinned_font_scale;
     let fonts = solve(&first).font_sizes;
     // AutoSize controls enter layout at the size their LIVE content needs.
     let mut intrinsic: HashMap<String, (f32, f32)> = HashMap::new();
@@ -94,6 +99,8 @@ pub fn prepare(
     );
     input.intrinsic = Some(&intrinsic);
     input.system_text_factor = form.system_text_factor;
+    input.pinned_breakpoint = form.pinned_breakpoint;
+    input.pinned_font_scale = form.pinned_font_scale;
     let layout = solve(&input);
     let laid = laid_out_controls(controls, &layout);
     Prepared {
@@ -284,7 +291,7 @@ mod tests {
         kid.parent = Some("PNL".into());
         let controls = vec![pnl, kid];
         let bag = BTreeMap::new();
-        let form = FormSpec { designed_size: (600.0, 400.0), layout: &bag, breakpoints: &[], system_text_factor: 1.0 };
+        let form = FormSpec { designed_size: (600.0, 400.0), layout: &bag, breakpoints: &[], system_text_factor: 1.0, pinned_breakpoint: None, pinned_font_scale: None };
         let ctx = egui::Context::default();
         let p = prepare(&ctx, &controls, &Stringified, &form, egui::vec2(800.0, 400.0));
         let state = LaidOutState { inner: &Stringified };
@@ -310,7 +317,7 @@ mod tests {
         lbl.set_prop("FontSize", PropValue::Int(14));
         let controls = vec![lbl];
         let bag = BTreeMap::from([("FontScaling".to_owned(), PropValue::String("Fluid".into()))]);
-        let form = FormSpec { designed_size: (400.0, 300.0), layout: &bag, breakpoints: &[], system_text_factor: 1.0 };
+        let form = FormSpec { designed_size: (400.0, 300.0), layout: &bag, breakpoints: &[], system_text_factor: 1.0, pinned_breakpoint: None, pinned_font_scale: None };
         let ctx = egui::Context::default();
         ctx.set_fonts(crate::fonts::base_font_definitions());
         let (mut base, mut wide) = (None, None);

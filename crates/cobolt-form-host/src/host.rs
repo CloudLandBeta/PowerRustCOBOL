@@ -548,6 +548,7 @@ impl FormHost {
                 modal_overlay_style: form.modal_overlay_style,
                 form_size: egui::vec2(fw, fh),
                 responsive: ResponsiveSpec::of(&form),
+                responsive_off: (!form.responsive).then(|| ResponsiveSpec::design(&form)),
                 ev_tx,
                 input_tx,
                 state_rx,
@@ -569,6 +570,10 @@ impl FormHost {
             os_handoff: OsHandoffChannel::default(),
                 action_notice: None,
                 last_control_rects: HashMap::new(),
+                last_layout: None,
+                mirrored: None,
+                breakpoint_reported: None,
+                font_scale_reported: None,
                 snackbars: Default::default(),
                 viewer_sessions: Default::default(),
             },
@@ -778,6 +783,9 @@ pub(crate) struct FormBody {
     /// and breakpoint table. Every surface lays such a form out for its own
     /// size before rendering it (R23); `None` renders exactly as before (R3).
     pub(crate) responsive: Option<ResponsiveSpec>,
+    /// Spec 056 R84 — the responsive design of a form running with it switched
+    /// off, kept so `me::Responsive = 1` can switch it on.
+    pub(crate) responsive_off: Option<ResponsiveSpec>,
     pub(crate) ev_tx: mpsc::Sender<FormEvent>,
     pub(crate) input_tx: mpsc::Sender<StateUpdate>,
     pub(crate) state_rx: mpsc::Receiver<StateUpdate>,
@@ -834,6 +842,18 @@ pub(crate) struct FormBody {
     /// the ContentPane placement test asserts against (operator, 2026-08-31:
     /// radios missing from an embedded form).
     pub(crate) last_control_rects: HashMap<String, egui::Rect>,
+    /// Spec 056 — the layout this body was last drawn with (responsive forms
+    /// only): where a COBOL geometry write is read back from, and what it is
+    /// inverted through (R37, R38).
+    pub(crate) last_layout: Option<cobolt_forms::layout::LayoutOutput>,
+    /// Spec 056 R37 — the rectangle the program was last told for each
+    /// control (its seeded design until the first layout), so only a change
+    /// is mirrored.
+    pub(crate) mirrored: Option<HashMap<String, cobolt_forms::model::Rect>>,
+    /// Spec 056 R46/R47 — the breakpoint and font factor the program was last
+    /// told; `None` until the first layout, which raises no event.
+    pub(crate) breakpoint_reported: Option<String>,
+    pub(crate) font_scale_reported: Option<f32>,
     /// 055 — this surface's live notifications. One stack per FormBody, which
     /// is what "the stack belongs to the surface" means (spec Q1/Q2): a child
     /// form's messages stack in that child, and navigating away disposes them
@@ -2084,6 +2104,9 @@ impl FormBody {
         if !u.ctrl_id.trim().eq_ignore_ascii_case(&self.form_object) {
             return false;
         }
+        if self.write_form_layout(&u.prop, &u.value) {
+            return true;
+        }
         let num = || u.value.trim().parse::<f32>().ok();
         match u.prop.to_ascii_lowercase().as_str() {
             "backgroundcolor" => self.bg_hex = u.value.trim().to_owned(),
@@ -2244,6 +2267,11 @@ impl FormBody {
                 matches!(c.control_type, cobolt_forms::ControlType::RadioButton)
                     && cobolt_forms::model::is_toggle_state_property(&c.control_type, &u.prop)
             });
+        // 056 R38/R64 — on a responsive form a write to a layout property lands
+        // on the design the layout reads, and wins over any breakpoint.
+        if self.responsive.is_some() {
+            self.write_design(&key, &u.prop, &u.value);
+        }
         self.state_entry_mut(&key).set(&u.prop, u.value);
         if is_radio_state && turned_on {
             self.clear_radio_siblings(&key);
@@ -2253,6 +2281,161 @@ impl FormBody {
                 self.send_event(FormEvent::new(key.clone(), event.to_owned()));
             }
         }
+    }
+
+    /// Spec 056 R84 — a program's write to one of the form's responsive
+    /// properties, taking effect on this frame's layout pass. `Responsive`
+    /// switches the layout on or off; `Breakpoint` pins it to a breakpoint
+    /// (`SPACES` unpins); `FontScale` pins the total font factor (0 unpins);
+    /// `Breakpoints` replaces the table (overrides follow their names); any
+    /// layout-bag property is written into the form's layout. Returns whether
+    /// `prop` was one of them.
+    fn write_form_layout(&mut self, prop: &str, value: &str) -> bool {
+        let key = prop.trim();
+        let lower = key.to_ascii_lowercase();
+        if lower == "responsive" {
+            let on = !matches!(value.trim(), "" | "0" | "false" | "FALSE");
+            if on && self.responsive.is_none() {
+                self.responsive = self.responsive_off.take();
+            } else if !on && self.responsive.is_some() {
+                self.responsive_off = self.responsive.take();
+            }
+            return true;
+        }
+        let bag_key = cobolt_forms::layout::defaults::form_defaults()
+            .into_iter()
+            .map(|(k, _)| k)
+            .find(|k| k.eq_ignore_ascii_case(key));
+        if !matches!(lower.as_str(), "breakpoint" | "fontscale" | "breakpoints") && bag_key.is_none() {
+            return false;
+        }
+        // Written while switched off, it waits in the stored design.
+        let Some(spec) = self.responsive.as_mut().or(self.responsive_off.as_mut()) else { return true };
+        match lower.as_str() {
+            "breakpoint" => {
+                let v = value.trim();
+                spec.pinned_breakpoint = (!v.is_empty()).then(|| v.to_owned());
+            }
+            "fontscale" => {
+                spec.pinned_font_scale = value.trim().parse::<f32>().ok().filter(|v| *v > 0.0);
+            }
+            "breakpoints" => {
+                spec.breakpoints = cobolt_forms::layout::breakpoints::from_text(value, &spec.breakpoints);
+            }
+            _ => {
+                if let Some(k) = bag_key {
+                    spec.layout.insert(k.to_owned(), cobolt_forms::PropValue::String(value.to_owned()));
+                }
+            }
+        }
+        true
+    }
+
+    /// Spec 056 R37, R46, R47 — tell the program what the last layout did:
+    /// every control whose laid-out `X`/`Y`/`Width`/`Height` differs from what
+    /// it was last told (nothing at the designed size), then the form's
+    /// `Breakpoint` and `FontScale` when they change, and `onBreakpointChanged`
+    /// when the breakpoint does — never for the one the form opens in. It runs
+    /// after the frame's layout, so a settling resize finds all of it already
+    /// sent when its `onResize` is raised on the next frame.
+    pub(crate) fn mirror_layout(&mut self) {
+        let Some(layout) = self.last_layout.as_ref() else { return };
+        let told = self
+            .mirrored
+            .get_or_insert_with(|| self.controls.iter().map(|c| (c.id.clone(), c.rect)).collect());
+        for (id, r) in &layout.rects {
+            let now = cobolt_forms::model::Rect::new(
+                r.x.round() as i32,
+                r.y.round() as i32,
+                r.w.round() as i32,
+                r.h.round() as i32,
+            );
+            let was = told.insert(id.clone(), now);
+            for (prop, v, old) in [
+                ("X", now.x, was.map(|w| w.x)),
+                ("Y", now.y, was.map(|w| w.y)),
+                ("Width", now.w, was.map(|w| w.w)),
+                ("Height", now.h, was.map(|w| w.h)),
+            ] {
+                if old != Some(v) {
+                    let _ = self.input_tx.send(StateUpdate::new(id.clone(), prop, v.to_string()));
+                }
+            }
+        }
+        let form = self.form_object.clone();
+        let factor = (layout.font_factor * 100.0).round() / 100.0;
+        if self.font_scale_reported != Some(factor) {
+            self.font_scale_reported = Some(factor);
+            let _ = self.input_tx.send(StateUpdate::new(form.clone(), "FontScale", factor.to_string()));
+        }
+        let bp = layout.breakpoint.clone();
+        match self.breakpoint_reported.replace(bp.clone()) {
+            Some(was) if was == bp => {}
+            was => {
+                let _ = self.input_tx.send(StateUpdate::new(form.clone(), "Breakpoint", bp));
+                if was.is_some() {
+                    self.send_event(FormEvent::new(form, "onBreakpointChanged"));
+                }
+            }
+        }
+    }
+
+    /// Spec 056 R38/R64 — a program's write to a layout property of a
+    /// responsive form, carried into the design the layout reads, so the
+    /// layout composes with it instead of undoing it on the next pass.
+    ///
+    /// A geometry value is what the program sees on screen (R37), so it is
+    /// turned back into a designed value through the placement the control
+    /// was last laid out with (`layout::inverse`): `ADD 10 TO BTN::X` moves a
+    /// right-anchored button 10 px on screen at any window size. A container
+    /// that moves carries its contents, as a designer drag does. Any other
+    /// layout property (`Dock`, `Anchor`, `FontSize`, `Visible`, …) is the
+    /// design value itself. The property is marked written, so no breakpoint
+    /// overrides it. Content properties are not layout and are left alone.
+    fn write_design(&mut self, id: &str, prop: &str, value: &str) {
+        let Some(idx) = self.controls.iter().position(|c| c.id.eq_ignore_ascii_case(id)) else { return };
+        if !cobolt_forms::layout::breakpoints::overridable(&self.controls[idx], prop) {
+            return;
+        }
+        let lower = prop.to_ascii_lowercase();
+        match lower.as_str() {
+            "x" | "y" | "width" | "height" => {
+                let Some(v) = value.trim().parse::<f32>().ok() else { return };
+                let c = &self.controls[idx];
+                let designed = cobolt_forms::layout::LRect::from_model(c.rect);
+                let layout = self.last_layout.as_ref();
+                let laid = layout.and_then(|l| l.rects.get(&c.id)).copied().unwrap_or(designed);
+                let placement = layout
+                    .and_then(|l| l.placement.get(&c.id))
+                    .copied()
+                    .unwrap_or(cobolt_forms::layout::Placement::Designed);
+                let mut target = laid;
+                match lower.as_str() {
+                    "x" => target.x = v,
+                    "y" => target.y = v,
+                    "width" => target.w = v.max(0.0),
+                    _ => target.h = v.max(0.0),
+                }
+                let d = cobolt_forms::layout::inverse::designed_rect(&placement, target, designed);
+                let new = cobolt_forms::model::Rect::new(
+                    d.x.round() as i32,
+                    d.y.round() as i32,
+                    d.w.round().max(0.0) as i32,
+                    d.h.round().max(0.0) as i32,
+                );
+                let (dx, dy) = (new.x - self.controls[idx].rect.x, new.y - self.controls[idx].rect.y);
+                self.controls[idx].rect = new;
+                if dx != 0 || dy != 0 {
+                    for d in cobolt_forms::containers::collect_descendants(&self.controls, idx) {
+                        self.controls[d].rect.x += dx;
+                        self.controls[d].rect.y += dy;
+                    }
+                }
+            }
+            "visible" => self.controls[idx].visible = !matches!(value.trim(), "" | "0" | "false" | "FALSE"),
+            _ => self.controls[idx].set_prop(prop.to_owned(), cobolt_forms::PropValue::String(value.to_owned())),
+        }
+        cobolt_forms::layout::breakpoints::mark_written(&mut self.controls[idx], prop);
     }
 
     /// Carry a COBOL write to a toolbar BUTTON into its toolbar's definition, so
@@ -2713,6 +2896,7 @@ impl FormBody {
         // click that presses a toolbar button surrenders the text field's
         // focus during render, and the clipboard verbs need to know who HAD it.
         let pre_focus = ctx.memory(|m| m.focused());
+        let mut laid_layout: Option<cobolt_forms::layout::LayoutOutput> = None;
         let output = {
             let mut controls = self.painted_controls();
             // 056 — a responsive form lays out from its DESIGNED controls, with
@@ -2764,6 +2948,7 @@ impl FormBody {
                                 let rail = rail.as_ref().map(|(id, collapsed)| (id.as_str(), *collapsed));
                                 spec.prepare(ui.ctx(), &designed_controls, &st, form_size, surface_size, rail)
                             });
+                            laid_layout = prepared.as_ref().map(|p| p.layout.clone());
                             let (render_controls, render_size, render_state): (
                                 &[cobolt_forms::Control],
                                 egui::Vec2,
@@ -2825,6 +3010,8 @@ impl FormBody {
         // Where the engine actually put every control this frame — see
         // `FormBody::last_control_rects`.
         self.last_control_rects = output.control_rects.clone();
+        self.last_layout = laid_layout;
+        self.mirror_layout();
 
         // 055 — notifications, over the controls and inside THIS body's pane
         // (D3/R16). `panel_rect` is the pane the shell carved out for an
@@ -3022,16 +3209,27 @@ pub(crate) struct ResponsiveSpec {
     pub(crate) breakpoints: Vec<cobolt_forms::layout::breakpoints::Breakpoint>,
     /// The operating system's text-size factor (R68), read once per process.
     pub(crate) system_text_factor: f32,
+    /// `me::Breakpoint` / `me::FontScale` as the program pinned them (R84).
+    pub(crate) pinned_breakpoint: Option<String>,
+    pub(crate) pinned_font_scale: Option<f32>,
 }
 
 impl ResponsiveSpec {
     /// `Some` only for a form whose `Responsive design` is on.
     pub(crate) fn of(form: &cobolt_forms::Form) -> Option<Self> {
-        form.responsive.then(|| ResponsiveSpec {
+        form.responsive.then(|| Self::design(form))
+    }
+
+    /// The form's responsive design, whether or not it is switched on — what
+    /// `me::Responsive = 1` switches to (R84).
+    pub(crate) fn design(form: &cobolt_forms::Form) -> Self {
+        ResponsiveSpec {
             layout: form.layout.clone(),
             breakpoints: form.breakpoints.clone(),
             system_text_factor: cobolt_forms::text_scale::system_text_factor(),
-        })
+            pinned_breakpoint: None,
+            pinned_font_scale: None,
+        }
     }
 
     /// The smallest surface these controls lay out for (R18).
@@ -3061,6 +3259,8 @@ impl ResponsiveSpec {
             layout: &self.layout,
             breakpoints: &self.breakpoints,
             system_text_factor: self.system_text_factor,
+            pinned_breakpoint: self.pinned_breakpoint.as_deref(),
+            pinned_font_scale: self.pinned_font_scale,
         };
         cobolt_forms::layout::apply::prepare_with_rail(ctx, controls, state, &spec, available, rail)
     }
@@ -4117,6 +4317,7 @@ impl FormHost {
             modal_overlay_style: form.modal_overlay_style,
             form_size: egui::vec2(fw, fh),
             responsive: ResponsiveSpec::of(&form),
+                responsive_off: (!form.responsive).then(|| ResponsiveSpec::design(&form)),
             ev_tx,
             input_tx,
             state_rx,
@@ -4138,6 +4339,10 @@ impl FormHost {
             os_handoff: OsHandoffChannel::default(),
             action_notice: None,
             last_control_rects: HashMap::new(),
+                last_layout: None,
+                mirrored: None,
+                breakpoint_reported: None,
+                font_scale_reported: None,
                 snackbars: Default::default(),
                 viewer_sessions: Default::default(),
         };
@@ -5424,6 +5629,7 @@ impl FormHost {
         // collect what is finished, BEFORE the render borrows the body.
         self.root.tick_viewers(ctx);
         let viewer_docs = self.root.viewer_documents();
+        let mut laid_layout: Option<cobolt_forms::layout::LayoutOutput> = None;
         let output = {
             let mut controls = self.root.controls.clone();
             let st = LiveState {
@@ -5539,6 +5745,7 @@ impl FormHost {
                             let prepared = responsive.as_ref().map(|spec| {
                                 spec.prepare(ui.ctx(), &controls, &st, form_size, surface_size, None)
                             });
+                            laid_layout = prepared.as_ref().map(|p| p.layout.clone());
                             let (render_controls, render_size, render_state): (
                                 &[cobolt_forms::Control],
                                 egui::Vec2,
@@ -5609,6 +5816,8 @@ impl FormHost {
         // Where the engine actually put every control this frame — see
         // `FormBody::last_control_rects`.
         self.root.last_control_rects = output.control_rects.clone();
+        self.root.last_layout = laid_layout;
+        self.root.mirror_layout();
 
         // 055 — notifications, over the controls and inside this form's own
         // surface (D3/R16). Nothing here resizes anything: the rects were
@@ -8674,6 +8883,7 @@ mod parity {
             modal_overlay_style: cobolt_forms::model::ModalOverlayStyle::default(),
             form_size: egui::vec2(320.0, 200.0),
             responsive: None,
+            responsive_off: None,
             ev_tx,
             input_tx,
             state_rx,
@@ -8695,6 +8905,10 @@ mod parity {
             os_handoff: OsHandoffChannel::default(),
             action_notice: None,
             last_control_rects: HashMap::new(),
+                last_layout: None,
+                mirrored: None,
+                breakpoint_reported: None,
+                font_scale_reported: None,
                 snackbars: Default::default(),
                 viewer_sessions: Default::default(),
         }
@@ -10085,6 +10299,273 @@ mod parity {
         );
     }
 
+
+    /// Spec 056 T7.2 (AC43, R38) — a program's geometry write on a responsive
+    /// form is an on-screen value that composes with anchoring.
+    /// A 400 × 300 form, BTN at (300, 20, 80, 30) anchored `Top,Right`, in a
+    /// 600 × 400 window: on screen at x 500. `ADD 10 TO BTN::X` twice writes
+    /// 510 then 520 → on screen 510, 520. Widen the window to 700: the button
+    /// keeps its new distance from the right edge (0 px) → x 620.
+    /// And the responsive copy of `a_moved_container_carries_its_contents`:
+    /// PNL at (40, 150, 200, 100) anchored `Top,Left` holding LBL at (50, 160);
+    /// `SET PNL::Y TO 110` moves both up 40 on screen.
+    #[test]
+    fn geometry_writes_compose_with_the_layout_056() {
+        let mut f = cobolt_forms::Form::new("GEO-FORM", "Geometry", 400, 300);
+        f.responsive = true;
+        let mut b = cobolt_forms::Control::new("BTN", cobolt_forms::ControlType::Button, 0, 0);
+        b.rect = cobolt_forms::model::Rect::new(300, 20, 80, 30);
+        b.set_prop("Anchor", cobolt_forms::PropValue::String("Top,Right".into()));
+        let mut p = cobolt_forms::Control::new("PNL", cobolt_forms::ControlType::Panel, 0, 0);
+        p.rect = cobolt_forms::model::Rect::new(40, 150, 200, 100);
+        let mut l = cobolt_forms::Control::new("LBL", cobolt_forms::ControlType::Label, 0, 0);
+        l.rect = cobolt_forms::model::Rect::new(50, 160, 80, 20);
+        l.parent = Some("PNL".into());
+        f.controls.extend([b, p, l]);
+        let (mut app, _f, _p) = corpus_host(f, Surface::Window, None, None);
+        let ctx = egui::Context::default();
+        let mut run = |app: &mut FormHost, w: f32, h: f32| {
+            for _ in 0..CORPUS_FRAMES {
+                frame(app, &ctx, corpus_input(egui::vec2(w, h)));
+            }
+            app.last_control_rects().clone()
+        };
+        let r = run(&mut app, 600.0, 400.0);
+        assert_eq!(r["BTN"].min.x, 500.0);
+        for to in ["510", "520"] {
+            app.root.apply_interpreter_update(StateUpdate::new("BTN", "X", to), false);
+            let r = run(&mut app, 600.0, 400.0);
+            assert_eq!(r["BTN"].min.x.to_string(), to, "on screen as written");
+        }
+        let r = run(&mut app, 700.0, 400.0);
+        assert_eq!(r["BTN"].min.x, 620.0, "the write composes with Top,Right");
+
+        let before = run(&mut app, 700.0, 400.0);
+        app.root.apply_interpreter_update(StateUpdate::new("PNL", "Y", "110"), false);
+        let after = run(&mut app, 700.0, 400.0);
+        assert_eq!(after["PNL"].min.y, 110.0);
+        assert_eq!(after["LBL"].min.y, before["LBL"].min.y - 40.0, "the container carries its contents");
+        println!("056 T7.2: BTN 500 → 510 → 520 on screen; at 700 wide → 620; PNL::Y 150 → 110 carries LBL {} → {}", before["LBL"].min.y, after["LBL"].min.y);
+    }
+
+    /// Spec 056 T7.3 (AC18, AC31; R37, R39, R46, R47) — what the program is
+    /// told. A 400 × 300 form with BTN at (300, 20) anchored `Top,Right` and
+    /// LBL at (10, 10) anchored `Top,Left`, opened at 400 wide (Compact):
+    /// nothing is mirrored and no event raised, but `me::Breakpoint` reads
+    /// `Compact` and `me::FontScale` 1. Dragged to 700 (Medium): exactly one
+    /// control value is mirrored — BTN's X, 600 — `Breakpoint` becomes
+    /// `Medium`, and the events are `onResizing`, `onBreakpointChanged`, then
+    /// `onResize` once it settles.
+    #[test]
+    fn the_program_is_told_the_layout_before_on_resize_056() {
+        let mut f = cobolt_forms::Form::new("TELL-FORM", "Tell", 400, 300);
+        f.responsive = true;
+        let mut b = cobolt_forms::Control::new("BTN", cobolt_forms::ControlType::Button, 0, 0);
+        b.rect = cobolt_forms::model::Rect::new(300, 20, 80, 30);
+        b.set_prop("Anchor", cobolt_forms::PropValue::String("Top,Right".into()));
+        let mut l = cobolt_forms::Control::new("LBL", cobolt_forms::ControlType::Label, 0, 0);
+        l.rect = cobolt_forms::model::Rect::new(10, 10, 80, 20);
+        f.controls.extend([b, l]);
+        let (mut app, _f, pipes) = corpus_host(f, Surface::Window, None, None);
+        let ctx = egui::Context::default();
+        let mut step = |app: &mut FormHost, w: f32| {
+            let mut input = corpus_input(egui::vec2(w, 300.0));
+            input.viewports.insert(
+                egui::ViewportId::ROOT,
+                egui::ViewportInfo {
+                    focused: Some(true),
+                    inner_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w, 300.0))),
+                    ..Default::default()
+                },
+            );
+            frame(app, &ctx, input);
+        };
+        let told = |pipes: &Pipes| -> Vec<(String, String, String)> {
+            pipes._input_rx.try_iter().map(|u| (u.ctrl_id, u.prop, u.value)).collect()
+        };
+        let events = |pipes: &Pipes| -> Vec<String> {
+            drain_events(pipes)
+                .into_iter()
+                .map(|(_, e)| e)
+                .filter(|e| e.starts_with("onResiz") || e == "onBreakpointChanged")
+                .collect()
+        };
+        for _ in 0..CORPUS_FRAMES {
+            step(&mut app, 400.0);
+        }
+        let opened = told(&pipes);
+        assert!(!opened.iter().any(|(c, _, _)| c == "BTN" || c == "LBL"), "nothing to mirror at the designed size: {opened:?}");
+        assert!(opened.contains(&("TELL-FORM".into(), "Breakpoint".into(), "Compact".into())));
+        assert!(opened.contains(&("TELL-FORM".into(), "FontScale".into(), "1".into())));
+        assert!(events(&pipes).is_empty(), "no event for the breakpoint the form opens in");
+
+        step(&mut app, 700.0);
+        step(&mut app, 700.0);
+        let resized: Vec<(String, String, String)> =
+            told(&pipes).into_iter().filter(|(c, p, _)| c != "TELL-FORM" || p == "Breakpoint").collect();
+        assert_eq!(
+            resized,
+            vec![("BTN".into(), "X".into(), "600".into()), ("TELL-FORM".into(), "Breakpoint".into(), "Medium".into())],
+            "only what changed"
+        );
+        assert_eq!(events(&pipes), ["onResizing", "onBreakpointChanged", "onResize"]);
+        println!("056 T7.3: opened — Breakpoint Compact, FontScale 1, no rect mirrored; at 700 — BTN X 600 mirrored, Breakpoint Medium; events onResizing → onBreakpointChanged → onResize");
+    }
+
+    /// Spec 056 T7.4 (AC41, R84) — the form's responsive properties written
+    /// by the program take effect in the frame they arrive. An 800 × 600
+    /// form in a 900 × 600 window (Medium) with A at (10, 10) and B at
+    /// (200, 10), 100 × 30, and B anchored `Top,Right`:
+    ///   `Breakpoint = "Compact"` pins Compact (and says so); SPACES unpins.
+    ///   `FontScale = 1.5` pins the factor; 0 unpins.
+    ///   `Breakpoints = "Small:0:1;Big:500:1"` replaces the table → Big.
+    ///   `LayoutMode = Flex`, `FlexDirection = Column` → B directly under A.
+    ///   `Responsive = 0` → the designed placement: B back at x 200.
+    #[test]
+    fn the_programs_form_writes_steer_the_layout_056() {
+        let mut f = cobolt_forms::Form::new("PIN-FORM", "Pins", 800, 600);
+        f.responsive = true;
+        for (id, x) in [("A", 10), ("B", 200)] {
+            let mut c = cobolt_forms::Control::new(id, cobolt_forms::ControlType::Button, 0, 0);
+            c.rect = cobolt_forms::model::Rect::new(x, 10, 100, 30);
+            f.controls.push(c);
+        }
+        f.controls[1].set_prop("Anchor", cobolt_forms::PropValue::String("Top,Right".into()));
+        let (mut app, _f, pipes) = corpus_host(f, Surface::Window, None, None);
+        let ctx = egui::Context::default();
+        let write = |app: &mut FormHost, prop: &str, value: &str| {
+            pipes._state_tx.send(StateUpdate::new("PIN-FORM", prop, value)).unwrap();
+            frame(app, &ctx, corpus_input(egui::vec2(900.0, 600.0)));
+            app.root.last_layout.clone().unwrap()
+        };
+        let l = write(&mut app, "Title", "warm-up");
+        assert_eq!(l.breakpoint, "Medium");
+        assert_eq!(write(&mut app, "Breakpoint", "Compact").breakpoint, "Compact");
+        assert_eq!(write(&mut app, "Breakpoint", "   ").breakpoint, "Medium");
+        assert_eq!(write(&mut app, "FontScale", "1.5").font_factor, 1.5);
+        assert_eq!(write(&mut app, "FontScale", "0").font_factor, 1.0);
+        assert_eq!(write(&mut app, "Breakpoints", "Small:0:1;Big:500:1").breakpoint, "Big");
+        write(&mut app, "LayoutMode", "Flex");
+        let l = write(&mut app, "FlexDirection", "Column");
+        let (a, b) = (l.rects["A"], l.rects["B"]);
+        assert_eq!((b.x, b.y), (a.x, a.y + a.h), "a flex column: B under A");
+        pipes._state_tx.send(StateUpdate::new("PIN-FORM", "Responsive", "0")).unwrap();
+        frame(&mut app, &ctx, corpus_input(egui::vec2(900.0, 600.0)));
+        assert!(app.root.last_layout.is_none(), "no layout once switched off");
+        assert_eq!(app.last_control_rects()["B"].min.x, 200.0, "switched off: the design");
+        let changes: Vec<String> = drain_events(&pipes)
+            .into_iter()
+            .map(|(_, e)| e)
+            .filter(|e| e == "onBreakpointChanged")
+            .collect();
+        assert_eq!(changes.len(), 3, "pin, unpin, new table: three changes of breakpoint");
+        println!("056 T7.4: Breakpoint pin/unpin, FontScale 1.5/auto, Breakpoints replaced, LayoutMode Flex Column, Responsive off — each in its frame; 3 × onBreakpointChanged");
+    }
+
+    /// Spec 056 T7.5 (R48) — a hand-written `onResize` still composes with the
+    /// layout, run by a real interpreter. The handler is PowerChat's pattern:
+    /// read the form's new `Height`, set a control's `Height` from it. A 400 ×
+    /// 300 form: VWR at (10, 10, 380, 200), `Top,Left`, sized by the handler to
+    /// 200 + (Height − 300); BTN at (300, 250), `Bottom,Right`, placed by the
+    /// layout alone. Dragged to 600 × 400: VWR 300 high, BTN at (500, 350).
+    /// Dragged on to 700 × 500: VWR 400 — the handler's write, not undone by
+    /// the layout, and not stuck at the last one — BTN at (600, 450).
+    #[test]
+    fn a_hand_written_on_resize_composes_with_the_layout_056() {
+        let src = "IDENTIFICATION DIVISION.\nPROGRAM-ID. HAND-FORM.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n\
+            01 COBOL-QUIT PIC 9 VALUE 0.\n01 COBOL-EVENT-ID PIC X(64) VALUE SPACES.\n\
+            01 COBOL-CONTROL-ID PIC X(64) VALUE SPACES.\n01 FORM-NAME PIC X(64) VALUE 'HAND-FORM'.\n\
+            01 WS-DELTA PIC S9(5) COMP-5 VALUE 0.\n01 WS-H PIC S9(5) COMP-5 VALUE 0.\n\
+            PROCEDURE DIVISION.\nMAIN-PARA.\n    COBOL::\"INIT-FORM\" ( FORM-NAME )\n\
+                PERFORM UNTIL COBOL-QUIT = 1\n        COBOL::\"WAIT-EVENT\" ( COBOL-EVENT-ID COBOL-CONTROL-ID )\n\
+                    IF COBOL-EVENT-ID = \"onResize\"\n            COMPUTE WS-DELTA = HAND-FORM::Height - 300\n\
+                        COMPUTE WS-H = 200 + WS-DELTA\n            SET VWR::Height TO WS-H\n        END-IF\n\
+                    IF COBOL-EVENT-ID = \"onClose\"\n            MOVE 1 TO COBOL-QUIT\n        END-IF\n\
+                END-PERFORM\n    STOP RUN.\n";
+        let program = cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free))
+            .program
+            .expect("the handler parses");
+        let mut f = cobolt_forms::Form::new("HAND-FORM", "Hand", 400, 300);
+        f.responsive = true;
+        let mut v = cobolt_forms::Control::new("VWR", cobolt_forms::ControlType::Panel, 0, 0);
+        v.rect = cobolt_forms::model::Rect::new(10, 10, 380, 200);
+        let mut b = cobolt_forms::Control::new("BTN", cobolt_forms::ControlType::Button, 0, 0);
+        b.rect = cobolt_forms::model::Rect::new(300, 250, 80, 30);
+        b.set_prop("Anchor", cobolt_forms::PropValue::String("Bottom,Right".into()));
+        f.controls.extend([v, b]);
+        let seed = crate::seeding::build_object_seed(&f, &f.controls, None, None);
+        let (mut app, _f, pipes) = corpus_host(f, Surface::Window, None, None);
+        let Pipes { ev_rx, _input_rx, _state_tx, _display_tx, .. } = pipes;
+        let (display_tx, _display_rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let mut interp = cobolt_runtime::interpreter::Interpreter::new_with_channels(program, ev_rx, _state_tx, display_tx);
+            interp.set_input_channel(_input_rx);
+            interp.seed_objects(seed);
+            let _ = interp.run();
+        });
+        let ctx = egui::Context::default();
+        let mut step = |app: &mut FormHost, w: f32, h: f32| {
+            let mut input = corpus_input(egui::vec2(w, h));
+            input.viewports.insert(
+                egui::ViewportId::ROOT,
+                egui::ViewportInfo {
+                    focused: Some(true),
+                    inner_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w, h))),
+                    ..Default::default()
+                },
+            );
+            frame(app, &ctx, input);
+        };
+        // Run frames at `w × h` until VWR is `want` high (the handler runs on
+        // its own thread), at most two seconds.
+        let mut settle = |app: &mut FormHost, w: f32, h: f32, want: f32| {
+            let until = Instant::now() + std::time::Duration::from_secs(2);
+            loop {
+                step(app, w, h);
+                let r = app.last_control_rects().clone();
+                if (r["VWR"].height() - want).abs() < 0.5 || Instant::now() > until {
+                    return r;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        };
+        settle(&mut app, 400.0, 300.0, 200.0);
+        let r = settle(&mut app, 600.0, 400.0, 300.0);
+        assert_eq!((r["VWR"].height(), r["BTN"].min.x, r["BTN"].min.y), (300.0, 500.0, 350.0));
+        let r = settle(&mut app, 700.0, 500.0, 400.0);
+        assert_eq!((r["VWR"].height(), r["BTN"].min.x, r["BTN"].min.y), (400.0, 600.0, 450.0));
+        app.root.send_event(FormEvent::new("HAND-FORM", "onClose"));
+        let _ = worker.join();
+        println!("056 T7.5: a real onResize handler sets VWR 200 → 300 → 400 high while the layout moves BTN to (500, 350) and (600, 450)");
+    }
+
+    /// Spec 056 T7.1 (R64) — a program's write beats a breakpoint: PNL is
+    /// hidden at Compact; at 480 wide it is gone, and `SET PNL::Visible TO
+    /// TRUE` brings it back although Compact is still active.
+    #[test]
+    fn a_program_write_beats_a_breakpoint_override_056() {
+        let mut f = cobolt_forms::Form::new("BP-FORM", "Breakpoints", 800, 600);
+        f.responsive = true;
+        let mut p = cobolt_forms::Control::new("PNL", cobolt_forms::ControlType::Panel, 0, 0);
+        p.rect = cobolt_forms::model::Rect::new(20, 20, 200, 100);
+        f.controls.push(p);
+        f.breakpoints[0].overrides.push(cobolt_forms::layout::breakpoints::Override {
+            control: "PNL".into(),
+            property: "Visible".into(),
+            value: cobolt_forms::PropValue::Bool(false),
+        });
+        let (mut app, _f, _p) = corpus_host(f, Surface::Window, None, None);
+        let ctx = egui::Context::default();
+        for _ in 0..CORPUS_FRAMES {
+            frame(&mut app, &ctx, corpus_input(egui::vec2(480.0, 400.0)));
+        }
+        assert!(!app.last_control_rects().contains_key("PNL"), "Compact hides it");
+        app.root.apply_interpreter_update(StateUpdate::new("PNL", "Visible", "1"), false);
+        for _ in 0..CORPUS_FRAMES {
+            frame(&mut app, &ctx, corpus_input(egui::vec2(480.0, 400.0)));
+        }
+        assert!(app.last_control_rects().contains_key("PNL"), "the program's write wins");
+    }
 
     /// Spec 056 T6.2 (AC32 end to end) — type scaling on a run-form window,
     /// observed through an `AutoSize` label (measured at the size it paints

@@ -274,7 +274,10 @@ pub fn build_object_seed(
             // fires `onResetRejected` instead. Off by default — a form that
             // holds nothing worth losing needs no guard.
             ("PreventReset".into(), "0".to_string()),
-        ],
+        ]
+        .into_iter()
+        .chain(responsive_form_props(form))
+        .collect(),
     );
     std::iter::once(form_entry)
         .chain(flat.iter().map(|c| {
@@ -1005,4 +1008,24 @@ mod tests {
     fn ids(seed: &[(String, String, Vec<(String, String)>)]) -> Vec<&str> {
         seed.iter().map(|(id, _, _)| id.as_str()).collect()
     }
+}
+
+/// Spec 056 R46/R84 — the form's responsive surface as the program first
+/// reads it: the switch, the breakpoint the designed width falls in (the
+/// host mirrors the live one after each layout), a factor of 1, the table as
+/// text, and every layout-bag property at its designed or default value.
+fn responsive_form_props(form: &cobolt_forms::Form) -> Vec<(String, String)> {
+    use cobolt_forms::layout::{breakpoints, defaults, props::PropSource};
+    let bag = cobolt_forms::layout::props::FormBag(&form.layout);
+    let design = breakpoints::design_breakpoint(&form.breakpoints, form.width as f32)
+        .map(|b| b.name.clone())
+        .unwrap_or_default();
+    let mut out = vec![
+        ("Responsive".to_owned(), cobolt_forms::model::bool_text(form.responsive).to_string()),
+        ("Breakpoint".to_owned(), design),
+        ("FontScale".to_owned(), "1".to_owned()),
+        ("Breakpoints".to_owned(), breakpoints::to_text(&form.breakpoints)),
+    ];
+    out.extend(defaults::form_defaults().into_iter().map(|(k, _)| (k.to_owned(), bag.text(k))));
+    out
 }

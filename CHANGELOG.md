@@ -8,6 +8,35 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.14] — 2026-09-30
+
+### 056 Responsive design — Phase 7: the program and the layout agree
+
+- **Reading geometry.** On a responsive form, `::X`, `::Y`, `::Width` and
+  `::Height` read the values the control actually has on screen at the
+  current window size. Only what changed is sent, after each layout.
+- **Writing geometry.** A value written from COBOL is an on-screen value:
+  `ADD 10 TO BTN::X` moves a right-anchored button 10 px on screen at any
+  window size, and the next resize keeps it where the program put it relative
+  to its anchors. A container the program moves carries its contents.
+- **A program's write beats a breakpoint.** A property set from COBOL is never
+  overridden by the active breakpoint (`SET PNL::Visible TO TRUE` shows a
+  panel the breakpoint hides).
+- **New form properties:** `me::Responsive`, `me::Breakpoint` (write a name to
+  pin a breakpoint, SPACES to unpin), `me::FontScale` (write a factor to fix
+  the text size, 0 to release it), `me::Breakpoints` (the table as
+  `Name:MinWidth:FontFactor;…`) and the form's layout properties
+  (`LayoutMode`, `FlexDirection`, `Gap`, `GridColumns`, `Padding`,
+  `FontScaling`, …) — all readable and writable, taking effect the same frame.
+- **New form event `onBreakpointChanged`**, raised after the new layout and
+  before `onResize` when a resize (or a pin) changes the breakpoint — never
+  for the breakpoint the form opens in.
+- A hand-written `onResize` that lays controls out itself keeps working and
+  composes with the layout.
+
+The same behaviour in Run Form, child forms and a built application: all three
+seed and host a form through the one form host.
+
 ## [PowerRustCOBOL 1.80.13] — 2026-09-30
 
 ### 056 Responsive design — Phase 6: breakpoints, type scaling, the system text size

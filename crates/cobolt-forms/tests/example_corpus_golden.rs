@@ -261,6 +261,8 @@ fn render_one(form: &Form, theme_default: Option<&str>, s: Surface, window: Vec2
                             layout: &form.layout,
                             breakpoints: &form.breakpoints,
                             system_text_factor: 1.0,
+                            pinned_breakpoint: None,
+                            pinned_font_scale: None,
                         };
                         // The canvas and the preview draw a rail designed
                         // collapsed at its collapsed width; the run surface

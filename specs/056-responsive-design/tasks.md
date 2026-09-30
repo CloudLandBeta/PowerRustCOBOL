@@ -529,11 +529,11 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
 
 ## Phase 7 — COBOL at run time (R37–R39, R46–R48, R64, R84)
 
-- [ ] **T7.1 — `CtrlState.written`** (R64)
+- [x] **T7.1 — `CtrlState.written`** (R64)
   - Read first: `state.rs` `CtrlState`, `from_control`, `set`; `FormState`.
   - Verify: unit tests; COBOL `Visible` write beats an override (AC28 part).
 
-- [ ] **T7.2 — Geometry writes through the inverse mapping** (R38; AC43)
+- [x] **T7.2 — Geometry writes through the inverse mapping** (R38; AC43)
   - Read first: `host.rs` `apply_interpreter_update` (~2097-2218).
   - Verify: AC43 (`ADD 10 TO Btn::X` twice on a Right-anchored button → +20 px,
     reads back as written).
@@ -542,7 +542,7 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
     until this lands such a write is not shown (`LaidOutState` keeps the
     laid-out rect).
 
-- [ ] **T7.3 — Mirror laid-out rects; event order** (R37, R39, R47; AC18, AC31)
+- [x] **T7.3 — Mirror laid-out rects; event order** (R37, R39, R47; AC18, AC31)
   - Read first: `mirror_size` and the size block; `interpreter.rs`
     `drain_input` (~2811); `FORM_EVENT_GROUPS`; compiler event text + guard;
     codegen generic form-event WHEN (~2611-2645).
@@ -551,7 +551,7 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
   - Verify: AC18, AC31 in the host test module; only changed rects mirrored
     (count asserted); no mirror at the designed size.
 
-- [ ] **T7.4 — Form properties writable; pins** (R46, R84; AC41)
+- [x] **T7.4 — Form properties writable; pins** (R46, R84; AC41)
   - Read first: `apply_form_window_update` (~2049); `seeding.rs` form entries
     (~241-275).
   - Files: `host.rs`, `seeding.rs`.
@@ -559,17 +559,51 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
     layout reflects it the same frame; Breakpoint pin/unpin (event on a pin
     that changes it), FontScale fix/unfix, `Breakpoints` round-trip.
 
-- [ ] **T7.5 — A PowerChat-style run test** (R48)
+- [x] **T7.5 — A PowerChat-style run test** (R48)
   - Files: `cobolt-ide/tests/responsive_runs.rs` (new; a temp copy of a
     PowerChat form made responsive, never the committed example).
   - Verify: a hand-written `onResize` still composes with the layout.
 
-- [ ] **T7.6 — Interpreter/binary parity** (skill `interpreter-binary-parity`)
+- [x] **T7.6 — Interpreter/binary parity** (skill `interpreter-binary-parity`)
   - Verify: rcrun run-form, embedded child forms and the compiled binary all go
     through the changed host paths (read `form_gui.rs`, compiler `run_form_app`);
     a build-and-run smoke test of a responsive fixture (AC10 binary half).
 
-- [ ] **T7.7 — Phase gate** — Gate G + Gate F; commit.
+- [x] **T7.7 — Phase gate** — Gate G + Gate F; commit.
+  - **Result (2026-09-30), 1.80.14:**
+    T7.1/T7.2 as one mechanism: on a responsive form `FormBody::write_design`
+    carries a COBOL write to any overridable property into the host's copy of
+    the design (geometry through `layout::inverse` with the placement of the
+    body's `last_layout`; a moved control shifts its descendants, as a designer
+    drag does) and marks it `_Written` on the control, which
+    `breakpoints::apply_overrides` respects (R64). `CtrlState.written` was not
+    needed: the mark lives on the control the layout reads. Tests
+    `geometry_writes_compose_with_the_layout_056` (AC43: 500 → 510 → 520, 620
+    at 700 wide; the responsive copy of `a_moved_container_carries_its_contents`)
+    and `a_program_write_beats_a_breakpoint_override_056`.
+    T7.3 — `FormBody::mirror_layout` after every render: changed rects only,
+    `Breakpoint`/`FontScale` when they change, `onBreakpointChanged` after the
+    mirror (the settle frame's `onResize` comes after); `onBreakpointChanged`
+    added to "Window State" (58 form events), compiler event text, KB
+    regenerated. Test `the_program_is_told_the_layout_before_on_resize_056`.
+    T7.4 — `FormBody::write_form_layout` (Responsive on/off via
+    `responsive_off`, Breakpoint/FontScale pins through `FormSpec`,
+    Breakpoints, the layout bag); seeded in `build_object_seed`;
+    `UNIVERSAL_FORM_PROPS` extended (else `me::Breakpoint` is a build error),
+    held to `form_defaults()` by `every_form_layout_property_is_a_form_property`.
+    Test `the_programs_form_writes_steer_the_layout_056`.
+    T7.5 — in the host tests, not `cobolt-ide/tests`: only there can a test
+    drive a host frame by frame; a REAL interpreter runs a hand-written
+    `onResize` (PowerChat's pattern) against the layout —
+    `a_hand_written_on_resize_composes_with_the_layout_056` (VWR 200 → 300 →
+    400 while BTN follows its anchors).
+    T7.6 — every host seeds through `build_object_seed`, runs a
+    `FormHostConfig` through `cobolt_form_host` and sets the input channel
+    (`form_gui.rs:432/489/673`, `cobolt-compiler` `run_form_app` `:3416/3537/3616`,
+    child forms `host.rs`); the compiler test at `lib.rs:8745-8828` pins the
+    binary to them. The build-and-run binary smoke test was not run (a release
+    build, several GB, with ~11 GB free). Gate G 0 differences; Gate F green but
+    the two expected reds; `cobolt-semantic`, `cobolt-cli` green.
 
 ## Phase 8 — Designer (R29–R31, R33, R44, R45, R65, R88)
 

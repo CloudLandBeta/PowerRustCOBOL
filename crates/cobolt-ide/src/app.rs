@@ -16340,6 +16340,8 @@ impl CoboltApp {
                                 layout,
                                 breakpoints,
                                 system_text_factor: cobolt_forms::text_scale::system_text_factor(),
+                                pinned_breakpoint: None,
+                                pinned_font_scale: None,
                             };
                             cobolt_forms::layout::apply::prepare_with_rail(
                                 ui.ctx(),

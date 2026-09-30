@@ -3901,6 +3901,9 @@ pub const FORM_EVENT_GROUPS: &[(&str, &[&str])] = &[
             // 037 R14 — the ACTUAL fullscreen state changed (either
             // direction); read `me`'s FullScreen for the new value.
             "onFullScreenChanged",
+            // 056 R47 — a responsive form's active breakpoint changed (read
+            // `me`'s Breakpoint); after its new layout, before `onResize`.
+            "onBreakpointChanged",
         ],
     ),
     (
@@ -11049,8 +11052,8 @@ mod tests {
         }
         assert_eq!(
             all.len(),
-            57,
-            "expected 57 form events — 68 less the ELEVEN retired on 2026-09-06"
+            58,
+            "expected 58 form events — 68 less the ELEVEN retired on 2026-09-06, plus 056's onBreakpointChanged"
         );
     }
 

@@ -54,6 +54,39 @@ pub const UNIVERSAL_FORM_PROPS: &[&str] = &[
     // The breadcrumb reset guard: on, a click on this form's own breadcrumb
     // segment fires `onResetRejected` instead of starting the form over.
     "PreventReset",
+    // 056 R46/R84 — responsive design: the switch, the active breakpoint and
+    // font factor (writing pins them), the breakpoint table as text, and the
+    // form's layout bag (its `LayoutMode` and container properties, padding,
+    // font scaling, smallest size) — the keys of the layout defaults table's
+    // `form_defaults`, which a test below holds this list to.
+    "Responsive",
+    "Breakpoint",
+    "FontScale",
+    "Breakpoints",
+    "LayoutMode",
+    "FlexDirection",
+    "FlexWrap",
+    "JustifyContent",
+    "AlignItems",
+    "AlignContent",
+    "Gap",
+    "RowGap",
+    "ColumnGap",
+    "GridColumns",
+    "GridRows",
+    "JustifyItems",
+    "FlowDirection",
+    "WrapContents",
+    "Padding",
+    "PaddingLeft",
+    "PaddingTop",
+    "PaddingRight",
+    "PaddingBottom",
+    "FontScaling",
+    "MinFontScale",
+    "MaxFontScale",
+    "MinFormWidth",
+    "MinFormHeight",
 ];
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -826,6 +859,21 @@ impl<'a> ResolveCtx<'a> {
                      compilation unit is not visible here."
                 ),
                 span,
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests_056 {
+    /// 056 R84 — every property of a form's layout bag is a checkable form
+    /// property: the list above cannot fall behind the defaults table.
+    #[test]
+    fn every_form_layout_property_is_a_form_property() {
+        for (key, _) in cobolt_forms::layout::defaults::form_defaults() {
+            assert!(
+                super::UNIVERSAL_FORM_PROPS.iter().any(|p| p.eq_ignore_ascii_case(key)),
+                "{key} is missing from UNIVERSAL_FORM_PROPS"
             );
         }
     }
