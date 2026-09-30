@@ -11170,7 +11170,7 @@ impl<'a> ViewerPaintState<'a> {
             view_index,
             source: source.trim().to_owned(),
             layout: text("Layout").unwrap_or_else(|| "Page".into()).trim().to_owned(),
-            font_size: (int("FontSize", 14) as f32).max(4.0),
+            font_size: crate::layout::fonts::resolve_font_size(ctrl, 14.0, 4.0, f32::MAX),
             alpha_mul,
             zoom_pct: crate::viewer::clamp_zoom(zoom),
             scroll: scroll.max(0) as f32,
@@ -13184,11 +13184,8 @@ pub struct ChartFrame {
 
 pub fn chart_frame(ctrl: &Control, rect: egui::Rect) -> ChartFrame {
     use crate::model::ControlType as CT;
-    let chart_font_size = ctrl
-        .get_prop("FontSize")
-        .map(|v| v.as_i64() as f32)
-        .unwrap_or(CHART_FONT_BASE)
-        .clamp(4.0, 200.0);
+    let chart_font_size =
+        crate::layout::fonts::resolve_font_size(ctrl, CHART_FONT_BASE, 4.0, 200.0);
     let type_scale = CHART_FONT_SCALE * (chart_font_size / CHART_FONT_BASE);
     let chart_str = |key: &str| -> String {
         ctrl.get_prop(key)
@@ -13370,11 +13367,8 @@ pub fn draw_chart_preview(
     //
     // Expressed against `CHART_FONT_BASE` so a chart nobody has restyled is
     // scaled by exactly 1.0 and is left as it was.
-    let chart_font_size = ctrl
-        .get_prop("FontSize")
-        .map(|v| v.as_i64() as f32)
-        .unwrap_or(CHART_FONT_BASE)
-        .clamp(4.0, 200.0);
+    let chart_font_size =
+        crate::layout::fonts::resolve_font_size(ctrl, CHART_FONT_BASE, 4.0, 200.0);
     let type_scale = CHART_FONT_SCALE * (chart_font_size / CHART_FONT_BASE);
 
     // ── Background ────────────────────────────────────────────────────────────
@@ -17189,10 +17183,7 @@ pub fn control_colors(ct: &ControlType, selected: bool) -> (Color32, Color32, Co
 }
 
 pub fn ctrl_font_size(ctrl: &Control) -> f32 {
-    ctrl.get_prop("FontSize")
-        .map(|v| v.as_i64() as f32)
-        .unwrap_or(11.0)
-        .clamp(4.0, 200.0)
+    crate::layout::fonts::resolve_font_size(ctrl, 11.0, 4.0, 200.0)
 }
 
 pub fn parse_color(s: &str) -> Color32 {

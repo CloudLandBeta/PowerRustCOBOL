@@ -264,7 +264,7 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
 
 ## Phase 3 — One font resolver (R70)
 
-- [ ] **T3.1 — Resolver + every paint site** (R70, R71; AC33)
+- [x] **T3.1 — Resolver + every paint site** (R70, R71; AC33)
   - Read first: `paint.rs` `ctrl_font_size` and every caller; `render.rs`
     sites (~7461, 8925, 9090, 11671, 11687); chart (~12806, 12992,
     `CHART_FONT_SCALE`); `model.rs` tab strip (~6282); Viewer (~10791);
@@ -278,9 +278,21 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
   - Verify: AC33 — source scan (no `FontSize` read outside `layout/fonts.rs`
     and tests) + a render walk of every `ControlType` asserting galley font
     sizes; Gate G unchanged (corpus has no decimal sizes).
+  - **Result (2026-09-29):** 11 read sites routed (the plan listed 9; the census
+    added `model.rs::text_line_height` and the second chart site), each keeping
+    its own default and bounds. `one_font_resolver`: the scan finds 0 reads in
+    51 files; the walk paints no text at the 4 pt floor on any of 37 visual
+    types and paints the text controls at the resolved 23. Text a control paints
+    at a fixed chrome size (an empty DataGrid's placeholder, a MenuBar's,
+    Slider's and the Viewer's chrome) never read `FontSize` and is unchanged.
 
-- [ ] **T3.2 — Phase gate** — Gate F; commit (CHANGELOG names the decimal
+- [x] **T3.2 — Phase gate** — Gate F; commit (CHANGELOG names the decimal
   behaviour change: `"18.5"` no longer paints at 4 pt).
+  - **Result (2026-09-29):** Gate G 0 differences; Gate F green apart from the
+    two known reds, and `powerchat_runs::powerchat_documents_embed_with_the_builtin_model`
+    timing out at its 30 s wait while the gate ran other test binaries beside
+    it — alone it passed (the file in 30.8 s). It embeds documents with the
+    built-in model; nothing in this phase is on that path.
 
 ## Phase 4 — Surfaces lay out responsive forms (R23, R25–R28, R43, R3, R5, R18)
 

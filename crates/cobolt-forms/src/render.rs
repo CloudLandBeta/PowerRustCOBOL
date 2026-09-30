@@ -7468,9 +7468,8 @@ fn render_interactive(
                 info_style.shadow =
                     shadow_raw != "0" && !shadow_raw.eq_ignore_ascii_case("false");
             }
-            let fs = sv(ctrl, "FontSize").trim().parse::<f32>().unwrap_or(0.0);
-            if fs > 0.0 {
-                info_style.font_size = fs.clamp(8.0, 28.0);
+            if let Some(fs) = crate::layout::fonts::resolve_font_size_opt(ctrl, 8.0, 28.0) {
+                info_style.font_size = fs;
             }
 
             let pointer = map_tiles::MapPointer {
@@ -8932,7 +8931,7 @@ fn render_interactive(
             // from the columns rather than covering the first one, so every
             // column position below is measured from `cx` across `cw`.
             let show_row_numbers = prop_bool(ctrl, "ShowRowNumbers", false);
-            let number_font_size = sv(ctrl, "FontSize").parse::<f32>().unwrap_or(12.0).clamp(6.0, 72.0);
+            let number_font_size = crate::layout::fonts::resolve_font_size(ctrl, 12.0, 6.0, 72.0);
             let gutter = if show_row_numbers {
                 let digits = displayed_row_indices.len().max(1).to_string().len().max(2) as f32;
                 (digits * number_font_size * 0.62 + 12.0).min(screen.width() * 0.5)
@@ -9097,10 +9096,7 @@ fn render_interactive(
                 .or_else(|| paint::parse_hex(&sv(ctrl, "GridLineColor")))
                 .unwrap_or(Color32::from_rgba_premultiplied(150, 160, 200, 90));
             let grid_line_style = advanced_grid.grid_line_style;
-            let font_size = sv(ctrl, "FontSize")
-                .parse::<f32>()
-                .unwrap_or(12.0)
-                .clamp(6.0, 72.0);
+            let font_size = crate::layout::fonts::resolve_font_size(ctrl, 12.0, 6.0, 72.0);
             let show_filters = prop_bool(ctrl, "ShowColumnFilters", false);
             let header_h = if show_filters {
                 (row_h * 1.85).max(row_h + 18.0)
@@ -11678,7 +11674,7 @@ fn render_interactive(
                     );
                 }
                 if let Some(p) = ui.input(|i| i.pointer.latest_pos()) {
-                    let font = sv(ctrl, "FontSize").parse::<f32>().unwrap_or(12.0).clamp(6.0, 72.0);
+                    let font = crate::layout::fonts::resolve_font_size(ctrl, 12.0, 6.0, 72.0);
                     painter.text(
                         p + vec2(14.0, 6.0),
                         egui::Align2::LEFT_TOP,
@@ -11694,7 +11690,7 @@ fn render_interactive(
                 if let Some(row) = rows.iter().find(|r| r.index == edit.index) {
                     let rect = Rect::from_min_max(pos2(row.label_x - 2.0, row.rect.min.y), row.rect.max)
                         .intersect(screen);
-                    let font = sv(ctrl, "FontSize").parse::<f32>().unwrap_or(12.0).clamp(6.0, 72.0);
+                    let font = crate::layout::fonts::resolve_font_size(ctrl, 12.0, 6.0, 72.0);
                     let resp = ui.put(
                         rect,
                         egui::TextEdit::singleline(&mut edit.text)

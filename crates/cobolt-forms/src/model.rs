@@ -4346,11 +4346,7 @@ pub const LIST_FRAME_PAD: f32 = 3.0;
 
 /// One line of a control's own text, at its own font size.
 pub fn text_line_height(ctrl: &Control) -> f32 {
-    let fs = ctrl
-        .get_prop("FontSize")
-        .map(|v| v.as_i64())
-        .unwrap_or(14)
-        .clamp(4, 200) as f32;
+    let fs = crate::layout::fonts::resolve_font_size(ctrl, 14.0, 4.0, 200.0);
     fs * 1.35
 }
 
@@ -6371,7 +6367,7 @@ impl Control {
 
     /// The tab font's size — the control's `FontSize`.
     fn tab_font_size(&self) -> f32 {
-        self.get_prop("FontSize").map(|v| v.as_i64() as f32).unwrap_or(11.0).clamp(6.0, 96.0)
+        crate::layout::fonts::resolve_font_size(self, 11.0, 6.0, 96.0)
     }
 
     /// Height of one tab: its label's line plus even padding above and below,

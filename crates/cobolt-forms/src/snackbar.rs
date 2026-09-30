@@ -1073,7 +1073,7 @@ pub fn mint(ctrl: &Control) -> (SnackVisual, Option<ButtonsDiagnostic>) {
         }),
         background_image_opacity: prop_i64(ctrl, "BackgroundImageOpacity", 15).clamp(0, 100),
         font_name: prop_str(ctrl, "FontName"),
-        font_size: prop_i64(ctrl, "FontSize", 14).max(1) as f32,
+        font_size: crate::layout::fonts::resolve_font_size(ctrl, 14.0, 1.0, f32::MAX),
         bold: prop_bool(ctrl, "Bold", false),
         text_wrap: prop_bool(ctrl, "TextWrap", true),
         corner_radius: [

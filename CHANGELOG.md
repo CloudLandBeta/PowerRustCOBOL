@@ -8,6 +8,24 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.10] — 2026-09-29
+
+### 056 Responsive design — Phase 3: one font resolver
+
+Every place the engine reads a control's `FontSize` to paint it — the shared
+control font, list line height, tab strip, charts, the Viewer, the Snackbar,
+tooltips and the DataGrid — now asks one resolver
+(`layout::fonts::resolve_font_size`). Each keeps its own default and bounds,
+so every form with whole-number sizes paints exactly as before (the example
+corpus goldens: 0 differences). The resolver is where responsive font scaling
+will enter (Phase 6).
+
+**Behaviour change:** a decimal or padded size is now read as written. A
+`FontSize` of `"18.5"` used to paint at **4 pt** on most controls — it was
+read as a whole number, failed, and fell to the floor — and now paints at
+18.5. An unreadable size now takes the site's own default instead of that
+floor.
+
 ## [PowerRustCOBOL 1.80.9] — 2026-09-29
 
 ### GroupBox: the border opens behind the caption; caption padding per axis
