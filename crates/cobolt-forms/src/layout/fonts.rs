@@ -65,10 +65,14 @@ pub fn form_factor(
 /// on: trimmed, decimals accepted; absent or unreadable is the engine's
 /// missing-size default.
 pub fn designed_size(c: &Control) -> f32 {
-    c.get_prop("FontSize")
-        .and_then(number_of)
-        .filter(|v| *v > 0.0)
-        .unwrap_or(defaults::FONT_SIZE_MISSING)
+    designed_size_opt(c).unwrap_or(defaults::FONT_SIZE_MISSING)
+}
+
+/// The control's own readable designed `FontSize`, or `None` when it states
+/// none — then each paint site keeps its own missing-size default, and the
+/// layout writes no effective size over it.
+pub fn designed_size_opt(c: &Control) -> Option<f32> {
+    c.get_prop("FontSize").and_then(number_of).filter(|v| *v > 0.0)
 }
 
 /// The key the layout writes a control's effective font size under, for the

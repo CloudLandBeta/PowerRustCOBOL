@@ -1417,6 +1417,12 @@ pub fn run_shell(
         .with_decorations(form.title_visible)
         .with_fullscreen(form.full_screen)
         .with_maximized(form.window_state == cobolt_forms::model::WindowState::Maximized);
+    // 056 R18 — a responsive main form's smallest layout is the window's
+    // floor; the rail's own resize of the window is unaffected, and a form that
+    // is not responsive keeps no minimum, as before.
+    if let Some((w, h)) = cobolt_forms::layout::min_size_of(&form) {
+        viewport = viewport.with_min_inner_size([w, h]);
+    }
     if form.start_position == cobolt_forms::model::FormStartPosition::Custom {
         viewport = viewport.with_position(egui::pos2(form.x as f32, form.y as f32));
     }

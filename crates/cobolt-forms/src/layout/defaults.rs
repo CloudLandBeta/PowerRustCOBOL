@@ -73,6 +73,9 @@ pub const MAX_FONT_SCALE: &str = "1.5";
 /// The smallest surface a responsive form lays out for (R18).
 pub const MIN_FORM_WIDTH: i64 = 64;
 pub const MIN_FORM_HEIGHT: i64 = 64;
+/// A run-form window's minimum inner size is never below this, whatever
+/// `MinFormWidth`/`MinFormHeight` say (R18).
+pub const WINDOW_MIN_INNER: f32 = 64.0;
 /// A breakpoint's font factor when it states none (R67).
 pub const BREAKPOINT_FONT_FACTOR: f32 = 1.0;
 

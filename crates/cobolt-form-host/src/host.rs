@@ -335,6 +335,13 @@ pub fn run(config: FormHostConfig) {
     // into the builder; every screen-relative variant needs the monitor's
     // size, unknown until the window is up (see `pending_start_position`
     // above), and `System` means "do not touch it", exactly like today.
+    // 056 R18 — a responsive form's smallest layout is the window's minimum
+    // inner size, so the OS grip cannot produce a layout the form cannot
+    // honour. A floor only: nothing here sizes the window, and a form that is
+    // not responsive keeps no minimum, as before.
+    if let Some((w, h)) = cobolt_forms::layout::min_size_of(&form) {
+        viewport = viewport.with_min_inner_size([w, h]);
+    }
     if form.start_position == cobolt_forms::model::FormStartPosition::Custom {
         viewport = viewport.with_position(egui::pos2(form.x as f32, form.y as f32));
     }
@@ -540,6 +547,7 @@ impl FormHost {
                 use_theme_background: form.use_theme_background,
                 modal_overlay_style: form.modal_overlay_style,
                 form_size: egui::vec2(fw, fh),
+                responsive: ResponsiveSpec::of(&form),
                 ev_tx,
                 input_tx,
                 state_rx,
@@ -582,6 +590,7 @@ impl FormHost {
             form_req_rx,
             closed: ClosedFanout::new(closed_tx),
             fullscreen_actual: form.full_screen,
+            root_min_inner: cobolt_forms::layout::min_size_of(&form).map(|(w, h)| egui::vec2(w, h)),
             fx_entrance,
             fx_exit,
             fx_restore,
@@ -765,6 +774,10 @@ pub(crate) struct FormBody {
     /// modal child of its own (`child_frame`'s `blocked` overlay).
     pub(crate) modal_overlay_style: cobolt_forms::model::ModalOverlayStyle,
     pub(crate) form_size: egui::Vec2,
+    /// Spec 056 — `Some` when the form is responsive: its layout properties
+    /// and breakpoint table. Every surface lays such a form out for its own
+    /// size before rendering it (R23); `None` renders exactly as before (R3).
+    pub(crate) responsive: Option<ResponsiveSpec>,
     pub(crate) ev_tx: mpsc::Sender<FormEvent>,
     pub(crate) input_tx: mpsc::Sender<StateUpdate>,
     pub(crate) state_rx: mpsc::Receiver<StateUpdate>,
@@ -2702,6 +2715,13 @@ impl FormBody {
         let pre_focus = ctx.memory(|m| m.focused());
         let output = {
             let mut controls = self.painted_controls();
+            // 056 — a responsive form lays out from its DESIGNED controls, with
+            // the rail's shown state applied afterwards (R26).
+            let responsive = self.responsive.clone();
+            let designed_controls = if responsive.is_some() { self.controls.clone() } else { Vec::new() };
+            let rail = self
+                .own_side_menu()
+                .map(|side| (side.id.clone(), self.side_menu_collapsed(&side.id)));
             let st = LiveState {
                 state: &self.state,
                 anim: &self.anim,
@@ -2731,21 +2751,42 @@ impl FormBody {
                         ui.set_opacity(1.0);
                     }
                     ui.style_mut().spacing.scroll = form_scroll_style();
+                    // 056 R23 — the surface a responsive form lays out for.
+                    let surface_size = ui.available_size();
                     egui::ScrollArea::both()
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
-                            // A Responsive MenuBar and a StatusBar span the
-                            // window the operator sees, not only the width
-                            // the form was designed at.
-                            cobolt_forms::Form::stretch_window_bars(
-                                &mut controls,
-                                ui.available_width().max(form_size.x),
-                            );
-                            ui.set_min_size(form_size);
+                            let laid_state = cobolt_forms::layout::apply::LaidOutState { inner: &st };
+                            // R26 — lay out the DESIGNED controls first; the
+                            // SideMenu rail then narrows on the laid-out rects,
+                            // as it narrows on designed ones today.
+                            let prepared = responsive.as_ref().map(|spec| {
+                                let rail = rail.as_ref().map(|(id, collapsed)| (id.as_str(), *collapsed));
+                                spec.prepare(ui.ctx(), &designed_controls, &st, form_size, surface_size, rail)
+                            });
+                            let (render_controls, render_size, render_state): (
+                                &[cobolt_forms::Control],
+                                egui::Vec2,
+                                &dyn cobolt_forms::render::FormState,
+                            ) = match &prepared {
+                                // R43 — the bars follow their anchors.
+                                Some(p) => (&p.controls, p.form_size, &laid_state),
+                                None => {
+                                    // A Responsive MenuBar and a StatusBar span
+                                    // the window the operator sees, not only
+                                    // the width the form was designed at.
+                                    cobolt_forms::Form::stretch_window_bars(
+                                        &mut controls,
+                                        ui.available_width().max(form_size.x),
+                                    );
+                                    (&controls, form_size, &st)
+                                }
+                            };
+                            ui.set_min_size(render_size);
                             let input = cobolt_forms::render::RenderInput {
-                                controls: &controls,
-                                state: &st,
-                                form_size,
+                                controls: render_controls,
+                                state: render_state,
+                                form_size: render_size,
                                 glass: true,
                                 mode: cobolt_forms::render::RenderMode::Interactive,
                                 active_tabs: &active_tabs,
@@ -2973,6 +3014,54 @@ pub(crate) struct ChildWindow {
 /// 051 — a ContentPane occupant: a full form instance shown in the shell's
 /// pane instead of the root form. Resident while registered (049 R20) —
 /// parked occupants keep their interpreter and storage warm.
+/// Spec 056 — what laying out a responsive form needs from its design, beyond
+/// its controls and designed size (both already on the body).
+#[derive(Clone, Debug)]
+pub(crate) struct ResponsiveSpec {
+    pub(crate) layout: std::collections::BTreeMap<String, cobolt_forms::PropValue>,
+    pub(crate) breakpoints: Vec<cobolt_forms::layout::breakpoints::Breakpoint>,
+}
+
+impl ResponsiveSpec {
+    /// `Some` only for a form whose `Responsive design` is on.
+    pub(crate) fn of(form: &cobolt_forms::Form) -> Option<Self> {
+        form.responsive.then(|| ResponsiveSpec {
+            layout: form.layout.clone(),
+            breakpoints: form.breakpoints.clone(),
+        })
+    }
+
+    /// The smallest surface these controls lay out for (R18).
+    pub(crate) fn min_size(&self, controls: &[cobolt_forms::Control], designed: egui::Vec2) -> egui::Vec2 {
+        let (w, h) = cobolt_forms::layout::window_min_size(
+            controls,
+            (designed.x, designed.y),
+            &self.layout,
+            &self.breakpoints,
+        );
+        egui::vec2(w, h)
+    }
+
+    /// Lay `controls` out for a surface of `available` size; `rail` narrows
+    /// a SideMenu the surface draws itself afterwards (R26).
+    pub(crate) fn prepare(
+        &self,
+        ctx: &egui::Context,
+        controls: &[cobolt_forms::Control],
+        state: &dyn cobolt_forms::render::FormState,
+        designed: egui::Vec2,
+        available: egui::Vec2,
+        rail: Option<(&str, bool)>,
+    ) -> cobolt_forms::layout::apply::Prepared {
+        let spec = cobolt_forms::layout::apply::FormSpec {
+            designed_size: (designed.x, designed.y),
+            layout: &self.layout,
+            breakpoints: &self.breakpoints,
+        };
+        cobolt_forms::layout::apply::prepare_with_rail(ctx, controls, state, &spec, available, rail)
+    }
+}
+
 pub(crate) struct Occupant {
     pub(crate) handle: String,
     pub(crate) body: FormBody,
@@ -3036,6 +3125,10 @@ pub struct FormHost {
     /// fires only on real transitions (R14/AC8). Seeded with the designed
     /// value so opening fullscreen-by-design is not a "change".
     fullscreen_actual: bool,
+    /// 056 R18 — the minimum inner size the root window was last given (the
+    /// builder's, then every re-send); `None` for a form that is not
+    /// responsive, whose window keeps no minimum.
+    root_min_inner: Option<egui::Vec2>,
 
     // ── 038 window effects ───────────────────────────────────────────────────
     /// Project entrance/exit effects, resolved by the glue
@@ -4019,6 +4112,7 @@ impl FormHost {
             use_theme_background: form.use_theme_background,
             modal_overlay_style: form.modal_overlay_style,
             form_size: egui::vec2(fw, fh),
+            responsive: ResponsiveSpec::of(&form),
             ev_tx,
             input_tx,
             state_rx,
@@ -4103,6 +4197,11 @@ impl FormHost {
                 .with_fullscreen(child.full_screen);
             if live_modal_caller_vp.is_some() {
                 builder = builder.with_always_on_top();
+            }
+            // 056 R18 — a responsive child's smallest layout as its floor; a
+            // form that is not responsive keeps no minimum, as before.
+            if let Some(spec) = child.body.responsive.as_ref() {
+                builder = builder.with_min_inner_size(spec.min_size(&child.body.controls, child.body.form_size));
             }
             if let Some(p) = child.pos {
                 builder = builder.with_position(p);
@@ -4202,7 +4301,25 @@ impl FormHost {
             ));
         let bg = cobolt_forms::render::backdrop_color(&self.root.bg_hex, self.root.transparency);
         let backdrop = self.root.backdrop(root_ui.ctx(), rect.size());
-        let controls = &self.root.controls;
+        // 056 — a responsive form's effect reveals the form laid out for this
+        // window: the picture the live UI shows the moment the effect ends.
+        let laid;
+        let controls: &[cobolt_forms::Control] = match &self.root.responsive {
+            Some(spec) => {
+                laid = spec
+                    .prepare(
+                        root_ui.ctx(),
+                        &self.root.controls,
+                        &cobolt_forms::render::DesignedState,
+                        self.root.form_size,
+                        rect.size(),
+                        None,
+                    )
+                    .controls;
+                &laid
+            }
+            None => &self.root.controls,
+        };
         let time = self.root.start.elapsed().as_secs_f64();
         cobolt_forms::window_fx::paint_window_fx(
             &painter,
@@ -4643,6 +4760,18 @@ impl FormHost {
         // Pane mode the viewport is the SHELL's window, so acting on it would
         // fire bogus form events when the shell fullscreens or minimizes.
         if self.surface == Surface::Window {
+            // 056 R18 — the window's floor follows the form's minimum: sent
+            // again only when it changes (a COBOL write to a layout property),
+            // never every frame. A floor only; the window is never resized.
+            // Child windows need nothing here: their builder is rebuilt every
+            // frame and egui patches a changed minimum itself.
+            if let Some(spec) = self.root.responsive.as_ref() {
+                let min = spec.min_size(&self.root.controls, self.root.form_size);
+                if self.root_min_inner != Some(min) {
+                    self.root_min_inner = Some(min);
+                    ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(min));
+                }
+            }
             // 037 R14 — onFullScreenChanged fires on ACTUAL transitions only,
             // read back from the viewport (the OS may refuse a request). The
             // live value is mirrored onto the form object first so the handler
@@ -5395,21 +5524,42 @@ impl FormHost {
                     // right/bottom edges when the form fits (only appears, as an
                     // overlay, if the user shrinks the resizable window).
                     ui.style_mut().spacing.scroll = form_scroll_style();
+                    // 056 R23 — the surface a responsive form lays out for:
+                    // what this panel offers, taken before the scroll area.
+                    let surface_size = ui.available_size();
+                    let responsive = &self.root.responsive;
                     let sa = egui::ScrollArea::both()
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
-                            // A Responsive MenuBar and a StatusBar span the
-                            // window the operator sees, not only the width
-                            // the form was designed at.
-                            cobolt_forms::Form::stretch_window_bars(
-                                &mut controls,
-                                ui.available_width().max(form_size.x),
-                            );
-                            ui.set_min_size(form_size);
+                            let laid_state = cobolt_forms::layout::apply::LaidOutState { inner: &st };
+                            let prepared = responsive.as_ref().map(|spec| {
+                                spec.prepare(ui.ctx(), &controls, &st, form_size, surface_size, None)
+                            });
+                            let (render_controls, render_size, render_state): (
+                                &[cobolt_forms::Control],
+                                egui::Vec2,
+                                &dyn cobolt_forms::render::FormState,
+                            ) = match &prepared {
+                                // R43 — a responsive form's MenuBar and
+                                // StatusBar follow their anchors; nothing
+                                // stretches them a second time.
+                                Some(p) => (&p.controls, p.form_size, &laid_state),
+                                None => {
+                                    // A Responsive MenuBar and a StatusBar span
+                                    // the window the operator sees, not only
+                                    // the width the form was designed at.
+                                    cobolt_forms::Form::stretch_window_bars(
+                                        &mut controls,
+                                        ui.available_width().max(form_size.x),
+                                    );
+                                    (&controls, form_size, &st)
+                                }
+                            };
+                            ui.set_min_size(render_size);
                             let input = cobolt_forms::render::RenderInput {
-                                controls: &controls,
-                                state: &st,
-                                form_size,
+                                controls: render_controls,
+                                state: render_state,
+                                form_size: render_size,
                                 glass: true,
                                 mode: cobolt_forms::render::RenderMode::Interactive,
                                 active_tabs: &active_tabs,
@@ -8519,6 +8669,7 @@ mod parity {
             use_theme_background: false,
             modal_overlay_style: cobolt_forms::model::ModalOverlayStyle::default(),
             form_size: egui::vec2(320.0, 200.0),
+            responsive: None,
             ev_tx,
             input_tx,
             state_rx,
@@ -9734,6 +9885,84 @@ mod parity {
 
     const CORPUS_FRAMES: usize = 3;
 
+    /// `form` as the ContentPane occupant of a plain shell `size` large: its
+    /// rows and the pane it was given.
+    fn corpus_occupant(
+        form: &cobolt_forms::Form,
+        theme_default: &Option<String>,
+        size: egui::Vec2,
+    ) -> (Vec<String>, Option<egui::Rect>) {
+        let occupant = form.clone();
+        let key = occupant.name.trim().to_ascii_uppercase();
+        let source: FormSource = Box::new(move |_id: &str| Ok((occupant.clone(), corpus_program())));
+        let shell_form = cobolt_forms::Form::new("CORPUS-SHELL", "Shell", size.x as u32, size.y as u32);
+        let (mut app, _f, _pipes) = corpus_host(shell_form, Surface::Pane, theme_default.clone(), Some(source));
+        app.ensure_occupant(&key).expect("the occupant builds");
+        app.show_occupant(Some(&key));
+        let mut shell = crate::shell::Shell::default();
+        let ctx = egui::Context::default();
+        ctx.set_fonts(cobolt_forms::fonts::base_font_definitions());
+        for _ in 0..CORPUS_FRAMES {
+            let mut full = ctx.run_ui(corpus_input(size), |ui| {
+                shell.show_with_host(ui, |_ui| {}, &mut app);
+            });
+            full.textures_delta.clear();
+        }
+        let occ = &app.occupants[&key];
+        (corpus_rows(&occ.body, app.last_control_rects()), app.last_occupant_rect())
+    }
+
+    /// The host surfaces of the corpus for one form at one window size, each
+    /// with its rows: root Window, root Pane (SideMenu forms only) and the
+    /// ContentPane occupant of a plain shell (`occupant_pane_designed`: that
+    /// shell grown so its pane is the form's designed size).
+    fn corpus_surfaces(
+        form: &cobolt_forms::Form,
+        forms_dir: &std::path::Path,
+        theme_default: &Option<String>,
+        size: egui::Vec2,
+        occupant_pane_designed: bool,
+    ) -> Vec<(&'static str, Vec<String>)> {
+        let mut out = Vec::new();
+        // Root Window.
+        {
+            let (mut app, _form, _pipes) =
+                corpus_host(form.clone(), Surface::Window, theme_default.clone(), None);
+            let ctx = egui::Context::default();
+            ctx.set_fonts(cobolt_forms::fonts::base_font_definitions());
+            for _ in 0..CORPUS_FRAMES {
+                frame(&mut app, &ctx, corpus_input(size));
+            }
+            out.push(("Window", corpus_rows(&app.root, app.last_control_rects())));
+        }
+        // Root Pane — a SideMenu shell.
+        if form.has_side_menu() {
+            let (mut app, root_form, _pipes) =
+                corpus_host(form.clone(), Surface::Pane, theme_default.clone(), None);
+            let mut shell = corpus_shell(&root_form, forms_dir);
+            let ctx = egui::Context::default();
+            ctx.set_fonts(cobolt_forms::fonts::base_font_definitions());
+            for _ in 0..CORPUS_FRAMES {
+                let mut full = ctx.run_ui(corpus_input(size), |ui| {
+                    shell.show_with_host(ui, |_ui| {}, &mut app);
+                });
+                full.textures_delta.clear();
+            }
+            out.push(("Pane", corpus_rows(&app.root, app.last_control_rects())));
+        }
+        // ContentPane occupant of a plain shell. For R81 the shell is grown
+        // so the PANE, the occupant's surface, is the designed size.
+        let (mut rows, pane) = corpus_occupant(form, theme_default, size);
+        if occupant_pane_designed {
+            if let Some(pane) = pane {
+                let grown = size + (egui::vec2(form.width as f32, form.height as f32) - pane.size());
+                rows = corpus_occupant(form, theme_default, grown).0;
+            }
+        }
+        out.push(("Occupant", rows));
+        out
+    }
+
     #[test]
     fn corpus_golden() {
         let started = Instant::now();
@@ -9743,6 +9972,7 @@ mod parity {
         let factors = [(0.75f32, "0.75x"), (1.0, "1x"), (1.5, "1.5x")];
         let (mut forms, mut rows, mut renders, mut panes, mut written) = (0usize, 0usize, 0usize, 0usize, 0usize);
         let mut differences = Vec::new();
+        let (mut responsive_checked, mut responsive_diffs) = (0usize, Vec::<String>::new());
         for project in ["PowerDemo3", "PowerChat"] {
             let dir = corpus_repo().join("examples").join(project);
             cobolt_forms::assets::set_base(&dir);
@@ -9759,63 +9989,40 @@ mod parity {
                         (form.width as f32 * f).round().max(64.0),
                         (form.height as f32 * f).round().max(64.0),
                     );
-                    // Root Window.
-                    {
-                        let (mut app, _form, _pipes) =
-                            corpus_host(form.clone(), Surface::Window, theme_default.clone(), None);
-                        let ctx = egui::Context::default();
-                        ctx.set_fonts(cobolt_forms::fonts::base_font_definitions());
-                        for _ in 0..CORPUS_FRAMES {
-                            frame(&mut app, &ctx, corpus_input(size));
-                        }
-                        let r = corpus_rows(&app.root, app.last_control_rects());
+                    for (surface, r) in corpus_surfaces(&form, &forms_dir, &theme_default, size, false) {
                         rows += r.len();
                         renders += 1;
-                        text.push_str(&format!("## Window {fname} {}x{}\n{}\n", size.x, size.y, r.join("\n")));
+                        if surface == "Pane" {
+                            panes += 1;
+                        }
+                        text.push_str(&format!("## {surface} {fname} {}x{}\n{}\n", size.x, size.y, r.join("\n")));
                     }
-                    // Root Pane — a SideMenu shell.
-                    if form.has_side_menu() {
-                        let (mut app, root_form, _pipes) =
-                            corpus_host(form.clone(), Surface::Pane, theme_default.clone(), None);
-                        let mut shell = corpus_shell(&root_form, &forms_dir);
-                        let ctx = egui::Context::default();
-                        ctx.set_fonts(cobolt_forms::fonts::base_font_definitions());
-                        for _ in 0..CORPUS_FRAMES {
-                            let mut full = ctx.run_ui(corpus_input(size), |ui| {
-                                shell.show_with_host(ui, |_ui| {}, &mut app);
-                            });
-                            full.textures_delta.clear();
+                }
+                // R81 / AC38 — the same form with only `responsive="true"` lays
+                // out at its designed size exactly as the golden does, on every
+                // host surface.
+                {
+                    let mut copy = form.clone();
+                    copy.responsive = true;
+                    let size = egui::vec2(
+                        (form.width as f32).round().max(64.0),
+                        (form.height as f32).round().max(64.0),
+                    );
+                    for (surface, r) in corpus_surfaces(&copy, &forms_dir, &theme_default, size, true) {
+                        let header = format!("## {surface} 1x {}x{}\n", size.x, size.y);
+                        let plain = text
+                            .split(&header)
+                            .nth(1)
+                            .and_then(|rest| rest.split("\n## ").next())
+                            .unwrap_or_default()
+                            .trim_end()
+                            .to_owned();
+                        let got = r.join("\n");
+                        responsive_checked += 1;
+                        if plain != got {
+                            let first = plain.lines().zip(got.lines()).find(|(a, b)| a != b);
+                            responsive_diffs.push(format!("{project}/{rel} {surface}: {first:?}"));
                         }
-                        let r = corpus_rows(&app.root, app.last_control_rects());
-                        rows += r.len();
-                        renders += 1;
-                        panes += 1;
-                        text.push_str(&format!("## Pane {fname} {}x{}\n{}\n", size.x, size.y, r.join("\n")));
-                    }
-                    // ContentPane occupant of a plain shell.
-                    {
-                        let occupant = form.clone();
-                        let key = occupant.name.trim().to_ascii_uppercase();
-                        let source: FormSource = Box::new(move |_id: &str| Ok((occupant.clone(), corpus_program())));
-                        let shell_form = cobolt_forms::Form::new("CORPUS-SHELL", "Shell", size.x as u32, size.y as u32);
-                        let (mut app, _f, _pipes) =
-                            corpus_host(shell_form, Surface::Pane, theme_default.clone(), Some(source));
-                        app.ensure_occupant(&key).expect("the occupant builds");
-                        app.show_occupant(Some(&key));
-                        let mut shell = crate::shell::Shell::default();
-                        let ctx = egui::Context::default();
-                        ctx.set_fonts(cobolt_forms::fonts::base_font_definitions());
-                        for _ in 0..CORPUS_FRAMES {
-                            let mut full = ctx.run_ui(corpus_input(size), |ui| {
-                                shell.show_with_host(ui, |_ui| {}, &mut app);
-                            });
-                            full.textures_delta.clear();
-                        }
-                        let occ = &app.occupants[&key];
-                        let r = corpus_rows(&occ.body, app.last_control_rects());
-                        rows += r.len();
-                        renders += 1;
-                        text.push_str(&format!("## Occupant {fname} {}x{}\n{}\n", size.x, size.y, r.join("\n")));
                     }
                 }
                 let file = golden_root
@@ -9857,11 +10064,228 @@ mod parity {
         } else {
             println!("  differences: {} form(s)", differences.len());
         }
+        println!(
+            "  responsive : {responsive_checked} designed-size renders with responsive=\"true\", {} differing from the plain form",
+            responsive_diffs.len()
+        );
         println!("  elapsed    : {:.1} s", started.elapsed().as_secs_f32());
         assert!(
             differences.is_empty(),
             "the example corpus no longer lays out as its host golden:\n{}",
             differences.join("\n")
+        );
+        assert!(
+            responsive_diffs.is_empty(),
+            "R81 — turning Responsive design on moved something at the designed size:\n{}",
+            responsive_diffs.join("\n")
+        );
+    }
+
+
+    /// Spec 056 T4.7 (AC10 host half) — one responsive fixture drawn by the
+    /// run-form window and by a ContentPane whose pane is the same size gives
+    /// the same rects, relative to the surface. (The rows' font column is the
+    /// designed size; effective sizes are compared across the engine surfaces
+    /// in `cobolt-forms/tests/responsive_precedence_056.rs`.)
+    #[test]
+    fn a_responsive_form_lays_out_the_same_in_a_window_and_in_a_pane_056() {
+        fn fixture() -> cobolt_forms::Form {
+            use cobolt_forms::{Control, ControlType, PropValue};
+            let mut f = cobolt_forms::Form::new("PAR-FORM", "Parity", 600, 400);
+            f.responsive = true;
+            f.layout.insert("FontScaling".into(), PropValue::String("Fluid".into()));
+            let mut add = |id: &str, ct: ControlType, r: (i32, i32, i32, i32), props: &[(&str, &str)]| {
+                let mut c = Control::new(id, ct, r.0, r.1);
+                c.rect = cobolt_forms::model::Rect::new(r.0, r.1, r.2, r.3);
+                for (k, v) in props {
+                    c.set_prop(*k, PropValue::String((*v).into()));
+                }
+                f.controls.push(c);
+            };
+            add("BTN", ControlType::Button, (500, 20, 80, 30), &[("Anchor", "Top,Right")]);
+            add("DOCK", ControlType::Panel, (0, 360, 600, 40), &[("Dock", "Bottom")]);
+            add("WIDE", ControlType::TextBox, (20, 80, 560, 24), &[("Anchor", "Top,Left,Right")]);
+            add("LBL", ControlType::Label, (20, 20, 120, 24), &[("Caption", "Fluid"), ("FontSize", "15")]);
+            f
+        }
+        let surface = egui::vec2(800.0, 500.0);
+        let (mut app, _f, _p) = corpus_host(fixture(), Surface::Window, None, None);
+        let ctx = egui::Context::default();
+        for _ in 0..CORPUS_FRAMES {
+            frame(&mut app, &ctx, corpus_input(surface));
+        }
+        let window = corpus_rows(&app.root, app.last_control_rects());
+
+        // The shell grown until its pane is exactly `surface`.
+        let (_, pane) = corpus_occupant(&fixture(), &None, surface);
+        let grown = surface + (surface - pane.expect("an occupant owns the pane").size());
+        let occupant = fixture();
+        let source: FormSource = Box::new(move |_id: &str| Ok((occupant.clone(), corpus_program())));
+        let shell_form = cobolt_forms::Form::new("SHELL", "Shell", grown.x as u32, grown.y as u32);
+        let (mut app, _f, _p) = corpus_host(shell_form, Surface::Pane, None, Some(source));
+        app.ensure_occupant("PAR-FORM").expect("builds");
+        app.show_occupant(Some("PAR-FORM"));
+        let mut shell = crate::shell::Shell::default();
+        let ctx = egui::Context::default();
+        for _ in 0..CORPUS_FRAMES {
+            let mut full = ctx.run_ui(corpus_input(grown), |ui| {
+                shell.show_with_host(ui, |_ui| {}, &mut app);
+            });
+            full.textures_delta.clear();
+        }
+        let pane = app.last_occupant_rect().expect("the pane");
+        assert_eq!(pane.size(), surface, "the pane is the surface size");
+        // Relative to the pane's origin.
+        let shifted: HashMap<String, egui::Rect> = app
+            .last_control_rects()
+            .iter()
+            .map(|(id, r)| (id.clone(), r.translate(-pane.min.to_vec2())))
+            .collect();
+        let occ = corpus_rows(&app.occupants["PAR-FORM"].body, &shifted);
+        assert_eq!(occ, window, "the pane lays the form out as the window does");
+        assert!(window.iter().any(|l| l.starts_with("BTN rect=[700 20 780 50]")), "{window:?}");
+        println!("056 T4.7 AC10 host: window and pane at 800×500 agree on {} rows: {}", window.len(), window.join(" · "));
+    }
+
+    /// Spec 056 T4.7 / R43 — `stretch_window_bars` spans a MenuBar and a
+    /// StatusBar across the window for a form that is not responsive, and
+    /// does not run on a responsive one, whose bars follow their anchors: a
+    /// bar anchored `Top,Left` keeps its designed width.
+    #[test]
+    fn window_bars_stretch_only_when_the_form_is_not_responsive_056() {
+        fn fixture(responsive: bool) -> cobolt_forms::Form {
+            let mut f = cobolt_forms::Form::new("BARS-FORM", "Bars", 400, 300);
+            f.responsive = responsive;
+            let mut mb = cobolt_forms::Control::new("MB", cobolt_forms::ControlType::MenuBar, 0, 0);
+            mb.rect = cobolt_forms::model::Rect::new(0, 0, 200, 30);
+            // The MenuBar's own opt-in to spanning the window.
+            mb.set_prop("MenuBarStyle", cobolt_forms::PropValue::String("Responsive".into()));
+            mb.set_prop("Anchor", cobolt_forms::PropValue::String("Top,Left".into()));
+            let mut sb = cobolt_forms::Control::new("SB", cobolt_forms::ControlType::StatusBar, 0, 0);
+            sb.rect = cobolt_forms::model::Rect::new(0, 270, 200, 30);
+            sb.set_prop("Anchor", cobolt_forms::PropValue::String("Top,Left".into()));
+            f.controls.push(mb);
+            f.controls.push(sb);
+            f
+        }
+        let size = egui::vec2(600.0, 400.0);
+        let widths = |responsive: bool| {
+            let (mut app, _f, _p) = corpus_host(fixture(responsive), Surface::Window, None, None);
+            let ctx = egui::Context::default();
+            for _ in 0..CORPUS_FRAMES {
+                frame(&mut app, &ctx, corpus_input(size));
+            }
+            let r = app.last_control_rects();
+            (r["MB"].width(), r["SB"].width())
+        };
+        let plain = widths(false);
+        let responsive = widths(true);
+        assert!(plain.0 >= 600.0 && plain.1 >= 600.0, "not responsive: both bars span the window, got {plain:?}");
+        assert_eq!(responsive, (200.0, 200.0), "responsive: the bars follow their anchors, nothing stretches them");
+        println!("056 T4.7 R43: bars at 600 px — not responsive {plain:?}, responsive {responsive:?}");
+    }
+
+    /// Spec 056 T4.5 / R18 — the root window's minimum inner size follows the
+    /// form's minimum: the builder sets it, and the host sends it again only
+    /// when it changes (here a layout property written after start-up), once.
+    /// A form that is not responsive never gets one.
+    #[test]
+    fn the_window_minimum_is_sent_again_only_when_it_changes_056() {
+        let min_cmds = |cmds: Vec<egui::ViewportCommand>| -> Vec<egui::Vec2> {
+            cmds.into_iter()
+                .filter_map(|c| match c {
+                    egui::ViewportCommand::MinInnerSize(v) => Some(v),
+                    _ => None,
+                })
+                .collect()
+        };
+        let size = egui::vec2(400.0, 300.0);
+        let mut f = cobolt_forms::Form::new("MIN-FORM", "Minimum", 400, 300);
+        f.responsive = true;
+        let (mut app, _f, _p) = corpus_host(f.clone(), Surface::Window, None, None);
+        let ctx = egui::Context::default();
+        let first: Vec<_> = (0..3).flat_map(|_| min_cmds(frame(&mut app, &ctx, corpus_input(size)))).collect();
+        assert!(first.is_empty(), "the builder already carries the minimum: {first:?}");
+
+        app.root
+            .responsive
+            .as_mut()
+            .unwrap()
+            .layout
+            .insert("MinFormWidth".into(), cobolt_forms::PropValue::Int(360));
+        let changed = min_cmds(frame(&mut app, &ctx, corpus_input(size)));
+        assert_eq!(changed, vec![egui::vec2(360.0, 64.0)], "sent once when it changes");
+        let after: Vec<_> = (0..3).flat_map(|_| min_cmds(frame(&mut app, &ctx, corpus_input(size)))).collect();
+        assert!(after.is_empty(), "and not again: {after:?}");
+
+        f.responsive = false;
+        let (mut app, _f, _p) = corpus_host(f, Surface::Window, None, None);
+        let ctx = egui::Context::default();
+        let plain: Vec<_> = (0..3).flat_map(|_| min_cmds(frame(&mut app, &ctx, corpus_input(size)))).collect();
+        assert!(plain.is_empty(), "a form that is not responsive keeps no minimum: {plain:?}");
+        println!("056 T4.5: builder minimum 64×64, re-sent once as {:?} after MinFormWidth = 360, then silent", changed[0]);
+    }
+
+    /// Spec 056 T4.2/T4.3 — a responsive form is laid out for the surface it
+    /// is drawn on: its own window, and a ContentPane that holds it.
+    /// A 400×300 form with a Button anchored `Top,Right` (20 px from the right
+    /// edge) and a StatusBar on its responsive default `Bottom,Left,Right`.
+    #[test]
+    fn a_responsive_form_lays_out_for_its_window_and_its_pane_056() {
+        fn fixture() -> cobolt_forms::Form {
+            let mut f = cobolt_forms::Form::new("RESP-FORM", "Responsive", 400, 300);
+            f.responsive = true;
+            let mut b = cobolt_forms::Control::new("BTN", cobolt_forms::ControlType::Button, 0, 0);
+            b.rect = cobolt_forms::model::Rect::new(300, 20, 80, 30);
+            b.set_prop("Anchor", cobolt_forms::PropValue::String("Top,Right".into()));
+            let mut sb = cobolt_forms::Control::new("SB", cobolt_forms::ControlType::StatusBar, 0, 0);
+            sb.rect = cobolt_forms::model::Rect::new(0, 270, 400, 30);
+            f.controls.push(b);
+            f.controls.push(sb);
+            f
+        }
+        let frames = |app: &mut FormHost, ctx: &egui::Context, size: egui::Vec2| {
+            for _ in 0..3 {
+                frame(app, ctx, corpus_input(size));
+            }
+        };
+        // Root window, larger than designed.
+        let (mut app, _f, _p) = corpus_host(fixture(), Surface::Window, None, None);
+        let ctx = egui::Context::default();
+        frames(&mut app, &ctx, egui::vec2(600.0, 400.0));
+        let r = app.last_control_rects().clone();
+        assert_eq!(r["BTN"].max.x, 580.0, "Top,Right keeps 20 px from the window's right edge: {:?}", r["BTN"]);
+        assert_eq!((r["SB"].min.y, r["SB"].width()), (370.0, 600.0), "the StatusBar spans the bottom: {:?}", r["SB"]);
+        // At its designed size nothing moves (R5).
+        let (mut app, _f, _p) = corpus_host(fixture(), Surface::Window, None, None);
+        let ctx = egui::Context::default();
+        frames(&mut app, &ctx, egui::vec2(400.0, 300.0));
+        let d = app.last_control_rects().clone();
+        assert_eq!((d["BTN"].min.x, d["BTN"].min.y), (300.0, 20.0));
+        assert_eq!((d["SB"].min.y, d["SB"].width()), (270.0, 400.0));
+
+        // ContentPane occupant of a plain shell.
+        let occupant = fixture();
+        let source: FormSource = Box::new(move |_id: &str| Ok((occupant.clone(), corpus_program())));
+        let shell_form = cobolt_forms::Form::new("SHELL", "Shell", 900, 700);
+        let (mut app, _f, _p) = corpus_host(shell_form, Surface::Pane, None, Some(source));
+        app.ensure_occupant("RESP-FORM").expect("builds");
+        app.show_occupant(Some("RESP-FORM"));
+        let mut shell = crate::shell::Shell::default();
+        let ctx = egui::Context::default();
+        for _ in 0..3 {
+            let mut full = ctx.run_ui(corpus_input(egui::vec2(900.0, 700.0)), |ui| {
+                shell.show_with_host(ui, |_ui| {}, &mut app);
+            });
+            full.textures_delta.clear();
+        }
+        let pane = app.last_occupant_rect().expect("an occupant owns the pane");
+        let o = app.last_control_rects().clone();
+        assert!((o["BTN"].max.x - (pane.max.x - 20.0)).abs() < 1.0, "Top,Right keeps 20 px from the PANE's edge: {:?} in {pane:?}", o["BTN"]);
+        assert!((o["SB"].width() - pane.width()).abs() < 1.0, "the StatusBar spans the pane: {:?} in {pane:?}", o["SB"]);
+        println!(
+            "056 host: window 600×400 → BTN right {:.0}, StatusBar y {:.0} w {:.0}; designed size unchanged; pane {:.0}×{:.0} → BTN right {:.0}",
+            r["BTN"].max.x, r["SB"].min.y, r["SB"].width(), pane.width(), pane.height(), o["BTN"].max.x
         );
     }
 }

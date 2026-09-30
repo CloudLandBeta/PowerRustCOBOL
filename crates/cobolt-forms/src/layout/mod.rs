@@ -21,6 +21,9 @@
 //! proportional and fractional placements do not land on whole pixels.
 
 pub mod anchor;
+/// Render-side glue: surfaces prepare a responsive form before rendering it.
+#[cfg(feature = "render")]
+pub mod apply;
 pub mod breakpoints;
 pub mod defaults;
 pub mod dock;
@@ -289,6 +292,34 @@ pub(crate) fn client_of(c: &Control, at: LRect) -> LRect {
     at.deflate(chrome.plus(props::padding(c)))
 }
 
+/// The smallest window a responsive form lays out for (R18) — what its
+/// run-form window takes as its minimum inner size — or `None` for a form that
+/// is not responsive, whose window keeps no minimum, as before.
+pub fn min_size_of(form: &crate::model::Form) -> Option<(f32, f32)> {
+    form.responsive.then(|| {
+        window_min_size(
+            &form.controls,
+            (form.width as f32, form.height as f32),
+            &form.layout,
+            &form.breakpoints,
+        )
+    })
+}
+
+/// A responsive form's minimum size as a window's minimum inner size: the
+/// solver's minimum, never below [`defaults::WINDOW_MIN_INNER`] (R18). The
+/// one computation behind every run-form window's floor.
+pub fn window_min_size(
+    controls: &[Control],
+    designed: (f32, f32),
+    form_props: &BTreeMap<String, PropValue>,
+    breakpoints: &[Breakpoint],
+) -> (f32, f32) {
+    let input = LayoutInput::new(controls, designed, designed, form_props, breakpoints);
+    let (w, h) = solve(&input).min_size;
+    (w.max(defaults::WINDOW_MIN_INNER), h.max(defaults::WINDOW_MIN_INNER))
+}
+
 /// Lay the form out for its surface (R22).
 pub fn solve(input: &LayoutInput<'_>) -> LayoutOutput {
     let form = FormBag(input.form_props);
@@ -427,10 +458,86 @@ fn place_children(
                 },
             );
             place_children(input, tree, Some(&c.id), cmode, dclient, lclient, out);
+        } else if c.control_type == ControlType::Splitter {
+            carry_splitter(input, tree, c, designed_rect(input, c), laid, out);
         } else {
             let d = designed_rect(input, c);
             carry_rigidly(input, tree, &c.id, laid.x - d.x, laid.y - d.y, out);
         }
+    }
+}
+
+/// A laid-out Splitter's panes and their contents (R26 step 5, R27): each pane
+/// takes its place in the LAID-OUT splitter's geometry, and each pane's
+/// subtree reflows from the designed pane to that one exactly as a divider
+/// drag reflows it (`splitter::reflow_in_subtree`, the render's own rule), so
+/// the render — which derives the panes from the splitter it is given — finds
+/// every control already where that splitter puts it.
+fn carry_splitter(
+    input: &LayoutInput<'_>,
+    tree: &Tree,
+    s: &Control,
+    designed: LRect,
+    laid: LRect,
+    out: &mut LayoutOutput,
+) {
+    // The model's unit, rounded as `apply::laid_out_controls` rounds.
+    let model = |r: LRect| Rect::new(r.x.round() as i32, r.y.round() as i32, r.w.round() as i32, r.h.round() as i32);
+    let before = crate::splitter::geometry(s, model(designed));
+    let after = crate::splitter::geometry(s, model(laid));
+    let horizontal = crate::splitter::is_horizontal(s);
+    for &i in tree.children(Some(&s.id)) {
+        let pane = &input.controls[i];
+        let Some(n) = crate::splitter::pane_index(pane) else {
+            // Not one of its panes: carried with the splitter, as before.
+            let d = designed_rect(input, pane);
+            let (dx, dy) = (laid.x - designed.x, laid.y - designed.y);
+            out.rects.insert(pane.id.clone(), LRect::new(d.x + dx, d.y + dy, d.w, d.h));
+            out.placement.insert(pane.id.clone(), Placement::Rigid { dx, dy });
+            carry_rigidly(input, tree, &pane.id, dx, dy, out);
+            continue;
+        };
+        let (b, a) = if n == 1 { (before.pane1, after.pane1) } else { (before.pane2, after.pane2) };
+        out.rects.insert(pane.id.clone(), LRect::from_model(a));
+        out.placement.insert(
+            pane.id.clone(),
+            Placement::Rigid { dx: (a.x - b.x) as f32, dy: (a.y - b.y) as f32 },
+        );
+        let behavior = crate::splitter::PaneResize::of(pane);
+        for &j in tree.children(Some(&pane.id)) {
+            let root = model(designed_rect(input, &input.controls[j]));
+            reflow_pane_subtree(input, tree, j, root, (behavior, n, b, a, horizontal), out);
+        }
+    }
+}
+
+/// One control of a pane's subtree and everything under it, reflowed with the
+/// subtree's root (see [`carry_splitter`]).
+fn reflow_pane_subtree(
+    input: &LayoutInput<'_>,
+    tree: &Tree,
+    i: usize,
+    root: Rect,
+    how: (crate::splitter::PaneResize, u8, Rect, Rect, bool),
+    out: &mut LayoutOutput,
+) {
+    let (behavior, n, before, after, horizontal) = how;
+    let c = &input.controls[i];
+    let d = designed_rect(input, c);
+    let moved = crate::splitter::reflow_in_subtree(
+        behavior,
+        n,
+        before,
+        after,
+        root,
+        Rect::new(d.x.round() as i32, d.y.round() as i32, d.w.round() as i32, d.h.round() as i32),
+        horizontal,
+    );
+    let (dx, dy) = (moved.x as f32 - d.x.round(), moved.y as f32 - d.y.round());
+    out.rects.insert(c.id.clone(), LRect::new(d.x + dx, d.y + dy, d.w, d.h));
+    out.placement.insert(c.id.clone(), Placement::Rigid { dx, dy });
+    for &j in tree.children(Some(&c.id)) {
+        reflow_pane_subtree(input, tree, j, root, how, out);
     }
 }
 
@@ -487,6 +594,29 @@ pub(crate) mod test_support {
 mod tests {
     use super::test_support::*;
     use super::*;
+
+    /// T4.5 / R18 — the run-form window's floor: none for a form that is not
+    /// responsive; the solver's minimum for one that is, read from the form's
+    /// own `MinFormWidth`/`MinFormHeight`; never below 64 × 64, even when the
+    /// form asks for less.
+    #[test]
+    fn a_responsive_forms_window_minimum_is_its_layout_minimum_never_below_64() {
+        let mut form = crate::model::Form::new("F", "F", 400, 300);
+        form.controls.push(ctrl("B", ControlType::Button, (10, 20, 80, 30), None));
+        assert_eq!(min_size_of(&form), None, "not responsive: no minimum, as before");
+
+        form.responsive = true;
+        assert_eq!(min_size_of(&form), Some((64.0, 64.0)), "the defaults");
+
+        form.layout.insert("MinFormWidth".into(), PropValue::Int(320));
+        form.layout.insert("MinFormHeight".into(), PropValue::Int(240));
+        assert_eq!(min_size_of(&form), Some((320.0, 240.0)), "the form's own floor");
+
+        form.layout.insert("MinFormWidth".into(), PropValue::Int(1));
+        form.layout.insert("MinFormHeight".into(), PropValue::Int(10));
+        assert_eq!(min_size_of(&form), Some((64.0, 64.0)), "never below 64 × 64");
+        println!("min_size_of: off → None; defaults → 64×64; 320×240 → 320×240; 1×10 → 64×64");
+    }
 
     #[test]
     fn the_types_and_defaults_are_wired() {

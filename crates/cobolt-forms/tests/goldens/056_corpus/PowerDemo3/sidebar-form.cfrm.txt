@@ -6,16 +6,16 @@ Gauge-1 rect=[839 488 975 576] font=18
 Gauge-2 rect=[839 592 975 680] font=18
 Gauge-3 rect=[1083 756 1199 824] font=14
 Knob-2 rect=[607 496 775 668] font=20
-Label-1 rect=[1031 144 1305 176] font=20
-Label-10 rect=[391 432 575 464] font=20
-Label-11 rect=[599 432 783 464] font=20
-Label-12 rect=[711 256 999 288] font=20
-Label-13 rect=[815 432 999 464] font=20
+Label-1 rect=[1031 144 1139 176] font=20
+Label-10 rect=[391 432 461 464] font=20
+Label-11 rect=[599 432 663 464] font=20
+Label-12 rect=[711 256 793 288] font=20
+Label-13 rect=[815 432 893 464] font=20
 Label-14 rect=[407 728 487 748] font=14
-Label-2 rect=[79 888 1327 910] font=16
-Label-3 rect=[391 136 711 168] font=20
-Label-4 rect=[391 256 679 288] font=20
-Label-7 rect=[847 301 989 387] font=52
+Label-2 rect=[79 888 188 910] font=16
+Label-3 rect=[391 136 538 168] font=20
+Label-4 rect=[391 256 505 288] font=20
+Label-7 rect=[847 301 932 378] font=52
 Line-1 rect=[391 280 687 296] font=52
 Line-2 rect=[711 280 1007 299] font=52
 Panel-1 rect=[79 136 367 880] font=14
@@ -58,8 +58,8 @@ btnEncaminharNew rect=[103 693 345 769] font=16
 btnExcluirNew rect=[103 402 345 478] font=16
 btnRejeitarNew rect=[103 596 345 672] font=16
 lblSolicitacoes rect=[55 96 175 116] font=14
-lblSolicitacoesNew rect=[87 144 351 176] font=20
-shapes=1664 digest=72828af87f6cb0fc
+lblSolicitacoesNew rect=[87 144 267 176] font=20
+shapes=1664 digest=769351509ef8a936
 ## Run 0.75x 1200x702
 CheckBox-1 rect=[640 336 760 358] font=16
 CheckBox-2 rect=[792 336 912 358] font=16
@@ -189,16 +189,16 @@ Gauge-1 rect=[839 488 975 576] font=18
 Gauge-2 rect=[839 592 975 680] font=18
 Gauge-3 rect=[1083 756 1199 824] font=14
 Knob-2 rect=[607 496 775 668] font=20
-Label-1 rect=[1031 144 1305 176] font=20
-Label-10 rect=[391 432 575 464] font=20
-Label-11 rect=[599 432 783 464] font=20
-Label-12 rect=[711 256 999 288] font=20
-Label-13 rect=[815 432 999 464] font=20
+Label-1 rect=[1031 144 1139 176] font=20
+Label-10 rect=[391 432 461 464] font=20
+Label-11 rect=[599 432 663 464] font=20
+Label-12 rect=[711 256 793 288] font=20
+Label-13 rect=[815 432 893 464] font=20
 Label-14 rect=[407 728 487 748] font=14
-Label-2 rect=[79 888 1327 910] font=16
-Label-3 rect=[391 136 711 168] font=20
-Label-4 rect=[391 256 679 288] font=20
-Label-7 rect=[847 301 989 387] font=52
+Label-2 rect=[79 888 188 910] font=16
+Label-3 rect=[391 136 538 168] font=20
+Label-4 rect=[391 256 505 288] font=20
+Label-7 rect=[847 301 932 378] font=52
 Line-1 rect=[391 280 687 296] font=52
 Line-2 rect=[711 280 1007 299] font=52
 Panel-1 rect=[79 136 367 880] font=14
@@ -241,8 +241,8 @@ btnEncaminharNew rect=[103 693 345 769] font=16
 btnExcluirNew rect=[103 402 345 478] font=16
 btnRejeitarNew rect=[103 596 345 672] font=16
 lblSolicitacoes rect=[55 96 175 116] font=14
-lblSolicitacoesNew rect=[87 144 351 176] font=20
-shapes=1664 digest=cf49b8037a88c531
+lblSolicitacoesNew rect=[87 144 267 176] font=20
+shapes=1664 digest=aa21c14679beedbb
 ## Run 1x 1600x936
 CheckBox-1 rect=[640 336 760 358] font=16
 CheckBox-2 rect=[792 336 912 358] font=16
@@ -372,16 +372,16 @@ Gauge-1 rect=[839 488 975 576] font=18
 Gauge-2 rect=[839 592 975 680] font=18
 Gauge-3 rect=[1083 756 1199 824] font=14
 Knob-2 rect=[607 496 775 668] font=20
-Label-1 rect=[1031 144 1305 176] font=20
-Label-10 rect=[391 432 575 464] font=20
-Label-11 rect=[599 432 783 464] font=20
-Label-12 rect=[711 256 999 288] font=20
-Label-13 rect=[815 432 999 464] font=20
+Label-1 rect=[1031 144 1139 176] font=20
+Label-10 rect=[391 432 461 464] font=20
+Label-11 rect=[599 432 663 464] font=20
+Label-12 rect=[711 256 793 288] font=20
+Label-13 rect=[815 432 893 464] font=20
 Label-14 rect=[407 728 487 748] font=14
-Label-2 rect=[79 888 1327 910] font=16
-Label-3 rect=[391 136 711 168] font=20
-Label-4 rect=[391 256 679 288] font=20
-Label-7 rect=[847 301 989 387] font=52
+Label-2 rect=[79 888 188 910] font=16
+Label-3 rect=[391 136 538 168] font=20
+Label-4 rect=[391 256 505 288] font=20
+Label-7 rect=[847 301 932 378] font=52
 Line-1 rect=[391 280 687 296] font=52
 Line-2 rect=[711 280 1007 299] font=52
 Panel-1 rect=[79 136 367 880] font=14
@@ -424,8 +424,8 @@ btnEncaminharNew rect=[103 693 345 769] font=16
 btnExcluirNew rect=[103 402 345 478] font=16
 btnRejeitarNew rect=[103 596 345 672] font=16
 lblSolicitacoes rect=[55 96 175 116] font=14
-lblSolicitacoesNew rect=[87 144 351 176] font=20
-shapes=1664 digest=bef63faae41d6261
+lblSolicitacoesNew rect=[87 144 267 176] font=20
+shapes=1664 digest=9f8929e4855db36b
 ## Run 1.5x 2400x1404
 CheckBox-1 rect=[640 336 760 358] font=16
 CheckBox-2 rect=[792 336 912 358] font=16

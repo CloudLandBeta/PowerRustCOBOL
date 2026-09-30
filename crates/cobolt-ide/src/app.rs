@@ -16165,6 +16165,20 @@ impl CoboltApp {
         // as it will at run time (read again only when the file changes).
         cobolt_forms::items_file::apply_cached(&mut controls);
         let values_snap = self.designers[idx].1.preview_state.clone();
+        // 056 — a responsive form lays out from its DESIGNED controls, for the
+        // preview's own size, and the rail narrows afterwards (R23, R26).
+        let preview_responsive = {
+            let f = &self.designers[idx].1.form;
+            f.responsive.then(|| (f.layout.clone(), f.breakpoints.clone()))
+        };
+        let designed_controls = if preview_responsive.is_some() { controls.clone() } else { Vec::new() };
+        let preview_rail = cobolt_forms::breadcrumb::shell_side_menu_in(&controls).map(|side| {
+            let collapsed = matches!(
+                values_snap.get(&side.id).map(String::as_str),
+                Some("1") | Some("true")
+            ) || (!values_snap.contains_key(&side.id) && side.side_menu_collapsed());
+            (side.id.clone(), collapsed)
+        });
         // A rail shown collapsed is DRAWN at the collapsed width — the same
         // rule the designer canvas and the running shell follow. Without it the
         // preview painted the rail at its DESIGNED width with collapsed,
@@ -16319,11 +16333,35 @@ impl CoboltApp {
                         let mut backdrop = backdrop;
                         backdrop.window_size = Some(ui.available_size());
                         backdrop.image_extent = Some(egui::vec2(form_w, form_h));
-                        ui.set_min_size(egui::vec2(form_w, form_h));
+                        let laid_state = cobolt_forms::layout::apply::LaidOutState { inner: &st };
+                        let prepared = preview_responsive.as_ref().map(|(layout, breakpoints)| {
+                            let spec = cobolt_forms::layout::apply::FormSpec {
+                                designed_size: (form_w, form_h),
+                                layout,
+                                breakpoints,
+                            };
+                            cobolt_forms::layout::apply::prepare_with_rail(
+                                ui.ctx(),
+                                &designed_controls,
+                                &st,
+                                &spec,
+                                ui.available_size(),
+                                preview_rail.as_ref().map(|(id, collapsed)| (id.as_str(), *collapsed)),
+                            )
+                        });
+                        let (render_controls, render_size, render_state): (
+                            &[cobolt_forms::Control],
+                            egui::Vec2,
+                            &dyn cobolt_forms::render::FormState,
+                        ) = match &prepared {
+                            Some(p) => (&p.controls, p.form_size, &laid_state),
+                            None => (&controls, egui::vec2(form_w, form_h), &st),
+                        };
+                        ui.set_min_size(render_size);
                         let input = cobolt_forms::render::RenderInput {
-                            controls: &controls,
-                            state: &st,
-                            form_size: egui::vec2(form_w, form_h),
+                            controls: render_controls,
+                            state: render_state,
+                            form_size: render_size,
                             glass: glass_v,
                             mode: cobolt_forms::render::RenderMode::Interactive,
                             active_tabs: &active_tabs,

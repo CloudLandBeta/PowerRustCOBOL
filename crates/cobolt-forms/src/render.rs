@@ -2311,8 +2311,15 @@ fn render_form_inner(
         let mut live = live_control(controls, idx, input.state);
         // A Label with AutoSize follows its (live) caption: one set from COBOL
         // resizes it at run time, as the designer resizes it while editing.
-        if let Some(r) = crate::paint::autosize_rect(ui.ctx(), &live) {
-            live.rect = r;
+        // A control a responsive layout placed was measured BEFORE layout
+        // (spec 056 R26 step 3) and is left at the size it was given.
+        let laid_out = live
+            .get_prop(crate::layout::apply::LAID_OUT)
+            .is_some_and(|v| v.as_bool());
+        if !laid_out {
+            if let Some(r) = crate::paint::autosize_rect(ui.ctx(), &live) {
+                live.rect = r;
+            }
         }
         let r = live.rect;
 

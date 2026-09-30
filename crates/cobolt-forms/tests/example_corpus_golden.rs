@@ -194,6 +194,10 @@ fn rail_applied(controls: &[Control]) -> Vec<Control> {
 /// Returns the golden section text and the number of (rect, font) rows.
 fn render_one(form: &Form, theme_default: Option<&str>, s: Surface, window: Vec2) -> (String, usize) {
     let designed = Vec2::new(form.width as f32, form.height as f32);
+    let responsive = form.responsive;
+    // A responsive form's surfaces lay it out first, then narrow the rail
+    // (spec 056 R26); a form that is not responsive takes today's path.
+    let base_controls: Vec<Control> = form.controls.clone();
     let controls: Vec<Control> = match s {
         Surface::Run => form.controls.clone(),
         _ => rail_applied(&form.controls),
@@ -205,10 +209,13 @@ fn render_one(form: &Form, theme_default: Option<&str>, s: Surface, window: Vec2
     // limit the input reports (as a real backend's first frame does).
     let mut image_tex: Option<Option<egui::TextureHandle>> = None;
     let active = ActiveTabs::new();
-    let state: &dyn FormState = match s {
+    let inner: &dyn FormState = match s {
         Surface::Run => &Stringified,
         _ => &DesignedState,
     };
+    let laid_state = cobolt_forms::layout::apply::LaidOutState { inner };
+    let state: &dyn FormState = if responsive { &laid_state } else { inner };
+    let mut controls = controls;
     let mut rects: HashMap<String, Rect> = HashMap::new();
     let mut shapes = Vec::new();
     for _frame in 0..2 {
@@ -235,10 +242,43 @@ fn render_one(form: &Form, theme_default: Option<&str>, s: Surface, window: Vec2
                     if let Surface::Preview = s {
                         backdrop.image_extent = Some(designed);
                     }
+                    // The designer rewrites an AutoSize control's designed rect
+                    // every frame before it paints (`designer.rs`,
+                    // `paint::apply_autosize`); the canvas emulation does too, so
+                    // the plain and the responsive canvas start from the same
+                    // controls (spec 056 T4.6).
+                    let mut base = base_controls.clone();
+                    if let Surface::Canvas = s {
+                        cobolt_forms::paint::apply_autosize(ui.ctx(), &mut base);
+                        if !responsive {
+                            controls = rail_applied(&base);
+                        }
+                    }
+                    let mut form_size = designed;
+                    if responsive {
+                        let spec = cobolt_forms::layout::apply::FormSpec {
+                            designed_size: (designed.x, designed.y),
+                            layout: &form.layout,
+                            breakpoints: &form.breakpoints,
+                        };
+                        // The canvas and the preview draw a rail designed
+                        // collapsed at its collapsed width; the run surface
+                        // leaves it to the shell (as `rail_applied`).
+                        let side = cobolt_forms::breadcrumb::shell_side_menu_in(&base)
+                            .filter(|side| side.side_menu_collapsed())
+                            .map(|side| side.id.clone());
+                        let rail = match s {
+                            Surface::Run => None,
+                            _ => side.as_deref().map(|id| (id, true)),
+                        };
+                        let p = cobolt_forms::layout::apply::prepare_with_rail(ui.ctx(), &base, inner, &spec, window, rail);
+                        controls = p.controls;
+                        form_size = p.form_size;
+                    }
                     let inp = RenderInput {
                         controls: &controls,
                         state,
-                        form_size: designed,
+                        form_size,
                         glass: true,
                         mode: match s {
                             Surface::Canvas => RenderMode::Static,
@@ -308,6 +348,7 @@ fn every_example_form_renders_as_its_golden() {
     let golden_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/goldens/056_corpus");
     let (mut forms, mut rows, mut renders, mut written) = (0usize, 0usize, 0usize, 0usize);
     let mut differences: Vec<String> = Vec::new();
+    let (mut responsive_checked, mut responsive_diffs) = (0usize, Vec::<String>::new());
     for project in PROJECTS {
         let dir = repo().join("examples").join(project);
         // `assets::set_base` is process-global: one test drives the corpus.
@@ -329,6 +370,32 @@ fn every_example_form_renders_as_its_golden() {
                     rows += n;
                     renders += 1;
                     text.push_str(&format!("## {s:?} {fname} {}x{}\n{section}\n", window.x, window.y));
+                }
+            }
+            // R81 / AC38 — the same form with only `responsive="true"` renders
+            // at its designed size exactly as the golden does, on every surface.
+            {
+                let mut copy = form.clone();
+                copy.responsive = true;
+                let window = Vec2::new(
+                    (form.width as f32).round().max(64.0),
+                    (form.height as f32).round().max(64.0),
+                );
+                for s in SURFACES {
+                    let header = format!("## {s:?} 1x {}x{}\n", window.x, window.y);
+                    let (section, _) = render_one(&copy, theme_default.as_deref(), s, window);
+                    let plain = text
+                        .split(&header)
+                        .nth(1)
+                        .and_then(|rest| rest.split("\n## ").next())
+                        .unwrap_or_default()
+                        .trim_end()
+                        .to_owned();
+                    responsive_checked += 1;
+                    if plain != section {
+                        let first = plain.lines().zip(section.lines()).find(|(a, b)| a != b);
+                        responsive_diffs.push(format!("{project}/{} {s:?}: {first:?}", rel.display()));
+                    }
                 }
             }
             let file = golden_root
@@ -375,10 +442,16 @@ fn every_example_form_renders_as_its_golden() {
     } else {
         println!("  differences: {} form(s)", differences.len());
     }
+    println!("  responsive : {responsive_checked} designed-size renders with responsive=\"true\", {} differing from the plain form", responsive_diffs.len());
     println!("  elapsed    : {:.1} s", started.elapsed().as_secs_f32());
     assert!(
         differences.is_empty(),
         "the example corpus no longer renders as its golden:\n{}",
         differences.join("\n")
+    );
+    assert!(
+        responsive_diffs.is_empty(),
+        "R81 — turning Responsive design on moved something at the designed size:\n{}",
+        responsive_diffs.join("\n")
     );
 }

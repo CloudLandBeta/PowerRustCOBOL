@@ -8,6 +8,33 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.11] — 2026-09-30
+
+### 056 Responsive design — Phase 4: every surface lays a responsive form out
+
+A form with **Responsive design** on is now laid out for the surface it is
+drawn on: its own run-form window, a shell's ContentPane, a child window, the
+entrance effect's face and the IDE preview. With the switch off nothing
+changes (the example corpus goldens, engine and host: 0 differences), and with
+it on, every example form still renders exactly as designed at its designed
+size (186 engine and 127 host renders compared).
+
+- **The window's floor.** A responsive form's window cannot be dragged below
+  the smallest size its layout can honour (never below 64 × 64); the minimum
+  follows the form if a layout property changes, and a window never resizes
+  itself.
+- **MenuBar and StatusBar** of a responsive form follow their anchors; the
+  old "span the window" rule still applies to forms that are not responsive.
+- **Splitter panes follow a stretched Splitter,** and their contents move as a
+  divider drag would move them.
+- **AutoSize labels** are measured at the font size they will paint at before
+  the layout runs.
+- Not yet: a position written from COBOL on a responsive form is not shown
+  until geometry writes go through the layout (Phase 7).
+
+The GroupBox example and the PowerChat chat form were re-saved in the 1.80
+format; the GroupBox demo's speed group now wears a Pill caption.
+
 ## [PowerRustCOBOL 1.80.10] — 2026-09-29
 
 ### 056 Responsive design — Phase 3: one font resolver

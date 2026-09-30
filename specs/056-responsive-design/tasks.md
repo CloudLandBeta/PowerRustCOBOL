@@ -296,7 +296,7 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
 
 ## Phase 4 — Surfaces lay out responsive forms (R23, R25–R28, R43, R3, R5, R18)
 
-- [ ] **T4.1 — `apply.rs`: prepare, laid-out list, `LaidOutState`, AutoSize gate** (R22, R26, R28, R62)
+- [x] **T4.1 — `apply.rs`: prepare, laid-out list, `LaidOutState`, AutoSize gate** (R22, R26, R28, R62)
   - Read first: `render.rs` `FormState`, `merge_props`, `live_control`,
     `resolved_rect`, `moved_ancestor_offset`, `autosize_rect` call (~2312);
     `paint.rs` `autosize_rect`.
@@ -304,7 +304,7 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
   - Verify: unit tests for the moved-ancestor rule in `prepare`; AutoSize at
     effective size; Gate G.
 
-- [ ] **T4.2 — Host root Window + Pane** (R23, R25, R43)
+- [x] **T4.2 — Host root Window + Pane** (R23, R25, R43)
   - Read first: `host.rs` construction shift (~459-490), `ui_impl` render
     (~5279-5441), size-observation block (~4918-5004), `stretch_window_bars`
     call, `painted_controls`/`rail_view`.
@@ -312,39 +312,130 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
   - Verify: responsive fixtures in the host test module; Gate G (0b
     unchanged).
 
-- [ ] **T4.3 — `child_frame`: occupants and child windows; fx face** (R23, R26)
+- [x] **T4.3 — `child_frame`: occupants and child windows; fx face** (R23, R26)
   - Read first: `child_frame` (~2592-2738), `paint_fx_frame`/`paint_face`
     (~4170-4243).
   - Files: `host.rs`.
   - Verify: host tests; Gate G.
 
-- [ ] **T4.4 — Preview** (R23)
+- [x] **T4.4 — Preview** (R23)
   - Read first: `app.rs` `show_preview_window` (~15986-16355), `PreviewState`.
   - Files: `app.rs`.
   - Verify: preview surface in the corpus harness (responsive copy); Gate G.
 
-- [ ] **T4.5 — Window minimum inner size** (R18; AC8 window half)
+- [x] **T4.5 — Window minimum inner size** (R18; AC8 window half)
   - Read first: viewport builders `host.rs` (~300, ~4081), `shell.rs` (~1409).
   - Files: `host.rs`, `shell.rs`.
   - Verify: builder receives `max(min_size, MinForm*)`; `MinInnerSize` sent
     when it changes; no window resizes itself (GOLDEN RULE).
+  - **Result (2026-09-30):** one computation, `layout::window_min_size`
+    (solver minimum, floored at `defaults::WINDOW_MIN_INNER` = 64 — R18's
+    "never below 64 × 64", which `MinFormWidth = 1` used to undercut), behind
+    `min_size_of` (root window builder, shell builder) and
+    `ResponsiveSpec::min_size` (child windows). The root window keeps what it
+    was last given (`FormHost::root_min_inner`) and sends `MinInnerSize` only
+    when it changes; child windows need nothing, their builder is rebuilt every
+    frame and egui patches a changed minimum. Tests:
+    `layout::tests::a_responsive_forms_window_minimum_is_its_layout_minimum_never_below_64`,
+    `parity::the_window_minimum_is_sent_again_only_when_it_changes_056`. Nothing
+    changes the minimum at run time until T7.4 routes COBOL writes into the
+    layout input. Open: R18 wants the NARROWEST breakpoint's layout; overrides
+    are not applied before T6.1 (see there). The SideMenu shell window
+    (`shell.rs`) takes the root form's minimum at build time only.
 
-- [ ] **T4.6 — Responsive-on corpus check** (R81, R3, R5; AC3, AC38)
+- [x] **T4.6 — Responsive-on corpus check** (R81, R3, R5; AC3, AC38)
   - Files: `example_corpus_golden.rs`, host `corpus_golden`.
   - Do: for each of the 62 forms, a copy with only `responsive="true"`
     rendered at its designed size on canvas/run/preview (0a) and
     Window/Pane/occupant (0b) must equal the golden.
   - Verify: 0 differences, summary printed.
+  - **Decision (2026-09-30), engine half:** the first R81 run gave 2 of 186
+    differing, both Canvas, both AutoSize Labels
+    (`Rust/ferris-says-form` Label-3, `sidebar-form` Label-1). Cause: the
+    harness's canvas painted the SAVED rect, while the designer rewrites an
+    AutoSize control's designed rect every frame (`designer.rs`
+    `paint::apply_autosize`) and `layout::apply::prepare` measures it; the run
+    and preview surfaces already autosized. Fix, in the harness only: the
+    canvas emulation calls `paint::apply_autosize` on the designed controls
+    before painting, for the plain AND the responsive render. Named harness
+    change: the Canvas sections of `Rust/ferris-says-form` (Label-3) and
+    `sidebar-form` (10 Labels, e.g. Label-1 274 → 108 wide) re-captured at all
+    three sizes; no Run/Preview row moved, no other form moved.
+  - **Result (2026-09-30), engine half:** R81 186/186 equal. Plain golden 0
+    differences apart from `Containers/groupbox-form.cfrm` (shape digest only,
+    78 → 80 shapes, no rect/font), caused by an UNCOMMITTED edit to that
+    example file (re-saved in the IDE 2026-09-29 21:31: Grp-Speed caption
+    Flat/Pill, padding 20/4), not by code; its golden was left as committed.
+  - **Decision (2026-09-30), host half:** `parity::corpus_golden` renders
+    each surface through `corpus_surfaces`, and renders the responsive copy
+    once at 1×. The first run gave 2 of 127 differing, both Occupant, both
+    window bars (`Menus & Bars/menubar-form` MenuBar, `statusbar-form`
+    StatusBar): the shell window was the designed size, so the PANE (the
+    occupant's surface) was 780×632 for a 1000×660 form, and the responsive
+    copy rightly laid its bars out to that pane. R81 says "at its designed
+    size", so for the R81 check the shell is grown until the pane IS the
+    designed size (`corpus_occupant` probes the pane, then re-renders). No
+    golden changed.
+  - **Result (2026-09-30), host half:** 381 renders, 6045 rows, 0 differences;
+    R81 127/127 equal (Window 62, Pane 3, Occupant 62).
 
-- [ ] **T4.7 — Surface parity + precedence fixtures** (R23, R26, R27, R43; AC10 non-designer, AC11, AC12, AC23)
+- [x] **T4.7 — Surface parity + precedence fixtures** (R23, R26, R27, R43; AC10 non-designer, AC11, AC12, AC23)
   - Verify: one responsive fixture (anchors, dock, AutoSize under Fluid,
     Splitter, collapsed SideMenu, repeating group, COBOL-moved container)
     yields identical `control_rects` and font sizes on Window/Pane/occupant/
     preview; owner-positioned controls ignore their layout props; MenuBar/
     StatusBar laid out, `stretch_window_bars` not called (and still called for
     non-responsive); responsive copy of `a_moved_container_carries_its_contents`.
+  - **Result (2026-09-30):** `cobolt-forms/tests/responsive_precedence_056.rs`
+    (3 tests: R26 order at 800×500 for a 600×400 form — anchors, Dock,
+    AutoSize under Fluid measured at 20 pt, Splitter, repeating group; R27
+    owner-positioned `Anchor`/`Dock` ignored; canvas = run = preview, rects
+    and effective font sizes) and host tests
+    `a_responsive_form_lays_out_the_same_in_a_window_and_in_a_pane_056`,
+    `window_bars_stretch_only_when_the_form_is_not_responsive_056`.
+  - **Found and fixed:** the solver carried a Splitter's panes rigidly by the
+    Splitter's own offset, while the render derives the panes from the
+    (laid-out) Splitter — so a stretched Splitter's pane 2 moved and its
+    contents did not. `layout::carry_splitter` now puts each pane at the
+    laid-out Splitter's geometry and reflows its subtree with
+    `splitter::reflow_in_subtree`, the render's own rule (under the default
+    `ResizeBehavior = Translate`, pane 1's contents keep their offset from the
+    division line, as on a run-time resize today).
+  - **Shared:** "lay out, then narrow the rail" is one function,
+    `layout::apply::prepare_with_rail`, used by the host child window, the IDE
+    preview and the corpus harness (was three copies).
+  - **Moved to T7.2:** the COBOL-moved container and the responsive copy of
+    `a_moved_container_carries_its_contents`. `LaidOutState` keeps the laid-out
+    rect, so until T7.1/T7.2 a position COBOL writes on a RESPONSIVE form is
+    not shown (R38 routes it through the inverse mapping into the designed
+    rect). Not covered by a dedicated test yet: the shell root Pane with a
+    collapsed rail (covered only by the host corpus R81 pass at 1×) and the
+    IDE preview glue itself (the engine test covers `render_form_with_chrome`).
 
-- [ ] **T4.8 — Phase gate** — Gate G + Gate F; commit.
+- [x] **T4.8 — Phase gate** — Gate G + Gate F; commit.
+  - **Result (2026-09-30), 1.80.11:** T4.1–T4.4 verified by
+    `apply::tests` (moved ancestor carried once; AutoSize at the effective
+    size), the host tests `a_responsive_form_lays_out_for_its_window_and_its_pane_056`,
+    `a_responsive_form_lays_out_the_same_in_a_window_and_in_a_pane_056`,
+    `the_window_minimum_is_sent_again_only_when_it_changes_056`, and the
+    preview surface of the corpus harness and of `responsive_precedence_056`
+    (the IDE preview glue calls the same `prepare_with_rail`). Gate G: engine
+    golden 0 differences, R81 186/186; host golden 0 differences, R81 127/127;
+    generated COBOL byte-identical. Gate F: `cobolt-forms` 1088 lib + every
+    integration test green but the known `test_maps_demo_form`;
+    `cobolt-form-host` 145 + 21; `cobolt-codegen`, `cobolt-compiler` (145),
+    `cobolt-runtime` all green; `cobolt-ide` bin 1282 green but the expected
+    `every_document_ships_in_every_language`; the demo suites green but
+    `powerchat_documents_embed_with_the_builtin_model`.
+  - **That last red is the machine, not the code** (diagnosed 2026-09-30):
+    it passes in 2 s on `features` and fails at 30 s here, run back to back.
+    `sample` shows the embedder thread inside Metal's `MTLCopyAllDevices` →
+    `IOSurfaceClientCopyGPUPolicies` → `[NSBundle mainBundle]`, which for a
+    bare executable lists the folder the executable sits in — this
+    checkout's `target/debug/deps`, ~300 000 files (a worktree's: ~27 000).
+    Trimming stale artifacts from `target/debug/deps` (or `cargo clean`)
+    makes it pass; a built application sits in a small `bin/` and is not
+    affected.
 
 ## Phase 5 — Flex, Flow, Grid (R49–R57)
 
@@ -375,6 +466,8 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
 ## Phase 6 — Breakpoints, type scaling, system text factor (R58–R72)
 
 - [ ] **T6.1 — Overrides applied before layout; hidden = absent** (R59, R60, R62, R64 override half; AC28)
+  - Also (from T4.5): `layout::window_min_size` must compute the minimum for
+    the NARROWEST breakpoint's overrides (R18), not the design breakpoint's.
   - Files: `layout/breakpoints.rs`, `apply.rs`.
   - Verify: AC28 at 480/800/1280 px (sidebar Left→Top, grid 2→1 columns,
     panel hidden takes no slot).
@@ -403,6 +496,10 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
   - Read first: `host.rs` `apply_interpreter_update` (~2097-2218).
   - Verify: AC43 (`ADD 10 TO Btn::X` twice on a Right-anchored button → +20 px,
     reads back as written).
+  - Also (from T4.7): a container moved by COBOL on a responsive form carries
+    its contents (responsive copy of `a_moved_container_carries_its_contents`);
+    until this lands such a write is not shown (`LaidOutState` keeps the
+    laid-out rect).
 
 - [ ] **T7.3 — Mirror laid-out rects; event order** (R37, R39, R47; AC18, AC31)
   - Read first: `mirror_size` and the size block; `interpreter.rs`
