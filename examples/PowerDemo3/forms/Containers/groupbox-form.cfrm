@@ -102,7 +102,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -137,7 +136,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -172,7 +170,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -206,7 +203,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -229,6 +225,8 @@
     <Property name="BorderStyle">Single</Property>
     <Property name="BorderColor">#888888FF</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="AutoEnter">false</Property>
   </Control>
   <Control id="Grp-Address" type="GroupBox" x="48" y="130" w="420" h="220" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
@@ -245,7 +243,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -276,6 +273,17 @@
     <Property name="CloneEvents">true</Property>
     <Property name="PreviewItemCount">1</Property>
     <Property name="CornerRadius">14</Property>
+    <Property name="CaptionBackgroundStyle">None</Property>
+    <Property name="CaptionBackColor">#2C6FD2</Property>
+    <Property name="CaptionGradientStart">#4A8FE8</Property>
+    <Property name="CaptionGradientEnd">#1F4F9A</Property>
+    <Property name="CaptionGradientDirection">South</Property>
+    <Property name="CaptionShape">Rectangle</Property>
+    <Property name="CaptionSize">Text</Property>
+    <Property name="CaptionPadding">4</Property>
+    <Property name="CaptionPaddingHorizontal"></Property>
+    <Property name="CaptionPaddingVertical"></Property>
+    <Property name="CaptionAlignment">Auto</Property>
   </Control>
   <Control id="Lbl-Street" type="Label" x="72" y="172" w="120" h="22" tab-order="0" z-order="0" visible="true" enabled="true" parent="Grp-Address">
     <Property name="Caption">Street</Property>
@@ -293,7 +301,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -327,7 +334,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -351,6 +357,8 @@
     <Property name="BorderStyle">Fixed3D</Property>
     <Property name="BorderColor">#888888FF</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="AutoEnter">false</Property>
   </Control>
   <Control id="Lbl-City" type="Label" x="72" y="212" w="120" h="22" tab-order="0" z-order="0" visible="true" enabled="true" parent="Grp-Address">
     <Property name="Caption">City</Property>
@@ -368,7 +376,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -402,7 +409,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -426,6 +432,8 @@
     <Property name="BorderStyle">Fixed3D</Property>
     <Property name="BorderColor">#888888FF</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="AutoEnter">false</Property>
   </Control>
   <Control id="Chk-Invoice" type="CheckBox" x="72" y="254" w="320" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Grp-Address">
     <Property name="Caption">Same as the invoice address</Property>
@@ -443,7 +451,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -466,6 +473,7 @@
     <Property name="CheckBoxBorderColor">#8C8CA0</Property>
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="EnterAsTab">true</Property>
   </Control>
   <Control id="Grp-Speed" type="GroupBox" x="500" y="130" w="420" h="220" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
@@ -482,7 +490,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -513,6 +520,17 @@
     <Property name="CloneEvents">true</Property>
     <Property name="PreviewItemCount">1</Property>
     <Property name="CornerRadius">14</Property>
+    <Property name="CaptionBackgroundStyle">Flat</Property>
+    <Property name="CaptionBackColor">#2563EBFF</Property>
+    <Property name="CaptionGradientStart">#4A8FE8</Property>
+    <Property name="CaptionGradientEnd">#1F4F9A</Property>
+    <Property name="CaptionGradientDirection">South</Property>
+    <Property name="CaptionShape">Pill</Property>
+    <Property name="CaptionSize">Text</Property>
+    <Property name="CaptionPadding">4</Property>
+    <Property name="CaptionPaddingHorizontal">20</Property>
+    <Property name="CaptionPaddingVertical">4</Property>
+    <Property name="CaptionAlignment">Auto</Property>
   </Control>
   <Control id="Rad-Slow" type="RadioButton" x="520" y="160" w="300" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Grp-Speed">
     <Property name="Caption">Economy</Property>
@@ -530,7 +548,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -554,6 +571,7 @@
     <Property name="CheckBoxBorderColor">#8C8CA0</Property>
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="EnterAsTab">true</Property>
   </Control>
   <Control id="Rad-Fast" type="RadioButton" x="520" y="194" w="300" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Grp-Speed">
     <Property name="Caption">Express</Property>
@@ -571,7 +589,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -595,6 +612,7 @@
     <Property name="CheckBoxBorderColor">#8C8CA0</Property>
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="EnterAsTab">true</Property>
   </Control>
   <Control id="Rad-Same" type="RadioButton" x="520" y="228" w="300" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Grp-Speed">
     <Property name="Caption">Same day</Property>
@@ -612,7 +630,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -636,6 +653,7 @@
     <Property name="CheckBoxBorderColor">#8C8CA0</Property>
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="EnterAsTab">true</Property>
   </Control>
   <Control id="Lbl-Note" type="Label" x="520" y="270" w="410" h="44" tab-order="0" z-order="0" visible="true" enabled="true" parent="Grp-Speed">
     <Property name="Caption">Hiding the group hides all of this at once.</Property>
@@ -653,7 +671,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -688,7 +705,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -761,7 +777,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -814,7 +829,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -868,7 +882,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -921,7 +934,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
