@@ -27,17 +27,20 @@ pub mod apply;
 pub mod breakpoints;
 pub mod defaults;
 pub mod dock;
+pub mod flex;
 pub mod fonts;
+pub mod grid;
 pub mod inverse;
 pub mod limits;
 pub mod minsize;
 pub mod props;
+pub mod tracks;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::model::{Control, ControlType, PropValue, Rect};
 use breakpoints::Breakpoint;
-use props::{Dock, FormBag};
+use props::{Dock, FormBag, PropSource};
 
 /// A rectangle in form space, fractional.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -357,25 +360,35 @@ pub fn solve(input: &LayoutInput<'_>) -> LayoutOutput {
             .insert(c.id.clone(), fonts::effective_size(c, font_factor));
     }
     let mode = props::layout_mode(&form);
-    place_children(input, &tree, None, mode, designed_client, client, &mut out);
+    let content = place_children(input, &tree, None, &form, mode, designed_client, client, &mut out);
+    // A flex, grid or flow form is as tall as its content when that is
+    // taller than the window, as a document is (R53): it lays out again at
+    // that height and the surface scrolls. Its width stays the window's.
+    if let Some((_, ch)) = content {
+        let need = ch + pad.vertical();
+        if need > out.laid_out_size.1 + defaults::EPSILON {
+            out.laid_out_size.1 = need;
+            let client = LRect::new(0.0, 0.0, out.laid_out_size.0, need).deflate(pad);
+            place_children(input, &tree, None, &form, mode, designed_client, client, &mut out);
+        }
+    }
     out
 }
 
 /// Place the children of `parent` (the form when `None`) inside its client
 /// rectangle, then recurse (R20).
+#[allow(clippy::too_many_arguments)]
 fn place_children(
     input: &LayoutInput<'_>,
     tree: &Tree,
     parent: Option<&str>,
+    src: &dyn PropSource,
     mode: LayoutMode,
     designed_client: LRect,
     client: LRect,
     out: &mut LayoutOutput,
-) {
+) -> Option<(f32, f32)> {
     let kids = tree.children(parent);
-    // Flex, grid and flow arrive with their solvers (spec 056 phase 5); until
-    // then every container places its children by anchoring and docking.
-    let _ = mode;
     let visual: Vec<usize> = kids
         .iter()
         .copied()
@@ -389,12 +402,15 @@ fn place_children(
         }
     }
 
+    // A flex, grid or flow container places its children itself (R50).
+    let content = (mode != LayoutMode::Absolute).then(|| place_items(input, src, mode, &visual, client, out));
+
     // Docked controls first, in z-order, each taking an edge of what remains
     // (R12); every other control is anchored against the FULL client rect
     // (R14).
-    let docked: Vec<(usize, Dock)> = visual
-        .iter()
-        .map(|&i| (i, props::dock(&input.controls[i])))
+    let docked: Vec<(usize, Dock)> = if content.is_some() { Vec::new() } else { visual.clone() }
+        .into_iter()
+        .map(|i| (i, props::dock(&input.controls[i])))
         .filter(|(_, d)| *d != Dock::None)
         .collect();
     let items: Vec<dock::DockItem> = docked
@@ -416,7 +432,8 @@ fn place_children(
     }
     for &i in &visual {
         let c = &input.controls[i];
-        if out.rects.contains_key(&c.id) {
+        // Placed above, by its dock or its flex/grid/flow parent.
+        if content.is_some() || docked.iter().any(|(d, _)| *d == i) {
             continue;
         }
         let (r, x, y) = anchor::place(
@@ -457,7 +474,7 @@ fn place_children(
                     client: lclient,
                 },
             );
-            place_children(input, tree, Some(&c.id), cmode, dclient, lclient, out);
+            place_children(input, tree, Some(&c.id), c, cmode, dclient, lclient, out);
         } else if c.control_type == ControlType::Splitter {
             carry_splitter(input, tree, c, designed_rect(input, c), laid, out);
         } else {
@@ -465,6 +482,64 @@ fn place_children(
             carry_rigidly(input, tree, &c.id, laid.x - d.x, laid.y - d.y, out);
         }
     }
+    content
+}
+
+/// Place the children of a `Flex`, `Flow` or `Grid` container (R50): each at
+/// its designed (or measured) size as its intrinsic size, in reading order —
+/// top to bottom, then left to right, or right to left for a right-to-left
+/// container (R54). `Anchor` and `Dock` are not read. Returns what the items
+/// need, width and height.
+fn place_items(
+    input: &LayoutInput<'_>,
+    src: &dyn PropSource,
+    mode: LayoutMode,
+    kids: &[usize],
+    client: LRect,
+    out: &mut LayoutOutput,
+) -> (f32, f32) {
+    let flex_c = match mode {
+        LayoutMode::Flex => Some(flex::flex_container(src)),
+        LayoutMode::Flow => Some(flex::flow_container(src)),
+        _ => None,
+    };
+    let rtl = flex_c.is_some_and(|f| f.direction == flex::Direction::RowReverse);
+    let mut order: Vec<usize> = kids.to_vec();
+    order.sort_by(|&a, &b| {
+        let (ra, rb) = (designed_rect(input, &input.controls[a]), designed_rect(input, &input.controls[b]));
+        let x = if rtl { rb.x.total_cmp(&ra.x) } else { ra.x.total_cmp(&rb.x) };
+        ra.y.total_cmp(&rb.y).then(x)
+    });
+    let size = |i: usize| {
+        let r = designed_rect(input, &input.controls[i]);
+        (r.w, r.h)
+    };
+    let (rects, content) = match (mode, flex_c) {
+        (LayoutMode::Grid, _) => {
+            let g = grid::container(src);
+            let items: Vec<grid::Item> = order.iter().map(|&i| grid::item(&input.controls[i], size(i))).collect();
+            let s = grid::solve(&g, &items, client);
+            (s.rects, s.content)
+        }
+        (_, Some(fc)) => {
+            let items: Vec<flex::Item> = order
+                .iter()
+                .map(|&i| match mode {
+                    LayoutMode::Flow => flex::flow_item(&input.controls[i], size(i)),
+                    _ => flex::flex_item(&input.controls[i], size(i)),
+                })
+                .collect();
+            let s = flex::solve(&fc, &items, client);
+            (s.rects, s.content)
+        }
+        _ => return (0.0, 0.0),
+    };
+    for (&i, r) in order.iter().zip(rects) {
+        let c = &input.controls[i];
+        out.rects.insert(c.id.clone(), r);
+        out.placement.insert(c.id.clone(), Placement::Item(mode));
+    }
+    content
 }
 
 /// A laid-out Splitter's panes and their contents (R26 step 5, R27): each pane
@@ -594,6 +669,65 @@ pub(crate) mod test_support {
 mod tests {
     use super::test_support::*;
     use super::*;
+
+    /// T5.4 — nesting: a `Fill` panel laid out as a grid `200px 1fr`, whose
+    /// first cell holds a flex column (a 30 px button, then one that grows)
+    /// and whose second a label. Form 600×400 at 800×500:
+    ///   P fills (0, 0, 800, 500); its grid columns are 200 and the rest of
+    ///   its client; the one row stretches to the client height.
+    ///   G1 fills cell 1, G2 cell 2 (both `Stretch`).
+    ///   In G1's client: B1 is 30 high at the top, B2 grows into the rest;
+    ///   both as wide as the client (`AlignItems = Stretch`).
+    /// Each container's geometry is recorded, and the form's minimum is the
+    /// grid's: 200 + the label's 100 wide, the flex panel's 400 high, plus
+    /// P's frame.
+    #[test]
+    fn a_flex_column_in_a_grid_in_a_docked_panel() {
+        let s = |v: &str| PropValue::String(v.into());
+        let mut p = with(ctrl("P", ControlType::Panel, (0, 0, 600, 400), None), "Dock", s("Fill"));
+        p = with(with(p, "LayoutMode", s("Grid")), "GridColumns", s("200px 1fr"));
+        let g1 = with(with(ctrl("G1", ControlType::Panel, (0, 0, 200, 400), Some("P")), "LayoutMode", s("Flex")), "FlexDirection", s("Column"));
+        let g2 = ctrl("G2", ControlType::Label, (200, 0, 100, 20), Some("P"));
+        let b1 = ctrl("B1", ControlType::Button, (0, 0, 80, 30), Some("G1"));
+        let b2 = with(ctrl("B2", ControlType::Button, (0, 40, 80, 40), Some("G1")), "FlexGrow", s("1"));
+        let controls = [p, g1, g2, b1, b2];
+        let o = solve_at(&controls, (600.0, 400.0), (800.0, 500.0));
+        assert_eq!(r(&o, "P"), (0.0, 0.0, 800.0, 500.0));
+        let pc = o.containers["P"].client;
+        assert_eq!(o.containers["P"].mode, LayoutMode::Grid);
+        assert_eq!(r(&o, "G1"), (pc.x, pc.y, 200.0, pc.h));
+        assert_eq!(r(&o, "G2"), (pc.x + 200.0, pc.y, pc.w - 200.0, pc.h));
+        let gc = o.containers["G1"].client;
+        assert_eq!(o.containers["G1"].mode, LayoutMode::Flex);
+        assert_eq!(r(&o, "B1"), (gc.x, gc.y, gc.w, 30.0));
+        assert_eq!(r(&o, "B2"), (gc.x, gc.y + 30.0, gc.w, gc.h - 30.0));
+        assert_eq!(o.placement["B2"], Placement::Item(LayoutMode::Flex));
+        assert_eq!(o.placement["G2"], Placement::Item(LayoutMode::Grid));
+        let frame = Insets::between(controls[0].rect, controls[0].content_rect());
+        assert_eq!(o.min_size, (300.0 + frame.horizontal(), 400.0 + frame.vertical()));
+        println!(
+            "grid in a Fill panel at 800×500: G1 {:?}, G2 {:?}; flex column in G1: B1 {:?}, B2 {:?}; form minimum {:?}",
+            r(&o, "G1"), r(&o, "G2"), r(&o, "B1"), r(&o, "B2"), o.min_size
+        );
+    }
+
+    /// R53 — a flex-column form is as tall as its content when that is taller
+    /// than the window: three 100 px items in a 200 px window lay out at 300
+    /// (y 0, 100, 200), none shrunk, and the surface scrolls; the width stays
+    /// the window's, every item stretched across it.
+    #[test]
+    fn a_flex_column_form_is_as_tall_as_its_content() {
+        let items: Vec<Control> = (0..3)
+            .map(|k| ctrl(&format!("I{k}"), ControlType::Button, (0, k * 100, 80, 100), None))
+            .collect();
+        let bag = BTreeMap::from([
+            ("LayoutMode".to_owned(), PropValue::String("Flex".into())),
+            ("FlexDirection".to_owned(), PropValue::String("Column".into())),
+        ]);
+        let o = solve(&LayoutInput::new(&items, (400.0, 300.0), (500.0, 200.0), &bag, &[]));
+        assert_eq!(o.laid_out_size, (500.0, 300.0));
+        assert_eq!((r(&o, "I0"), r(&o, "I2")), ((0.0, 0.0, 500.0, 100.0), (0.0, 200.0, 500.0, 100.0)));
+    }
 
     /// T4.5 / R18 — the run-form window's floor: none for a form that is not
     /// responsive; the solver's minimum for one that is, read from the form's

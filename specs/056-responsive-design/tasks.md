@@ -439,29 +439,48 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
 
 ## Phase 5 — Flex, Flow, Grid (R49–R57)
 
-- [ ] **T5.1 — Flex solver** (R52–R54; AC24)
+- [x] **T5.1 — Flex solver** (R52–R54; AC24)
   - Read first (reference only, not reused): `viewer.rs` flex types,
     `paint.rs` `paint_box_content` row branch.
   - Files: `layout/flex.rs`.
   - Verify: AC24 cases, hand-derived expectations in comments.
 
-- [ ] **T5.2 — Flow on the flex solver** (R57; AC26)
+- [x] **T5.2 — Flow on the flex solver** (R57; AC26)
   - Files: `layout/flex.rs`.
   - Verify: AC26.
 
-- [ ] **T5.3 — Track parser + grid solver** (R55, R56; AC25)
+- [x] **T5.3 — Track parser + grid solver** (R55, R56; AC25)
   - Files: `layout/{tracks,grid}.rs`.
   - Verify: AC25.
 
-- [ ] **T5.4 — Wire into the tree walk; ContainerGeom; minimum** (R49, R50, R53 content sizing; AC8/AC9 flex-grid halves)
+- [x] **T5.4 — Wire into the tree walk; ContainerGeom; minimum** (R49, R50, R53 content sizing; AC8/AC9 flex-grid halves)
   - Files: `layout/mod.rs`, `minsize.rs`.
   - Verify: nested flex in grid in docked panel fixture; `ContainerGeom`
     filled; Gate G.
 
-- [ ] **T5.5 — Viewer untouched** (R49; AC27)
+- [x] **T5.5 — Viewer untouched** (R49; AC27)
   - Verify: `cargo test -p cobolt-forms --features render --test a_pages_flex_and_grid_are_laid_out` green, unchanged file.
 
-- [ ] **T5.6 — Phase gate** — Gate G + Gate F; commit.
+- [x] **T5.6 — Phase gate** — Gate G + Gate F; commit.
+  - **Result (2026-09-30), 1.80.12:** `layout/flex.rs` (9 tests: every
+    `JustifyContent`, `AlignItems`/`AlignSelf`, grow 1:2 with a max, shrink
+    weighted by basis with a min, no-shrink overflow and % basis, two wrapped
+    lines × every `AlignContent` and `WrapReverse`, `Order` and all four
+    directions, a content-sized column; Flow in four directions, `FlowBreak`,
+    `WrapContents` off), `layout/tracks.rs` (2), `layout/grid.rs` (8: fixed +
+    fr, Repeat, AutoFill at 1/3/5 columns, Auto tracks, spans, the implicit
+    grid, sparse auto-placement, cell alignment), and in `mod.rs` a flex
+    column in a grid in a `Fill` panel (geometry recorded, minimum
+    hand-derived) and a content-tall flex form. Viewer files untouched and its
+    test green. Gate G 0 differences (R81 186/127); Gate F green but the two
+    expected reds.
+  - **Decisions:** a flex/flow/grid *form* is content-sized vertically (it
+    lays out again at its content's height and scrolls), never horizontally —
+    the CSS document rule; a nested container keeps the size its own
+    placement gives it (not content-sized yet). A plain `Nfr` track is
+    `MinMax(Auto, Nfr)` as in CSS; with no flexible track, `Auto` tracks share
+    the leftover (CSS stretch). An item's automatic minimum in a flex line is
+    its `MinWidth`/`MinHeight` (0 if unset) when it may shrink.
 
 ## Phase 6 — Breakpoints, type scaling, system text factor (R58–R72)
 

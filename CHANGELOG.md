@@ -8,6 +8,30 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.12] — 2026-09-30
+
+### 056 Responsive design — Phase 5: Flex, Flow and Grid
+
+A responsive form, a Panel, a GroupBox or a TabControl whose `LayoutMode` is
+`Flex`, `Flow` or `Grid` now places its children itself:
+
+- **Flex** follows the CSS flexbox rules for `FlexDirection`, `FlexWrap`,
+  `JustifyContent`, `AlignItems`, `AlignContent`, the gaps, and each child's
+  `FlexGrow`, `FlexShrink`, `FlexBasis`, `AlignSelf` and `Order`; growth and
+  shrinking stop at a child's `MinWidth`/`MaxWidth`.
+- **Flow** is the wrapping panel a PowerCOBOL or WinForms developer knows:
+  children keep their size, run in `FlowDirection`, wrap when
+  `WrapContents`, and `FlowBreak` starts a new line.
+- **Grid** reads `GridColumns`/`GridRows` track lists (`200px 1fr 2fr`,
+  `Auto`, `MinMax(…)`, `Repeat(3, 1fr)`, `Repeat(AutoFill, MinMax(160px, 1fr))`)
+  and each child's `GridColumn`, `GridRow` and spans; unplaced children fill
+  the cells in reading order.
+
+Children are ordered by `Order`, then as they sit on the canvas. A flex, flow
+or grid form taller than its window scrolls; the window's minimum size counts
+what these containers need. Forms whose containers stay `Absolute` are
+unchanged (corpus goldens: 0 differences).
+
 ## [PowerRustCOBOL 1.80.11] — 2026-09-30
 
 ### 056 Responsive design — Phase 4: every surface lays a responsive form out

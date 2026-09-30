@@ -65,6 +65,14 @@ pub const JUSTIFY_ITEMS: &str = "Stretch";
 pub const FLOW_DIRECTION: &str = "LeftToRight";
 pub const WRAP_CONTENTS: bool = true;
 
+// ── Units and tolerances of the flex, flow and grid solvers ─────────────────
+
+/// A percentage is of this whole: `50%` of a 400 px container is 200 px.
+pub const PERCENT: f32 = 100.0;
+/// Two lengths closer than this are the same length — where the flex freeze
+/// loop stops and where a wrapping line is judged full.
+pub const EPSILON: f32 = 0.01;
+
 // ── Form properties ─────────────────────────────────────────────────────────
 
 pub const FONT_SCALING: &str = "None";

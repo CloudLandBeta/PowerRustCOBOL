@@ -14,6 +14,7 @@
 
 use crate::layout::limits::clamp;
 use crate::layout::props::{self, Dock, FormBag, PropSource};
+use crate::layout::{flex, grid, LayoutMode};
 use crate::layout::{designed_rect, lays_out_children, AxisPlace, Insets, LayoutInput, Tree};
 use crate::model::Control;
 
@@ -25,7 +26,7 @@ pub(crate) fn form_min(input: &LayoutInput<'_>, tree: &Tree) -> (f32, f32) {
         input.designed_size.0 - pad.horizontal(),
         input.designed_size.1 - pad.vertical(),
     );
-    let (w, h) = client_min(input, tree, None, client);
+    let (w, h) = client_min(input, tree, None, &form, client);
     (
         (w + pad.horizontal()).max(form.number("MinFormWidth")),
         (h + pad.vertical()).max(form.number("MinFormHeight")),
@@ -38,6 +39,7 @@ fn client_min(
     input: &LayoutInput<'_>,
     tree: &Tree,
     parent: Option<&str>,
+    src: &dyn PropSource,
     designed_client: (f32, f32),
 ) -> (f32, f32) {
     let kids: Vec<&Control> = tree
@@ -46,6 +48,30 @@ fn client_min(
         .map(|&i| &input.controls[i])
         .filter(|c| !c.control_type.is_non_visual())
         .collect();
+
+    // A flex, flow or grid container: what its items need at their minimums.
+    let mode = props::layout_mode(src);
+    if mode != LayoutMode::Absolute {
+        let size = |c: &Control| {
+            let r = designed_rect(input, c);
+            (r.w, r.h)
+        };
+        let mins: Vec<(f32, f32)> = kids.iter().map(|c| own_min(input, tree, c)).collect();
+        return match mode {
+            LayoutMode::Grid => {
+                let items: Vec<grid::Item> = kids.iter().map(|c| grid::item(c, size(c))).collect();
+                grid::min_size(&grid::container(src), &items)
+            }
+            LayoutMode::Flow => {
+                let items: Vec<flex::Item> = kids.iter().map(|c| flex::flow_item(c, size(c))).collect();
+                flex::min_size(&flex::flow_container(src), &items, &mins)
+            }
+            _ => {
+                let items: Vec<flex::Item> = kids.iter().map(|c| flex::flex_item(c, size(c))).collect();
+                flex::min_size(&flex::flex_container(src), &items, &mins)
+            }
+        };
+    }
 
     // Docks, solved from the last one back: each needs its own thickness plus
     // whatever the docks after it need beside it.
@@ -97,6 +123,7 @@ fn own_min(input: &LayoutInput<'_>, tree: &Tree, c: &Control) -> (f32, f32) {
         input,
         tree,
         Some(&c.id),
+        c,
         (r.w - frame.horizontal(), r.h - frame.vertical()),
     );
     let content = |v: f32, f: f32| if v > 0.0 { v + f } else { 0.0 };
