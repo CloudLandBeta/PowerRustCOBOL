@@ -385,17 +385,10 @@ impl ToolboxPanel {
 
         // No heading row here any more: the title and the sidebar-collapse
         // chevron are drawn by the section header above us.
+        // No search row: the toolbox is its categories (operator, 2026-09-30);
+        // the sidebar's search filters Other forms.
         ui.vertical(|ui| {
-            ui.horizontal(|ui| {
-                ui.label("🔍");
-                ui.text_edit_singleline(&mut self.filter);
-                if !self.filter.is_empty() && ui.small_button("✕").clicked() {
-                    self.filter.clear();
-                }
-            });
-            ui.add_space(4.0);
-
-            let filter_lo = self.filter.to_ascii_lowercase();
+            let filter_lo = String::new();
 
             egui::ScrollArea::vertical()
                 .id_salt("toolbox_scroll")
@@ -1798,5 +1791,48 @@ mod palette_coverage_tests {
             TOOLS.len(),
             ControlType::ALL.len()
         );
+    }
+}
+
+#[cfg(test)]
+mod toolbox_layout_tests {
+    use super::*;
+
+    /// The toolbox draws each category header once and no search row
+    /// (operator, 2026-09-30: the screenshot showed "Common" twice).
+    #[test]
+    fn each_category_header_is_drawn_once_and_there_is_no_search() {
+        let tr = &crate::i18n::Language::English.tr();
+        let ctx = egui::Context::default();
+        let mut tb = ToolboxPanel::new();
+        let mut texts: Vec<String> = Vec::new();
+        for _ in 0..3 {
+            texts.clear();
+            let mut full = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(260.0, 3000.0))),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::CentralPanel::default().show_inside(ui, |ui| {
+                        let _ = tb.show(ui, tr, &[], false, 2800.0);
+                    });
+                },
+            );
+            full.textures_delta.clear();
+            fn walk(s: &egui::Shape, out: &mut Vec<String>) {
+                match s {
+                    egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut texts);
+            }
+        }
+        let common = texts.iter().filter(|t| t.ends_with(tr.cat_common)).count();
+        assert_eq!(common, 1, "one Common header: {texts:?}");
+        assert!(!texts.iter().any(|t| t.contains('🔍')), "no search row: {texts:?}");
     }
 }

@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.16] — 2026-09-30
+
+### The designer's left sidebar, reorganised (operator request)
+
+- **The toolbar spans the whole window**, and the toolbox sits under it on the
+  left.
+- **No search in the toolbox**: it shows its categories. The search is now at
+  the top of **Other forms**, where it filters the list by form name.
+- **Every section is always shown** — Toolbox, Objects and Other forms no
+  longer fold.
+- **The sections resize by hand**: drag the line between two sections to give
+  one more room and the other less. A section never shrinks below a usable
+  height, and a taller window gives all three more room in the same
+  proportions.
+
 ## [PowerRustCOBOL 1.80.15] — 2026-09-30
 
 ### The Properties pane, reorganised (operator request)

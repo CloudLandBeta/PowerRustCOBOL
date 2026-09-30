@@ -30,6 +30,9 @@ pub struct FormsListPanel {
     selected: Option<PathBuf>,
     /// True when we need to re-scan (root changed or Refresh pressed).
     needs_rescan: bool,
+    /// The search at the top of the list: only forms whose name contains it
+    /// (any case) are listed.
+    filter: String,
 }
 
 impl FormsListPanel {
@@ -39,6 +42,7 @@ impl FormsListPanel {
             found: Vec::new(),
             selected: None,
             needs_rescan: false,
+            filter: String::new(),
         }
     }
 
@@ -100,6 +104,17 @@ impl FormsListPanel {
 
         let mut action: Option<FormsListAction> = None;
 
+        // The sidebar's search, at the top of Other forms (operator,
+        // 2026-09-30).
+        ui.horizontal(|ui| {
+            ui.label("🔍");
+            ui.add(egui::TextEdit::singleline(&mut self.filter).desired_width(ui.available_width() - 24.0));
+            if !self.filter.is_empty() && ui.small_button("✕").clicked() {
+                self.filter.clear();
+            }
+        });
+        let needle = self.filter.trim().to_lowercase();
+
         if self.found.is_empty() {
             if self.root.is_none() {
                 ui.label(
@@ -119,6 +134,9 @@ impl FormsListPanel {
             .show(ui, |ui| {
                 for path in &self.found {
                     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("?");
+                    if !needle.is_empty() && !stem.to_lowercase().contains(&needle) {
+                        continue;
+                    }
 
                     let is_open = open_paths.iter().any(|p| *p == path.as_path());
                     let is_selected = self.selected.as_deref() == Some(path.as_path());
