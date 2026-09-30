@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.20] — 2026-09-30
+
+### Spec 078 (draft): AWS controls through MCP
+
+Requirements for sixteen non-visual controls in a new `AWS` toolbox category —
+Lambda, DynamoDB, S3, S3 Tables, S3 Vectors, Glue, Bedrock AgentCore, AgentCore
+Memory, Bedrock Knowledge Bases, Rekognition, Polly, Comprehend, Textract, EC2,
+Cognito, and a generic MCP tool call. The controls reach AWS as an MCP client of
+AWS's own MCP servers, over stdio, so no TLS stack, AWS SDK or AWS credential
+enters the application. Specification only; nothing is implemented. *(First
+written as 1.70.352 on `features`; renumbered when it joined the 1.80 line.)*
+
 ## [PowerRustCOBOL 1.80.19] — 2026-09-30
 
 ### Build says how long it took
