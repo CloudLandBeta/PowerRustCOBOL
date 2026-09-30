@@ -8,6 +8,14 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.17] — 2026-09-30
+
+### Form orientation as icons (operator request)
+
+The form's **Orientation** row shows two small device outlines — tall for
+portrait, wide for landscape — instead of the words, which move to the
+tooltips. The row takes a third of the width it did.
+
 ## [PowerRustCOBOL 1.80.16] — 2026-09-30
 
 ### The designer's left sidebar, reorganised (operator request)

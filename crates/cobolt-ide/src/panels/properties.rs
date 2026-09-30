@@ -10604,7 +10604,10 @@ impl PropertiesPanel {
                 property_row_keyed(ui, tr.lbl_orientation, Some("Orientation"), |ui| {
                     let portrait = form.width <= form.height;
                     ui.horizontal(|ui| {
-                        if ui.selectable_label(portrait, tr.lbl_portrait).clicked() && !portrait {
+                        // Icons, not words — a tall and a wide device outline;
+                        // the words are the tooltips (operator, 2026-09-30).
+                        let words = |t: &str| t.trim_start_matches(|c: char| !c.is_alphanumeric()).trim().to_owned();
+                        if orientation_icon(ui, true, portrait).on_hover_text(words(tr.lbl_portrait)).clicked() && !portrait {
                             action
                                 .form_props
                                 .push(("Width".into(), form.height.to_string()));
@@ -10612,7 +10615,7 @@ impl PropertiesPanel {
                                 .form_props
                                 .push(("Height".into(), form.width.to_string()));
                         }
-                        if ui.selectable_label(!portrait, tr.lbl_landscape).clicked() && portrait {
+                        if orientation_icon(ui, false, !portrait).on_hover_text(words(tr.lbl_landscape)).clicked() && portrait {
                             action
                                 .form_props
                                 .push(("Width".into(), form.height.to_string()));
@@ -12147,6 +12150,33 @@ fn section_header(ui: &mut Ui, title: &str) {
         Color32::WHITE,
     );
     sort_begin(ui, title);
+}
+
+/// A small button showing a device outline — tall for portrait, wide for
+/// landscape — filled with the accent when `selected`.
+fn orientation_icon(ui: &mut Ui, portrait: bool, selected: bool) -> egui::Response {
+    let size = egui::vec2(26.0, 22.0);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let theme = crate::theme::active();
+    let text = ui.visuals().text_color();
+    if selected {
+        ui.painter().rect_filled(rect, 4.0, theme.accent.gamma_multiply(0.6));
+    } else if resp.hovered() {
+        ui.painter().rect_filled(rect, 4.0, theme.accent.gamma_multiply(0.25));
+    }
+    let device = if portrait { egui::vec2(9.0, 14.0) } else { egui::vec2(14.0, 9.0) };
+    let body = Rect::from_center_size(rect.center(), device);
+    let ink = if selected { Color32::WHITE } else { text };
+    ui.painter().rect_stroke(body, 1.5, egui::Stroke::new(1.5, ink), egui::StrokeKind::Middle);
+    // The home button marks which way is "down" — below a tall device, to the
+    // right of a wide one.
+    let dot = if portrait {
+        egui::pos2(body.center().x, body.bottom() - 2.5)
+    } else {
+        egui::pos2(body.right() - 2.5, body.center().y)
+    };
+    ui.painter().circle_filled(dot, 1.0, ink);
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 /// Human label for one `FormStartPosition` in the Start Position dropdown.
