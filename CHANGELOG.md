@@ -8,6 +8,28 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.15] — 2026-09-30
+
+### The Properties pane, reorganised (operator request)
+
+- **Four short tabs that never scroll away:** Props, Events, Procs, Anim, in
+  one strip across the pane's width above the rows. The selected tab is drawn
+  in high contrast. The titles are translated in all six languages.
+- **Smaller text:** tabs, labels and values are two points smaller.
+- **Wider labels:** the label column starts at a little over half the pane
+  (the divider still drags).
+- **Section titles** sit on a dense, evenly perforated band.
+- **Rows read A–Z within each section.** The order follows the labels as they
+  read in the interface language, and a hint under a row travels with it.
+- **Every label explains itself on hover.** Twenty-three labels had no
+  tooltip, in every language: X, Y, Width, Height, Visible, Enabled and Tab
+  order on every control, the form's Name, Size and Orientation and its five
+  COBOL-structure rows, a line's angle, a Viewer's Source, and a few rows
+  whose label differs from the property they edit (a SideMenu's header icon
+  and image, a Snackbar's buttons, a Switch's checked colour, a TreeView's
+  folder icons). A test now renders the Props tab for the form and every
+  control type in all six languages and fails on any label without one.
+
 ## [PowerRustCOBOL 1.80.14] — 2026-09-30
 
 ### 056 Responsive design — Phase 7: the program and the layout agree

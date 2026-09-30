@@ -3753,10 +3753,27 @@ impl PropertiesPanel {
     ) -> InspectorAction {
         let mut action = InspectorAction::default();
         self.hints.seen.clear();
-        let auto_split = (ui.available_width() * 0.42).clamp(96.0, 400.0);
+        // The whole pane reads two points smaller than the IDE's body text —
+        // tabs, labels and values alike (operator, 2026-09-30).
+        for style in [
+            egui::TextStyle::Body,
+            egui::TextStyle::Button,
+            egui::TextStyle::Monospace,
+            egui::TextStyle::Small,
+        ] {
+            if let Some(font) = ui.style_mut().text_styles.get_mut(&style) {
+                font.size = (font.size - PANE_FONT_STEP).max(PANE_FONT_MIN);
+            }
+        }
+        // Labels take a little over half the width by default: long property
+        // names wrap less, and the values still have room (operator,
+        // 2026-09-30). The grip moves it; this is only where it starts.
+        let auto_split = (ui.available_width() * PANE_LABEL_SHARE).clamp(96.0, 400.0);
         if !self.property_split.is_finite() || self.property_split <= 0.0 {
             self.property_split = auto_split;
         }
+        // The tabs stay put above the rows, however far the rows scroll.
+        self.show_tabs(ui, tr);
         ScrollArea::vertical()
             .id_salt("properties_scroll")
             .auto_shrink([false, false])
@@ -3781,6 +3798,7 @@ impl PropertiesPanel {
                 } else {
                     self.show_form(ui, form, &mut action, tr);
                 }
+                sort_end(ui);
             });
         // Read back whatever `property_row`'s grip wrote while the rows were
         // drawn, because the line above this block put `self.property_split`
@@ -3885,7 +3903,6 @@ impl PropertiesPanel {
             );
         });
         ui.separator();
-        self.show_tabs(ui, tr);
         self.property_split = self
             .property_split
             .clamp(72.0, ui.available_width().max(72.0));
@@ -3903,7 +3920,7 @@ impl PropertiesPanel {
                             ctrl.get_prop("ShapeType").map(|v| v.as_str()),
                             None | Some("Rectangle") | Some("RoundRect")
                         );
-                    ui.add_enabled_ui(!inert, |ui| {
+                    rows_enabled(ui, !inert, |ui| {
                         int_row_inline(
                             ui,
                             &id,
@@ -4314,37 +4331,56 @@ impl PropertiesPanel {
         }
     }
 
+    /// The pane's four tabs, as one strip of equal tabs across the pane's
+    /// width, the selected one in high contrast (operator, 2026-09-30).
     fn show_tabs(&mut self, ui: &mut Ui, tr: &Tr) {
         let theme = crate::theme::active();
-        let fill = if theme.dark {
-            Color32::from_rgba_unmultiplied(18, 22, 27, 160)
+        let tabs = [
+            (InspectorTab::Visuals, tr.tab_props),
+            (InspectorTab::Events, tr.tab_events),
+            (InspectorTab::Procedures, tr.tab_procs),
+            (InspectorTab::Animations, tr.tab_anim),
+        ];
+        let font = egui::TextStyle::Button.resolve(ui.style());
+        let height = font.size + 12.0;
+        let width = ui.available_width().max(1.0);
+        let (strip, _) = ui.allocate_exact_size(egui::vec2(width, height), Sense::hover());
+        let painter = ui.painter_at(strip);
+        painter.rect_filled(strip, 0.0, crate::theme::darken(theme.bg_panel, 0.5));
+        let each = width / tabs.len() as f32;
+        // High contrast: the selected tab is the opposite of the pane — light
+        // on a dark theme, dark on a light one — with the other tone's text.
+        let (sel_fill, sel_text) = if theme.dark {
+            (Color32::from_rgb(245, 247, 250), Color32::from_rgb(18, 22, 27))
         } else {
-            Color32::from_rgba_unmultiplied(245, 247, 250, 190)
+            (Color32::from_rgb(18, 22, 27), Color32::from_rgb(245, 247, 250))
         };
-        egui::Frame::NONE
-            .fill(fill)
-            .stroke(egui::Stroke::new(1.0, theme.panel_border()))
-            .inner_margin(egui::Margin::symmetric(3, 3))
-            .show(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    for (tab, label) in [
-                        (InspectorTab::Visuals, "Visuals"),
-                        (InspectorTab::Events, "Events"),
-                        (InspectorTab::Procedures, tr.cs_user_procedures),
-                        (InspectorTab::Animations, "Animations"),
-                    ] {
-                        let selected = self.active_tab == tab;
-                        let text = RichText::new(label).color(if selected {
-                            theme.accent
-                        } else {
-                            ui.visuals().text_color()
-                        });
-                        if ui.selectable_label(selected, text).clicked() {
-                            self.active_tab = tab;
-                        }
-                    }
-                });
-            });
+        for (i, (tab, label)) in tabs.into_iter().enumerate() {
+            let rect = Rect::from_min_size(
+                egui::pos2(strip.left() + each * i as f32, strip.top()),
+                egui::vec2(each, height),
+            )
+            .shrink2(egui::vec2(1.0, 0.0));
+            let id = ui.id().with(("inspector_tab", i));
+            let resp = ui.interact(rect, id, Sense::click());
+            let selected = self.active_tab == tab;
+            let (fill, text) = if selected {
+                (sel_fill, sel_text)
+            } else if resp.hovered() {
+                (theme.accent.gamma_multiply(0.55), Color32::WHITE)
+            } else {
+                (theme.accent.gamma_multiply(0.35), ui.visuals().text_color())
+            };
+            painter.rect_filled(
+                rect,
+                egui::CornerRadius { nw: 4, ne: 4, sw: 0, se: 0 },
+                fill,
+            );
+            painter.text(rect.center(), egui::Align2::CENTER_CENTER, label, font.clone(), text);
+            if resp.clicked() {
+                self.active_tab = tab;
+            }
+        }
         ui.add_space(3.0);
     }
 
@@ -4362,7 +4398,7 @@ impl PropertiesPanel {
         // the other axis. Greyed rather than hidden: the numbers stay visible.
         let horizontal_inert = ctrl.control_type == ControlType::StatusBar;
         let mut x = ctrl.rect.x;
-        ui.add_enabled_ui(!horizontal_inert, |ui| {
+        rows_enabled(ui, !horizontal_inert, |ui| {
             property_row(ui, "X", |ui| {
                 if ui.add(DragValue::new(&mut x).speed(1)).changed() {
                     action
@@ -4376,7 +4412,7 @@ impl PropertiesPanel {
         // Greyed rather than hidden: the reported numbers stay visible.
         let vertical_inert = ctrl.side_menu_full_height();
         let mut y = ctrl.rect.y;
-        ui.add_enabled_ui(!vertical_inert, |ui| {
+        rows_enabled(ui, !vertical_inert, |ui| {
             property_row(ui, "Y", |ui| {
                 if ui.add(DragValue::new(&mut y).speed(1)).changed() {
                     action
@@ -4386,7 +4422,7 @@ impl PropertiesPanel {
             });
         });
         let mut w = ctrl.rect.w;
-        ui.add_enabled_ui(!horizontal_inert, |ui| {
+        rows_enabled(ui, !horizontal_inert, |ui| {
             property_row(ui, "Width", |ui| {
                 if ui
                     .add(DragValue::new(&mut w).speed(1).range(1..=9999))
@@ -4399,7 +4435,7 @@ impl PropertiesPanel {
             });
         });
         let mut h = ctrl.rect.h;
-        ui.add_enabled_ui(!vertical_inert, |ui| {
+        rows_enabled(ui, !vertical_inert, |ui| {
             property_row(ui, "Height", |ui| {
                 if ui
                     .add(DragValue::new(&mut h).speed(1).range(1..=9999))
@@ -4480,7 +4516,7 @@ impl PropertiesPanel {
         if *buf != cur && !focused {
             *buf = cur.clone();
         }
-        property_row(ui, label, |ui| {
+        property_row_keyed(ui, label, Some(key), |ui| {
             // Asynchronous picker — a synchronous dialog nests the OS event
             // loop and aborts winit 0.30.
             if ui
@@ -4573,7 +4609,7 @@ impl PropertiesPanel {
         if *buf != cur && !focused {
             *buf = cur.clone();
         }
-        property_row(ui, label, |ui| {
+        property_row_keyed(ui, label, Some(key), |ui| {
             // Asynchronous picker — a synchronous dialog nests the OS event
             // loop and aborts winit 0.30.
             if ui
@@ -7927,7 +7963,7 @@ impl PropertiesPanel {
                         if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
                             *buf = cur.clone();
                         }
-                        property_row(ui, label, |ui| {
+                        property_row_keyed(ui, label, Some(key), |ui| {
                             let (a, committed) =
                                 super::icon_picker::name_row(ui, buf, wid, built_in);
                             want = a;
@@ -8379,7 +8415,7 @@ impl PropertiesPanel {
                         *buf = cur.clone();
                     }
                     let label = tr.snackbar_buttons_label;
-                    property_row(ui, label, |ui| {
+                    property_row_keyed(ui, label, Some("Buttons"), |ui| {
                         let resp = ui.add(
                             egui::TextEdit::multiline(buf)
                                 .id(wid)
@@ -10419,7 +10455,6 @@ impl PropertiesPanel {
     }
 
     fn show_form(&mut self, ui: &mut Ui, form: &Form, action: &mut InspectorAction, tr: &Tr) {
-        self.show_tabs(ui, tr);
         self.property_split = self
             .property_split
             .clamp(72.0, ui.available_width().max(72.0));
@@ -10432,10 +10467,10 @@ impl PropertiesPanel {
                 // developer reaches for before anything else.
                 self.show_form_geometry(ui, form, action, tr);
                 section_header(ui, tr.sec_form_props);
-                property_row(ui, tr.lbl_name, |ui| {
+                property_row_keyed(ui, tr.lbl_name, Some("Name"), |ui| {
                     ui.label(&form.name);
                 });
-                property_row(ui, tr.lbl_size, |ui| {
+                property_row_keyed(ui, tr.lbl_size, Some("Size"), |ui| {
                     ui.label(format!("{} × {}", form.width, form.height));
                 });
 
@@ -10453,7 +10488,7 @@ impl PropertiesPanel {
                         .map(|s| !s.trim().is_empty())
                         .unwrap_or(false);
                     let dot = if filled { "● " } else { "○ " };
-                    property_row(ui, kw, |ui| {
+                    property_row_keyed(ui, kw, Some(kw), |ui| {
                         if ui
                             .selectable_label(false, egui::RichText::new(dot).monospace())
                             .clicked()
@@ -10566,7 +10601,7 @@ impl PropertiesPanel {
                             }
                         });
                 });
-                property_row(ui, tr.lbl_orientation, |ui| {
+                property_row_keyed(ui, tr.lbl_orientation, Some("Orientation"), |ui| {
                     let portrait = form.width <= form.height;
                     ui.horizontal(|ui| {
                         if ui.selectable_label(portrait, tr.lbl_portrait).clicked() && !portrait {
@@ -10841,7 +10876,7 @@ impl PropertiesPanel {
                             .color(Color32::GRAY),
                     );
                 }
-                ui.add_enabled_ui(win_rows_enabled, |ui| {
+                rows_enabled(ui, win_rows_enabled, |ui| {
                     property_row_keyed(ui, tr.lbl_can_minimize, Some("CanMinimize"), |ui| {
                         let mut v = form.can_minimize;
                         if ui.checkbox(&mut v, "").changed() {
@@ -11546,6 +11581,24 @@ fn set_help_type(ty: &str) {
     HELP_TYPE.with(|t| *t.borrow_mut() = ty.to_owned());
 }
 
+thread_local! {
+    /// Every `(type, label)` whose row found no explanation to show on hover,
+    /// so a test can hold the pane to "every label explains itself".
+    static HELP_MISSES: std::cell::RefCell<std::collections::BTreeSet<(String, String)>> =
+        const { std::cell::RefCell::new(std::collections::BTreeSet::new()) };
+}
+
+fn record_help_miss(label: &str) {
+    let ty = HELP_TYPE.with(|t| t.borrow().clone());
+    HELP_MISSES.with(|m| m.borrow_mut().insert((ty, label.to_owned())));
+}
+
+/// The rows drawn since the last call that had nothing to show on hover.
+#[cfg(test)]
+pub(crate) fn take_help_misses() -> Vec<(String, String)> {
+    HELP_MISSES.with(|m| std::mem::take(&mut *m.borrow_mut()).into_iter().collect())
+}
+
 /// The explanation of property `key` for the control being inspected, in the
 /// interface language (`crate::prop_help`).
 fn prop_help_text(ui: &Ui, key: &str) -> Option<&'static str> {
@@ -11569,6 +11622,9 @@ fn property_row(ui: &mut Ui, label: &str, value: impl FnOnce(&mut Ui)) {
 /// [`property_row`] for property `key` (when the label is not simply the
 /// property's name): hovering the name explains the property.
 fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl FnOnce(&mut Ui)) {
+    // Its A–Z place in the section, when the section is sorted.
+    sort_place(ui, label);
+    let enabled = ROWS_ENABLED.with(|e| e.get());
     // Rows sit flush against one another so the only separators are the dashed grid
     // lines. The default inter-widget gap left a darker, unfilled strip below each
     // line that read as a drop shadow — zeroing the vertical spacing removes it.
@@ -11643,13 +11699,19 @@ fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl F
     ui.scope_builder(
         egui::UiBuilder::new().max_rect(left_rect.shrink2(cell_pad)),
         |ui| {
+            if !enabled {
+                ui.disable();
+            }
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 let r = ui.add(egui::Label::new(label).wrap());
                 let key = key
                     .map(str::to_owned)
                     .unwrap_or_else(|| label.replace(' ', "").trim_end_matches(':').to_owned());
-                if let Some(t) = prop_help_text(ui, &key) {
-                    r.on_hover_text(t);
+                match prop_help_text(ui, &key) {
+                    Some(t) => {
+                        r.on_hover_text(t);
+                    }
+                    None => record_help_miss(label),
                 }
             });
         },
@@ -11657,11 +11719,219 @@ fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl F
     ui.scope_builder(
         egui::UiBuilder::new().max_rect(right_rect.shrink2(cell_pad)),
         |ui| {
+            if !enabled {
+                ui.disable();
+            }
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 value(ui);
             });
         },
     );
+}
+
+/// The pane's text is this many points smaller than the IDE's.
+const PANE_FONT_STEP: f32 = 2.0;
+const PANE_FONT_MIN: f32 = 8.0;
+/// The share of the pane's width the labels take before the grip is moved.
+const PANE_LABEL_SHARE: f32 = 0.53;
+/// The perforation's cell, in pixels: one hole per cell.
+const PERFORATION_CELL: usize = 4;
+
+/// The section headers' perforation: a lighter hole in the corner of a clear
+/// cell, tiled.
+fn perforation_texture(ctx: &egui::Context) -> egui::TextureHandle {
+    let id = egui::Id::new("properties_perforation");
+    if let Some(t) = ctx.data(|d| d.get_temp::<egui::TextureHandle>(id)) {
+        return t;
+    }
+    let n = PERFORATION_CELL;
+    let mut pixels = vec![Color32::TRANSPARENT; n * n];
+    // A 2 × 2 hole in each cell.
+    for (x, y) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+        pixels[y * n + x] = Color32::from_white_alpha(38);
+    }
+    let image = egui::ColorImage { size: [n, n], pixels, source_size: egui::vec2(n as f32, n as f32) };
+    let options = egui::TextureOptions {
+        wrap_mode: egui::TextureWrapMode::Repeat,
+        ..egui::TextureOptions::NEAREST
+    };
+    let t = ctx.load_texture("properties_perforation", image, options);
+    ctx.data_mut(|d| d.insert_temp(id, t.clone()));
+    t
+}
+
+thread_local! {
+    /// Whether the rows being drawn are editable: `rows_enabled` greys a run
+    /// of rows without moving them into a child `Ui`, which would take them
+    /// out of their section's A–Z order.
+    static ROWS_ENABLED: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+/// Draw `add`'s rows greyed out when `enabled` is false — `add_enabled_ui`
+/// for property rows.
+fn rows_enabled<R>(ui: &mut Ui, enabled: bool, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let was = ROWS_ENABLED.with(|e| e.replace(e.get() && enabled));
+    let r = add(ui);
+    ROWS_ENABLED.with(|e| e.set(was));
+    r
+}
+
+// ── Rows in A–Z order within each section (operator, 2026-09-30) ──────────
+//
+// A row is drawn where the code draws it, so to order a section the pane
+// moves its layout cursor instead: each row — with anything drawn under it
+// before the next row, such as a hint — is a GROUP; the section remembers how
+// tall each group was last frame, and on this frame puts every group at the
+// place its label takes in A–Z order. Clicks land where the row is drawn,
+// because the row really is laid out there. A section drawn for the first
+// time (or whose rows changed) is drawn in code order once and repainted.
+
+/// One section being drawn.
+struct SortSection {
+    /// The egui pass it belongs to: a section a caller never ended is dropped
+    /// on the next pass instead of being ended at a stale position.
+    pass: u64,
+    ui_id: egui::Id,
+    key: egui::Id,
+    /// Where the first row starts.
+    base: Option<f32>,
+    /// Last frame's groups, in A–Z order, with their heights.
+    known: Vec<(String, f32)>,
+    /// This frame's groups, as drawn.
+    now: Vec<(String, f32)>,
+    /// The group being drawn: its label and top.
+    open: Option<(String, f32)>,
+    /// Height of groups last frame did not know, placed after the rest.
+    extra: f32,
+}
+
+thread_local! {
+    static SORTING: std::cell::RefCell<Option<SortSection>> = const { std::cell::RefCell::new(None) };
+    /// How many sections of each (type, title) this pass has begun, so two
+    /// sections with one title (a split Viewer's two views) are measured apart.
+    static SORT_SEEN: std::cell::RefCell<(u64, std::collections::HashMap<(String, String), usize>)> =
+        std::cell::RefCell::new((u64::MAX, std::collections::HashMap::new()));
+}
+
+/// The section being drawn, if it belongs to this pass and this `Ui`.
+fn live_section(s: &mut Option<SortSection>, ui: &Ui) -> bool {
+    let pass = ui.ctx().cumulative_pass_nr();
+    if s.as_ref().is_some_and(|sec| sec.pass != pass) {
+        *s = None;
+    }
+    s.as_ref().is_some_and(|sec| sec.ui_id == ui.id())
+}
+
+fn sort_label_key(label: &str) -> String {
+    label.trim().trim_end_matches(':').to_lowercase()
+}
+
+fn sort_begin(ui: &mut Ui, title: &str) {
+    let ty = HELP_TYPE.with(|t| t.borrow().clone());
+    let pass = ui.ctx().cumulative_pass_nr();
+    let n = SORT_SEEN.with(|seen| {
+        let mut seen = seen.borrow_mut();
+        if seen.0 != pass {
+            *seen = (pass, Default::default());
+        }
+        let slot = seen.1.entry((ty.clone(), title.to_owned())).or_insert(0);
+        *slot += 1;
+        *slot
+    });
+    let key = egui::Id::new(("properties_sort", ty, title.to_owned(), n));
+    let known: Vec<(String, f32)> = ui.data(|d| d.get_temp::<Vec<(String, f32)>>(key)).unwrap_or_default();
+    let mut known = known;
+    known.sort_by(|a, b| sort_label_key(&a.0).cmp(&sort_label_key(&b.0)));
+    SORTING.with(|s| {
+        *s.borrow_mut() = Some(SortSection {
+            pass,
+            ui_id: ui.id(),
+            key,
+            base: None,
+            known,
+            now: Vec::new(),
+            open: None,
+            extra: 0.0,
+        })
+    });
+}
+
+/// Move the cursor to where `label`'s group goes.
+fn sort_place(ui: &mut Ui, label: &str) {
+    let here = ui.cursor().min.y;
+    let target = SORTING.with(|s| {
+        let mut s = s.borrow_mut();
+        if !live_section(&mut s, ui) {
+            return None;
+        }
+        let sec = s.as_mut()?;
+        if let Some((prev, top)) = sec.open.take() {
+            let h = (here - top).max(0.0);
+            if !sec.known.iter().any(|(l, _)| *l == prev) {
+                sec.extra += h;
+            }
+            sec.now.push((prev, h));
+        }
+        let base = *sec.base.get_or_insert(here);
+        // A label twice in one section keeps both rows apart.
+        let n = sec.now.iter().filter(|(l, _)| l.split('\u{1}').next() == Some(label)).count();
+        let id = if n == 0 { label.to_owned() } else { format!("{label}\u{1}{n}") };
+        let y = if sec.known.is_empty() {
+            here
+        } else if let Some(pos) = sec.known.iter().position(|(l, _)| *l == id) {
+            base + sec.known[..pos].iter().map(|(_, h)| h).sum::<f32>()
+        } else {
+            base + sec.known.iter().map(|(_, h)| h).sum::<f32>() + sec.extra
+        };
+        sec.open = Some((id, y));
+        Some(y)
+    });
+    if let Some(y) = target {
+        if (y - here).abs() > 0.5 {
+            let x = ui.cursor().min.x;
+            let spacing = ui.spacing().item_spacing.y;
+            ui.advance_cursor_after_rect(Rect::from_min_max(
+                egui::pos2(x, y - spacing),
+                egui::pos2(x, y - spacing),
+            ));
+        }
+    }
+}
+
+/// The section is done: close its last group, put the cursor under the whole
+/// section, and remember the groups for the next frame.
+fn sort_end(ui: &mut Ui) {
+    let here = ui.cursor().min.y;
+    let done = SORTING.with(|s| {
+        let mut s = s.borrow_mut();
+        if !live_section(&mut s, ui) {
+            return None;
+        }
+        s.take()
+    });
+    let Some(mut sec) = done else { return };
+    if let Some((prev, top)) = sec.open.take() {
+        sec.now.push((prev, (here - top).max(0.0)));
+    }
+    let Some(base) = sec.base else { return };
+    let total: f32 = sec.now.iter().map(|(_, h)| h).sum();
+    let bottom = base + total;
+    if (bottom - here).abs() > 0.5 {
+        let x = ui.cursor().min.x;
+        let spacing = ui.spacing().item_spacing.y;
+        ui.advance_cursor_after_rect(Rect::from_min_max(
+            egui::pos2(x, bottom - spacing),
+            egui::pos2(x, bottom - spacing),
+        ));
+    }
+    let mut now_sorted = sec.now.clone();
+    now_sorted.sort_by(|a, b| sort_label_key(&a.0).cmp(&sort_label_key(&b.0)));
+    let changed = now_sorted.len() != sec.known.len()
+        || now_sorted.iter().zip(&sec.known).any(|(a, b)| a.0 != b.0 || (a.1 - b.1).abs() > 0.5);
+    ui.data_mut(|d| d.insert_temp(sec.key, sec.now));
+    if changed {
+        ui.ctx().request_repaint();
+    }
 }
 
 fn bool_prop_row(
@@ -11842,6 +12112,8 @@ fn color_prop_row_inner(
 }
 
 fn section_header(ui: &mut Ui, title: &str) {
+    // The section before this one ends here: its rows go to their A–Z places.
+    sort_end(ui);
     // Property rows zero their vertical spacing, so add an explicit gap here to keep
     // sections visually separated.
     ui.add_space(6.0);
@@ -11857,6 +12129,16 @@ fn section_header(ui: &mut Ui, title: &str) {
     let fill = crate::theme::darken(theme.bg_panel, 0.5);
     ui.painter()
         .rect_filled(rect, egui::CornerRadius::ZERO, fill);
+    // A dense, even perforation over the fill (operator, 2026-09-30): one
+    // tiled texture, a hole every few pixels, so a header costs one quad.
+    let tex = perforation_texture(ui.ctx());
+    let cell = PERFORATION_CELL as f32;
+    ui.painter().image(
+        tex.id(),
+        rect,
+        Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(rect.width() / cell, rect.height() / cell)),
+        Color32::WHITE,
+    );
     ui.painter().text(
         rect.left_center() + egui::vec2(3.0, 0.0),
         egui::Align2::LEFT_CENTER,
@@ -11864,6 +12146,7 @@ fn section_header(ui: &mut Ui, title: &str) {
         egui::TextStyle::Button.resolve(ui.style()),
         Color32::WHITE,
     );
+    sort_begin(ui, title);
 }
 
 /// Human label for one `FormStartPosition` in the Start Position dropdown.
@@ -12000,7 +12283,7 @@ fn accent_row(ui: &mut Ui, id: &str, ctrl: &Control, action: &mut InspectorActio
         .map(|v| v.as_str().to_owned())
         .unwrap_or_default();
     let mut color = cobolt_forms::paint::knob_accent(&stored);
-    property_row(ui, label, |ui| {
+    property_row_keyed(ui, label, Some("Accent"), |ui| {
         if color_edit_button_closing(ui, &mut color).changed() {
             action.set_props.push((
                 id.to_owned(),
@@ -15429,5 +15712,101 @@ mod property_split_tests {
              (expected ≈{expected}, got {})",
             panel.property_split
         );
+    }
+}
+
+#[cfg(test)]
+mod label_help_tests {
+    use super::*;
+
+    /// Rows are drawn in A–Z order of their labels within each section
+    /// (operator, 2026-09-30). The form's Geometry section is drawn in code
+    /// order X, Y, Width, Height, Start Position; on screen, after the first
+    /// frame measured it, it reads Height, Start Position, Width, X, Y.
+    #[test]
+    fn rows_read_a_to_z_within_a_section() {
+        let tr = &crate::i18n::Language::English.tr();
+        let form = Form::new("F", "F", 640, 480);
+        let ctx = egui::Context::default();
+        let mut panel = PropertiesPanel::new();
+        let mut shapes = Vec::new();
+        for _ in 0..3 {
+            let mut full = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 20000.0))),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::CentralPanel::default().show_inside(ui, |ui| {
+                        let _ = panel.show(ui, &form, None, &[], tr);
+                    });
+                },
+            );
+            full.textures_delta.clear();
+            shapes = full.shapes;
+        }
+        fn texts(shape: &egui::Shape, out: &mut Vec<(String, f32)>) {
+            match shape {
+                egui::Shape::Text(t) => out.push((t.galley.text().to_owned(), t.pos.y)),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| texts(s, out)),
+                _ => {}
+            }
+        }
+        let mut all = Vec::new();
+        for cs in &shapes {
+            texts(&cs.shape, &mut all);
+        }
+        let y = |needle: &str| {
+            all.iter()
+                .filter(|(t, _)| t.trim_end_matches(':') == needle)
+                .map(|(_, y)| *y)
+                .fold(f32::INFINITY, f32::min)
+        };
+        let order = ["Height", "Start Position", "Width", "X", "Y"];
+        let ys: Vec<f32> = order.iter().map(|l| y(l)).collect();
+        assert!(ys.iter().all(|v| v.is_finite()), "every row drawn: {order:?} → {ys:?}");
+        assert!(ys.windows(2).all(|w| w[0] < w[1]), "A–Z: {order:?} → {ys:?}");
+        println!("Geometry reads A–Z: {:?}", order.iter().zip(&ys).collect::<Vec<_>>());
+    }
+
+    /// Every label the Props tab shows — for the form and for each control
+    /// type — explains itself on hover (operator, 2026-09-30: "review labels
+    /// to fix those without a tooltip").
+    #[test]
+    fn every_label_on_the_props_tab_has_a_tooltip() {
+        for &lang in crate::i18n::Language::ALL.iter() {
+        let tr = &lang.tr();
+        let run = |form: &Form, ctrl: Option<&Control>| {
+            let ctx = egui::Context::default();
+            crate::i18n::set_language(&ctx, lang);
+            let mut panel = PropertiesPanel::new();
+            let mut full = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 20000.0))),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::CentralPanel::default().show_inside(ui, |ui| {
+                        let _ = panel.show(ui, form, ctrl, &[], tr);
+                    });
+                },
+            );
+            full.textures_delta.clear();
+        };
+        let _ = take_help_misses();
+        let form = Form::new("F", "F", 640, 480);
+        run(&form, None);
+        for t in cobolt_forms::ControlType::ALL {
+            let c = Control::new("X".to_owned(), t.clone(), 0, 0);
+            let mut f = form.clone();
+            f.controls.push(c.clone());
+            run(&f, Some(&c));
+        }
+        let misses = take_help_misses();
+        for (ty, label) in &misses {
+            println!("no tooltip [{lang:?}]: {ty} / {label:?}");
+        }
+        println!("{lang:?}: {} label(s) without a tooltip", misses.len());
+        }
     }
 }

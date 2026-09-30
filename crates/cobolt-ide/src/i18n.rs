@@ -1802,6 +1802,11 @@ pub struct Tr {
     // ── COBOL Structure editor (spec 005) ─────────────────────────────────────
     pub cs_open: &'static str,
     pub cs_user_procedures: &'static str,
+    /// The Properties pane's four tabs — short, so all four always fit.
+    pub tab_props: &'static str,
+    pub tab_events: &'static str,
+    pub tab_procs: &'static str,
+    pub tab_anim: &'static str,
     pub cs_add_procedure: &'static str,
     pub cs_proc_name: &'static str,
     pub cs_delete: &'static str,
@@ -3342,6 +3347,10 @@ const EN: Tr = Tr {
 
     cs_open:            "COBOL Structure",
     cs_user_procedures: "User procedures",
+    tab_props: "Props",
+    tab_events: "Events",
+    tab_procs: "Procs",
+    tab_anim: "Anim",
     cs_add_procedure:   "Add procedure",
     cs_proc_name:       "Procedure name",
     cs_delete:          "Delete",
@@ -4809,6 +4818,10 @@ const ES: Tr = Tr {
 
     cs_open:            "Estructura COBOL",
     cs_user_procedures: "Procedimientos de usuario",
+    tab_props: "Props",
+    tab_events: "Eventos",
+    tab_procs: "Procs",
+    tab_anim: "Anim",
     cs_add_procedure:   "Añadir procedimiento",
     cs_proc_name:       "Nombre del procedimiento",
     cs_delete:          "Eliminar",
@@ -6276,6 +6289,10 @@ const PT: Tr = Tr {
 
     cs_open:            "Estrutura COBOL",
     cs_user_procedures: "Procedimentos do usuário",
+    tab_props: "Props",
+    tab_events: "Eventos",
+    tab_procs: "Procs",
+    tab_anim: "Anim",
     cs_add_procedure:   "Adicionar procedimento",
     cs_proc_name:       "Nome do procedimento",
     cs_delete:          "Excluir",
@@ -7742,6 +7759,10 @@ const JA: Tr = Tr {
 
     cs_open:            "COBOL構造",
     cs_user_procedures: "ユーザー手続き",
+    tab_props: "属性",
+    tab_events: "イベント",
+    tab_procs: "手続き",
+    tab_anim: "アニメ",
     cs_add_procedure:   "手続きを追加",
     cs_proc_name:       "手続き名",
     cs_delete:          "削除",
@@ -9216,6 +9237,10 @@ const ZH: Tr = Tr {
 
     cs_open: "COBOL 结构",
     cs_user_procedures: "用户过程",
+    tab_props: "属性",
+    tab_events: "事件",
+    tab_procs: "过程",
+    tab_anim: "动画",
     cs_add_procedure: "添加过程",
     cs_proc_name: "过程名称",
     cs_delete: "删除",
@@ -10683,6 +10708,10 @@ const FR: Tr = Tr {
 
     cs_open:            "Structure COBOL",
     cs_user_procedures: "Procédures utilisateur",
+    tab_props: "Props",
+    tab_events: "Évén.",
+    tab_procs: "Procs",
+    tab_anim: "Anim",
     cs_add_procedure:   "Ajouter une procédure",
     cs_proc_name:       "Nom de la procédure",
     cs_delete:          "Supprimer",
