@@ -7529,6 +7529,8 @@ impl PropertiesPanel {
                         &["Text", "Full", "Inner"], "Text",
                     );
                     int_row_inline(ui, id, "CaptionPadding", tr.lbl_caption_padding, ctrl, action, 0..=64);
+                    layout_text_row(ui, &mut self.text_bufs, id, "CaptionPaddingHorizontal", tr.lbl_caption_padding_h, ctrl, action, Some(tr.caption_padding_follow));
+                    layout_text_row(ui, &mut self.text_bufs, id, "CaptionPaddingVertical", tr.lbl_caption_padding_v, ctrl, action, Some(tr.caption_padding_follow));
                     combo_row_inline_labeled(
                         ui, id, "CaptionAlignment", tr.lbl_caption_alignment, ctrl, action,
                         &["Auto", "Left", "Center", "Right"], "Auto",

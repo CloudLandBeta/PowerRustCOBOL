@@ -4727,6 +4727,10 @@ pub fn groupbox_caption_defaults() -> Vec<(&'static str, PropValue)> {
         ("CaptionShape", s("Rectangle")),
         ("CaptionSize", s("Text")),
         ("CaptionPadding", PropValue::Int(GROUPBOX_CAPTION_PADDING)),
+        // Empty follows `CaptionPadding`: the sides take it whole, the top
+        // and bottom half of it each.
+        ("CaptionPaddingHorizontal", s("")),
+        ("CaptionPaddingVertical", s("")),
         ("CaptionAlignment", s("Auto")),
     ]
 }

@@ -20,7 +20,7 @@ Rad-Slow rect=[520 160 820 184] font=13
 Txt-City rect=[196 208 440 236] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Street rect=[196 168 440 196] font=14
-shapes=63 digest=860de7a34305daea
+shapes=78 digest=5c38633bae44d3a9
 ## Run 0.75x 750x492
 Btn-HideGrp rect=[32 380 188 412] font=14
 Btn-Lock rect=[376 380 532 412] font=14
@@ -42,7 +42,7 @@ Rad-Slow rect=[520 160 820 184] font=13
 Txt-City rect=[196 208 440 236] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Street rect=[196 168 440 196] font=14
-shapes=70 digest=6c2905340d7ef092
+shapes=85 digest=1e5caf65c5930385
 ## Preview 0.75x 750x492
 Btn-HideGrp rect=[32 380 188 412] font=14
 Btn-Lock rect=[376 380 532 412] font=14
@@ -64,7 +64,7 @@ Rad-Slow rect=[520 160 820 184] font=13
 Txt-City rect=[196 208 440 236] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Street rect=[196 168 440 196] font=14
-shapes=70 digest=6c2905340d7ef092
+shapes=85 digest=1e5caf65c5930385
 ## Canvas 1x 1000x656
 Btn-HideGrp rect=[32 380 188 412] font=14
 Btn-Lock rect=[376 380 532 412] font=14
@@ -86,7 +86,7 @@ Rad-Slow rect=[520 160 820 184] font=13
 Txt-City rect=[196 208 440 236] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Street rect=[196 168 440 196] font=14
-shapes=63 digest=5493e1674ba7f938
+shapes=78 digest=d7f5267dbbd298d7
 ## Run 1x 1000x656
 Btn-HideGrp rect=[32 380 188 412] font=14
 Btn-Lock rect=[376 380 532 412] font=14
@@ -108,7 +108,7 @@ Rad-Slow rect=[520 160 820 184] font=13
 Txt-City rect=[196 208 440 236] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Street rect=[196 168 440 196] font=14
-shapes=70 digest=8b04994eb7507455
+shapes=85 digest=ac6c4efac6380348
 ## Preview 1x 1000x656
 Btn-HideGrp rect=[32 380 188 412] font=14
 Btn-Lock rect=[376 380 532 412] font=14
@@ -130,7 +130,7 @@ Rad-Slow rect=[520 160 820 184] font=13
 Txt-City rect=[196 208 440 236] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Street rect=[196 168 440 196] font=14
-shapes=70 digest=8b04994eb7507455
+shapes=85 digest=ac6c4efac6380348
 ## Canvas 1.5x 1500x984
 Btn-HideGrp rect=[32 380 188 412] font=14
 Btn-Lock rect=[376 380 532 412] font=14
@@ -152,7 +152,7 @@ Rad-Slow rect=[520 160 820 184] font=13
 Txt-City rect=[196 208 440 236] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Street rect=[196 168 440 196] font=14
-shapes=63 digest=4c45e2c6babca1fb
+shapes=78 digest=dc7bb3bee385fa2a
 ## Run 1.5x 1500x984
 Btn-HideGrp rect=[32 380 188 412] font=14
 Btn-Lock rect=[376 380 532 412] font=14
@@ -174,7 +174,7 @@ Rad-Slow rect=[520 160 820 184] font=13
 Txt-City rect=[196 208 440 236] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Street rect=[196 168 440 196] font=14
-shapes=70 digest=270d7e9e61a5e2d5
+shapes=85 digest=f869fa9beb41aac8
 ## Preview 1.5x 1500x984
 Btn-HideGrp rect=[32 380 188 412] font=14
 Btn-Lock rect=[376 380 532 412] font=14
@@ -196,4 +196,4 @@ Rad-Slow rect=[520 160 820 184] font=13
 Txt-City rect=[196 208 440 236] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Street rect=[196 168 440 196] font=14
-shapes=70 digest=270d7e9e61a5e2d5
+shapes=85 digest=f869fa9beb41aac8

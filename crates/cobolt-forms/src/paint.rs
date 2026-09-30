@@ -4689,354 +4689,442 @@ fn draw_control_body(
     // The same seven conditions, now named once in `paints_no_card` so the
     // shadow helpers cannot answer differently from the frame path — which is
     // exactly how a frameless PictureBox came to be given a halo it never drew.
-    if paints_no_card(ctrl) {
+    // A GroupBox leaves its top border open behind the caption — the whole
+    // caption area, padding included, not only the text (operator,
+    // 2026-09-29). The frame is drawn once per clip around that strip; every
+    // other control is drawn once, through the painter's own clip, exactly as
+    // before.
+    let frame_clips = match groupbox_caption_gap(painter, ctrl, rect.min, frame_rect.min.y) {
+        Some(gap) => clip_around(painter.clip_rect(), gap),
+        None => vec![painter.clip_rect()],
+    };
+    let unclipped = painter;
+    for frame_clip in frame_clips {
+        let clipped = unclipped.with_clip_rect(frame_clip);
+        let painter = &clipped;
+        if paints_no_card(ctrl) {
 
-        // No visible frame. When selected, show a lightweight selection outline.
-        if is_container {
-            debug_frame(
+            // No visible frame. When selected, show a lightweight selection outline.
+            if is_container {
+                debug_frame(
+                    painter,
+                    frame_rect,
+                    frame_round,
+                    1,
+                    "CONTAINER_FRAMELESS",
+                    container_diag,
+                );
+            }
+            // A border is not a face. "Frameless" here means the control paints no
+            // CARD — a Label has no background, a CheckBox is see-through — and that
+            // said nothing about the rim, yet the branch returned before any border
+            // was drawn. So `BorderStyle`, `BorderColor` and `BorderWidth` sat in the
+            // properties pane doing nothing at all on the two controls whose frame is
+            // frameless by default (operator, 2026-08-22). An explicitly asked-for
+            // border is now drawn on the frame, over no face, exactly where the pane
+            // says it will be.
+            //
+            // Only for those two. The others are frameless because a property SAYS
+            // no border — a PictureBox's `ShowFrame`, a container's `HideBackground`
+            // — or because the control paints its own whole face (charts, SideMenu);
+            // drawing a second rim there would overrule the property that asked for
+            // none. A RadioButton needs no entry: its framelessness IS
+            // `BorderStyle == "None"`, so it never reaches here with a border to draw.
+            if label_frameless && border_style != "None" && user_border_width > 0.5
+
+            {
+                draw_control_border(
+                    painter,
+                    frame_rect,
+                    frame_round,
+                    &border_style,
+                    if selected {
+                        2.0_f32.max(user_border_width)
+                    } else {
+                        user_border_width
+                    },
+                    if selected {
+                        Color32::from_rgba_premultiplied(60, 120, 230, a)
+                    } else {
+                        alpha_color(stroke_color)
+                    },
+                );
+            } else if selected {
+                let sel_c = Color32::from_rgba_premultiplied(60, 120, 230, a);
+                // On the frame's own rounding: a square outline on a rounded
+                // control was the one frame the resolved radius never reached
+                // (spec 057, E12).
+                painter.rect_stroke(
+                    frame_rect,
+                    frame_round,
+                    Stroke::new(1.0, sel_c),
+                    egui::StrokeKind::Middle,
+                );
+            }
+        } else if background_gradient {
+            // Shared eight-direction gradient background. The mesh follows the same
+            // per-corner rounding as the border, so the fill never bleeds past it.
+            let dir = ctrl
+                .get_prop("BackgroundGradientDirection")
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_else(|| "South".into());
+            let start = face_color(
+                ctrl.get_prop("BackgroundGradientStartColor")
+                    .map(|v| parse_color(v.as_str()))
+                    .unwrap_or(fill),
+            );
+            let end = face_color(
+                ctrl.get_prop("BackgroundGradientEndColor")
+                    .map(|v| parse_color(v.as_str()))
+                    .unwrap_or(fill),
+            );
+            if is_neumorphic {
+                draw_neumorphic_shadow_only(
+                    painter,
+                    frame_rect,
+                    frame_round,
+                    face_alpha,
+                    container_clip_of(ctrl),
+                );
+            }
+            let face_rect = debug_frame(
                 painter,
                 frame_rect,
                 frame_round,
                 1,
-                "CONTAINER_FRAMELESS",
+                "CONTROL_GRADIENT",
                 container_diag,
             );
-        }
-        // A border is not a face. "Frameless" here means the control paints no
-        // CARD — a Label has no background, a CheckBox is see-through — and that
-        // said nothing about the rim, yet the branch returned before any border
-        // was drawn. So `BorderStyle`, `BorderColor` and `BorderWidth` sat in the
-        // properties pane doing nothing at all on the two controls whose frame is
-        // frameless by default (operator, 2026-08-22). An explicitly asked-for
-        // border is now drawn on the frame, over no face, exactly where the pane
-        // says it will be.
-        //
-        // Only for those two. The others are frameless because a property SAYS
-        // no border — a PictureBox's `ShowFrame`, a container's `HideBackground`
-        // — or because the control paints its own whole face (charts, SideMenu);
-        // drawing a second rim there would overrule the property that asked for
-        // none. A RadioButton needs no entry: its framelessness IS
-        // `BorderStyle == "None"`, so it never reaches here with a border to draw.
-        if label_frameless && border_style != "None" && user_border_width > 0.5
-
-        {
-            draw_control_border(
-                painter,
-                frame_rect,
+            painter.add(egui::Shape::mesh(background_gradient_mesh(
+                face_rect,
+                start,
+                end,
+                &dir,
                 frame_round,
-                &border_style,
-                if selected {
-                    2.0_f32.max(user_border_width)
-                } else {
-                    user_border_width
-                },
-                if selected {
-                    Color32::from_rgba_premultiplied(60, 120, 230, a)
-                } else {
-                    alpha_color(stroke_color)
-                },
-            );
-        } else if selected {
-            let sel_c = Color32::from_rgba_premultiplied(60, 120, 230, a);
-            // On the frame's own rounding: a square outline on a rounded
-            // control was the one frame the resolved radius never reached
-            // (spec 057, E12).
-            painter.rect_stroke(
-                frame_rect,
-                frame_round,
-                Stroke::new(1.0, sel_c),
-                egui::StrokeKind::Middle,
-            );
-        }
-    } else if background_gradient {
-        // Shared eight-direction gradient background. The mesh follows the same
-        // per-corner rounding as the border, so the fill never bleeds past it.
-        let dir = ctrl
-            .get_prop("BackgroundGradientDirection")
-            .map(|v| v.as_str().to_owned())
-            .unwrap_or_else(|| "South".into());
-        let start = face_color(
-            ctrl.get_prop("BackgroundGradientStartColor")
-                .map(|v| parse_color(v.as_str()))
-                .unwrap_or(fill),
-        );
-        let end = face_color(
-            ctrl.get_prop("BackgroundGradientEndColor")
-                .map(|v| parse_color(v.as_str()))
-                .unwrap_or(fill),
-        );
-        if is_neumorphic {
-            draw_neumorphic_shadow_only(
-                painter,
-                frame_rect,
-                frame_round,
-                face_alpha,
-                container_clip_of(ctrl),
-            );
-        }
-        let face_rect = debug_frame(
-            painter,
-            frame_rect,
-            frame_round,
-            1,
-            "CONTROL_GRADIENT",
-            container_diag,
-        );
-        painter.add(egui::Shape::mesh(background_gradient_mesh(
-            face_rect,
-            start,
-            end,
-            &dir,
-            frame_round,
-        )));
-        if is_neumorphic {
-            draw_neumorphic_overlay_shadow_only(painter, frame_rect, frame_round, face_alpha);
-        }
-        let bc = if selected {
-            Color32::from_rgba_premultiplied(60, 120, 230, a)
-        } else {
-            alpha_color(stroke_color)
-        };
-        if selected || (border_style != "None" && user_border_width >= 0.5) {
-            let border_rect = debug_frame(
-                painter,
-                frame_rect,
-                frame_round,
-                2,
-                "CONTROL_GRADIENT_BORDER",
-                container_diag,
-            );
-            // Through `draw_control_border`, like every other frame branch. This
-            // was a bare `rect_stroke`, which draws ONE flat line whatever the
-            // style says — so Fixed3D, Raised and Sunken all collapsed to Single
-            // the moment a background gradient was switched on, and switching it
-            // back restored them. That read exactly as the border style being
-            // reset by the gradient (operator, 2026-08-22).
-            if selected {
-                painter.rect_stroke(
-                    border_rect,
-                    frame_round,
-                    Stroke::new(2.0, bc),
-                    egui::StrokeKind::Middle,
-                );
-            } else {
-                draw_control_border(
-                    painter,
-                    border_rect,
-                    frame_round,
-                    &border_style,
-                    user_border_width,
-                    bc,
-                );
+            )));
+            if is_neumorphic {
+                draw_neumorphic_overlay_shadow_only(painter, frame_rect, frame_round, face_alpha);
             }
-        }
-    } else if let Some((pack, skin)) = &theme_skin {
-        let state = if selected {
-            ControlState::Focused
-        } else {
-            ControlState::Normal
-        };
-        if let Some(tex) = load_pack_texture(painter.ctx(), pack, skin.image_for(state)) {
-            // Explicit BackgroundColor (R12) tints the skin; otherwise white = as-authored.
-            // Nine-slice skins are drawn square — overlay reflects that (ZERO).
-            let skin_rect = if is_container {
-                debug_frame(
+            let bc = if selected {
+                Color32::from_rgba_premultiplied(60, 120, 230, a)
+            } else {
+                alpha_color(stroke_color)
+            };
+            if selected || (border_style != "None" && user_border_width >= 0.5) {
+                let border_rect = debug_frame(
                     painter,
                     frame_rect,
-                    egui::CornerRadius::ZERO,
-                    1,
-                    "CONTAINER_THEME",
+                    frame_round,
+                    2,
+                    "CONTROL_GRADIENT_BORDER",
                     container_diag,
-                )
+                );
+                // Through `draw_control_border`, like every other frame branch. This
+                // was a bare `rect_stroke`, which draws ONE flat line whatever the
+                // style says — so Fixed3D, Raised and Sunken all collapsed to Single
+                // the moment a background gradient was switched on, and switching it
+                // back restored them. That read exactly as the border style being
+                // reset by the gradient (operator, 2026-08-22).
+                if selected {
+                    painter.rect_stroke(
+                        border_rect,
+                        frame_round,
+                        Stroke::new(2.0, bc),
+                        egui::StrokeKind::Middle,
+                    );
+                } else {
+                    draw_control_border(
+                        painter,
+                        border_rect,
+                        frame_round,
+                        &border_style,
+                        user_border_width,
+                        bc,
+                    );
+                }
+            }
+        } else if let Some((pack, skin)) = &theme_skin {
+            let state = if selected {
+                ControlState::Focused
             } else {
-                frame_rect
+                ControlState::Normal
             };
-            let tint = Color32::from_white_alpha(a);
-            draw_nine_slice(painter, skin_rect, &tex, skin.slice, tint);
-            if selected {
-                let sel_rect = if is_container {
+            if let Some(tex) = load_pack_texture(painter.ctx(), pack, skin.image_for(state)) {
+                // Explicit BackgroundColor (R12) tints the skin; otherwise white = as-authored.
+                // Nine-slice skins are drawn square — overlay reflects that (ZERO).
+                let skin_rect = if is_container {
                     debug_frame(
                         painter,
                         frame_rect,
-                        egui::CornerRadius::same(crate::paint::cr8(corner)),
-                        2,
-                        "CONTAINER_SELECTED",
+                        egui::CornerRadius::ZERO,
+                        1,
+                        "CONTAINER_THEME",
                         container_diag,
                     )
                 } else {
                     frame_rect
                 };
-                painter.rect_stroke(
-                    sel_rect,
-                    corner,
-                    Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
-                    egui::StrokeKind::Middle,
+                let tint = Color32::from_white_alpha(a);
+                draw_nine_slice(painter, skin_rect, &tex, skin.slice, tint);
+                if selected {
+                    let sel_rect = if is_container {
+                        debug_frame(
+                            painter,
+                            frame_rect,
+                            egui::CornerRadius::same(crate::paint::cr8(corner)),
+                            2,
+                            "CONTAINER_SELECTED",
+                            container_diag,
+                        )
+                    } else {
+                        frame_rect
+                    };
+                    painter.rect_stroke(
+                        sel_rect,
+                        corner,
+                        Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
+                        egui::StrokeKind::Middle,
+                    );
+                }
+            } else {
+                // Image missing / undecodable → never fail; fall back to glass (R11).
+                let fallback_rect = if is_container {
+                    debug_frame(
+                        painter,
+                        frame_rect,
+                        frame_round,
+                        1,
+                        "CONTAINER_THEME_FALLBACK",
+                        container_diag,
+                    )
+                } else {
+                    frame_rect
+                };
+                draw_glass_auto(
+                    painter,
+                    fallback_rect,
+                    fill,
+                    frame_round,
+                    selected,
+                    face_alpha,
                 );
             }
-        } else {
-            // Image missing / undecodable → never fail; fall back to glass (R11).
-            let fallback_rect = if is_container {
+        } else if let Some(theme_face) = {
+            // An explicit BackgroundColor is the developer's call and outranks the
+            // theme (R9) — it takes the caller-led Shape role.
+            let role = match user_bg {
+                Some(_) => SurfaceRole::Shape,
+                None => elegance_role_for(&ctrl.control_type),
+            };
+            active_surface_theme(painter.ctx()).surface(role, SurfaceState { selected, on: false })
+        } {
+            // ── 047/050 — the theme's own face ────────────────────────────────
+            // Ordered after the asset-pack branch (a pack still wins where it
+            // covers a control) and before glass. Flat fill + hairline border, at
+            // the control's exact designed rect — which is why this is painted
+            // rather than delegated to a crate widget: a widget would render at its
+            // own intrinsic size and the designer canvas, which has no `Ui` at all,
+            // could not run one anyway (spec 047 Q5).
+            let eleg_rect = if is_container {
                 debug_frame(
                     painter,
                     frame_rect,
                     frame_round,
                     1,
-                    "CONTAINER_THEME_FALLBACK",
+                    "CONTAINER_ELEGANCE",
                     container_diag,
                 )
             } else {
                 frame_rect
             };
-            draw_glass_auto(
+            // `base` is what a caller-led role paints with: the developer's colour
+            // when they set one, the computed fill otherwise.
+            let base = user_bg.unwrap_or(fill);
+            draw_theme_surface(
                 painter,
-                fallback_rect,
+                eleg_rect,
+                base,
+                frame_round,
+                face_alpha,
+                &theme_face,
+            );
+            // A user-set BorderStyle/BorderWidth still draws on top, as under glass
+            // — same threshold and rect derivation the glass branch below uses.
+            if border_style != "None" && user_border_width > 0.5 {
+                let border_rect = if is_container {
+                    debug_frame(
+                        painter,
+                        frame_rect,
+                        frame_round,
+                        2,
+                        "CONTAINER_BORDER",
+                        container_diag,
+                    )
+                } else {
+                    frame_rect
+                };
+                // Through `draw_control_border`, like every other frame branch.
+                // This was a bare `rect_stroke`, which draws ONE flat line whatever
+                // the style says — so under a surface theme (elegance, and any
+                // published theme) `Fixed3D`, `Raised` and `Sunken` all collapsed
+                // to `Single`, and a Button looked as though it had no border style
+                // at all (operator, 2026-08-23). The identical defect was fixed in
+                // the gradient branch on 2026-08-22 and missed here.
+                //
+                // It also strokes `Inside` now rather than `Middle`: a middle
+                // stroke puts half its width OUTSIDE the face, which on a rounded
+                // control is the thin-dark-arc artifact the corner system exists to
+                // avoid.
+                if selected {
+                    painter.rect_stroke(
+                        border_rect,
+                        frame_round,
+                        Stroke::new(2.0_f32.max(user_border_width), stroke_color),
+                        egui::StrokeKind::Inside,
+                    );
+                } else {
+                    draw_control_border(
+                        painter,
+                        border_rect,
+                        frame_round,
+                        &border_style,
+                        user_border_width,
+                        stroke_color,
+                    );
+                }
+            }
+        } else if glass {
+            let glass_rect = if is_container {
+                debug_frame(
+                    painter,
+                    frame_rect,
+                    frame_round,
+                    1,
+                    "CONTAINER_GLASS",
+                    container_diag,
+                )
+            } else {
+                frame_rect
+            };
+            // An explicit user background rides under the styled face (solid in
+            // Classic/Enhanced, the surface itself in Neumorphic) so "the
+            // background selected" is actually visible on styled forms.
+            draw_glass_auto_bg(
+                painter,
+                glass_rect,
                 fill,
+                user_bg,
                 frame_round,
                 selected,
                 face_alpha,
             );
-        }
-    } else if let Some(theme_face) = {
-        // An explicit BackgroundColor is the developer's call and outranks the
-        // theme (R9) — it takes the caller-led Shape role.
-        let role = match user_bg {
-            Some(_) => SurfaceRole::Shape,
-            None => elegance_role_for(&ctrl.control_type),
-        };
-        active_surface_theme(painter.ctx()).surface(role, SurfaceState { selected, on: false })
-    } {
-        // ── 047/050 — the theme's own face ────────────────────────────────
-        // Ordered after the asset-pack branch (a pack still wins where it
-        // covers a control) and before glass. Flat fill + hairline border, at
-        // the control's exact designed rect — which is why this is painted
-        // rather than delegated to a crate widget: a widget would render at its
-        // own intrinsic size and the designer canvas, which has no `Ui` at all,
-        // could not run one anyway (spec 047 Q5).
-        let eleg_rect = if is_container {
-            debug_frame(
-                painter,
-                frame_rect,
-                frame_round,
-                1,
-                "CONTAINER_ELEGANCE",
-                container_diag,
-            )
-        } else {
-            frame_rect
-        };
-        // `base` is what a caller-led role paints with: the developer's colour
-        // when they set one, the computed fill otherwise.
-        let base = user_bg.unwrap_or(fill);
-        draw_theme_surface(
-            painter,
-            eleg_rect,
-            base,
-            frame_round,
-            face_alpha,
-            &theme_face,
-        );
-        // A user-set BorderStyle/BorderWidth still draws on top, as under glass
-        // — same threshold and rect derivation the glass branch below uses.
-        if border_style != "None" && user_border_width > 0.5 {
-            let border_rect = if is_container {
-                debug_frame(
-                    painter,
-                    frame_rect,
-                    frame_round,
-                    2,
-                    "CONTAINER_BORDER",
-                    container_diag,
-                )
-            } else {
-                frame_rect
-            };
-            // Through `draw_control_border`, like every other frame branch.
-            // This was a bare `rect_stroke`, which draws ONE flat line whatever
-            // the style says — so under a surface theme (elegance, and any
-            // published theme) `Fixed3D`, `Raised` and `Sunken` all collapsed
-            // to `Single`, and a Button looked as though it had no border style
-            // at all (operator, 2026-08-23). The identical defect was fixed in
-            // the gradient branch on 2026-08-22 and missed here.
-            //
-            // It also strokes `Inside` now rather than `Middle`: a middle
-            // stroke puts half its width OUTSIDE the face, which on a rounded
-            // control is the thin-dark-arc artifact the corner system exists to
-            // avoid.
-            if selected {
-                painter.rect_stroke(
-                    border_rect,
-                    frame_round,
-                    Stroke::new(2.0_f32.max(user_border_width), stroke_color),
-                    egui::StrokeKind::Inside,
-                );
-            } else {
-                draw_control_border(
-                    painter,
-                    border_rect,
-                    frame_round,
-                    &border_style,
-                    user_border_width,
-                    stroke_color,
-                );
+            // When the control has an explicit BorderStyle + BorderWidth, draw the
+            // user border on top of the glass frame so containers (Panel, GroupBox)
+            // honour the same border properties as non-glass controls. Neumorphic
+            // uses an asymmetric border (light top/left, dark bottom/right).
+            if border_style != "None" && user_border_width > 0.5 {
+                let border_rect = if is_container {
+                    debug_frame(
+                        painter,
+                        frame_rect,
+                        frame_round,
+                        2,
+                        "CONTAINER_BORDER",
+                        container_diag,
+                    )
+                } else {
+                    frame_rect
+                };
+                // Neumorphic draws a RELIEF border in its own greys — but `Single`
+                // is a flat line in the developer's own `BorderColor`, whatever the
+                // theme. It used to be relief too, so BorderColor did nothing on a
+                // Neumorphic form (operator, 2026-09-26: a CheckBox's border
+                // properties "don't work").
+                if is_neumorphic && !border_style.eq_ignore_ascii_case("Single") {
+                    draw_neumorphic_user_border(
+                        painter,
+                        border_rect,
+                        frame_round,
+                        user_border_width,
+                        alpha_mul,
+                        border_style.eq_ignore_ascii_case("Sunken"),
+                    );
+                } else {
+                    let bw = if selected {
+                        2.0_f32.max(user_border_width)
+                    } else {
+                        user_border_width
+                    };
+                    let bc = if selected {
+                        Color32::from_rgba_premultiplied(60, 120, 230, a)
+                    } else {
+                        alpha_color(stroke_color)
+                    };
+                    draw_control_border(painter, border_rect, frame_round, &border_style, bw, bc);
+                }
             }
-        }
-    } else if glass {
-        let glass_rect = if is_container {
-            debug_frame(
-                painter,
-                frame_rect,
-                frame_round,
-                1,
-                "CONTAINER_GLASS",
-                container_diag,
-            )
+            // Buttons get a subtle top specular — a soft vertical light reflection
+            // that visually separates a clickable Button from flat fields like a
+            // TextBox. Two stacked translucent bands fading downward.
+            // Suppressed under Neumorphic (the dual soft shadows + rims already give
+            // the relief; the band would fight the top-left lighting assumption).
+            if matches!(ctrl.control_type, CT::Button) && rect.height() > 10.0 && !is_neumorphic {
+                let inset = (corner + 3.0).min(rect.width() * 0.25);
+                let spec_h = (rect.height() * 0.30).clamp(3.0, 9.0);
+                let band = |h: f32, alpha: u8| {
+                    let sa = (alpha as f32 * alpha_mul) as u8;
+                    let color = Color32::from_rgba_premultiplied(sa, sa, sa, sa);
+                    let band_rect = egui::Rect::from_min_size(
+                        rect.min + Vec2::new(inset, 2.0),
+                        Vec2::new((rect.width() - 2.0 * inset).max(0.0), h),
+                    );
+                    if container_clip_of(ctrl).is_none() {
+                        painter.rect_filled(band_rect, (corner - 1.0).max(2.0), color);
+                        return;
+                    }
+                    // Inside a rounded parent the strip may need a larger radius
+                    // than its height can hold, so it is laid down as rows trimmed
+                    // to the FACE's lifted arcs instead (spec 057, R11).
+                    for row in rows_inside_rounded_rect(frame_rect, frame_round, band_rect) {
+                        painter.rect_filled(row, 0.0, color);
+                    }
+                };
+                band(spec_h, 16); // wide soft glow
+                band(spec_h * 0.45, 22); // narrower brighter core
+            }
         } else {
-            frame_rect
-        };
-        // An explicit user background rides under the styled face (solid in
-        // Classic/Enhanced, the surface itself in Neumorphic) so "the
-        // background selected" is actually visible on styled forms.
-        draw_glass_auto_bg(
-            painter,
-            glass_rect,
-            fill,
-            user_bg,
-            frame_round,
-            selected,
-            face_alpha,
-        );
-        // When the control has an explicit BorderStyle + BorderWidth, draw the
-        // user border on top of the glass frame so containers (Panel, GroupBox)
-        // honour the same border properties as non-glass controls. Neumorphic
-        // uses an asymmetric border (light top/left, dark bottom/right).
-        if border_style != "None" && user_border_width > 0.5 {
-            let border_rect = if is_container {
+            // For a container, `debug_frame` explodes the frame out of the stack (60px
+            // per slot) and returns the shifted rect so the real fill lands on its own;
+            // non-containers get `frame_rect` back untouched.
+            let face_rect = if is_container {
                 debug_frame(
                     painter,
                     frame_rect,
                     frame_round,
-                    2,
-                    "CONTAINER_BORDER",
+                    1,
+                    "CONTAINER_FACE",
                     container_diag,
                 )
             } else {
                 frame_rect
             };
-            // Neumorphic draws a RELIEF border in its own greys — but `Single`
-            // is a flat line in the developer's own `BorderColor`, whatever the
-            // theme. It used to be relief too, so BorderColor did nothing on a
-            // Neumorphic form (operator, 2026-09-26: a CheckBox's border
-            // properties "don't work").
-            if is_neumorphic && !border_style.eq_ignore_ascii_case("Single") {
-                draw_neumorphic_user_border(
-                    painter,
-                    border_rect,
-                    frame_round,
-                    user_border_width,
-                    alpha_mul,
-                    border_style.eq_ignore_ascii_case("Sunken"),
-                );
-            } else {
+            // `face_color`, not `alpha_color`: this IS the face, so it owes the
+            // control's own `Transparency` as well as the inherited alpha. It was
+            // painted at the ancestor alpha alone, so with the glass toggle off a
+            // control set to 100 % transparent still painted a fully opaque slab —
+            // the one branch where `Transparency` did nothing at all.
+            //
+            // …and `user_bg` ahead of `fill`, because a CONTAINER's `fill` is the
+            // theme's card rather than its `BackgroundColor` ("their content comes
+            // from children"). The glass branch above passes the chosen colour
+            // separately as an underlay, so a Panel showed it under Liquid Glass and
+            // ignored it with the glass toggle off — the same property answering
+            // twice. `user_background_color` filters the seeded default, so a
+            // container nobody coloured still takes the theme's card.
+            painter.rect_filled(face_rect, frame_round, face_color(user_bg.unwrap_or(fill)));
+
+
+            if border_style != "None" {
                 let bw = if selected {
                     2.0_f32.max(user_border_width)
                 } else {
@@ -5047,114 +5135,41 @@ fn draw_control_body(
                 } else {
                     alpha_color(stroke_color)
                 };
+                let border_rect = if is_container {
+                    debug_frame(
+                        painter,
+                        frame_rect,
+                        frame_round,
+                        2,
+                        "CONTAINER_BORDER",
+                        container_diag,
+                    )
+                } else {
+                    frame_rect
+                };
                 draw_control_border(painter, border_rect, frame_round, &border_style, bw, bc);
+            } else if selected {
+                let sel_rect = if is_container {
+                    debug_frame(
+                        painter,
+                        frame_rect,
+                        frame_round,
+                        2,
+                        "CONTAINER_SELECTED",
+                        container_diag,
+                    )
+                } else {
+                    frame_rect
+                };
+                painter.rect_stroke(
+                    sel_rect,
+                    frame_round,
+                    Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
+                    egui::StrokeKind::Middle,
+                );
             }
         }
-        // Buttons get a subtle top specular — a soft vertical light reflection
-        // that visually separates a clickable Button from flat fields like a
-        // TextBox. Two stacked translucent bands fading downward.
-        // Suppressed under Neumorphic (the dual soft shadows + rims already give
-        // the relief; the band would fight the top-left lighting assumption).
-        if matches!(ctrl.control_type, CT::Button) && rect.height() > 10.0 && !is_neumorphic {
-            let inset = (corner + 3.0).min(rect.width() * 0.25);
-            let spec_h = (rect.height() * 0.30).clamp(3.0, 9.0);
-            let band = |h: f32, alpha: u8| {
-                let sa = (alpha as f32 * alpha_mul) as u8;
-                let color = Color32::from_rgba_premultiplied(sa, sa, sa, sa);
-                let band_rect = egui::Rect::from_min_size(
-                    rect.min + Vec2::new(inset, 2.0),
-                    Vec2::new((rect.width() - 2.0 * inset).max(0.0), h),
-                );
-                if container_clip_of(ctrl).is_none() {
-                    painter.rect_filled(band_rect, (corner - 1.0).max(2.0), color);
-                    return;
-                }
-                // Inside a rounded parent the strip may need a larger radius
-                // than its height can hold, so it is laid down as rows trimmed
-                // to the FACE's lifted arcs instead (spec 057, R11).
-                for row in rows_inside_rounded_rect(frame_rect, frame_round, band_rect) {
-                    painter.rect_filled(row, 0.0, color);
-                }
-            };
-            band(spec_h, 16); // wide soft glow
-            band(spec_h * 0.45, 22); // narrower brighter core
-        }
-    } else {
-        // For a container, `debug_frame` explodes the frame out of the stack (60px
-        // per slot) and returns the shifted rect so the real fill lands on its own;
-        // non-containers get `frame_rect` back untouched.
-        let face_rect = if is_container {
-            debug_frame(
-                painter,
-                frame_rect,
-                frame_round,
-                1,
-                "CONTAINER_FACE",
-                container_diag,
-            )
-        } else {
-            frame_rect
-        };
-        // `face_color`, not `alpha_color`: this IS the face, so it owes the
-        // control's own `Transparency` as well as the inherited alpha. It was
-        // painted at the ancestor alpha alone, so with the glass toggle off a
-        // control set to 100 % transparent still painted a fully opaque slab —
-        // the one branch where `Transparency` did nothing at all.
-        //
-        // …and `user_bg` ahead of `fill`, because a CONTAINER's `fill` is the
-        // theme's card rather than its `BackgroundColor` ("their content comes
-        // from children"). The glass branch above passes the chosen colour
-        // separately as an underlay, so a Panel showed it under Liquid Glass and
-        // ignored it with the glass toggle off — the same property answering
-        // twice. `user_background_color` filters the seeded default, so a
-        // container nobody coloured still takes the theme's card.
-        painter.rect_filled(face_rect, frame_round, face_color(user_bg.unwrap_or(fill)));
 
-
-        if border_style != "None" {
-            let bw = if selected {
-                2.0_f32.max(user_border_width)
-            } else {
-                user_border_width
-            };
-            let bc = if selected {
-                Color32::from_rgba_premultiplied(60, 120, 230, a)
-            } else {
-                alpha_color(stroke_color)
-            };
-            let border_rect = if is_container {
-                debug_frame(
-                    painter,
-                    frame_rect,
-                    frame_round,
-                    2,
-                    "CONTAINER_BORDER",
-                    container_diag,
-                )
-            } else {
-                frame_rect
-            };
-            draw_control_border(painter, border_rect, frame_round, &border_style, bw, bc);
-        } else if selected {
-            let sel_rect = if is_container {
-                debug_frame(
-                    painter,
-                    frame_rect,
-                    frame_round,
-                    2,
-                    "CONTAINER_SELECTED",
-                    container_diag,
-                )
-            } else {
-                frame_rect
-            };
-            painter.rect_stroke(
-                sel_rect,
-                frame_round,
-                Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
-                egui::StrokeKind::Middle,
-            );
-        }
     }
 
     // ── TabControl tab strip (spec 012) ────────────────────────────────────────
@@ -6707,7 +6722,8 @@ pub fn draw_groupbox_caption(
     let font_id = crate::fonts::font_id(painter.ctx(), &font_name, ctrl_font_size(ctrl));
     let style = GroupBoxCaptionStyle::of(ctrl);
     let galley = painter.layout_no_wrap(cap.clone(), font_id.clone(), text);
-    let geom = groupbox_caption_geometry(ctrl, origin, galley.size(), &style);
+    let corners = groupbox_top_corners(painter.ctx(), ctrl, origin);
+    let geom = groupbox_caption_geometry(ctrl, origin, galley.size(), &style, corners);
 
     // A caption box — the developer chose a Flat or Gradient background: the
     // shape is filled, outlined in the GroupBox's own border, and the text's
@@ -6848,7 +6864,10 @@ pub struct GroupBoxCaptionStyle {
     pub gradient_direction: String,
     pub shape: CaptionShape,
     pub size: CaptionSize,
-    pub padding: f32,
+    /// Space left and right of the text, inside the box.
+    pub pad_h: f32,
+    /// Space above and below the text, inside the box.
+    pub pad_v: f32,
     pub align: CaptionAlign,
 }
 
@@ -6861,6 +6880,18 @@ impl GroupBoxCaptionStyle {
                 .unwrap_or_else(|| d.to_owned())
         };
         let lower = |k: &str| s(k, "").to_ascii_lowercase();
+        let pad = ctrl
+            .get_prop("CaptionPadding")
+            .map(|v| v.as_i64() as f32)
+            .unwrap_or(crate::model::GROUPBOX_CAPTION_PADDING as f32)
+            .clamp(0.0, 64.0);
+        // An axis padding that is set (not empty) and reads as a number.
+        fn axis_pad(ctrl: &Control, key: &str) -> Option<f32> {
+            ctrl.get_prop(key)
+                .map(|v| v.to_xml_string())
+                .and_then(|v| v.trim().parse::<f32>().ok())
+                .map(|v| v.clamp(0.0, 64.0))
+        }
         GroupBoxCaptionStyle {
             background: match lower("CaptionBackgroundStyle").as_str() {
                 "flat" => CaptionBackground::Flat,
@@ -6882,11 +6913,12 @@ impl GroupBoxCaptionStyle {
                 "inner" => CaptionSize::Inner,
                 _ => CaptionSize::Text,
             },
-            padding: ctrl
-                .get_prop("CaptionPadding")
-                .map(|v| v.as_i64() as f32)
-                .unwrap_or(crate::model::GROUPBOX_CAPTION_PADDING as f32)
-                .clamp(0.0, 64.0),
+            // `CaptionPadding` is the shorthand: the sides take it whole, the
+            // top and bottom half of it each (a 4 px caption box is 2 px taller
+            // than its text on each side). An explicit horizontal or vertical
+            // value wins over it.
+            pad_h: axis_pad(ctrl, "CaptionPaddingHorizontal").unwrap_or(pad),
+            pad_v: axis_pad(ctrl, "CaptionPaddingVertical").unwrap_or(pad * 0.5),
             align: match lower("CaptionAlignment").as_str() {
                 "left" => CaptionAlign::Left,
                 "center" | "centre" => CaptionAlign::Center,
@@ -6897,6 +6929,58 @@ impl GroupBoxCaptionStyle {
     }
 }
 
+/// The strip of a GroupBox's top border the caption area covers — where the
+/// frame must not draw its border (operator, 2026-09-29: "do not draw the
+/// border behind the caption, not only the text, the entire caption area").
+/// `None` when there is no caption to leave room for. The strip spans the
+/// caption's full width (its box, padding included) and the depth of the
+/// border line, `frame_top` being where the frame's top edge sits.
+pub fn groupbox_caption_gap(painter: &egui::Painter, ctrl: &Control, origin: Pos2, frame_top: f32) -> Option<egui::Rect> {
+    if !matches!(ctrl.control_type, ControlType::GroupBox)
+        || ctrl.get_prop("HideCaption").map(|v| v.as_bool()).unwrap_or(false)
+    {
+        return None;
+    }
+    let cap = ctrl.get_prop("Caption").map(|v| v.to_string()).filter(|c| !c.is_empty())?;
+    if is_legacy_groupbox_generated_caption(&cap) {
+        return None;
+    }
+    let font_name = ctrl.get_prop("FontName").map(|v| v.as_str()).unwrap_or_default();
+    let font_id = crate::fonts::font_id(painter.ctx(), &font_name, ctrl_font_size(ctrl));
+    let text = painter.layout_no_wrap(cap, font_id, Color32::WHITE).size();
+    let style = GroupBoxCaptionStyle::of(ctrl);
+    let corners = groupbox_top_corners(painter.ctx(), ctrl, origin);
+    let geom = groupbox_caption_geometry(ctrl, origin, text, &style, corners);
+    let xs = egui::Rect::from_points(&geom.outline);
+    let bw = ctrl
+        .get_prop("BorderWidth")
+        .map(|v| v.as_i64() as f32)
+        .unwrap_or(1.0)
+        .max(2.0);
+    let top = origin.y.min(frame_top) - bw - 1.0;
+    let bottom = origin.y.max(frame_top) + bw + 1.0;
+    Some(egui::Rect::from_min_max(Pos2::new(xs.min.x, top), Pos2::new(xs.max.x, bottom)))
+}
+
+/// `clip` less `gap`, as the (up to three) rectangles that cover the rest:
+/// left of the gap, right of it, and everything below it.
+pub fn clip_around(clip: egui::Rect, gap: egui::Rect) -> Vec<egui::Rect> {
+    let mut out = Vec::with_capacity(3);
+    let pieces = [
+        egui::Rect::from_min_max(clip.min, Pos2::new(gap.min.x, clip.max.y)),
+        egui::Rect::from_min_max(Pos2::new(gap.max.x, clip.min.y), clip.max),
+        egui::Rect::from_min_max(Pos2::new(gap.min.x, gap.max.y), Pos2::new(gap.max.x, clip.max.y)),
+        egui::Rect::from_min_max(Pos2::new(gap.min.x, clip.min.y), Pos2::new(gap.max.x, gap.min.y)),
+    ];
+    for p in pieces {
+        let p = p.intersect(clip);
+        if p.is_positive() {
+            out.push(p);
+        }
+    }
+    out
+}
+
 /// Where a GroupBox caption goes: the box outline (convex, clockwise) and the
 /// left-centre point its text is drawn from.
 #[derive(Clone, Debug, PartialEq)]
@@ -6905,31 +6989,57 @@ pub struct CaptionGeometry {
     pub text_pos: Pos2,
 }
 
+/// The radii of a GroupBox's top-left and top-right corners AS THE FRAME
+/// DRAWS THEM — the themed radius, per corner (`draw_control` rounds the frame
+/// with exactly these), not the bare `CornerRadius` property: a theme that
+/// rounds more would otherwise put the caption on the arc.
+pub fn groupbox_top_corners(ctx: &egui::Context, ctrl: &Control, origin: Pos2) -> (f32, f32) {
+    let rect = egui::Rect::from_min_size(
+        origin,
+        egui::vec2(ctrl.rect.w.max(0) as f32, ctrl.rect.h.max(0) as f32),
+    );
+    let r = control_border_rounding(ctrl, rect, themed_corner_radius(ctx, ctrl));
+    (f32::from(r.nw), f32::from(r.ne))
+}
+
+/// How far `Inner` keeps the caption from each corner — the stub of border
+/// left between the arc and the caption (`+--[ Caption ]--+`), the same
+/// distance the classic legend's text starts from the corner.
+const CAPTION_CORNER_STUB: f32 = 10.0;
+
 /// Lay a caption of `text` size out on the top border of the GroupBox at
 /// `origin` (its top-left, in the painter's space). With every property at
 /// its default the text lands exactly where the classic legend always did:
-/// `CornerRadius + 10` in from the left, centred on the border line.
+/// the top-left corner's radius + 10 in from the left, centred on the border
+/// line.
+///
+/// The caption never reaches into a rounded corner (operator, 2026-09-29):
+/// its box — and so the opening it leaves in the border — is kept between the
+/// top-left and top-right arcs (`corners`, the radii the frame is drawn
+/// with), whatever its padding. `Full` spans the whole straight top edge
+/// between them; `Inner` stops `CAPTION_CORNER_STUB` short of each.
 pub fn groupbox_caption_geometry(
     ctrl: &Control,
     origin: Pos2,
     text: egui::Vec2,
     style: &GroupBoxCaptionStyle,
+    corners: (f32, f32),
 ) -> CaptionGeometry {
-    let r = corner_radius(ctrl).max(0.0);
     let w = ctrl.rect.w.max(0) as f32;
     let y = origin.y;
-    let pad = style.padding;
-    let h = text.y + pad;
+    let pad = style.pad_h;
+    let h = text.y + 2.0 * style.pad_v;
     let slant = match style.shape {
         CaptionShape::AngledLeft | CaptionShape::AngledRight => h * 0.5,
         _ => 0.0,
     };
-    // The span the caption may occupy on the border.
+    // The straight part of the top edge: never inside an arc.
+    let (edge_l, edge_r) = (origin.x + corners.0.max(0.0), origin.x + w - corners.1.max(0.0));
     let (span_l, span_r) = match style.size {
-        CaptionSize::Full => (origin.x, origin.x + w),
-        _ => (origin.x + r, origin.x + w - r),
+        CaptionSize::Inner => (edge_l + CAPTION_CORNER_STUB, edge_r - CAPTION_CORNER_STUB),
+        _ => (edge_l, edge_r),
     };
-    let legend_x = origin.x + r + 10.0;
+    let legend_x = edge_l + CAPTION_CORNER_STUB;
     let inset = pad + slant * 0.5;
     let (left, right, text_x) = match style.size {
         CaptionSize::Text => {
@@ -6937,10 +7047,19 @@ pub fn groupbox_caption_geometry(
             let text_x = match style.align {
                 CaptionAlign::Auto | CaptionAlign::Left => legend_x,
                 CaptionAlign::Center => (span_l + span_r) * 0.5 - text.x * 0.5,
-                CaptionAlign::Right => span_r - 10.0 - text.x,
+                CaptionAlign::Right => span_r - CAPTION_CORNER_STUB - text.x,
             };
-            let l = text_x - inset;
-            (l, l + bw, text_x)
+            let mut l = text_x - inset;
+            // Keep the whole box between the arcs: slide it off either corner,
+            // and when it is wider than the edge, let it be the edge.
+            if l + bw > span_r {
+                l = span_r - bw;
+            }
+            if l < span_l {
+                l = span_l;
+            }
+            let r = (l + bw).min(span_r.max(l));
+            (l, r, l + inset)
         }
         CaptionSize::Full | CaptionSize::Inner => {
             let text_x = match style.align {
@@ -6948,7 +7067,7 @@ pub fn groupbox_caption_geometry(
                 CaptionAlign::Right => span_r - inset - text.x,
                 CaptionAlign::Auto | CaptionAlign::Center => (span_l + span_r) * 0.5 - text.x * 0.5,
             };
-            (span_l, span_r, text_x)
+            (span_l, span_r.max(span_l), text_x)
         }
     };
     let top = y - h * 0.5;

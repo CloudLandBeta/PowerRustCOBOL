@@ -2479,8 +2479,10 @@ it a **Caption background** and it becomes a styled caption box instead:
 |---|---|---|
 | `CaptionBackgroundStyle` | `None` (default), `Flat`, `Gradient` | `None` keeps the classic legend. `Flat` fills the box with `CaptionBackColor`; `Gradient` fills it from `CaptionGradientStart` to `CaptionGradientEnd` along `CaptionGradientDirection`. |
 | `CaptionShape` | `Rectangle` (default), `Pill`, `AngledLeft`, `AngledRight` | The box's outline — see the sketches below. |
-| `CaptionSize` | `Text` (default), `Full`, `Inner` | `Text` hugs the text; `Full` spans the whole top border; `Inner` spans it between the rounded corners. |
-| `CaptionPadding` | 0–64 pixels (default 4) | Space between the text and its box. |
+| `CaptionSize` | `Text` (default), `Full`, `Inner` | `Text` hugs the text; `Full` spans the whole straight top edge between the rounded corners; `Inner` does the same but stops 10 px short of each corner, leaving a short stub of border. |
+| `CaptionPadding` | 0–64 pixels (default 4) | Shorthand for the space around the text inside its box: this much to the left and right, half of it above and below. |
+| `CaptionPaddingHorizontal` | 0–64 pixels, or empty (default) | The space left and right of the text; empty follows `CaptionPadding`. |
+| `CaptionPaddingVertical` | 0–64 pixels, or empty (default) | The space above and below the text; empty follows half of `CaptionPadding`. |
 | `CaptionAlignment` | `Auto` (default), `Left`, `Center`, `Right` | Where the text sits. `Auto` is left for a `Text` caption and centred for `Full` and `Inner`. |
 
 ```text
@@ -2506,9 +2508,16 @@ from COBOL like any other:
            MOVE "Inner"    TO GRP-CUSTOMER::CaptionSize
 ```
 
+The GroupBox's top border is **open behind the caption** — across the whole
+caption area, padding included, not just behind the letters — so the border
+never runs through the title. The caption never reaches into a rounded corner:
+however large its padding, it starts after the top-left corner's radius and
+ends before the top-right one's, so the corners keep their shape. A `Full`
+caption opens the whole straight part of the top edge.
+
 > **Note:** with `CaptionBackgroundStyle` left at `None`, `CaptionShape` draws
-> nothing — only `CaptionSize` and `CaptionAlignment` still decide where the
-> text sits. Existing forms keep their captions exactly as they were.
+> nothing — only `CaptionSize`, `CaptionAlignment` and the padding still decide
+> where the text sits and how wide the opening in the border is.
 
 📷 Screenshot needed — groupbox-caption-styles.png: four GroupBoxes on one
 form showing a Flat Rectangle `Text` caption, a Gradient Pill `Inner` caption,

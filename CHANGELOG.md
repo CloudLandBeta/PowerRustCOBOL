@@ -8,6 +8,34 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.9] — 2026-09-29
+
+### GroupBox: the border opens behind the caption; caption padding per axis
+
+Two operator requests on the GroupBox caption:
+
+- **The top border is not drawn behind the caption** — across the whole
+  caption area, padding included, not only behind the letters. The frame is
+  drawn around that strip, so this holds for every form theme (flat, glass,
+  skinned, neumorphic). A hidden or empty caption leaves the border closed.
+- **The caption never reaches into a rounded corner** (operator screenshot:
+  a padded caption opened the border inside the top-left arc). It is measured
+  against the corner radii the frame is really drawn with — the theme's, per
+  corner, not only `CornerRadius` — and kept between the two arcs: a caption
+  padded past a corner slides clear of it, one wider than the edge is cut to
+  the edge. `Full` now spans the straight top edge between the corners;
+  `Inner` stops 10 px short of each, leaving a stub of border.
+  *This changes how every captioned GroupBox looks.* In the example corpus that
+  is one form, `PowerDemo3/Containers/groupbox-form.cfrm`: its golden was
+  re-captured for this named change (9 shape digests; no control rect or font
+  size moved).
+- **`CaptionPaddingHorizontal` and `CaptionPaddingVertical`** — the space left
+  and right of the text, and above and below it, inside the caption box. Empty
+  (the default) follows `CaptionPadding`, which is now a shorthand: the sides
+  take it whole, the top and bottom half of it each — exactly the box 1.80.7
+  drew. Properties pane, six-language labels and hover help, System KB and the
+  Developer's Guide carry both.
+
 ## [PowerRustCOBOL 1.80.8] — 2026-09-29
 
 ### 056 Responsive design — Phase 2: model, file format, Properties pane, help and KB
