@@ -8,6 +8,24 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.22] — 2026-09-30
+
+### Plan — 078 AWS controls through MCP
+
+`specs/078-aws-mcp-controls/plan.md`: the design for spec 078, grounded in
+three surveys (the MCP crate and the async controls, every registration point
+of a non-visual control, and AWS's MCP servers as published today). An MCP
+client in `cobolt-mcp`; a stdio transport, a process-global server pool and
+three independent guards against orphaned servers in `cobolt-runtime` behind
+a dependency-free `aws` feature; one data-driven route table with pinned
+server versions, checked against recorded `tools/list` fixtures; class-first
+dispatch as KnowledgeBase does; no codegen and no credential anywhere. Three
+deliveries (A: client + `AwsMcp` + `AwsLambda`; B: the five dedicated-server
+controls; C: a live probe of the hosted AWS MCP Server, then its nine
+controls). Four spec amendments are proposed (handshake-first protocol, the
+renamed SigV4 proxy, a first-start timeout, read-only per connection). Plan
+only; no code changes.
+
 ## [PowerRustCOBOL 1.80.21] — 2026-09-30
 
 ### A label scrolled under the breadcrumb is hidden by it
