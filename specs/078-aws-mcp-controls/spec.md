@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — AWS controls through MCP
 
-- **Status:** draft → awaiting operator review
+- **Status:** approved 2026-09-30 (with plan amendments A1–A4)
 - **Folder:** specs/078-aws-mcp-controls/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-09-30
 
@@ -56,13 +56,13 @@ AWS publishes MCP servers in two forms, and neither covers every service:
 | Glue | `awslabs.aws-dataprocessing-mcp-server` (stdio) | `manage_aws_glue_*` tools; `--allow-write` off by default. |
 | Bedrock AgentCore (Runtime, Memory) | `awslabs.amazon-bedrock-agentcore-mcp-server` (stdio) | `invoke_agent_runtime`, `memory_create_event`, `memory_retrieve_records`, … |
 | Bedrock Knowledge Bases | `awslabs.bedrock-kb-retrieval-mcp-server` (stdio) | `ListKnowledgeBases`, `QueryKnowledgeBases`. |
-| DynamoDB items, S3 objects, S3 Vectors, Rekognition, Polly, Comprehend, Textract, EC2, Cognito | **Hosted AWS MCP Server** (GA 2026-05-06), reached over stdio through AWS's `mcp-proxy-for-aws` (SigV4) | The awslabs DynamoDB server does data *modelling*, not item access; the Rekognition server was withdrawn in favour of the API server, which is itself superseded by the hosted one. |
+| DynamoDB items, S3 objects, S3 Vectors, Rekognition, Polly, Comprehend, Textract, EC2, Cognito | **Hosted AWS MCP Server** (GA 2026-05-06), reached over stdio through AWS's SigV4 proxy, published since 2026-09 as `mcp-proxy-for-aws-cli`; endpoints in `us-east-1` and `eu-central-1`, the operation's region passed as `AWS_REGION` metadata | The awslabs DynamoDB server does data *modelling*, not item access; the Rekognition server was withdrawn in favour of the API server, which is itself superseded by the hosted one. |
 
 The landscape moved twice in a year, so this spec **does not wire any service
 to a server in code**. It defines a *route table* (R14–R17) as data, so moving a
 service to a new server is a data change and a test run, not a code change.
 
-All AWS servers need **`uv` / `uvx` and Python ≥ 3.10** on the machine that runs
+All AWS servers need **`uv` / `uvx` and Python ≥ 3.10** (≥ 3.11 for the S3 Tables server) on the machine that runs
 them. That is a real prerequisite for the developer and for the end user of a
 built application, and the spec treats it as one (R22–R24).
 
@@ -136,11 +136,12 @@ built application, and the spec treats it as one (R22–R24).
   dependency on COBOL, egui, the filesystem, a TLS implementation, an HTTP
   stack, or any crate requiring a C toolchain. Transport is a byte stream the
   host supplies.
-- **R3 (ubiquitous):** The client shall speak the **current** protocol revision
-  (2026-07-28, stateless) and fall back to the **handshake-based** revisions
-  (`initialize` / `initialized`, 2025-06-18 and 2025-11-25) when a server
-  answers with one of them, so it works with every AWS server whatever revision
-  that server ships.
+- **R3 (ubiquitous):** The client shall open a stdio server with the
+  **handshake** (`initialize` / `initialized`, offering 2025-11-25 and
+  accepting 2025-06-18 and 2024-11-05), and shall support the **stateless
+  2026-07-28** revision for a server the route table marks stateless.
+  *(Amended 2026-09-30, plan A1: the Python SDK the AWS servers use rejects the
+  2026-07-28 envelope on a handshake connection.)*
 - **R4 (event):** When a server sends a notification or a request the client
   does not handle (progress, logging, sampling, elicitation), the client shall
   answer or ignore it as the protocol requires, and never stall a pending call.
@@ -159,6 +160,9 @@ built application, and the spec treats it as one (R22–R24).
   the same connection and route in one running application: started on first
   use, shared, and stopped when the application ends. A crashed process shall be
   restarted on the next call, and the failed call reported as an error.
+  A server's **first** start shall be bounded by `StartTimeoutMs` (default
+  120000), separate from the per-call `TimeoutMs`, because the first `uvx`
+  run downloads packages. *(Amended 2026-09-30, plan A3.)*
 - **R9 (constraint):** The runtime shall never leave a server process running
   after the application exits, on any host (Run Form, child form, compiled
   binary), including a crash of the application.
@@ -254,6 +258,10 @@ built application, and the spec treats it as one (R22–R24).
   delete, append, start, stop, sign-up, invoke a Lambda, run a job) shall be
   refused with `onError` before anything is sent, and servers that have a
   read-only mode shall be started in it.
+  Because one server process serves a whole connection, a server's read-only
+  flag is dropped only when some control on that connection has `AllowWrite`
+  on; the per-control refusal above still applies to every other control.
+  *(Amended 2026-09-30, plan A4.)*
 - **R26 (ubiquitous):** `AwsMcp` shall refuse every tool the route table does not
   mark read-only unless `AllowWrite` is on.
 - **R27 (constraint):** `Verbose` output shall mask anything that looks like a

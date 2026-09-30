@@ -8,6 +8,27 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.23] — 2026-09-30
+
+### Tasks — 078 AWS controls through MCP (spec and plan approved)
+
+The operator approved spec 078 and its plan, with the four amendments the plan
+proposed now written into `spec.md`: the client opens a stdio server with the
+handshake and supports the stateless 2026-07-28 revision per route (R3); the
+SigV4 proxy is `mcp-proxy-for-aws-cli` and S3 Tables needs Python 3.11 (§1);
+a server's first start has its own `StartTimeoutMs` (R8); a server's read-only
+flag is decided per connection (R25).
+
+`specs/078-aws-mcp-controls/tasks.md` breaks the plan into three deliveries
+and 44 tasks — A: the MCP client, a fake MCP server for offline tests, the
+stdio transport and process pool with the no-orphan guarantees, the route
+table and its drift test, connections in three hosts, `AwsMcp` and
+`AwsLambda`; B: the five dedicated-server controls; C: a probe of the hosted
+AWS MCP Server with the operator's profile, then its nine controls. Each task
+names what it reads first, the files it touches, its requirements and its
+exact verification; a table maps every acceptance criterion (AC1–AC20) to its
+tasks. Tasks only; no code changes.
+
 ## [PowerRustCOBOL 1.80.22] — 2026-09-30
 
 ### Plan — 078 AWS controls through MCP

@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Plan — AWS controls through MCP
 
-- **Status:** draft → awaiting operator review
+- **Status:** approved 2026-09-30 (amendments A1–A4 applied to spec.md)
 - **Spec:** ./spec.md   **Date:** 2026-09-30
 - **Author:** Anthropic Claude Codex Agent
 
