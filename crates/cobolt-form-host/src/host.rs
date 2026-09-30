@@ -3020,6 +3020,8 @@ pub(crate) struct ChildWindow {
 pub(crate) struct ResponsiveSpec {
     pub(crate) layout: std::collections::BTreeMap<String, cobolt_forms::PropValue>,
     pub(crate) breakpoints: Vec<cobolt_forms::layout::breakpoints::Breakpoint>,
+    /// The operating system's text-size factor (R68), read once per process.
+    pub(crate) system_text_factor: f32,
 }
 
 impl ResponsiveSpec {
@@ -3028,6 +3030,7 @@ impl ResponsiveSpec {
         form.responsive.then(|| ResponsiveSpec {
             layout: form.layout.clone(),
             breakpoints: form.breakpoints.clone(),
+            system_text_factor: cobolt_forms::text_scale::system_text_factor(),
         })
     }
 
@@ -3057,6 +3060,7 @@ impl ResponsiveSpec {
             designed_size: (designed.x, designed.y),
             layout: &self.layout,
             breakpoints: &self.breakpoints,
+            system_text_factor: self.system_text_factor,
         };
         cobolt_forms::layout::apply::prepare_with_rail(ctx, controls, state, &spec, available, rail)
     }
@@ -10081,6 +10085,64 @@ mod parity {
         );
     }
 
+
+    /// Spec 056 T6.2 (AC32 end to end) — type scaling on a run-form window,
+    /// observed through an `AutoSize` label (measured at the size it paints
+    /// at). A 400 × 300 form, the label "Scaled text" at 14 pt:
+    ///   `Fluid` at 600 wide (1.5×) → 21 pt → the label is ~1.5× as wide;
+    ///   `Stepped` with Expanded's factor 1.25 → wider at 1100 (Expanded),
+    ///   unchanged at 700 (Medium, 1.0).
+    /// The designed rectangle never changes and the `FontSize` a COBOL read
+    /// sees stays the designed 14 (R71, R72).
+    #[test]
+    fn type_scaling_reaches_the_window_and_leaves_the_design_alone_056() {
+        fn fixture(scaling: &str) -> cobolt_forms::Form {
+            let mut f = cobolt_forms::Form::new("TYPE-FORM", "Type", 400, 300);
+            f.responsive = true;
+            f.layout.insert("FontScaling".into(), cobolt_forms::PropValue::String(scaling.into()));
+            f.breakpoints[2].font_factor = 1.25;
+            let mut l = cobolt_forms::Control::new("LBL", cobolt_forms::ControlType::Label, 10, 10);
+            l.rect = cobolt_forms::model::Rect::new(10, 10, 20, 20);
+            l.set_prop("AutoSize", cobolt_forms::PropValue::Bool(true));
+            l.set_prop("Caption", cobolt_forms::PropValue::String("Scaled text".into()));
+            l.set_prop("FontSize", cobolt_forms::PropValue::Int(14));
+            f.controls.push(l);
+            f
+        }
+        let width = |scaling: &str, w: f32, h: f32| {
+            let (mut app, _f, _p) = corpus_host(fixture(scaling), Surface::Window, None, None);
+            let ctx = egui::Context::default();
+            ctx.set_fonts(cobolt_forms::fonts::base_font_definitions());
+            for _ in 0..CORPUS_FRAMES {
+                frame(&mut app, &ctx, corpus_input(egui::vec2(w, h)));
+            }
+            let designed = app.root.controls.iter().find(|c| c.id == "LBL").unwrap().rect;
+            assert_eq!(designed, cobolt_forms::model::Rect::new(10, 10, 20, 20), "the design is untouched");
+            assert_eq!(app.root.state["LBL"].props.get("FontSize").map(String::as_str), Some("14"), "COBOL reads the designed size");
+            app.last_control_rects()["LBL"].width()
+        };
+        let base = width("None", 400.0, 300.0);
+        // AC34 (R68) — a system text factor of 1.25, injected into this one
+        // host, multiplies the effective size even with `FontScaling = None`.
+        let system = {
+            let (mut app, _f, _p) = corpus_host(fixture("None"), Surface::Window, None, None);
+            app.root.responsive.as_mut().unwrap().system_text_factor = 1.25;
+            let ctx = egui::Context::default();
+            ctx.set_fonts(cobolt_forms::fonts::base_font_definitions());
+            for _ in 0..CORPUS_FRAMES {
+                frame(&mut app, &ctx, corpus_input(egui::vec2(400.0, 300.0)));
+            }
+            app.last_control_rects()["LBL"].width()
+        };
+        assert!((system / base - 1.25).abs() < 0.15, "system factor 1.25: {base} → {system}");
+        let fluid = width("Fluid", 600.0, 450.0);
+        assert!((fluid / base - 1.5).abs() < 0.15, "Fluid 1.5×: {base} → {fluid}");
+        let medium = width("Stepped", 700.0, 300.0);
+        let expanded = width("Stepped", 1100.0, 300.0);
+        assert_eq!(medium, base, "Medium's factor is 1.0");
+        assert!((expanded / base - 1.25).abs() < 0.15, "Expanded's factor 1.25: {base} → {expanded}");
+        println!("056 T6.2/T6.3: label {base:.0} px at 14 pt; system factor 1.25 → {system:.0}; Fluid 1.5× → {fluid:.0}; Stepped Medium → {medium:.0}, Expanded 1.25× → {expanded:.0}");
+    }
 
     /// Spec 056 T4.7 (AC10 host half) — one responsive fixture drawn by the
     /// run-form window and by a ContentPane whose pane is the same size gives

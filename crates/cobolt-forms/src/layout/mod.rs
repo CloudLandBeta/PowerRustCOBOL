@@ -167,6 +167,7 @@ pub struct ContainerGeom {
 }
 
 /// Everything the solver reads.
+#[derive(Clone)]
 pub struct LayoutInput<'a> {
     /// The designed controls: flat, with `parent` links (R21).
     pub controls: &'a [Control],
@@ -222,6 +223,8 @@ pub struct LayoutOutput {
     pub font_sizes: HashMap<String, f32>,
     /// Controls a breakpoint hides — laid out as absent (R62).
     pub hidden: HashSet<String>,
+    /// Controls a breakpoint shows although they were designed hidden.
+    pub shown: HashSet<String>,
     /// The active breakpoint's name (empty with no table).
     pub breakpoint: String,
     /// The form's font factor, system factor included (R67, R68).
@@ -318,17 +321,34 @@ pub fn window_min_size(
     form_props: &BTreeMap<String, PropValue>,
     breakpoints: &[Breakpoint],
 ) -> (f32, f32) {
-    let input = LayoutInput::new(controls, designed, designed, form_props, breakpoints);
+    let mut input = LayoutInput::new(controls, designed, designed, form_props, breakpoints);
+    // The narrowest breakpoint's layout is the smallest the form can be.
+    input.pinned_breakpoint = breakpoints::narrowest(breakpoints).map(|b| b.name.as_str());
     let (w, h) = solve(&input).min_size;
     (w.max(defaults::WINDOW_MIN_INNER), h.max(defaults::WINDOW_MIN_INNER))
 }
 
 /// Lay the form out for its surface (R22).
 pub fn solve(input: &LayoutInput<'_>) -> LayoutOutput {
+    // The active breakpoint first, and its overrides before anything reads a
+    // control (R26 step 1, R59–R62).
+    let bp = breakpoints::select(input.breakpoints, input.available.0, input.pinned_breakpoint);
+    match breakpoints::apply_overrides(input.controls, bp) {
+        Some(seen) => {
+            let mut at = input.clone();
+            at.controls = &seen.controls;
+            let mut out = solve_at_breakpoint(&at, bp);
+            out.hidden = seen.hidden;
+            out.shown = seen.shown;
+            out
+        }
+        None => solve_at_breakpoint(input, bp),
+    }
+}
+
+fn solve_at_breakpoint(input: &LayoutInput<'_>, bp: Option<&Breakpoint>) -> LayoutOutput {
     let form = FormBag(input.form_props);
     let tree = Tree::new(input.controls);
-
-    let bp = breakpoints::select(input.breakpoints, input.available.0, input.pinned_breakpoint);
     let font_factor = fonts::form_factor(
         &form,
         input.designed_size.0,
@@ -669,6 +689,82 @@ pub(crate) mod test_support {
 mod tests {
     use super::test_support::*;
     use super::*;
+
+    /// AC28 (R58–R62) — a form designed at 1280 × 800 (Expanded):
+    ///   SIDE, a `Left` dock 200 wide; MAIN, the `Fill` rest, a grid `1fr 1fr`
+    ///   holding C1, C2 and PNL (which holds PC), in that reading order.
+    ///   Compact: SIDE `Dock = Top`, `Height = 60`; MAIN one column; PNL
+    ///   hidden. Medium: MAIN one column.
+    /// 1280: SIDE left; C1 and C2 side by side, PNL on row 2.
+    /// 800:  SIDE left; C1, C2, PNL stacked.
+    /// 480:  SIDE across the top, 60 high; C1, C2 stacked and sharing MAIN's
+    ///       height — PNL takes no cell, and it and PC are reported hidden.
+    #[test]
+    fn breakpoint_overrides_change_docks_grids_and_visibility() {
+        let s = |v: &str| PropValue::String(v.into());
+        let mut side = with(ctrl("SIDE", ControlType::Panel, (0, 0, 200, 800), None), "Dock", s("Left"));
+        side.z_order = 1;
+        let mut main = with(ctrl("MAIN", ControlType::Panel, (200, 0, 1080, 800), None), "Dock", s("Fill"));
+        main = with(with(main, "LayoutMode", s("Grid")), "GridColumns", s("1fr 1fr"));
+        main.z_order = 2;
+        let controls = [
+            side,
+            main,
+            ctrl("C1", ControlType::Label, (210, 10, 100, 40), Some("MAIN")),
+            ctrl("C2", ControlType::Label, (700, 10, 100, 40), Some("MAIN")),
+            ctrl("PNL", ControlType::Panel, (210, 100, 100, 40), Some("MAIN")),
+            ctrl("PC", ControlType::Label, (215, 105, 50, 20), Some("PNL")),
+        ];
+        let o = |c: &str, p: &str, v: PropValue| breakpoints::Override { control: c.into(), property: p.into(), value: v };
+        let mut table = defaults::default_breakpoints();
+        table[0].overrides = vec![
+            o("SIDE", "Dock", s("Top")),
+            o("SIDE", "Height", PropValue::Int(60)),
+            o("MAIN", "GridColumns", s("1fr")),
+            o("PNL", "Visible", PropValue::Bool(false)),
+        ];
+        table[1].overrides = vec![o("MAIN", "GridColumns", s("1fr"))];
+        let bag = BTreeMap::new();
+        let at = |w: f32, h: f32| solve(&LayoutInput::new(&controls, (1280.0, 800.0), (w, h), &bag, &table));
+
+        let wide = at(1280.0, 800.0);
+        assert_eq!(wide.breakpoint, "Expanded");
+        assert_eq!(r(&wide, "SIDE"), (0.0, 0.0, 200.0, 800.0));
+        let mc = wide.containers["MAIN"].client;
+        assert_eq!((r(&wide, "C1").0, r(&wide, "C2").0), (mc.x, mc.x + mc.w / 2.0));
+        assert_eq!(r(&wide, "PNL").0, mc.x);
+        assert!(r(&wide, "PNL").1 > r(&wide, "C1").1 && wide.hidden.is_empty());
+
+        let mid = at(800.0, 600.0);
+        assert_eq!(mid.breakpoint, "Medium");
+        assert_eq!(r(&mid, "SIDE"), (0.0, 0.0, 200.0, 600.0));
+        let mc = mid.containers["MAIN"].client;
+        assert_eq!((r(&mid, "C1").0, r(&mid, "C2").0, r(&mid, "PNL").0), (mc.x, mc.x, mc.x));
+        assert!(r(&mid, "C1").1 < r(&mid, "C2").1 && r(&mid, "C2").1 < r(&mid, "PNL").1);
+
+        let narrow = at(480.0, 600.0);
+        assert_eq!(narrow.breakpoint, "Compact");
+        assert_eq!(r(&narrow, "SIDE"), (0.0, 0.0, 480.0, 60.0));
+        assert_eq!(r(&narrow, "MAIN"), (0.0, 60.0, 480.0, 540.0));
+        let mc = narrow.containers["MAIN"].client;
+        let c2 = r(&narrow, "C2");
+        assert_eq!((c2.0, c2.1 + c2.3), (mc.x, mc.y + mc.h), "two rows share the height: PNL takes no cell");
+        assert!(!narrow.rects.contains_key("PNL") && !narrow.rects.contains_key("PC"));
+        assert_eq!(narrow.hidden, HashSet::from(["PNL".to_owned(), "PC".to_owned()]));
+
+        // The window's floor is the narrowest breakpoint's layout (R18).
+        let mut pinned = LayoutInput::new(&controls, (1280.0, 800.0), (1280.0, 800.0), &bag, &table);
+        pinned.pinned_breakpoint = Some("Compact");
+        let compact_min = solve(&pinned).min_size;
+        assert_eq!(
+            window_min_size(&controls, (1280.0, 800.0), &bag, &table),
+            (compact_min.0.max(defaults::WINDOW_MIN_INNER), compact_min.1.max(defaults::WINDOW_MIN_INNER))
+        );
+        println!(
+            "AC28: 1280 → Expanded (C2 beside C1), 800 → Medium (stacked, PNL row 3), 480 → Compact (SIDE {:?} on top, PNL + PC hidden)",
+            r(&narrow, "SIDE")
+        );
+    }
 
     /// T5.4 — nesting: a `Fill` panel laid out as a grid `200px 1fr`, whose
     /// first cell holds a flex column (a 30 px button, then one that grows)

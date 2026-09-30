@@ -100,7 +100,7 @@ fn draw(s: Surface, controls: &[Control], layout: &BTreeMap<String, PropValue>) 
     let ctx = egui::Context::default();
     ctx.set_fonts(cobolt_forms::fonts::base_font_definitions());
     let active = ActiveTabs::new();
-    let spec = FormSpec { designed_size: DESIGNED, layout, breakpoints: &[] };
+    let spec = FormSpec { designed_size: DESIGNED, layout, breakpoints: &[], system_text_factor: 1.0 };
     let laid_state = LaidOutState { inner: &Designed };
     let (mut rects, mut fonts) = (HashMap::new(), HashMap::new());
     for _ in 0..2 {

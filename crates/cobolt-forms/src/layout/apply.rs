@@ -31,11 +31,17 @@ use crate::render::{FormState, RenderTransform};
 /// because its size was already measured before layout (R26 step 3).
 pub const LAID_OUT: &str = "_LaidOut";
 
+/// A control's visibility as the active breakpoint sets it, when it sets it
+/// (R62): `false` hidden, `true` shown. Never saved.
+pub const BREAKPOINT_VISIBLE: &str = "_BreakpointVisible";
+
 /// What a responsive form looks like to the layout.
 pub struct FormSpec<'a> {
     pub designed_size: (f32, f32),
     pub layout: &'a BTreeMap<String, PropValue>,
     pub breakpoints: &'a [Breakpoint],
+    /// The operating system's text-size factor (R68), 1.0 where it has none.
+    pub system_text_factor: f32,
 }
 
 /// The result of [`prepare`].
@@ -59,14 +65,15 @@ pub fn prepare(
     // The effective font sizes come first: an AutoSize control is measured at
     // the size it will PAINT at (R26 steps 2–3). The solver is arithmetic, so
     // asking it twice costs nothing worth measuring.
-    let fonts = solve(&LayoutInput::new(
+    let mut first = LayoutInput::new(
         controls,
         form.designed_size,
         (available.x, available.y),
         form.layout,
         form.breakpoints,
-    ))
-    .font_sizes;
+    );
+    first.system_text_factor = form.system_text_factor;
+    let fonts = solve(&first).font_sizes;
     // AutoSize controls enter layout at the size their LIVE content needs.
     let mut intrinsic: HashMap<String, (f32, f32)> = HashMap::new();
     for c in controls {
@@ -86,6 +93,7 @@ pub fn prepare(
         form.breakpoints,
     );
     input.intrinsic = Some(&intrinsic);
+    input.system_text_factor = form.system_text_factor;
     let layout = solve(&input);
     let laid = laid_out_controls(controls, &layout);
     Prepared {
@@ -134,6 +142,11 @@ pub fn laid_out_controls(controls: &[Control], layout: &LayoutOutput) -> Vec<Con
                 );
             }
             c.set_prop(LAID_OUT, PropValue::Bool(true));
+            if layout.hidden.contains(&c.id) {
+                c.set_prop(BREAKPOINT_VISIBLE, PropValue::Bool(false));
+            } else if layout.shown.contains(&c.id) {
+                c.set_prop(BREAKPOINT_VISIBLE, PropValue::Bool(true));
+            }
             if let Some(size) = layout.font_sizes.get(&c.id) {
                 if let Some(designed) = crate::layout::fonts::designed_size_opt(&c) {
                     if (*size - designed).abs() > f32::EPSILON {
@@ -167,7 +180,12 @@ impl FormState for LaidOutState<'_> {
         c
     }
     fn visible(&self, base: &Control) -> bool {
-        self.inner.visible(base)
+        // The active breakpoint's word on it, else the live state (R62).
+        // TODO(T7.1): a COBOL write to `Visible` wins over the breakpoint (R64).
+        match base.get_prop(BREAKPOINT_VISIBLE) {
+            Some(v) => v.as_bool(),
+            None => self.inner.visible(base),
+        }
     }
     fn enabled(&self, base: &Control) -> bool {
         self.inner.enabled(base)
@@ -240,6 +258,22 @@ mod tests {
     /// host's state still carries the panel's designed `X = 300`; through
     /// [`LaidOutState`] the engine neither puts the panel back there nor reads
     /// the difference as a COBOL move and offsets the child a second time.
+    /// R62 — a control a breakpoint hides is marked on the laid-out list
+    /// and the render's state reads it as hidden; one it shows reads as
+    /// shown; the rest follow the live state.
+    #[test]
+    fn a_breakpoint_hides_and_shows_through_the_laid_out_state() {
+        let a = Control::new("A", ControlType::Label, 0, 0);
+        let b = Control::new("B", ControlType::Label, 0, 0);
+        let c = Control::new("C", ControlType::Label, 0, 0);
+        let mut layout = LayoutOutput::default();
+        layout.hidden.insert("A".into());
+        layout.shown.insert("B".into());
+        let laid = laid_out_controls(&[a, b, c], &layout);
+        let st = LaidOutState { inner: &crate::render::DesignedState };
+        assert_eq!(laid.iter().map(|c| st.visible(c)).collect::<Vec<_>>(), vec![false, true, true]);
+    }
+
     #[test]
     fn a_laid_out_container_carries_its_child_once() {
         let mut pnl = Control::new("PNL", ControlType::Panel, 0, 0);
@@ -250,7 +284,7 @@ mod tests {
         kid.parent = Some("PNL".into());
         let controls = vec![pnl, kid];
         let bag = BTreeMap::new();
-        let form = FormSpec { designed_size: (600.0, 400.0), layout: &bag, breakpoints: &[] };
+        let form = FormSpec { designed_size: (600.0, 400.0), layout: &bag, breakpoints: &[], system_text_factor: 1.0 };
         let ctx = egui::Context::default();
         let p = prepare(&ctx, &controls, &Stringified, &form, egui::vec2(800.0, 400.0));
         let state = LaidOutState { inner: &Stringified };
@@ -276,7 +310,7 @@ mod tests {
         lbl.set_prop("FontSize", PropValue::Int(14));
         let controls = vec![lbl];
         let bag = BTreeMap::from([("FontScaling".to_owned(), PropValue::String("Fluid".into()))]);
-        let form = FormSpec { designed_size: (400.0, 300.0), layout: &bag, breakpoints: &[] };
+        let form = FormSpec { designed_size: (400.0, 300.0), layout: &bag, breakpoints: &[], system_text_factor: 1.0 };
         let ctx = egui::Context::default();
         ctx.set_fonts(crate::fonts::base_font_definitions());
         let (mut base, mut wide) = (None, None);

@@ -143,6 +143,8 @@ pub mod treeview;
 /// geometry is not gated: the model pins the pane Panels from it, and the model
 /// builds without `render`.
 pub mod splitter;
+/// The operating system's text-size setting (spec 056 R68).
+pub mod text_scale;
 
 // Carrying out a toolbar button's PLATFORM action: printing, sharing, the
 // clipboard, a window capture, another process. Beside `toolbar_paint` for the

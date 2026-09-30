@@ -8,6 +8,28 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.13] — 2026-09-30
+
+### 056 Responsive design — Phase 6: breakpoints, type scaling, the system text size
+
+- **Breakpoint overrides take effect.** While a breakpoint is active, the
+  properties the developer overrode for it replace the design: a sidebar can
+  dock to the top on a narrow window, a grid can drop to one column, a panel
+  can be hidden. A control a breakpoint hides takes no space at all — no dock
+  edge, no flex slot, no grid cell — and everything inside it is hidden too.
+  Only layout properties, geometry, `Visible` and `FontSize` can be
+  overridden; captions, text and handlers cannot.
+- **The window's floor is the narrowest breakpoint's layout**, not the one
+  the form was designed at.
+- **Type scaling end to end.** `FontScaling = Fluid` and `Stepped` reach every
+  run surface; an AutoSize label is measured at the size it paints at; the
+  designed rectangle and the `FontSize` a program reads never change.
+- **The system text size.** On Windows (Settings → Accessibility → Text size)
+  and on GNOME (text scaling factor) a responsive form's text follows the
+  user's setting. macOS has no such setting an application reads, so there it
+  is 1.0. No new dependency: the Windows value is read through the same kind
+  of direct system call the IDE's credential store already uses.
+
 ## [PowerRustCOBOL 1.80.12] — 2026-09-30
 
 ### 056 Responsive design — Phase 5: Flex, Flow and Grid

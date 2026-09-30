@@ -484,17 +484,17 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
 
 ## Phase 6 — Breakpoints, type scaling, system text factor (R58–R72)
 
-- [ ] **T6.1 — Overrides applied before layout; hidden = absent** (R59, R60, R62, R64 override half; AC28)
+- [x] **T6.1 — Overrides applied before layout; hidden = absent** (R59, R60, R62, R64 override half; AC28)
   - Also (from T4.5): `layout::window_min_size` must compute the minimum for
     the NARROWEST breakpoint's overrides (R18), not the design breakpoint's.
   - Files: `layout/breakpoints.rs`, `apply.rs`.
   - Verify: AC28 at 480/800/1280 px (sidebar Left→Top, grid 2→1 columns,
     panel hidden takes no slot).
 
-- [ ] **T6.2 — Fluid/Stepped end to end** (R66–R69, R72; AC32)
+- [x] **T6.2 — Fluid/Stepped end to end** (R66–R69, R72; AC32)
   - Verify: AC32 on host surfaces; no designed rect changes.
 
-- [ ] **T6.3 — System text factor provider** (R68; AC34)
+- [x] **T6.3 — System text factor provider** (R68; AC34)
   - Read first: workspace `Cargo.toml` for an existing `windows-sys`/registry
     dependency; `host.rs` `native_pixels_per_point` read.
   - Files: `cobolt-form-host/src/text_scale.rs` (new), `Cargo.toml`
@@ -503,7 +503,29 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
   - Verify: AC34 with an injected 1.25; `cargo build -p cobolt-form-host`;
     macOS returns 1.0 (documented); CHANGELOG notes the dependency.
 
-- [ ] **T6.4 — Phase gate** — Gate G + Gate F; commit.
+- [x] **T6.4 — Phase gate** — Gate G + Gate F; commit.
+  - **Result (2026-09-30), 1.80.13:** T6.1 — `breakpoints::apply_overrides`
+    (R60 allow-list derived from the defaults tables, so it cannot drift from
+    them; `Visible = false` removes the control and its descendants from the
+    tree, reported in `LayoutOutput::hidden`; `shown` for the reverse), applied
+    in `solve()` before anything reads a control; `window_min_size` pins the
+    narrowest breakpoint; the render learns it through `_BreakpointVisible`
+    read by `LaidOutState::visible`. Test
+    `breakpoint_overrides_change_docks_grids_and_visibility` (AC28 at
+    480/800/1280) and `a_breakpoint_hides_and_shows_through_the_laid_out_state`.
+    T6.2 — host test `type_scaling_reaches_the_window_and_leaves_the_design_alone_056`
+    (label 75 px at 14 pt → Fluid 1.5× 110, Stepped Medium 75 / Expanded 1.25×
+    93; designed rect and the COBOL-visible `FontSize` unchanged). T6.3 —
+    `cobolt_forms::text_scale` (in `cobolt-forms`, not the host: the IDE takes
+    no runtime dependency on `cobolt-form-host`, and the preview and designer
+    need the same provider); Windows by hand-written `RegGetValueW` FFI, the
+    precedent of `cobolt-ide/src/secrets/windows.rs`, instead of the plan's
+    `windows-sys`; GNOME via `gsettings`; macOS 1.0. Injected per host through
+    `ResponsiveSpec::system_text_factor` → `FormSpec` → `LayoutInput` (no
+    global): AC34 1.25 → 93 px. Type-checked for `x86_64-pc-windows-gnu` and
+    `x86_64-unknown-linux-gnu`; wants a real Windows run. Gate G 0 differences;
+    Gate F green but the expected reds (the PowerChat embed timeout is this
+    checkout's `target/debug/deps`, see T4.8).
 
 ## Phase 7 — COBOL at run time (R37–R39, R46–R48, R64, R84)
 

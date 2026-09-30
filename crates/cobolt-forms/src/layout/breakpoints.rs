@@ -10,7 +10,9 @@
 //! layout pass from the width of the form's own surface (R61) — never a
 //! screen width fixed at start-up.
 
-use crate::model::PropValue;
+use std::collections::HashSet;
+
+use crate::model::{Control, PropValue};
 
 /// One entry of a form's breakpoint table.
 #[derive(Clone, Debug, PartialEq)]
@@ -52,6 +54,81 @@ pub fn select<'a>(table: &'a [Breakpoint], width: f32, pin: Option<&str>) -> Opt
 /// carries no overrides (R59).
 pub fn design_breakpoint(table: &[Breakpoint], designed_width: f32) -> Option<&Breakpoint> {
     select(table, designed_width, None)
+}
+
+/// The narrowest entry of a table: the one whose layout sets the form's
+/// minimum size (R18).
+pub fn narrowest(table: &[Breakpoint]) -> Option<&Breakpoint> {
+    table.iter().min_by_key(|b| b.min_width)
+}
+
+/// Whether a breakpoint may override `property` on a control of `c`'s type
+/// (R60): `Visible`, the designed geometry, every layout property the
+/// defaults table seeds (anchoring, docking, limits, container and item
+/// properties, padding) and `FontSize`. Content never.
+pub fn overridable(c: &Control, property: &str) -> bool {
+    const GEOMETRY: &[&str] = &["Visible", "X", "Y", "Width", "Height", "FontSize"];
+    GEOMETRY.iter().any(|k| k.eq_ignore_ascii_case(property))
+        || crate::layout::defaults::control_default(&c.control_type, property).is_some()
+}
+
+/// What layout sees while a breakpoint is active: see [`apply_overrides`].
+pub struct Seen {
+    pub controls: Vec<Control>,
+    /// Hidden by an override, with everything inside them (R62).
+    pub hidden: HashSet<String>,
+    /// Shown by an override although designed hidden.
+    pub shown: HashSet<String>,
+}
+
+/// What layout sees while `bp` is active (R59, R60, R62): each of its
+/// overrides applied to a copy of its control, and every control an override
+/// hides — with everything inside it — taken out. `None` when `bp` changes
+/// nothing, so the common case copies nothing.
+pub fn apply_overrides(controls: &[Control], bp: Option<&Breakpoint>) -> Option<Seen> {
+    let bp = bp.filter(|b| !b.overrides.is_empty())?;
+    let mut out: Vec<Control> = controls.to_vec();
+    for o in &bp.overrides {
+        let Some(c) = out.iter_mut().find(|c| c.id.eq_ignore_ascii_case(&o.control)) else { continue };
+        if !overridable(c, &o.property) {
+            continue;
+        }
+        let number = || crate::layout::props::number_of(&o.value).map(|v| v.round() as i32);
+        match o.property.to_ascii_lowercase().as_str() {
+            "visible" => c.visible = o.value.as_bool(),
+            "x" => c.rect.x = number().unwrap_or(c.rect.x),
+            "y" => c.rect.y = number().unwrap_or(c.rect.y),
+            "width" => c.rect.w = number().unwrap_or(c.rect.w).max(0),
+            "height" => c.rect.h = number().unwrap_or(c.rect.h).max(0),
+            _ => c.set_prop(o.property.clone(), o.value.clone()),
+        }
+    }
+    // Hidden by an override: the control and its descendants.
+    let mut hidden: HashSet<String> = bp
+        .overrides
+        .iter()
+        .filter(|o| o.property.eq_ignore_ascii_case("Visible") && !o.value.as_bool())
+        .filter_map(|o| out.iter().find(|c| c.id.eq_ignore_ascii_case(&o.control)).map(|c| c.id.clone()))
+        .collect();
+    loop {
+        let before = hidden.len();
+        for c in &out {
+            if c.parent.as_ref().is_some_and(|p| hidden.contains(p)) {
+                hidden.insert(c.id.clone());
+            }
+        }
+        if hidden.len() == before {
+            break;
+        }
+    }
+    let shown: HashSet<String> = bp
+        .overrides
+        .iter()
+        .filter(|o| o.property.eq_ignore_ascii_case("Visible") && o.value.as_bool())
+        .filter_map(|o| controls.iter().find(|c| c.id.eq_ignore_ascii_case(&o.control) && !c.visible).map(|c| c.id.clone()))
+        .collect();
+    out.retain(|c| !hidden.contains(&c.id));
+    Some(Seen { controls: out, hidden, shown })
 }
 
 /// `me::Breakpoints` text: `Name:MinWidth:FontFactor;…` (R84).

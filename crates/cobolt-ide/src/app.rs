@@ -16339,6 +16339,7 @@ impl CoboltApp {
                                 designed_size: (form_w, form_h),
                                 layout,
                                 breakpoints,
+                                system_text_factor: cobolt_forms::text_scale::system_text_factor(),
                             };
                             cobolt_forms::layout::apply::prepare_with_rail(
                                 ui.ctx(),
