@@ -1797,8 +1797,8 @@ fn stamp_run_statistics(
 }
 
 /// `12.3s` / `4m 07s` / `1h 02m` — compact human duration for the statistics
-/// footer.
-fn format_duration_ms(ms: u64) -> String {
+/// footer and the build outcome.
+pub(crate) fn format_duration_ms(ms: u64) -> String {
     let secs = ms as f64 / 1000.0;
     if secs < 60.0 {
         format!("{secs:.1}s")

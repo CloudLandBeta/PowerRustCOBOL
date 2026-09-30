@@ -675,6 +675,9 @@ pub struct CoboltApp {
     /// Whether the build now running is a FULL one — only a full build stamps
     /// the project with the PowerRustCOBOL version that produced it.
     pending_build_full: bool,
+    /// When the build now running was asked for — forms regenerated, compiled
+    /// and linked from there — so its outcome can say how long it took.
+    pending_build_started: Option<std::time::Instant>,
     /// A Run/Run-Form the developer asked for while the project's last full
     /// build was older than this PowerRustCOBOL. Holds what to do once they
     /// answer the prompt; `None` when no prompt is up.
@@ -2009,6 +2012,7 @@ impl CoboltApp {
             built_runs: Vec::new(),
             build_modal_host: None,
             pending_build_full: false,
+            pending_build_started: None,
             stale_build_prompt: None,
             inspector: crate::inspector::ProcessInspector::new(Default::default()),
             show_inspector: false,
@@ -4777,6 +4781,7 @@ impl CoboltApp {
             return;
         }
         self.pending_build_full = full;
+        self.pending_build_started = Some(std::time::Instant::now());
         if !self.allow_data_binding_project_action(BindingActionGate::BuildProject) {
             return;
         }
@@ -14546,10 +14551,17 @@ impl eframe::App for CoboltApp {
 
         // ── Drain binary build result (Phase 11) ─────────────────────────────
         if let Some(rx) = &self.pending_build_rx {
+            // The whole build, from the press of Build to its outcome.
+            let took = || {
+                self.pending_build_started
+                    .map(|t| crate::grace_host::format_duration_ms(t.elapsed().as_millis() as u64))
+                    .unwrap_or_default()
+            };
             match rx.try_recv() {
                 Ok(Ok(result)) => {
                     let line = format!(
-                        "✅ Build complete!  Binary → {}   ({} source(s), {} form(s), {} bytes AST)",
+                        "✅ Build complete in {}!  Binary → {}   ({} source(s), {} form(s), {} bytes AST)",
+                        took(),
                         result.binary_path.display(),
                         result.source_count,
                         result.form_count,
@@ -14606,9 +14618,10 @@ impl eframe::App for CoboltApp {
                     }
                 }
                 Ok(Err(e)) => {
-                    self.output.push_status(format!("❌ Build failed: {e}"));
+                    let took = took();
+                    self.output.push_status(format!("❌ Build failed after {took}: {e}"));
                     self.build_log
-                        .push((BuildLogKind::Error, format!("Build failed: {e}")));
+                        .push((BuildLogKind::Error, format!("Build failed after {took}: {e}")));
                     // Errors are what the details window exists for — open it.
                     self.build_details_open = true;
                     // …and the Building dialog stays up showing the failure

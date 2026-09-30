@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.19] — 2026-09-30
+
+### Build says how long it took
+
+The Build dialog and the Output panel now give the build's total time, from
+the press of Build (forms regenerated, compiled, linked) to its outcome:
+"✅ Build complete in 1m 42s! Binary → …". A failed build says how long it ran
+before it failed (operator, 2026-09-30). *(First written as 1.70.351 on
+`features`; renumbered when it joined the 1.80 line.)*
+
 ## [PowerRustCOBOL 1.80.18] — 2026-09-30
 
 ### 056 Responsive design — Phase 8: the designer
