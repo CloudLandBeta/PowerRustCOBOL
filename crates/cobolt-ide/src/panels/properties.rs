@@ -640,6 +640,9 @@ fn cred_hint(on_file: bool) -> &'static str {
 #[derive(Default)]
 pub struct InspectorAction {
     pub set_props: Vec<(String, String, PropValue)>,
+    /// Spec 056 R65 — "reset to base" on an overridden row: the property whose
+    /// override for the viewed breakpoint is removed.
+    pub reset_override: Option<String>,
     /// `(ctrl_id, prop, secret)` — a credential the developer typed.
     ///
     /// Deliberately NOT `set_props`: a credential must never reach the control,
@@ -3563,6 +3566,10 @@ struct HintState {
 pub const LOCAL_CONFIG_LABEL: &str = "(Local)";
 
 pub struct PropertiesPanel {
+    /// Spec 056 R65 — the properties the viewed breakpoint overrides on the
+    /// selected control (lower-case keys): their rows carry a marker and a
+    /// "reset to base" button. Empty while the design itself is viewed.
+    pub overridden: std::collections::HashSet<String>,
     hints: HintState,
     text_bufs: std::collections::HashMap<String, String>,
     form_bufs: std::collections::HashMap<String, String>,
@@ -3648,6 +3655,7 @@ impl PropertiesPanel {
 
     pub fn new() -> Self {
         Self {
+            overridden: Default::default(),
             hints: Default::default(),
             text_bufs: Default::default(),
             form_bufs: Default::default(),
@@ -3774,6 +3782,8 @@ impl PropertiesPanel {
         }
         // The tabs stay put above the rows, however far the rows scroll.
         self.show_tabs(ui, tr);
+        OVERRIDDEN.with(|o| *o.borrow_mut() = self.overridden.clone());
+        RESET_LABEL.with(|l| *l.borrow_mut() = tr.prop_reset_to_base.to_owned());
         ScrollArea::vertical()
             .id_salt("properties_scroll")
             .auto_shrink([false, false])
@@ -3800,6 +3810,7 @@ impl PropertiesPanel {
                 }
                 sort_end(ui);
             });
+        action.reset_override = RESET_REQUEST.with(|r| r.borrow_mut().take());
         // Read back whatever `property_row`'s grip wrote while the rows were
         // drawn, because the line above this block put `self.property_split`
         // into that same slot and will do it again next frame. Without this,
@@ -11706,10 +11717,22 @@ fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl F
                 ui.disable();
             }
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                let r = ui.add(egui::Label::new(label).wrap());
                 let key = key
                     .map(str::to_owned)
                     .unwrap_or_else(|| label.replace(' ', "").trim_end_matches(':').to_owned());
+                // 056 R65 — overridden for the viewed breakpoint: a marker, and
+                // the way back to the base design.
+                if OVERRIDDEN.with(|o| o.borrow().contains(&key.to_ascii_lowercase())) {
+                    let tip = RESET_LABEL.with(|l| l.borrow().clone());
+                    if ui
+                        .add(egui::Button::new(RichText::new("↺").color(crate::theme::active().accent)).frame(false))
+                        .on_hover_text(tip)
+                        .clicked()
+                    {
+                        RESET_REQUEST.with(|r| *r.borrow_mut() = Some(key.clone()));
+                    }
+                }
+                let r = ui.add(egui::Label::new(label).wrap());
                 match prop_help_text(ui, &key) {
                     Some(t) => {
                         r.on_hover_text(t);
@@ -11761,6 +11784,14 @@ fn perforation_texture(ctx: &egui::Context) -> egui::TextureHandle {
     let t = ctx.load_texture("properties_perforation", image, options);
     ctx.data_mut(|d| d.insert_temp(id, t.clone()));
     t
+}
+
+thread_local! {
+    /// Spec 056 R65 — the keys the viewed breakpoint overrides, while the rows
+    /// are drawn; the reset button's tooltip; a reset clicked this frame.
+    static OVERRIDDEN: std::cell::RefCell<std::collections::HashSet<String>> = std::cell::RefCell::new(Default::default());
+    static RESET_LABEL: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+    static RESET_REQUEST: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
 }
 
 thread_local! {

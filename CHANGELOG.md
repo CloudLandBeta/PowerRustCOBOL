@@ -8,6 +8,31 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.18] — 2026-09-30
+
+### 056 Responsive design — Phase 8: the designer
+
+- **The canvas shows a responsive form laid out**, at its designed size and at
+  any other: flex, flow and grid containers place their children on the
+  canvas exactly as the running form will.
+- **View at** — a bar above the canvas shows the form at its designed size, at
+  any breakpoint, or at a device preset. On a responsive form the canvas grip
+  changes this view, never the form's Width and Height; **Use this size as the
+  design** makes the viewed size the form's own (undoable).
+- **Anchor gizmo** — a selected control on a responsive form shows four pins,
+  filled for the edges it is anchored to; click one to toggle that edge. A
+  docked control shows its dock edge instead.
+- **Dragging follows the pointer on screen** at any view size, and a control
+  dragged inside a Flex, Flow or Grid container moves to a new place in the
+  order or to another cell — with an insertion bar or the target cell shown
+  while it moves — instead of changing an X/Y its container does not use.
+- **Container structure** — select a flex, flow or grid container to see its
+  items' boundaries or its grid lines with their sizes.
+- **Per-breakpoint edits** — with a breakpoint chosen in View at, edits to
+  layout properties are stored for that breakpoint only; the row shows a ↺
+  button that returns it to the design. Edits to anything else change the
+  design, and the bar says so.
+
 ## [PowerRustCOBOL 1.80.17] — 2026-09-30
 
 ### Form orientation as icons (operator request)

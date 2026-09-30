@@ -116,6 +116,18 @@ pub const COLLAPSE_CHEVRON_SIZE: f32 = 20.0;
 
 // ── Left-sidebar sections (Toolbox · Objects · Other forms) ───────────────────
 
+/// One edge of a control, for the anchor gizmo (spec 056 R31).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Edge4 {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+/// The gizmo's pins: radius, and how far outside the control's edge.
+const ANCHOR_PIN_R: f32 = 5.0;
+const ANCHOR_PIN_GAP: f32 = 12.0;
+
 /// Where the sidebar's two grips sit, as fractions of the sections' shared
 /// body height: the toolbox ends at `toolbox_end`, the Objects list at
 /// `objects_end`, Other forms takes the rest. The grips are the only writers
@@ -2605,6 +2617,33 @@ pub struct DesignerPanel {
     /// and hit-testing both read this, so a knob is always on the line the
     /// developer can see.
     sel_handle_rect: Option<(String, cobolt_forms::model::Rect)>,
+    /// Spec 056 R29/R88 — the size a RESPONSIVE form is viewed at on the
+    /// canvas: the form's grip and the View at bar change it, never the
+    /// designed `Width`/`Height`. `None` is the designed size.
+    pub(crate) view_size: Option<(f32, f32)>,
+    /// Spec 056 R65 — the breakpoint "View at" is showing, when one was
+    /// picked: edits to overridable properties become its overrides.
+    pub(crate) view_breakpoint: Option<String>,
+    /// The last edit made to the base design while a breakpoint was viewed
+    /// (a property that cannot be overridden), said on the View at bar.
+    view_base_notice: Option<String>,
+    /// The controls as the canvas last painted them when the view size is not
+    /// the designed one — laid out, the rail narrowed — for hit-testing the
+    /// geometry the developer sees. `None` whenever the canvas paints the
+    /// design itself.
+    canvas_laid: Option<Vec<Control>>,
+    /// The layout the canvas was last painted with (same condition): the
+    /// placement a drag on a laid-out canvas is inverted through (R33).
+    canvas_layout: Option<cobolt_forms::layout::LayoutOutput>,
+    /// The press that started this gesture landed on an anchor-gizmo pin: it
+    /// toggled the edge, so it neither drags nor selects (R31).
+    pin_consumed: bool,
+    /// For each control a drag on a laid-out canvas started on: where it was
+    /// ON SCREEN, how it was placed, and its designed rect then.
+    drag_laid: std::collections::HashMap<
+        String,
+        (cobolt_forms::layout::LRect, cobolt_forms::layout::Placement, cobolt_forms::layout::LRect),
+    >,
     /// Stores which form edge (if any) the pointer was on when the mouse button
     /// was first pressed, so the form-resize drag can begin on `drag_started()`.
     press_form_edge: Option<FormEdge>,
@@ -2811,6 +2850,13 @@ impl DesignerPanel {
             move_anim_last_now: None,
             press_handle: None,
             sel_handle_rect: None,
+            view_size: None,
+            view_breakpoint: None,
+            view_base_notice: None,
+            canvas_laid: None,
+            canvas_layout: None,
+            drag_laid: Default::default(),
+            pin_consumed: false,
             press_form_edge: None,
             press_line_anchor: None,
             menu_modal: None,
@@ -4337,7 +4383,10 @@ impl DesignerPanel {
     /// rail open (operator, 2026-08-24). `rail_view` preserves ids, order and
     /// length, so the index-keyed container queries below read the same list.
     fn hit_top_id(&self, cx: i32, cy: i32) -> Option<String> {
-        let view = self.rail_view_controls(&self.form.controls);
+        let view = match (&self.canvas_laid, self.canvas_is_laid_out()) {
+            (Some(laid), true) => Some(laid.clone()),
+            _ => self.rail_view_controls(&self.form.controls),
+        };
         let controls: &[Control] = view.as_deref().unwrap_or(&self.form.controls);
         for &idx in super::containers::render_order(controls).iter().rev() {
             // Hit-testing on the CANVAS: a control the design hides is
@@ -5797,6 +5846,23 @@ impl DesignerPanel {
     }
 
     pub fn set_property(&mut self, ctrl_id: &str, key: &str, value: PropValue) {
+        // 056 R65 — while a breakpoint is viewed, an overridable property is
+        // that breakpoint's override; anything else edits the base design, and
+        // the View at bar says so.
+        if !key.starts_with('_') {
+            if let Some(bp) = self.override_target() {
+                let overridable = self
+                    .form
+                    .find_control(ctrl_id)
+                    .is_some_and(|c| cobolt_forms::layout::breakpoints::overridable(c, key));
+                if overridable {
+                    self.set_override(&bp, ctrl_id, key, value);
+                    self.view_base_notice = None;
+                    return;
+                }
+                self.view_base_notice = Some(key.to_owned());
+            }
+        }
 
         // ── Animation management meta-keys ────────────────────────────────────
         // Add / remove / field edits all become one undoable SetAnimations
@@ -6904,8 +6970,8 @@ impl DesignerPanel {
             }
         }
 
-        let canvas_w = self.form.width as f32;
-        let canvas_h = self.form.height as f32;
+        // 056 R29 — a responsive form is shown at its view size.
+        let (canvas_w, canvas_h) = self.canvas_size();
 
         let tr = crate::i18n::current_tr(ui.ctx());
         let mut panel = egui::Panel::bottom(self.ai_pane_id()).resizable(self.ai_pane_open);
@@ -7833,6 +7899,10 @@ impl DesignerPanel {
         } else {
             ui.available_height()
         };
+        // 056 R30/R88 — on a responsive form, the size the canvas shows it at.
+        if self.form.responsive {
+            self.show_view_at_bar(ui, &tr);
+        }
         egui::ScrollArea::both()
             .id_salt("designer_canvas")
             // Fill the available panel rather than growing to the form size, so
@@ -8198,8 +8268,7 @@ impl DesignerPanel {
 
                 // Draw controls sorted by z_order
                 let selected_ids = self.selected_ids.clone();
-                let form_w = self.form.width as f32;
-                let form_h = self.form.height as f32;
+                let (form_w, form_h) = self.canvas_size();
 
                 // Build render list in container tree order — parents before
                 // children, siblings by z_order — so nested controls paint on top
@@ -8295,11 +8364,23 @@ impl DesignerPanel {
                 let controls_for_render: &[cobolt_forms::model::Control] =
                     rail_view.as_deref().unwrap_or(controls_for_render);
 
+                // 056 R29 — a responsive form viewed at another size is laid
+                // out for it, exactly as the running form would be; at its own
+                // size the canvas paints the design, as before.
+                let designer_st = DesignerState { anim: &anim_tf };
+                let laid = self
+                    .canvas_is_laid_out()
+                    .then(|| self.canvas_prepare(ui.ctx(), animated_controls.as_deref().unwrap_or(&self.form.controls), &designer_st));
+                self.canvas_laid = laid.as_ref().map(|p| p.controls.clone());
+                self.canvas_layout = laid.as_ref().map(|p| p.layout.clone());
+                let laid_st = cobolt_forms::layout::apply::LaidOutState { inner: &designer_st };
+                let controls_for_render: &[cobolt_forms::model::Control] =
+                    laid.as_ref().map(|p| p.controls.as_slice()).unwrap_or(controls_for_render);
                 let control_rects = {
-                    let st = DesignerState { anim: &anim_tf };
+                    let st: &dyn cobolt_forms::render::FormState = if laid.is_some() { &laid_st } else { &designer_st };
                     let input = cobolt_forms::render::RenderInput {
                         controls: controls_for_render,
-                        state: &st,
+                        state: st,
                         form_size: Vec2::new(form_w, form_h),
                         glass: self.glass_mode,
                         mode: cobolt_forms::render::RenderMode::Static,
@@ -8767,6 +8848,11 @@ impl DesignerPanel {
                 } else {
                     self.sel_handle_rect = None;
                 }
+                // 056 R31 — the anchor gizmo on the primary selection.
+                self.paint_anchor_gizmo(&painter, origin);
+                // 056 R45 — a selected flex, flow or grid container shows its
+                // structure.
+                self.paint_container_overlay(&painter, origin);
                 // Draw secondary selection highlight boxes
                 for sid in self.selected_ids.iter().skip(1) {
                     if let Some(ctrl) = self.form.find_control(sid) {
@@ -9010,8 +9096,9 @@ impl DesignerPanel {
                     }
                 });
 
-                // Click on canvas — select / deselect
-                if resp.clicked() {
+                // Click on canvas — select / deselect (not the click that
+                // toggled an anchor pin).
+                if resp.clicked() && !self.pin_consumed {
                     let ctrl_held = ui.ctx().input(|i| i.modifiers.command);
                     if let Some((cx, cy)) = ptr_canvas {
                         // A click on a TabControl's tab strip switches its active
@@ -11740,6 +11827,610 @@ impl DesignerPanel {
     /// so `Collapsed` appeared to do half its job. The designed rect is left
     /// exactly as it is — this list is for painting only, and selection,
     /// dragging and the saved `.cfrm` all still see the design.
+    /// 056 R44 — the layout mode of `id`'s parent when that parent places its
+    /// children itself (Flex, Flow, Grid) on a responsive form: `None` for an
+    /// `Absolute` parent or a form that is not responsive.
+    pub(crate) fn item_parent_mode(&self, id: &str) -> Option<cobolt_forms::layout::LayoutMode> {
+        use cobolt_forms::layout::{props, LayoutMode};
+        if !self.form.responsive {
+            return None;
+        }
+        let c = self.form.find_control(id)?;
+        if c.control_type.is_non_visual() {
+            return None;
+        }
+        let mode = match c.parent.as_deref().and_then(|p| self.form.find_control(p)) {
+            Some(p) if p.is_container() => props::layout_mode(p),
+            Some(_) => return None,
+            None => props::layout_mode(&props::FormBag(&self.form.layout)),
+        };
+        (mode != LayoutMode::Absolute).then_some(mode)
+    }
+
+    /// `id`'s siblings under a flex/flow parent, in the order the parent
+    /// places them (by the last canvas layout), without `id` itself.
+    fn item_siblings_in_order(&self, id: &str) -> Vec<(String, cobolt_forms::layout::LRect)> {
+        let Some(layout) = &self.canvas_layout else { return Vec::new() };
+        let parent = self.form.find_control(id).and_then(|c| c.parent.clone());
+        let mut sibs: Vec<(String, cobolt_forms::layout::LRect)> = self
+            .form
+            .controls
+            .iter()
+            .filter(|c| c.parent == parent && c.id != id && !c.control_type.is_non_visual())
+            .filter_map(|c| layout.rects.get(&c.id).map(|r| (c.id.clone(), *r)))
+            .collect();
+        // Reading order of where they ARE: line by line, then along the line.
+        sibs.sort_by(|a, b| {
+            let (ra, rb) = (a.1, b.1);
+            if ra.bottom() <= rb.y {
+                std::cmp::Ordering::Less
+            } else if rb.bottom() <= ra.y {
+                std::cmp::Ordering::Greater
+            } else {
+                ra.x.total_cmp(&rb.x)
+            }
+        });
+        sibs
+    }
+
+    /// Where a flex/flow item dropped at `(x, y)` goes: the number of siblings
+    /// before that point, in reading order.
+    fn item_insert_index(&self, id: &str, x: f32, y: f32) -> usize {
+        self.item_siblings_in_order(id)
+            .iter()
+            .filter(|(_, r)| r.bottom() <= y || (r.y <= y && r.x + r.w / 2.0 < x))
+            .count()
+    }
+
+    /// The grid cell (0-based column, row) under `(x, y)`, from the parent's
+    /// laid-out tracks.
+    fn grid_cell_at(&self, id: &str, x: f32, y: f32) -> Option<(usize, usize)> {
+        let layout = self.canvas_layout.as_ref()?;
+        let parent = self.form.find_control(id)?.parent.clone()?;
+        let g = layout.containers.get(&parent)?;
+        let pick = |start: f32, tracks: &[f32], gap: f32, at: f32| {
+            let mut edge = start;
+            for (i, t) in tracks.iter().enumerate() {
+                if at < edge + t + gap / 2.0 {
+                    return i;
+                }
+                edge += t + gap;
+            }
+            tracks.len().saturating_sub(1)
+        };
+        (!g.columns.is_empty() && !g.rows.is_empty())
+            .then(|| (pick(g.client.x, &g.columns, g.gaps.0, x), pick(g.client.y, &g.rows, g.gaps.1, y)))
+    }
+
+    /// 056 R44 — the property edits a drop of `id` at `(x, y)` inside a flex,
+    /// flow or grid parent makes: flex/flow — every sibling's `Order` renumbered
+    /// with `id` at its new place (only the ones that change); grid —
+    /// `GridColumn`/`GridRow` of the cell. `None` when the parent places
+    /// nothing (an `Absolute` parent).
+    pub(crate) fn item_drop(&self, id: &str, x: f32, y: f32) -> Option<Vec<Cmd>> {
+        use cobolt_forms::layout::LayoutMode;
+        let mode = self.item_parent_mode(id)?;
+        let set = |cid: &str, key: &str, v: i64| -> Option<Cmd> {
+            let c = self.form.find_control(cid)?;
+            let old = c.get_prop(key).cloned();
+            let now = old.as_ref().and_then(cobolt_forms::layout::props::number_of).map(|n| n as i64);
+            (now != Some(v)).then(|| Cmd::SetProperty {
+                id: cid.to_owned(),
+                key: key.to_owned(),
+                old,
+                new: PropValue::Int(v),
+            })
+        };
+        let mut cmds = Vec::new();
+        if mode == LayoutMode::Grid {
+            let (col, row) = self.grid_cell_at(id, x, y)?;
+            cmds.extend(set(id, "GridColumn", col as i64 + 1));
+            cmds.extend(set(id, "GridRow", row as i64 + 1));
+        } else {
+            let mut order: Vec<String> = self.item_siblings_in_order(id).into_iter().map(|(i, _)| i).collect();
+            let at = self.item_insert_index(id, x, y).min(order.len());
+            order.insert(at, id.to_owned());
+            for (n, cid) in order.iter().enumerate() {
+                cmds.extend(set(cid, "Order", n as i64 + 1));
+            }
+        }
+        Some(cmds)
+    }
+
+    /// The insertion marker (flex/flow) or target cell (grid) while an item
+    /// is dragged inside its parent (R44).
+    fn paint_item_drop_marker(&self, painter: &egui::Painter, origin: Pos2, id: &str, x: f32, y: f32) {
+        use cobolt_forms::layout::LayoutMode;
+        let accent = crate::theme::active().accent;
+        let at = |p: egui::Pos2| origin + p.to_vec2();
+        match self.item_parent_mode(id) {
+            Some(LayoutMode::Grid) => {
+                let (Some((c, r)), Some(layout)) = (self.grid_cell_at(id, x, y), &self.canvas_layout) else { return };
+                let Some(g) = self
+                    .form
+                    .find_control(id)
+                    .and_then(|ctl| ctl.parent.clone())
+                    .and_then(|p| layout.containers.get(&p).cloned())
+                else {
+                    return;
+                };
+                let cx = g.client.x + g.columns[..c].iter().sum::<f32>() + c as f32 * g.gaps.0;
+                let cy = g.client.y + g.rows[..r].iter().sum::<f32>() + r as f32 * g.gaps.1;
+                let cell = egui::Rect::from_min_size(at(egui::pos2(cx, cy)), egui::vec2(g.columns[c], g.rows[r]));
+                painter.rect_filled(cell, 2.0, accent.gamma_multiply(0.25));
+                painter.rect_stroke(cell, 2.0, Stroke::new(2.0, accent), egui::StrokeKind::Inside);
+            }
+            Some(_) => {
+                let sibs = self.item_siblings_in_order(id);
+                let n = self.item_insert_index(id, x, y);
+                // A bar at the leading edge of the sibling it goes before, or
+                // at the trailing edge of the last one.
+                let bar = match (sibs.get(n), sibs.last()) {
+                    (Some((_, r)), _) => Some([egui::pos2(r.x - 2.0, r.y), egui::pos2(r.x - 2.0, r.bottom())]),
+                    (None, Some((_, r))) => Some([egui::pos2(r.right() + 2.0, r.y), egui::pos2(r.right() + 2.0, r.bottom())]),
+                    _ => None,
+                };
+                if let Some([a, b]) = bar {
+                    painter.line_segment([at(a), at(b)], Stroke::new(3.0, accent));
+                }
+            }
+            None => {}
+        }
+    }
+
+    /// 056 R45 — a selected flex, flow or grid container's structure: its
+    /// items' boundaries (flex/flow), or its track lines with their sizes
+    /// (grid).
+    fn paint_container_overlay(&self, painter: &egui::Painter, origin: Pos2) {
+        use cobolt_forms::layout::LayoutMode;
+        let (Some(id), Some(layout)) = (self.selected_ids.first(), &self.canvas_layout) else { return };
+        let Some(g) = layout.containers.get(id) else { return };
+        if g.mode == LayoutMode::Absolute {
+            return;
+        }
+        let accent = crate::theme::active().accent;
+        let at = |p: egui::Pos2| origin + p.to_vec2();
+        let dash = Stroke::new(1.0, accent.gamma_multiply(0.8));
+        if g.mode == LayoutMode::Grid {
+            let font = egui::FontId::proportional(9.0);
+            let (top, bottom) = (g.client.y, g.client.y + g.rows.iter().sum::<f32>() + g.rows.len().saturating_sub(1) as f32 * g.gaps.1);
+            let (left, right) = (g.client.x, g.client.x + g.columns.iter().sum::<f32>() + g.columns.len().saturating_sub(1) as f32 * g.gaps.0);
+            let mut x = g.client.x;
+            for (i, w) in g.columns.iter().enumerate() {
+                if i > 0 {
+                    x += g.gaps.0;
+                }
+                painter.extend(egui::Shape::dashed_line(&[at(egui::pos2(x, top)), at(egui::pos2(x, bottom))], dash, 4.0, 3.0));
+                painter.text(at(egui::pos2(x + w / 2.0, top + 2.0)), egui::Align2::CENTER_TOP, format!("{w:.0}"), font.clone(), accent);
+                x += w;
+            }
+            painter.extend(egui::Shape::dashed_line(&[at(egui::pos2(x, top)), at(egui::pos2(x, bottom))], dash, 4.0, 3.0));
+            let mut y = g.client.y;
+            for (i, h) in g.rows.iter().enumerate() {
+                if i > 0 {
+                    y += g.gaps.1;
+                }
+                painter.extend(egui::Shape::dashed_line(&[at(egui::pos2(left, y)), at(egui::pos2(right, y))], dash, 4.0, 3.0));
+                painter.text(at(egui::pos2(left + 2.0, y + h / 2.0)), egui::Align2::LEFT_CENTER, format!("{h:.0}"), font.clone(), accent);
+                y += h;
+            }
+            painter.extend(egui::Shape::dashed_line(&[at(egui::pos2(left, y)), at(egui::pos2(right, y))], dash, 4.0, 3.0));
+        } else {
+            for c in self.form.controls.iter().filter(|c| c.parent.as_deref() == Some(id.as_str())) {
+                if let Some(r) = layout.rects.get(&c.id) {
+                    let rect = egui::Rect::from_min_size(at(egui::pos2(r.x, r.y)), egui::vec2(r.w, r.h));
+                    painter.rect_stroke(rect, 0.0, dash, egui::StrokeKind::Outside);
+                }
+            }
+        }
+    }
+
+    /// 056 R31 — the anchor gizmo of the primary selection, when it applies: a
+    /// responsive form, one visual control in an `Absolute` parent, not placed
+    /// by another control. `Some((id, pins, dock))`: a pin per edge (its
+    /// centre in form coordinates, and whether the edge is anchored), or the
+    /// dock edge of a docked control instead.
+    pub(crate) fn anchor_gizmo(&self) -> Option<(String, Vec<(Edge4, egui::Pos2, bool)>, Option<cobolt_forms::layout::props::Dock>)> {
+        use cobolt_forms::layout::props::{self, Dock};
+        if !self.form.responsive || self.selected_ids.len() != 1 {
+            return None;
+        }
+        let id = self.selected_ids[0].clone();
+        let c = self.form.find_control(&id)?;
+        if c.control_type.is_non_visual() || c.is_splitter_pane() || c.is_side_menu_footer() {
+            return None;
+        }
+        let parent_mode = match c.parent.as_deref().and_then(|p| self.form.find_control(p)) {
+            Some(p) => props::layout_mode(p),
+            None => props::layout_mode(&props::FormBag(&self.form.layout)),
+        };
+        if parent_mode != cobolt_forms::layout::LayoutMode::Absolute {
+            return None;
+        }
+        let r = self.handle_rect_of(&id)?;
+        let (l, t, rr, b) = (r.x as f32, r.y as f32, (r.x + r.w) as f32, (r.y + r.h) as f32);
+        let (cx, cy) = ((l + rr) / 2.0, (t + b) / 2.0);
+        let dock = props::dock(c);
+        if dock != Dock::None {
+            return Some((id, Vec::new(), Some(dock)));
+        }
+        let e = props::anchor(c);
+        let pins = vec![
+            (Edge4::Top, egui::pos2(cx, t - ANCHOR_PIN_GAP), e.top),
+            (Edge4::Bottom, egui::pos2(cx, b + ANCHOR_PIN_GAP), e.bottom),
+            (Edge4::Left, egui::pos2(l - ANCHOR_PIN_GAP, cy), e.left),
+            (Edge4::Right, egui::pos2(rr + ANCHOR_PIN_GAP, cy), e.right),
+        ];
+        Some((id, pins, None))
+    }
+
+    /// The pin under `(x, y)` (form coordinates), if any.
+    pub(crate) fn anchor_pin_at(&self, x: f32, y: f32) -> Option<(String, Edge4)> {
+        let (id, pins, _) = self.anchor_gizmo()?;
+        pins.iter()
+            .find(|(_, p, _)| (p.x - x).hypot(p.y - y) <= ANCHOR_PIN_R + 2.0)
+            .map(|(e, _, _)| (id, *e))
+    }
+
+    /// Toggle one edge of `id`'s `Anchor`, undoably.
+    pub(crate) fn toggle_anchor_edge(&mut self, id: &str, edge: Edge4) {
+        use cobolt_forms::layout::props;
+        let Some(c) = self.form.find_control(id) else { return };
+        let mut e = props::anchor(c);
+        match edge {
+            Edge4::Top => e.top = !e.top,
+            Edge4::Bottom => e.bottom = !e.bottom,
+            Edge4::Left => e.left = !e.left,
+            Edge4::Right => e.right = !e.right,
+        }
+        let old = c.get_prop("Anchor").cloned();
+        self.apply(Cmd::SetProperty {
+            id: id.to_owned(),
+            key: "Anchor".into(),
+            old,
+            new: PropValue::String(e.to_text()),
+        });
+    }
+
+    fn paint_anchor_gizmo(&self, painter: &egui::Painter, origin: Pos2) {
+        use cobolt_forms::layout::props::Dock;
+        let Some((id, pins, dock)) = self.anchor_gizmo() else { return };
+        let accent = crate::theme::active().accent;
+        let at = |p: egui::Pos2| origin + p.to_vec2();
+        for (_, p, lit) in &pins {
+            if *lit {
+                painter.circle_filled(at(*p), ANCHOR_PIN_R, accent);
+            } else {
+                painter.circle_stroke(at(*p), ANCHOR_PIN_R, Stroke::new(1.5, accent));
+            }
+        }
+        if let (Some(d), Some(r)) = (dock, self.handle_rect_of(&id)) {
+            let (l, t, rr, b) = (r.x as f32, r.y as f32, (r.x + r.w) as f32, (r.y + r.h) as f32);
+            let seg = match d {
+                Dock::Top => Some([egui::pos2(l, t + 2.0), egui::pos2(rr, t + 2.0)]),
+                Dock::Bottom => Some([egui::pos2(l, b - 2.0), egui::pos2(rr, b - 2.0)]),
+                Dock::Left => Some([egui::pos2(l + 2.0, t), egui::pos2(l + 2.0, b)]),
+                Dock::Right => Some([egui::pos2(rr - 2.0, t), egui::pos2(rr - 2.0, b)]),
+                Dock::Fill | Dock::None => None,
+            };
+            match seg {
+                Some([a, bb]) => {
+                    painter.line_segment([at(a), at(bb)], Stroke::new(4.0, accent));
+                }
+                None => {
+                    painter.rect_stroke(
+                        egui::Rect::from_min_max(at(egui::pos2(l, t)), at(egui::pos2(rr, b))).shrink(2.0),
+                        0.0,
+                        Stroke::new(3.0, accent),
+                        egui::StrokeKind::Inside,
+                    );
+                }
+            }
+        }
+    }
+
+    /// Remember, as a drag starts on a laid-out canvas, where each selected
+    /// control is on screen and how it was placed (R33).
+    fn capture_drag_laid(&mut self) {
+        self.drag_laid.clear();
+        if !self.canvas_is_laid_out() {
+            return;
+        }
+        let Some(layout) = &self.canvas_layout else { return };
+        for id in &self.selected_ids {
+            let (Some(laid), Some(placement), Some(c)) =
+                (layout.rects.get(id), layout.placement.get(id), self.form.find_control(id))
+            else {
+                continue;
+            };
+            self.drag_laid.insert(
+                id.clone(),
+                (*laid, *placement, cobolt_forms::layout::LRect::from_model(c.rect)),
+            );
+        }
+    }
+
+    /// Move each dragged control's design so that, laid out, it sits at its
+    /// on-screen start + `(mdx, mdy)`; a control inside a dragged container
+    /// takes that container's designed shift (R33). Identity for controls
+    /// anchored to an edge; it matters where the layout scales a move (no
+    /// anchor on an axis).
+    pub(crate) fn apply_laid_drag(&mut self, origins: &[(String, i32, i32)], mdx: i32, mdy: i32) {
+        if self.drag_laid.is_empty() {
+            return;
+        }
+        let mut shift: std::collections::HashMap<String, (i32, i32)> = Default::default();
+        for (id, (laid, placement, designed)) in &self.drag_laid {
+            let mut target = *laid;
+            target.x += mdx as f32;
+            target.y += mdy as f32;
+            let d = cobolt_forms::layout::inverse::designed_rect(placement, target, *designed);
+            shift.insert(
+                id.clone(),
+                ((d.x.round() - designed.x) as i32, (d.y.round() - designed.y) as i32),
+            );
+        }
+        for (id, ox, oy) in origins {
+            let own = shift.get(id).copied().or_else(|| {
+                let idx = self.form.controls.iter().position(|c| &c.id == id)?;
+                shift.iter().find_map(|(sid, s)| {
+                    let a = self.form.controls.iter().position(|c| &c.id == sid)?;
+                    cobolt_forms::containers::is_descendant(&self.form.controls, idx, a).then_some(*s)
+                })
+            });
+            if let (Some((dx, dy)), Some(ctrl)) = (own, self.form.find_control_mut(id)) {
+                if ctrl.is_locked() || ctrl.is_side_menu_footer() || ctrl.is_splitter_pane() {
+                    continue;
+                }
+                ctrl.rect.x = ox + dx;
+                ctrl.rect.y = oy + dy;
+            }
+        }
+    }
+
+    /// The form's resize grip dragged by `(dx, dy)` from `(orig_w, orig_h)`.
+    ///
+    /// 056 R88 — on a responsive form the grip is the VIEW size: it previews
+    /// the layout at another window size and never changes the design (nor
+    /// makes the form dirty). A form that is not responsive is resized, as
+    /// always.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn resize_form_by_grip(&mut self, edge: FormEdge, orig_w: i32, orig_h: i32, dx: i32, dy: i32, gp: i32, sn: bool) {
+        if self.form.responsive {
+            let (mut w, mut h) = self.canvas_size();
+            if matches!(edge, FormEdge::Right | FormEdge::Corner) {
+                w = (orig_w + dx).clamp(FORM_MIN_SIZE, FORM_MAX_SIZE) as f32;
+            }
+            if matches!(edge, FormEdge::Bottom | FormEdge::Corner) {
+                h = (orig_h + dy).clamp(FORM_MIN_SIZE, FORM_MAX_SIZE) as f32;
+            }
+            self.view_size = Some((w, h));
+            self.view_breakpoint = None;
+        } else {
+            if matches!(edge, FormEdge::Right | FormEdge::Corner) {
+                self.form.width = snap((orig_w + dx).clamp(FORM_MIN_SIZE, FORM_MAX_SIZE), gp, sn) as u32;
+            }
+            if matches!(edge, FormEdge::Bottom | FormEdge::Corner) {
+                self.form.height = snap((orig_h + dy).clamp(FORM_MIN_SIZE, FORM_MAX_SIZE), gp, sn) as u32;
+            }
+            self.dirty = true;
+        }
+    }
+
+    /// The canvas widths "View at" offers for the form's breakpoints: the
+    /// widest width each one covers (the widest breakpoint: its minimum or
+    /// the designed width, whichever is larger), at the designed height.
+    pub(crate) fn breakpoint_views(&self) -> Vec<(String, (f32, f32))> {
+        let mut table = self.form.breakpoints.clone();
+        table.sort_by_key(|b| b.min_width);
+        let h = self.form.height as f32;
+        table
+            .iter()
+            .enumerate()
+            .map(|(i, b)| {
+                let w = match table.get(i + 1) {
+                    Some(next) => (next.min_width - 1) as f32,
+                    None => (b.min_width as f32).max(self.form.width as f32),
+                };
+                (b.name.clone(), (w.max(FORM_MIN_SIZE as f32), h))
+            })
+            .collect()
+    }
+
+    /// 056 R65 — the breakpoint edits are recorded for: the viewed one, unless
+    /// it is the design breakpoint (which carries no overrides, R59).
+    pub(crate) fn override_target(&self) -> Option<String> {
+        use cobolt_forms::layout::breakpoints;
+        let bp = self.view_breakpoint.as_deref()?;
+        if !self.form.responsive || !self.form.breakpoints.iter().any(|b| b.name == bp) {
+            return None;
+        }
+        let design = breakpoints::design_breakpoint(&self.form.breakpoints, self.form.width as f32)?;
+        (design.name != bp).then(|| bp.to_owned())
+    }
+
+    /// `id` as the viewed breakpoint sees it — its overrides applied — for the
+    /// Properties pane to show; `None` while the design is viewed.
+    pub(crate) fn overridden_control(&self, id: &str) -> Option<Control> {
+        use cobolt_forms::layout::breakpoints;
+        let bp = self.override_target()?;
+        let entry = self.form.breakpoints.iter().find(|b| b.name == bp)?;
+        let c = self.form.find_control(id)?.clone();
+        let mut only = entry.clone();
+        only.overrides.retain(|o| o.control.eq_ignore_ascii_case(id));
+        // Seen through the table as layout sees it — but a hidden control is
+        // still shown in the pane, with its Visible off.
+        let mut shown = c.clone();
+        for o in &only.overrides {
+            if o.property.eq_ignore_ascii_case("Visible") {
+                shown.visible = o.value.as_bool();
+            }
+        }
+        match breakpoints::apply_overrides(std::slice::from_ref(&shown), Some(&only)) {
+            Some(seen) => Some(seen.controls.into_iter().next().unwrap_or(shown)),
+            None => Some(shown),
+        }
+    }
+
+    /// The properties the viewed breakpoint overrides on `id`, lower-case.
+    pub(crate) fn overridden_keys(&self, id: &str) -> std::collections::HashSet<String> {
+        let Some(bp) = self.override_target() else { return Default::default() };
+        self.form
+            .breakpoints
+            .iter()
+            .find(|b| b.name == bp)
+            .map(|b| {
+                b.overrides
+                    .iter()
+                    .filter(|o| o.control.eq_ignore_ascii_case(id))
+                    .map(|o| o.property.to_ascii_lowercase())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Record `key = value` on `id` as an override of breakpoint `bp`,
+    /// undoably.
+    fn set_override(&mut self, bp: &str, id: &str, key: &str, value: PropValue) {
+        use cobolt_forms::layout::breakpoints::Override;
+        let before = self.form.breakpoints.clone();
+        let mut after = before.clone();
+        let Some(entry) = after.iter_mut().find(|b| b.name == bp) else { return };
+        entry
+            .overrides
+            .retain(|o| !(o.control.eq_ignore_ascii_case(id) && o.property.eq_ignore_ascii_case(key)));
+        entry.overrides.push(Override { control: id.to_owned(), property: key.to_owned(), value });
+        if after != before {
+            self.apply(Cmd::SetBreakpoints { before, after });
+        }
+    }
+
+    /// 056 R65 — "reset to base": remove the viewed breakpoint's override of
+    /// `key` on `id`, undoably.
+    pub(crate) fn reset_override(&mut self, id: &str, key: &str) {
+        let Some(bp) = self.override_target() else { return };
+        let before = self.form.breakpoints.clone();
+        let mut after = before.clone();
+        if let Some(entry) = after.iter_mut().find(|b| b.name == bp) {
+            entry
+                .overrides
+                .retain(|o| !(o.control.eq_ignore_ascii_case(id) && o.property.eq_ignore_ascii_case(key)));
+        }
+        if after != before {
+            self.apply(Cmd::SetBreakpoints { before, after });
+        }
+    }
+
+    /// 056 R88 — make the size the canvas is viewed at the designed size
+    /// (undoable, as a Width/Height edit), and view the design again.
+    pub(crate) fn use_view_as_design(&mut self) {
+        let Some((w, h)) = self.view_size.take() else { return };
+        self.set_form_prop("Width", (w.round() as i64).to_string());
+        self.set_form_prop("Height", (h.round() as i64).to_string());
+    }
+
+    /// 056 R30 — the View at bar: what the canvas shows the responsive form
+    /// at — its designed size, one of its breakpoints, or a device preset —
+    /// and the action that makes the viewed size the design. Viewing never
+    /// changes `Width`, `Height` or `Target`.
+    fn show_view_at_bar(&mut self, ui: &mut Ui, tr: &crate::i18n::Tr) {
+        let (vw, vh) = self.canvas_size();
+        let active = cobolt_forms::layout::breakpoints::select(&self.form.breakpoints, vw, None)
+            .map(|b| b.name.clone())
+            .unwrap_or_default();
+        let mut pick: Option<(Option<(f32, f32)>, Option<String>)> = None;
+        ui.horizontal(|ui| {
+            ui.label(tr.view_at);
+            egui::ComboBox::from_id_salt("designer_view_at")
+                .selected_text(format!("{} × {}  ·  {active}", vw.round(), vh.round()))
+                .show_ui(ui, |ui| {
+                    let design = (self.form.width, self.form.height);
+                    if ui
+                        .selectable_label(self.view_size.is_none(), format!("{} ({} × {})", tr.view_at_design, design.0, design.1))
+                        .clicked()
+                    {
+                        pick = Some((None, None));
+                    }
+                    ui.separator();
+                    for (name, (w, h)) in self.breakpoint_views() {
+                        let on = self.view_breakpoint.as_deref() == Some(name.as_str());
+                        if ui.selectable_label(on, format!("{name} ({} × {})", w.round(), h.round())).clicked() {
+                            pick = Some((Some((w, h)), Some(name.clone())));
+                        }
+                    }
+                    ui.separator();
+                    for &(name, w, h) in TARGET_PRESETS.iter().skip(1) {
+                        if ui.selectable_label(false, format!("{name} ({w} × {h})")).clicked() {
+                            pick = Some((Some((w as f32, h as f32)), None));
+                        }
+                    }
+                });
+            if self.view_size.is_some() && ui.button(tr.view_use_as_design).clicked() {
+                self.use_view_as_design();
+            }
+            if let Some(prop) = &self.view_base_notice {
+                ui.label(
+                    egui::RichText::new(tr.view_edits_base.replace("{prop}", prop))
+                        .small()
+                        .italics()
+                        .color(crate::theme::active().accent),
+                );
+            }
+        });
+        if let Some((v, bp)) = pick {
+            self.view_size = v;
+            self.view_breakpoint = bp;
+            self.view_base_notice = None;
+        }
+    }
+
+    /// The size the canvas shows the form at (R29): a responsive form's view
+    /// size, or the designed size.
+    pub(crate) fn canvas_size(&self) -> (f32, f32) {
+        let designed = (self.form.width as f32, self.form.height as f32);
+        match self.view_size {
+            Some(v) if self.form.responsive => v,
+            _ => designed,
+        }
+    }
+
+    /// Whether the canvas lays the form out rather than painting its design:
+    /// always, for a responsive form — at its designed size an `Absolute` form
+    /// lays out exactly as designed (R81), and a flex, flow or grid container
+    /// places its children at every size, the designed one included.
+    pub(crate) fn canvas_is_laid_out(&self) -> bool {
+        self.form.responsive
+    }
+
+    /// Spec 056 R23/R29 — the canvas's layout of `controls` at the view size,
+    /// with the rail narrowed afterwards as the preview and a child window
+    /// narrow it: the one call the canvas paints from and a test reads.
+    pub(crate) fn canvas_prepare(
+        &self,
+        ctx: &egui::Context,
+        controls: &[Control],
+        state: &dyn cobolt_forms::render::FormState,
+    ) -> cobolt_forms::layout::apply::Prepared {
+        let (w, h) = self.canvas_size();
+        let spec = cobolt_forms::layout::apply::FormSpec {
+            designed_size: (self.form.width as f32, self.form.height as f32),
+            layout: &self.form.layout,
+            breakpoints: &self.form.breakpoints,
+            system_text_factor: cobolt_forms::text_scale::system_text_factor(),
+            pinned_breakpoint: None,
+            pinned_font_scale: None,
+        };
+        let rail = self.shell_side_menu().map(|side| (side.id.clone(), self.rail_shown_collapsed()));
+        cobolt_forms::layout::apply::prepare_with_rail(
+            ctx,
+            controls,
+            state,
+            &spec,
+            egui::vec2(w, h),
+            rail.as_ref().map(|(id, collapsed)| (id.as_str(), *collapsed)),
+        )
+    }
+
     fn rail_view_controls(
         &self,
         controls: &[cobolt_forms::Control],
@@ -12586,7 +13277,10 @@ impl DesignerPanel {
         // Detect hovering the form's own resize border (only when not over a
         // control's resize handle — control handles take priority).
         let form_edge_hover = if handle_hover.is_none() {
-            detect_form_edge(px, py, self.form.width as f32, self.form.height as f32)
+            {
+                let (w, h) = self.canvas_size();
+                detect_form_edge(px, py, w, h)
+            }
         } else {
             None
         };
@@ -12613,11 +13307,20 @@ impl DesignerPanel {
             self.press_handle = None;
             self.press_form_edge = None;
             self.press_line_anchor = None;
+            self.pin_consumed = false;
         }
 
         let primary_just_pressed =
             resp.contains_pointer() && resp.ctx.input(|i| i.pointer.primary_pressed());
-        let begin_drag = resp.drag_started() || primary_just_pressed;
+        // 056 R31 — a press on an anchor pin toggles that edge and is the whole
+        // gesture: no drag, no selection change.
+        if primary_just_pressed {
+            if let Some((id, edge)) = self.anchor_pin_at(px as f32, py as f32) {
+                self.toggle_anchor_edge(&id, edge);
+                self.pin_consumed = true;
+            }
+        }
+        let begin_drag = (resp.drag_started() || primary_just_pressed) && !self.pin_consumed;
 
         // A gesture that becomes a real drag never produces a click, so the
         // press's Cmd/Ctrl claim has no release coming to consume it. Drop it
@@ -12682,10 +13385,11 @@ impl DesignerPanel {
                     } else
                     // Form-edge resize takes priority (captured at press-time).
                     if let Some(edge) = self.press_form_edge.take() {
+                        let (vw, vh) = self.canvas_size();
                         self.drag = DragState::ResizingForm {
                             edge,
-                            orig_w: self.form.width as i32,
-                            orig_h: self.form.height as i32,
+                            orig_w: vw as i32,
+                            orig_h: vh as i32,
                             start_x: px,
                             start_y: py,
                         };
@@ -12759,6 +13463,7 @@ impl DesignerPanel {
                                         .map(|c| (sid.clone(), c.rect.x, c.rect.y))
                                 })
                                 .collect();
+                            self.capture_drag_laid();
                             self.drag = DragState::MovingControls {
                                 primary_id: id,
                                 origins,
@@ -12839,6 +13544,22 @@ impl DesignerPanel {
                                 ctrl.rect.y = oy + mdy;
                             }
                         }
+                        // 056 R33 — on a laid-out canvas the pointer moved the
+                        // control ON SCREEN by (mdx, mdy); the design moves by
+                        // whatever gives that, and its contents with it.
+                        self.apply_laid_drag(&origins, mdx, mdy);
+                    }
+                    // 056 R44 — an item of a flex, flow or grid container does
+                    // not move: its parent places it. The marker shows where it
+                    // will go instead.
+                    if self.item_parent_mode(&primary_id).is_some() {
+                        for (id, ox, oy) in &origins {
+                            if let Some(c) = self.form.find_control_mut(id) {
+                                c.rect.x = *ox;
+                                c.rect.y = *oy;
+                            }
+                        }
+                        self.paint_item_drop_marker(painter, origin, &primary_id, px as f32, py as f32);
                     }
                     // Show where the drop will land. `reparent_to_drop` decides
                     // the real target from the control's CENTRE when the drag
@@ -12921,13 +13642,7 @@ impl DesignerPanel {
                     let dy = py - start_y;
                     let gp = self.form.grid_size as i32;
                     let sn = self.form.snap_to_grid;
-                    if matches!(edge, FormEdge::Right | FormEdge::Corner) {
-                        self.form.width = snap((orig_w + dx).clamp(FORM_MIN_SIZE, FORM_MAX_SIZE), gp, sn) as u32;
-                    }
-                    if matches!(edge, FormEdge::Bottom | FormEdge::Corner) {
-                        self.form.height = snap((orig_h + dy).clamp(FORM_MIN_SIZE, FORM_MAX_SIZE), gp, sn) as u32;
-                    }
-                    self.dirty = true;
+                    self.resize_form_by_grip(edge, orig_w, orig_h, dx, dy, gp, sn);
                 }
                 DragState::ResizingSidebarPane { .. } => {
                     self.apply_sidebar_seam_drag(py);
@@ -12968,7 +13683,36 @@ impl DesignerPanel {
                         .iter()
                         .find(|(id, _, _)| *id == primary_id)
                         .map(|(_, ox, oy)| (*ox, *oy));
+                    // 056 R44 — dropped inside a flex, flow or grid container:
+                    // a new place in its order or a new cell, never an x/y.
+                    if let Some(cmds) = self.item_drop(&primary_id, px as f32, py as f32) {
+                        for (id, ox, oy) in &origins {
+                            if let Some(c) = self.form.find_control_mut(id) {
+                                c.rect.x = *ox;
+                                c.rect.y = *oy;
+                            }
+                        }
+                        if !cmds.is_empty() {
+                            self.apply(Cmd::Batch { cmds });
+                        }
+                        self.drag_laid.clear();
+                        self.drag = DragState::None;
+                        return;
+                    }
                     if let Some((mdx, mdy)) = group_move_delta(primary_origin, dx, dy, gp, sn) {
+                        // 056 R33 — on a laid-out canvas commit what the drag
+                        // showed: the design that puts each control where the
+                        // pointer took it on screen.
+                        self.apply_laid_drag(&origins, mdx, mdy);
+                        let laid_now: std::collections::HashMap<String, (i32, i32)> = if self.drag_laid.is_empty() {
+                            Default::default()
+                        } else {
+                            origins
+                                .iter()
+                                .filter_map(|(id, _, _)| self.form.find_control(id).map(|c| (id.clone(), (c.rect.x, c.rect.y))))
+                                .collect()
+                        };
+                        self.drag_laid.clear();
                         // Anchored controls are locked against mouse dragging, so
                         // don't commit a moved position for them on release — this
                         // mirrors the in-drag skip above. X/Y stay editable via the
@@ -12981,7 +13725,10 @@ impl DesignerPanel {
                                     .find_control(id)
                                     .map_or(false, |c| c.is_locked())
                             })
-                            .map(|(id, ox, oy)| (id.clone(), *ox, *oy, ox + mdx, oy + mdy))
+                            .map(|(id, ox, oy)| {
+                                let (nx, ny) = laid_now.get(id).copied().unwrap_or((ox + mdx, oy + mdy));
+                                (id.clone(), *ox, *oy, nx, ny)
+                            })
                             .collect();
                         if !moves.is_empty() {
                             let changed_ids: Vec<String> =
@@ -13090,7 +13837,11 @@ impl DesignerPanel {
                 }
                 DragState::ResizingForm { .. } => {
                     // Final size was applied live during `dragged()`; nothing more to do.
-                    self.dirty = true;
+                    // A responsive form's grip moved only the VIEW (R88): the
+                    // design did not change, so the form is not dirty.
+                    if !self.form.responsive {
+                        self.dirty = true;
+                    }
                 }
                 DragState::ResizingSidebarPane { .. } => {
                     self.finish_sidebar_seam_drag();
@@ -21955,5 +22706,310 @@ mod handler_breakpoint_tests {
 
         second.remove_handler_breakpoint(&pid, 3);
         assert_eq!(second.handler_breakpoints(), vec![(site, 5)]);
+    }
+}
+
+#[cfg(test)]
+mod responsive_canvas_tests_056 {
+    use super::*;
+    use cobolt_forms::{Control, ControlType, Form, PropValue};
+
+    fn responsive() -> DesignerPanel {
+        let mut f = Form::new("F", "F", 400, 300);
+        f.responsive = true;
+        let mut b = Control::new("BTN", ControlType::Button, 0, 0);
+        b.rect = cobolt_forms::model::Rect::new(300, 20, 80, 30);
+        b.set_prop("Anchor", PropValue::String("Top,Right".into()));
+        f.controls.push(b);
+        DesignerPanel::new(f)
+    }
+
+    /// AC45 (R88) — on a responsive canvas the grip changes the view size
+    /// and leaves `Width`/`Height` (and the form's cleanliness) alone; "Use
+    /// this size as the design" sets them, undoably; on a form that is not
+    /// responsive the grip still resizes the design.
+    #[test]
+    fn the_grip_changes_the_view_and_use_as_design_changes_the_form() {
+        let mut d = responsive();
+        d.resize_form_by_grip(FormEdge::Corner, 400, 300, 200, 100, 8, false);
+        assert_eq!(d.canvas_size(), (600.0, 400.0));
+        assert_eq!((d.form.width, d.form.height, d.dirty), (400, 300, false));
+        d.use_view_as_design();
+        assert_eq!((d.form.width, d.form.height, d.view_size), (600, 400, None));
+        d.undo();
+        d.undo();
+        assert_eq!((d.form.width, d.form.height), (400, 300), "undone as two Width/Height edits");
+
+        let mut plain = responsive();
+        plain.form.responsive = false;
+        plain.resize_form_by_grip(FormEdge::Corner, 400, 300, 200, 100, 8, false);
+        assert_eq!((plain.form.width, plain.form.height), (600, 400));
+    }
+
+    /// AC14 (R30) — the breakpoint views: the widest width of each range at
+    /// the designed height; choosing one changes only the view.
+    #[test]
+    fn view_at_offers_each_breakpoint_and_leaves_the_design_alone() {
+        let mut d = responsive();
+        let target = d.form.target.clone();
+        let views = d.breakpoint_views();
+        let names: Vec<(&str, f32)> = views.iter().map(|(n, (w, _))| (n.as_str(), *w)).collect();
+        assert_eq!(names, vec![("Compact", 599.0), ("Medium", 1023.0), ("Expanded", 1024.0)]);
+        d.view_size = Some(views[1].1);
+        assert_eq!((d.form.width, d.form.height, d.form.target.clone()), (400, 300, target));
+        assert!(d.canvas_is_laid_out());
+    }
+
+    /// T8.3 (AC13, R33) — a drag on a laid-out canvas moves the control ON
+    /// SCREEN by what the pointer moved. BTN (`Top,Right`) at 600 wide: +10
+    /// on screen is +10 in the design. P, with no anchors, is placed
+    /// proportionally: at 800 wide (2× the 400 design) +10 on screen is +5 in
+    /// the design.
+    #[test]
+    fn a_drag_on_a_laid_out_canvas_follows_the_pointer_on_screen() {
+        let mut d = responsive();
+        let mut p = Control::new("P", ControlType::Panel, 0, 0);
+        p.rect = cobolt_forms::model::Rect::new(100, 100, 50, 20);
+        p.set_prop("Anchor", PropValue::String("".into()));
+        d.form.controls.push(p);
+        let ctx = egui::Context::default();
+        let st = DesignerState { anim: &Default::default() };
+        for (id, view, expect) in [("BTN", 600.0, 310), ("P", 800.0, 105)] {
+            let mut d2 = DesignerPanel::new(d.form.clone());
+            d2.view_size = Some((view, 300.0));
+            let prepared = d2.canvas_prepare(&ctx, &d2.form.controls.clone(), &st);
+            d2.canvas_layout = Some(prepared.layout);
+            d2.selected_ids = vec![id.to_owned()];
+            d2.capture_drag_laid();
+            let o = d2.form.find_control(id).unwrap().rect;
+            d2.apply_laid_drag(&[(id.to_owned(), o.x, o.y)], 10, 0);
+            assert_eq!(d2.form.find_control(id).unwrap().rect.x, expect, "{id} at {view}");
+        }
+    }
+
+    /// AC15 (R31) — the anchor gizmo: only on a responsive form; four pins
+    /// on the selected control, the lit ones its `Anchor` (`Top,Right` → top
+    /// and right lit); a click on a pin toggles that edge, undoably; a docked
+    /// control shows its dock edge instead of pins; a control inside a Flex
+    /// container has no gizmo. The shape dump: two filled pins, two outlined.
+    #[test]
+    fn the_anchor_gizmo_shows_and_toggles_the_edges() {
+        let mut d = responsive();
+        d.selected_ids = vec!["BTN".into()];
+        d.sel_handle_rect = Some(("BTN".into(), cobolt_forms::model::Rect::new(300, 20, 80, 30)));
+        let (_, pins, dock) = d.anchor_gizmo().expect("a gizmo on a responsive form");
+        let lit: Vec<(Edge4, bool)> = pins.iter().map(|(e, _, l)| (*e, *l)).collect();
+        assert_eq!(lit, vec![(Edge4::Top, true), (Edge4::Bottom, false), (Edge4::Left, false), (Edge4::Right, true)]);
+        assert!(dock.is_none());
+
+        // Shape dump.
+        let ctx = egui::Context::default();
+        let mut filled = 0;
+        let mut outlined = 0;
+        let mut full = ctx.run_ui(egui::RawInput::default(), |ui| {
+            d.paint_anchor_gizmo(ui.painter(), Pos2::ZERO);
+        });
+        full.textures_delta.clear();
+        for cs in &full.shapes {
+            if let egui::Shape::Circle(c) = &cs.shape {
+                if c.fill != Color32::TRANSPARENT { filled += 1 } else { outlined += 1 }
+            }
+        }
+        assert_eq!((filled, outlined), (2, 2), "lit pins filled, the others outlined");
+
+        // Click the left pin: Left joins the anchor; undo takes it back.
+        let left = pins.iter().find(|(e, _, _)| *e == Edge4::Left).unwrap().1;
+        let (id, edge) = d.anchor_pin_at(left.x, left.y).expect("the left pin");
+        d.toggle_anchor_edge(&id, edge);
+        assert_eq!(d.form.controls[0].get_prop("Anchor").unwrap().as_str(), "Top,Left,Right");
+        d.undo();
+        assert_eq!(d.form.controls[0].get_prop("Anchor").unwrap().as_str(), "Top,Right");
+
+        // Docked: the dock edge, no pins.
+        d.form.controls[0].set_prop("Dock", PropValue::String("Left".into()));
+        let (_, pins, dock) = d.anchor_gizmo().unwrap();
+        assert!(pins.is_empty() && dock == Some(cobolt_forms::layout::props::Dock::Left));
+
+        // Not responsive, or in a Flex parent: no gizmo.
+        d.form.controls[0].set_prop("Dock", PropValue::String("None".into()));
+        d.form.layout.insert("LayoutMode".into(), PropValue::String("Flex".into()));
+        assert!(d.anchor_gizmo().is_none(), "a flex item is placed by its parent");
+        d.form.layout.clear();
+        d.form.responsive = false;
+        assert!(d.anchor_gizmo().is_none(), "only on a responsive form");
+    }
+
+    /// T8.5 (R44, R45) — dropping inside a flex row reorders by `Order`,
+    /// never by x/y; inside a grid it takes the cell under the pointer.
+    /// Flex: P (0, 0, 300, 60) holds A, B, C (50 × 30) → laid at x 0, 50,
+    /// 100. A dropped past C (x 170) → Order B 1, C 2, A 3 → laid B, C, A,
+    /// A's designed x/y untouched. Grid `100px 100px` × 2 rows of 50: A
+    /// dropped at (150, 75) → column 2, row 2; the tracks are recorded for the
+    /// overlay.
+    #[test]
+    fn a_drop_inside_a_flex_or_grid_parent_reorders_or_places_in_a_cell() {
+        let ctx = egui::Context::default();
+        let st = DesignerState { anim: &Default::default() };
+        let setup = |mode: &str, tracks: Option<(&str, &str)>| {
+            let mut f = Form::new("F", "F", 400, 300);
+            f.responsive = true;
+            let mut p = Control::new("P", ControlType::Panel, 0, 0);
+            p.rect = cobolt_forms::model::Rect::new(0, 0, 300, 120);
+            p.set_prop("LayoutMode", PropValue::String(mode.into()));
+            p.set_prop("BorderStyle", PropValue::String("None".into()));
+            p.set_prop("BorderWidth", PropValue::Int(0));
+            if let Some((c, r)) = tracks {
+                p.set_prop("GridColumns", PropValue::String(c.into()));
+                p.set_prop("GridRows", PropValue::String(r.into()));
+            }
+            f.controls.push(p);
+            for (i, id) in ["A", "B", "C"].iter().enumerate() {
+                let mut c = Control::new(*id, ControlType::Button, 0, 0);
+                c.rect = cobolt_forms::model::Rect::new(i as i32 * 60, 0, 50, 30);
+                c.parent = Some("P".into());
+                f.controls.push(c);
+            }
+            let mut d = DesignerPanel::new(f);
+            let pr = d.canvas_prepare(&ctx, &d.form.controls.clone(), &st);
+            d.canvas_layout = Some(pr.layout);
+            d
+        };
+        let order = |d: &mut DesignerPanel| {
+            let pr = d.canvas_prepare(&ctx, &d.form.controls.clone(), &st);
+            let mut ids: Vec<(f32, String)> =
+                ["A", "B", "C"].iter().map(|id| (pr.layout.rects[*id].x, id.to_string())).collect();
+            ids.sort_by(|a, b| a.0.total_cmp(&b.0));
+            ids.into_iter().map(|(_, id)| id).collect::<Vec<_>>()
+        };
+
+        let mut d = setup("Flex", None);
+        assert_eq!(order(&mut d), ["A", "B", "C"]);
+        let a_before = d.form.find_control("A").unwrap().rect;
+        let cmds = d.item_drop("A", 170.0, 15.0).expect("a flex parent places its items");
+        d.apply(Cmd::Batch { cmds });
+        assert_eq!(order(&mut d), ["B", "C", "A"]);
+        assert_eq!(d.form.find_control("A").unwrap().rect, a_before, "never x/y");
+
+        let mut d = setup("Grid", Some(("100px 100px", "50px 50px")));
+        let geom = d.canvas_layout.as_ref().unwrap().containers["P"].clone();
+        assert_eq!((geom.columns.clone(), geom.rows.clone()), (vec![100.0, 100.0], vec![50.0, 50.0]));
+        let cmds = d.item_drop("A", 150.0, 75.0).unwrap();
+        d.apply(Cmd::Batch { cmds });
+        let a = d.form.find_control("A").unwrap();
+        assert_eq!((a.get_prop("GridColumn").unwrap().as_i64(), a.get_prop("GridRow").unwrap().as_i64()), (2, 2));
+        assert!(d.item_drop("A", 0.0, 0.0).is_some());
+        let mut abs = setup("Absolute", None);
+        assert!(abs.item_drop("A", 170.0, 15.0).is_none(), "an Absolute parent keeps x/y dragging");
+        let _ = &mut abs;
+    }
+
+    /// AC30 (R65) — an 800-wide form (design breakpoint Medium) viewed at
+    /// Compact: changing BTN's `Width` records a Compact override and leaves
+    /// the base 80; the pane sees 120 and marks the row; "reset to base"
+    /// removes it (undoably); `Caption` edits the base and says so. Viewing
+    /// the design breakpoint itself edits the base.
+    #[test]
+    fn edits_while_a_breakpoint_is_viewed_become_its_overrides() {
+        let mut d = responsive();
+        d.form.width = 800;
+        d.view_breakpoint = Some("Compact".into());
+        assert_eq!(d.override_target().as_deref(), Some("Compact"));
+        d.set_property("BTN", "Width", PropValue::Int(120));
+        assert_eq!(d.form.controls[0].rect.w, 80, "the base is untouched");
+        assert_eq!(d.overridden_control("BTN").unwrap().rect.w, 120, "the pane shows Compact's value");
+        assert!(d.overridden_keys("BTN").contains("width"));
+        d.reset_override("BTN", "Width");
+        assert!(d.overridden_keys("BTN").is_empty());
+        d.undo();
+        assert!(d.overridden_keys("BTN").contains("width"), "the reset is undoable");
+
+        d.set_property("BTN", "Caption", PropValue::String("Go".into()));
+        assert_eq!(d.form.controls[0].get_prop("Caption").unwrap().as_str(), "Go");
+        assert_eq!(d.view_base_notice.as_deref(), Some("Caption"));
+
+        d.view_breakpoint = Some("Medium".into());
+        assert!(d.override_target().is_none(), "the design breakpoint carries no overrides");
+        d.set_property("BTN", "Width", PropValue::Int(90));
+        assert_eq!(d.form.controls[0].rect.w, 90);
+    }
+
+    /// T8.7 (AC10, designer half) — the canvas draws the host parity
+    /// fixture (`a_responsive_form_lays_out_the_same_in_a_window_and_in_a_pane_056`)
+    /// at 800 × 500 with the rects the run-form window measured there:
+    /// BTN [700 20 780 50], DOCK [0 460 800 500], WIDE [20 80 780 104].
+    #[test]
+    fn the_canvas_draws_the_host_fixture_where_the_window_does() {
+        let mut f = Form::new("PAR-FORM", "Parity", 600, 400);
+        f.responsive = true;
+        f.layout.insert("FontScaling".into(), PropValue::String("Fluid".into()));
+        let mut add = |id: &str, ct: ControlType, r: (i32, i32, i32, i32), props: &[(&str, &str)]| {
+            let mut c = Control::new(id, ct, r.0, r.1);
+            c.rect = cobolt_forms::model::Rect::new(r.0, r.1, r.2, r.3);
+            for (k, v) in props {
+                c.set_prop(*k, PropValue::String((*v).into()));
+            }
+            f.controls.push(c);
+        };
+        add("BTN", ControlType::Button, (500, 20, 80, 30), &[("Anchor", "Top,Right")]);
+        add("DOCK", ControlType::Panel, (0, 360, 600, 40), &[("Dock", "Bottom")]);
+        add("WIDE", ControlType::TextBox, (20, 80, 560, 24), &[("Anchor", "Top,Left,Right")]);
+        add("LBL", ControlType::Label, (20, 20, 120, 24), &[("Caption", "Fluid"), ("FontSize", "15")]);
+        let mut d = DesignerPanel::new(f);
+        d.view_size = Some((800.0, 500.0));
+        let ctx = egui::Context::default();
+        ctx.set_fonts(cobolt_forms::fonts::base_font_definitions());
+        let anim = Default::default();
+        let st = DesignerState { anim: &anim };
+        let mut rects = std::collections::HashMap::new();
+        for _ in 0..2 {
+            let mut full = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 500.0))),
+                    max_texture_side: Some(8192),
+                    ..Default::default()
+                },
+                |ui| {
+                    let p = d.canvas_prepare(ui.ctx(), &d.form.controls.clone(), &st);
+                    let laid = cobolt_forms::layout::apply::LaidOutState { inner: &st };
+                    let active = cobolt_forms::containers::ActiveTabs::new();
+                    let input = cobolt_forms::render::RenderInput {
+                        controls: &p.controls,
+                        state: &laid,
+                        form_size: p.form_size,
+                        glass: true,
+                        mode: cobolt_forms::render::RenderMode::Static,
+                        active_tabs: &active,
+                        backdrop: cobolt_forms::render::Backdrop::default(),
+                    };
+                    rects = cobolt_forms::render::render_faces(ui.painter(), Pos2::ZERO, &input).control_rects;
+                },
+            );
+            full.textures_delta.clear();
+        }
+        let r = |id: &str| {
+            let r = rects[id];
+            (r.min.x, r.min.y, r.max.x, r.max.y)
+        };
+        assert_eq!(r("BTN"), (700.0, 20.0, 780.0, 50.0));
+        assert_eq!(r("DOCK"), (0.0, 460.0, 800.0, 500.0));
+        assert_eq!(r("WIDE"), (20.0, 80.0, 780.0, 104.0));
+    }
+
+    /// T8.1 (R29) — the canvas lays the form out at the view size exactly as
+    /// a run surface does (BTN, `Top,Right`, 20 px from the edge → x 500 at
+    /// 600 wide), and hit-testing reads the laid-out place.
+    #[test]
+    fn the_canvas_lays_out_at_the_view_size_and_hits_what_it_paints() {
+        let mut d = responsive();
+        d.view_size = Some((600.0, 400.0));
+        let ctx = egui::Context::default();
+        let st = DesignerState { anim: &Default::default() };
+        let p = d.canvas_prepare(&ctx, &d.form.controls.clone(), &st);
+        let btn = p.controls.iter().find(|c| c.id == "BTN").unwrap().rect;
+        assert_eq!((btn.x, btn.y), (500, 20));
+        d.canvas_laid = Some(p.controls);
+        assert_eq!(d.hit_top_id(510, 30).as_deref(), Some("BTN"), "where it is painted");
+        assert_eq!(d.hit_top_id(310, 30), None, "not where it was designed");
+        assert_eq!(d.form.controls[0].rect.x, 300, "the design is untouched");
     }
 }

@@ -164,6 +164,12 @@ pub struct ContainerGeom {
     pub designed_client: LRect,
     /// The client rectangle as laid out, less padding.
     pub client: LRect,
+    /// A grid's column widths and row heights as laid out, and its column and
+    /// row gaps — what the designer draws as track lines (R45). Empty for any
+    /// other mode.
+    pub columns: Vec<f32>,
+    pub rows: Vec<f32>,
+    pub gaps: (f32, f32),
 }
 
 /// Everything the solver reads.
@@ -423,7 +429,7 @@ fn place_children(
     }
 
     // A flex, grid or flow container places its children itself (R50).
-    let content = (mode != LayoutMode::Absolute).then(|| place_items(input, src, mode, &visual, client, out));
+    let content = (mode != LayoutMode::Absolute).then(|| place_items(input, parent, src, mode, &visual, client, out));
 
     // Docked controls first, in z-order, each taking an edge of what remains
     // (R12); every other control is anchored against the FULL client rect
@@ -492,6 +498,9 @@ fn place_children(
                     mode: cmode,
                     designed_client: dclient,
                     client: lclient,
+                    columns: Vec::new(),
+                    rows: Vec::new(),
+                    gaps: (0.0, 0.0),
                 },
             );
             place_children(input, tree, Some(&c.id), c, cmode, dclient, lclient, out);
@@ -512,6 +521,7 @@ fn place_children(
 /// need, width and height.
 fn place_items(
     input: &LayoutInput<'_>,
+    parent: Option<&str>,
     src: &dyn PropSource,
     mode: LayoutMode,
     kids: &[usize],
@@ -539,6 +549,11 @@ fn place_items(
             let g = grid::container(src);
             let items: Vec<grid::Item> = order.iter().map(|&i| grid::item(&input.controls[i], size(i))).collect();
             let s = grid::solve(&g, &items, client);
+            if let Some(geom) = parent.and_then(|p| out.containers.get_mut(p)) {
+                geom.columns = s.columns.clone();
+                geom.rows = s.rows.clone();
+                geom.gaps = (g.column_gap, g.row_gap);
+            }
             (s.rects, s.content)
         }
         (_, Some(fc)) => {

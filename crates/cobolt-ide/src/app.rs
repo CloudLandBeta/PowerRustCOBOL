@@ -58,7 +58,6 @@ use crate::panels::{
     output::OutputPanel,
     project::{ProjectPanel, ProjectPanelEvent},
     toolbar::{self, ToolbarAction},
-    toolbox::ToolboxAction,
 };
 use crate::project_model::{
     load_project, package_project, relative_to, save_project, CoboltProject, ElementStatus,
@@ -18389,7 +18388,14 @@ impl CoboltApp {
             |ui| {
                 // Sole vertical child of the pane (full width for its ScrollArea).
                 let d = &mut self.designers[idx].1;
-                let sel_ctrl = sel_id.as_deref().and_then(|id| d.form.find_control(id));
+                // 056 R65 — while a breakpoint is viewed the pane shows (and
+                // marks) the control as that breakpoint sees it.
+                let over = sel_id.as_deref().and_then(|id| d.overridden_control(id));
+                d.properties.overridden = sel_id.as_deref().map(|id| d.overridden_keys(id)).unwrap_or_default();
+                let sel_ctrl = match &over {
+                    Some(c) => Some(c),
+                    None => sel_id.as_deref().and_then(|id| d.form.find_control(id)),
+                };
                 // With several controls selected the pane speaks for all of
                 // them: the primary supplies the values, the caller fans the
                 // edits out (operator, 2026-08-21).
@@ -18431,6 +18437,9 @@ impl CoboltApp {
         let creds_form = self.designers[idx].1.form.name.clone();
         self.store_control_credentials(&creds_form, creds);
         let mut preview_triggered = false;
+        if let (Some(key), Some(id)) = (inspector_action.reset_override.take(), sel_id.as_deref()) {
+            self.designers[idx].1.reset_override(id, &key);
+        }
         for (ctrl_id, key, value) in inspector_action.set_props {
             if key.starts_with("_PreviewAnim") {
                 preview_triggered = true;

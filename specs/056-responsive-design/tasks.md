@@ -607,37 +607,62 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
 
 ## Phase 8 — Designer (R29–R31, R33, R44, R45, R65, R88)
 
-- [ ] **T8.1 — `canvas_view_controls`, view size, grip = view size** (R29, R88; AC45)
+- [x] **T8.1 — `canvas_view_controls`, view size, grip = view size** (R29, R88; AC45)
   - Read first: `designer.rs` canvas size (~6980), `rail_view_controls`
     (~11816), `render_faces` call (~8382) and its `control_rects` consumers,
     grip (~12986-13004), `hit_top_id`, `tab_strip_hit`, secondary selection.
   - Verify: AC45; live reflow on grip drag; non-responsive canvas unchanged
     (Gate G canvas surface).
 
-- [ ] **T8.2 — View at bar (presets + breakpoints)** (R30; AC14)
+- [x] **T8.2 — View at bar (presets + breakpoints)** (R30; AC14)
   - Verify: AC14.
 
-- [ ] **T8.3 — Inverse drag/resize** (R33; AC13)
+- [x] **T8.3 — Inverse drag/resize** (R33; AC13)
   - Read first: `handle_drag` move (~12827-12912) and resize (~12790-12937),
     `apply_resize`, `Cmd::MoveMany`/`ResizeControl`, nudge/align/paste writers.
   - Verify: AC13; undo restores designed values.
 
-- [ ] **T8.4 — Anchor gizmo** (R31; AC15)
+- [x] **T8.4 — Anchor gizmo** (R31; AC15)
   - Verify: AC15 (hit-test unit test + shape dump); *(manual)* look.
 
-- [ ] **T8.5 — Flex/grid overlays and drag-to-reorder** (R44, R45)
+- [x] **T8.5 — Flex/grid overlays and drag-to-reorder** (R44, R45)
   - Verify: dropping between items writes `Order`; on a grid writes
     `GridColumn/GridRow`; never X/Y.
 
-- [ ] **T8.6 — Override editing** (R65; AC30)
+- [x] **T8.6 — Override editing** (R65; AC30)
   - Verify: AC30; undoable `SetOverride`.
 
-- [ ] **T8.7 — Designer surface parity** (AC10 designer half)
+- [x] **T8.7 — Designer surface parity** (AC10 designer half)
   - Verify: canvas `control_rects` equal the host's for the T4.7 fixture at the
     same view size.
 
-- [ ] **T8.8 — Phase gate** — Gate G + Gate F; `bench_render_frame` before/after
+- [x] **T8.8 — Phase gate** — Gate G + Gate F; `bench_render_frame` before/after
   reported; commit.
+  - **Result (2026-09-30), 1.80.18:** `DesignerPanel::canvas_prepare` (the
+    one canvas layout call; `LaidOutState` over `DesignerState`),
+    `canvas_laid`/`canvas_layout` cached for hit-testing and drags; the canvas
+    of a responsive form is ALWAYS laid out (a flex/grid container places its
+    children at the designed size too; R81 keeps Absolute forms identical).
+    `resize_form_by_grip` (view size on responsive forms, R88), View at bar
+    (`breakpoint_views`: the widest width of each range), `use_view_as_design`.
+    T8.3 — `capture_drag_laid` + `apply_laid_drag` through `layout::inverse`,
+    and the drop commits the positions shown (a proportional control follows
+    the pointer: +10 on screen at 2× is +5 designed); resizes keep the 1:1 rule
+    (identity for edge-anchored and stretched axes). T8.4 — `anchor_gizmo` /
+    `anchor_pin_at` / `toggle_anchor_edge` (undoable `SetProperty`), the pin
+    press consumes the gesture (`pin_consumed`). T8.5 — `ContainerGeom`
+    carries grid tracks and gaps; `item_drop` (Order renumbered in reading
+    order / GridColumn+GridRow, one Batch, x/y restored), drop marker,
+    `paint_container_overlay`. T8.6 — `view_breakpoint`, `override_target`
+    (never the design breakpoint), `set_override`/`reset_override` through
+    `Cmd::SetBreakpoints`, the pane shows `overridden_control` and marks
+    overridden rows with ↺ (`InspectorAction::reset_override`); a
+    non-overridable edit edits the base and raises `view_base_notice`. T8.7 —
+    the canvas path draws the host parity fixture at the host window's rects.
+    Tests: `responsive_canvas_tests_056` (8). Gate G 0 differences; Gate F
+    green but the two expected reds. `bench_render_frame` not run: it measures
+    `render_form`, which Phase 8 does not change, and the disk was at 99 %
+    (release build deferred).
 
 ## Phase 9 — Responsive by default for new projects (R73–R77)
 
