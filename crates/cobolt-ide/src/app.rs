@@ -4060,55 +4060,30 @@ impl CoboltApp {
         program: &std::path::Path,
     ) -> (Vec<crate::runner::DiagMsg>, String, cobolt_codegen::SourceMap) {
         use crate::runner::{DiagMsg, DiagSeverity};
-        // Spec 044 R20 — the service wrapper allows registered External Crates.
-        use crate::external_crates_service::analyze_project as analyze;
-        // Generated form source is always free-form.
-        let (src, map) = cobolt_codegen::generate_with_map(form);
-        let mut diags = Vec::new();
-        let tokens = match cobolt_lexer::preprocess_program(&src, program, SourceFormat::Free) {
-            Some(exp) => {
-                for e in &exp.errors {
-                    diags.push(DiagMsg {
-                        line: 0,
-                        col: 0,
-                        message: format!("copybook error: {e}"),
-                        severity: DiagSeverity::Error,
-                        origin: None,
-                    });
-                }
-                cobolt_lexer::tokenize_expansion(&exp)
-            }
-            None => tokenize(&src, SourceFormat::Free),
-        };
-        let parse_result = parse(tokens);
-        for d in &parse_result.diagnostics {
-            use cobolt_parser::Severity as PSev;
-            diags.push(DiagMsg::plain(
-                match d.severity {
-                    PSev::Error => DiagSeverity::Error,
-                    PSev::Warning => DiagSeverity::Warning,
-                },
-                d.message.clone(),
-                d.span.line,
-                d.span.col,
-            ));
-        }
-        if let Some(prog) = parse_result.program {
-            let sem = analyze(&prog);
-            for d in &sem.diagnostics {
-                use cobolt_semantic::Severity;
-                diags.push(DiagMsg::plain(
+        use cobolt_project_tools::validate_source::Severity;
+        // One implementation with the coding-agent `check` tool (spec 080):
+        // generate, expand COPY from `program`, parse, and analyse under the
+        // project's registered External Crates (spec 044 R20).
+        let (found, src, map) = cobolt_project_tools::validate_source::validate_form_source(
+            form,
+            program,
+            crate::external_crates_service::active_project_crates(),
+        );
+        let diags = found
+            .into_iter()
+            .map(|d| {
+                DiagMsg::plain(
                     match d.severity {
                         Severity::Error => DiagSeverity::Error,
                         Severity::Warning => DiagSeverity::Warning,
                         Severity::Info => DiagSeverity::Info,
                     },
-                    d.message.clone(),
-                    d.span.line,
-                    d.span.col,
-                ));
-            }
-        }
+                    d.message,
+                    d.line,
+                    d.col,
+                )
+            })
+            .collect();
         (diags, src, map)
     }
 
@@ -4202,14 +4177,9 @@ impl CoboltApp {
         // Spec 044 R20 — the service wrapper allows registered External Crates.
         use crate::external_crates_service::analyze_project as analyze;
 
-        let fmt = if source.lines().any(|l| {
-            let b = l.as_bytes();
-            b.len() > 6 && b[6] != b' ' && b[..6].iter().all(|&c| c == b' ' || c.is_ascii_digit())
-        }) {
-            SourceFormat::Fixed
-        } else {
-            SourceFormat::Free
-        };
+        // The fixed/free heuristic is shared with the coding-agent `check`
+        // tool (spec 080).
+        let fmt: SourceFormat = cobolt_project_tools::validate_source::source_format(&source);
 
         // COPY / REPLACE, as `rcrun check` expands them (operator, 2026-09-27).
         let tokens = match cobolt_lexer::preprocess_program(&source, &path, fmt) {
@@ -7306,13 +7276,6 @@ impl CoboltApp {
         }
     }
 
-    /// The tracked `generated/` entry whose file name is `file_name`, if the user
-    /// relocated it into a subfolder (spec 033, R7). Lets regenerate rewrite the
-    /// moved file in place instead of resurrecting it at the default path.
-    fn tracked_generated_rel(&self, file_name: &str) -> Option<String> {
-        tracked_generated_rel(self.cobolt_project.as_ref(), file_name)
-    }
-
     /// Path for a form's generated `.cbl`: the tracked (possibly relocated) entry
     /// when one exists, else the project's `generated/` folder, else next to the
     /// `.cfrm`.
@@ -7336,15 +7299,13 @@ impl CoboltApp {
     }
 
     fn generated_cbl_path(&self, cfrm: &std::path::Path) -> PathBuf {
-        let stem = cfrm.file_stem().and_then(|s| s.to_str()).unwrap_or("form");
-        let file_name = format!("{stem}.cbl");
-        if let Some(dir) = self.project_path.as_ref().and_then(|p| p.parent()) {
-            if let Some(rel) = self.tracked_generated_rel(&file_name) {
-                return dir.join(rel);
-            }
-            return dir.join("generated").join(&file_name);
-        }
-        cfrm.with_extension("cbl")
+        // The rule lives in `cobolt-project-tools` (spec 080), shared with the
+        // coding-agent `regenerate` tool.
+        cobolt_project_tools::gen_paths::generated_cbl_path(
+            self.cobolt_project.as_ref().map(|p| p.files.generated.as_slice()),
+            self.project_path.as_ref().and_then(|p| p.parent()),
+            cfrm,
+        )
     }
 
     /// Every generated program a run started from `cfrm` can execute.
@@ -7374,18 +7335,11 @@ impl CoboltApp {
     }
 
     fn generated_indexed_cbl_path(&self, cidx: &std::path::Path) -> PathBuf {
-        let stem = cidx
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("indexed");
-        let file_name = format!("{stem}-indexed.cbl");
-        if let Some(dir) = self.project_path.as_ref().and_then(|p| p.parent()) {
-            if let Some(rel) = self.tracked_generated_rel(&file_name) {
-                return dir.join(rel);
-            }
-            return dir.join("generated").join(&file_name);
-        }
-        cidx.with_extension("cbl")
+        cobolt_project_tools::gen_paths::generated_indexed_cbl_path(
+            self.cobolt_project.as_ref().map(|p| p.files.generated.as_slice()),
+            self.project_path.as_ref().and_then(|p| p.parent()),
+            cidx,
+        )
     }
 
     /// Path under the project `copybooks/` for the canonical COBOL-85 record
@@ -20041,21 +19995,18 @@ fn decode_icon_data(bytes: &[u8]) -> Option<egui::IconData> {
 
 /// The tracked `generated/` entry whose file name is `file_name`, if any. Free
 /// function so the resolve-relocated-generated behaviour (spec 033, R7) is
-/// unit-testable without constructing the full `App`.
+/// unit-testable without constructing the full `App`. The rule itself is
+/// `cobolt_project_tools::gen_paths` (spec 080), which the app's path methods
+/// call directly; this wrapper keeps the spec 033 tests on the project model.
+#[cfg(test)]
 fn tracked_generated_rel(
     project: Option<&CoboltProject>,
     file_name: &str,
 ) -> Option<String> {
-    project?
-        .files_in(crate::project_model::Category::Generated)
-        .iter()
-        .find(|rel| {
-            std::path::Path::new(rel)
-                .file_name()
-                .and_then(|n| n.to_str())
-                == Some(file_name)
-        })
-        .cloned()
+    cobolt_project_tools::gen_paths::tracked_generated_rel(
+        project?.files_in(crate::project_model::Category::Generated),
+        file_name,
+    )
 }
 
 

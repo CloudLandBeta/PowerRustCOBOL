@@ -8,6 +8,39 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.56] — 2026-10-01
+
+### Spec 080 Phase 1 — `cobolt-project-tools`: one tool set for coding agents
+
+A new workspace crate, `cobolt-project-tools`, holds the tools a coding agent
+(Claude Code first) uses to check its own work on a PowerRustCOBOL project. It
+is written once and will be served through two doors: `rcrun mcp` (stdio,
+Phase 2) and the IDE (HTTP on 127.0.0.1, Phase 3). The seven tools:
+
+| Tool | What it does |
+|---|---|
+| `list_files` | The manifest's lists, each with whether the file exists, plus `docs/compiler-requests/*.md` |
+| `check` | The IDE's Check and Build gate, read-only; a form error names the `.cfrm`, the site (`Form ▸ Control ▸ event`) and the line in the handler |
+| `regenerate` | One form / indexed definition, or all, with the IDE's generator and paths |
+| `add_to_project` | Puts a file in its manifest list and re-seals the main-form designation, so the agent never edits the manifest |
+| `build` | Regenerate, refuse on any check error, build; waits at most 40 s and a repeat call joins the same build |
+| `validate` | One `.cfrm` or `.cidx` |
+| `kb_lookup` | A control, property, method, event or built-in from the reference the binary carries; an unknown name says "write a gap report" |
+
+Every path is project-relative and confined: absolute paths, `..`, drive and
+UNC prefixes and symlink escapes are refused. The HTTP transport is the
+minimum of MCP's Streamable HTTP over `std::net`: 127.0.0.1 only, Host/Origin
+checks, JSON only, one project per URL (`/mcp/<kit-id>`).
+
+The IDE logic the tools need moved into the crate rather than being copied, so
+the IDE and the tools give one answer: the generated-path rule, form and
+source validation, and the Data Binding Guardian (its 24 tests moved with it).
+No IDE behaviour changes.
+
+Tests: `cobolt-project-tools` 35 unit + 7 tool + 1 HTTP (17 requests), and a
+real build through the tool (ignored by default; 51 s, 2 calls, binary
+produced). `cobolt-ide`: 1277 passed, the one known red.
+
 ## [PowerRustCOBOL 1.80.51] — 2026-10-01
 
 ### Fix: a responsive window stops before a control would leave its parent

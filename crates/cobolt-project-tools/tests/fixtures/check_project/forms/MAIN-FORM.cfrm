@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="MAIN-FORM" title="Check fixture" width="400" height="300" main-form="true">
+  <Control id="BTN-OK" type="Button" x="10" y="10" w="80" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">OK</Property>
+    <Event name="onClick" paragraph="BTN-OK--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE 1 TO WS-NOT-DECLARED.
+           CONTINUE.
+]]></Event>
+  </Control>
+</Form>

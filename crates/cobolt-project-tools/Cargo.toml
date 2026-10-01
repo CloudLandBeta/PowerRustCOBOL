@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name         = "cobolt-project-tools"
+description  = "The coding-agent tools (spec 080) — one MCP tool set over a PowerRustCOBOL project, served by rcrun (stdio) and the IDE (HTTP)"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+# Tooling, never output: like `cobolt-cli`, nothing a built application links
+# depends on this crate, so it is not one of the compiler's SDK crates.
+
+[dependencies]
+cobolt-mcp      = { path = "../cobolt-mcp" }
+cobolt-codegen  = { path = "../cobolt-codegen" }
+cobolt-compiler = { path = "../cobolt-compiler" }
+cobolt-forms    = { path = "../cobolt-forms" }
+cobolt-indexed  = { path = "../cobolt-indexed" }
+cobolt-lexer    = { path = "../cobolt-lexer" }
+cobolt-parser   = { path = "../cobolt-parser" }
+cobolt-semantic = { path = "../cobolt-semantic" }
+# For `builtins::BUILTINS` only — the kb_lookup tool's built-in entries.
+cobolt-runtime  = { path = "../cobolt-runtime" }
+
+serde      = { workspace = true }
+serde_json = { workspace = true }
+toml       = { workspace = true }

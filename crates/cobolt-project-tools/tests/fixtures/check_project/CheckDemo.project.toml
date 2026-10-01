@@ -1,0 +1,9 @@
+[project]
+name = "CheckDemo"
+structure = 1
+version = "1.0.0"
+main = ""
+
+[files]
+forms = ["forms/MAIN-FORM.cfrm"]
+sources = ["src/helper.cbl"]

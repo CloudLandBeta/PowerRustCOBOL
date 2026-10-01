@@ -130,12 +130,25 @@ criteria it serves, and how to verify it. Check off as completed.
 
 **Gate 0:** the phase gate; `git diff --stat` shows only the five files above
 plus version/CHANGELOG.
+  - **Result (at 1.80.47, a0be845):** `cargo build --workspace` finished;
+    `cobolt-mcp` 19 passed; `cobolt-compiler` lib 149 passed and
+    `test_external_crates_e2e` 2 passed; `test_mcp_tool_parity` 3 passed;
+    `cobolt-cli` 5 + 4 passed; `cobolt-ide --bin` 1301 passed, 1 failed (the
+    known `every_document_ships_in_every_language`), 3 ignored. The diff
+    touches only the T0.1–T0.5 files plus version/CHANGELOG/tasks.md.
 
 ---
 
 ## Phase 1 — `cobolt-project-tools`: the one tool set (headless, fully tested)
 
-- [ ] **T1.1 — Create the crate with path confinement** (R12, R13; AC5)
+- [x] **T1.1 — Create the crate with path confinement** (R12, R13; AC5)
+  - **Result (1.80.56):** `crates/cobolt-project-tools` registered after
+    `cobolt-mcp`; `ProjectRoot::open/resolve/relative` in `root.rs`. Tests
+    `root_refuses_every_escape_and_resolves_inside` (13 cases: `../x`,
+    `forms/../../x`, `/etc/passwd`, `C:\x`, `c:/x`, `..\x`, `\\server\share`, empty,
+    two symlink escapes refused; 3 in-project paths resolved) and
+    `root_refuses_an_ancestor_manifest`. `cargo tree -p cobolt-project-tools -i
+    cobolt-ide`: no such package in the graph (no cycle).
   - Read first: `Cargo.toml:8-31`; `crates/cobolt-mcp/Cargo.toml`;
     `cobolt-compiler/src/lib.rs:1043-1076` (`find_project_manifest`).
   - Files: `Cargo.toml` (member after `cobolt-mcp`),
@@ -150,7 +163,18 @@ plus version/CHANGELOG.
     cases × verdicts. `cargo tree -p cobolt-project-tools -i cobolt-ide`
     finds nothing (no cycle).
 
-- [ ] **T1.2 — `ProjectHost` + `HeadlessHost`** (R11, R14; AC5)
+- [x] **T1.2 — `ProjectHost` + `HeadlessHost`** (R11, R14; AC5)
+  - **Result (1.80.56):** `host.rs` — the trait as plan §1.5 plus two
+    defaulted methods the later phases need, `build_blocked()` (T3.3) and
+    `version()` (`server_info`); `NoProject { NoneOpen, Different }`;
+    `FileList` with the IDE's extension routing; `HeadlessHost` and the
+    public `record_in_manifest` (dedupe, `/`, a generated file leaves
+    `sources`, re-seal through `designation_record`, no write when nothing
+    changed). Note: `toml::Value` re-serialises keys alphabetically (the
+    workspace's `toml` has no `preserve_order`); every key survives, order and
+    comments do not. 3 tests: the record + `authorize_form_start` = `Allowed`,
+    unknown keys kept, duplicate record writes nothing; unparseable/missing
+    manifest → `NoProject`; 6 extension routes.
   - Read first: plan §1.5; `project_model.rs:852-878`; T0.3's API.
   - Files: `crates/cobolt-project-tools/src/host.rs`.
   - Do: the trait of plan §1.5; `HeadlessHost::record` edits `[files] <list>`
@@ -162,7 +186,12 @@ plus version/CHANGELOG.
     returns `Allowed` (the seal verifies); unknown manifest keys survive the
     round trip; unreadable manifest → `NoProject`.
 
-- [ ] **T1.3 — Move the generated-path rule** (R11; AC6)
+- [x] **T1.3 — Move the generated-path rule** (R11; AC6)
+  - **Result (1.80.56):** `gen_paths::{generated_cbl_path,
+    generated_indexed_cbl_path, tracked_generated_rel, indexed_copybook_paths}`;
+    the IDE's two path methods delegate, its `tracked_generated_rel(&self)`
+    method is gone, and the free spec-033 wrapper is `#[cfg(test)]` (only its
+    tests use it now). Test `gen_paths_default_relocated_and_loose` (6 cases).
   - Read first: `cobolt-ide/src/app.rs:7312-7388, 20045-20059`.
   - Files: `crates/cobolt-project-tools/src/gen_paths.rs`,
     `crates/cobolt-ide/src/app.rs`, `crates/cobolt-ide/Cargo.toml`.
@@ -173,7 +202,17 @@ plus version/CHANGELOG.
     entry, loose form); `cargo test -p cobolt-ide --bin cobolt-ide` — the
     existing generated-path tests green.
 
-- [ ] **T1.4 — Move the form/source validation and the binding guardian** (R11; AC5, AC6a)
+- [x] **T1.4 — Move the form/source validation and the binding guardian** (R11; AC5, AC6a)
+  - **Result (1.80.56):** `git mv` of `data_binding_guardian.rs` →
+    `cobolt-project-tools/src/binding_guardian.rs` (no logic change; the IDE
+    file is a one-line re-export). `validate_source::{validate_form_source,
+    validate_source, validate_text, source_format}`; the IDE's
+    `validate_form_source_full` maps their `Diag` into `DiagMsg`, and `do_check`
+    takes `source_format`. New `external_crates_service::active_project_crates()`
+    (what `analyze_project` already read) hands the IDE's crate list over.
+    Counts: IDE 1305 tests before (1301 passed, 1 failed, 3 ignored) → 1281
+    after (1277 passed, 1 failed, 3 ignored) = 1305 − 24 moved guardian tests;
+    `cobolt-project-tools` lib runs those 24 + 11 new = 35, all green.
   - Read first: `cobolt-ide/src/app.rs:4058-4115, 4181-4245, 2349-2356`;
     `data_binding_guardian.rs` (whole; confirm still no `crate::` imports);
     `external_crates_service.rs:112-127`.
@@ -191,14 +230,26 @@ plus version/CHANGELOG.
     moved guardian tests (now under `-p cobolt-project-tools`) and every IDE
     test green; counts reported before/after the move are equal.
 
-- [ ] **T1.5 — Tool `list_files`** (R11; AC5)
+- [x] **T1.5 — Tool `list_files`** (R11; AC5)
+  - **Result (1.80.56):** `tools/list.rs`; test
+    `list_reports_every_list_and_the_gap_reports` (6 lists, 3 existing + 1
+    missing entry, 2 reports newest first, a `.txt` ignored).
   - Files: `crates/cobolt-project-tools/src/tools/list.rs`.
   - Do: plan §1.6 row.
   - Verify: `cargo test -p cobolt-project-tools list` on a fixture project
     (forms, an indexed file, a source, two reports) — every list and the
     reports appear with correct exists flags.
 
-- [ ] **T1.6 — Tool `check`** (R11; AC5)
+- [x] **T1.6 — Tool `check`** (R11; AC5)
+  - **Result (1.80.56):** `tools/check.rs` (`check_project`, `check_one`,
+    `Finding`, `Report`). Fixture `tests/fixtures/check_project` (one main form
+    whose `BTN-OK` `onClick` moves into an undeclared item, plus a clean
+    `src/helper.cbl`). `tests/tools.rs`:
+    `check_reports_the_form_site_and_line_inside_the_handler` — 1 error at
+    `forms/MAIN-FORM.cfrm`, site `MAIN-FORM ▸ BTN-OK ▸ onClick`, line 4 of the
+    handler; nothing written; clean variant 0 errors;
+    `check_reports_a_second_main_form` — the double designation is an error on
+    the manifest.
   - Read first: `cobolt-codegen/src/lib.rs:129-140`; `cobolt-ide/src/app.rs:550-586`;
     `main_form_guard.rs:134-185`.
   - Files: `crates/cobolt-project-tools/src/tools/check.rs`,
@@ -212,7 +263,15 @@ plus version/CHANGELOG.
     inside the handler; a second main form is an error; a clean project
     reports 0 errors. Prints diagnostics found per case.
 
-- [ ] **T1.7 — Tools `regenerate` and `add_to_project`** (R11; AC6; plan D4, D5)
+- [x] **T1.7 — Tools `regenerate` and `add_to_project`** (R11; AC6; plan D4, D5)
+  - **Result (1.80.56):** `tools/regenerate.rs`, `tools/register.rs`.
+    `regenerate_writes_what_the_ide_generator_writes` — 6 192 bytes byte-equal
+    to `generate_with_map`, at the `gen_paths` path, recorded as generated; a
+    `.cidx` writes the facade + `COPYBOOKS/<stem>.SEL/.FD`; "all" writes 4
+    files. `regenerate_refuses_an_unsaved_target_and_writes_nothing`.
+    `register_adds_a_form_and_the_seal_still_verifies` (MAIN `Allowed`, ORDERS
+    `Refused`, 3 refusals: missing file, the `generated` list, `../`).
+    `add_to_project` also refuses while the IDE reports the manifest unsaved.
   - Read first: `cobolt-ide/src/app.rs:7232-7256, 7500-7538, 11562-11610`;
     `project_model.rs:852-878, 1152`.
   - Files: `crates/cobolt-project-tools/src/tools/{regenerate.rs,register.rs}`.
@@ -226,7 +285,15 @@ plus version/CHANGELOG.
     is written; a registered form appears in the manifest and the seal still
     verifies. **AC6 (regenerate half).**
 
-- [ ] **T1.8 — Tool `build` with bounded wait** (R11; AC6)
+- [x] **T1.8 — Tool `build` with bounded wait** (R11; AC6)
+  - **Result (1.80.56):** `tools/build.rs` — `BuildSlot` (mutex + condvar)
+    in the server's `Shared`, `Builder` = the compiler or a stub. A check error
+    answers `{"status":"refused", "check":…}` (an answer, not a tool error, so
+    the agent gets the diagnostics). Unit tests: refusal with the builder called
+    0 times; join — 3 calls, 1 build, `running` then `built`. **AC6 build half**
+    (`--test build -- --ignored`, run once): `built` in 51.3 s over 2 calls
+    (the first answered `running` at 40 s), binary `bin/builddemo`,
+    128 845 832 bytes. The test host supplies the checkout as `workspace_root`.
   - Read first: `cobolt-compiler/src/lib.rs:1153-1256`;
     `cobolt-ide/src/app.rs:4767-4900`.
   - Files: `crates/cobolt-project-tools/src/tools/build.rs`,
@@ -239,7 +306,16 @@ plus version/CHANGELOG.
     `cargo test -p cobolt-project-tools --test build -- --ignored` builds a
     one-form fixture, reports elapsed time, binary path and size.
 
-- [ ] **T1.9 — Tools `validate` and `kb_lookup`** (R11; AC5)
+- [x] **T1.9 — Tools `validate` and `kb_lookup`** (R11; AC5)
+  - **Result (1.80.56):** `tools/validate.rs`, `tools/kb.rs` (searches
+    `system_documentation()` minus `agents_registry.md`/`ide_functionalities.md`;
+    a `## Control:` section capped at 12 000 chars, ≤ 25 entry hits).
+    `kb_finds_real_names_and_refuses_invented_ones`: Button, Caption, onClick,
+    AddRow, HTTP-GET, COBOL-HTTP-GET found; FlyToTheMoon, SetGlitter,
+    COBOL-TELEPORT answer "not in the reference … write a gap report".
+    `list_files_and_validate_through_the_tool_set`: valid form, broken form,
+    valid `.cidx`. (The REDEFINES-forward `.cidx` case is not separately
+    tested — `validate` calls `validate_definition`, whose own tests cover it.)
   - Read first: `cobolt-indexed/src/{xml.rs:35-50, structure.rs:159, schema_support.rs:14}`;
     `cobolt-compiler/src/lib.rs:5089, 6252, 6767-6990, 7364`;
     `cobolt-runtime/src/builtins.rs:35-90`.
@@ -252,7 +328,14 @@ plus version/CHANGELOG.
     `Caption`, `onClick`, `AddRow`, `HTTP-GET`, and answers "not in the
     reference" for an invented name (the R19 basis). Prints hits/misses.
 
-- [ ] **T1.10 — `ProjectTools: McpHandler`, no-project answers** (R11, R13, R14; AC5)
+- [x] **T1.10 — `ProjectTools: McpHandler`, no-project answers** (R11, R13, R14; AC5)
+  - **Result (1.80.56):** `tools/mod.rs` — `ProjectTools<H>` with
+    `tool_list()` (7 tools, JSON schemas, English) and `call()`; the
+    `McpHandler` impl only delegates. `Shared` holds the write lock and the
+    build slot. `tools_over_serve_list_check_refuse_paths_and_answer_no_project`:
+    initialize (version from the host), 7 tools, check = file + line 4,
+    `../outside.cfrm` and `/etc/passwd` refused without a machine path, and
+    with an unreadable manifest 7/7 tools answer "no project open".
   - Read first: `cobolt-runtime/src/mcp_tool.rs:484-499` (the model).
   - Files: `crates/cobolt-project-tools/src/lib.rs`,
     `crates/cobolt-project-tools/tests/tools.rs`.
@@ -264,7 +347,18 @@ plus version/CHANGELOG.
     `check` on the error fixture returns file + line, `../` and an absolute
     path refused, no-project answers on every tool. **AC5 (tools half).**
 
-- [ ] **T1.11 — Minimal Streamable-HTTP transport** (R11a, R12, R14; AC5)
+- [x] **T1.11 — Minimal Streamable-HTTP transport** (R11a, R12, R14; AC5)
+  - **Result (1.80.56):** `http.rs` — `serve_http(listener, make_handler,
+    open_kit)` with `OpenKit { NoProject, Project { kit_id } }` and a `Gated`
+    wrapper that keeps `tools/list` and refuses calls. A connection ends with
+    a write shutdown and a short drain, so a refused request with an unread
+    body does not reset the answer away. `http_transport_answers_every_row_of_the_table`
+    on `127.0.0.1:0` (loopback asserted): 17 requests — initialize 200,
+    tools/list 200, notification 202, client response 202, GET 405, DELETE 405,
+    foreign Origin 403, own Origin 200, `Host: evil.example` 403, `text/plain`
+    415, chunked 411, oversize 413, other path 404, check right kit 200,
+    other kit → "different project", tools/list other kit 7 tools, no project →
+    "no project open".
   - Read first: plan §1.4; `cobolt-mcp/src/transport.rs:25`.
   - Files: `crates/cobolt-project-tools/src/http.rs`,
     `crates/cobolt-project-tools/tests/http.rs`.
@@ -279,6 +373,13 @@ plus version/CHANGELOG.
 
 **Gate 1:** the phase gate + `cargo test -p cobolt-project-tools --no-fail-fast`
 + the `--ignored` build test once.
+  - **Result (1.80.56):** `cargo build --workspace` finished, no errors.
+    `cobolt-project-tools`: lib 35 passed, `tools` 7 passed, `http` 1 passed,
+    `build` 1 ignored (run once with `--ignored`: 1 passed, 51.3 s).
+    `cobolt-mcp` 19 passed; `cobolt-runtime --test test_mcp_tool_parity` 3
+    passed; `cobolt-compiler --lib` 149 passed; `cobolt-cli` 5 + 4 passed;
+    `cobolt-ide --bin cobolt-ide` 1277 passed, 1 failed (the known
+    `every_document_ships_in_every_language`), 3 ignored.
 
 ---
 

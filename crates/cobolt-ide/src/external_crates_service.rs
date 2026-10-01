@@ -107,12 +107,19 @@ pub fn set_active_project_crates(names: Option<Vec<String>>) {
     }
 }
 
+/// The crates [`set_active_project_crates`] last published — what
+/// [`analyze_project`] analyses under, and what the moved-down form
+/// validation (`cobolt_project_tools::validate_source`, spec 080) is handed.
+pub fn active_project_crates() -> Option<Vec<String>> {
+    active_cell().read().ok().and_then(|cell| cell.clone())
+}
+
 /// [`cobolt_semantic::analyze_with`] under the active project's crates —
 /// what every IDE analysis site calls instead of plain `analyze` (R20–R22).
 pub fn analyze_project(
     program: &cobolt_ast::program::Program,
 ) -> cobolt_semantic::SemanticResult {
-    let external_crates = active_cell().read().ok().and_then(|cell| cell.clone());
+    let external_crates = active_project_crates();
     cobolt_semantic::analyze_with(
         program,
         &cobolt_semantic::AnalyzeOptions {

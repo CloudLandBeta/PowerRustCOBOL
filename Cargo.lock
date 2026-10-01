@@ -1580,6 +1580,7 @@ dependencies = [
  "cobolt-lexer",
  "cobolt-media",
  "cobolt-parser",
+ "cobolt-project-tools",
  "cobolt-runtime",
  "cobolt-semantic",
  "cobolt-stdlib",
@@ -1689,6 +1690,24 @@ dependencies = [
  "cobolt-lexer",
  "cobolt-semantic",
  "pretty_assertions",
+]
+
+[[package]]
+name = "cobolt-project-tools"
+version = "0.2.0"
+dependencies = [
+ "cobolt-codegen",
+ "cobolt-compiler",
+ "cobolt-forms",
+ "cobolt-indexed",
+ "cobolt-lexer",
+ "cobolt-mcp",
+ "cobolt-parser",
+ "cobolt-runtime",
+ "cobolt-semantic",
+ "serde",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]

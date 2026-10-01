@@ -41,6 +41,9 @@ cobolt-media    = { path = "../cobolt-media" }
 
 # Phase 11 — binary compiler
 cobolt-compiler = { path = "../cobolt-compiler" }
+# Spec 080 — the coding-agent tools; the IDE serves them over HTTP and shares
+# their moved-down code (generated paths, form validation, binding guardian).
+cobolt-project-tools = { path = "../cobolt-project-tools" }
 
 # UI framework
 egui       = "0.36"
