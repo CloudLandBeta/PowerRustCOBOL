@@ -4720,6 +4720,17 @@ is what lets one `MOVE` to `Category` restyle the whole message:
 > once you pick one, the row shows your hex and offers a **↺** that puts it back
 > to "the category decides". If a `Critical` message is not red, look there
 > first — an explicit `BackgroundColor` is the usual reason.
+>
+> A Snackbar saved by an older version may carry `#F0F0F0` and `#FFFFFF`,
+> the colours every control used to start with. Those count as unset too, and
+> the category decides.
+
+**A notification always reads.** When you have not chosen the text colour,
+the text, the icon and the buttons are drawn in a colour that stands out from
+the background in effect, at the 4.5:1 contrast accessibility guidelines ask
+of text. If the category's ink does not reach that against a background you
+picked, it becomes black or white, whichever reads. Choose `ForegroundColor`
+yourself and it is used exactly as you set it.
 
 **Timeout** is in milliseconds. `-1` — the default — means "use the category's".
 `0` means it stays until something dismisses it. Anything above 0 is that many

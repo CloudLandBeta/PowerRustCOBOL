@@ -465,22 +465,48 @@ pub fn size_of(ctrl: &Control) -> SnackSize {
 /// An explicitly set colour, or the category's (R23). Empty means "the category
 /// decides" — that is why the property seeds empty rather than a concrete value.
 pub fn effective_background(ctrl: &Control) -> String {
-    let set = prop_str(ctrl, "BackgroundColor");
-    if set.trim().is_empty() {
-        category_of(ctrl).defaults().background.to_owned()
-    } else {
-        set
-    }
+    chosen_color(
+        ctrl,
+        "BackgroundColor",
+        &[
+            crate::model::DEFAULT_BACKGROUND_COLOR,
+            crate::model::NEUMORPHIC_SURFACE_COLOR,
+            crate::model::NEUMORPHIC_DARK_SURFACE_COLOR,
+        ],
+    )
+    .unwrap_or_else(|| category_of(ctrl).defaults().background.to_owned())
 }
 
 /// An explicitly set ink colour, or the category's (R23).
 pub fn effective_foreground(ctrl: &Control) -> String {
-    let set = prop_str(ctrl, "ForegroundColor");
-    if set.trim().is_empty() {
-        category_of(ctrl).defaults().foreground.to_owned()
-    } else {
-        set
-    }
+    chosen_color(ctrl, "ForegroundColor", &[crate::model::DEFAULT_FOREGROUND_COLOR])
+        .unwrap_or_else(|| category_of(ctrl).defaults().foreground.to_owned())
+}
+
+/// Whether the developer chose the ink. When they did not, the painter keeps
+/// it readable on whatever background is in effect (operator, 2026-10-01: a
+/// notification is high-contrast unless the developer set otherwise).
+pub fn foreground_chosen(ctrl: &Control) -> bool {
+    chosen_color(ctrl, "ForegroundColor", &[crate::model::DEFAULT_FOREGROUND_COLOR]).is_some()
+}
+
+/// A colour property the developer actually chose: set, and not one of the
+/// values every control is seeded with or a glass style stamps on it. Those
+/// mean "not chosen" across the renderer (see `paint::user_background_color`).
+/// A Snackbar dropped on a form carries `#F0F0F0` / `#FFFFFF` from
+/// `Control::new`; taking them as a choice painted a critical notification
+/// near-white with white text.
+fn chosen_color(ctrl: &Control, key: &str, not_chosen: &[&str]) -> Option<String> {
+    let norm = |v: &str| {
+        let h = v.trim().trim_start_matches('#').to_ascii_uppercase();
+        if h.len() == 6 {
+            format!("{h}FF")
+        } else {
+            h
+        }
+    };
+    let set = prop_str(ctrl, key);
+    (!set.trim().is_empty() && not_chosen.iter().all(|d| norm(d) != norm(&set))).then_some(set)
 }
 
 /// The category icon's catalogue name, or `None` when `ShowCategoryIcon` is off.
@@ -984,6 +1010,9 @@ pub struct SnackVisual {
     pub background: String,
     /// Resolved `#RRGGBB[AA]` — never empty.
     pub foreground: String,
+    /// The developer chose `foreground`. Otherwise the painter replaces it
+    /// with black or white when it would not read on `background`.
+    pub foreground_chosen: bool,
     /// Resolved catalogue icon name; `None` when `ShowCategoryIcon` is off.
     pub icon: Option<String>,
     pub icon_size: f32,
@@ -1063,6 +1092,7 @@ pub fn mint(ctrl: &Control) -> (SnackVisual, Option<ButtonsDiagnostic>) {
         size,
         background: effective_background(ctrl),
         foreground: effective_foreground(ctrl),
+        foreground_chosen: foreground_chosen(ctrl),
         icon: effective_icon(ctrl),
         icon_size: effective_icon_size(ctrl),
         icon_color: prop_str(ctrl, "CategoryIconColor"),

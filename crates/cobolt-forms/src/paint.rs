@@ -27080,8 +27080,11 @@ pub fn draw_snackbar(
 
     // ── 4. Content ───────────────────────────────────────────────────────────
     let ink_explicit = parse_color(&v.foreground);
+    // High contrast unless the developer chose the ink (operator,
+    // 2026-10-01): an ink they did not choose is checked against the
+    // background in effect and becomes black or white when it would not read.
     let ink = readable_ink_on(
-        (ink_explicit.a() > 0).then_some(ink_explicit),
+        (v.foreground_chosen && ink_explicit.a() > 0).then_some(ink_explicit),
         ink_explicit,
         parse_color(&v.background),
     );
