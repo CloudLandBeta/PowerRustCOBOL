@@ -2621,6 +2621,9 @@ pub struct DesignerPanel {
     /// canvas: the form's grip and the View at bar change it, never the
     /// designed `Width`/`Height`. `None` is the designed size.
     pub(crate) view_size: Option<(f32, f32)>,
+    /// The view sizes the grip may reach on a responsive form: where two
+    /// controls apart in the design would touch, it stops (spec 056 R18).
+    view_limits: cobolt_forms::layout::LimitsCache,
     /// Spec 056 R65 — the breakpoint "View at" is showing, when one was
     /// picked: edits to overridable properties become its overrides.
     pub(crate) view_breakpoint: Option<String>,
@@ -2851,6 +2854,7 @@ impl DesignerPanel {
             press_handle: None,
             sel_handle_rect: None,
             view_size: None,
+            view_limits: Default::default(),
             view_breakpoint: None,
             view_base_notice: None,
             canvas_laid: None,
@@ -12212,11 +12216,23 @@ impl DesignerPanel {
     pub(crate) fn resize_form_by_grip(&mut self, edge: FormEdge, orig_w: i32, orig_h: i32, dx: i32, dy: i32, gp: i32, sn: bool) {
         if self.form.responsive {
             let (mut w, mut h) = self.canvas_size();
+            // The same limits the running window takes: the grip previews
+            // only sizes the window will accept.
+            let l = self.view_limits.get(
+                &self.form.controls,
+                (self.form.width as f32, self.form.height as f32),
+                &self.form.layout,
+                &self.form.breakpoints,
+            );
+            let fit = |v: i32, min: f32, max: f32| {
+                let v = v.clamp(FORM_MIN_SIZE, FORM_MAX_SIZE) as f32;
+                v.min(max).max(min.min(max))
+            };
             if matches!(edge, FormEdge::Right | FormEdge::Corner) {
-                w = (orig_w + dx).clamp(FORM_MIN_SIZE, FORM_MAX_SIZE) as f32;
+                w = fit(orig_w + dx, l.min.0, l.max.0);
             }
             if matches!(edge, FormEdge::Bottom | FormEdge::Corner) {
-                h = (orig_h + dy).clamp(FORM_MIN_SIZE, FORM_MAX_SIZE) as f32;
+                h = fit(orig_h + dy, l.min.1, l.max.1);
             }
             self.view_size = Some((w, h));
             self.view_breakpoint = None;
@@ -22758,6 +22774,23 @@ mod responsive_canvas_tests_056 {
         plain.form.responsive = false;
         plain.resize_form_by_grip(FormEdge::Corner, 400, 300, 200, 100, 8, false);
         assert_eq!((plain.form.width, plain.form.height), (600, 400));
+    }
+
+    /// The grip stops where two controls apart in the design would touch:
+    /// a `Left` field 20..220 and the `Right` button 300..380 of a 400-wide
+    /// form meet at 220 + 80 + 20 = 320 wide.
+    #[test]
+    fn the_grip_stops_before_two_controls_touch() {
+        let mut d = responsive();
+        let mut field = Control::new("TXT", ControlType::TextBox, 0, 0);
+        field.rect = cobolt_forms::model::Rect::new(20, 20, 200, 30);
+        field.set_prop("Anchor", PropValue::String("Top,Left".into()));
+        d.form.controls.push(field);
+        d.resize_form_by_grip(FormEdge::Right, 400, 300, -300, 0, 8, false);
+        let (w, _) = d.canvas_size();
+        assert!((320.0..=322.0).contains(&w), "stopped at {w}");
+        d.resize_form_by_grip(FormEdge::Right, 400, 300, 300, 0, 8, false);
+        assert_eq!(d.canvas_size().0, 700.0, "growing parts them: no ceiling");
     }
 
     /// AC14 (R30) — the breakpoint views: the widest width of each range at

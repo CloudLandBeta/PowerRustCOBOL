@@ -25,6 +25,7 @@ pub mod anchor;
 #[cfg(feature = "render")]
 pub mod apply;
 pub mod breakpoints;
+pub mod collide;
 pub mod defaults;
 pub mod dock;
 pub mod flex;
@@ -39,6 +40,7 @@ pub mod tracks;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::model::{Control, ControlType, PropValue, Rect};
+pub use collide::{layout_fingerprint, size_limits_of, window_size_limits, LimitsCache, SizeLimits};
 use breakpoints::Breakpoint;
 use props::{Dock, FormBag, PropSource};
 

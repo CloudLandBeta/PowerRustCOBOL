@@ -1907,6 +1907,26 @@ A project created with this version makes **responsive** forms
 keeps making forms as before until you tick it; no existing form is ever
 changed for you.
 
+**A responsive window stops before its controls collide.** When the user
+shrinks or enlarges a responsive form's window, controls move and stretch with
+their anchors. That can bring two of them together. For example, a button
+anchored to the right edge slides left onto a field anchored to the left, or
+a field stretched between both edges grows into a neighbour that stays put.
+The window refuses to go that far: it stops at the last size at which every
+pair of controls that are apart in your design is still apart. The same
+limits apply to the running form in the IDE, to the compiled application,
+and to the designer's view-size grip.
+
+Controls you placed touching or overlapping on purpose, such as a label on
+its card or two flush toolbar buttons, are left alone. So are hidden
+controls. A form whose controls never meet has no limit beyond its
+`MinFormWidth` × `MinFormHeight` floor.
+
+> 💡 If the window stops sooner than you would like, give the controls room
+> to move. Anchor the field to both edges so it shrinks instead of being run
+> over, or give the button a `MinWidth` and the field a `MinWidth` that fit
+> together.
+
 **Changing a form's theme keeps its text readable.** When you switch a form's
 theme or glass style, any label, button or field whose text would no longer
 stand out from its new background — below the 4.5:1 contrast that

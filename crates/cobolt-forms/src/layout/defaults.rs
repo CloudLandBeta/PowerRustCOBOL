@@ -84,6 +84,19 @@ pub const MIN_FORM_HEIGHT: i64 = 64;
 /// A run-form window's minimum inner size is never below this, whatever
 /// `MinFormWidth`/`MinFormHeight` say (R18).
 pub const WINDOW_MIN_INNER: f32 = 64.0;
+/// Collision limits (`collide`): shrinking is scanned in steps this size, so
+/// a breakpoint that rearranges the form between two sizes is not jumped over.
+pub const COLLIDE_SHRINK_STEP: f32 = 8.0;
+/// Growth is first probed this far beyond the designed size, then doubling.
+pub const COLLIDE_GROW_FIRST_STEP: f32 = 16.0;
+/// Growth is probed no further than this.
+pub const COLLIDE_GROW_CAP: f32 = 8192.0;
+/// Bisection rounds refining a limit to well under a pixel.
+pub const COLLIDE_REFINE_ROUNDS: u32 = 8;
+/// Two rectangles closer than this on both axes touch.
+pub const COLLIDE_TOUCH_EPS: f32 = 0.01;
+/// An OS window cannot take an infinite maximum: an unbounded axis is this.
+pub const WINDOW_UNBOUNDED: f32 = 100_000.0;
 /// A breakpoint's font factor when it states none (R67).
 pub const BREAKPOINT_FONT_FACTOR: f32 = 1.0;
 

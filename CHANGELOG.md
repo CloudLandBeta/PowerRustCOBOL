@@ -8,6 +8,56 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.33] — 2026-10-01
+
+### Fix: a responsive window stops before its controls touch (spec 056 R18)
+
+The operator asked that when a form is resized, the resize stop if elements
+would touch each other, whether the window is getting smaller or larger,
+horizontally or vertically.
+
+**The defect.** The window's floor counted only declared `MinWidth` and
+`MinHeight`, and it had no ceiling. So a form with no such limits could be
+shrunk until a `Right`-anchored button slid over a `Left`-anchored field, or
+grown until a stretched field ran into a fixed neighbour.
+
+**The fix.**
+- `cobolt_forms::layout::collide` takes the pairs of visible sibling controls
+  that are apart at the designed size. It searches the solver for the
+  smallest and largest window at which none of them touch:
+  - shrinking is scanned in 8 px steps, so breakpoints are respected;
+  - growing is probed geometrically up to 8192;
+  - both are refined by bisection.
+  Controls that touch or overlap in the design, and hidden controls, are
+  not constrained.
+- **`LimitsCache`** recomputes the limits only when the layout's fingerprint
+  changes. That covers rects, parents, visibility and layout properties, but
+  not captions or values, so a window can ask every frame.
+- **Hosts.** The minimum and maximum inner size are applied:
+  - at window creation (`host.rs` and `shell.rs`), for `rcrun run-form` and
+    the compiled binary, which both run through `cobolt-form-host`;
+  - per frame for the root window, and only re-sent on a change;
+  - in every child form's viewport builder.
+  
+  An axis with no ceiling is reported as 100000.
+- **Designer.** On a responsive form, the view-size grip clamps to the same
+  limits.
+
+**Tests.**
+- `layout::collide::tests` (5): shrink width, grow width, shrink height,
+  design overlaps and hidden controls, and the cache.
+- Designer: `the_grip_stops_before_two_controls_touch`.
+- `a_resized_form_stops_before_its_controls_touch` covers 66 forms: the 4
+  templates plus all 62 example forms, laid out responsively.
+  - At every limit, no pair that was apart touches.
+  - 1.5 px past a limit set by a collision, one does.
+  - The slowest search took 30.5 ms (release build), on the 59-control
+    PowerDemo3 `sidebar-form`.
+  - The Record entry template now stops at 457 px high, where its bottom
+    buttons would meet the card.
+
+Guide: "A responsive window stops before its controls collide".
+
 ## [PowerRustCOBOL 1.80.29] — 2026-10-01
 
 ### A new form starts modern, from a template, responsive — and stays readable across themes (spec 079; spec 056 Phase 9)

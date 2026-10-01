@@ -339,8 +339,9 @@ pub fn run(config: FormHostConfig) {
     // inner size, so the OS grip cannot produce a layout the form cannot
     // honour. A floor only: nothing here sizes the window, and a form that is
     // not responsive keeps no minimum, as before.
-    if let Some((w, h)) = cobolt_forms::layout::min_size_of(&form) {
-        viewport = viewport.with_min_inner_size([w, h]);
+    if let Some(l) = cobolt_forms::layout::size_limits_of(&form) {
+        let (mw, mh) = l.window_max();
+        viewport = viewport.with_min_inner_size([l.min.0, l.min.1]).with_max_inner_size([mw, mh]);
     }
     if form.start_position == cobolt_forms::model::FormStartPosition::Custom {
         viewport = viewport.with_position(egui::pos2(form.x as f32, form.y as f32));
@@ -595,7 +596,10 @@ impl FormHost {
             form_req_rx,
             closed: ClosedFanout::new(closed_tx),
             fullscreen_actual: form.full_screen,
-            root_min_inner: cobolt_forms::layout::min_size_of(&form).map(|(w, h)| egui::vec2(w, h)),
+            root_min_inner: cobolt_forms::layout::size_limits_of(&form).map(|l| {
+                let (mw, mh) = l.window_max();
+                (egui::vec2(l.min.0, l.min.1), egui::vec2(mw, mh))
+            }),
             fx_entrance,
             fx_exit,
             fx_restore,
@@ -3212,6 +3216,8 @@ pub(crate) struct ResponsiveSpec {
     /// `me::Breakpoint` / `me::FontScale` as the program pinned them (R84).
     pub(crate) pinned_breakpoint: Option<String>,
     pub(crate) pinned_font_scale: Option<f32>,
+    /// The window limits, searched again only when the layout changes.
+    pub(crate) limits: cobolt_forms::layout::LimitsCache,
 }
 
 impl ResponsiveSpec {
@@ -3229,18 +3235,17 @@ impl ResponsiveSpec {
             system_text_factor: cobolt_forms::text_scale::system_text_factor(),
             pinned_breakpoint: None,
             pinned_font_scale: None,
+            limits: Default::default(),
         }
     }
 
-    /// The smallest surface these controls lay out for (R18).
-    pub(crate) fn min_size(&self, controls: &[cobolt_forms::Control], designed: egui::Vec2) -> egui::Vec2 {
-        let (w, h) = cobolt_forms::layout::window_min_size(
-            controls,
-            (designed.x, designed.y),
-            &self.layout,
-            &self.breakpoints,
-        );
-        egui::vec2(w, h)
+    /// The window sizes these controls lay out for (R18): never below the
+    /// form's minimum, and never so small or so large that two controls that
+    /// are apart in the design would touch. `(min, max)`.
+    pub(crate) fn size_limits(&self, controls: &[cobolt_forms::Control], designed: egui::Vec2) -> (egui::Vec2, egui::Vec2) {
+        let l = self.limits.get(controls, (designed.x, designed.y), &self.layout, &self.breakpoints);
+        let (mw, mh) = l.window_max();
+        (egui::vec2(l.min.0, l.min.1), egui::vec2(mw, mh))
     }
 
     /// Lay `controls` out for a surface of `available` size; `rail` narrows
@@ -3332,7 +3337,7 @@ pub struct FormHost {
     /// 056 R18 — the minimum inner size the root window was last given (the
     /// builder's, then every re-send); `None` for a form that is not
     /// responsive, whose window keeps no minimum.
-    root_min_inner: Option<egui::Vec2>,
+    root_min_inner: Option<(egui::Vec2, egui::Vec2)>,
 
     // ── 038 window effects ───────────────────────────────────────────────────
     /// Project entrance/exit effects, resolved by the glue
@@ -4410,7 +4415,8 @@ impl FormHost {
             // 056 R18 — a responsive child's smallest layout as its floor; a
             // form that is not responsive keeps no minimum, as before.
             if let Some(spec) = child.body.responsive.as_ref() {
-                builder = builder.with_min_inner_size(spec.min_size(&child.body.controls, child.body.form_size));
+                let (min, max) = spec.size_limits(&child.body.controls, child.body.form_size);
+                builder = builder.with_min_inner_size(min).with_max_inner_size(max);
             }
             if let Some(p) = child.pos {
                 builder = builder.with_position(p);
@@ -4974,11 +4980,14 @@ impl FormHost {
             // never every frame. A floor only; the window is never resized.
             // Child windows need nothing here: their builder is rebuilt every
             // frame and egui patches a changed minimum itself.
+            // The ceiling follows the same way: where growing would make two
+            // controls touch, the window stops.
             if let Some(spec) = self.root.responsive.as_ref() {
-                let min = spec.min_size(&self.root.controls, self.root.form_size);
-                if self.root_min_inner != Some(min) {
-                    self.root_min_inner = Some(min);
+                let (min, max) = spec.size_limits(&self.root.controls, self.root.form_size);
+                if self.root_min_inner != Some((min, max)) {
+                    self.root_min_inner = Some((min, max));
                     ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(min));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::MaxInnerSize(max));
                 }
             }
             // 037 R14 — onFullScreenChanged fires on ACTUAL transitions only,
