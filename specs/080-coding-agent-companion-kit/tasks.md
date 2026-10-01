@@ -106,7 +106,11 @@ criteria it serves, and how to verify it. Check off as completed.
     `cargo test -p cobolt-cli --test main_form_gate` — all green, unchanged
     assertions.
 
-- [ ] **T0.4 — `docs_embed::embedded_doc`** (R7; prerequisite of AC4)
+- [x] **T0.4 — `docs_embed::embedded_doc`** (R7; prerequisite of AC4)
+  - **Result (1.80.46):** `DOCS.get_file(name)` → UTF-8. New test
+    `embedded_doc_resolves_the_kit_documents`: Guide 718 064 bytes, syntax doc
+    71 369 bytes, a missing name → `None`. `docs_embed`: 5 passed, 1 failed —
+    the failure is the known pre-existing `every_document_ships_in_every_language`.
   - Read first: `crates/cobolt-ide/src/docs_embed.rs:21-135`.
   - Files: `crates/cobolt-ide/src/docs_embed.rs`.
   - Do: `pub fn embedded_doc(name: &str) -> Option<&'static str>` over `DOCS`.

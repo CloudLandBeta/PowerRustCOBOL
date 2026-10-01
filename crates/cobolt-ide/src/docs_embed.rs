@@ -151,9 +151,32 @@ fn pretty_name(file: &str) -> String {
     s
 }
 
+/// One embedded document by its exact file name (`developers-guide-en.md`),
+/// as this binary carries it — no language fallback.
+///
+/// The coding-agent kit (spec 080) copies the Guide and the supported-syntax
+/// document from here, so the kit describes the binary that exported it.
+#[allow(dead_code)] // consumed by the kit's reference pack (spec 080 T4.2)
+pub fn embedded_doc(name: &str) -> Option<&'static str> {
+    DOCS.get_file(name).and_then(|f| f.contents_utf8())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `embedded_doc` resolves the two documents the kit copies whole, and
+    /// nothing that is not there.
+    #[test]
+    fn embedded_doc_resolves_the_kit_documents() {
+        for name in ["developers-guide-en.md", "cobol85-supported-syntax-en.md"] {
+            let text = embedded_doc(name).unwrap_or_else(|| panic!("{name} is not embedded"));
+            assert!(text.starts_with("<!--") || text.contains("# "), "{name} is Markdown");
+            println!("embedded_doc: {name} = {} bytes", text.len());
+        }
+        assert!(embedded_doc("no-such-document-en.md").is_none());
+        println!("embedded_doc: 2 documents resolved, 1 missing name refused");
+    }
 
     /// A hyphenated stem whose last word is not a language code is one document,
     /// not a translation of `cobol85-supported`.

@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.46] — 2026-10-01
+
+### Spec 080 T0.4 — `docs_embed::embedded_doc`
+
+The IDE can hand out one of the documents it embeds by exact file name
+(`embedded_doc("developers-guide-en.md")`), with no language fallback. The
+coding-agent kit will copy the Guide (718 064 bytes) and the supported-syntax
+document (71 369 bytes) from here, so the kit describes the binary that wrote
+it. New test `embedded_doc_resolves_the_kit_documents`; the `docs_embed`
+guards are as before (5 passed; `every_document_ships_in_every_language` is
+the known pre-existing red).
+
 ## [PowerRustCOBOL 1.80.45] — 2026-10-01
 
 ### Spec 080 T0.3 — a read-only manifest view and one re-seal rule
