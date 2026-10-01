@@ -175,6 +175,43 @@ pub fn read_designation(
     }))
 }
 
+/// The first project structure whose manifest records and seals the main-form
+/// designation. Mirrors the IDE's `project_upgrade::STRUCTURE_MAIN_FORM_SEAL`
+/// (an IDE test asserts the two agree); it lives here too because
+/// [`designation_record`] — the one seal rule — must know it without the IDE.
+pub const STRUCTURE_MAIN_FORM_SEAL: u32 = 1;
+
+/// What a manifest save must record as `[forms] main-form` and
+/// `main-form-seal`: the one re-seal rule, shared by the IDE's project save
+/// and by every other writer of a manifest (spec 080's headless tools), so it
+/// exists exactly once.
+///
+/// - `None` — a project of a structure older than
+///   [`STRUCTURE_MAIN_FORM_SEAL`]: leave its record exactly as it is. Sealing
+///   it would change its shape behind the developer's back; the IDE offers
+///   that upgrade instead.
+/// - `Some((main, seal))` — the designation read from the `.cfrm` files and
+///   its seal; **both empty** when there is nothing to designate or when two
+///   forms claim the mark, because a wrong seal that verifies is worse than
+///   none.
+pub fn designation_record(
+    structure: u32,
+    project_dir: Option<&Path>,
+    project_name: &str,
+    forms_rel: &[String],
+) -> Option<(String, String)> {
+    if structure < STRUCTURE_MAIN_FORM_SEAL {
+        return None;
+    }
+    match project_dir.map(|dir| read_designation(dir, forms_rel)) {
+        Some(Ok(Some(d))) => {
+            let s = seal(project_name, &d.main_form_id, &d.form_ids);
+            Some((d.main_form_id, s))
+        }
+        _ => Some((String::new(), String::new())),
+    }
+}
+
 /// What a runtime is allowed to do with a start request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StartVerdict {
@@ -462,5 +499,42 @@ mod tests {
             seal("Other", "SIGNON", &forms),
             "the project name is part of it"
         );
+    }
+
+    /// The one re-seal rule (spec 080 T0.3): older structures are left alone,
+    /// a single designation is recorded with a seal a runtime accepts, and a
+    /// double designation records nothing.
+    #[test]
+    fn designation_record_is_the_save_rule() {
+        let dir = tmp("record");
+        project(&dir, &["SIGNON", "MENU"], Some(0), false);
+        let rels = vec!["forms/SIGNON.cfrm".to_owned(), "forms/MENU.cfrm".to_owned()];
+
+        assert_eq!(
+            designation_record(0, Some(&dir), "Demo", &rels),
+            None,
+            "a structure-0 project is left as it is"
+        );
+        let (main, s) = designation_record(STRUCTURE_MAIN_FORM_SEAL, Some(&dir), "Demo", &rels)
+            .expect("a current project is recorded");
+        assert_eq!(main, "SIGNON");
+        let d = read_designation(&dir, &rels).unwrap().unwrap();
+        assert_eq!(s, seal("Demo", &d.main_form_id, &d.form_ids));
+
+        // Two forms claim the mark: nothing is recorded.
+        let mut menu = cobolt_forms::Form::new("MENU", "MENU", 800, 600);
+        menu.main_form = true;
+        cobolt_forms::save_form(&menu, &dir.join("forms/MENU.cfrm")).unwrap();
+        assert_eq!(
+            designation_record(STRUCTURE_MAIN_FORM_SEAL, Some(&dir), "Demo", &rels),
+            Some((String::new(), String::new())),
+            "a double designation records no seal"
+        );
+        assert_eq!(
+            designation_record(STRUCTURE_MAIN_FORM_SEAL, None, "Demo", &rels),
+            Some((String::new(), String::new())),
+            "no folder, nothing to designate"
+        );
+        println!("designation_record: 4 cases — legacy None, sealed SIGNON, double → empty, no dir → empty");
     }
 }

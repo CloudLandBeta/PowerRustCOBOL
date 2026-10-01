@@ -1460,28 +1460,18 @@ pub fn save_project(project: &CoboltProject, path: &Path) -> Result<(), ProjectE
     // A project of an OLDER structure is left as it is. Sealing it would be a
     // change to its shape that the developer never asked for; the IDE offers
     // that upgrade instead ([`crate::project_upgrade`]).
+    //
+    // The rule itself is `designation_record`, shared with every other writer
+    // of a manifest (spec 080's headless tools) so that it exists once.
     let mut project = project.clone();
-    if project.project.structure < crate::project_upgrade::STRUCTURE_MAIN_FORM_SEAL {
-        let text = toml::to_string_pretty(&project).map_err(|e| ProjectError::Toml(e.to_string()))?;
-        std::fs::write(path, text)?;
-        return Ok(());
-    }
-    match path
-        .parent()
-        .map(|dir| cobolt_compiler::main_form_guard::read_designation(dir, &project.files.forms))
-    {
-        Some(Ok(Some(d))) => {
-            project.forms.main_form_seal = cobolt_compiler::main_form_guard::seal(
-                &project.project.name,
-                &d.main_form_id,
-                &d.form_ids,
-            );
-            project.forms.main_form = d.main_form_id;
-        }
-        _ => {
-            project.forms.main_form.clear();
-            project.forms.main_form_seal.clear();
-        }
+    if let Some((main, seal)) = cobolt_compiler::main_form_guard::designation_record(
+        project.project.structure,
+        path.parent(),
+        &project.project.name,
+        &project.files.forms,
+    ) {
+        project.forms.main_form = main;
+        project.forms.main_form_seal = seal;
     }
     let text = toml::to_string_pretty(&project).map_err(|e| ProjectError::Toml(e.to_string()))?;
     std::fs::write(path, text)?;
@@ -1528,6 +1518,22 @@ mod main_form_seal_tests {
                 StartVerdict::Refused { .. }
             ),
             "and no other form does"
+        );
+    }
+
+    /// The seal rule lives in the compiler (`designation_record`) and needs the
+    /// structure number at which sealing begins; the IDE's upgrade table owns
+    /// that number. They must be the same number.
+    #[test]
+    fn the_seal_threshold_is_the_upgrade_tables() {
+        assert_eq!(
+            cobolt_compiler::main_form_guard::STRUCTURE_MAIN_FORM_SEAL,
+            crate::project_upgrade::STRUCTURE_MAIN_FORM_SEAL
+        );
+        println!(
+            "seal threshold: compiler {} = IDE upgrade table {}",
+            cobolt_compiler::main_form_guard::STRUCTURE_MAIN_FORM_SEAL,
+            crate::project_upgrade::STRUCTURE_MAIN_FORM_SEAL
         );
     }
 }

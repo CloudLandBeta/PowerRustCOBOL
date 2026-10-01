@@ -8,6 +8,25 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.45] — 2026-10-01
+
+### Spec 080 T0.3 — a read-only manifest view and one re-seal rule
+
+- `cobolt_compiler::project_manifest_view(manifest)` returns what a project
+  manifest says — name, structure, every file list including `indexed`, and
+  the lib names of its External Crates — for the coding-agent tools to read a
+  project without the IDE.
+- `cobolt_compiler::main_form_guard::designation_record(...)` is the rule an
+  IDE save applies to `[forms] main-form` / `main-form-seal`, lifted out of
+  `save_project`, which now calls it. The headless tools will call it too, so
+  the rule exists once. A project of an older structure is still left as it
+  is; a double designation still records nothing.
+
+No behaviour change. Tests: `the_manifest_view_reads_every_list`,
+`designation_record_is_the_save_rule` (compiler) and
+`the_seal_threshold_is_the_upgrade_tables` (IDE) are new; the existing seal
+tests and `cobolt-cli`'s `main_form_gate` (4 passed) are unchanged and green.
+
 ## [PowerRustCOBOL 1.80.44] — 2026-10-01
 
 ### Spec 080 T0.2 — `cobolt_compiler::system_documentation()`

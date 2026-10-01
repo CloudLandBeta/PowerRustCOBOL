@@ -75,7 +75,19 @@ criteria it serves, and how to verify it. Check off as completed.
     `cargo test -p cobolt-ide --bin cobolt-ide prebuilt_chunked_kb_matches_the_published_documentation`
     green with **no** change to `assets/knowledge/chunked.data`.
 
-- [ ] **T0.3 — Manifest view + one reseal rule in the compiler** (R11; prerequisite of T1.7)
+- [x] **T0.3 — Manifest view + one reseal rule in the compiler** (R11; prerequisite of T1.7)
+  - **Result (1.80.45):** `project_manifest_view` reads through its own
+    tolerant mirror (`ViewManifest`), like `main_form_guard`'s. **Deviation:**
+    `designation_record(structure, Option<&Path>, name, forms) ->
+    Option<(String, String)>` — `None` below `STRUCTURE_MAIN_FORM_SEAL` means
+    *leave the record as it is*, which is what `save_project` did (it never
+    cleared a legacy project's fields); an "empty pair" there would have
+    changed that. The threshold is mirrored as
+    `main_form_guard::STRUCTURE_MAIN_FORM_SEAL` (so `project_upgrade.rs` stays
+    out of this diff) and pinned equal by the IDE test
+    `the_seal_threshold_is_the_upgrade_tables`. Compiler `main_form`/`manifest_view`:
+    12 passed; IDE `main_form_seal_tests`: 2 passed; `cobolt-cli --test
+    main_form_gate`: 4 passed.
   - Read first: `cobolt-compiler/src/lib.rs:728-757, 868-921`;
     `main_form_guard.rs:88-185`; `cobolt-ide/src/project_model.rs:1449-1489`
     and its `main_form_seal_tests` (`1492-…`); `project_upgrade.rs:44-52`.

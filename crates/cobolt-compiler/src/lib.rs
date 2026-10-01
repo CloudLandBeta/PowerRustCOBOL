@@ -950,6 +950,69 @@ pub fn project_file_memory_limit(manifest_path: &Path) -> u64 {
         .saturating_mul(1024 * 1024)
 }
 
+/// What a project manifest says, read-only: its name, its structure number,
+/// the file lists it tracks and the lib names of its registered External
+/// Crates (spec 080 — the coding-agent tools read a project through this).
+///
+/// A view, never a writer: a tool that adds a file goes through the host,
+/// which re-seals the main-form designation the way an IDE save does.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ManifestView {
+    pub name: String,
+    /// `[project] structure` — 0 for a project older than the first numbered
+    /// shape.
+    pub structure: u32,
+    pub sources: Vec<String>,
+    pub forms: Vec<String>,
+    pub assets: Vec<String>,
+    pub documentation: Vec<String>,
+    pub generated: Vec<String>,
+    pub indexed: Vec<String>,
+    /// `[[crates]]` lib names (`ExternalCrate::lib_name`), in manifest order.
+    pub crates: Vec<String>,
+}
+
+/// The manifest subset [`project_manifest_view`] reads. Its own mirror, like
+/// `main_form_guard`'s, so the build's fields cannot change what a view
+/// accepts — a manifest the build cannot parse may still be viewable.
+#[derive(Deserialize)]
+struct ViewManifest {
+    project: ViewMeta,
+    #[serde(default)]
+    files: ProjectFiles,
+    #[serde(default)]
+    crates: Vec<ExternalCrate>,
+}
+
+#[derive(Deserialize)]
+struct ViewMeta {
+    name: String,
+    #[serde(default)]
+    structure: u32,
+}
+
+/// Read `manifest_path` into a [`ManifestView`]. Public in the style of
+/// [`project_file_memory_limit`]: the manifest's type stays private, and
+/// callers outside the crate get the one answer they need. `Err` names why the
+/// manifest could not be read or parsed.
+pub fn project_manifest_view(manifest_path: &Path) -> Result<ManifestView, String> {
+    let text = std::fs::read_to_string(manifest_path)
+        .map_err(|e| format!("the project file cannot be read ({e})"))?;
+    let m: ViewManifest = toml::from_str(&text)
+        .map_err(|e| format!("the project file cannot be parsed ({e})"))?;
+    Ok(ManifestView {
+        name: m.project.name,
+        structure: m.project.structure,
+        sources: m.files.sources,
+        forms: m.files.forms,
+        assets: m.files.assets,
+        documentation: m.files.documentation,
+        generated: m.files.generated,
+        indexed: m.files.indexed,
+        crates: m.crates.iter().map(ExternalCrate::lib_name).collect(),
+    })
+}
+
 /// `[rag]` in the project manifest (spec 068).
 #[derive(Debug, Clone, Default, Deserialize)]
 struct RagConfig {
@@ -8394,6 +8457,41 @@ mod resolve_main_tests {
             "neumorphic", "none:600:ease-out", "none:600:ease-out", false, "{}", 64,
         );
         assert!(empty.contains(r#"const PROJECT_CONNECTIONS: &str = "{}";"#));
+    }
+
+    /// Spec 080 T0.3 — the read-only manifest view: name, structure, every
+    /// file list (indexed included) and the crates' lib names; an unreadable
+    /// or unparseable manifest is an `Err` naming why.
+    #[test]
+    fn the_manifest_view_reads_every_list() {
+        let dir = std::env::temp_dir().join(format!("prc-080-view-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest = dir.join("Demo.project.toml");
+        std::fs::write(
+            &manifest,
+            "[project]\nname = \"Demo\"\nstructure = 1\nversion = \"1.0.0\"\nmain = \"src/main.cbl\"\n\
+             [files]\nsources = [\"src/main.cbl\"]\nforms = [\"forms/A.cfrm\", \"forms/B.cfrm\"]\n\
+             assets = [\"assets/a.png\"]\ndocumentation = [\"docs/r.md\"]\n\
+             generated = [\"generated/A.cbl\"]\nindexed = [\"indexed/actors.cidx\"]\n\
+             [unknown]\nkept = true\n\
+             [[crates]]\nname = \"serde-json\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+        let v = project_manifest_view(&manifest).expect("view");
+        assert_eq!(v.name, "Demo");
+        assert_eq!(v.structure, 1);
+        assert_eq!(v.sources, ["src/main.cbl"]);
+        assert_eq!(v.forms, ["forms/A.cfrm", "forms/B.cfrm"]);
+        assert_eq!(v.assets, ["assets/a.png"]);
+        assert_eq!(v.documentation, ["docs/r.md"]);
+        assert_eq!(v.generated, ["generated/A.cbl"]);
+        assert_eq!(v.indexed, ["indexed/actors.cidx"]);
+        assert_eq!(v.crates, ["serde_json"]);
+        assert!(project_manifest_view(&dir.join("missing.toml")).is_err());
+        std::fs::write(&manifest, "not = [toml").unwrap();
+        assert!(project_manifest_view(&manifest).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+        println!("manifest view: 9 fields read, 2 failure cases (missing, unparseable) are Err");
     }
 
     /// Spec 075 T2 — `[agents] file_memory_limit_mb` is read from the
