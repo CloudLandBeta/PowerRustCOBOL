@@ -22,6 +22,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 - [x] T8 — Designer canvas test, matching the host fixture (AC10).
 - [x] T9 — KB prose, `chunked.data` regenerated, and the Guide section
   (R16, R17).
-- [ ] T10 — AC8, the collision ceiling under style 1, and switching
-  `size_limits_of` to `lays_out()`. This waits for `fixes` (1.80.33) and
-  `features` to meet on `main`.
+- [x] T10 — AC8: `size_limits_of` uses `lays_out()`, so a scaling form takes
+  the collision limits even with `Responsive` off. Under style 1, two buttons
+  20 px apart stop the window at 499 (they meet at 500); under style 3 there
+  is no ceiling. Done in 1.80.38, after `fixes` and `features` met on `main`.

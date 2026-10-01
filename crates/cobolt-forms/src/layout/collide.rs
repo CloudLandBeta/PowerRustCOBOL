@@ -252,10 +252,11 @@ impl SizeLimits {
     }
 }
 
-/// [`window_size_limits`] for a form, or `None` for a form that is not
-/// responsive (its window keeps no limits, as before).
+/// [`window_size_limits`] for a form the engine lays out — responsive, or with
+/// an obsolete scaling style (spec 081) — or `None` for one it does not (its
+/// window keeps no limits, as before).
 pub fn size_limits_of(form: &crate::model::Form) -> Option<SizeLimits> {
-    form.responsive.then(|| {
+    form.lays_out().then(|| {
         window_size_limits(
             &form.controls,
             (form.width as f32, form.height as f32),
@@ -478,6 +479,38 @@ mod tests {
         let l = limits(&[outside, hidden], (800.0, 600.0));
         let floor = crate::layout::window_min_size(&[], (800.0, 600.0), &BTreeMap::new(), &[]);
         assert_eq!(l.min, floor);
+    }
+
+    /// Spec 081 AC8 — the limits follow an obsolete scaling style. Two buttons
+    /// 20 px apart in a row of a 400 × 300 form, A at 20..100 and B at
+    /// 120..200:
+    /// * style 1 (resize only): positions stay, widths grow by the width
+    ///   ratio, so A's right edge 20 + 80·rx meets B at 120 when rx = 1.25 —
+    ///   a 500-wide window. That is the ceiling;
+    /// * style 3 (resize and reposition): the gap grows with the window too,
+    ///   so they never meet — no ceiling;
+    /// and a form that is NOT responsive but carries a style gets them.
+    #[test]
+    fn an_obsolete_scaling_style_takes_the_collision_limits_081() {
+        let a = ctrl("A", ControlType::Button, (20, 20, 80, 30), None);
+        let b = ctrl("B", ControlType::Button, (120, 20, 80, 30), None);
+        let style = |v: i64| BTreeMap::from([("ObsoleteScalingStyle".to_owned(), PropValue::Int(v))]);
+        let resize = window_size_limits(&[a.clone(), b.clone()], (400.0, 300.0), &style(1), &[]);
+        assert!((resize.max.0 - 499.0).abs() <= 1.0, "style 1 ceiling {:?}", resize.max);
+        let both = window_size_limits(&[a.clone(), b.clone()], (400.0, 300.0), &style(3), &[]);
+        assert!(both.max.0.is_infinite() && both.max.1.is_infinite(), "style 3: {both:?}");
+
+        let mut form = crate::model::Form::new("F", "F", 400, 300);
+        form.controls = vec![a, b];
+        assert!(size_limits_of(&form).is_none(), "neither responsive nor scaling: no limits");
+        form.layout.insert("ObsoleteScalingStyle".into(), PropValue::Int(1));
+        assert!(!form.responsive);
+        let l = size_limits_of(&form).expect("a scaling form is laid out, so it has limits");
+        assert!((l.max.0 - 499.0).abs() <= 1.0, "{l:?}");
+        println!(
+            "081 AC8: buttons 20 px apart, 400 wide — style 1 ceiling {:.0} (they meet at 500), style 3 ceiling ∞; non-responsive style-1 form limited too",
+            resize.max.0
+        );
     }
 
     /// Controls that touch or overlap in the design (a label on its card, a

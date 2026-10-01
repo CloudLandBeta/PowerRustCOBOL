@@ -1449,6 +1449,27 @@ looked like it worked in one case and failed in the other.
 **Tests.** `crates/cobolt-forms/tests/set_focus_moves_the_keyboard_focus.rs`
 has 4 tests. All 4 fail without the renderer change.
 
+## [PowerRustCOBOL 1.80.38] — 2026-10-01
+
+### Obsolete scaling style takes the collision limits (spec 081 AC8)
+
+The last open item of spec 081. It could not be done until the 1.80.33
+collision limits and the 1.80.35 scaling style met on `main`.
+
+`layout::size_limits_of` now gates on `Form::lays_out()` instead of
+`form.responsive`. A form with an obsolete scaling style is laid out even
+with `Responsive` off, so its window, and the designer's grip, now stop where
+two controls that are apart in the design would touch.
+
+- **Style 1 (resize only):** positions stay and widths grow, so neighbours
+  can meet. Two buttons 20 px apart in a 400-wide form stop the window at
+  499; they meet at 500.
+- **Style 3 (resize and reposition):** gaps grow with the window, so there
+  is no ceiling.
+
+Test: `an_obsolete_scaling_style_takes_the_collision_limits_081`, which
+covers both styles and a non-responsive form.
+
 ## [PowerRustCOBOL 1.80.37] — 2026-10-01
 
 ### Fix: one indexed format on disk, and a MEMORY file without PERSISTENCE is read-only

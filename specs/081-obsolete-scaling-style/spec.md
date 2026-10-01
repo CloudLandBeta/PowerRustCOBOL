@@ -255,7 +255,5 @@ All use a form designed **400 × 300**, with a Button at (100, 50, 80, 30),
   keeps that placement (R5, with the default-anchor reading above).
 - **Q4 — Font ratio:** `min(rx, ry)`.
 - **Q5 — Aspect ratio:** no "keep proportions" option now.
-- **Deferred:** AC8 (the collision ceiling under style 1). The collision
-  limits (1.80.33) are on `fixes`, and `features` cannot take them until both
-  are merged into `main`. When they meet, `layout::size_limits_of` must also
-  switch from `form.responsive` to `form.lays_out()`, and AC8 gets its test.
+- **AC8:** done in 1.80.38, once the collision limits (1.80.33) and this
+  feature met on `main`. `layout::size_limits_of` now uses `form.lays_out()`.
