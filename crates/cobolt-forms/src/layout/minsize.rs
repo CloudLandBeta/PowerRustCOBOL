@@ -15,7 +15,7 @@
 use crate::layout::limits::clamp;
 use crate::layout::props::{self, Dock, FormBag, PropSource};
 use crate::layout::{flex, grid, LayoutMode};
-use crate::layout::{designed_rect, lays_out_children, AxisPlace, Insets, LayoutInput, Tree};
+use crate::layout::{designed_rect, lays_out_children, page_sets, AxisPlace, Insets, LayoutInput, Tree};
 use crate::model::Control;
 
 /// The smallest size the whole form lays out for.
@@ -34,7 +34,8 @@ pub(crate) fn form_min(input: &LayoutInput<'_>, tree: &Tree) -> (f32, f32) {
 }
 
 /// What a container's client area must hold: `designed_client` is its client
-/// extent at the designed size.
+/// extent at the designed size. A TabControl's pages are laid out apart, each
+/// in the whole client, so it must hold its largest page.
 fn client_min(
     input: &LayoutInput<'_>,
     tree: &Tree,
@@ -42,12 +43,30 @@ fn client_min(
     src: &dyn PropSource,
     designed_client: (f32, f32),
 ) -> (f32, f32) {
-    let kids: Vec<&Control> = tree
+    let visual: Vec<usize> = tree
         .children(parent)
         .iter()
-        .map(|&i| &input.controls[i])
-        .filter(|c| !c.control_type.is_non_visual())
+        .copied()
+        .filter(|&i| !input.controls[i].control_type.is_non_visual())
         .collect();
+    page_sets(input.controls, parent, &visual)
+        .iter()
+        .map(|set| {
+            let kids: Vec<&Control> = set.iter().map(|&i| &input.controls[i]).collect();
+            set_min(input, tree, src, designed_client, &kids)
+        })
+        .fold((0.0f32, 0.0f32), |a, b| (a.0.max(b.0), a.1.max(b.1)))
+}
+
+/// What one sibling set — all of a container's children, or one page's —
+/// needs of the client area.
+fn set_min(
+    input: &LayoutInput<'_>,
+    tree: &Tree,
+    src: &dyn PropSource,
+    designed_client: (f32, f32),
+    kids: &[&Control],
+) -> (f32, f32) {
 
     // A flex, flow or grid container: what its items need at their minimums.
     let mode = props::layout_mode(src);
@@ -95,7 +114,7 @@ fn client_min(
     // Spec 081 — a control scaled with the window shrinks by the parent's
     // ratio: the parent may not shrink it below its own minimum either.
     let scaling = crate::layout::scale::style(&FormBag(input.form_props));
-    for c in &kids {
+    for c in kids {
         if props::dock(c) != Dock::None {
             continue;
         }

@@ -2146,11 +2146,11 @@ meet too:
   sum of its items' heights. Keep long wrapping lists inside a Grid cell with
   a `MinMax(…)` row, which bounds the height.
 
-> ⚠️ **Caveat.** Inside a TabControl, do not dock a control on one page to
-> fill the page. Docking treats the controls of all pages as one set, so the
-> first page's `Dock = Fill` takes the space of the pages after it. Anchor a
-> page's container to all four edges instead (`Top,Bottom,Left,Right`), as
-> the flex and grid demos do.
+> **Note.** Each page of a TabControl is laid out on its own, in the whole
+> page area: a `Dock = Fill` on one page fills that page and takes nothing
+> from the others, and a TabControl whose `LayoutMode` is Flex, Grid or Flow
+> arranges each page's controls separately. Its minimum size is that of its
+> largest page.
 
 ### Target devices
 

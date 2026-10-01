@@ -25,7 +25,7 @@
 use std::collections::BTreeMap;
 
 use crate::layout::breakpoints::Breakpoint;
-use crate::layout::{solve, LRect, LayoutInput};
+use crate::layout::{same_layout_set, solve, LRect, LayoutInput};
 use crate::model::{Control, PropValue};
 
 use crate::layout::defaults::{
@@ -45,7 +45,8 @@ pub struct SizeLimits {
 }
 
 /// The pairs of visible sibling controls that are apart at the designed size
-/// — the ones that must stay apart.
+/// — the ones that must stay apart. Controls on different pages of a
+/// TabControl are never on screen together, so they are not siblings here.
 fn apart_pairs(controls: &[Control], rects: &std::collections::HashMap<String, LRect>, hidden: &std::collections::HashSet<String>) -> Vec<(String, String)> {
     let shown: Vec<&Control> = controls
         .iter()
@@ -54,7 +55,7 @@ fn apart_pairs(controls: &[Control], rects: &std::collections::HashMap<String, L
     let mut pairs = Vec::new();
     for (i, a) in shown.iter().enumerate() {
         for b in shown.iter().skip(i + 1) {
-            if a.parent == b.parent && !touching(&rects[&a.id], &rects[&b.id]) {
+            if same_layout_set(controls, a, b) && !touching(&rects[&a.id], &rects[&b.id]) {
                 pairs.push((a.id.clone(), b.id.clone()));
             }
         }
@@ -314,6 +315,28 @@ mod tests {
         button.properties.insert("Anchor".into(), PropValue::String("Top,Left".into()));
         let b = cache.get(&[field, button], (420.0, 200.0), &none, &[]);
         assert!(a.min.0 > b.min.0, "a Left button no longer limits the width: {a:?} → {b:?}");
+    }
+
+    /// Two controls on different pages of a TabControl are never on screen
+    /// together: a `Left` field on page 0 and a `Right` button on page 1 limit
+    /// nothing; the same pair on one page stops the window where they meet.
+    #[test]
+    fn controls_on_different_tab_pages_never_collide() {
+        let s = |v: &str| PropValue::String(v.into());
+        let tabs = with(ctrl("K", ControlType::TabControl, (0, 0, 420, 200), None), "Anchor", s("Top,Bottom,Left,Right"));
+        let tabs = with(tabs, "Tabs", s("One\nTwo"));
+        let y = tabs.content_rect().y + 10;
+        let mut f = with(ctrl("F", ControlType::TextBox, (20, y, 200, 30), Some("K")), "Anchor", s("Top,Left"));
+        let mut b = with(ctrl("B", ControlType::Button, (300, y, 100, 30), Some("K")), "Anchor", s("Top,Right"));
+        f.tab = Some(0);
+        b.tab = Some(1);
+        let apart = limits(&[tabs.clone(), f.clone(), b.clone()], (420.0, 200.0));
+        let floor = crate::layout::window_min_size(&[], (420.0, 200.0), &BTreeMap::new(), &[]);
+        assert_eq!(apart.min, floor, "different pages: {apart:?}");
+        b.tab = Some(0);
+        let together = limits(&[tabs, f, b], (420.0, 200.0));
+        assert!(together.min.0 > 300.0, "same page: {together:?}");
+        println!("tab pages: floor {:?} apart, {:?} on one page", apart.min, together.min);
     }
 
     /// Controls that touch or overlap in the design (a label on its card, a

@@ -295,6 +295,51 @@ pub(crate) fn lays_out_children(c: &Control) -> bool {
     c.is_container() && !is_repeating_template(c)
 }
 
+/// The TabControl `parent` is, or `None` for the form or any other parent.
+fn tab_control<'c>(controls: &'c [Control], parent: Option<&str>) -> Option<&'c Control> {
+    let p = parent?;
+    controls
+        .iter()
+        .find(|c| c.id == p)
+        .filter(|c| c.control_type == ControlType::TabControl)
+}
+
+/// A TabControl child's page: its `tab`, page 0 when unset.
+pub(crate) fn page_of(c: &Control) -> u32 {
+    c.tab.unwrap_or(0)
+}
+
+/// The sibling sets `parent`'s children `kids` lay out as: one per page of a
+/// TabControl, each page alone in the whole client area — a page's docks,
+/// anchors, flex, grid and flow never see another page's controls — and one
+/// set of all of them for any other parent. In the order given, per set.
+pub(crate) fn page_sets(controls: &[Control], parent: Option<&str>, kids: &[usize]) -> Vec<Vec<usize>> {
+    if tab_control(controls, parent).is_none() {
+        return vec![kids.to_vec()];
+    }
+    let mut pages: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+    for &i in kids {
+        pages.entry(page_of(&controls[i])).or_default().push(i);
+    }
+    pages.into_values().collect()
+}
+
+/// Whether `a` and `b` are laid out in the same sibling set: the same
+/// parent and, under a TabControl, the same page.
+pub(crate) fn same_layout_set(controls: &[Control], a: &Control, b: &Control) -> bool {
+    a.parent == b.parent && (tab_control(controls, a.parent.as_deref()).is_none() || page_of(a) == page_of(b))
+}
+
+/// Whether `c` is on the page its parent shows at the designed state
+/// (`SelectedTab`) — always, for a parent that is not a TabControl. The
+/// designer's grid track lines are that page's.
+fn shown_page(controls: &[Control], parent: Option<&str>, c: &Control) -> bool {
+    tab_control(controls, parent).is_none_or(|t| {
+        let sel = t.get_prop("SelectedTab").map(|v| v.as_i64()).unwrap_or(0).max(0);
+        page_of(c) as i64 == sel
+    })
+}
+
 /// A control's designed rectangle as it enters layout: the `.cfrm` rect, at
 /// the size `AutoSize` measured when it did.
 pub(crate) fn designed_rect(input: &LayoutInput<'_>, c: &Control) -> LRect {
@@ -451,8 +496,67 @@ fn place_children(
         }
     }
 
+    // A TabControl's pages are separate layout sets, each in the whole
+    // client: a page's docks, anchors and items never see another page's.
+    let mut content: Option<(f32, f32)> = None;
+    for set in page_sets(input.controls, parent, &visual) {
+        let tracks = set.first().is_none_or(|&i| shown_page(input.controls, parent, &input.controls[i]));
+        if let Some((w, h)) = place_set(input, parent, src, mode, &set, designed_client, client, tracks, out) {
+            let (cw, ch) = content.unwrap_or((0.0, 0.0));
+            content = Some((cw.max(w), ch.max(h)));
+        }
+    }
+
+    for &i in &visual {
+        let c = &input.controls[i];
+        if tree.children(Some(&c.id)).is_empty() {
+            continue;
+        }
+        let laid = out.rects[&c.id];
+        if lays_out_children(c) {
+            let dclient = client_of(c, designed_rect(input, c));
+            let lclient = client_of(c, laid);
+            let cmode = props::layout_mode(c);
+            out.containers.insert(
+                c.id.clone(),
+                ContainerGeom {
+                    mode: cmode,
+                    designed_client: dclient,
+                    client: lclient,
+                    columns: Vec::new(),
+                    rows: Vec::new(),
+                    gaps: (0.0, 0.0),
+                },
+            );
+            place_children(input, tree, Some(&c.id), c, cmode, dclient, lclient, out);
+        } else if c.control_type == ControlType::Splitter {
+            carry_splitter(input, tree, c, designed_rect(input, c), laid, out);
+        } else {
+            let d = designed_rect(input, c);
+            carry_rigidly(input, tree, &c.id, laid.x - d.x, laid.y - d.y, out);
+        }
+    }
+    content
+}
+
+/// Place one sibling set of `parent`'s visual children — all of them, or one
+/// TabControl page's — inside the client rectangle: by its flex, grid or flow
+/// layout, or by docking and anchoring. `tracks` records a grid's tracks for
+/// the designer. Returns what a flex, grid or flow set needs.
+#[allow(clippy::too_many_arguments)]
+fn place_set(
+    input: &LayoutInput<'_>,
+    parent: Option<&str>,
+    src: &dyn PropSource,
+    mode: LayoutMode,
+    visual: &[usize],
+    designed_client: LRect,
+    client: LRect,
+    tracks: bool,
+    out: &mut LayoutOutput,
+) -> Option<(f32, f32)> {
     // A flex, grid or flow container places its children itself (R50).
-    let content = (mode != LayoutMode::Absolute).then(|| place_items(input, parent, src, mode, &visual, client, out));
+    let content = (mode != LayoutMode::Absolute).then(|| place_items(input, parent, src, mode, visual, client, tracks, out));
     // Spec 081 — on a scaling form, every control the developer did not
     // anchor or dock on purpose follows the window ratio.
     let scaling = scale::style(&FormBag(input.form_props));
@@ -461,7 +565,7 @@ fn place_children(
     // Docked controls first, in z-order, each taking an edge of what remains
     // (R12); every other control is anchored against the FULL client rect
     // (R14).
-    let docked: Vec<(usize, Dock)> = if content.is_some() { Vec::new() } else { visual.clone() }
+    let docked: Vec<(usize, Dock)> = if content.is_some() { Vec::new() } else { visual.to_vec() }
         .into_iter()
         .map(|i| (i, props::dock(&input.controls[i])))
         .filter(|(_, d)| *d != Dock::None)
@@ -483,7 +587,7 @@ fn place_children(
         out.rects.insert(c.id.clone(), r);
         out.placement.insert(c.id.clone(), Placement::Docked(*d));
     }
-    for &i in &visual {
+    for &i in visual {
         let c = &input.controls[i];
         // Placed above, by its dock or its flex/grid/flow parent.
         if content.is_some() || docked.iter().any(|(d, _)| *d == i) {
@@ -524,36 +628,6 @@ fn place_children(
             },
         );
     }
-
-    for &i in &visual {
-        let c = &input.controls[i];
-        if tree.children(Some(&c.id)).is_empty() {
-            continue;
-        }
-        let laid = out.rects[&c.id];
-        if lays_out_children(c) {
-            let dclient = client_of(c, designed_rect(input, c));
-            let lclient = client_of(c, laid);
-            let cmode = props::layout_mode(c);
-            out.containers.insert(
-                c.id.clone(),
-                ContainerGeom {
-                    mode: cmode,
-                    designed_client: dclient,
-                    client: lclient,
-                    columns: Vec::new(),
-                    rows: Vec::new(),
-                    gaps: (0.0, 0.0),
-                },
-            );
-            place_children(input, tree, Some(&c.id), c, cmode, dclient, lclient, out);
-        } else if c.control_type == ControlType::Splitter {
-            carry_splitter(input, tree, c, designed_rect(input, c), laid, out);
-        } else {
-            let d = designed_rect(input, c);
-            carry_rigidly(input, tree, &c.id, laid.x - d.x, laid.y - d.y, out);
-        }
-    }
     content
 }
 
@@ -569,6 +643,7 @@ fn place_items(
     mode: LayoutMode,
     kids: &[usize],
     client: LRect,
+    tracks: bool,
     out: &mut LayoutOutput,
 ) -> (f32, f32) {
     let flex_c = match mode {
@@ -592,7 +667,7 @@ fn place_items(
             let g = grid::container(src);
             let items: Vec<grid::Item> = order.iter().map(|&i| grid::item(&input.controls[i], size(i))).collect();
             let s = grid::solve(&g, &items, client);
-            if let Some(geom) = parent.and_then(|p| out.containers.get_mut(p)) {
+            if let Some(geom) = parent.filter(|_| tracks).and_then(|p| out.containers.get_mut(p)) {
                 geom.columns = s.columns.clone();
                 geom.rows = s.rows.clone();
                 geom.gaps = (g.column_gap, g.row_gap);
@@ -970,6 +1045,52 @@ mod tests {
             assert_eq!(o.containers["K"].client, LRect::from_model(l));
         }
         println!("containers: {} (TabControl ×4 positions, GroupBox, Panel) place their child inside the laid-out client less padding", cases.len());
+    }
+
+    /// Each page of a TabControl is its own layout set: a `Fill` Panel on
+    /// page 0 and another on page 1 both take the WHOLE client area (they
+    /// used to share one docking space, so page 1's got 0 × 0); a `Flex`
+    /// column TabControl starts every page's items at the client's top; and
+    /// the form minimum takes the largest page, not the sum of the pages.
+    #[test]
+    fn every_tab_page_is_its_own_layout_set() {
+        let s = |v: &str| PropValue::String(v.into());
+        let tabs = |id: &str| {
+            let t = with(ctrl(id, ControlType::TabControl, (0, 0, 400, 300), None), "Dock", s("Fill"));
+            with(t, "Tabs", s("One\nTwo"))
+        };
+        let page = |mut c: Control, n: u32, z: i32| {
+            c.tab = Some(n);
+            c.z_order = z;
+            c
+        };
+        let k = tabs("K");
+        let d = k.content_rect();
+        let a = page(with(ctrl("A", ControlType::Panel, (d.x, d.y, 50, 50), Some("K")), "Dock", s("Fill")), 0, 1);
+        let b = page(with(ctrl("B", ControlType::Panel, (d.x, d.y, 50, 50), Some("K")), "Dock", s("Fill")), 1, 2);
+        let o = solve_at(&[k, a, b], (400.0, 300.0), (600.0, 500.0));
+        let kc = o.containers["K"].client;
+        let full = (kc.x, kc.y, kc.w, kc.h);
+        assert!(kc.w > 0.0 && kc.h > 0.0);
+        assert_eq!((r(&o, "A"), r(&o, "B")), (full, full), "both pages fill the client");
+
+        // Flex column: page 1's first item starts at the top, not below page 0's.
+        let k = with(with(tabs("K"), "LayoutMode", s("Flex")), "FlexDirection", s("Column"));
+        let i0 = page(ctrl("I0", ControlType::Button, (d.x, d.y, 80, 40), Some("K")), 0, 1);
+        let i1 = page(ctrl("I1", ControlType::Button, (d.x, d.y + 40, 80, 40), Some("K")), 1, 2);
+        let o = solve_at(&[k, i0, i1], (400.0, 300.0), (400.0, 300.0));
+        let kc = o.containers["K"].client;
+        assert_eq!((r(&o, "I0").1, r(&o, "I1").1), (kc.y, kc.y), "every page starts at the top");
+
+        // The minimum is the largest page: two 300-wide Left docks on
+        // different pages need 300, not 600.
+        let k = tabs("K");
+        let frame = Insets::between(k.rect, k.content_rect());
+        let l0 = page(with(with(ctrl("L0", ControlType::Panel, (d.x, d.y, 300, 50), Some("K")), "Dock", s("Left")), "MinHeight", PropValue::Int(10)), 0, 1);
+        let l1 = page(with(with(ctrl("L1", ControlType::Panel, (d.x, d.y, 300, 50), Some("K")), "Dock", s("Left")), "MinHeight", PropValue::Int(10)), 1, 2);
+        let o = solve_at(&[k, l0, l1], (400.0, 300.0), (100.0, 100.0));
+        assert_eq!(o.min_size.0, (300.0 + frame.horizontal()).max(defaults::MIN_FORM_WIDTH as f32));
+        println!("tab pages: Fill on page 0 and page 1 both {full:?}; flex pages start at y {}; minimum width {}", kc.y, o.min_size.0);
     }
 
     #[test]

@@ -8,6 +8,42 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.49] — 2026-10-01
+
+### Fix: each TabControl page is its own layout set
+
+**Defect.** On a responsive form, the controls of every page of a TabControl
+were laid out as one sibling set. A `Dock = Fill` panel on page 0 took the
+whole client area and a `Fill` panel on page 1 got 0 × 0. A Flex, Grid or
+Flow TabControl arranged all pages' controls as one list, so page 1's items
+started after page 0's. The form minimum added the pages' docks together, and
+the window's collision limits paired controls from different pages, which are
+never on screen together.
+
+**Root cause.** `layout::place_children` (`crates/cobolt-forms/src/layout/mod.rs`)
+and `minsize::client_min` took a container's children from `Tree::children`
+without reading their `tab` page. `collide::apart_pairs` paired any two
+children with the same `parent`.
+
+**Fix.** `layout::page_sets` splits a TabControl's children by page (`tab`,
+page 0 when unset); any other parent keeps one set. Docking, anchoring, flex,
+grid and flow run per set, each in the whole client rectangle (the new
+`place_set`). `minsize::client_min` computes each page's need and takes the
+largest. `collide` pairs only controls in the same set (`same_layout_set`). A
+grid TabControl records the `SelectedTab` page's tracks for the designer.
+
+**Tests.** `layout::tests::every_tab_page_is_its_own_layout_set` covers three
+cases: `Fill` on pages 0 and 1 are both full size, a Flex column starts each
+page at the top, and two 300-wide `Left` docks on two pages need 300, not 600.
+`layout::collide::tests::controls_on_different_tab_pages_never_collide` checks
+the collision limits. Both fail with the fix disabled: page 1's panel was
+(2, 30, 0, 0), and the window floor was 341 instead of 64. The 056 corpus
+goldens for engine, host and codegen are unchanged.
+
+**Guide.** The "⚠️ Caveat" in *Responsive examples in PowerDemo3*, which said
+docking treats all pages as one set, is replaced by a Note describing the
+per-page layout.
+
 ## [PowerRustCOBOL 1.80.48] — 2026-10-01
 
 ### Fix: a StatusBar on a modern form is readable
