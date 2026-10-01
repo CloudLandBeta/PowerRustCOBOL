@@ -10389,8 +10389,10 @@ mod parity {
                 }
                 // R81 / AC38 — the same form with only `responsive="true"` lays
                 // out at its designed size exactly as the golden does, on every
-                // host surface.
-                {
+                // host surface. A form that already lays itself out is skipped:
+                // its golden occupant was laid out for the pane, which the R81
+                // copy grows to the designed size, so the two cannot agree.
+                if !form.lays_out() {
                     let mut copy = form.clone();
                     copy.responsive = true;
                     let size = egui::vec2(

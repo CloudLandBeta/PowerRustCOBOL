@@ -2809,16 +2809,18 @@ Actor Caption:string</Property>
                 }
             }
         }
-        assert_eq!(checked, 62);
+        assert_eq!(checked, 74);
         println!("056 T2.3: {checked} example forms load → save → load byte-identical");
     }
 
-        /// No example form uses responsive design, so none may gain a byte of it
-    /// on save (R63, R87).
+    /// An example form that does not use responsive design must not gain a
+    /// byte of it on save (R63, R87). The forms written responsive on purpose
+    /// - PowerDemo3's responsive demos - are counted and skipped.
     #[test]
     fn no_example_form_gains_responsive_markup_on_save_056() {
         let repo = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples");
         let mut checked = 0;
+        let mut designed_responsive = 0;
         for project in ["PowerDemo3", "PowerChat"] {
             let mut stack = vec![repo.join(project).join("forms")];
             while let Some(d) = stack.pop() {
@@ -2827,6 +2829,11 @@ Actor Caption:string</Property>
                     if p.is_dir() {
                         stack.push(p);
                     } else if p.extension().and_then(|x| x.to_str()) == Some("cfrm") {
+                        let source = std::fs::read_to_string(&p).unwrap();
+                        if ["responsive=", "<FormLayout", "<Breakpoints"].iter().any(|t| source.contains(t)) {
+                            designed_responsive += 1;
+                            continue;
+                        }
                         let form = load_form(&p).unwrap();
                         assert!(!form.responsive && form.layout.is_empty(), "{}", p.display());
                         let xml = form_to_string(&form).unwrap();
@@ -2839,7 +2846,8 @@ Actor Caption:string</Property>
             }
         }
         assert_eq!(checked, 62);
-        println!("056 T2.1: {checked} example forms load non-responsive and save without responsive markup");
+        assert_eq!(designed_responsive, 12, "PowerDemo3's responsive demos");
+        println!("056 T2.1: {checked} example forms load non-responsive and save without responsive markup; {designed_responsive} responsive by design skipped");
     }
 
     #[test]

@@ -1,0 +1,1684 @@
+# PowerDemo3/General/responsive-flex-form.cfrm
+## Canvas 0.75x 900x585
+AI-1 rect=- font=13
+AI-1-C-1 rect=- font=13
+AI-1-C-2 rect=- font=13
+AI-1-C-3 rect=- font=13
+AI-2 rect=- font=13
+AI-2-C-1 rect=- font=13
+AI-2-C-2 rect=- font=13
+AI-2-C-3 rect=- font=13
+AI-3 rect=- font=13
+AI-3-C-1 rect=- font=13
+AI-3-C-2 rect=- font=13
+AI-3-C-3 rect=- font=13
+AI-4 rect=- font=13
+AI-4-C-1 rect=- font=13
+AI-4-C-2 rect=- font=13
+AI-4-C-3 rect=- font=13
+AI-5 rect=- font=13
+AI-5-C-1 rect=- font=13
+AI-5-C-2 rect=- font=13
+AI-5-C-3 rect=- font=13
+AI-5-C-4 rect=- font=13
+AI-6 rect=- font=13
+AI-6-C-1 rect=- font=13
+AI-6-C-2 rect=- font=13
+AI-6-C-3 rect=- font=13
+FD-1 rect=[40 127 444 326] font=13
+FD-1-C-1 rect=[52 139 124 179] font=13
+FD-1-C-2 rect=[132 139 204 179] font=13
+FD-1-C-3 rect=[212 139 284 179] font=13
+FD-1-C-4 rect=[292 139 364 179] font=13
+FD-2 rect=[456 127 860 326] font=13
+FD-2-C-1 rect=[536 139 608 179] font=13
+FD-2-C-2 rect=[616 139 688 179] font=13
+FD-2-C-3 rect=[696 139 768 179] font=13
+FD-2-C-4 rect=[776 139 848 179] font=13
+FD-3 rect=[40 338 444 537] font=13
+FD-3-C-1 rect=[52 350 124 388] font=13
+FD-3-C-2 rect=[52 396 124 434] font=13
+FD-3-C-3 rect=[52 442 124 480] font=13
+FD-3-C-4 rect=[52 487 124 525] font=13
+FD-4 rect=[456 338 860 537] font=13
+FD-4-C-1 rect=[468 487 540 525] font=13
+FD-4-C-2 rect=[468 442 540 480] font=13
+FD-4-C-3 rect=[468 396 540 434] font=13
+FD-4-C-4 rect=[468 350 540 388] font=13
+GS-1 rect=- font=13
+GS-1-C-1 rect=- font=13
+GS-1-C-2 rect=- font=13
+GS-1-C-3 rect=- font=13
+GS-1-C-4 rect=- font=13
+GS-2 rect=- font=13
+GS-2-C-1 rect=- font=13
+GS-2-C-2 rect=- font=13
+GS-2-C-3 rect=- font=13
+GS-3 rect=- font=13
+GS-3-C-1 rect=- font=13
+GS-3-C-2 rect=- font=13
+GS-3-C-3 rect=- font=13
+GS-4 rect=- font=13
+GS-4-C-1 rect=- font=13
+GS-4-C-2 rect=- font=13
+GS-4-C-3 rect=- font=13
+JC-1 rect=- font=13
+JC-1-C-1 rect=- font=13
+JC-1-C-2 rect=- font=13
+JC-1-C-3 rect=- font=13
+JC-2 rect=- font=13
+JC-2-C-1 rect=- font=13
+JC-2-C-2 rect=- font=13
+JC-2-C-3 rect=- font=13
+JC-3 rect=- font=13
+JC-3-C-1 rect=- font=13
+JC-3-C-2 rect=- font=13
+JC-3-C-3 rect=- font=13
+JC-4 rect=- font=13
+JC-4-C-1 rect=- font=13
+JC-4-C-2 rect=- font=13
+JC-4-C-3 rect=- font=13
+JC-5 rect=- font=13
+JC-5-C-1 rect=- font=13
+JC-5-C-2 rect=- font=13
+JC-5-C-3 rect=- font=13
+JC-6 rect=- font=13
+JC-6-C-1 rect=- font=13
+JC-6-C-2 rect=- font=13
+JC-6-C-3 rect=- font=13
+LBL-INTRO rect=[24 50 876 74] font=13
+LBL-TITLE rect=[24 14 876 46] font=20
+OC-COL rect=- font=13
+OC-GAP rect=- font=13
+OC-GAP8 rect=- font=13
+OC-GROW rect=- font=13
+OC-JC rect=- font=13
+OC-JE rect=- font=13
+OC-JS rect=- font=13
+OC-NOGROW rect=- font=13
+OC-REV rect=- font=13
+OC-ROW rect=- font=13
+OC-RREV rect=- font=13
+OC-ZERO rect=- font=13
+OR-1 rect=- font=13
+OR-2 rect=- font=13
+OR-3 rect=- font=13
+OR-4 rect=- font=13
+OR-5 rect=- font=13
+OR-CMDS rect=- font=13
+OR-LIVE rect=- font=13
+P0-HOST rect=[26 113 874 551] font=13
+P1-HOST rect=- font=13
+P2-HOST rect=- font=13
+P3-HOST rect=- font=13
+P4-HOST rect=- font=13
+P5-HOST rect=- font=13
+SB-INFO rect=[0 559 900 585] font=13
+TAB-FLEX rect=[24 84 876 553] font=13
+WR-1 rect=- font=13
+WR-1-C-1 rect=- font=13
+WR-1-C-2 rect=- font=13
+WR-1-C-3 rect=- font=13
+WR-1-C-4 rect=- font=13
+WR-1-C-5 rect=- font=13
+WR-1-C-6 rect=- font=13
+WR-2 rect=- font=13
+WR-2-C-1 rect=- font=13
+WR-2-C-2 rect=- font=13
+WR-2-C-3 rect=- font=13
+WR-2-C-4 rect=- font=13
+WR-2-C-5 rect=- font=13
+WR-2-C-6 rect=- font=13
+WR-2-C-7 rect=- font=13
+WR-2-C-8 rect=- font=13
+WR-3 rect=- font=13
+WR-3-C-1 rect=- font=13
+WR-3-C-2 rect=- font=13
+WR-3-C-3 rect=- font=13
+WR-3-C-4 rect=- font=13
+WR-3-C-5 rect=- font=13
+WR-3-C-6 rect=- font=13
+WR-3-C-7 rect=- font=13
+WR-3-C-8 rect=- font=13
+WR-4 rect=- font=13
+WR-4-C-1 rect=- font=13
+WR-4-C-2 rect=- font=13
+WR-4-C-3 rect=- font=13
+WR-4-C-4 rect=- font=13
+WR-4-C-5 rect=- font=13
+WR-4-C-6 rect=- font=13
+WR-4-C-7 rect=- font=13
+WR-4-C-8 rect=- font=13
+WR-5 rect=- font=13
+WR-5-C-1 rect=- font=13
+WR-5-C-2 rect=- font=13
+WR-5-C-3 rect=- font=13
+WR-5-C-4 rect=- font=13
+WR-5-C-5 rect=- font=13
+WR-5-C-6 rect=- font=13
+WR-5-C-7 rect=- font=13
+WR-5-C-8 rect=- font=13
+WR-6 rect=- font=13
+WR-6-C-1 rect=- font=13
+WR-6-C-2 rect=- font=13
+WR-6-C-3 rect=- font=13
+WR-6-C-4 rect=- font=13
+WR-6-C-5 rect=- font=13
+WR-6-C-6 rect=- font=13
+WR-6-C-7 rect=- font=13
+WR-6-C-8 rect=- font=13
+WR-7 rect=- font=13
+WR-7-C-1 rect=- font=13
+WR-7-C-2 rect=- font=13
+WR-7-C-3 rect=- font=13
+WR-7-C-4 rect=- font=13
+WR-7-C-5 rect=- font=13
+WR-7-C-6 rect=- font=13
+WR-7-C-7 rect=- font=13
+WR-7-C-8 rect=- font=13
+WR-8 rect=- font=13
+WR-8-C-1 rect=- font=13
+WR-8-C-2 rect=- font=13
+WR-8-C-3 rect=- font=13
+WR-8-C-4 rect=- font=13
+WR-8-C-5 rect=- font=13
+WR-8-C-6 rect=- font=13
+WR-8-C-7 rect=- font=13
+WR-8-C-8 rect=- font=13
+shapes=311 digest=810b6a215d0b0a94
+## Run 0.75x 900x585
+AI-1 rect=- font=13
+AI-1-C-1 rect=- font=13
+AI-1-C-2 rect=- font=13
+AI-1-C-3 rect=- font=13
+AI-2 rect=- font=13
+AI-2-C-1 rect=- font=13
+AI-2-C-2 rect=- font=13
+AI-2-C-3 rect=- font=13
+AI-3 rect=- font=13
+AI-3-C-1 rect=- font=13
+AI-3-C-2 rect=- font=13
+AI-3-C-3 rect=- font=13
+AI-4 rect=- font=13
+AI-4-C-1 rect=- font=13
+AI-4-C-2 rect=- font=13
+AI-4-C-3 rect=- font=13
+AI-5 rect=- font=13
+AI-5-C-1 rect=- font=13
+AI-5-C-2 rect=- font=13
+AI-5-C-3 rect=- font=13
+AI-5-C-4 rect=- font=13
+AI-6 rect=- font=13
+AI-6-C-1 rect=- font=13
+AI-6-C-2 rect=- font=13
+AI-6-C-3 rect=- font=13
+FD-1 rect=[40 127 444 326] font=13
+FD-1-C-1 rect=[52 139 124 179] font=13
+FD-1-C-2 rect=[132 139 204 179] font=13
+FD-1-C-3 rect=[212 139 284 179] font=13
+FD-1-C-4 rect=[292 139 364 179] font=13
+FD-2 rect=[456 127 860 326] font=13
+FD-2-C-1 rect=[536 139 608 179] font=13
+FD-2-C-2 rect=[616 139 688 179] font=13
+FD-2-C-3 rect=[696 139 768 179] font=13
+FD-2-C-4 rect=[776 139 848 179] font=13
+FD-3 rect=[40 338 444 537] font=13
+FD-3-C-1 rect=[52 350 124 388] font=13
+FD-3-C-2 rect=[52 396 124 434] font=13
+FD-3-C-3 rect=[52 442 124 480] font=13
+FD-3-C-4 rect=[52 487 124 525] font=13
+FD-4 rect=[456 338 860 537] font=13
+FD-4-C-1 rect=[468 487 540 525] font=13
+FD-4-C-2 rect=[468 442 540 480] font=13
+FD-4-C-3 rect=[468 396 540 434] font=13
+FD-4-C-4 rect=[468 350 540 388] font=13
+GS-1 rect=- font=13
+GS-1-C-1 rect=- font=13
+GS-1-C-2 rect=- font=13
+GS-1-C-3 rect=- font=13
+GS-1-C-4 rect=- font=13
+GS-2 rect=- font=13
+GS-2-C-1 rect=- font=13
+GS-2-C-2 rect=- font=13
+GS-2-C-3 rect=- font=13
+GS-3 rect=- font=13
+GS-3-C-1 rect=- font=13
+GS-3-C-2 rect=- font=13
+GS-3-C-3 rect=- font=13
+GS-4 rect=- font=13
+GS-4-C-1 rect=- font=13
+GS-4-C-2 rect=- font=13
+GS-4-C-3 rect=- font=13
+JC-1 rect=- font=13
+JC-1-C-1 rect=- font=13
+JC-1-C-2 rect=- font=13
+JC-1-C-3 rect=- font=13
+JC-2 rect=- font=13
+JC-2-C-1 rect=- font=13
+JC-2-C-2 rect=- font=13
+JC-2-C-3 rect=- font=13
+JC-3 rect=- font=13
+JC-3-C-1 rect=- font=13
+JC-3-C-2 rect=- font=13
+JC-3-C-3 rect=- font=13
+JC-4 rect=- font=13
+JC-4-C-1 rect=- font=13
+JC-4-C-2 rect=- font=13
+JC-4-C-3 rect=- font=13
+JC-5 rect=- font=13
+JC-5-C-1 rect=- font=13
+JC-5-C-2 rect=- font=13
+JC-5-C-3 rect=- font=13
+JC-6 rect=- font=13
+JC-6-C-1 rect=- font=13
+JC-6-C-2 rect=- font=13
+JC-6-C-3 rect=- font=13
+LBL-INTRO rect=[24 50 876 74] font=13
+LBL-TITLE rect=[24 14 876 46] font=20
+OC-COL rect=- font=13
+OC-GAP rect=- font=13
+OC-GAP8 rect=- font=13
+OC-GROW rect=- font=13
+OC-JC rect=- font=13
+OC-JE rect=- font=13
+OC-JS rect=- font=13
+OC-NOGROW rect=- font=13
+OC-REV rect=- font=13
+OC-ROW rect=- font=13
+OC-RREV rect=- font=13
+OC-ZERO rect=- font=13
+OR-1 rect=- font=13
+OR-2 rect=- font=13
+OR-3 rect=- font=13
+OR-4 rect=- font=13
+OR-5 rect=- font=13
+OR-CMDS rect=- font=13
+OR-LIVE rect=- font=13
+P0-HOST rect=[26 113 874 551] font=13
+P1-HOST rect=- font=13
+P2-HOST rect=- font=13
+P3-HOST rect=- font=13
+P4-HOST rect=- font=13
+P5-HOST rect=- font=13
+SB-INFO rect=[0 559 900 585] font=13
+TAB-FLEX rect=[24 84 876 553] font=13
+WR-1 rect=- font=13
+WR-1-C-1 rect=- font=13
+WR-1-C-2 rect=- font=13
+WR-1-C-3 rect=- font=13
+WR-1-C-4 rect=- font=13
+WR-1-C-5 rect=- font=13
+WR-1-C-6 rect=- font=13
+WR-2 rect=- font=13
+WR-2-C-1 rect=- font=13
+WR-2-C-2 rect=- font=13
+WR-2-C-3 rect=- font=13
+WR-2-C-4 rect=- font=13
+WR-2-C-5 rect=- font=13
+WR-2-C-6 rect=- font=13
+WR-2-C-7 rect=- font=13
+WR-2-C-8 rect=- font=13
+WR-3 rect=- font=13
+WR-3-C-1 rect=- font=13
+WR-3-C-2 rect=- font=13
+WR-3-C-3 rect=- font=13
+WR-3-C-4 rect=- font=13
+WR-3-C-5 rect=- font=13
+WR-3-C-6 rect=- font=13
+WR-3-C-7 rect=- font=13
+WR-3-C-8 rect=- font=13
+WR-4 rect=- font=13
+WR-4-C-1 rect=- font=13
+WR-4-C-2 rect=- font=13
+WR-4-C-3 rect=- font=13
+WR-4-C-4 rect=- font=13
+WR-4-C-5 rect=- font=13
+WR-4-C-6 rect=- font=13
+WR-4-C-7 rect=- font=13
+WR-4-C-8 rect=- font=13
+WR-5 rect=- font=13
+WR-5-C-1 rect=- font=13
+WR-5-C-2 rect=- font=13
+WR-5-C-3 rect=- font=13
+WR-5-C-4 rect=- font=13
+WR-5-C-5 rect=- font=13
+WR-5-C-6 rect=- font=13
+WR-5-C-7 rect=- font=13
+WR-5-C-8 rect=- font=13
+WR-6 rect=- font=13
+WR-6-C-1 rect=- font=13
+WR-6-C-2 rect=- font=13
+WR-6-C-3 rect=- font=13
+WR-6-C-4 rect=- font=13
+WR-6-C-5 rect=- font=13
+WR-6-C-6 rect=- font=13
+WR-6-C-7 rect=- font=13
+WR-6-C-8 rect=- font=13
+WR-7 rect=- font=13
+WR-7-C-1 rect=- font=13
+WR-7-C-2 rect=- font=13
+WR-7-C-3 rect=- font=13
+WR-7-C-4 rect=- font=13
+WR-7-C-5 rect=- font=13
+WR-7-C-6 rect=- font=13
+WR-7-C-7 rect=- font=13
+WR-7-C-8 rect=- font=13
+WR-8 rect=- font=13
+WR-8-C-1 rect=- font=13
+WR-8-C-2 rect=- font=13
+WR-8-C-3 rect=- font=13
+WR-8-C-4 rect=- font=13
+WR-8-C-5 rect=- font=13
+WR-8-C-6 rect=- font=13
+WR-8-C-7 rect=- font=13
+WR-8-C-8 rect=- font=13
+shapes=312 digest=4c4ae3b8e0ae0392
+## Preview 0.75x 900x585
+AI-1 rect=- font=13
+AI-1-C-1 rect=- font=13
+AI-1-C-2 rect=- font=13
+AI-1-C-3 rect=- font=13
+AI-2 rect=- font=13
+AI-2-C-1 rect=- font=13
+AI-2-C-2 rect=- font=13
+AI-2-C-3 rect=- font=13
+AI-3 rect=- font=13
+AI-3-C-1 rect=- font=13
+AI-3-C-2 rect=- font=13
+AI-3-C-3 rect=- font=13
+AI-4 rect=- font=13
+AI-4-C-1 rect=- font=13
+AI-4-C-2 rect=- font=13
+AI-4-C-3 rect=- font=13
+AI-5 rect=- font=13
+AI-5-C-1 rect=- font=13
+AI-5-C-2 rect=- font=13
+AI-5-C-3 rect=- font=13
+AI-5-C-4 rect=- font=13
+AI-6 rect=- font=13
+AI-6-C-1 rect=- font=13
+AI-6-C-2 rect=- font=13
+AI-6-C-3 rect=- font=13
+FD-1 rect=[40 127 444 326] font=13
+FD-1-C-1 rect=[52 139 124 179] font=13
+FD-1-C-2 rect=[132 139 204 179] font=13
+FD-1-C-3 rect=[212 139 284 179] font=13
+FD-1-C-4 rect=[292 139 364 179] font=13
+FD-2 rect=[456 127 860 326] font=13
+FD-2-C-1 rect=[536 139 608 179] font=13
+FD-2-C-2 rect=[616 139 688 179] font=13
+FD-2-C-3 rect=[696 139 768 179] font=13
+FD-2-C-4 rect=[776 139 848 179] font=13
+FD-3 rect=[40 338 444 537] font=13
+FD-3-C-1 rect=[52 350 124 388] font=13
+FD-3-C-2 rect=[52 396 124 434] font=13
+FD-3-C-3 rect=[52 442 124 480] font=13
+FD-3-C-4 rect=[52 487 124 525] font=13
+FD-4 rect=[456 338 860 537] font=13
+FD-4-C-1 rect=[468 487 540 525] font=13
+FD-4-C-2 rect=[468 442 540 480] font=13
+FD-4-C-3 rect=[468 396 540 434] font=13
+FD-4-C-4 rect=[468 350 540 388] font=13
+GS-1 rect=- font=13
+GS-1-C-1 rect=- font=13
+GS-1-C-2 rect=- font=13
+GS-1-C-3 rect=- font=13
+GS-1-C-4 rect=- font=13
+GS-2 rect=- font=13
+GS-2-C-1 rect=- font=13
+GS-2-C-2 rect=- font=13
+GS-2-C-3 rect=- font=13
+GS-3 rect=- font=13
+GS-3-C-1 rect=- font=13
+GS-3-C-2 rect=- font=13
+GS-3-C-3 rect=- font=13
+GS-4 rect=- font=13
+GS-4-C-1 rect=- font=13
+GS-4-C-2 rect=- font=13
+GS-4-C-3 rect=- font=13
+JC-1 rect=- font=13
+JC-1-C-1 rect=- font=13
+JC-1-C-2 rect=- font=13
+JC-1-C-3 rect=- font=13
+JC-2 rect=- font=13
+JC-2-C-1 rect=- font=13
+JC-2-C-2 rect=- font=13
+JC-2-C-3 rect=- font=13
+JC-3 rect=- font=13
+JC-3-C-1 rect=- font=13
+JC-3-C-2 rect=- font=13
+JC-3-C-3 rect=- font=13
+JC-4 rect=- font=13
+JC-4-C-1 rect=- font=13
+JC-4-C-2 rect=- font=13
+JC-4-C-3 rect=- font=13
+JC-5 rect=- font=13
+JC-5-C-1 rect=- font=13
+JC-5-C-2 rect=- font=13
+JC-5-C-3 rect=- font=13
+JC-6 rect=- font=13
+JC-6-C-1 rect=- font=13
+JC-6-C-2 rect=- font=13
+JC-6-C-3 rect=- font=13
+LBL-INTRO rect=[24 50 876 74] font=13
+LBL-TITLE rect=[24 14 876 46] font=20
+OC-COL rect=- font=13
+OC-GAP rect=- font=13
+OC-GAP8 rect=- font=13
+OC-GROW rect=- font=13
+OC-JC rect=- font=13
+OC-JE rect=- font=13
+OC-JS rect=- font=13
+OC-NOGROW rect=- font=13
+OC-REV rect=- font=13
+OC-ROW rect=- font=13
+OC-RREV rect=- font=13
+OC-ZERO rect=- font=13
+OR-1 rect=- font=13
+OR-2 rect=- font=13
+OR-3 rect=- font=13
+OR-4 rect=- font=13
+OR-5 rect=- font=13
+OR-CMDS rect=- font=13
+OR-LIVE rect=- font=13
+P0-HOST rect=[26 113 874 551] font=13
+P1-HOST rect=- font=13
+P2-HOST rect=- font=13
+P3-HOST rect=- font=13
+P4-HOST rect=- font=13
+P5-HOST rect=- font=13
+SB-INFO rect=[0 559 900 585] font=13
+TAB-FLEX rect=[24 84 876 553] font=13
+WR-1 rect=- font=13
+WR-1-C-1 rect=- font=13
+WR-1-C-2 rect=- font=13
+WR-1-C-3 rect=- font=13
+WR-1-C-4 rect=- font=13
+WR-1-C-5 rect=- font=13
+WR-1-C-6 rect=- font=13
+WR-2 rect=- font=13
+WR-2-C-1 rect=- font=13
+WR-2-C-2 rect=- font=13
+WR-2-C-3 rect=- font=13
+WR-2-C-4 rect=- font=13
+WR-2-C-5 rect=- font=13
+WR-2-C-6 rect=- font=13
+WR-2-C-7 rect=- font=13
+WR-2-C-8 rect=- font=13
+WR-3 rect=- font=13
+WR-3-C-1 rect=- font=13
+WR-3-C-2 rect=- font=13
+WR-3-C-3 rect=- font=13
+WR-3-C-4 rect=- font=13
+WR-3-C-5 rect=- font=13
+WR-3-C-6 rect=- font=13
+WR-3-C-7 rect=- font=13
+WR-3-C-8 rect=- font=13
+WR-4 rect=- font=13
+WR-4-C-1 rect=- font=13
+WR-4-C-2 rect=- font=13
+WR-4-C-3 rect=- font=13
+WR-4-C-4 rect=- font=13
+WR-4-C-5 rect=- font=13
+WR-4-C-6 rect=- font=13
+WR-4-C-7 rect=- font=13
+WR-4-C-8 rect=- font=13
+WR-5 rect=- font=13
+WR-5-C-1 rect=- font=13
+WR-5-C-2 rect=- font=13
+WR-5-C-3 rect=- font=13
+WR-5-C-4 rect=- font=13
+WR-5-C-5 rect=- font=13
+WR-5-C-6 rect=- font=13
+WR-5-C-7 rect=- font=13
+WR-5-C-8 rect=- font=13
+WR-6 rect=- font=13
+WR-6-C-1 rect=- font=13
+WR-6-C-2 rect=- font=13
+WR-6-C-3 rect=- font=13
+WR-6-C-4 rect=- font=13
+WR-6-C-5 rect=- font=13
+WR-6-C-6 rect=- font=13
+WR-6-C-7 rect=- font=13
+WR-6-C-8 rect=- font=13
+WR-7 rect=- font=13
+WR-7-C-1 rect=- font=13
+WR-7-C-2 rect=- font=13
+WR-7-C-3 rect=- font=13
+WR-7-C-4 rect=- font=13
+WR-7-C-5 rect=- font=13
+WR-7-C-6 rect=- font=13
+WR-7-C-7 rect=- font=13
+WR-7-C-8 rect=- font=13
+WR-8 rect=- font=13
+WR-8-C-1 rect=- font=13
+WR-8-C-2 rect=- font=13
+WR-8-C-3 rect=- font=13
+WR-8-C-4 rect=- font=13
+WR-8-C-5 rect=- font=13
+WR-8-C-6 rect=- font=13
+WR-8-C-7 rect=- font=13
+WR-8-C-8 rect=- font=13
+shapes=312 digest=4c4ae3b8e0ae0392
+## Canvas 1x 1200x780
+AI-1 rect=- font=13
+AI-1-C-1 rect=- font=13
+AI-1-C-2 rect=- font=13
+AI-1-C-3 rect=- font=13
+AI-2 rect=- font=13
+AI-2-C-1 rect=- font=13
+AI-2-C-2 rect=- font=13
+AI-2-C-3 rect=- font=13
+AI-3 rect=- font=13
+AI-3-C-1 rect=- font=13
+AI-3-C-2 rect=- font=13
+AI-3-C-3 rect=- font=13
+AI-4 rect=- font=13
+AI-4-C-1 rect=- font=13
+AI-4-C-2 rect=- font=13
+AI-4-C-3 rect=- font=13
+AI-5 rect=- font=13
+AI-5-C-1 rect=- font=13
+AI-5-C-2 rect=- font=13
+AI-5-C-3 rect=- font=13
+AI-5-C-4 rect=- font=13
+AI-6 rect=- font=13
+AI-6-C-1 rect=- font=13
+AI-6-C-2 rect=- font=13
+AI-6-C-3 rect=- font=13
+FD-1 rect=[40 127 594 424] font=13
+FD-1-C-1 rect=[52 139 124 179] font=13
+FD-1-C-2 rect=[132 139 204 179] font=13
+FD-1-C-3 rect=[212 139 284 179] font=13
+FD-1-C-4 rect=[292 139 364 179] font=13
+FD-2 rect=[606 127 1160 424] font=13
+FD-2-C-1 rect=[836 139 908 179] font=13
+FD-2-C-2 rect=[916 139 988 179] font=13
+FD-2-C-3 rect=[996 139 1068 179] font=13
+FD-2-C-4 rect=[1076 139 1148 179] font=13
+FD-3 rect=[40 436 594 733] font=13
+FD-3-C-1 rect=[52 448 124 488] font=13
+FD-3-C-2 rect=[52 496 124 536] font=13
+FD-3-C-3 rect=[52 544 124 584] font=13
+FD-3-C-4 rect=[52 592 124 632] font=13
+FD-4 rect=[606 436 1160 733] font=13
+FD-4-C-1 rect=[618 680 690 720] font=13
+FD-4-C-2 rect=[618 632 690 672] font=13
+FD-4-C-3 rect=[618 584 690 624] font=13
+FD-4-C-4 rect=[618 536 690 576] font=13
+GS-1 rect=- font=13
+GS-1-C-1 rect=- font=13
+GS-1-C-2 rect=- font=13
+GS-1-C-3 rect=- font=13
+GS-1-C-4 rect=- font=13
+GS-2 rect=- font=13
+GS-2-C-1 rect=- font=13
+GS-2-C-2 rect=- font=13
+GS-2-C-3 rect=- font=13
+GS-3 rect=- font=13
+GS-3-C-1 rect=- font=13
+GS-3-C-2 rect=- font=13
+GS-3-C-3 rect=- font=13
+GS-4 rect=- font=13
+GS-4-C-1 rect=- font=13
+GS-4-C-2 rect=- font=13
+GS-4-C-3 rect=- font=13
+JC-1 rect=- font=13
+JC-1-C-1 rect=- font=13
+JC-1-C-2 rect=- font=13
+JC-1-C-3 rect=- font=13
+JC-2 rect=- font=13
+JC-2-C-1 rect=- font=13
+JC-2-C-2 rect=- font=13
+JC-2-C-3 rect=- font=13
+JC-3 rect=- font=13
+JC-3-C-1 rect=- font=13
+JC-3-C-2 rect=- font=13
+JC-3-C-3 rect=- font=13
+JC-4 rect=- font=13
+JC-4-C-1 rect=- font=13
+JC-4-C-2 rect=- font=13
+JC-4-C-3 rect=- font=13
+JC-5 rect=- font=13
+JC-5-C-1 rect=- font=13
+JC-5-C-2 rect=- font=13
+JC-5-C-3 rect=- font=13
+JC-6 rect=- font=13
+JC-6-C-1 rect=- font=13
+JC-6-C-2 rect=- font=13
+JC-6-C-3 rect=- font=13
+LBL-INTRO rect=[24 50 1176 74] font=13
+LBL-TITLE rect=[24 14 1176 46] font=20
+OC-COL rect=- font=13
+OC-GAP rect=- font=13
+OC-GAP8 rect=- font=13
+OC-GROW rect=- font=13
+OC-JC rect=- font=13
+OC-JE rect=- font=13
+OC-JS rect=- font=13
+OC-NOGROW rect=- font=13
+OC-REV rect=- font=13
+OC-ROW rect=- font=13
+OC-RREV rect=- font=13
+OC-ZERO rect=- font=13
+OR-1 rect=- font=13
+OR-2 rect=- font=13
+OR-3 rect=- font=13
+OR-4 rect=- font=13
+OR-5 rect=- font=13
+OR-CMDS rect=- font=13
+OR-LIVE rect=- font=13
+P0-HOST rect=[26 113 1174 746] font=13
+P1-HOST rect=- font=13
+P2-HOST rect=- font=13
+P3-HOST rect=- font=13
+P4-HOST rect=- font=13
+P5-HOST rect=- font=13
+SB-INFO rect=[0 754 1200 780] font=13
+TAB-FLEX rect=[24 84 1176 748] font=13
+WR-1 rect=- font=13
+WR-1-C-1 rect=- font=13
+WR-1-C-2 rect=- font=13
+WR-1-C-3 rect=- font=13
+WR-1-C-4 rect=- font=13
+WR-1-C-5 rect=- font=13
+WR-1-C-6 rect=- font=13
+WR-2 rect=- font=13
+WR-2-C-1 rect=- font=13
+WR-2-C-2 rect=- font=13
+WR-2-C-3 rect=- font=13
+WR-2-C-4 rect=- font=13
+WR-2-C-5 rect=- font=13
+WR-2-C-6 rect=- font=13
+WR-2-C-7 rect=- font=13
+WR-2-C-8 rect=- font=13
+WR-3 rect=- font=13
+WR-3-C-1 rect=- font=13
+WR-3-C-2 rect=- font=13
+WR-3-C-3 rect=- font=13
+WR-3-C-4 rect=- font=13
+WR-3-C-5 rect=- font=13
+WR-3-C-6 rect=- font=13
+WR-3-C-7 rect=- font=13
+WR-3-C-8 rect=- font=13
+WR-4 rect=- font=13
+WR-4-C-1 rect=- font=13
+WR-4-C-2 rect=- font=13
+WR-4-C-3 rect=- font=13
+WR-4-C-4 rect=- font=13
+WR-4-C-5 rect=- font=13
+WR-4-C-6 rect=- font=13
+WR-4-C-7 rect=- font=13
+WR-4-C-8 rect=- font=13
+WR-5 rect=- font=13
+WR-5-C-1 rect=- font=13
+WR-5-C-2 rect=- font=13
+WR-5-C-3 rect=- font=13
+WR-5-C-4 rect=- font=13
+WR-5-C-5 rect=- font=13
+WR-5-C-6 rect=- font=13
+WR-5-C-7 rect=- font=13
+WR-5-C-8 rect=- font=13
+WR-6 rect=- font=13
+WR-6-C-1 rect=- font=13
+WR-6-C-2 rect=- font=13
+WR-6-C-3 rect=- font=13
+WR-6-C-4 rect=- font=13
+WR-6-C-5 rect=- font=13
+WR-6-C-6 rect=- font=13
+WR-6-C-7 rect=- font=13
+WR-6-C-8 rect=- font=13
+WR-7 rect=- font=13
+WR-7-C-1 rect=- font=13
+WR-7-C-2 rect=- font=13
+WR-7-C-3 rect=- font=13
+WR-7-C-4 rect=- font=13
+WR-7-C-5 rect=- font=13
+WR-7-C-6 rect=- font=13
+WR-7-C-7 rect=- font=13
+WR-7-C-8 rect=- font=13
+WR-8 rect=- font=13
+WR-8-C-1 rect=- font=13
+WR-8-C-2 rect=- font=13
+WR-8-C-3 rect=- font=13
+WR-8-C-4 rect=- font=13
+WR-8-C-5 rect=- font=13
+WR-8-C-6 rect=- font=13
+WR-8-C-7 rect=- font=13
+WR-8-C-8 rect=- font=13
+shapes=311 digest=74bc07540a85fed2
+## Run 1x 1200x780
+AI-1 rect=- font=13
+AI-1-C-1 rect=- font=13
+AI-1-C-2 rect=- font=13
+AI-1-C-3 rect=- font=13
+AI-2 rect=- font=13
+AI-2-C-1 rect=- font=13
+AI-2-C-2 rect=- font=13
+AI-2-C-3 rect=- font=13
+AI-3 rect=- font=13
+AI-3-C-1 rect=- font=13
+AI-3-C-2 rect=- font=13
+AI-3-C-3 rect=- font=13
+AI-4 rect=- font=13
+AI-4-C-1 rect=- font=13
+AI-4-C-2 rect=- font=13
+AI-4-C-3 rect=- font=13
+AI-5 rect=- font=13
+AI-5-C-1 rect=- font=13
+AI-5-C-2 rect=- font=13
+AI-5-C-3 rect=- font=13
+AI-5-C-4 rect=- font=13
+AI-6 rect=- font=13
+AI-6-C-1 rect=- font=13
+AI-6-C-2 rect=- font=13
+AI-6-C-3 rect=- font=13
+FD-1 rect=[40 127 594 424] font=13
+FD-1-C-1 rect=[52 139 124 179] font=13
+FD-1-C-2 rect=[132 139 204 179] font=13
+FD-1-C-3 rect=[212 139 284 179] font=13
+FD-1-C-4 rect=[292 139 364 179] font=13
+FD-2 rect=[606 127 1160 424] font=13
+FD-2-C-1 rect=[836 139 908 179] font=13
+FD-2-C-2 rect=[916 139 988 179] font=13
+FD-2-C-3 rect=[996 139 1068 179] font=13
+FD-2-C-4 rect=[1076 139 1148 179] font=13
+FD-3 rect=[40 436 594 733] font=13
+FD-3-C-1 rect=[52 448 124 488] font=13
+FD-3-C-2 rect=[52 496 124 536] font=13
+FD-3-C-3 rect=[52 544 124 584] font=13
+FD-3-C-4 rect=[52 592 124 632] font=13
+FD-4 rect=[606 436 1160 733] font=13
+FD-4-C-1 rect=[618 680 690 720] font=13
+FD-4-C-2 rect=[618 632 690 672] font=13
+FD-4-C-3 rect=[618 584 690 624] font=13
+FD-4-C-4 rect=[618 536 690 576] font=13
+GS-1 rect=- font=13
+GS-1-C-1 rect=- font=13
+GS-1-C-2 rect=- font=13
+GS-1-C-3 rect=- font=13
+GS-1-C-4 rect=- font=13
+GS-2 rect=- font=13
+GS-2-C-1 rect=- font=13
+GS-2-C-2 rect=- font=13
+GS-2-C-3 rect=- font=13
+GS-3 rect=- font=13
+GS-3-C-1 rect=- font=13
+GS-3-C-2 rect=- font=13
+GS-3-C-3 rect=- font=13
+GS-4 rect=- font=13
+GS-4-C-1 rect=- font=13
+GS-4-C-2 rect=- font=13
+GS-4-C-3 rect=- font=13
+JC-1 rect=- font=13
+JC-1-C-1 rect=- font=13
+JC-1-C-2 rect=- font=13
+JC-1-C-3 rect=- font=13
+JC-2 rect=- font=13
+JC-2-C-1 rect=- font=13
+JC-2-C-2 rect=- font=13
+JC-2-C-3 rect=- font=13
+JC-3 rect=- font=13
+JC-3-C-1 rect=- font=13
+JC-3-C-2 rect=- font=13
+JC-3-C-3 rect=- font=13
+JC-4 rect=- font=13
+JC-4-C-1 rect=- font=13
+JC-4-C-2 rect=- font=13
+JC-4-C-3 rect=- font=13
+JC-5 rect=- font=13
+JC-5-C-1 rect=- font=13
+JC-5-C-2 rect=- font=13
+JC-5-C-3 rect=- font=13
+JC-6 rect=- font=13
+JC-6-C-1 rect=- font=13
+JC-6-C-2 rect=- font=13
+JC-6-C-3 rect=- font=13
+LBL-INTRO rect=[24 50 1176 74] font=13
+LBL-TITLE rect=[24 14 1176 46] font=20
+OC-COL rect=- font=13
+OC-GAP rect=- font=13
+OC-GAP8 rect=- font=13
+OC-GROW rect=- font=13
+OC-JC rect=- font=13
+OC-JE rect=- font=13
+OC-JS rect=- font=13
+OC-NOGROW rect=- font=13
+OC-REV rect=- font=13
+OC-ROW rect=- font=13
+OC-RREV rect=- font=13
+OC-ZERO rect=- font=13
+OR-1 rect=- font=13
+OR-2 rect=- font=13
+OR-3 rect=- font=13
+OR-4 rect=- font=13
+OR-5 rect=- font=13
+OR-CMDS rect=- font=13
+OR-LIVE rect=- font=13
+P0-HOST rect=[26 113 1174 746] font=13
+P1-HOST rect=- font=13
+P2-HOST rect=- font=13
+P3-HOST rect=- font=13
+P4-HOST rect=- font=13
+P5-HOST rect=- font=13
+SB-INFO rect=[0 754 1200 780] font=13
+TAB-FLEX rect=[24 84 1176 748] font=13
+WR-1 rect=- font=13
+WR-1-C-1 rect=- font=13
+WR-1-C-2 rect=- font=13
+WR-1-C-3 rect=- font=13
+WR-1-C-4 rect=- font=13
+WR-1-C-5 rect=- font=13
+WR-1-C-6 rect=- font=13
+WR-2 rect=- font=13
+WR-2-C-1 rect=- font=13
+WR-2-C-2 rect=- font=13
+WR-2-C-3 rect=- font=13
+WR-2-C-4 rect=- font=13
+WR-2-C-5 rect=- font=13
+WR-2-C-6 rect=- font=13
+WR-2-C-7 rect=- font=13
+WR-2-C-8 rect=- font=13
+WR-3 rect=- font=13
+WR-3-C-1 rect=- font=13
+WR-3-C-2 rect=- font=13
+WR-3-C-3 rect=- font=13
+WR-3-C-4 rect=- font=13
+WR-3-C-5 rect=- font=13
+WR-3-C-6 rect=- font=13
+WR-3-C-7 rect=- font=13
+WR-3-C-8 rect=- font=13
+WR-4 rect=- font=13
+WR-4-C-1 rect=- font=13
+WR-4-C-2 rect=- font=13
+WR-4-C-3 rect=- font=13
+WR-4-C-4 rect=- font=13
+WR-4-C-5 rect=- font=13
+WR-4-C-6 rect=- font=13
+WR-4-C-7 rect=- font=13
+WR-4-C-8 rect=- font=13
+WR-5 rect=- font=13
+WR-5-C-1 rect=- font=13
+WR-5-C-2 rect=- font=13
+WR-5-C-3 rect=- font=13
+WR-5-C-4 rect=- font=13
+WR-5-C-5 rect=- font=13
+WR-5-C-6 rect=- font=13
+WR-5-C-7 rect=- font=13
+WR-5-C-8 rect=- font=13
+WR-6 rect=- font=13
+WR-6-C-1 rect=- font=13
+WR-6-C-2 rect=- font=13
+WR-6-C-3 rect=- font=13
+WR-6-C-4 rect=- font=13
+WR-6-C-5 rect=- font=13
+WR-6-C-6 rect=- font=13
+WR-6-C-7 rect=- font=13
+WR-6-C-8 rect=- font=13
+WR-7 rect=- font=13
+WR-7-C-1 rect=- font=13
+WR-7-C-2 rect=- font=13
+WR-7-C-3 rect=- font=13
+WR-7-C-4 rect=- font=13
+WR-7-C-5 rect=- font=13
+WR-7-C-6 rect=- font=13
+WR-7-C-7 rect=- font=13
+WR-7-C-8 rect=- font=13
+WR-8 rect=- font=13
+WR-8-C-1 rect=- font=13
+WR-8-C-2 rect=- font=13
+WR-8-C-3 rect=- font=13
+WR-8-C-4 rect=- font=13
+WR-8-C-5 rect=- font=13
+WR-8-C-6 rect=- font=13
+WR-8-C-7 rect=- font=13
+WR-8-C-8 rect=- font=13
+shapes=312 digest=c120e86726c6dedf
+## Preview 1x 1200x780
+AI-1 rect=- font=13
+AI-1-C-1 rect=- font=13
+AI-1-C-2 rect=- font=13
+AI-1-C-3 rect=- font=13
+AI-2 rect=- font=13
+AI-2-C-1 rect=- font=13
+AI-2-C-2 rect=- font=13
+AI-2-C-3 rect=- font=13
+AI-3 rect=- font=13
+AI-3-C-1 rect=- font=13
+AI-3-C-2 rect=- font=13
+AI-3-C-3 rect=- font=13
+AI-4 rect=- font=13
+AI-4-C-1 rect=- font=13
+AI-4-C-2 rect=- font=13
+AI-4-C-3 rect=- font=13
+AI-5 rect=- font=13
+AI-5-C-1 rect=- font=13
+AI-5-C-2 rect=- font=13
+AI-5-C-3 rect=- font=13
+AI-5-C-4 rect=- font=13
+AI-6 rect=- font=13
+AI-6-C-1 rect=- font=13
+AI-6-C-2 rect=- font=13
+AI-6-C-3 rect=- font=13
+FD-1 rect=[40 127 594 424] font=13
+FD-1-C-1 rect=[52 139 124 179] font=13
+FD-1-C-2 rect=[132 139 204 179] font=13
+FD-1-C-3 rect=[212 139 284 179] font=13
+FD-1-C-4 rect=[292 139 364 179] font=13
+FD-2 rect=[606 127 1160 424] font=13
+FD-2-C-1 rect=[836 139 908 179] font=13
+FD-2-C-2 rect=[916 139 988 179] font=13
+FD-2-C-3 rect=[996 139 1068 179] font=13
+FD-2-C-4 rect=[1076 139 1148 179] font=13
+FD-3 rect=[40 436 594 733] font=13
+FD-3-C-1 rect=[52 448 124 488] font=13
+FD-3-C-2 rect=[52 496 124 536] font=13
+FD-3-C-3 rect=[52 544 124 584] font=13
+FD-3-C-4 rect=[52 592 124 632] font=13
+FD-4 rect=[606 436 1160 733] font=13
+FD-4-C-1 rect=[618 680 690 720] font=13
+FD-4-C-2 rect=[618 632 690 672] font=13
+FD-4-C-3 rect=[618 584 690 624] font=13
+FD-4-C-4 rect=[618 536 690 576] font=13
+GS-1 rect=- font=13
+GS-1-C-1 rect=- font=13
+GS-1-C-2 rect=- font=13
+GS-1-C-3 rect=- font=13
+GS-1-C-4 rect=- font=13
+GS-2 rect=- font=13
+GS-2-C-1 rect=- font=13
+GS-2-C-2 rect=- font=13
+GS-2-C-3 rect=- font=13
+GS-3 rect=- font=13
+GS-3-C-1 rect=- font=13
+GS-3-C-2 rect=- font=13
+GS-3-C-3 rect=- font=13
+GS-4 rect=- font=13
+GS-4-C-1 rect=- font=13
+GS-4-C-2 rect=- font=13
+GS-4-C-3 rect=- font=13
+JC-1 rect=- font=13
+JC-1-C-1 rect=- font=13
+JC-1-C-2 rect=- font=13
+JC-1-C-3 rect=- font=13
+JC-2 rect=- font=13
+JC-2-C-1 rect=- font=13
+JC-2-C-2 rect=- font=13
+JC-2-C-3 rect=- font=13
+JC-3 rect=- font=13
+JC-3-C-1 rect=- font=13
+JC-3-C-2 rect=- font=13
+JC-3-C-3 rect=- font=13
+JC-4 rect=- font=13
+JC-4-C-1 rect=- font=13
+JC-4-C-2 rect=- font=13
+JC-4-C-3 rect=- font=13
+JC-5 rect=- font=13
+JC-5-C-1 rect=- font=13
+JC-5-C-2 rect=- font=13
+JC-5-C-3 rect=- font=13
+JC-6 rect=- font=13
+JC-6-C-1 rect=- font=13
+JC-6-C-2 rect=- font=13
+JC-6-C-3 rect=- font=13
+LBL-INTRO rect=[24 50 1176 74] font=13
+LBL-TITLE rect=[24 14 1176 46] font=20
+OC-COL rect=- font=13
+OC-GAP rect=- font=13
+OC-GAP8 rect=- font=13
+OC-GROW rect=- font=13
+OC-JC rect=- font=13
+OC-JE rect=- font=13
+OC-JS rect=- font=13
+OC-NOGROW rect=- font=13
+OC-REV rect=- font=13
+OC-ROW rect=- font=13
+OC-RREV rect=- font=13
+OC-ZERO rect=- font=13
+OR-1 rect=- font=13
+OR-2 rect=- font=13
+OR-3 rect=- font=13
+OR-4 rect=- font=13
+OR-5 rect=- font=13
+OR-CMDS rect=- font=13
+OR-LIVE rect=- font=13
+P0-HOST rect=[26 113 1174 746] font=13
+P1-HOST rect=- font=13
+P2-HOST rect=- font=13
+P3-HOST rect=- font=13
+P4-HOST rect=- font=13
+P5-HOST rect=- font=13
+SB-INFO rect=[0 754 1200 780] font=13
+TAB-FLEX rect=[24 84 1176 748] font=13
+WR-1 rect=- font=13
+WR-1-C-1 rect=- font=13
+WR-1-C-2 rect=- font=13
+WR-1-C-3 rect=- font=13
+WR-1-C-4 rect=- font=13
+WR-1-C-5 rect=- font=13
+WR-1-C-6 rect=- font=13
+WR-2 rect=- font=13
+WR-2-C-1 rect=- font=13
+WR-2-C-2 rect=- font=13
+WR-2-C-3 rect=- font=13
+WR-2-C-4 rect=- font=13
+WR-2-C-5 rect=- font=13
+WR-2-C-6 rect=- font=13
+WR-2-C-7 rect=- font=13
+WR-2-C-8 rect=- font=13
+WR-3 rect=- font=13
+WR-3-C-1 rect=- font=13
+WR-3-C-2 rect=- font=13
+WR-3-C-3 rect=- font=13
+WR-3-C-4 rect=- font=13
+WR-3-C-5 rect=- font=13
+WR-3-C-6 rect=- font=13
+WR-3-C-7 rect=- font=13
+WR-3-C-8 rect=- font=13
+WR-4 rect=- font=13
+WR-4-C-1 rect=- font=13
+WR-4-C-2 rect=- font=13
+WR-4-C-3 rect=- font=13
+WR-4-C-4 rect=- font=13
+WR-4-C-5 rect=- font=13
+WR-4-C-6 rect=- font=13
+WR-4-C-7 rect=- font=13
+WR-4-C-8 rect=- font=13
+WR-5 rect=- font=13
+WR-5-C-1 rect=- font=13
+WR-5-C-2 rect=- font=13
+WR-5-C-3 rect=- font=13
+WR-5-C-4 rect=- font=13
+WR-5-C-5 rect=- font=13
+WR-5-C-6 rect=- font=13
+WR-5-C-7 rect=- font=13
+WR-5-C-8 rect=- font=13
+WR-6 rect=- font=13
+WR-6-C-1 rect=- font=13
+WR-6-C-2 rect=- font=13
+WR-6-C-3 rect=- font=13
+WR-6-C-4 rect=- font=13
+WR-6-C-5 rect=- font=13
+WR-6-C-6 rect=- font=13
+WR-6-C-7 rect=- font=13
+WR-6-C-8 rect=- font=13
+WR-7 rect=- font=13
+WR-7-C-1 rect=- font=13
+WR-7-C-2 rect=- font=13
+WR-7-C-3 rect=- font=13
+WR-7-C-4 rect=- font=13
+WR-7-C-5 rect=- font=13
+WR-7-C-6 rect=- font=13
+WR-7-C-7 rect=- font=13
+WR-7-C-8 rect=- font=13
+WR-8 rect=- font=13
+WR-8-C-1 rect=- font=13
+WR-8-C-2 rect=- font=13
+WR-8-C-3 rect=- font=13
+WR-8-C-4 rect=- font=13
+WR-8-C-5 rect=- font=13
+WR-8-C-6 rect=- font=13
+WR-8-C-7 rect=- font=13
+WR-8-C-8 rect=- font=13
+shapes=312 digest=c120e86726c6dedf
+## Canvas 1.5x 1800x1170
+AI-1 rect=- font=13
+AI-1-C-1 rect=- font=13
+AI-1-C-2 rect=- font=13
+AI-1-C-3 rect=- font=13
+AI-2 rect=- font=13
+AI-2-C-1 rect=- font=13
+AI-2-C-2 rect=- font=13
+AI-2-C-3 rect=- font=13
+AI-3 rect=- font=13
+AI-3-C-1 rect=- font=13
+AI-3-C-2 rect=- font=13
+AI-3-C-3 rect=- font=13
+AI-4 rect=- font=13
+AI-4-C-1 rect=- font=13
+AI-4-C-2 rect=- font=13
+AI-4-C-3 rect=- font=13
+AI-5 rect=- font=13
+AI-5-C-1 rect=- font=13
+AI-5-C-2 rect=- font=13
+AI-5-C-3 rect=- font=13
+AI-5-C-4 rect=- font=13
+AI-6 rect=- font=13
+AI-6-C-1 rect=- font=13
+AI-6-C-2 rect=- font=13
+AI-6-C-3 rect=- font=13
+FD-1 rect=[40 127 894 619] font=13
+FD-1-C-1 rect=[52 139 124 179] font=13
+FD-1-C-2 rect=[132 139 204 179] font=13
+FD-1-C-3 rect=[212 139 284 179] font=13
+FD-1-C-4 rect=[292 139 364 179] font=13
+FD-2 rect=[906 127 1760 619] font=13
+FD-2-C-1 rect=[1436 139 1508 179] font=13
+FD-2-C-2 rect=[1516 139 1588 179] font=13
+FD-2-C-3 rect=[1596 139 1668 179] font=13
+FD-2-C-4 rect=[1676 139 1748 179] font=13
+FD-3 rect=[40 631 894 1123] font=13
+FD-3-C-1 rect=[52 643 124 683] font=13
+FD-3-C-2 rect=[52 691 124 731] font=13
+FD-3-C-3 rect=[52 739 124 779] font=13
+FD-3-C-4 rect=[52 787 124 827] font=13
+FD-4 rect=[906 631 1760 1123] font=13
+FD-4-C-1 rect=[918 1070 990 1110] font=13
+FD-4-C-2 rect=[918 1022 990 1062] font=13
+FD-4-C-3 rect=[918 974 990 1014] font=13
+FD-4-C-4 rect=[918 926 990 966] font=13
+GS-1 rect=- font=13
+GS-1-C-1 rect=- font=13
+GS-1-C-2 rect=- font=13
+GS-1-C-3 rect=- font=13
+GS-1-C-4 rect=- font=13
+GS-2 rect=- font=13
+GS-2-C-1 rect=- font=13
+GS-2-C-2 rect=- font=13
+GS-2-C-3 rect=- font=13
+GS-3 rect=- font=13
+GS-3-C-1 rect=- font=13
+GS-3-C-2 rect=- font=13
+GS-3-C-3 rect=- font=13
+GS-4 rect=- font=13
+GS-4-C-1 rect=- font=13
+GS-4-C-2 rect=- font=13
+GS-4-C-3 rect=- font=13
+JC-1 rect=- font=13
+JC-1-C-1 rect=- font=13
+JC-1-C-2 rect=- font=13
+JC-1-C-3 rect=- font=13
+JC-2 rect=- font=13
+JC-2-C-1 rect=- font=13
+JC-2-C-2 rect=- font=13
+JC-2-C-3 rect=- font=13
+JC-3 rect=- font=13
+JC-3-C-1 rect=- font=13
+JC-3-C-2 rect=- font=13
+JC-3-C-3 rect=- font=13
+JC-4 rect=- font=13
+JC-4-C-1 rect=- font=13
+JC-4-C-2 rect=- font=13
+JC-4-C-3 rect=- font=13
+JC-5 rect=- font=13
+JC-5-C-1 rect=- font=13
+JC-5-C-2 rect=- font=13
+JC-5-C-3 rect=- font=13
+JC-6 rect=- font=13
+JC-6-C-1 rect=- font=13
+JC-6-C-2 rect=- font=13
+JC-6-C-3 rect=- font=13
+LBL-INTRO rect=[24 50 1776 74] font=13
+LBL-TITLE rect=[24 14 1776 46] font=20
+OC-COL rect=- font=13
+OC-GAP rect=- font=13
+OC-GAP8 rect=- font=13
+OC-GROW rect=- font=13
+OC-JC rect=- font=13
+OC-JE rect=- font=13
+OC-JS rect=- font=13
+OC-NOGROW rect=- font=13
+OC-REV rect=- font=13
+OC-ROW rect=- font=13
+OC-RREV rect=- font=13
+OC-ZERO rect=- font=13
+OR-1 rect=- font=13
+OR-2 rect=- font=13
+OR-3 rect=- font=13
+OR-4 rect=- font=13
+OR-5 rect=- font=13
+OR-CMDS rect=- font=13
+OR-LIVE rect=- font=13
+P0-HOST rect=[26 113 1774 1136] font=13
+P1-HOST rect=- font=13
+P2-HOST rect=- font=13
+P3-HOST rect=- font=13
+P4-HOST rect=- font=13
+P5-HOST rect=- font=13
+SB-INFO rect=[0 1144 1800 1170] font=13
+TAB-FLEX rect=[24 84 1776 1138] font=13
+WR-1 rect=- font=13
+WR-1-C-1 rect=- font=13
+WR-1-C-2 rect=- font=13
+WR-1-C-3 rect=- font=13
+WR-1-C-4 rect=- font=13
+WR-1-C-5 rect=- font=13
+WR-1-C-6 rect=- font=13
+WR-2 rect=- font=13
+WR-2-C-1 rect=- font=13
+WR-2-C-2 rect=- font=13
+WR-2-C-3 rect=- font=13
+WR-2-C-4 rect=- font=13
+WR-2-C-5 rect=- font=13
+WR-2-C-6 rect=- font=13
+WR-2-C-7 rect=- font=13
+WR-2-C-8 rect=- font=13
+WR-3 rect=- font=13
+WR-3-C-1 rect=- font=13
+WR-3-C-2 rect=- font=13
+WR-3-C-3 rect=- font=13
+WR-3-C-4 rect=- font=13
+WR-3-C-5 rect=- font=13
+WR-3-C-6 rect=- font=13
+WR-3-C-7 rect=- font=13
+WR-3-C-8 rect=- font=13
+WR-4 rect=- font=13
+WR-4-C-1 rect=- font=13
+WR-4-C-2 rect=- font=13
+WR-4-C-3 rect=- font=13
+WR-4-C-4 rect=- font=13
+WR-4-C-5 rect=- font=13
+WR-4-C-6 rect=- font=13
+WR-4-C-7 rect=- font=13
+WR-4-C-8 rect=- font=13
+WR-5 rect=- font=13
+WR-5-C-1 rect=- font=13
+WR-5-C-2 rect=- font=13
+WR-5-C-3 rect=- font=13
+WR-5-C-4 rect=- font=13
+WR-5-C-5 rect=- font=13
+WR-5-C-6 rect=- font=13
+WR-5-C-7 rect=- font=13
+WR-5-C-8 rect=- font=13
+WR-6 rect=- font=13
+WR-6-C-1 rect=- font=13
+WR-6-C-2 rect=- font=13
+WR-6-C-3 rect=- font=13
+WR-6-C-4 rect=- font=13
+WR-6-C-5 rect=- font=13
+WR-6-C-6 rect=- font=13
+WR-6-C-7 rect=- font=13
+WR-6-C-8 rect=- font=13
+WR-7 rect=- font=13
+WR-7-C-1 rect=- font=13
+WR-7-C-2 rect=- font=13
+WR-7-C-3 rect=- font=13
+WR-7-C-4 rect=- font=13
+WR-7-C-5 rect=- font=13
+WR-7-C-6 rect=- font=13
+WR-7-C-7 rect=- font=13
+WR-7-C-8 rect=- font=13
+WR-8 rect=- font=13
+WR-8-C-1 rect=- font=13
+WR-8-C-2 rect=- font=13
+WR-8-C-3 rect=- font=13
+WR-8-C-4 rect=- font=13
+WR-8-C-5 rect=- font=13
+WR-8-C-6 rect=- font=13
+WR-8-C-7 rect=- font=13
+WR-8-C-8 rect=- font=13
+shapes=311 digest=a63802cbe21679df
+## Run 1.5x 1800x1170
+AI-1 rect=- font=13
+AI-1-C-1 rect=- font=13
+AI-1-C-2 rect=- font=13
+AI-1-C-3 rect=- font=13
+AI-2 rect=- font=13
+AI-2-C-1 rect=- font=13
+AI-2-C-2 rect=- font=13
+AI-2-C-3 rect=- font=13
+AI-3 rect=- font=13
+AI-3-C-1 rect=- font=13
+AI-3-C-2 rect=- font=13
+AI-3-C-3 rect=- font=13
+AI-4 rect=- font=13
+AI-4-C-1 rect=- font=13
+AI-4-C-2 rect=- font=13
+AI-4-C-3 rect=- font=13
+AI-5 rect=- font=13
+AI-5-C-1 rect=- font=13
+AI-5-C-2 rect=- font=13
+AI-5-C-3 rect=- font=13
+AI-5-C-4 rect=- font=13
+AI-6 rect=- font=13
+AI-6-C-1 rect=- font=13
+AI-6-C-2 rect=- font=13
+AI-6-C-3 rect=- font=13
+FD-1 rect=[40 127 894 619] font=13
+FD-1-C-1 rect=[52 139 124 179] font=13
+FD-1-C-2 rect=[132 139 204 179] font=13
+FD-1-C-3 rect=[212 139 284 179] font=13
+FD-1-C-4 rect=[292 139 364 179] font=13
+FD-2 rect=[906 127 1760 619] font=13
+FD-2-C-1 rect=[1436 139 1508 179] font=13
+FD-2-C-2 rect=[1516 139 1588 179] font=13
+FD-2-C-3 rect=[1596 139 1668 179] font=13
+FD-2-C-4 rect=[1676 139 1748 179] font=13
+FD-3 rect=[40 631 894 1123] font=13
+FD-3-C-1 rect=[52 643 124 683] font=13
+FD-3-C-2 rect=[52 691 124 731] font=13
+FD-3-C-3 rect=[52 739 124 779] font=13
+FD-3-C-4 rect=[52 787 124 827] font=13
+FD-4 rect=[906 631 1760 1123] font=13
+FD-4-C-1 rect=[918 1070 990 1110] font=13
+FD-4-C-2 rect=[918 1022 990 1062] font=13
+FD-4-C-3 rect=[918 974 990 1014] font=13
+FD-4-C-4 rect=[918 926 990 966] font=13
+GS-1 rect=- font=13
+GS-1-C-1 rect=- font=13
+GS-1-C-2 rect=- font=13
+GS-1-C-3 rect=- font=13
+GS-1-C-4 rect=- font=13
+GS-2 rect=- font=13
+GS-2-C-1 rect=- font=13
+GS-2-C-2 rect=- font=13
+GS-2-C-3 rect=- font=13
+GS-3 rect=- font=13
+GS-3-C-1 rect=- font=13
+GS-3-C-2 rect=- font=13
+GS-3-C-3 rect=- font=13
+GS-4 rect=- font=13
+GS-4-C-1 rect=- font=13
+GS-4-C-2 rect=- font=13
+GS-4-C-3 rect=- font=13
+JC-1 rect=- font=13
+JC-1-C-1 rect=- font=13
+JC-1-C-2 rect=- font=13
+JC-1-C-3 rect=- font=13
+JC-2 rect=- font=13
+JC-2-C-1 rect=- font=13
+JC-2-C-2 rect=- font=13
+JC-2-C-3 rect=- font=13
+JC-3 rect=- font=13
+JC-3-C-1 rect=- font=13
+JC-3-C-2 rect=- font=13
+JC-3-C-3 rect=- font=13
+JC-4 rect=- font=13
+JC-4-C-1 rect=- font=13
+JC-4-C-2 rect=- font=13
+JC-4-C-3 rect=- font=13
+JC-5 rect=- font=13
+JC-5-C-1 rect=- font=13
+JC-5-C-2 rect=- font=13
+JC-5-C-3 rect=- font=13
+JC-6 rect=- font=13
+JC-6-C-1 rect=- font=13
+JC-6-C-2 rect=- font=13
+JC-6-C-3 rect=- font=13
+LBL-INTRO rect=[24 50 1776 74] font=13
+LBL-TITLE rect=[24 14 1776 46] font=20
+OC-COL rect=- font=13
+OC-GAP rect=- font=13
+OC-GAP8 rect=- font=13
+OC-GROW rect=- font=13
+OC-JC rect=- font=13
+OC-JE rect=- font=13
+OC-JS rect=- font=13
+OC-NOGROW rect=- font=13
+OC-REV rect=- font=13
+OC-ROW rect=- font=13
+OC-RREV rect=- font=13
+OC-ZERO rect=- font=13
+OR-1 rect=- font=13
+OR-2 rect=- font=13
+OR-3 rect=- font=13
+OR-4 rect=- font=13
+OR-5 rect=- font=13
+OR-CMDS rect=- font=13
+OR-LIVE rect=- font=13
+P0-HOST rect=[26 113 1774 1136] font=13
+P1-HOST rect=- font=13
+P2-HOST rect=- font=13
+P3-HOST rect=- font=13
+P4-HOST rect=- font=13
+P5-HOST rect=- font=13
+SB-INFO rect=[0 1144 1800 1170] font=13
+TAB-FLEX rect=[24 84 1776 1138] font=13
+WR-1 rect=- font=13
+WR-1-C-1 rect=- font=13
+WR-1-C-2 rect=- font=13
+WR-1-C-3 rect=- font=13
+WR-1-C-4 rect=- font=13
+WR-1-C-5 rect=- font=13
+WR-1-C-6 rect=- font=13
+WR-2 rect=- font=13
+WR-2-C-1 rect=- font=13
+WR-2-C-2 rect=- font=13
+WR-2-C-3 rect=- font=13
+WR-2-C-4 rect=- font=13
+WR-2-C-5 rect=- font=13
+WR-2-C-6 rect=- font=13
+WR-2-C-7 rect=- font=13
+WR-2-C-8 rect=- font=13
+WR-3 rect=- font=13
+WR-3-C-1 rect=- font=13
+WR-3-C-2 rect=- font=13
+WR-3-C-3 rect=- font=13
+WR-3-C-4 rect=- font=13
+WR-3-C-5 rect=- font=13
+WR-3-C-6 rect=- font=13
+WR-3-C-7 rect=- font=13
+WR-3-C-8 rect=- font=13
+WR-4 rect=- font=13
+WR-4-C-1 rect=- font=13
+WR-4-C-2 rect=- font=13
+WR-4-C-3 rect=- font=13
+WR-4-C-4 rect=- font=13
+WR-4-C-5 rect=- font=13
+WR-4-C-6 rect=- font=13
+WR-4-C-7 rect=- font=13
+WR-4-C-8 rect=- font=13
+WR-5 rect=- font=13
+WR-5-C-1 rect=- font=13
+WR-5-C-2 rect=- font=13
+WR-5-C-3 rect=- font=13
+WR-5-C-4 rect=- font=13
+WR-5-C-5 rect=- font=13
+WR-5-C-6 rect=- font=13
+WR-5-C-7 rect=- font=13
+WR-5-C-8 rect=- font=13
+WR-6 rect=- font=13
+WR-6-C-1 rect=- font=13
+WR-6-C-2 rect=- font=13
+WR-6-C-3 rect=- font=13
+WR-6-C-4 rect=- font=13
+WR-6-C-5 rect=- font=13
+WR-6-C-6 rect=- font=13
+WR-6-C-7 rect=- font=13
+WR-6-C-8 rect=- font=13
+WR-7 rect=- font=13
+WR-7-C-1 rect=- font=13
+WR-7-C-2 rect=- font=13
+WR-7-C-3 rect=- font=13
+WR-7-C-4 rect=- font=13
+WR-7-C-5 rect=- font=13
+WR-7-C-6 rect=- font=13
+WR-7-C-7 rect=- font=13
+WR-7-C-8 rect=- font=13
+WR-8 rect=- font=13
+WR-8-C-1 rect=- font=13
+WR-8-C-2 rect=- font=13
+WR-8-C-3 rect=- font=13
+WR-8-C-4 rect=- font=13
+WR-8-C-5 rect=- font=13
+WR-8-C-6 rect=- font=13
+WR-8-C-7 rect=- font=13
+WR-8-C-8 rect=- font=13
+shapes=312 digest=a758b5f592f2758c
+## Preview 1.5x 1800x1170
+AI-1 rect=- font=13
+AI-1-C-1 rect=- font=13
+AI-1-C-2 rect=- font=13
+AI-1-C-3 rect=- font=13
+AI-2 rect=- font=13
+AI-2-C-1 rect=- font=13
+AI-2-C-2 rect=- font=13
+AI-2-C-3 rect=- font=13
+AI-3 rect=- font=13
+AI-3-C-1 rect=- font=13
+AI-3-C-2 rect=- font=13
+AI-3-C-3 rect=- font=13
+AI-4 rect=- font=13
+AI-4-C-1 rect=- font=13
+AI-4-C-2 rect=- font=13
+AI-4-C-3 rect=- font=13
+AI-5 rect=- font=13
+AI-5-C-1 rect=- font=13
+AI-5-C-2 rect=- font=13
+AI-5-C-3 rect=- font=13
+AI-5-C-4 rect=- font=13
+AI-6 rect=- font=13
+AI-6-C-1 rect=- font=13
+AI-6-C-2 rect=- font=13
+AI-6-C-3 rect=- font=13
+FD-1 rect=[40 127 894 619] font=13
+FD-1-C-1 rect=[52 139 124 179] font=13
+FD-1-C-2 rect=[132 139 204 179] font=13
+FD-1-C-3 rect=[212 139 284 179] font=13
+FD-1-C-4 rect=[292 139 364 179] font=13
+FD-2 rect=[906 127 1760 619] font=13
+FD-2-C-1 rect=[1436 139 1508 179] font=13
+FD-2-C-2 rect=[1516 139 1588 179] font=13
+FD-2-C-3 rect=[1596 139 1668 179] font=13
+FD-2-C-4 rect=[1676 139 1748 179] font=13
+FD-3 rect=[40 631 894 1123] font=13
+FD-3-C-1 rect=[52 643 124 683] font=13
+FD-3-C-2 rect=[52 691 124 731] font=13
+FD-3-C-3 rect=[52 739 124 779] font=13
+FD-3-C-4 rect=[52 787 124 827] font=13
+FD-4 rect=[906 631 1760 1123] font=13
+FD-4-C-1 rect=[918 1070 990 1110] font=13
+FD-4-C-2 rect=[918 1022 990 1062] font=13
+FD-4-C-3 rect=[918 974 990 1014] font=13
+FD-4-C-4 rect=[918 926 990 966] font=13
+GS-1 rect=- font=13
+GS-1-C-1 rect=- font=13
+GS-1-C-2 rect=- font=13
+GS-1-C-3 rect=- font=13
+GS-1-C-4 rect=- font=13
+GS-2 rect=- font=13
+GS-2-C-1 rect=- font=13
+GS-2-C-2 rect=- font=13
+GS-2-C-3 rect=- font=13
+GS-3 rect=- font=13
+GS-3-C-1 rect=- font=13
+GS-3-C-2 rect=- font=13
+GS-3-C-3 rect=- font=13
+GS-4 rect=- font=13
+GS-4-C-1 rect=- font=13
+GS-4-C-2 rect=- font=13
+GS-4-C-3 rect=- font=13
+JC-1 rect=- font=13
+JC-1-C-1 rect=- font=13
+JC-1-C-2 rect=- font=13
+JC-1-C-3 rect=- font=13
+JC-2 rect=- font=13
+JC-2-C-1 rect=- font=13
+JC-2-C-2 rect=- font=13
+JC-2-C-3 rect=- font=13
+JC-3 rect=- font=13
+JC-3-C-1 rect=- font=13
+JC-3-C-2 rect=- font=13
+JC-3-C-3 rect=- font=13
+JC-4 rect=- font=13
+JC-4-C-1 rect=- font=13
+JC-4-C-2 rect=- font=13
+JC-4-C-3 rect=- font=13
+JC-5 rect=- font=13
+JC-5-C-1 rect=- font=13
+JC-5-C-2 rect=- font=13
+JC-5-C-3 rect=- font=13
+JC-6 rect=- font=13
+JC-6-C-1 rect=- font=13
+JC-6-C-2 rect=- font=13
+JC-6-C-3 rect=- font=13
+LBL-INTRO rect=[24 50 1776 74] font=13
+LBL-TITLE rect=[24 14 1776 46] font=20
+OC-COL rect=- font=13
+OC-GAP rect=- font=13
+OC-GAP8 rect=- font=13
+OC-GROW rect=- font=13
+OC-JC rect=- font=13
+OC-JE rect=- font=13
+OC-JS rect=- font=13
+OC-NOGROW rect=- font=13
+OC-REV rect=- font=13
+OC-ROW rect=- font=13
+OC-RREV rect=- font=13
+OC-ZERO rect=- font=13
+OR-1 rect=- font=13
+OR-2 rect=- font=13
+OR-3 rect=- font=13
+OR-4 rect=- font=13
+OR-5 rect=- font=13
+OR-CMDS rect=- font=13
+OR-LIVE rect=- font=13
+P0-HOST rect=[26 113 1774 1136] font=13
+P1-HOST rect=- font=13
+P2-HOST rect=- font=13
+P3-HOST rect=- font=13
+P4-HOST rect=- font=13
+P5-HOST rect=- font=13
+SB-INFO rect=[0 1144 1800 1170] font=13
+TAB-FLEX rect=[24 84 1776 1138] font=13
+WR-1 rect=- font=13
+WR-1-C-1 rect=- font=13
+WR-1-C-2 rect=- font=13
+WR-1-C-3 rect=- font=13
+WR-1-C-4 rect=- font=13
+WR-1-C-5 rect=- font=13
+WR-1-C-6 rect=- font=13
+WR-2 rect=- font=13
+WR-2-C-1 rect=- font=13
+WR-2-C-2 rect=- font=13
+WR-2-C-3 rect=- font=13
+WR-2-C-4 rect=- font=13
+WR-2-C-5 rect=- font=13
+WR-2-C-6 rect=- font=13
+WR-2-C-7 rect=- font=13
+WR-2-C-8 rect=- font=13
+WR-3 rect=- font=13
+WR-3-C-1 rect=- font=13
+WR-3-C-2 rect=- font=13
+WR-3-C-3 rect=- font=13
+WR-3-C-4 rect=- font=13
+WR-3-C-5 rect=- font=13
+WR-3-C-6 rect=- font=13
+WR-3-C-7 rect=- font=13
+WR-3-C-8 rect=- font=13
+WR-4 rect=- font=13
+WR-4-C-1 rect=- font=13
+WR-4-C-2 rect=- font=13
+WR-4-C-3 rect=- font=13
+WR-4-C-4 rect=- font=13
+WR-4-C-5 rect=- font=13
+WR-4-C-6 rect=- font=13
+WR-4-C-7 rect=- font=13
+WR-4-C-8 rect=- font=13
+WR-5 rect=- font=13
+WR-5-C-1 rect=- font=13
+WR-5-C-2 rect=- font=13
+WR-5-C-3 rect=- font=13
+WR-5-C-4 rect=- font=13
+WR-5-C-5 rect=- font=13
+WR-5-C-6 rect=- font=13
+WR-5-C-7 rect=- font=13
+WR-5-C-8 rect=- font=13
+WR-6 rect=- font=13
+WR-6-C-1 rect=- font=13
+WR-6-C-2 rect=- font=13
+WR-6-C-3 rect=- font=13
+WR-6-C-4 rect=- font=13
+WR-6-C-5 rect=- font=13
+WR-6-C-6 rect=- font=13
+WR-6-C-7 rect=- font=13
+WR-6-C-8 rect=- font=13
+WR-7 rect=- font=13
+WR-7-C-1 rect=- font=13
+WR-7-C-2 rect=- font=13
+WR-7-C-3 rect=- font=13
+WR-7-C-4 rect=- font=13
+WR-7-C-5 rect=- font=13
+WR-7-C-6 rect=- font=13
+WR-7-C-7 rect=- font=13
+WR-7-C-8 rect=- font=13
+WR-8 rect=- font=13
+WR-8-C-1 rect=- font=13
+WR-8-C-2 rect=- font=13
+WR-8-C-3 rect=- font=13
+WR-8-C-4 rect=- font=13
+WR-8-C-5 rect=- font=13
+WR-8-C-6 rect=- font=13
+WR-8-C-7 rect=- font=13
+WR-8-C-8 rect=- font=13
+shapes=312 digest=a758b5f592f2758c

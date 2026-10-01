@@ -1,0 +1,1816 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="RESPONSIVE-DASHBOARD-FORM" title="Responsive - a complete dashboard" width="1360" height="860" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" responsive="true" control-style="modern">
+  <FormLayout FontScaling="Fluid" MaxFontScale="1.3"/>
+  <Breakpoints>
+    <Breakpoint name="Compact" min-width="0" font-factor="1">
+      <Override control="DB-NAV" property="Visible">0</Override>
+      <Override control="DB-SEARCH" property="Visible">0</Override>
+      <Override control="DB-EXPORT" property="Visible">0</Override>
+      <Override control="DB-TITLE" property="FontSize">16</Override>
+      <Override control="DB-MAIN" property="GridColumns">Repeat(2, MinMax(120px, 1fr))</Override>
+      <Override control="DB-MAIN" property="GridRows">Auto Auto MinMax(160px, 1fr) MinMax(180px, 1fr)</Override>
+      <Override control="DB-MAIN" property="Gap">8</Override>
+      <Override control="DB-MAIN" property="Padding">8</Override>
+      <Override control="DB-LINE" property="Visible">0</Override>
+      <Override control="DB-PIE" property="Visible">0</Override>
+      <Override control="DB-CUSTOMERS" property="Visible">0</Override>
+    </Breakpoint>
+    <Breakpoint name="Medium" min-width="600" font-factor="1">
+      <Override control="DB-NAV" property="Width">170</Override>
+      <Override control="DB-MAIN" property="GridColumns">Repeat(2, MinMax(150px, 1fr))</Override>
+      <Override control="DB-MAIN" property="GridRows">Auto Auto MinMax(180px, 1fr) MinMax(200px, 1fr)</Override>
+      <Override control="DB-LINE" property="Visible">0</Override>
+      <Override control="DB-PIE" property="Visible">0</Override>
+      <Override control="DB-EXPORT" property="Visible">0</Override>
+      <Override control="DB-CUSTOMERS" property="Visible">0</Override>
+    </Breakpoint>
+    <Breakpoint name="Expanded" min-width="1024" font-factor="1"/>
+  </Breakpoints>
+  <working-storage><![CDATA[       01 WS-NUM GLOBAL PIC 9(5).
+       01 WS-WIN-W GLOBAL PIC Z(4)9.
+       01 WS-WIN-H GLOBAL PIC Z(4)9.
+       01 WS-BP GLOBAL PIC X(20).
+       01 WS-FSC GLOBAL PIC X(12).
+       01 WS-LINE GLOBAL PIC X(200).
+]]></working-storage>
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+  <user-procedures>
+    <Event name="DSH-SHOW-INFO" paragraph="DSH-SHOW-INFO"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *> Window size, active breakpoint and font scale, as the
+      *> layout engine reports them after laying the form out.
+           MOVE SPACES TO WS-LINE
+           STRING "Window " FUNCTION TRIM(WS-WIN-W)
+               " x " FUNCTION TRIM(WS-WIN-H)
+               "   |   breakpoint " FUNCTION TRIM(WS-BP)
+               "   |   font scale " FUNCTION TRIM(WS-FSC)
+               DELIMITED BY SIZE INTO WS-LINE
+           MOVE WS-LINE TO SB-INFO::Items
+]]></Event>
+    <Event name="DSH-CHARTS" paragraph="DSH-CHARTS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *> Sample data for the three charts.
+           INVOKE DB-BAR::Clear()
+           INVOKE DB-BAR::AddPoint("Mon", 182)
+           INVOKE DB-BAR::AddPoint("Tue", 214)
+           INVOKE DB-BAR::AddPoint("Wed", 199)
+           INVOKE DB-BAR::AddPoint("Thu", 241)
+           INVOKE DB-BAR::AddPoint("Fri", 276)
+           INVOKE DB-BAR::AddPoint("Sat", 133)
+           INVOKE DB-LINE::Clear()
+           INVOKE DB-LINE::AddPoint("W1", 31)
+           INVOKE DB-LINE::AddPoint("W2", 35)
+           INVOKE DB-LINE::AddPoint("W3", 33)
+           INVOKE DB-LINE::AddPoint("W4", 41)
+           INVOKE DB-LINE::AddPoint("W5", 44)
+           INVOKE DB-LINE::AddPoint("W6", 40)
+           INVOKE DB-LINE::AddPoint("W7", 47)
+           INVOKE DB-LINE::AddPoint("W8", 52)
+           INVOKE DB-PIE::Clear()
+           INVOKE DB-PIE::AddPoint("Shop", 46)
+           INVOKE DB-PIE::AddPoint("Web", 38)
+           INVOKE DB-PIE::AddPoint("Phone", 16)
+]]></Event>
+  </user-procedures>
+  <form-events>
+    <Event name="onLoad" paragraph="RESPONSIVE-DASHBOARD-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE me::Width TO WS-NUM
+           MOVE WS-NUM TO WS-WIN-W
+           MOVE me::Height TO WS-NUM
+           MOVE WS-NUM TO WS-WIN-H
+           MOVE me::Breakpoint TO WS-BP
+           MOVE me::FontScale TO WS-FSC
+           CALL "DSH-SHOW-INFO"
+           CALL "DSH-CHARTS"
+]]></Event>
+    <Event name="onClose" paragraph="RESPONSIVE-DASHBOARD-FORM--ONCLOSE">
+    </Event>
+    <Event name="onResize" paragraph="RESPONSIVE-DASHBOARD-FORM--ONRESIZE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE me::Width TO WS-NUM
+           MOVE WS-NUM TO WS-WIN-W
+           MOVE me::Height TO WS-NUM
+           MOVE WS-NUM TO WS-WIN-H
+           MOVE me::Breakpoint TO WS-BP
+           MOVE me::FontScale TO WS-FSC
+           CALL "DSH-SHOW-INFO"
+]]></Event>
+    <Event name="onBreakpointChanged" paragraph="RESPONSIVE-DASHBOARD-FORM--ONBREAKPOINTCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE me::Width TO WS-NUM
+           MOVE WS-NUM TO WS-WIN-W
+           MOVE me::Height TO WS-NUM
+           MOVE WS-NUM TO WS-WIN-H
+           MOVE me::Breakpoint TO WS-BP
+           MOVE me::FontScale TO WS-FSC
+           CALL "DSH-SHOW-INFO"
+]]></Event>
+  </form-events>
+  <Control id="DB-HEAD" type="Panel" x="0" y="0" w="1360" h="64" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#1F2933FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">12</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">4</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">2</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">10</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#DDE3EAFF</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HScroll">false</Property>
+    <Property name="VScroll">false</Property>
+    <Property name="HideBackground">false</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="Dock">Top</Property>
+    <Property name="LayoutMode">Flex</Property>
+    <Property name="AlignItems">Center</Property>
+    <Property name="Gap">12</Property>
+  </Control>
+  <Control id="DB-LOGO" type="Label" x="12" y="12" w="44" h="40" tab-order="0" z-order="1" visible="true" enabled="true" parent="DB-HEAD">
+    <Property name="Caption">PRC</Property>
+    <Property name="BackgroundColor">#2563EBFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">true</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CornerRadius">6</Property>
+    <Property name="TextAlignment">Center</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FlexShrink">0</Property>
+  </Control>
+  <Control id="DB-TITLE" type="Label" x="68" y="16" w="700" h="32" tab-order="0" z-order="2" visible="true" enabled="true" parent="DB-HEAD">
+    <Property name="Caption">Operations dashboard</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#1F2933FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">20</Property>
+    <Property name="Bold">true</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FlexGrow">1</Property>
+    <Property name="FlexBasis">200</Property>
+  </Control>
+  <Control id="DB-SEARCH" type="TextBox" x="780" y="15" w="300" h="34" tab-order="1" z-order="3" visible="true" enabled="true" parent="DB-HEAD">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#1F2933FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="Text"></Property>
+    <Property name="AutoEnter">false</Property>
+    <Property name="HintText">Search orders, customers...</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">6</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Picture"></Property>
+    <Property name="Multiline">false</Property>
+    <Property name="PasswordCharacter"></Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#C5CED8FF</Property>
+    <Property name="CornerRadius">6</Property>
+    <Property name="MinWidth">140</Property>
+    <Property name="FlexBasis">300</Property>
+  </Control>
+  <Control id="DB-NEW" type="Button" x="1092" y="15" w="128" h="34" tab-order="2" z-order="4" visible="true" enabled="true" parent="DB-HEAD">
+    <Property name="Caption">New order</Property>
+    <Property name="BackgroundColor">#2563EBFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">6</Property>
+    <Property name="FlexShrink">0</Property>
+  </Control>
+  <Control id="DB-EXPORT" type="Button" x="1232" y="15" w="116" h="34" tab-order="3" z-order="5" visible="true" enabled="true" parent="DB-HEAD">
+    <Property name="Caption">Export</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#2563EBFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#C5CED8FF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">6</Property>
+    <Property name="FlexShrink">0</Property>
+  </Control>
+  <Control id="SB-INFO" type="StatusBar" x="0" y="834" w="1360" h="26" tab-order="0" z-order="6" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Items">Resize the window</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="Dock">Bottom</Property>
+  </Control>
+  <Control id="DB-NAV" type="Panel" x="0" y="64" w="220" h="770" tab-order="0" z-order="7" visible="true" enabled="true">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#1F2933FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">12</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">4</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">2</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">10</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#DDE3EAFF</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HScroll">false</Property>
+    <Property name="VScroll">false</Property>
+    <Property name="HideBackground">false</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="Dock">Left</Property>
+    <Property name="LayoutMode">Flex</Property>
+    <Property name="FlexDirection">Column</Property>
+    <Property name="Gap">4</Property>
+  </Control>
+  <Control id="DB-N1" type="Button" x="12" y="76" w="196" h="36" tab-order="4" z-order="8" visible="true" enabled="true" parent="DB-NAV">
+    <Property name="Caption">Overview</Property>
+    <Property name="BackgroundColor">#2563EBFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">6</Property>
+    <Property name="FlexShrink">0</Property>
+  </Control>
+  <Control id="DB-N2" type="Button" x="12" y="116" w="196" h="36" tab-order="5" z-order="9" visible="true" enabled="true" parent="DB-NAV">
+    <Property name="Caption">Orders</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#2563EBFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#C5CED8FF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">6</Property>
+    <Property name="FlexShrink">0</Property>
+  </Control>
+  <Control id="DB-N3" type="Button" x="12" y="156" w="196" h="36" tab-order="6" z-order="10" visible="true" enabled="true" parent="DB-NAV">
+    <Property name="Caption">Customers</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#2563EBFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#C5CED8FF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">6</Property>
+    <Property name="FlexShrink">0</Property>
+  </Control>
+  <Control id="DB-N4" type="Button" x="12" y="196" w="196" h="36" tab-order="7" z-order="11" visible="true" enabled="true" parent="DB-NAV">
+    <Property name="Caption">Products</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#2563EBFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#C5CED8FF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">6</Property>
+    <Property name="FlexShrink">0</Property>
+  </Control>
+  <Control id="DB-N5" type="Button" x="12" y="236" w="196" h="36" tab-order="8" z-order="12" visible="true" enabled="true" parent="DB-NAV">
+    <Property name="Caption">Stock</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#2563EBFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#C5CED8FF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">6</Property>
+    <Property name="FlexShrink">0</Property>
+  </Control>
+  <Control id="DB-N6" type="Button" x="12" y="276" w="196" h="36" tab-order="9" z-order="13" visible="true" enabled="true" parent="DB-NAV">
+    <Property name="Caption">Deliveries</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#2563EBFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#C5CED8FF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">6</Property>
+    <Property name="FlexShrink">0</Property>
+  </Control>
+  <Control id="DB-N7" type="Button" x="12" y="316" w="196" h="36" tab-order="10" z-order="14" visible="true" enabled="true" parent="DB-NAV">
+    <Property name="Caption">Invoices</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#2563EBFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#C5CED8FF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">6</Property>
+    <Property name="FlexShrink">0</Property>
+  </Control>
+  <Control id="DB-N8" type="Button" x="12" y="356" w="196" h="36" tab-order="11" z-order="15" visible="true" enabled="true" parent="DB-NAV">
+    <Property name="Caption">Reports</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#2563EBFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#C5CED8FF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">6</Property>
+    <Property name="FlexShrink">0</Property>
+  </Control>
+  <Control id="DB-NAV-SPACE" type="Label" x="12" y="396" w="196" h="20" tab-order="0" z-order="16" visible="true" enabled="true" parent="DB-NAV">
+    <Property name="Caption"></Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#1F2933FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="FlexGrow">1</Property>
+  </Control>
+  <Control id="DB-SETTINGS" type="Button" x="12" y="786" w="196" h="36" tab-order="12" z-order="17" visible="true" enabled="true" parent="DB-NAV">
+    <Property name="Caption">Settings</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#2563EBFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#C5CED8FF</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">6</Property>
+    <Property name="FlexShrink">0</Property>
+  </Control>
+  <Control id="DB-MAIN" type="Panel" x="220" y="64" w="1140" h="770" tab-order="0" z-order="18" visible="true" enabled="true">
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#1F2933FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">16</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">4</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">2</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">10</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#DDE3EAFF</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HScroll">false</Property>
+    <Property name="VScroll">false</Property>
+    <Property name="HideBackground">false</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="Dock">Fill</Property>
+    <Property name="LayoutMode">Grid</Property>
+    <Property name="Gap">14</Property>
+    <Property name="GridColumns">Repeat(4, MinMax(150px, 1fr))</Property>
+    <Property name="GridRows">Auto MinMax(200px, 1fr) MinMax(220px, 1fr)</Property>
+  </Control>
+  <Control id="DB-K1" type="Panel" x="236" y="80" w="266" h="104" tab-order="0" z-order="19" visible="true" enabled="true" parent="DB-MAIN">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#1F2933FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">12</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">4</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">2</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">10</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#DDE3EAFF</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HScroll">false</Property>
+    <Property name="VScroll">false</Property>
+    <Property name="HideBackground">false</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="LayoutMode">Flex</Property>
+    <Property name="FlexDirection">Column</Property>
+    <Property name="Gap">4</Property>
+  </Control>
+  <Control id="DB-K1-CAP" type="Label" x="248" y="92" w="242" h="20" tab-order="0" z-order="20" visible="true" enabled="true" parent="DB-K1">
+    <Property name="Caption">Revenue today</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#52606DFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+  </Control>
+  <Control id="DB-K1-VAL" type="Label" x="248" y="116" w="242" h="36" tab-order="0" z-order="21" visible="true" enabled="true" parent="DB-K1">
+    <Property name="Caption">R$ 48.210</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#1F2933FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">26</Property>
+    <Property name="Bold">true</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+  </Control>
+  <Control id="DB-K1-BAR" type="ProgressBar" x="248" y="160" w="242" h="10" tab-order="13" z-order="22" visible="true" enabled="true" parent="DB-K1">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Minimum">0</Property>
+    <Property name="Maximum">100</Property>
+    <Property name="Value">72</Property>
+    <Property name="BarColor">#00AA00</Property>
+    <Property name="Orientation">Horizontal</Property>
+    <Property name="Style">Continuous</Property>
+    <Property name="BlockSize">0</Property>
+    <Property name="ShowValue">false</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#8C8CA0</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="DB-K2" type="Panel" x="516" y="80" w="266" h="104" tab-order="0" z-order="23" visible="true" enabled="true" parent="DB-MAIN">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#1F2933FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">12</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">4</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">2</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">10</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#DDE3EAFF</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HScroll">false</Property>
+    <Property name="VScroll">false</Property>
+    <Property name="HideBackground">false</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="LayoutMode">Flex</Property>
+    <Property name="FlexDirection">Column</Property>
+    <Property name="Gap">4</Property>
+  </Control>
+  <Control id="DB-K2-CAP" type="Label" x="528" y="92" w="242" h="20" tab-order="0" z-order="24" visible="true" enabled="true" parent="DB-K2">
+    <Property name="Caption">Open orders</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#52606DFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+  </Control>
+  <Control id="DB-K2-VAL" type="Label" x="528" y="116" w="242" h="36" tab-order="0" z-order="25" visible="true" enabled="true" parent="DB-K2">
+    <Property name="Caption">1.284</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#1F2933FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">26</Property>
+    <Property name="Bold">true</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+  </Control>
+  <Control id="DB-K2-BAR" type="ProgressBar" x="528" y="160" w="242" h="10" tab-order="14" z-order="26" visible="true" enabled="true" parent="DB-K2">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Minimum">0</Property>
+    <Property name="Maximum">100</Property>
+    <Property name="Value">45</Property>
+    <Property name="BarColor">#00AA00</Property>
+    <Property name="Orientation">Horizontal</Property>
+    <Property name="Style">Continuous</Property>
+    <Property name="BlockSize">0</Property>
+    <Property name="ShowValue">false</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#8C8CA0</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="DB-K3" type="Panel" x="796" y="80" w="266" h="104" tab-order="0" z-order="27" visible="true" enabled="true" parent="DB-MAIN">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#1F2933FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">12</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">4</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">2</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">10</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#DDE3EAFF</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HScroll">false</Property>
+    <Property name="VScroll">false</Property>
+    <Property name="HideBackground">false</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="LayoutMode">Flex</Property>
+    <Property name="FlexDirection">Column</Property>
+    <Property name="Gap">4</Property>
+  </Control>
+  <Control id="DB-K3-CAP" type="Label" x="808" y="92" w="242" h="20" tab-order="0" z-order="28" visible="true" enabled="true" parent="DB-K3">
+    <Property name="Caption">Late deliveries</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#52606DFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+  </Control>
+  <Control id="DB-K3-VAL" type="Label" x="808" y="116" w="242" h="36" tab-order="0" z-order="29" visible="true" enabled="true" parent="DB-K3">
+    <Property name="Caption">3</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#1F2933FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">26</Property>
+    <Property name="Bold">true</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+  </Control>
+  <Control id="DB-K3-BAR" type="ProgressBar" x="808" y="160" w="242" h="10" tab-order="15" z-order="30" visible="true" enabled="true" parent="DB-K3">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Minimum">0</Property>
+    <Property name="Maximum">100</Property>
+    <Property name="Value">12</Property>
+    <Property name="BarColor">#00AA00</Property>
+    <Property name="Orientation">Horizontal</Property>
+    <Property name="Style">Continuous</Property>
+    <Property name="BlockSize">0</Property>
+    <Property name="ShowValue">false</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#8C8CA0</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="DB-K4" type="Panel" x="1076" y="80" w="266" h="104" tab-order="0" z-order="31" visible="true" enabled="true" parent="DB-MAIN">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#1F2933FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">12</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">4</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">2</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">10</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#DDE3EAFF</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HScroll">false</Property>
+    <Property name="VScroll">false</Property>
+    <Property name="HideBackground">false</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="LayoutMode">Flex</Property>
+    <Property name="FlexDirection">Column</Property>
+    <Property name="Gap">4</Property>
+  </Control>
+  <Control id="DB-K4-CAP" type="Label" x="1088" y="92" w="242" h="20" tab-order="0" z-order="32" visible="true" enabled="true" parent="DB-K4">
+    <Property name="Caption">Stock alerts</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#52606DFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+  </Control>
+  <Control id="DB-K4-VAL" type="Label" x="1088" y="116" w="242" h="36" tab-order="0" z-order="33" visible="true" enabled="true" parent="DB-K4">
+    <Property name="Caption">37</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#1F2933FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">26</Property>
+    <Property name="Bold">true</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+  </Control>
+  <Control id="DB-K4-BAR" type="ProgressBar" x="1088" y="160" w="242" h="10" tab-order="16" z-order="34" visible="true" enabled="true" parent="DB-K4">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Minimum">0</Property>
+    <Property name="Maximum">100</Property>
+    <Property name="Value">60</Property>
+    <Property name="BarColor">#00AA00</Property>
+    <Property name="Orientation">Horizontal</Property>
+    <Property name="Style">Continuous</Property>
+    <Property name="BlockSize">0</Property>
+    <Property name="ShowValue">false</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#8C8CA0</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="DB-BAR" type="BarChart" x="236" y="198" w="546" h="260" tab-order="17" z-order="35" visible="true" enabled="true" parent="DB-MAIN">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Title">Orders by weekday</Property>
+    <Property name="TitleFontSize">0</Property>
+    <Property name="TitleColor"></Property>
+    <Property name="ShowLegend">true</Property>
+    <Property name="ShowGridLines">true</Property>
+    <Property name="ShowXAxis">true</Property>
+    <Property name="ShowYAxis">true</Property>
+    <Property name="ShowTooltips">true</Property>
+    <Property name="AnimateOnLoad">true</Property>
+    <Property name="AnimateValues">false</Property>
+    <Property name="AnimationDuration">2000</Property>
+    <Property name="HideBackground">false</Property>
+    <Property name="Monochrome">false</Property>
+    <Property name="MonochromeColor">#3F6FB5</Property>
+    <Property name="MonochromeGradient">false</Property>
+    <Property name="XAxisLabel"></Property>
+    <Property name="YAxisLabel"></Property>
+    <Property name="SeriesColors">#4C9BE8,#E87A4C,#4CE87A,#E84C9B,#9B4CE8,#E8C84C</Property>
+    <Property name="DataSource"></Property>
+    <Property name="DataCount"></Property>
+    <Property name="LabelField"></Property>
+    <Property name="ValueFields"></Property>
+    <Property name="SeriesLabels"></Property>
+    <Property name="Horizontal">false</Property>
+    <Property name="Stacked">false</Property>
+    <Property name="BarCornerRadius">3</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="BorderColor">#3C50A0</Property>
+    <Property name="BorderGradientEnabled">false</Property>
+    <Property name="BorderGradientStartColor">#3C50A0</Property>
+    <Property name="BorderGradientEndColor">#8FB4FF</Property>
+    <Property name="BorderGradientDirection">South</Property>
+    <Property name="BorderBlur">0</Property>
+    <Property name="BorderTransparency">0</Property>
+    <Property name="CornerRadius">8</Property>
+    <Property name="ColumnSpan">2</Property>
+  </Control>
+  <Control id="DB-LINE" type="LineChart" x="796" y="198" w="546" h="260" tab-order="18" z-order="36" visible="true" enabled="true" parent="DB-MAIN">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Title">Revenue, last 8 weeks</Property>
+    <Property name="TitleFontSize">0</Property>
+    <Property name="TitleColor"></Property>
+    <Property name="ShowLegend">true</Property>
+    <Property name="ShowGridLines">true</Property>
+    <Property name="ShowXAxis">true</Property>
+    <Property name="ShowYAxis">true</Property>
+    <Property name="ShowTooltips">true</Property>
+    <Property name="AnimateOnLoad">true</Property>
+    <Property name="AnimateValues">false</Property>
+    <Property name="AnimationDuration">2000</Property>
+    <Property name="HideBackground">false</Property>
+    <Property name="Monochrome">false</Property>
+    <Property name="MonochromeColor">#3F6FB5</Property>
+    <Property name="MonochromeGradient">false</Property>
+    <Property name="XAxisLabel"></Property>
+    <Property name="YAxisLabel"></Property>
+    <Property name="SeriesColors">#4C9BE8,#E87A4C,#4CE87A,#E84C9B,#9B4CE8,#E8C84C</Property>
+    <Property name="DataSource"></Property>
+    <Property name="DataCount"></Property>
+    <Property name="LabelField"></Property>
+    <Property name="ValueFields"></Property>
+    <Property name="SeriesLabels"></Property>
+    <Property name="Smooth">true</Property>
+    <Property name="ShowPoints">true</Property>
+    <Property name="PointRadius">4</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="BorderColor">#3C50A0</Property>
+    <Property name="BorderGradientEnabled">false</Property>
+    <Property name="BorderGradientStartColor">#3C50A0</Property>
+    <Property name="BorderGradientEndColor">#8FB4FF</Property>
+    <Property name="BorderGradientDirection">South</Property>
+    <Property name="BorderBlur">0</Property>
+    <Property name="BorderTransparency">0</Property>
+    <Property name="CornerRadius">8</Property>
+    <Property name="ColumnSpan">2</Property>
+  </Control>
+  <Control id="DB-CUSTOMERS" type="ListBox" x="236" y="472" w="266" h="346" tab-order="19" z-order="37" visible="true" enabled="true" parent="DB-MAIN">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#1F2933FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Items">Aurora Bakery
+Blue Harbor Ltd
+Cedar Tools
+Delta Freight
+Ember Coffee
+Fjord Outdoor
+Granite Works</Property>
+    <Property name="ItemsFile"></Property>
+    <Property name="SelectedIndex">-1</Property>
+    <Property name="MultiSelect">false</Property>
+    <Property name="SelectedItems"></Property>
+    <Property name="ShowCheckBoxes">false</Property>
+    <Property name="CheckedItems"></Property>
+    <Property name="Sorted">false</Property>
+    <Property name="ActiveItemColor"></Property>
+    <Property name="SelectedItemsColor"></Property>
+    <Property name="ActiveItemTextColor"></Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#C5CED8FF</Property>
+    <Property name="CornerRadius">6</Property>
+  </Control>
+  <Control id="DB-ORDERS" type="DataGrid" x="516" y="472" w="546" h="346" tab-order="20" z-order="38" visible="true" enabled="true" parent="DB-MAIN">
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#1F2933FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Columns">Order:string
+Customer:string
+Status:string
+Total:number</Property>
+    <Property name="Rows">104217	Aurora Bakery	Shipped	1250.00
+104218	Cedar Tools	Picking	15200.00
+104219	Ember Coffee	Late	2210.00
+104220	Fjord Outdoor	Shipped	9930.10
+104221	Granite Works	New	615.00
+104222	Blue Harbor Ltd	Picking	880.50</Property>
+    <Property name="AlternatingRowColor">#F0F8FF</Property>
+    <Property name="AlternatingRowOpacity">20</Property>
+    <Property name="AlternatingMode">Rows</Property>
+    <Property name="HeaderBackgroundColor">#E0E0E0</Property>
+    <Property name="HeaderForegroundColor">#000000</Property>
+    <Property name="FilterForegroundColor"></Property>
+    <Property name="FilterBackgroundColor"></Property>
+    <Property name="GridLineColor">#CCCCCC</Property>
+    <Property name="GridBackgroundImage"></Property>
+    <Property name="GridBackgroundPattern">None</Property>
+    <Property name="RowBackgroundPattern">None</Property>
+    <Property name="GridBackgroundImageMode">Fill</Property>
+    <Property name="SelectionMode">Row</Property>
+    <Property name="RowHeight">22</Property>
+    <Property name="AllowSorting">true</Property>
+    <Property name="AllowColumnResize">true</Property>
+    <Property name="AllowColumnReorder">true</Property>
+    <Property name="AllowRowResize">true</Property>
+    <Property name="AllowCellEditing">false</Property>
+    <Property name="AdvancedGrid"></Property>
+    <Property name="ShowRowNumbers">false</Property>
+    <Property name="ShowColumnFilters">false</Property>
+    <Property name="Title"></Property>
+    <Property name="AutoFitColumns">false</Property>
+    <Property name="ExportCSV">true</Property>
+    <Property name="ShowCSVExportButton">true</Property>
+    <Property name="CSVDelimiter">,</Property>
+    <Property name="CSVExportMode">Filtered</Property>
+    <Property name="FrozenColumns">0</Property>
+    <Property name="FrozenRows">0</Property>
+    <Property name="FrozenShadow">true</Property>
+    <Property name="GridLineStyle">Solid</Property>
+    <Property name="RowHeightOverrides"></Property>
+    <Property name="ColumnFilters"></Property>
+    <Property name="SelectableText">true</Property>
+    <Property name="CornerRadius">6</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="ColumnSpan">2</Property>
+    <Property name="BorderColor">#C5CED8FF</Property>
+  </Control>
+  <Control id="DB-PIE" type="PieChart" x="1076" y="472" w="266" h="346" tab-order="21" z-order="39" visible="true" enabled="true" parent="DB-MAIN">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Title">Orders by channel</Property>
+    <Property name="TitleFontSize">0</Property>
+    <Property name="TitleColor"></Property>
+    <Property name="ShowLegend">false</Property>
+    <Property name="ShowGridLines">true</Property>
+    <Property name="ShowTooltips">true</Property>
+    <Property name="AnimateOnLoad">true</Property>
+    <Property name="AnimateValues">false</Property>
+    <Property name="AnimationDuration">2000</Property>
+    <Property name="HideBackground">false</Property>
+    <Property name="Monochrome">false</Property>
+    <Property name="MonochromeColor">#3F6FB5</Property>
+    <Property name="MonochromeGradient">false</Property>
+    <Property name="XAxisLabel"></Property>
+    <Property name="YAxisLabel"></Property>
+    <Property name="SeriesColors">#4C9BE8,#E87A4C,#4CE87A,#E84C9B,#9B4CE8,#E8C84C</Property>
+    <Property name="DataSource"></Property>
+    <Property name="DataCount"></Property>
+    <Property name="LabelField"></Property>
+    <Property name="ValueFields"></Property>
+    <Property name="SeriesLabels"></Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="BorderColor">#3C50A0</Property>
+    <Property name="BorderGradientEnabled">false</Property>
+    <Property name="BorderGradientStartColor">#3C50A0</Property>
+    <Property name="BorderGradientEndColor">#8FB4FF</Property>
+    <Property name="BorderGradientDirection">South</Property>
+    <Property name="BorderBlur">0</Property>
+    <Property name="BorderTransparency">0</Property>
+    <Property name="ShowLabels">true</Property>
+    <Property name="LabelFormat">percent</Property>
+    <Property name="CornerRadius">8</Property>
+  </Control>
+</Form>

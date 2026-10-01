@@ -194,9 +194,10 @@ fn rail_applied(controls: &[Control]) -> Vec<Control> {
 /// Returns the golden section text and the number of (rect, font) rows.
 fn render_one(form: &Form, theme_default: Option<&str>, s: Surface, window: Vec2) -> (String, usize) {
     let designed = Vec2::new(form.width as f32, form.height as f32);
-    let responsive = form.responsive;
-    // A responsive form's surfaces lay it out first, then narrow the rail
-    // (spec 056 R26); a form that is not responsive takes today's path.
+    // A form that lays out - responsive, or with an `ObsoleteScalingStyle`
+    // (spec 081), which lays out even with Responsive off - is laid out first,
+    // then the rail narrows (spec 056 R26); any other form takes today's path.
+    let responsive = form.lays_out();
     let base_controls: Vec<Control> = form.controls.clone();
     let controls: Vec<Control> = match s {
         Surface::Run => form.controls.clone(),
@@ -377,7 +378,9 @@ fn every_example_form_renders_as_its_golden() {
             }
             // R81 / AC38 — the same form with only `responsive="true"` renders
             // at its designed size exactly as the golden does, on every surface.
-            {
+            // A form that already lays itself out has no "plain" render to
+            // compare against: the copy would be the form itself.
+            if !form.lays_out() {
                 let mut copy = form.clone();
                 copy.responsive = true;
                 let window = Vec2::new(

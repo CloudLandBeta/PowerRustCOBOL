@@ -82,6 +82,18 @@ forms = [
     "forms/Non-Visual/sqldatabase-form.cfrm",
     "forms/Non-Visual/indexedfile-form.cfrm",
     "forms/Non-Visual/websearch-form.cfrm",
+    "forms/General/responsive-anchors-form.cfrm",
+    "forms/General/responsive-dock-form.cfrm",
+    "forms/General/responsive-flex-form.cfrm",
+    "forms/General/responsive-grid-form.cfrm",
+    "forms/General/responsive-flow-form.cfrm",
+    "forms/General/responsive-breakpoints-form.cfrm",
+    "forms/General/responsive-fonts-form.cfrm",
+    "forms/General/responsive-nested-form.cfrm",
+    "forms/General/responsive-runtime-form.cfrm",
+    "forms/General/responsive-collide-form.cfrm",
+    "forms/General/responsive-obsolete-form.cfrm",
+    "forms/General/responsive-dashboard-form.cfrm",
 ]
 assets = []
 documentation = [
@@ -175,7 +187,7 @@ focus-ring = true
 focus-ring-color = ""
 focus-ring-pulse = true
 main-form = "SIDEBAR-FORM"
-main-form-seal = "b61f8ca5e454206dbbbb64a7585355460aeb28d8e3aa5aa40610964bcd3f0c74"
+main-form-seal = "c8bd69332064ddce5bdc28b3a9e05c7ff98be8ccfcd1014ce5a84c79ab7736a8"
 
 [ai]
 schema_version = 1

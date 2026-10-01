@@ -2104,6 +2104,54 @@ then reads.
 > ⚠️ **Caveat.** Unequal ratios distort. A square button in a wide, short
 > window becomes a wide, short button, exactly as it did in PowerCOBOL.
 
+### Responsive examples in PowerDemo3
+
+PowerDemo3 has twelve forms that show the responsive layout. Open them from
+**General** in its side menu; each one shows the window size, the active
+breakpoint and the font scale along its bottom edge as you resize it.
+
+| Menu entry | Form | What it shows |
+|---|---|---|
+| Responsive: anchors and limits | `responsive-anchors-form` | Every anchor choice. Includes a block whose anchors you pick with check boxes from COBOL, plus `MinWidth` and `MaxWidth`. |
+| Responsive: docking | `responsive-dock-form` | `Dock` Top, Bottom, Left, Right and Fill, in render order and nested, next to a control that is anchored instead of docked. Buttons re-dock and hide panels from COBOL. |
+| Responsive: flex | `responsive-flex-form` | One tab per Flex topic: direction, `JustifyContent`, `AlignItems`/`AlignSelf`, wrapping and `AlignContent`, grow/shrink/basis with limits, and `Order`. A last tab rewires a container from COBOL. |
+| Responsive: grid | `responsive-grid-form` | Track sizes (`px`, `%`, `fr`, `Auto`, `MinMax`, `Repeat`), a `Repeat(AutoFill, …)` gallery, explicit cells and spans, the implicit grid, every alignment, and a data-entry form that changes to two columns below 1024 px. |
+| Responsive: flow | `responsive-flow-form` | Every `FlowDirection`, `WrapContents` off, `FlowBreak`. The form itself is a Flex column. |
+| Responsive: breakpoints | `responsive-breakpoints-form` | Five named breakpoints with Stepped fonts and overrides of every kind. Buttons pin a breakpoint (`me::Breakpoint`) or replace the table (`me::Breakpoints`). |
+| Responsive: font scaling | `responsive-fonts-form` | `FontScaling` None, Fluid and Stepped; `MinFontScale`/`MaxFontScale`; `ScaleFont`, `MinFontSize`, `MaxFontSize`; an `AutoSize` label; `me::FontScale` pinned. |
+| Responsive: nested containers | `responsive-nested-form` | A form whose `LayoutMode` is Grid, holding Flow, Flex, a TabControl, another Grid and Flex groups. Includes per-side padding and a cell hidden by a breakpoint or by COBOL. |
+| Responsive: from COBOL | `responsive-runtime-form` | Every layout property written while the form runs. Includes moving a control and reading back its laid-out rectangle, and `me::Responsive` off and on. |
+| Responsive: collision limits | `responsive-collide-form` | Where the window stops shrinking and growing because two controls would touch, beside a declared `MinFormWidth`/`MinFormHeight`. |
+| Responsive: obsolete scaling | `responsive-obsolete-form` | A PowerCOBOL-style form with `ObsoleteScalingStyle` 0–7 switched at run time. A docked toolbar and an anchored status line opt out, and one label keeps its font with `ScaleFont` off. |
+| Responsive: dashboard | `responsive-dashboard-form` | All of it together: a docked header (a Flex row) and navigation, a Grid of indicator cards, charts and a data grid, Fluid fonts, and two breakpoints that rearrange it. |
+
+> 📷 Screenshot needed — `responsive-dashboard.png`: run PowerDemo3, open
+> **General → Responsive: dashboard**, and capture the window twice: once wide
+> (about 1400 px) and once narrow (about 550 px). Place the two side by side.
+
+Three things these forms had to be built around, which your own forms will
+meet too:
+
+- **An `fr` track is never narrower than its widest item as you drew it.** A
+  `1fr` column holding a card you drew 600 px wide does not go below 600 px,
+  and the window then cannot shrink. Write `MinMax(160px, 1fr)` to say how
+  narrow the column may get.
+- **A form or container whose `LayoutMode` is a Flex column takes the height
+  of its content.** Items keep their drawn height instead of shrinking to the
+  window. Draw the item that should fill the space at its *smallest* useful
+  height and give it `FlexGrow 1`: it then grows to fill a tall window, and a
+  short one still fits.
+- **A wrapping Flex or Flow container asks for room to stack every item in
+  one line when it is at its narrowest.** Its minimum height is therefore the
+  sum of its items' heights. Keep long wrapping lists inside a Grid cell with
+  a `MinMax(…)` row, which bounds the height.
+
+> ⚠️ **Caveat.** Inside a TabControl, do not dock a control on one page to
+> fill the page. Docking treats the controls of all pages as one set, so the
+> first page's `Dock = Fill` takes the space of the pages after it. Anchor a
+> page's container to all four edges instead (`Top,Bottom,Left,Right`), as
+> the flex and grid demos do.
+
 ### Target devices
 
 The **Target Device** section lets you size the form for a real device profile
@@ -4292,11 +4340,19 @@ remove a definition from the project, right-click in the designer and choose
 ### Per-control examples
 
 The repository ships **one** application that demonstrates every control:
-`examples/PowerDemo3`, **42 forms** under `forms/`. The `sidebar-form` that
-opens the project sits at the root; the other 41 are filed in the same
-categories the toolbox uses — `Common/` (15), `Non-Visual/` (7), `Graphics/`
-(6), `Containers/` (4), `Menus & Bars/` (4), `General/` (2), and one apiece in
-`Charts/`, `Data/` and `Rust/`. A form is named after its control, so the demo
+`examples/PowerDemo3`, **60 forms** under `forms/`. The `sidebar-form` that
+opens the project sits at the root; the other 59 are filed in the same
+categories the toolbox uses:
+- `General/` (18, twelve of them the responsive demos)
+- `Common/` (16)
+- `Non-Visual/` (7)
+- `Graphics/` (6)
+- `Containers/` (4)
+- `Menus & Bars/` (4)
+- `Data/` (2)
+- one apiece in `Charts/` and `Rust/`
+
+A form is named after its control, so the demo
 for whatever you are reading about is where you would expect it:
 `forms/Common/knob-form.cfrm`, `forms/Containers/splitter-form.cfrm`,
 `forms/Non-Visual/websearch-form.cfrm`.

@@ -1,0 +1,79 @@
+# PowerDemo3/General/responsive-collide-form.cfrm
+## Window 0.75x 675x420
+CL-A rect=[24 96 624 116] font=13
+CL-B rect=[24 166 624 186] font=13
+CL-EXPL rect=[480 240 651 360] font=13
+CL-FIXED rect=[480 190 596 222] font=13
+CL-FOOTER rect=[24 480 624 504] font=13
+CL-GO rect=[495 120 651 152] font=13
+CL-NAME rect=[24 120 544 152] font=13
+CL-NOTES rect=[24 240 444 340] font=13
+CL-WIDE rect=[24 190 135 222] font=13
+LBL-INTRO rect=[24 50 651 90] font=13
+LBL-TITLE rect=[24 14 651 46] font=20
+SB-INFO rect=[0 514 675 540] font=13
+## Occupant 0.75x 675x420
+CL-A rect=[244 124 844 144] font=13
+CL-B rect=[244 194 844 214] font=13
+CL-EXPL rect=[700 268 836 388] font=13
+CL-FIXED rect=[700 218 816 250] font=13
+CL-FOOTER rect=[244 508 844 532] font=13
+CL-GO rect=[680 148 836 180] font=13
+CL-NAME rect=[244 148 764 180] font=13
+CL-NOTES rect=[244 268 664 368] font=13
+CL-WIDE rect=[244 218 320 250] font=13
+LBL-INTRO rect=[244 78 836 118] font=13
+LBL-TITLE rect=[244 42 836 74] font=20
+SB-INFO rect=[220 542 860 568] font=13
+## Window 1x 900x560
+CL-A rect=[24 96 624 116] font=13
+CL-B rect=[24 166 624 186] font=13
+CL-EXPL rect=[480 240 876 360] font=13
+CL-FIXED rect=[480 190 596 222] font=13
+CL-FOOTER rect=[24 480 624 504] font=13
+CL-GO rect=[720 120 876 152] font=13
+CL-NAME rect=[24 120 544 152] font=13
+CL-NOTES rect=[24 240 444 360] font=13
+CL-WIDE rect=[24 190 360 222] font=13
+LBL-INTRO rect=[24 50 876 90] font=13
+LBL-TITLE rect=[24 14 876 46] font=20
+SB-INFO rect=[0 534 900 560] font=13
+## Occupant 1x 900x560
+CL-A rect=[244 124 844 144] font=13
+CL-B rect=[244 194 844 214] font=13
+CL-EXPL rect=[700 268 876 388] font=13
+CL-FIXED rect=[700 218 816 250] font=13
+CL-FOOTER rect=[244 508 844 532] font=13
+CL-GO rect=[720 148 876 180] font=13
+CL-NAME rect=[244 148 764 180] font=13
+CL-NOTES rect=[244 268 664 368] font=13
+CL-WIDE rect=[244 218 360 250] font=13
+LBL-INTRO rect=[244 78 876 118] font=13
+LBL-TITLE rect=[244 42 876 74] font=20
+SB-INFO rect=[220 542 900 568] font=13
+## Window 1.5x 1350x840
+CL-A rect=[24 96 624 116] font=13
+CL-B rect=[24 166 624 186] font=13
+CL-EXPL rect=[480 240 1326 360] font=13
+CL-FIXED rect=[480 190 596 222] font=13
+CL-FOOTER rect=[24 480 624 504] font=13
+CL-GO rect=[1170 120 1326 152] font=13
+CL-NAME rect=[24 120 544 152] font=13
+CL-NOTES rect=[24 240 444 640] font=13
+CL-WIDE rect=[24 190 810 222] font=13
+LBL-INTRO rect=[24 50 1326 90] font=13
+LBL-TITLE rect=[24 14 1326 46] font=20
+SB-INFO rect=[0 814 1350 840] font=13
+## Occupant 1.5x 1350x840
+CL-A rect=[244 124 844 144] font=13
+CL-B rect=[244 194 844 214] font=13
+CL-EXPL rect=[700 268 1326 388] font=13
+CL-FIXED rect=[700 218 816 250] font=13
+CL-FOOTER rect=[244 508 844 532] font=13
+CL-GO rect=[1170 148 1326 180] font=13
+CL-NAME rect=[244 148 764 180] font=13
+CL-NOTES rect=[244 268 664 640] font=13
+CL-WIDE rect=[244 218 810 250] font=13
+LBL-INTRO rect=[244 78 1326 118] font=13
+LBL-TITLE rect=[244 42 1326 74] font=20
+SB-INFO rect=[220 814 1350 840] font=13

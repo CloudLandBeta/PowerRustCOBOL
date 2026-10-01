@@ -1,0 +1,424 @@
+# PowerDemo3/General/responsive-nested-form.cfrm
+## Canvas 0.75x 900x585
+NS-F1 rect=[50 476 130 510] font=13
+NS-F2 rect=[326 476 586 510] font=13
+NS-F3 rect=[782 476 862 510] font=13
+NS-FOOT rect=[38 465 874 521] font=13
+NS-G1 rect=- font=13
+NS-G1-C-1 rect=- font=13
+NS-G1-C-2 rect=- font=13
+NS-G1-C-3 rect=- font=13
+NS-G2 rect=- font=13
+NS-G2-C-1 rect=- font=13
+NS-G2-C-2 rect=- font=13
+NS-G2-C-3 rect=- font=13
+NS-G3 rect=- font=13
+NS-G3-C-1 rect=- font=13
+NS-G3-C-2 rect=- font=13
+NS-G3-C-3 rect=- font=13
+NS-G4 rect=- font=13
+NS-G4-C-1 rect=- font=13
+NS-G4-C-2 rect=- font=13
+NS-G4-C-3 rect=- font=13
+NS-HEAD rect=[12 12 888 68] font=13
+NS-LEFT rect=- font=13
+NS-P0-BTN rect=[706 401 856 437] font=13
+NS-P0-LST rect=[56 179 856 385] font=13
+NS-P0-TXT rect=[56 139 856 169] font=13
+NS-PG rect=- font=13
+NS-RIGHT rect=[12 80 888 535] font=13
+NS-T-COLS rect=[275 24 390 56] font=13
+NS-T-LEFT rect=[24 24 139 56] font=13
+NS-T-PAD rect=[149 24 264 56] font=13
+NS-TABS rect=[38 94 874 455] font=13
+NS-TITLE rect=[400 24 876 56] font=20
+NS-W-1 rect=- font=13
+NS-W-10 rect=- font=13
+NS-W-11 rect=- font=13
+NS-W-12 rect=- font=13
+NS-W-2 rect=- font=13
+NS-W-3 rect=- font=13
+NS-W-4 rect=- font=13
+NS-W-5 rect=- font=13
+NS-W-6 rect=- font=13
+NS-W-7 rect=- font=13
+NS-W-8 rect=- font=13
+NS-W-9 rect=- font=13
+SB-INFO rect=[12 547 888 573] font=13
+shapes=189 digest=85866430b2f7f3b0
+## Run 0.75x 900x585
+NS-F1 rect=[50 476 130 510] font=13
+NS-F2 rect=[326 476 586 510] font=13
+NS-F3 rect=[782 476 862 510] font=13
+NS-FOOT rect=[38 465 874 521] font=13
+NS-G1 rect=- font=13
+NS-G1-C-1 rect=- font=13
+NS-G1-C-2 rect=- font=13
+NS-G1-C-3 rect=- font=13
+NS-G2 rect=- font=13
+NS-G2-C-1 rect=- font=13
+NS-G2-C-2 rect=- font=13
+NS-G2-C-3 rect=- font=13
+NS-G3 rect=- font=13
+NS-G3-C-1 rect=- font=13
+NS-G3-C-2 rect=- font=13
+NS-G3-C-3 rect=- font=13
+NS-G4 rect=- font=13
+NS-G4-C-1 rect=- font=13
+NS-G4-C-2 rect=- font=13
+NS-G4-C-3 rect=- font=13
+NS-HEAD rect=[12 12 888 68] font=13
+NS-LEFT rect=- font=13
+NS-P0-BTN rect=[706 401 856 437] font=13
+NS-P0-LST rect=[56 179 856 385] font=13
+NS-P0-TXT rect=[56 139 856 169] font=13
+NS-PG rect=- font=13
+NS-RIGHT rect=[12 80 888 535] font=13
+NS-T-COLS rect=[275 24 390 56] font=13
+NS-T-LEFT rect=[24 24 139 56] font=13
+NS-T-PAD rect=[149 24 264 56] font=13
+NS-TABS rect=[38 94 874 455] font=13
+NS-TITLE rect=[400 24 876 56] font=20
+NS-W-1 rect=- font=13
+NS-W-10 rect=- font=13
+NS-W-11 rect=- font=13
+NS-W-12 rect=- font=13
+NS-W-2 rect=- font=13
+NS-W-3 rect=- font=13
+NS-W-4 rect=- font=13
+NS-W-5 rect=- font=13
+NS-W-6 rect=- font=13
+NS-W-7 rect=- font=13
+NS-W-8 rect=- font=13
+NS-W-9 rect=- font=13
+SB-INFO rect=[12 547 888 573] font=13
+shapes=197 digest=43f610420f3c8a1d
+## Preview 0.75x 900x585
+NS-F1 rect=[50 476 130 510] font=13
+NS-F2 rect=[326 476 586 510] font=13
+NS-F3 rect=[782 476 862 510] font=13
+NS-FOOT rect=[38 465 874 521] font=13
+NS-G1 rect=- font=13
+NS-G1-C-1 rect=- font=13
+NS-G1-C-2 rect=- font=13
+NS-G1-C-3 rect=- font=13
+NS-G2 rect=- font=13
+NS-G2-C-1 rect=- font=13
+NS-G2-C-2 rect=- font=13
+NS-G2-C-3 rect=- font=13
+NS-G3 rect=- font=13
+NS-G3-C-1 rect=- font=13
+NS-G3-C-2 rect=- font=13
+NS-G3-C-3 rect=- font=13
+NS-G4 rect=- font=13
+NS-G4-C-1 rect=- font=13
+NS-G4-C-2 rect=- font=13
+NS-G4-C-3 rect=- font=13
+NS-HEAD rect=[12 12 888 68] font=13
+NS-LEFT rect=- font=13
+NS-P0-BTN rect=[706 401 856 437] font=13
+NS-P0-LST rect=[56 179 856 385] font=13
+NS-P0-TXT rect=[56 139 856 169] font=13
+NS-PG rect=- font=13
+NS-RIGHT rect=[12 80 888 535] font=13
+NS-T-COLS rect=[275 24 390 56] font=13
+NS-T-LEFT rect=[24 24 139 56] font=13
+NS-T-PAD rect=[149 24 264 56] font=13
+NS-TABS rect=[38 94 874 455] font=13
+NS-TITLE rect=[400 24 876 56] font=20
+NS-W-1 rect=- font=13
+NS-W-10 rect=- font=13
+NS-W-11 rect=- font=13
+NS-W-12 rect=- font=13
+NS-W-2 rect=- font=13
+NS-W-3 rect=- font=13
+NS-W-4 rect=- font=13
+NS-W-5 rect=- font=13
+NS-W-6 rect=- font=13
+NS-W-7 rect=- font=13
+NS-W-8 rect=- font=13
+NS-W-9 rect=- font=13
+SB-INFO rect=[12 547 888 573] font=13
+shapes=197 digest=43f610420f3c8a1d
+## Canvas 1x 1200x780
+NS-F1 rect=[342 671 422 705] font=13
+NS-F2 rect=[622 671 882 705] font=13
+NS-F3 rect=[1082 671 1162 705] font=13
+NS-FOOT rect=[330 660 1174 716] font=13
+NS-G1 rect=- font=13
+NS-G1-C-1 rect=- font=13
+NS-G1-C-2 rect=- font=13
+NS-G1-C-3 rect=- font=13
+NS-G2 rect=- font=13
+NS-G2-C-1 rect=- font=13
+NS-G2-C-2 rect=- font=13
+NS-G2-C-3 rect=- font=13
+NS-G3 rect=- font=13
+NS-G3-C-1 rect=- font=13
+NS-G3-C-2 rect=- font=13
+NS-G3-C-3 rect=- font=13
+NS-G4 rect=- font=13
+NS-G4-C-1 rect=- font=13
+NS-G4-C-2 rect=- font=13
+NS-G4-C-3 rect=- font=13
+NS-HEAD rect=[12 12 1188 68] font=13
+NS-LEFT rect=[12 80 292 730] font=13
+NS-P0-BTN rect=[1006 596 1156 632] font=13
+NS-P0-LST rect=[348 179 1156 580] font=13
+NS-P0-TXT rect=[348 139 1156 169] font=13
+NS-PG rect=- font=13
+NS-RIGHT rect=[304 80 1188 730] font=13
+NS-T-COLS rect=[359 24 516 56] font=13
+NS-T-LEFT rect=[24 24 181 56] font=13
+NS-T-PAD rect=[191 24 348 56] font=13
+NS-TABS rect=[330 94 1174 650] font=13
+NS-TITLE rect=[526 24 1176 56] font=20
+NS-W-1 rect=[24 92 80 116] font=13
+NS-W-10 rect=[82 152 130 176] font=13
+NS-W-11 rect=[136 152 190 176] font=13
+NS-W-12 rect=[196 152 256 176] font=13
+NS-W-2 rect=[86 92 134 116] font=13
+NS-W-3 rect=[140 92 184 116] font=13
+NS-W-4 rect=[190 92 238 116] font=13
+NS-W-5 rect=[24 122 94 146] font=13
+NS-W-6 rect=[100 122 150 146] font=13
+NS-W-7 rect=[156 122 220 146] font=13
+NS-W-8 rect=[226 122 266 146] font=13
+NS-W-9 rect=[24 152 76 176] font=13
+SB-INFO rect=[12 742 1188 768] font=13
+shapes=315 digest=3d3c5adc5bcd7bc2
+## Run 1x 1200x780
+NS-F1 rect=[342 671 422 705] font=13
+NS-F2 rect=[622 671 882 705] font=13
+NS-F3 rect=[1082 671 1162 705] font=13
+NS-FOOT rect=[330 660 1174 716] font=13
+NS-G1 rect=- font=13
+NS-G1-C-1 rect=- font=13
+NS-G1-C-2 rect=- font=13
+NS-G1-C-3 rect=- font=13
+NS-G2 rect=- font=13
+NS-G2-C-1 rect=- font=13
+NS-G2-C-2 rect=- font=13
+NS-G2-C-3 rect=- font=13
+NS-G3 rect=- font=13
+NS-G3-C-1 rect=- font=13
+NS-G3-C-2 rect=- font=13
+NS-G3-C-3 rect=- font=13
+NS-G4 rect=- font=13
+NS-G4-C-1 rect=- font=13
+NS-G4-C-2 rect=- font=13
+NS-G4-C-3 rect=- font=13
+NS-HEAD rect=[12 12 1188 68] font=13
+NS-LEFT rect=[12 80 292 730] font=13
+NS-P0-BTN rect=[1006 596 1156 632] font=13
+NS-P0-LST rect=[348 179 1156 580] font=13
+NS-P0-TXT rect=[348 139 1156 169] font=13
+NS-PG rect=- font=13
+NS-RIGHT rect=[304 80 1188 730] font=13
+NS-T-COLS rect=[359 24 516 56] font=13
+NS-T-LEFT rect=[24 24 181 56] font=13
+NS-T-PAD rect=[191 24 348 56] font=13
+NS-TABS rect=[330 94 1174 650] font=13
+NS-TITLE rect=[526 24 1176 56] font=20
+NS-W-1 rect=[24 92 80 116] font=13
+NS-W-10 rect=[82 152 130 176] font=13
+NS-W-11 rect=[136 152 190 176] font=13
+NS-W-12 rect=[196 152 256 176] font=13
+NS-W-2 rect=[86 92 134 116] font=13
+NS-W-3 rect=[140 92 184 116] font=13
+NS-W-4 rect=[190 92 238 116] font=13
+NS-W-5 rect=[24 122 94 146] font=13
+NS-W-6 rect=[100 122 150 146] font=13
+NS-W-7 rect=[156 122 220 146] font=13
+NS-W-8 rect=[226 122 266 146] font=13
+NS-W-9 rect=[24 152 76 176] font=13
+SB-INFO rect=[12 742 1188 768] font=13
+shapes=323 digest=d3639c5b654be843
+## Preview 1x 1200x780
+NS-F1 rect=[342 671 422 705] font=13
+NS-F2 rect=[622 671 882 705] font=13
+NS-F3 rect=[1082 671 1162 705] font=13
+NS-FOOT rect=[330 660 1174 716] font=13
+NS-G1 rect=- font=13
+NS-G1-C-1 rect=- font=13
+NS-G1-C-2 rect=- font=13
+NS-G1-C-3 rect=- font=13
+NS-G2 rect=- font=13
+NS-G2-C-1 rect=- font=13
+NS-G2-C-2 rect=- font=13
+NS-G2-C-3 rect=- font=13
+NS-G3 rect=- font=13
+NS-G3-C-1 rect=- font=13
+NS-G3-C-2 rect=- font=13
+NS-G3-C-3 rect=- font=13
+NS-G4 rect=- font=13
+NS-G4-C-1 rect=- font=13
+NS-G4-C-2 rect=- font=13
+NS-G4-C-3 rect=- font=13
+NS-HEAD rect=[12 12 1188 68] font=13
+NS-LEFT rect=[12 80 292 730] font=13
+NS-P0-BTN rect=[1006 596 1156 632] font=13
+NS-P0-LST rect=[348 179 1156 580] font=13
+NS-P0-TXT rect=[348 139 1156 169] font=13
+NS-PG rect=- font=13
+NS-RIGHT rect=[304 80 1188 730] font=13
+NS-T-COLS rect=[359 24 516 56] font=13
+NS-T-LEFT rect=[24 24 181 56] font=13
+NS-T-PAD rect=[191 24 348 56] font=13
+NS-TABS rect=[330 94 1174 650] font=13
+NS-TITLE rect=[526 24 1176 56] font=20
+NS-W-1 rect=[24 92 80 116] font=13
+NS-W-10 rect=[82 152 130 176] font=13
+NS-W-11 rect=[136 152 190 176] font=13
+NS-W-12 rect=[196 152 256 176] font=13
+NS-W-2 rect=[86 92 134 116] font=13
+NS-W-3 rect=[140 92 184 116] font=13
+NS-W-4 rect=[190 92 238 116] font=13
+NS-W-5 rect=[24 122 94 146] font=13
+NS-W-6 rect=[100 122 150 146] font=13
+NS-W-7 rect=[156 122 220 146] font=13
+NS-W-8 rect=[226 122 266 146] font=13
+NS-W-9 rect=[24 152 76 176] font=13
+SB-INFO rect=[12 742 1188 768] font=13
+shapes=323 digest=d3639c5b654be843
+## Canvas 1.5x 1800x1170
+NS-F1 rect=[342 1061 422 1095] font=13
+NS-F2 rect=[922 1061 1182 1095] font=13
+NS-F3 rect=[1682 1061 1762 1095] font=13
+NS-FOOT rect=[330 1050 1774 1106] font=13
+NS-G1 rect=- font=13
+NS-G1-C-1 rect=- font=13
+NS-G1-C-2 rect=- font=13
+NS-G1-C-3 rect=- font=13
+NS-G2 rect=- font=13
+NS-G2-C-1 rect=- font=13
+NS-G2-C-2 rect=- font=13
+NS-G2-C-3 rect=- font=13
+NS-G3 rect=- font=13
+NS-G3-C-1 rect=- font=13
+NS-G3-C-2 rect=- font=13
+NS-G3-C-3 rect=- font=13
+NS-G4 rect=- font=13
+NS-G4-C-1 rect=- font=13
+NS-G4-C-2 rect=- font=13
+NS-G4-C-3 rect=- font=13
+NS-HEAD rect=[12 12 1788 68] font=13
+NS-LEFT rect=[12 80 292 1120] font=13
+NS-P0-BTN rect=[1606 986 1756 1022] font=13
+NS-P0-LST rect=[348 179 1756 970] font=13
+NS-P0-TXT rect=[348 139 1756 169] font=13
+NS-PG rect=- font=13
+NS-RIGHT rect=[304 80 1788 1120] font=13
+NS-T-COLS rect=[364 24 524 56] font=13
+NS-T-LEFT rect=[24 24 184 56] font=13
+NS-T-PAD rect=[194 24 354 56] font=13
+NS-TABS rect=[330 94 1774 1040] font=13
+NS-TITLE rect=[534 24 1776 56] font=20
+NS-W-1 rect=[24 92 80 116] font=13
+NS-W-10 rect=[82 152 130 176] font=13
+NS-W-11 rect=[136 152 190 176] font=13
+NS-W-12 rect=[196 152 256 176] font=13
+NS-W-2 rect=[86 92 134 116] font=13
+NS-W-3 rect=[140 92 184 116] font=13
+NS-W-4 rect=[190 92 238 116] font=13
+NS-W-5 rect=[24 122 94 146] font=13
+NS-W-6 rect=[100 122 150 146] font=13
+NS-W-7 rect=[156 122 220 146] font=13
+NS-W-8 rect=[226 122 266 146] font=13
+NS-W-9 rect=[24 152 76 176] font=13
+SB-INFO rect=[12 1132 1788 1158] font=13
+shapes=315 digest=ea382ec13c5d23a1
+## Run 1.5x 1800x1170
+NS-F1 rect=[342 1061 422 1095] font=13
+NS-F2 rect=[922 1061 1182 1095] font=13
+NS-F3 rect=[1682 1061 1762 1095] font=13
+NS-FOOT rect=[330 1050 1774 1106] font=13
+NS-G1 rect=- font=13
+NS-G1-C-1 rect=- font=13
+NS-G1-C-2 rect=- font=13
+NS-G1-C-3 rect=- font=13
+NS-G2 rect=- font=13
+NS-G2-C-1 rect=- font=13
+NS-G2-C-2 rect=- font=13
+NS-G2-C-3 rect=- font=13
+NS-G3 rect=- font=13
+NS-G3-C-1 rect=- font=13
+NS-G3-C-2 rect=- font=13
+NS-G3-C-3 rect=- font=13
+NS-G4 rect=- font=13
+NS-G4-C-1 rect=- font=13
+NS-G4-C-2 rect=- font=13
+NS-G4-C-3 rect=- font=13
+NS-HEAD rect=[12 12 1788 68] font=13
+NS-LEFT rect=[12 80 292 1120] font=13
+NS-P0-BTN rect=[1606 986 1756 1022] font=13
+NS-P0-LST rect=[348 179 1756 970] font=13
+NS-P0-TXT rect=[348 139 1756 169] font=13
+NS-PG rect=- font=13
+NS-RIGHT rect=[304 80 1788 1120] font=13
+NS-T-COLS rect=[364 24 524 56] font=13
+NS-T-LEFT rect=[24 24 184 56] font=13
+NS-T-PAD rect=[194 24 354 56] font=13
+NS-TABS rect=[330 94 1774 1040] font=13
+NS-TITLE rect=[534 24 1776 56] font=20
+NS-W-1 rect=[24 92 80 116] font=13
+NS-W-10 rect=[82 152 130 176] font=13
+NS-W-11 rect=[136 152 190 176] font=13
+NS-W-12 rect=[196 152 256 176] font=13
+NS-W-2 rect=[86 92 134 116] font=13
+NS-W-3 rect=[140 92 184 116] font=13
+NS-W-4 rect=[190 92 238 116] font=13
+NS-W-5 rect=[24 122 94 146] font=13
+NS-W-6 rect=[100 122 150 146] font=13
+NS-W-7 rect=[156 122 220 146] font=13
+NS-W-8 rect=[226 122 266 146] font=13
+NS-W-9 rect=[24 152 76 176] font=13
+SB-INFO rect=[12 1132 1788 1158] font=13
+shapes=323 digest=3c587019985f40f8
+## Preview 1.5x 1800x1170
+NS-F1 rect=[342 1061 422 1095] font=13
+NS-F2 rect=[922 1061 1182 1095] font=13
+NS-F3 rect=[1682 1061 1762 1095] font=13
+NS-FOOT rect=[330 1050 1774 1106] font=13
+NS-G1 rect=- font=13
+NS-G1-C-1 rect=- font=13
+NS-G1-C-2 rect=- font=13
+NS-G1-C-3 rect=- font=13
+NS-G2 rect=- font=13
+NS-G2-C-1 rect=- font=13
+NS-G2-C-2 rect=- font=13
+NS-G2-C-3 rect=- font=13
+NS-G3 rect=- font=13
+NS-G3-C-1 rect=- font=13
+NS-G3-C-2 rect=- font=13
+NS-G3-C-3 rect=- font=13
+NS-G4 rect=- font=13
+NS-G4-C-1 rect=- font=13
+NS-G4-C-2 rect=- font=13
+NS-G4-C-3 rect=- font=13
+NS-HEAD rect=[12 12 1788 68] font=13
+NS-LEFT rect=[12 80 292 1120] font=13
+NS-P0-BTN rect=[1606 986 1756 1022] font=13
+NS-P0-LST rect=[348 179 1756 970] font=13
+NS-P0-TXT rect=[348 139 1756 169] font=13
+NS-PG rect=- font=13
+NS-RIGHT rect=[304 80 1788 1120] font=13
+NS-T-COLS rect=[364 24 524 56] font=13
+NS-T-LEFT rect=[24 24 184 56] font=13
+NS-T-PAD rect=[194 24 354 56] font=13
+NS-TABS rect=[330 94 1774 1040] font=13
+NS-TITLE rect=[534 24 1776 56] font=20
+NS-W-1 rect=[24 92 80 116] font=13
+NS-W-10 rect=[82 152 130 176] font=13
+NS-W-11 rect=[136 152 190 176] font=13
+NS-W-12 rect=[196 152 256 176] font=13
+NS-W-2 rect=[86 92 134 116] font=13
+NS-W-3 rect=[140 92 184 116] font=13
+NS-W-4 rect=[190 92 238 116] font=13
+NS-W-5 rect=[24 122 94 146] font=13
+NS-W-6 rect=[100 122 150 146] font=13
+NS-W-7 rect=[156 122 220 146] font=13
+NS-W-8 rect=[226 122 266 146] font=13
+NS-W-9 rect=[24 152 76 176] font=13
+SB-INFO rect=[12 1132 1788 1158] font=13
+shapes=323 digest=3c587019985f40f8

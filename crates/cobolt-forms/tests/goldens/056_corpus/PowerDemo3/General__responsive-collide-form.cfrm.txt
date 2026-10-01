@@ -1,0 +1,127 @@
+# PowerDemo3/General/responsive-collide-form.cfrm
+## Canvas 0.75x 675x420
+CL-A rect=[24 96 624 116] font=13
+CL-B rect=[24 166 624 186] font=13
+CL-EXPL rect=[480 240 651 360] font=13
+CL-FIXED rect=[480 190 596 222] font=13
+CL-FOOTER rect=[24 480 624 504] font=13
+CL-GO rect=[495 120 651 152] font=13
+CL-NAME rect=[24 120 544 152] font=13
+CL-NOTES rect=[24 240 444 340] font=13
+CL-WIDE rect=[24 190 135 222] font=13
+LBL-INTRO rect=[24 50 651 90] font=13
+LBL-TITLE rect=[24 14 651 46] font=20
+SB-INFO rect=[0 514 675 540] font=13
+shapes=52 digest=ee5f8a1a4f419833
+## Run 0.75x 675x420
+CL-A rect=[24 96 624 116] font=13
+CL-B rect=[24 166 624 186] font=13
+CL-EXPL rect=[480 240 651 360] font=13
+CL-FIXED rect=[480 190 596 222] font=13
+CL-FOOTER rect=[24 480 624 504] font=13
+CL-GO rect=[495 120 651 152] font=13
+CL-NAME rect=[24 120 544 152] font=13
+CL-NOTES rect=[24 240 444 340] font=13
+CL-WIDE rect=[24 190 135 222] font=13
+LBL-INTRO rect=[24 50 651 90] font=13
+LBL-TITLE rect=[24 14 651 46] font=20
+SB-INFO rect=[0 514 675 540] font=13
+shapes=59 digest=503c734ea4a9d1dc
+## Preview 0.75x 675x420
+CL-A rect=[24 96 624 116] font=13
+CL-B rect=[24 166 624 186] font=13
+CL-EXPL rect=[480 240 651 360] font=13
+CL-FIXED rect=[480 190 596 222] font=13
+CL-FOOTER rect=[24 480 624 504] font=13
+CL-GO rect=[495 120 651 152] font=13
+CL-NAME rect=[24 120 544 152] font=13
+CL-NOTES rect=[24 240 444 340] font=13
+CL-WIDE rect=[24 190 135 222] font=13
+LBL-INTRO rect=[24 50 651 90] font=13
+LBL-TITLE rect=[24 14 651 46] font=20
+SB-INFO rect=[0 514 675 540] font=13
+shapes=59 digest=503c734ea4a9d1dc
+## Canvas 1x 900x560
+CL-A rect=[24 96 624 116] font=13
+CL-B rect=[24 166 624 186] font=13
+CL-EXPL rect=[480 240 876 360] font=13
+CL-FIXED rect=[480 190 596 222] font=13
+CL-FOOTER rect=[24 480 624 504] font=13
+CL-GO rect=[720 120 876 152] font=13
+CL-NAME rect=[24 120 544 152] font=13
+CL-NOTES rect=[24 240 444 360] font=13
+CL-WIDE rect=[24 190 360 222] font=13
+LBL-INTRO rect=[24 50 876 90] font=13
+LBL-TITLE rect=[24 14 876 46] font=20
+SB-INFO rect=[0 534 900 560] font=13
+shapes=52 digest=160bd143088c9253
+## Run 1x 900x560
+CL-A rect=[24 96 624 116] font=13
+CL-B rect=[24 166 624 186] font=13
+CL-EXPL rect=[480 240 876 360] font=13
+CL-FIXED rect=[480 190 596 222] font=13
+CL-FOOTER rect=[24 480 624 504] font=13
+CL-GO rect=[720 120 876 152] font=13
+CL-NAME rect=[24 120 544 152] font=13
+CL-NOTES rect=[24 240 444 360] font=13
+CL-WIDE rect=[24 190 360 222] font=13
+LBL-INTRO rect=[24 50 876 90] font=13
+LBL-TITLE rect=[24 14 876 46] font=20
+SB-INFO rect=[0 534 900 560] font=13
+shapes=59 digest=ab4e48f75c6b29d7
+## Preview 1x 900x560
+CL-A rect=[24 96 624 116] font=13
+CL-B rect=[24 166 624 186] font=13
+CL-EXPL rect=[480 240 876 360] font=13
+CL-FIXED rect=[480 190 596 222] font=13
+CL-FOOTER rect=[24 480 624 504] font=13
+CL-GO rect=[720 120 876 152] font=13
+CL-NAME rect=[24 120 544 152] font=13
+CL-NOTES rect=[24 240 444 360] font=13
+CL-WIDE rect=[24 190 360 222] font=13
+LBL-INTRO rect=[24 50 876 90] font=13
+LBL-TITLE rect=[24 14 876 46] font=20
+SB-INFO rect=[0 534 900 560] font=13
+shapes=59 digest=ab4e48f75c6b29d7
+## Canvas 1.5x 1350x840
+CL-A rect=[24 96 624 116] font=13
+CL-B rect=[24 166 624 186] font=13
+CL-EXPL rect=[480 240 1326 360] font=13
+CL-FIXED rect=[480 190 596 222] font=13
+CL-FOOTER rect=[24 480 624 504] font=13
+CL-GO rect=[1170 120 1326 152] font=13
+CL-NAME rect=[24 120 544 152] font=13
+CL-NOTES rect=[24 240 444 640] font=13
+CL-WIDE rect=[24 190 810 222] font=13
+LBL-INTRO rect=[24 50 1326 90] font=13
+LBL-TITLE rect=[24 14 1326 46] font=20
+SB-INFO rect=[0 814 1350 840] font=13
+shapes=52 digest=2769a8ebc02065f6
+## Run 1.5x 1350x840
+CL-A rect=[24 96 624 116] font=13
+CL-B rect=[24 166 624 186] font=13
+CL-EXPL rect=[480 240 1326 360] font=13
+CL-FIXED rect=[480 190 596 222] font=13
+CL-FOOTER rect=[24 480 624 504] font=13
+CL-GO rect=[1170 120 1326 152] font=13
+CL-NAME rect=[24 120 544 152] font=13
+CL-NOTES rect=[24 240 444 640] font=13
+CL-WIDE rect=[24 190 810 222] font=13
+LBL-INTRO rect=[24 50 1326 90] font=13
+LBL-TITLE rect=[24 14 1326 46] font=20
+SB-INFO rect=[0 814 1350 840] font=13
+shapes=59 digest=117b0b14398b42b6
+## Preview 1.5x 1350x840
+CL-A rect=[24 96 624 116] font=13
+CL-B rect=[24 166 624 186] font=13
+CL-EXPL rect=[480 240 1326 360] font=13
+CL-FIXED rect=[480 190 596 222] font=13
+CL-FOOTER rect=[24 480 624 504] font=13
+CL-GO rect=[1170 120 1326 152] font=13
+CL-NAME rect=[24 120 544 152] font=13
+CL-NOTES rect=[24 240 444 640] font=13
+CL-WIDE rect=[24 190 810 222] font=13
+LBL-INTRO rect=[24 50 1326 90] font=13
+LBL-TITLE rect=[24 14 1326 46] font=20
+SB-INFO rect=[0 814 1350 840] font=13
+shapes=59 digest=117b0b14398b42b6

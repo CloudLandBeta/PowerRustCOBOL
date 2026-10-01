@@ -8,6 +8,61 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.41] — 2026-10-01
+
+### PowerDemo3: twelve forms that demonstrate the responsive layout
+
+The operator asked for as many example forms as needed to show every
+responsive possibility, each as complex as the engine allows. They are under
+`examples/PowerDemo3/forms/General/` and in the side menu's **General** group:
+
+| Form | What it shows |
+|---|---|
+| `responsive-anchors-form` | Every anchor choice, a block anchored live from COBOL check boxes, `MinWidth`/`MaxWidth` |
+| `responsive-dock-form` | Dock Top/Bottom/Left/Right/Fill in render order, nested docking, an anchored control beside docked ones (R14), re-docking from COBOL |
+| `responsive-flex-form` | Six tabs: direction, justify, align items and align self, wrap and align content, grow, shrink and basis with limits, order, and a container rewired from COBOL |
+| `responsive-grid-form` | px, %, fr, Auto, MinMax and Repeat tracks, an AutoFill gallery, explicit cells, spans, the implicit grid, every alignment, a data-entry grid that changes columns at a breakpoint |
+| `responsive-flow-form` | Every FlowDirection, WrapContents, FlowBreak; the form itself is a Flex column |
+| `responsive-breakpoints-form` | Five breakpoints with Stepped fonts, overrides of every overridable kind, `me::Breakpoint` pins and a `me::Breakpoints` table swap |
+| `responsive-fonts-form` | FontScaling None/Fluid/Stepped, the scale limits, ScaleFont, MinFontSize/MaxFontSize, AutoSize, `me::FontScale` pins |
+| `responsive-nested-form` | A Grid form holding Flow, Flex, a TabControl, a Grid and Flex groups, five levels deep |
+| `responsive-runtime-form` | Every layout property written at run time, a geometry write and read (R37/R38), `me::Responsive`, `me::MinFormWidth` |
+| `responsive-collide-form` | The window's collision limits, shrinking and growing on both axes, next to a declared minimum |
+| `responsive-obsolete-form` | `ObsoleteScalingStyle` 0–7 from COBOL on a migrated-style form, with opted-out controls |
+| `responsive-dashboard-form` | All of it in one application screen |
+
+**How they were checked.** Each form was laid out by the engine at six sizes:
+- its minimum window;
+- three sizes between that and the design;
+- its designed size;
+- 1.3× and 1.8× of the design.
+
+At every size, every visible control was inside its parent and no two
+controls that are apart in the design overlapped. The generated COBOL of
+every form passes `rcrun check`. The 056 corpus goldens (engine, host,
+generated COBOL) gained the twelve forms; no existing golden changed.
+
+**Two corrections to the golden harnesses.**
+- The engine harness laid a form out only when `responsive` was set. A form
+  with an `ObsoleteScalingStyle` lays out with Responsive off on every real
+  surface, so the harness now asks `Form::lays_out()`.
+- R81 ("adding `responsive=\"true\"` moves nothing") is skipped for a form
+  that already lays itself out. Such a form has no non-responsive render to
+  compare against.
+
+No form in the existing corpus is affected by either change.
+
+`every_example_form_round_trips_056` now counts 74 example forms (62 plus the
+twelve). `no_example_form_gains_responsive_markup_on_save_056` checks what it
+says, that a form not written responsive gains no responsive markup on save:
+it skips the twelve demos, which are responsive by design, and counts them.
+
+The Developer's Guide lists the twelve forms, corrects PowerDemo3's form
+count, and records three layout behaviours the forms were built around: an
+`fr` track's minimum, a Flex column sizing to its content, and a wrapping
+container's minimum height. It also adds a caveat on docking inside
+TabControl pages.
+
 ## [PowerRustCOBOL 1.80.40] — 2026-10-01
 
 ### Fix: the project's indexed-file engine reaches forms and the built application

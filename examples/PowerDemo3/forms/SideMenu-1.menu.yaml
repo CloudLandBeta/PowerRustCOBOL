@@ -325,4 +325,76 @@ menu:
       icon: window
       action: open-form:props-parent-form
       enabled: true
-hash: 4b9892d144ba41cc047628ff2ee1804c1ce105ee2033bc27b53cc026929c771f
+    - id: rspa
+      label: 'Responsive: anchors and limits'
+      type: action
+      icon: form
+      action: open-form:responsive-anchors-form
+      enabled: true
+    - id: rspb
+      label: 'Responsive: docking'
+      type: action
+      icon: form
+      action: open-form:responsive-dock-form
+      enabled: true
+    - id: rspc
+      label: 'Responsive: flex'
+      type: action
+      icon: form
+      action: open-form:responsive-flex-form
+      enabled: true
+    - id: rspd
+      label: 'Responsive: grid'
+      type: action
+      icon: form
+      action: open-form:responsive-grid-form
+      enabled: true
+    - id: rspe
+      label: 'Responsive: flow'
+      type: action
+      icon: form
+      action: open-form:responsive-flow-form
+      enabled: true
+    - id: rspf
+      label: 'Responsive: breakpoints'
+      type: action
+      icon: form
+      action: open-form:responsive-breakpoints-form
+      enabled: true
+    - id: rspg
+      label: 'Responsive: font scaling'
+      type: action
+      icon: form
+      action: open-form:responsive-fonts-form
+      enabled: true
+    - id: rsph
+      label: 'Responsive: nested containers'
+      type: action
+      icon: form
+      action: open-form:responsive-nested-form
+      enabled: true
+    - id: rspi
+      label: 'Responsive: from COBOL'
+      type: action
+      icon: form
+      action: open-form:responsive-runtime-form
+      enabled: true
+    - id: rspj
+      label: 'Responsive: collision limits'
+      type: action
+      icon: form
+      action: open-form:responsive-collide-form
+      enabled: true
+    - id: rspk
+      label: 'Responsive: obsolete scaling'
+      type: action
+      icon: form
+      action: open-form:responsive-obsolete-form
+      enabled: true
+    - id: rspl
+      label: 'Responsive: dashboard'
+      type: action
+      icon: form
+      action: open-form:responsive-dashboard-form
+      enabled: true
+hash: 5ef49ae5bc9c7f33021e818f727f44328a132c5d0a03e93cd3d36ecb63ef7208
