@@ -8,6 +8,59 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.28] — 2026-10-01
+
+### Fix — PowerChat answers every part of a long question, in order, and never drops one in silence
+
+Reported (operator, 2026-10-01): the user asked for 21 sections of a policy
+"in detail", and the answer had sections 1–7 and 15–21. Sections 8–14 were
+missing, and the rest were condensed to a line or two each. The cause was
+the chat's own mesh:
+
+- The orchestrator could split a question into at most 3 tasks, so 21
+  sections became three blocks of 7.
+- With three agents, one orchestrates and two work, so the round-robin gave
+  one assistant two blocks and the other one.
+- The composing step rewrote the results into a shorter answer, and dropped
+  the part that came back empty without a word.
+
+The saved conversation proved it: the answer held exactly the first
+assistant's two blocks.
+
+- **Up to 12 small tasks, queued.** The plan may now hold up to 12 tasks,
+  and the main prompt asks for small ones (3 or 4 sections or items each,
+  in order). Each working agent takes the next queued task as soon as it
+  has answered the last.
+- **`JOIN:`.** When the user asks for every part in detail, the
+  orchestrator adds `JOIN:` to its plan. The parts are then given as the
+  assistants wrote them, in task order, with no composing request. Without
+  it, the composer now gets the results in task order.
+- **A missing part is said.**
+  - A task that fails (error or timeout) or comes back empty is handed to
+    the composer as "NO RESULT".
+  - The answer ends with "Part not answered: <task>" (six languages, new
+    text `T-PART-MISSING`).
+  - Such a failure no longer abandons the whole question: the other tasks
+    go on.
+- **Every task's result is kept.** It goes into the new
+  `data/taskresults.idx` (conversation, answer, task, piece), beside the
+  answer, so an answer can be explained afterwards. It is never shown in
+  the chat and never fills the conversation history.
+- An install that keeps its own main-prompt versions keeps the old PLAN
+  section (at most 3 tasks, no `JOIN:`) until **Restore default** in the
+  Prompt screen. The program handles both.
+- Tests:
+  - `powerchat_queues_the_tasks_joins_them_and_names_a_missing_part`: 5
+    requests (1 plan + 4 tasks queued over one working agent), no composing
+    request; parts A, B, D in order; PART-C, failed with HTTP 500, named;
+    4 tasks kept;
+  - `powerchat_composes_the_parts_in_order_and_names_a_missing_part`.
+  - `powerchat_compiles` 4/4.
+  - `powerchat_runs` 18/19. The one red,
+    `powerchat_settings_topics_documents_and_chat`, fails on the parent
+    commit too.
+- Guide (PowerChat row) and `data/README.md` updated.
+
 ## [PowerRustCOBOL 1.80.27] — 2026-10-01
 
 ### PowerChat and PowerDemo3 example data, as the IDE last saved them

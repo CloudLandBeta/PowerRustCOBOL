@@ -96,6 +96,14 @@
                RECORD KEY IS TRN-KEY
                FILE STATUS IS WS-FS
                STORAGE MODE IS DISK.
+      *>   Each task's result, beside the answer it went into - what each
+      *>   assistant actually wrote, kept to explain an answer afterwards.
+           SELECT TASKRES-FILE ASSIGN TO WS-TR-PATH
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS TR-KEY
+               FILE STATUS IS WS-FS
+               STORAGE MODE IS DISK.
            SELECT MODELS-FILE ASSIGN TO WS-MODELS-PATH
                ORGANIZATION IS INDEXED
                ACCESS MODE IS DYNAMIC
@@ -157,6 +165,16 @@
               10 TRN-SEQ        PIC 9(5).
            05 TRN-ROLE          PIC X.
            05 TRN-TEXT          PIC X(2000).
+       FD  TASKRES-FILE IS GLOBAL.
+       01  TASKRES-REC.
+           05 TR-KEY.
+              10 TR-CONV        PIC X(16).
+              10 TR-ANSWER      PIC 9(5).
+              10 TR-TASK        PIC 99.
+              10 TR-PIECE       PIC 99.
+           05 TR-STATE          PIC X.
+           05 TR-TASK-TEXT      PIC X(500).
+           05 TR-TEXT           PIC X(2000).
        FD  MODELS-FILE IS GLOBAL.
        01  MODEL-REC.
            05 MDL-NAME          PIC X(30).
@@ -278,6 +296,8 @@
              10 WS-AG-TASK   PIC X(2000).
              10 WS-AG-RESULT PIC X(64000).
              10 WS-AG-WAIT   PIC X.
+      *>       The task it is answering now (WS-TASKS), 0 when none.
+             10 WS-AG-TASKNO PIC 99.
        01 WS-N-AGENTS        GLOBAL PIC 9 VALUE 0.
        01 WS-N-TOOLS         GLOBAL PIC 9 VALUE 0.
        01 WS-ORCH            GLOBAL PIC 9 VALUE 0.
@@ -288,14 +308,33 @@
        01 WS-BEST            GLOBAL PIC 9.
        01 WS-SAME-MODEL      GLOBAL PIC X.
        01 WS-STAGE           GLOBAL PIC X(8) VALUE "IDLE".
-       01 WS-PENDING         GLOBAL PIC 9 VALUE 0.
+       01 WS-PENDING         GLOBAL PIC 99 VALUE 0.
        01 WS-TOPIC-PROMPT    GLOBAL PIC X(1000).
        01 WS-HISTORY         GLOBAL PIC X(256000).
-       01 WS-TASK-COUNT      GLOBAL PIC 9 VALUE 0.
+      *>   The plan's tasks (operator, 2026-10-01): up to 12 small ones,
+      *>   queued - each working agent takes the next as soon as it has
+      *>   answered the last - so a long question is answered in parts that
+      *>   each fit one answer. Every result is kept, in task order: "D" done,
+      *>   "F" failed or empty, "Q" queued, "R" running.
+       01 WS-TASK-COUNT      GLOBAL PIC 99 VALUE 0.
        01 WS-TASKS           GLOBAL.
-          05 WS-TASK         PIC X(500) OCCURS 3.
+          05 WS-TASK-ENTRY   OCCURS 12.
+             10 WS-TASK      PIC X(500).
+             10 WS-TASK-ST   PIC X.
+             10 WS-TASK-RES  PIC X(32000).
        01 WS-LINES           GLOBAL.
-          05 WS-L            PIC X(500) OCCURS 6.
+          05 WS-L            PIC X(500) OCCURS 16.
+       01 WS-NEXT-TASK       GLOBAL PIC 99.
+       01 WS-TK              GLOBAL PIC 99.
+       01 WS-TASK-OK         GLOBAL PIC X.
+       01 WS-TASKS-RAN       GLOBAL PIC X VALUE "N".
+      *>   "JOIN:" in the plan: the user asked for every part in detail, so
+      *>   the parts are given as the assistants wrote them, in task order,
+      *>   not rewritten into one shorter answer.
+       01 WS-JOIN-MODE       GLOBAL PIC X VALUE "N".
+       01 WS-NUM-ED          GLOBAL PIC Z9.
+       01 WS-ANSWER-SEQ      GLOBAL PIC 9(5).
+       01 WS-TR-PATH         GLOBAL PIC X(240).
        01 WS-T-IN            GLOBAL PIC 9(9).
        01 WS-T-OUT           GLOBAL PIC 9(9).
        01 WS-RANDOM          GLOBAL PIC 9V9(6).
@@ -575,8 +614,15 @@
           05 FILLER PIC X(120) VALUE "Préparation de la réponse...".
           05 FILLER PIC X(120) VALUE "回答を準備中...".
           05 FILLER PIC X(120) VALUE "正在准备回答...".
+      *>   PART-MISSING
+          05 FILLER PIC X(120) VALUE "Part not answered:".
+          05 FILLER PIC X(120) VALUE "Parte não respondida:".
+          05 FILLER PIC X(120) VALUE "Parte sin respuesta:".
+          05 FILLER PIC X(120) VALUE "Partie sans réponse :".
+          05 FILLER PIC X(120) VALUE "回答できなかった部分:".
+          05 FILLER PIC X(120) VALUE "未能回答的部分：".
        01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA GLOBAL.
-          05 PC-TEXT-ROW     OCCURS 35.
+          05 PC-TEXT-ROW     OCCURS 36.
              10 PC-TEXT      PIC X(120) OCCURS 6.
       *>   The texts in the current language, by name.
        01 PC-TEXTS-NOW       GLOBAL.
@@ -615,8 +661,9 @@
           05 T-ST-SEARCH-KB PIC X(120).
           05 T-ST-READ-DATA PIC X(120).
           05 T-ST-COMPOSING PIC X(120).
+          05 T-PART-MISSING PIC X(120).
        01 PC-TEXTS-NOW-R REDEFINES PC-TEXTS-NOW GLOBAL.
-          05 PC-TEXT-NOW     PIC X(120) OCCURS 35.
+          05 PC-TEXT-NOW     PIC X(120) OCCURS 36.
       *>   PC-FMT: WS-FMT with &1..&4 replaced by WS-ARG1..4, into WS-FMT-OUT.
        01 WS-FMT             GLOBAL PIC X(120).
        01 WS-ARG1            GLOBAL PIC X(300).
@@ -1275,6 +1322,15 @@
        ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
+      *>   While the assistants work, a failure fails that task only: the
+      *>   others go on, and the answer says which part is missing.
+           IF WS-STAGE = "WORK" AND WS-AG-WAIT(1) = "Y"
+               MOVE 1 TO WS-FROM
+               MOVE AGENT-1::LastError TO WS-TEXT
+               MOVE "N" TO WS-TASK-OK
+               CALL "PC-TASK-DONE"
+               EXIT PROGRAM
+           END-IF
            MOVE "IDLE" TO WS-STAGE
            MOVE AGENT-1::LastError TO WS-TEXT
            MOVE T-AGENT-FAILED TO WS-FMT
@@ -1301,6 +1357,15 @@
       *>   idle and says why (LastError). Unhandled, the chat stayed stuck
       *>   waiting for an answer that was never coming (operator,
       *>   2026-09-28: "the interface froze").
+      *>   While the assistants work, a failure fails that task only: the
+      *>   others go on, and the answer says which part is missing.
+           IF WS-STAGE = "WORK" AND WS-AG-WAIT(1) = "Y"
+               MOVE 1 TO WS-FROM
+               MOVE AGENT-1::LastError TO WS-TEXT
+               MOVE "N" TO WS-TASK-OK
+               CALL "PC-TASK-DONE"
+               EXIT PROGRAM
+           END-IF
            MOVE "IDLE" TO WS-STAGE
            MOVE AGENT-1::LastError TO WS-TEXT
            MOVE T-AGENT-FAILED TO WS-FMT
@@ -1368,6 +1433,15 @@
        ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
+      *>   While the assistants work, a failure fails that task only: the
+      *>   others go on, and the answer says which part is missing.
+           IF WS-STAGE = "WORK" AND WS-AG-WAIT(2) = "Y"
+               MOVE 2 TO WS-FROM
+               MOVE AGENT-2::LastError TO WS-TEXT
+               MOVE "N" TO WS-TASK-OK
+               CALL "PC-TASK-DONE"
+               EXIT PROGRAM
+           END-IF
            MOVE "IDLE" TO WS-STAGE
            MOVE AGENT-2::LastError TO WS-TEXT
            MOVE T-AGENT-FAILED TO WS-FMT
@@ -1394,6 +1468,15 @@
       *>   idle and says why (LastError). Unhandled, the chat stayed stuck
       *>   waiting for an answer that was never coming (operator,
       *>   2026-09-28: "the interface froze").
+      *>   While the assistants work, a failure fails that task only: the
+      *>   others go on, and the answer says which part is missing.
+           IF WS-STAGE = "WORK" AND WS-AG-WAIT(2) = "Y"
+               MOVE 2 TO WS-FROM
+               MOVE AGENT-2::LastError TO WS-TEXT
+               MOVE "N" TO WS-TASK-OK
+               CALL "PC-TASK-DONE"
+               EXIT PROGRAM
+           END-IF
            MOVE "IDLE" TO WS-STAGE
            MOVE AGENT-2::LastError TO WS-TEXT
            MOVE T-AGENT-FAILED TO WS-FMT
@@ -1461,6 +1544,15 @@
        ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
+      *>   While the assistants work, a failure fails that task only: the
+      *>   others go on, and the answer says which part is missing.
+           IF WS-STAGE = "WORK" AND WS-AG-WAIT(3) = "Y"
+               MOVE 3 TO WS-FROM
+               MOVE AGENT-3::LastError TO WS-TEXT
+               MOVE "N" TO WS-TASK-OK
+               CALL "PC-TASK-DONE"
+               EXIT PROGRAM
+           END-IF
            MOVE "IDLE" TO WS-STAGE
            MOVE AGENT-3::LastError TO WS-TEXT
            MOVE T-AGENT-FAILED TO WS-FMT
@@ -1487,6 +1579,15 @@
       *>   idle and says why (LastError). Unhandled, the chat stayed stuck
       *>   waiting for an answer that was never coming (operator,
       *>   2026-09-28: "the interface froze").
+      *>   While the assistants work, a failure fails that task only: the
+      *>   others go on, and the answer says which part is missing.
+           IF WS-STAGE = "WORK" AND WS-AG-WAIT(3) = "Y"
+               MOVE 3 TO WS-FROM
+               MOVE AGENT-3::LastError TO WS-TEXT
+               MOVE "N" TO WS-TASK-OK
+               CALL "PC-TASK-DONE"
+               EXIT PROGRAM
+           END-IF
            MOVE "IDLE" TO WS-STAGE
            MOVE AGENT-3::LastError TO WS-TEXT
            MOVE T-AGENT-FAILED TO WS-FMT
@@ -1652,6 +1753,9 @@
            MOVE SPACES TO WS-TURNS-PATH
            STRING FUNCTION TRIM(WS-DATA-DIR) "/turns.idx"
                DELIMITED BY SIZE INTO WS-TURNS-PATH
+           MOVE SPACES TO WS-TR-PATH
+           STRING FUNCTION TRIM(WS-DATA-DIR) "/taskresults.idx"
+               DELIMITED BY SIZE INTO WS-TR-PATH
            MOVE SPACES TO WS-MODELS-PATH
            STRING FUNCTION TRIM(WS-DATA-DIR) "/models.idx"
                DELIMITED BY SIZE INTO WS-MODELS-PATH
@@ -3128,7 +3232,9 @@
            CALL "PC-SHOW-AGENT"
            MOVE "A" TO WS-ROLE
            MOVE WS-REPLY TO WS-TEXT
+           COMPUTE WS-ANSWER-SEQ = WS-SEQ + 1
            CALL "PC-SAVE-TURN"
+           CALL "PC-SAVE-TASKS"
            CALL "PC-STATUS"
 
            GOBACK.
@@ -3201,81 +3307,153 @@
                END-IF
            END-IF
            MOVE 0 TO WS-TASK-COUNT
+           MOVE "N" TO WS-JOIN-MODE
            MOVE SPACES TO WS-LINES
            UNSTRING WS-REPLY DELIMITED BY X"0A"
                INTO WS-L(1) WS-L(2) WS-L(3) WS-L(4) WS-L(5) WS-L(6)
+                    WS-L(7) WS-L(8) WS-L(9) WS-L(10) WS-L(11) WS-L(12)
+                    WS-L(13) WS-L(14) WS-L(15) WS-L(16)
            END-UNSTRING
-           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 6
-               IF WS-TASK-COUNT < 3
-                   MOVE FUNCTION TRIM(WS-L(WS-I)) TO WS-L(WS-I)
-      *>           A "TEMPLATE: name" line: the template the report takes.
-                   IF FUNCTION UPPER-CASE(WS-L(WS-I)(1:9)) = "TEMPLATE:"
-                       MOVE WS-L(WS-I)(10:) TO WS-TPL-NAME
-                       CALL "PC-TPL-FIND"
-                       MOVE "Y" TO WS-TPL-DONE
-                   END-IF
-                   IF FUNCTION UPPER-CASE(WS-L(WS-I)(1:5)) = "TASK:"
-                       ADD 1 TO WS-TASK-COUNT
-                       MOVE FUNCTION TRIM(WS-L(WS-I)(6:495))
-                           TO WS-TASK(WS-TASK-COUNT)
-                   END-IF
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 16
+               MOVE FUNCTION TRIM(WS-L(WS-I)) TO WS-L(WS-I)
+      *>       A "TEMPLATE: name" line: the template the report takes.
+               IF FUNCTION UPPER-CASE(WS-L(WS-I)(1:9)) = "TEMPLATE:"
+                   MOVE WS-L(WS-I)(10:) TO WS-TPL-NAME
+                   CALL "PC-TPL-FIND"
+                   MOVE "Y" TO WS-TPL-DONE
+               END-IF
+               IF FUNCTION UPPER-CASE(WS-L(WS-I)(1:5)) = "JOIN:"
+                   MOVE "Y" TO WS-JOIN-MODE
+               END-IF
+               IF FUNCTION UPPER-CASE(WS-L(WS-I)(1:5)) = "TASK:"
+                   AND WS-TASK-COUNT < 12
+                   ADD 1 TO WS-TASK-COUNT
+                   MOVE FUNCTION TRIM(WS-L(WS-I)(6:495))
+                       TO WS-TASK(WS-TASK-COUNT)
                END-IF
            END-PERFORM
            IF WS-TASK-COUNT = 0
                MOVE 1 TO WS-TASK-COUNT
                MOVE WS-QUESTION TO WS-TASK(1)
            END-IF
-      *>   Round-robin over the agents that are not orchestrating, the tool
-      *>   worker first.
+           PERFORM VARYING WS-TK FROM 1 BY 1 UNTIL WS-TK > WS-TASK-COUNT
+               MOVE "Q" TO WS-TASK-ST(WS-TK)
+               MOVE SPACES TO WS-TASK-RES(WS-TK)
+           END-PERFORM
            PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
                MOVE SPACES TO WS-AG-TASK(WS-A) WS-AG-RESULT(WS-A)
                MOVE "N" TO WS-AG-WAIT(WS-A)
+               MOVE 0 TO WS-AG-TASKNO(WS-A)
            END-PERFORM
+           MOVE WS-TASK-COUNT TO WS-PENDING
+           MOVE 1 TO WS-NEXT-TASK
+           MOVE "Y" TO WS-TASKS-RAN
+           MOVE "WORK" TO WS-STAGE
+      *>   Every agent that is not orchestrating takes a task, the tool
+      *>   worker first; the rest wait in the queue (PC-NEXT-TASK).
            MOVE WS-WORKER TO WS-B
-           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-TASK-COUNT
-               PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
-                   IF WS-B = 0 OR WS-B = WS-ORCH OR WS-AG-ENTRY(WS-B) = SPACES
-                       ADD 1 TO WS-B
-                       IF WS-B > 3
-                           MOVE 1 TO WS-B
-                       END-IF
-                   END-IF
-               END-PERFORM
-               STRING FUNCTION TRIM(WS-AG-TASK(WS-B)) " - " FUNCTION TRIM(WS-TASK(WS-I))
-                   DELIMITED BY SIZE INTO WS-AG-TASK(WS-B)
+           IF WS-B = 0
+               MOVE 1 TO WS-B
+           END-IF
+           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
+               IF WS-B NOT = WS-ORCH AND WS-AG-ENTRY(WS-B) NOT = SPACES
+                   MOVE WS-B TO WS-FROM
+                   CALL "PC-NEXT-TASK"
+               END-IF
                ADD 1 TO WS-B
                IF WS-B > 3
                    MOVE 1 TO WS-B
                END-IF
            END-PERFORM
-           MOVE 0 TO WS-PENDING
-           MOVE "WORK" TO WS-STAGE
-           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
-               IF WS-AG-TASK(WS-A) NOT = SPACES
-                   ADD 1 TO WS-PENDING
-                   MOVE "Y" TO WS-AG-WAIT(WS-A)
+           CALL "PC-WORK-STATUS"
+
+           GOBACK.
+
+       END PROGRAM PC-DISPATCH.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-NEXT-TASK IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-FROM in, an agent with nothing to do: it takes the next queued
+      *>   task, with the main prompt's TASK section; none left, it rests.
+           IF WS-NEXT-TASK > WS-TASK-COUNT
+               MOVE "N" TO WS-AG-WAIT(WS-FROM)
+               MOVE 0 TO WS-AG-TASKNO(WS-FROM)
+               EXIT PROGRAM
+           END-IF
+           MOVE WS-NEXT-TASK TO WS-AG-TASKNO(WS-FROM)
+           MOVE "R" TO WS-TASK-ST(WS-NEXT-TASK)
+           MOVE WS-TASK(WS-NEXT-TASK) TO WS-AG-TASK(WS-FROM)
+           ADD 1 TO WS-NEXT-TASK
+           MOVE "Y" TO WS-AG-WAIT(WS-FROM)
+           MOVE "TASK" TO WS-SEC-NAME
+           CALL "PC-SECTION"
+           MOVE "{TASK}" TO WS-TOKEN
+           MOVE WS-AG-TASK(WS-FROM) TO WS-INS
+           CALL "PC-FILL"
+           MOVE SPACES TO WS-PROMPT
+           MOVE WS-SEC TO WS-PROMPT
+           CALL "PC-ASK"
+
+           GOBACK.
+
+       END PROGRAM PC-NEXT-TASK.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-TASK-DONE IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-FROM, WS-TASK-OK and WS-TEXT (the answer, or why there is none)
+      *>   in: that agent's task is over. An empty answer counts as failed.
+      *>   The agent takes the next task; when none is left running or
+      *>   queued, the answer is put together (PC-COMPOSE).
+           IF WS-AG-WAIT(WS-FROM) NOT = "Y"
+               EXIT PROGRAM
+           END-IF
+           MOVE "N" TO WS-AG-WAIT(WS-FROM)
+           MOVE WS-AG-TASKNO(WS-FROM) TO WS-TK
+           IF WS-TK > 0
+               MOVE WS-TEXT TO WS-TASK-RES(WS-TK)
+               IF WS-TASK-OK = "Y" AND WS-TEXT NOT = SPACES
+                   MOVE "D" TO WS-TASK-ST(WS-TK)
+               ELSE
+                   MOVE "F" TO WS-TASK-ST(WS-TK)
                END-IF
-           END-PERFORM
+               SUBTRACT 1 FROM WS-PENDING
+           END-IF
+           IF WS-PENDING = 0
+               CALL "PC-COMPOSE"
+           ELSE
+               CALL "PC-NEXT-TASK"
+               CALL "PC-WORK-STATUS"
+           END-IF
+
+           GOBACK.
+
+       END PROGRAM PC-TASK-DONE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-WORK-STATUS IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   "Working: N task(s) across M agent(s)" - the tasks left.
+           MOVE 0 TO WS-B
            PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
                IF WS-AG-WAIT(WS-A) = "Y"
-      *>           The main prompt's TASK section, the task filled in.
-                   MOVE "TASK" TO WS-SEC-NAME
-                   CALL "PC-SECTION"
-                   MOVE "{TASK}" TO WS-TOKEN
-                   MOVE WS-AG-TASK(WS-A) TO WS-INS
-                   IF WS-INS(1:3) = " - "
-                       MOVE WS-AG-TASK(WS-A)(4:) TO WS-INS
-                   END-IF
-                   CALL "PC-FILL"
-                   MOVE SPACES TO WS-PROMPT
-                   MOVE WS-SEC TO WS-PROMPT
-                   MOVE WS-A TO WS-FROM
-                   CALL "PC-ASK"
+                   ADD 1 TO WS-B
                END-IF
            END-PERFORM
            MOVE T-WORKING TO WS-FMT
-           MOVE WS-TASK-COUNT TO WS-ARG1
-           MOVE WS-PENDING TO WS-ARG2
+           MOVE WS-PENDING TO WS-NUM-ED
+           MOVE FUNCTION TRIM(WS-NUM-ED) TO WS-ARG1
+           MOVE WS-B TO WS-ARG2
            CALL "PC-FMT"
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
            MOVE WS-FMT-OUT TO WS-STATUS-TEXT
@@ -3283,7 +3461,89 @@
 
            GOBACK.
 
-       END PROGRAM PC-DISPATCH.
+       END PROGRAM PC-WORK-STATUS.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-NOTE-MISSING IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-REPLY in and out: a task that failed or came back empty is
+      *>   SAID, at the end of the answer - never left out in silence.
+           MOVE "N" TO WS-TASK-OK
+           PERFORM VARYING WS-TK FROM 1 BY 1 UNTIL WS-TK > WS-TASK-COUNT
+               IF WS-TASK-ST(WS-TK) = "F"
+                   MOVE "Y" TO WS-TASK-OK
+               END-IF
+           END-PERFORM
+           IF WS-TASK-OK = "N"
+               EXIT PROGRAM
+           END-IF
+           PERFORM VARYING WS-SX-B FROM 64000 BY -1
+                   UNTIL WS-SX-B < 2 OR WS-REPLY(WS-SX-B:1) NOT = SPACE
+               CONTINUE
+           END-PERFORM
+           ADD 1 TO WS-SX-B
+           PERFORM VARYING WS-TK FROM 1 BY 1 UNTIL WS-TK > WS-TASK-COUNT
+               IF WS-TASK-ST(WS-TK) = "F"
+                   STRING X"0A" X"0A" "> **" FUNCTION TRIM(T-PART-MISSING)
+                          "** " FUNCTION TRIM(WS-TASK(WS-TK))
+                       DELIMITED BY SIZE INTO WS-REPLY WITH POINTER WS-SX-B
+                   END-STRING
+               END-IF
+           END-PERFORM
+
+           GOBACK.
+
+       END PROGRAM PC-NOTE-MISSING.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-SAVE-TASKS IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   The tasks of the answer just saved (WS-ANSWER-SEQ), each with what
+      *>   its assistant wrote, into data/taskresults.idx: 2000 characters a
+      *>   record, in order. Nothing reads them back into the chat.
+           IF WS-TASKS-RAN NOT = "Y"
+               EXIT PROGRAM
+           END-IF
+           MOVE "N" TO WS-TASKS-RAN
+           OPEN I-O TASKRES-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT TASKRES-FILE
+               CLOSE TASKRES-FILE
+               OPEN I-O TASKRES-FILE
+           END-IF
+           PERFORM VARYING WS-TK FROM 1 BY 1 UNTIL WS-TK > WS-TASK-COUNT
+               MOVE 1 TO WS-PIECE-AT
+               PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > 16
+                   IF WS-I > 1
+                       IF WS-TASK-RES(WS-TK)(WS-PIECE-AT:2000) = SPACES
+                           EXIT PERFORM
+                       END-IF
+                   END-IF
+                   MOVE WS-CUR-CONV TO TR-CONV
+                   MOVE WS-ANSWER-SEQ TO TR-ANSWER
+                   MOVE WS-TK TO TR-TASK
+                   MOVE WS-I TO TR-PIECE
+                   MOVE WS-TASK-ST(WS-TK) TO TR-STATE
+                   MOVE WS-TASK(WS-TK) TO TR-TASK-TEXT
+                   MOVE WS-TASK-RES(WS-TK)(WS-PIECE-AT:2000) TO TR-TEXT
+                   WRITE TASKRES-REC
+                       INVALID KEY REWRITE TASKRES-REC
+                   END-WRITE
+                   ADD 2000 TO WS-PIECE-AT
+               END-PERFORM
+           END-PERFORM
+           COMMIT
+           CLOSE TASKRES-FILE
+
+           GOBACK.
+
+       END PROGRAM PC-SAVE-TASKS.
 
        IDENTIFICATION DIVISION.
        PROGRAM-ID. PC-COMPOSE IS COMMON PROGRAM.
@@ -3295,12 +3555,33 @@
       *>   results, as the main prompt's COMPOSE section says - and from the
       *>   chosen template, with its TEMPLATE section. No agent answers the
       *>   user directly (R61).
+      *>   "JOIN:" and no report template: the parts, as written, in task
+      *>   order - nothing condensed, nothing re-said.
+           IF WS-JOIN-MODE = "Y" AND WS-TPL-SKEL = SPACES
+               MOVE SPACES TO WS-REPLY
+               MOVE 1 TO WS-SX-B
+               PERFORM VARYING WS-TK FROM 1 BY 1 UNTIL WS-TK > WS-TASK-COUNT
+                   IF WS-TASK-ST(WS-TK) = "D"
+                       STRING FUNCTION TRIM(WS-TASK-RES(WS-TK)) X"0A" X"0A"
+                           DELIMITED BY SIZE INTO WS-REPLY WITH POINTER WS-SX-B
+                       END-STRING
+                   END-IF
+               END-PERFORM
+               CALL "PC-NOTE-MISSING"
+               CALL "PC-FINISH"
+               EXIT PROGRAM
+           END-IF
            MOVE SPACES TO WS-INS
            MOVE 1 TO WS-SX-B
-           PERFORM VARYING WS-A FROM 1 BY 1 UNTIL WS-A > 3
-               IF WS-AG-TASK(WS-A) NOT = SPACES
-                   STRING "- On" FUNCTION TRIM(WS-AG-TASK(WS-A)) ": "
-                          FUNCTION TRIM(WS-AG-RESULT(WS-A)) X"0A"
+           PERFORM VARYING WS-TK FROM 1 BY 1 UNTIL WS-TK > WS-TASK-COUNT
+               IF WS-TASK-ST(WS-TK) = "D"
+                   STRING "- On " FUNCTION TRIM(WS-TASK(WS-TK)) ": "
+                          FUNCTION TRIM(WS-TASK-RES(WS-TK)) X"0A"
+                       DELIMITED BY SIZE INTO WS-INS WITH POINTER WS-SX-B
+                   END-STRING
+               ELSE
+                   STRING "- On " FUNCTION TRIM(WS-TASK(WS-TK))
+                          ": NO RESULT - this part could not be answered." X"0A"
                        DELIMITED BY SIZE INTO WS-INS WITH POINTER WS-SX-B
                    END-STRING
                END-IF
@@ -3361,6 +3642,9 @@
                    EXIT PROGRAM
                END-IF
            END-IF
+           IF WS-STAGE = "COMPOSE"
+               CALL "PC-NOTE-MISSING"
+           END-IF
            EVALUATE WS-STAGE
                WHEN "SINGLE"
                WHEN "COMPOSE"
@@ -3368,14 +3652,9 @@
                WHEN "PLAN"
                    CALL "PC-DISPATCH"
                WHEN "WORK"
-                   IF WS-AG-WAIT(WS-FROM) = "Y"
-                       MOVE "N" TO WS-AG-WAIT(WS-FROM)
-                       MOVE WS-REPLY TO WS-AG-RESULT(WS-FROM)
-                       SUBTRACT 1 FROM WS-PENDING
-                       IF WS-PENDING = 0
-                           CALL "PC-COMPOSE"
-                       END-IF
-                   END-IF
+                   MOVE WS-REPLY TO WS-TEXT
+                   MOVE "Y" TO WS-TASK-OK
+                   CALL "PC-TASK-DONE"
                WHEN OTHER
                    CONTINUE
            END-EVALUATE
@@ -4004,7 +4283,7 @@
                WHEN OTHER MOVE "en" TO WS-LANG
                           MOVE 1 TO WS-LANG-IX
            END-EVALUATE
-           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 35
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 36
                MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
            END-PERFORM
            MOVE FUNCTION TRIM(T-HINT-ASK) TO Txt-Input::HintText

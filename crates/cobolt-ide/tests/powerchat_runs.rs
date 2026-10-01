@@ -2046,6 +2046,147 @@ fn powerchat_upgrades_the_shipped_templates_and_keeps_a_changed_one() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A model for the queued-task tests: the plan is four tasks (and `JOIN:`
+/// when `join`), each task is answered "Answer for PART-x.", PART-C fails
+/// with HTTP 500, and a composing request is answered "COMPOSED ANSWER".
+fn task_server(join: bool) -> (String, Arc<Mutex<Vec<String>>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+    let log = seen.clone();
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 8192];
+            let head_end = loop {
+                match stream.read(&mut chunk) {
+                    Ok(0) | Err(_) => break None,
+                    Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                }
+                if let Some(i) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                    break Some(i + 4);
+                }
+            };
+            let Some(head_end) = head_end else { continue };
+            let head = String::from_utf8_lossy(&buf[..head_end]).to_ascii_lowercase();
+            let len = head
+                .lines()
+                .find_map(|l| l.strip_prefix("content-length:"))
+                .and_then(|v| v.trim().parse::<usize>().ok())
+                .unwrap_or(0);
+            while buf.len() < head_end + len {
+                match stream.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                }
+            }
+            let body = String::from_utf8_lossy(&buf[head_end..]).into_owned();
+            log.lock().unwrap().push(body.clone());
+            let (status, content) = if body.contains("Split the user") {
+                let plan = "TASK: PART-A\nTASK: PART-B\nTASK: PART-C\nTASK: PART-D";
+                (200, if join { format!("{plan}\nJOIN:") } else { plan.to_string() })
+            } else if body.contains("Your assistants reported") {
+                (200, "COMPOSED ANSWER".to_string())
+            } else if let Some(part) = ["PART-A", "PART-B", "PART-C", "PART-D"]
+                .into_iter()
+                .find(|p| body.contains(&format!("Task: {p}")))
+            {
+                if part == "PART-C" {
+                    (500, String::new())
+                } else {
+                    (200, format!("Answer for {part}."))
+                }
+            } else {
+                (200, "unused".to_string())
+            };
+            let resp = if status == 500 {
+                "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: 27\r\nConnection: close\r\n\r\n{\"error\":\"model overloaded\"}"
+                    .to_string()
+            } else {
+                let reply = serde_json::json!({
+                    "message": {"role": "assistant", "content": content},
+                    "prompt_eval_count": 50, "eval_count": 20
+                })
+                .to_string();
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    reply.len(),
+                    reply
+                )
+            };
+            let _ = stream.write_all(resp.as_bytes());
+        }
+    });
+    (format!("http://127.0.0.1:{port}/api"), seen)
+}
+
+/// Operator (2026-10-01): a question about 21 sections came back with
+/// sections 8 to 14 missing and the rest condensed. Now the plan may hold up
+/// to 12 small tasks, queued over the working agents; `JOIN:` gives the
+/// parts as written, in task order; a task that fails is said in the answer,
+/// never dropped; and every task's result is kept in data/taskresults.idx.
+#[test]
+fn powerchat_queues_the_tasks_joins_them_and_names_a_missing_part() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let t = Instant::now();
+    let (url, requests) = task_server(true);
+    let (root, data) = report_setup("tasks-join", &url, 2);
+    let mut s = Session::start("chat-form.cfrm");
+    s.settle();
+    s.type_into("Txt-Input", "Describe every section in detail");
+    s.click("Btn-Send");
+    let html = s.wait_for("Vwr-Chat", "_ConversationHtml", |v| v.contains("Answer for PART-D"));
+    s.quit();
+    let sent = requests.lock().unwrap().clone();
+    let tasks: Vec<&String> = sent.iter().filter(|b| b.contains("Task: PART-")).collect();
+    assert_eq!(tasks.len(), 4, "four tasks, queued over the one working agent");
+    assert!(!sent.iter().any(|b| b.contains("Your assistants reported")), "JOIN: no composing request");
+    let a = html.find("Answer for PART-A").unwrap();
+    let b = html.find("Answer for PART-B").unwrap();
+    let d = html.find("Answer for PART-D").unwrap();
+    assert!(a < b && b < d, "the parts in task order");
+    assert!(html.contains("Part not answered:") && html.contains("PART-C"), "the failed part is named: {html}");
+    let kept = String::from_utf8_lossy(&std::fs::read(data.join("taskresults.idx")).unwrap()).into_owned();
+    for part in ["PART-A", "PART-B", "PART-C", "PART-D"] {
+        assert!(kept.contains(part), "{part} kept in taskresults.idx");
+    }
+    assert!(kept.contains("Answer for PART-B") && kept.contains("model overloaded"), "what each wrote, and why C failed");
+    println!(
+        "\n  ── PowerChat, queued tasks joined ───────────────────────\n  {} requests: 1 plan + 4 queued tasks over 1 working agent, no composing request; parts A, B, D in order, \
+         PART-C named as not answered; 4 tasks kept in taskresults.idx — {:.0} ms\n",
+        sent.len(),
+        t.elapsed().as_secs_f64() * 1000.0
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Without `JOIN:` the parts are composed as before, but in task order, a
+/// failed part is handed to the composer as "NO RESULT", and the answer
+/// still names it.
+#[test]
+fn powerchat_composes_the_parts_in_order_and_names_a_missing_part() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let (url, requests) = task_server(false);
+    let (root, _data) = report_setup("tasks-compose", &url, 2);
+    let mut s = Session::start("chat-form.cfrm");
+    s.settle();
+    s.type_into("Txt-Input", "Summarise the policy");
+    s.click("Btn-Send");
+    let html = s.wait_for("Vwr-Chat", "_ConversationHtml", |v| v.contains("COMPOSED ANSWER"));
+    s.quit();
+    let sent = requests.lock().unwrap().clone();
+    let compose = sent.iter().find(|b| b.contains("Your assistants reported")).expect("a composing request");
+    let a = compose.find("On PART-A: Answer for PART-A").expect("A");
+    let c = compose.find("On PART-C: NO RESULT").expect("C marked as not answered");
+    let d = compose.find("On PART-D: Answer for PART-D").expect("D");
+    assert!(a < c && c < d, "the results in task order");
+    assert!(html.contains("Part not answered:") && html.contains("PART-C"), "{html}");
+    println!("\n  ── PowerChat, queued tasks composed ─────────────────────\n  composer given 4 results in task order, PART-C as NO RESULT; the answer names it\n");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// With several agents the orchestrator plans first; a report with no
 /// template chosen yet is answered `ASK:` — a question for the user, shown
 /// as the answer, not split into tasks.

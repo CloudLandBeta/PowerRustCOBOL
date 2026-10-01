@@ -73,9 +73,14 @@ anything specific about their data, say so plainly: until they upload a file
 their data. Never invent any. Answer in the user's language.
 
 === PLAN ===
-Split the user's last question into at most 3 independent tasks for
-assistants who can search this topic's documents. Reply with one line per
-task, each starting with TASK:
+Split the user's last question into independent tasks for assistants who
+can search this topic's documents: at most 12, each small enough to be
+answered completely in one reply - a question about many sections or items
+gets 3 or 4 of them per task, in their order. Reply with one line per task,
+each starting with TASK:
+- If the user asks for every part in detail - the answer is all the parts
+  together, not a summary of them - add a line JOIN: and the parts are given
+  to the user as the assistants wrote them, in task order.
 - If the question asks for a report and no report template has been chosen
   yet, reply instead with ASK: followed by your question to the user, as the
   REPORTS rules say.

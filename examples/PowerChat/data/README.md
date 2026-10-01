@@ -9,6 +9,7 @@ each one the first time it is needed:
 | `topics.idx` | Each topic: name and system prompt |
 | `convs.idx` | Each conversation: its topic, title, and token counts |
 | `turns.idx` | Every question and answer, in order |
+| `taskresults.idx` | What each assistant wrote for each task of an answer, and whether it failed — kept beside the answer to explain it afterwards; never shown in the chat |
 | `models.idx` | The model list (names, APIs, endpoints, models, tools, rank — never keys) |
 | `topic-files.idx` | The indexed files each topic registers, by path |
 | `prompt-versions.idx` | Every version of each topic's system prompt, and of the main prompt (topic id `*MAIN`) |
