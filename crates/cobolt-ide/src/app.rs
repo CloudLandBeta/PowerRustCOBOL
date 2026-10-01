@@ -888,6 +888,8 @@ pub struct CoboltApp {
     leaderboard: crate::leaderboard::Leaderboard,
     /// The Model Leaderboard panel, present while open.
     leaderboard_modal: Option<crate::panels::leaderboard_modal::LeaderboardModal>,
+    /// The last step of an AI configuration import: one key per provider.
+    import_keys_modal: Option<crate::panels::import_keys_modal::ImportKeysModal>,
     /// In-flight capability probe and the `(provider, model, endpoint)` it
     /// answers for.
     llm_caps_rx: Option<std::sync::mpsc::Receiver<crate::leaderboard::ModelCapabilities>>,
@@ -1131,6 +1133,10 @@ enum FileRequest {
     SaveErrorText(String),
     /// Export the COBOL proficiency benchmark report to PDF.
     SaveBenchmarkPdf(String),
+    /// Write the AI configuration bundle (no API keys) to the chosen file.
+    ExportAiConfig,
+    /// Merge the chosen AI configuration bundle, then ask for its keys.
+    ImportAiConfig,
 }
 
 /// The shared egui key for the single app-level file dialog.
@@ -2103,6 +2109,7 @@ impl CoboltApp {
             llm_benchmark_report: None,
             leaderboard: crate::leaderboard::Leaderboard::load(),
             leaderboard_modal: None,
+            import_keys_modal: None,
             llm_caps_rx: None,
             llm_caps_target: None,
 
@@ -10361,6 +10368,7 @@ impl CoboltApp {
         }
         // Default Theme Settings (spec 016 Q2).
         self.show_theme_defaults_modal(ctx);
+        self.show_import_keys_modal(ctx);
         self.show_guardian_block_modal(ctx);
         self.show_indexed_engine_modal(ctx);
         self.show_update_offer(ctx);
@@ -10544,6 +10552,20 @@ impl CoboltApp {
         }
         if action.manage_models {
             self.models_modal = Some(crate::panels::models_modal::ModelsModal::new());
+        }
+        if action.export_ai_config {
+            self.begin_file_dialog(
+                FileRequest::ExportAiConfig,
+                crate::file_dialog::DialogSpec::save()
+                    .file_name("powerrustcobol-ai.json")
+                    .filter("JSON", &["json"]),
+            );
+        }
+        if action.import_ai_config {
+            self.begin_file_dialog(
+                FileRequest::ImportAiConfig,
+                crate::file_dialog::DialogSpec::open().filter("JSON", &["json"]),
+            );
         }
         if action.open_theme_defaults {
             self.open_theme_defaults_modal();
@@ -13887,6 +13909,115 @@ impl CoboltApp {
                     )),
                 }
             }
+            FileRequest::ExportAiConfig => self.export_ai_config(&path),
+            FileRequest::ImportAiConfig => self.import_ai_config(&path),
+        }
+    }
+
+    /// The open project's folder, when there is one.
+    fn ai_project_dir(&self) -> Option<PathBuf> {
+        self.project_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_path_buf())
+    }
+
+    /// Write the AI configuration bundle — providers, this project's agents,
+    /// the leaderboard — with no API key in it (see `crate::ai_bundle`).
+    fn export_ai_config(&mut self, path: &std::path::Path) {
+        let tr = self.lang.tr();
+        let db = self
+            .ai_project_dir()
+            .map(|dir| crate::agents_db::AgentsDb::load(&dir));
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let (bundle, summary) = crate::ai_bundle::build(&self.llm, db.as_ref(), &self.leaderboard, now);
+        let personal = crate::ai_bundle::Personal::from_environment();
+        match crate::ai_bundle::export(&bundle, &self.llm, &personal, path) {
+            Ok(removed) => {
+                let msg = tr
+                    .ai_exported
+                    .replacen("{}", &path.display().to_string(), 1)
+                    .replacen("{}", &summary.providers.to_string(), 1)
+                    .replacen("{}", &summary.agents.to_string(), 1)
+                    .replacen("{}", &summary.leaderboard_rows.to_string(), 1);
+                self.output.push_status(msg);
+                if removed > 0 {
+                    self.output
+                        .push_status(tr.ai_export_personal.replacen("{}", &removed.to_string(), 1));
+                }
+                if !summary.skipped_files.is_empty() {
+                    self.output.push_status(
+                        tr.ai_export_skipped
+                            .replacen("{}", &summary.skipped_files.join(", "), 1),
+                    );
+                }
+            }
+            Err(e) => self.output.push_status(e),
+        }
+    }
+
+    /// Merge an AI configuration bundle, save, and ask for the keys of every
+    /// provider it names.
+    fn import_ai_config(&mut self, path: &std::path::Path) {
+        let tr = self.lang.tr();
+        let bundle = match crate::ai_bundle::read(path) {
+            Ok(b) => b,
+            Err(e) => {
+                self.output.push_status(e);
+                return;
+            }
+        };
+        let mut db = self
+            .ai_project_dir()
+            .map(|dir| crate::agents_db::AgentsDb::load(&dir));
+        let summary =
+            crate::ai_bundle::apply(&bundle, &mut self.llm, db.as_mut(), &mut self.leaderboard);
+        if let Err(e) = self.llm.save() {
+            self.output.push_status(format!("Could not save the model configuration: {e}"));
+        }
+        self.save_leaderboard();
+        // The managers hold their own copies; reopen them to see the import.
+        self.agents_modal = None;
+        self.models_modal = None;
+        self.output.push_status(
+            tr.ai_imported
+                .replacen("{}", &summary.providers.to_string(), 1)
+                .replacen("{}", &summary.agents.to_string(), 1)
+                .replacen("{}", &summary.leaderboard_rows.to_string(), 1),
+        );
+        if !summary.skipped_agents.is_empty() {
+            self.output.push_status(
+                tr.ai_import_skipped
+                    .replacen("{}", &summary.skipped_agents.join("; "), 1),
+            );
+        }
+        let needing = crate::ai_bundle::providers_needing_keys(&summary.providers_named, &self.llm);
+        self.import_keys_modal = crate::panels::import_keys_modal::ImportKeysModal::new(needing);
+    }
+
+    /// The "enter API keys" step that closes an AI configuration import.
+    fn show_import_keys_modal(&mut self, ctx: &egui::Context) {
+        let Some(mut m) = self.import_keys_modal.take() else {
+            return;
+        };
+        let theme = self.current_theme().clone();
+        let tr = self.lang.tr();
+        if m.show(ctx, &tr, &theme) {
+            let n = m.store(&mut self.llm);
+            match self.llm.save() {
+                Ok(()) => self
+                    .output
+                    .push_status(tr.ai_keys_saved.replacen("{}", &n.to_string(), 1)),
+                Err(e) => self
+                    .output
+                    .push_status(format!("Could not save the model configuration: {e}")),
+            }
+        }
+        if m.open {
+            self.import_keys_modal = Some(m);
         }
     }
 
@@ -16276,7 +16407,7 @@ impl CoboltApp {
         // preview's own size, and the rail narrows afterwards (R23, R26).
         let preview_responsive = {
             let f = &self.designers[idx].1.form;
-            f.responsive.then(|| (f.layout.clone(), f.breakpoints.clone()))
+            f.lays_out().then(|| (f.layout.clone(), f.breakpoints.clone()))
         };
         let designed_controls = if preview_responsive.is_some() { controls.clone() } else { Vec::new() };
         let preview_rail = cobolt_forms::breadcrumb::shell_side_menu_in(&controls).map(|side| {

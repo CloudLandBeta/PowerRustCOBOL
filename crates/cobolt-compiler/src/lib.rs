@@ -4642,6 +4642,18 @@ from COBOL.
 - **Font scaling** — the form's `FontScaling` (`None`, `Fluid`, `Stepped`) with
   `MinFontScale`/`MaxFontScale`; per control `ScaleFont`, `MinFontSize`,
   `MaxFontSize`.
+- **Obsolete scaling style** — the form's `ObsoleteScalingStyle` (0–7, default
+  0), a compatibility mode for forms migrated from PowerCOBOL. It is a sum of
+  flags: 1 resizes each control by the window ratio (`w·rx`, `h·ry`), 2 moves
+  it (`x·rx`, `y·ry` from its parent's client), 4 scales fonts by `min(rx, ry)`
+  between `MinFontScale` and `MaxFontScale`. Any value other than 0 lays the
+  form out even when `Responsive` is off. Breakpoint overrides apply first,
+  then scaling; `MinWidth`/`MaxWidth`/`MinHeight`/`MaxHeight` still bound the
+  sizes, and a control's children scale within its scaled client. A control
+  anchored to other edges than its type's default, or docked, keeps anchoring
+  or docking. A program may set it at run time (`me::ObsoleteScalingStyle`);
+  a value outside 0–7 is refused and the style is kept. Prefer anchors and
+  containers for new forms.
 
 ## `Locked` is the design-time lock
 

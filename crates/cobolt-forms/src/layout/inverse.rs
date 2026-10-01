@@ -79,6 +79,9 @@ pub fn designed_rect(placement: &Placement, target: LRect, designed: LRect) -> L
         // A flex/grid/flow parent decides the position; the size is the
         // item's intrinsic one.
         Placement::Item(_) => LRect { w: target.w, h: target.h, ..designed },
+        Placement::Scaled { style, designed_parent, parent } => {
+            crate::layout::scale::designed_rect(target, designed_parent, parent, style)
+        }
     }
 }
 

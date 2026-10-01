@@ -92,8 +92,24 @@ fn client_min(
 
     // A stretched axis grows and shrinks with the parent: the parent may not
     // shrink it below its own minimum.
+    // Spec 081 — a control scaled with the window shrinks by the parent's
+    // ratio: the parent may not shrink it below its own minimum either.
+    let scaling = crate::layout::scale::style(&FormBag(input.form_props));
     for c in &kids {
         if props::dock(c) != Dock::None {
+            continue;
+        }
+        if scaling != 0 && !crate::layout::scale::opted_out(c) {
+            if crate::layout::scale::resizes(scaling) {
+                let r = designed_rect(input, c);
+                let (min_w, min_h) = own_min(input, tree, c);
+                if min_w > 0.0 && r.w > 0.0 {
+                    need.0 = need.0.max(designed_client.0 * min_w / r.w);
+                }
+                if min_h > 0.0 && r.h > 0.0 {
+                    need.1 = need.1.max(designed_client.1 * min_h / r.h);
+                }
+            }
             continue;
         }
         let e = props::anchor(c);

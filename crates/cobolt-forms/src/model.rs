@@ -7636,6 +7636,13 @@ pub struct Form {
 }
 
 impl Form {
+    /// Whether the responsive engine lays this form out: `Responsive` is on,
+    /// or an obsolete scaling style is set (spec 081 R4). The stored
+    /// `responsive` flag is never changed by the second.
+    pub fn lays_out(&self) -> bool {
+        self.responsive || crate::layout::scale::style(&crate::layout::props::FormBag(&self.layout)) != 0
+    }
+
     pub fn new(name: impl Into<String>, title: impl Into<String>, width: u32, height: u32) -> Self {
         let form_name = name.into();
         // Pre-populate onLoad and onClose with empty stubs so the Code View

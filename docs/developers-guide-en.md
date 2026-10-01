@@ -499,6 +499,55 @@ host, paste the key, and use **Refresh models** to pull the current catalogue.
 **Test** sends one request so you can confirm the credential before relying on
 it.
 
+**Sharing the AI setup: Export AI… / Import AI….** On the same row as the
+managers, **Export AI…** writes one JSON file holding:
+- the configured providers and their endpoints, with each provider's model list;
+- this project's agents, each with its prompt, steering, policies, skills,
+  knowledge and `mcp.json`;
+- the Model Leaderboard.
+
+Hand that file to a colleague, or open it on your next machine, and **Import
+AI…** sets everything up in one step instead of an afternoon of clicking.
+
+**The file never carries an API key.** Keys are not part of it. A
+`user:password@` in an endpoint is dropped. In `mcp.json` every `env` and
+`headers` value, and every field named like a key, token, secret or password,
+is emptied, while the servers themselves are kept. And if any key stored on
+your machine were still to turn up in the file, the export is refused and
+nothing is written.
+
+**Nor does it carry anything about you.** Wherever they appear (an agent's
+prompt, a path in `mcp.json`, anywhere else), these are replaced by neutral
+placeholders:
+- your home folder, which becomes `~`;
+- your login name;
+- the name and e-mail your global git configuration knows you by.
+
+A leaderboard row's last error message is dropped, because a provider's error
+text can name your account or organisation. The Output panel says how many
+details were replaced. As with keys, if one could not be removed, nothing is
+written.
+
+Because of that, an import ends by asking for keys: a window lists every
+provider the file uses, with one key field each, and says whether you already
+have a key stored for it. Type your own key, or leave the field empty to keep
+the stored one, or press **Later** and add it in the Model Providers Manager.
+
+Importing **merges** — nothing is deleted:
+- each provider's endpoint is replaced by the imported one;
+- an agent with the same name is overwritten, but keeps its local identity, so
+  its companion links stay valid;
+- a leaderboard row is replaced only by a more recent test of the same model.
+
+Agents need an open project; with none open, only the providers and the
+leaderboard are exported or imported. Agent files larger than 1 MB, and files
+that are not text, are left out of an export, and the Output panel names them.
+
+> ⚠️ **Caveat — read before you share.** Only the credentials and personal
+> details listed above are removed. A password, a colleague's address or a
+> customer's name pasted into an agent's prompt or knowledge files travels with
+> them. The file is plain text: read it before you share it.
+
 **When a call fails.** The error window opens with the reason on its own line at
 the top, above a rule, and the full connection log underneath. The headline is
 the provider's own sentence, quoted — *"You exceeded your current quota, please
@@ -1970,6 +2019,90 @@ it the same way.
 > it does not also press the form's `IsDefault` button. With the focus on a
 > control whose `EnterAsTab` is off (or on a Button), Enter reaches the default
 > button exactly as before.
+
+### Migrating a PowerCOBOL form: *Obsolete scaling style*
+
+A PowerCOBOL form could follow its window in proportion: grow the window by
+half, and every control grew and moved by half, its text along with it.
+PowerRustCOBOL forms do better for new work. Anchors keep a field's margins,
+containers share out space, and text follows a breakpoint or the width. But a
+form you bring across was drawn for proportional scaling, and laying it out
+again is work you may not want to do on day one.
+
+**Obsolete scaling style** on the form (`ObsoleteScalingStyle` in the file and
+in COBOL) gives you the old behaviour with one setting. The name says what it
+is: a bridge for migrated forms, not the way to design a new one.
+
+| Value | What follows the window |
+|---|---|
+| 0 – None | Nothing: anchors, docking and containers as usual (default) |
+| 1 – Resize only | Every control's width and height |
+| 2 – Reposition only | Every control's position |
+| 3 – Resize and reposition | Size and position: the whole form in proportion |
+| 4 – Resize the font only | Text size |
+| 5 – Resize and resize the font | Size and text |
+| 6 – Reposition and resize the font | Position and text |
+| 7 – Resize, reposition and resize the font | Everything |
+
+The values add up: 1 is size, 2 is position, 4 is text, so 7 = 1 + 2 + 4.
+
+**The arithmetic.** If the form was drawn 400 × 300 and its window is now
+800 × 450, the width ratio is 2 and the height ratio is 1.5. A button drawn at
+(100, 50), 80 × 30:
+- with **1**, keeps its place and becomes 160 × 45;
+- with **2**, moves to (200, 75) and stays 80 × 30;
+- with **3**, does both;
+- with a font flag (4, 5, 6 or 7), has its text scaled by the **smaller**
+  ratio, 1.5, so it always fits its control.
+
+Positions are measured inside the parent. A control inside a Panel or
+GroupBox scales with that container, which scales with the form.
+Everything is computed from your design every time, so shrinking the window
+back returns every control exactly to where you drew it.
+
+**Any value other than 0 lays the form out**, even with *Responsive* off. You
+do not have to turn anything else on.
+
+What still applies:
+- `MinWidth`, `MaxWidth`, `MinHeight` and `MaxHeight` still bound a control's
+  size, and the window will not shrink below what they need.
+- `MinFontScale` and `MaxFontScale` (0.85 and 1.5 unless you change them)
+  bound the text, and a control with `ScaleFont` off keeps its text size.
+- Breakpoint overrides still apply, before the scaling.
+- The window still stops before two controls that are apart in your design
+  would touch. With *Resize only*, growing can bring neighbours together;
+  with 3 or 7 everything grows together and they never meet.
+
+**Keeping one control out of it.** Give a control an anchor of its own, or
+dock it, and it keeps doing that while the rest of the form scales. Typical
+cases are a toolbar docked to the top, or a status line anchored to the
+bottom edge. A control left with its type's default anchor, as every control
+of a migrated form is, scales.
+
+**From COBOL**, a form can change its own style while it runs, for example to
+offer the user a "zoom with the window" option:
+
+```cobol
+           IF WS-ZOOM-WITH-WINDOW = "Y"
+               MOVE 7 TO me::ObsoleteScalingStyle
+           ELSE
+               MOVE 0 TO me::ObsoleteScalingStyle
+           END-IF.
+```
+
+The form lays itself out again on the next frame. A value outside 0–7 is
+refused: the style stays as it was, and that is what `me::ObsoleteScalingStyle`
+then reads.
+
+> 💡 **When you have time, move the form to anchors.** Proportional scaling
+> stretches everything alike: a text field gets taller as the window gets
+> taller, and a button's text grows past what anyone needs. Anchoring the
+> fields left and right, and the buttons to a corner, gives a form that uses
+> a large window instead of magnifying itself. Start with *Responsive* on and
+> the style at 0, and anchor what should stretch.
+
+> ⚠️ **Caveat.** Unequal ratios distort. A square button in a wide, short
+> window becomes a wide, short button, exactly as it did in PowerCOBOL.
 
 ### Target devices
 

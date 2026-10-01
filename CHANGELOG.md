@@ -72,6 +72,86 @@ and fills the rest with `FILLER-n`. The Guide now says so, with a caveat to
 set the real names and PICTUREs in the Indexed File Editor afterwards. No
 code changed.
 
+## [PowerRustCOBOL 1.80.35] — 2026-10-01
+
+### Obsolete scaling style: a migrated PowerCOBOL form follows its window in proportion (spec 081)
+
+A new form property, **Obsolete scaling style** (`ObsoleteScalingStyle`, 0–7,
+default 0). It is a sum of flags:
+- 1 resizes every control by the window ratio;
+- 2 moves it;
+- 4 scales its font by the smaller of the two ratios.
+
+The operator named it to say what it is: a bridge for migrated forms, not the
+way to design new ones.
+
+- **Engine** (`layout::scale`):
+  - It is a mode of the one spec-056 solver: offsets from the parent's client
+    times `rx`/`ry`, sizes times `rx`/`ry` within
+    `MinWidth`/`MaxWidth`/`MinHeight`/`MaxHeight`.
+  - The font is `min(rx, ry)` within `MinFontScale`/`MaxFontScale`, times the
+    system factor.
+  - Children scale within their container's scaled client, and breakpoint
+    overrides apply first.
+  - A control anchored to edges other than its type's default, or docked,
+    keeps anchoring or docking (operator's Q3). On a migrated form, where
+    every control has the default anchor, everything scales.
+  - The new `Placement::Scaled` has its inverse, so canvas drags and COBOL
+    geometry writes map back to the design. The form minimum honours a
+    scaled control's `MinWidth`/`MinHeight`.
+- **Any value other than 0 lays the form out**, even with `Responsive` off
+  (`Form::lays_out`). The stored `Responsive` switch is never changed.
+- **Run time** (`cobolt-form-host`, one path for the window, child forms,
+  panes, `rcrun run-form` and the compiled binary):
+  - `me::ObsoleteScalingStyle` switches the layout on or off as the design
+    now says.
+  - A value outside 0–7 is refused, and the kept value is sent back, so the
+    program reads it.
+- **IDE:**
+  - a Properties combo with all eight values, translated into six languages
+    and shown on every form;
+  - prop help in six languages;
+  - the designer, agent and `me::` resolver property lists updated.
+- **System KB** prose added; `chunked.data` regenerated (2012 records).
+  **Guide**: "Migrating a PowerCOBOL form: *Obsolete scaling style*".
+- **Tests:**
+  - `layout::scale::tests` (7) cover AC2–AC7 and the inverse:
+    - (100, 50, 80, 30) at 2 × 1.5 → (100, 50, 160, 45) / (200, 75, 80, 30) /
+      (200, 75, 160, 45);
+    - font 12 → 18.
+  - A host test: a non-responsive form with style 3 is laid out; 0 turns the
+    layout off; 9 is refused and 0 is echoed back; 3 turns it on again.
+  - A designer canvas test with the same fixture gives the same rectangle.
+- **Deferred:** AC8 (the collision ceiling under style 1) waits for the
+  1.80.33 collision limits, which are on `fixes`, to meet `features` on
+  `main`.
+
+## [PowerRustCOBOL 1.80.34] — 2026-10-01
+
+### Spec 081 — Obsolete scaling style, draft
+
+`specs/081-obsolete-scaling-style/spec.md`. It specifies a form property shown
+as **Obsolete scaling style** (`ObsoleteScalingStyle`), for forms migrated
+from PowerCOBOL:
+- The value is a set of flags: 1 resize, 2 reposition, 4 font.
+- The designer lists 0 None and the values 1, 2, 3, 5 and 7.
+- While the value is not 0, every control's position and/or size scales by
+  the window ratio, and the font by `min(rx, ry)`. Anchors and docking are
+  ignored.
+- It is a mode of the one spec-056 solver: the same on every surface,
+  idempotent, and bounded by the 1.80.33 collision limits.
+- It can be set from COBOL at run time.
+
+The operator named it "Obsolete scaling style": a compatibility mode, not the
+way to build new forms. Five open questions remain:
+- whether to list the values 4 and 6;
+- how it interacts with breakpoints;
+- a per-control opt-out;
+- the font ratio;
+- keeping the aspect ratio.
+
+Documentation only; no code changed.
+
 ## [PowerRustCOBOL 1.80.33] — 2026-10-01
 
 ### Fix: a responsive window stops before its controls touch (spec 056 R18)
@@ -121,6 +201,98 @@ grown until a stretched field ran into a fixed neighbour.
     buttons would meet the card.
 
 Guide: "A responsive window stops before its controls collide".
+
+## [PowerRustCOBOL 1.80.32] — 2026-10-01
+
+### The AI export carries nothing about the person who made it
+
+The rule from the operator: "do not include any API Keys, nor any sensitive
+information about myself". 1.80.30 already left the keys out; this closes the
+rest.
+
+- **`ai_bundle::Personal`** replaces these with placeholders, case-insensitively
+  and only as whole words, in both their raw and their JSON-escaped (Windows
+  path) form:
+  - the home folder becomes `~`;
+  - the login name becomes `<user>`;
+  - git's global `user.name` becomes `<name removed>`;
+  - git's global `user.email` becomes `<e-mail removed>`.
+  This applies anywhere in the file: prompts, `mcp.json` paths, knowledge.
+- **The leaderboard's `last_error` is dropped.** A provider's error text can
+  name an account or an organisation.
+- **The export is refused**, and nothing is written, if a detail survives. It
+  is also refused if the cleaned text no longer parses.
+- **The Output panel says how many details were replaced** (new string, six
+  languages).
+- **Spec 080 R4 / AC3:** the kit follows the same rule.
+- Test `nothing_about_the_exporter_survives_an_export`: 7 details planted in
+  a prompt, `mcp.json` paths (POSIX and Windows) and a leaderboard error; all
+  replaced, none survive, and the file still reads back.
+- Guide updated.
+
+## [PowerRustCOBOL 1.80.31] — 2026-10-01
+
+### Spec 080 — a coding-agent companion kit (Claude Code first), draft
+
+`specs/080-coding-agent-companion-kit/spec.md`. It specifies a kit that one
+IDE export writes into the developer's project:
+- a brief and a reference pack generated from the System KB, `BUILTINS`, the
+  supported-syntax document and the Guide;
+- skills and a reviewer subagent;
+- restricted permissions;
+- a connection to new project-scoped IDE MCP tools: check, regenerate, build,
+  validate, KB lookup.
+
+With it, Claude Code can build desktop projects the way PowerDemo3 and
+PowerChat were built, without touching PowerRustCOBOL. Where a request needs
+something the product lacks, it writes a Markdown report to
+`docs/compiler-requests/`. Generation is agent-neutral. The spec has four
+open questions (remote use, a headless `rcrun` fallback, collecting reports,
+the size of the reference pack). Documentation only; no code changed.
+
+## [PowerRustCOBOL 1.80.30] — 2026-10-01
+
+### Export and import the AI setup — models, agents, leaderboard — with no API key in the file
+
+Setting up the AI on a new machine or project meant configuring every
+provider, agent and model again by hand (operator, 2026-10-01). Now it is one
+file.
+
+- **Export AI… / Import AI…**, two new buttons in Project settings, next to the
+  Agents, Models and Leaderboard managers.
+- **The file** (`crate::ai_bundle`, format `powerrustcobol-ai-config` v1)
+  holds:
+  - the providers with their endpoints and model lists;
+  - the open project's agents (`agent.json` plus their text files, up to
+    1 MiB each);
+  - the leaderboard.
+- **No key leaves the machine:**
+  - keys are never read into the file;
+  - endpoint `user:password@` is stripped;
+  - in `mcp.json`, `env` and `headers` values and secret-named fields are
+    emptied;
+  - the export is **refused, and nothing is written**, if any stored key
+    still appears verbatim in the text. The refusal names the key's slot,
+    never its value.
+- **Import merges:**
+  - provider endpoints are replaced;
+  - a same-named agent is overwritten but keeps its local id, and imported
+    companion links are remapped;
+  - a leaderboard row is replaced only by a newer test of the same model,
+    and retired rows are united;
+  - a file path that would leave its agent folder is refused.
+- **Then it asks for the keys** (operator): a fixed-size window lists every
+  provider the file names (providers and agents), one password field each,
+  and shows whether a key is already stored. An empty field keeps the stored
+  key; **Later** defers to the Model Providers Manager.
+- 14 new strings in all six languages.
+- Tests:
+  - `ai_bundle::tests` (4): no key, password, token or userinfo survives an
+    export, and an import asks for every provider; an export holding a key is
+    refused; no path escapes; userinfo stripping and a foreign file.
+  - `import_keys_modal::tests` (1).
+- Guide: "Sharing the AI setup" in *The AI assistant*.
+
 
 ## [PowerRustCOBOL 1.80.29] — 2026-10-01
 

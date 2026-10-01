@@ -788,6 +788,11 @@ impl AgentsDb {
         self.root.join(name)
     }
 
+    /// The folder of the agent named `name` (`agentic_ai/<name>/`).
+    pub fn agent_dir(&self, name: &str) -> PathBuf {
+        self.dir(name)
+    }
+
     pub fn prompt_path(&self, name: &str) -> PathBuf {
         self.dir(name).join(format!("{name}_prompt.md"))
     }

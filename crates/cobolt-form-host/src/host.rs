@@ -549,7 +549,7 @@ impl FormHost {
                 modal_overlay_style: form.modal_overlay_style,
                 form_size: egui::vec2(fw, fh),
                 responsive: ResponsiveSpec::of(&form),
-                responsive_off: (!form.responsive).then(|| ResponsiveSpec::design(&form)),
+                responsive_off: (!form.lays_out()).then(|| ResponsiveSpec::design(&form)),
                 ev_tx,
                 input_tx,
                 state_rx,
@@ -2299,11 +2299,10 @@ impl FormBody {
         let lower = key.to_ascii_lowercase();
         if lower == "responsive" {
             let on = !matches!(value.trim(), "" | "0" | "false" | "FALSE");
-            if on && self.responsive.is_none() {
-                self.responsive = self.responsive_off.take();
-            } else if !on && self.responsive.is_some() {
-                self.responsive_off = self.responsive.take();
+            if let Some(spec) = self.responsive.as_mut().or(self.responsive_off.as_mut()) {
+                spec.switched_on = on;
             }
+            self.settle_layout_switch();
             return true;
         }
         let bag_key = cobolt_forms::layout::defaults::form_defaults()
@@ -2328,11 +2327,31 @@ impl FormBody {
             }
             _ => {
                 if let Some(k) = bag_key {
+                    // Spec 081 R14 — only 0–7 is a scaling style. Anything
+                    // else is refused: the form keeps its style, and the
+                    // program reads that style back, not what it wrote.
+                    if k == "ObsoleteScalingStyle" && !valid_scaling_style(value) {
+                        let kept = cobolt_forms::layout::scale::style(&cobolt_forms::layout::props::FormBag(&spec.layout));
+                        let _ = self.input_tx.send(StateUpdate::new(self.form_object.clone(), k.to_owned(), kept.to_string()));
+                        return true;
+                    }
                     spec.layout.insert(k.to_owned(), cobolt_forms::PropValue::String(value.to_owned()));
                 }
             }
         }
+        self.settle_layout_switch();
         true
+    }
+
+    /// Spec 081 R4 — lay the form out exactly while its design says so:
+    /// `Responsive` on, or an obsolete scaling style set.
+    fn settle_layout_switch(&mut self) {
+        let want = self.responsive.as_ref().or(self.responsive_off.as_ref()).is_some_and(|s| s.lays_out());
+        if want && self.responsive.is_none() {
+            self.responsive = self.responsive_off.take();
+        } else if !want && self.responsive.is_some() {
+            self.responsive_off = self.responsive.take();
+        }
     }
 
     /// Spec 056 R37, R46, R47 — tell the program what the last layout did:
@@ -3218,12 +3237,26 @@ pub(crate) struct ResponsiveSpec {
     pub(crate) pinned_font_scale: Option<f32>,
     /// The window limits, searched again only when the layout changes.
     pub(crate) limits: cobolt_forms::layout::LimitsCache,
+    /// The form's `Responsive` switch as designed or as the program last set
+    /// it. The form is laid out while it is on OR an obsolete scaling style is
+    /// set (spec 081 R4) — see [`Self::lays_out`].
+    pub(crate) switched_on: bool,
+}
+
+/// Spec 081 — an `ObsoleteScalingStyle` value a program may write: a whole
+/// number from 0 to 7.
+fn valid_scaling_style(value: &str) -> bool {
+    value
+        .trim()
+        .parse::<i64>()
+        .is_ok_and(|v| (0..=cobolt_forms::layout::defaults::SCALING_STYLE_MAX).contains(&v))
 }
 
 impl ResponsiveSpec {
-    /// `Some` only for a form whose `Responsive design` is on.
+    /// `Some` for a form the engine lays out: `Responsive` on, or an obsolete
+    /// scaling style set (spec 081 R4).
     pub(crate) fn of(form: &cobolt_forms::Form) -> Option<Self> {
-        form.responsive.then(|| Self::design(form))
+        form.lays_out().then(|| Self::design(form))
     }
 
     /// The form's responsive design, whether or not it is switched on — what
@@ -3236,7 +3269,15 @@ impl ResponsiveSpec {
             pinned_breakpoint: None,
             pinned_font_scale: None,
             limits: Default::default(),
+            switched_on: form.responsive,
         }
+    }
+
+    /// Whether a form with this design is laid out: `Responsive` on, or an
+    /// obsolete scaling style set (spec 081 R4).
+    pub(crate) fn lays_out(&self) -> bool {
+        self.switched_on
+            || cobolt_forms::layout::scale::style(&cobolt_forms::layout::props::FormBag(&self.layout)) != 0
     }
 
     /// The window sizes these controls lay out for (R18): never below the
@@ -4322,7 +4363,7 @@ impl FormHost {
             modal_overlay_style: form.modal_overlay_style,
             form_size: egui::vec2(fw, fh),
             responsive: ResponsiveSpec::of(&form),
-                responsive_off: (!form.responsive).then(|| ResponsiveSpec::design(&form)),
+                responsive_off: (!form.lays_out()).then(|| ResponsiveSpec::design(&form)),
             ev_tx,
             input_tx,
             state_rx,
@@ -10632,6 +10673,49 @@ mod parity {
         assert_eq!(medium, base, "Medium's factor is 1.0");
         assert!((expanded / base - 1.25).abs() < 0.15, "Expanded's factor 1.25: {base} → {expanded}");
         println!("056 T6.2/T6.3: label {base:.0} px at 14 pt; system factor 1.25 → {system:.0}; Fluid 1.5× → {fluid:.0}; Stepped Medium → {medium:.0}, Expanded 1.25× → {expanded:.0}");
+    }
+
+    /// Spec 081 R4, R14 (AC2, AC9) — a form that is NOT responsive but carries
+    /// an obsolete scaling style is laid out: designed 400 × 300 with BTN at
+    /// (100, 50, 80, 30), at 800 × 450 style 3 puts it at (200, 75, 160, 45).
+    /// The program writes 0 and the form is laid out no more; it writes 9 and
+    /// the write is refused — the style stays 0 and the program is told so.
+    #[test]
+    fn an_obsolete_scaling_style_lays_out_a_form_that_is_not_responsive_081() {
+        let mut f = cobolt_forms::Form::new("SCALE-FORM", "Scale", 400, 300);
+        f.layout.insert("ObsoleteScalingStyle".into(), cobolt_forms::PropValue::Int(3));
+        let mut b = cobolt_forms::Control::new("BTN", cobolt_forms::ControlType::Button, 100, 50);
+        b.rect = cobolt_forms::model::Rect::new(100, 50, 80, 30);
+        f.controls.push(b);
+        assert!(!f.responsive && f.lays_out());
+        let (mut app, _f, pipes) = corpus_host(f, Surface::Window, None, None);
+        let ctx = egui::Context::default();
+        let run = |app: &mut FormHost| {
+            for _ in 0..CORPUS_FRAMES {
+                frame(app, &ctx, corpus_input(egui::vec2(800.0, 450.0)));
+            }
+            app.last_control_rects()["BTN"]
+        };
+        let r = run(&mut app);
+        assert_eq!((r.min.x, r.min.y, r.width(), r.height()), (200.0, 75.0, 160.0, 45.0));
+
+        let form = app.root.form_object.clone();
+        let write = |app: &mut FormHost, v: &str| {
+            app.root.apply_form_window_update(&ctx, &StateUpdate::new(form.clone(), "ObsoleteScalingStyle", v), None)
+        };
+        assert!(write(&mut app, "0"));
+        let r = run(&mut app);
+        assert_eq!((r.min.x, r.min.y, r.width(), r.height()), (100.0, 50.0, 80.0, 30.0), "0: as designed");
+
+        assert!(write(&mut app, "9"));
+        let echo = pipes._input_rx.try_iter().filter(|u| u.prop == "ObsoleteScalingStyle").last().expect("told");
+        assert_eq!(echo.value, "0", "9 is refused; the style stays 0");
+        assert!(app.root.responsive.is_none(), "still not laid out");
+
+        assert!(write(&mut app, "3"));
+        let r = run(&mut app);
+        assert_eq!((r.min.x, r.min.y), (200.0, 75.0), "3 again: scaled");
+        println!("081: non-responsive form, style 3 at 800×450 → BTN (200,75,160,45); 0 → as designed; 9 refused (kept 0); 3 → scaled again");
     }
 
     /// Spec 056 T4.7 (AC10 host half) — one responsive fixture drawn by the

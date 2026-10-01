@@ -385,6 +385,14 @@ pub static PROP_HELP: &[PropHelp] = &[
         "断点表：按可用宽度命名的区间（默认 Compact < 600 ≤ Medium < 1024 ≤ Expanded），每个区间有字体倍率。在 COBOL 中写作 名称:最小宽度:倍率;…",
         "La table des points de rupture : plages de largeur disponible nommées (par défaut Compact < 600 ≤ Medium < 1024 ≤ Expanded), chacune avec un facteur de police. Depuis COBOL : Nom:LargeurMin:Facteur;…",
     ] },
+    PropHelp { ty: "Form", prop: "ObsoleteScalingStyle", text: [
+        "Compatibility mode for forms migrated from PowerCOBOL: 1 resizes every control by the window ratio, 2 moves it, 4 scales its font by the smaller ratio; values add up (3 = 1 + 2, 7 = all). A control anchored or docked on purpose keeps doing so. For a new form, prefer anchors and containers.",
+        "Modo de compatibilidad para formularios migrados de PowerCOBOL: 1 redimensiona cada control según la proporción de la ventana, 2 lo mueve, 4 escala su fuente por la proporción menor; los valores se suman (3 = 1 + 2, 7 = todo). Un control anclado o acoplado a propósito lo sigue estando. Para un formulario nuevo, prefiera anclajes y contenedores.",
+        "Modo de compatibilidade para formulários migrados do PowerCOBOL: 1 redimensiona cada controle pela proporção da janela, 2 o move, 4 escala sua fonte pela menor proporção; os valores se somam (3 = 1 + 2, 7 = todos). Um controle ancorado ou encaixado de propósito continua assim. Para um formulário novo, prefira âncoras e contêineres.",
+        "PowerCOBOL から移行したフォーム向けの互換モード。1 は各コントロールをウィンドウの比率でサイズ変更、2 は移動、4 は小さい方の比率でフォントを拡大縮小します。値は足し合わせます（3 = 1 + 2、7 = すべて）。意図してアンカーまたはドッキングしたコントロールはそのままです。新しいフォームではアンカーとコンテナーを使用してください。",
+        "从 PowerCOBOL 迁移的窗体的兼容模式：1 按窗口比例调整每个控件的大小，2 移动控件，4 按较小的比例缩放字体；数值可相加（3 = 1 + 2，7 = 全部）。有意锚定或停靠的控件保持原样。新窗体请优先使用锚定和容器。",
+        "Mode de compatibilité pour les formulaires migrés de PowerCOBOL : 1 redimensionne chaque contrôle selon le rapport de la fenêtre, 2 le déplace, 4 met sa police à l'échelle selon le plus petit rapport ; les valeurs s'additionnent (3 = 1 + 2, 7 = tout). Un contrôle ancré ou amarré volontairement le reste. Pour un nouveau formulaire, préférez les ancrages et les conteneurs.",
+    ] },
     PropHelp { ty: "Form", prop: "FontScaling", text: [
         "How text follows the surface: None (default, today's sizes), Fluid (with the width, between MinFontScale and MaxFontScale) or Stepped (the active breakpoint's factor).",
         "Cómo sigue el texto a la superficie: None (predeterminado, tamaños actuales), Fluid (con el ancho, entre MinFontScale y MaxFontScale) o Stepped (el factor del punto de quiebre activo).",
