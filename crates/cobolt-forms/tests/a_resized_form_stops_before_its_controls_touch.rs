@@ -6,7 +6,8 @@
 
 //! Spec 056 R18, extended (operator, 2026-10-01): a responsive form's window
 //! stops shrinking or growing where two controls that are apart in the design
-//! would touch.
+//! would touch, or where a control inside its parent in the design would
+//! cross the parent's edge.
 //!
 //! Checked on the four starting templates and on every form shipped in
 //! `examples/`, each laid out responsively. At the computed limits nothing
@@ -15,11 +16,11 @@
 //! reported per form, because a window computes it when it opens and again
 //! whenever its controls change.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use cobolt_forms::layout::{size_limits_of, solve, window_min_size, LRect, LayoutInput};
+use cobolt_forms::layout::{size_limits_of, solve, window_min_size, LRect, LayoutInput, LayoutOutput};
 use cobolt_forms::templates::{build, FormTemplate, Texts};
 use cobolt_forms::{load_form_from_str, Form};
 
@@ -29,15 +30,36 @@ fn touching(a: &LRect, b: &LRect) -> bool {
     gx <= 0.01 && gy <= 0.01
 }
 
-fn layout(f: &Form, w: f32, h: f32) -> (HashMap<String, LRect>, HashSet<String>) {
-    let o = solve(&LayoutInput::new(&f.controls, (f.width as f32, f.height as f32), (w, h), &f.layout, &f.breakpoints));
-    (o.rects, o.hidden)
+fn solved(f: &Form, w: f32, h: f32) -> LayoutOutput {
+    solve(&LayoutInput::new(&f.controls, (f.width as f32, f.height as f32), (w, h), &f.layout, &f.breakpoints))
 }
 
-/// Pairs apart at the designed size that touch at (w, h).
+/// The client area `parent` lays its children out in: the form's laid-out
+/// area at top level, a laid-out container's client, or none.
+fn client(o: &LayoutOutput, parent: Option<&str>) -> Option<LRect> {
+    match parent {
+        None => Some(LRect::new(0.0, 0.0, o.laid_out_size.0, o.laid_out_size.1)),
+        Some(p) => o.containers.get(p).map(|g| g.client),
+    }
+}
+
+fn inside(r: &LRect, c: &LRect) -> bool {
+    r.x >= c.x - 0.01 && r.y >= c.y - 0.01 && r.right() <= c.right() + 0.01 && r.bottom() <= c.bottom() + 0.01
+}
+
+/// Pairs apart at the designed size that touch at (w, h), and controls
+/// inside their parent at the designed size that cross its edge at (w, h) —
+/// except an item of a `Flow` with `WrapContents` off, which is one line,
+/// clipped. Siblings on different TabControl pages are never on screen
+/// together.
 fn collisions(f: &Form, w: f32, h: f32) -> Vec<String> {
-    let (base, hidden) = layout(f, f.width as f32, f.height as f32);
-    let (now, now_hidden) = layout(f, w, h);
+    let (base_o, now_o) = (solved(f, f.width as f32, f.height as f32), solved(f, w, h));
+    let (base, hidden) = (&base_o.rects, &base_o.hidden);
+    let (now, now_hidden) = (&now_o.rects, &now_o.hidden);
+    let ids: HashSet<&str> = f.controls.iter().map(|c| c.id.as_str()).collect();
+    let is_tabs = |p: &Option<String>| {
+        p.as_deref().is_some_and(|p| f.controls.iter().any(|c| c.id == p && c.control_type == cobolt_forms::ControlType::TabControl))
+    };
     let shown: Vec<_> = f
         .controls
         .iter()
@@ -46,7 +68,7 @@ fn collisions(f: &Form, w: f32, h: f32) -> Vec<String> {
     let mut out = Vec::new();
     for (i, a) in shown.iter().enumerate() {
         for b in shown.iter().skip(i + 1) {
-            if a.parent != b.parent || touching(&base[&a.id], &base[&b.id]) {
+            if a.parent != b.parent || (is_tabs(&a.parent) && a.tab.unwrap_or(0) != b.tab.unwrap_or(0)) || touching(&base[&a.id], &base[&b.id]) {
                 continue;
             }
             if now_hidden.contains(&a.id) || now_hidden.contains(&b.id) {
@@ -55,6 +77,26 @@ fn collisions(f: &Form, w: f32, h: f32) -> Vec<String> {
             if touching(&now[&a.id], &now[&b.id]) {
                 out.push(format!("{} / {}", a.id, b.id));
             }
+        }
+    }
+    let one_line = |p: Option<&str>| {
+        let (mode, wrap) = match p {
+            None => (f.layout.get("LayoutMode").map(|v| v.as_str().to_owned()), f.layout.get("WrapContents").map(|v| v.as_bool())),
+            Some(p) => match f.controls.iter().find(|c| c.id == p) {
+                Some(c) => (c.get_prop("LayoutMode").map(|v| v.as_str().to_owned()), c.get_prop("WrapContents").map(|v| v.as_bool())),
+                None => (None, None),
+            },
+        };
+        mode.is_some_and(|m| m.trim().eq_ignore_ascii_case("flow")) && !wrap.unwrap_or(true)
+    };
+    for c in &shown {
+        let parent = c.parent.clone().filter(|p| ids.contains(p.as_str()));
+        if one_line(parent.as_deref()) {
+            continue;
+        }
+        let (Some(bc), Some(nc)) = (client(&base_o, parent.as_deref()), client(&now_o, parent.as_deref())) else { continue };
+        if inside(&base[&c.id], &bc) && !now_hidden.contains(&c.id) && now.get(&c.id).is_some_and(|r| !inside(r, &nc)) {
+            out.push(format!("{} leaves its parent", c.id));
         }
     }
     out
@@ -106,7 +148,8 @@ fn a_resized_form_stops_before_its_controls_touch() {
         let designed = (f.width as f32, f.height as f32);
         let floor = window_min_size(&f.controls, designed, &f.layout, &f.breakpoints);
 
-        // At every limit, nothing that was apart touches.
+        // At every limit, nothing that was apart touches and nothing leaves
+        // its parent.
         for (w, h) in [(l.min.0, designed.1), (designed.0, l.min.1), (l.max.0, designed.1), (designed.0, l.max.1)] {
             if w.is_finite() && h.is_finite() {
                 let c = collisions(f, w, h);

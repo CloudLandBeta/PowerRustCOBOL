@@ -1977,15 +1977,27 @@ shrinks or enlarges a responsive form's window, controls move and stretch with
 their anchors. That can bring two of them together. For example, a button
 anchored to the right edge slides left onto a field anchored to the left, or
 a field stretched between both edges grows into a neighbour that stays put.
+Shrinking can also push a control out of view. A button anchored `Top,Left`
+near the right edge of the form is cut off once the window is narrower than
+the button's right edge. A label near the bottom of a panel that shrinks with
+the window ends up below the panel's edge.
 The window refuses to go that far: it stops at the last size at which every
-pair of controls that are apart in your design is still apart. The same
-limits apply to the running form in the IDE, to the compiled application,
-and to the designer's view-size grip.
+pair of controls that are apart in your design is still apart, and every
+control that sits inside its panel, group box, tab page or splitter pane (or
+inside the form) in your design is still inside it. Both directions count,
+shrinking and growing, on the width and on the height. The same limits apply
+to the running form in the IDE, to the compiled application, and to the
+designer's view-size grip.
 
 Controls you placed touching or overlapping on purpose, such as a label on
-its card or two flush toolbar buttons, are left alone. So are hidden
-controls. A form whose controls never meet has no limit beyond its
-`MinFormWidth` × `MinFormHeight` floor.
+its card or two flush toolbar buttons, are left alone. A control you placed
+partly outside its container, or outside the form, is left alone too. So are
+the items of a Flow container whose `WrapContents` is off: that layout is one
+line, clipped at the container's edge, so items past the edge are expected.
+A wrapping Flow, or a Flex row, keeps its items inside and does stop the
+window. Hidden controls are left alone, and so are controls on different
+pages of a TabControl, which are never on screen together. A form whose controls never meet and never reach
+an edge has no limit beyond its `MinFormWidth` × `MinFormHeight` floor.
 
 > 💡 If the window stops sooner than you would like, give the controls room
 > to move. Anchor the field to both edges so it shrinks instead of being run

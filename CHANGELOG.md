@@ -8,6 +8,83 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.51] — 2026-10-01
+
+### Fix: a responsive window stops before a control would leave its parent
+
+**Defect.** A responsive window could be narrowed or shortened until a control
+was pushed past the edge of its container or of the form. Example: a
+`Top,Left` button at x 760..790 in an 800-wide form, with the window narrowed
+to 640. The window's collision limits only kept sibling controls apart, so a
+control with no neighbour, or one whose parent shrank under it, was never
+considered.
+
+**Root cause.** `layout::collide::window_size_limits`
+(`crates/cobolt-forms/src/layout/collide.rs`) searched only for the pairs
+from `apart_pairs`: siblings apart at the designed size that would touch. No
+search checked whether a control stays inside its parent's client area.
+
+**Fix.** The search now also tracks every visible control that is fully
+inside its parent's client area (the form's laid-out area at top level) at
+the designed size (`contained`). It treats a size as a collision when such a
+control would cross that edge, shrinking or growing, on both axes, using the
+same search as sibling pairs:
+- hidden controls are ignored;
+- controls that already overflow their parent in the design are not
+  constrained;
+- parents with no recorded container geometry are skipped: a Splitter's own
+  non-pane children, SideMenu footers and repeating-group contents;
+- items of a `Flow` container with `WrapContents` off are skipped
+  (`clips_one_line`). That layout is documented as one line, clipped, so
+  items running past its edge are intended behaviour (operator ruling,
+  2026-10-01). A Flex `NoWrap` row is not exempt: its items shrink and stay
+  inside.
+
+**Tests.**
+- New `collide::tests::shrinking_stops_before_a_control_would_leave_its_parent`:
+  - the lone button stops the width at 790;
+  - a label near the bottom of a Panel stretched on all four edges stops the
+    height where the Panel's client would pass it.
+- New `collide::tests::a_control_already_outside_or_hidden_does_not_limit_the_window`.
+- New `collide::tests::a_one_line_flows_overflow_does_not_hold_the_window`:
+  seven items in a `WrapContents`-off Flow inside a `MinMax(100px, 1fr)`
+  grid column leave the minimum width at the declared 104. The same items in
+  a wrapping Flow hold the window at 638. With the exemption disabled, the
+  one-line Flow's floor was also 638.
+- Three existing collide tests now see each control's own edge limit, so their
+  expected values were adjusted without changing what they check:
+  - `what_touches_in_the_design_and_what_is_hidden_constrain_nothing`: the
+    overlapping pair still adds nothing; the floor is now 320, where `B`
+    reaches the form's left edge.
+  - `the_cache_recomputes_only_when_the_layout_changes`: 341 becomes 400 after
+    the Anchor change.
+  - `controls_on_different_tab_pages_never_collide`: compared with each page
+    laid out alone.
+- `tests/a_resized_form_stops_before_its_controls_touch.rs` (78 forms) now
+  mirrors the rules (pairs on the same tab page, containment, and the
+  one-line Flow exemption) when it checks that every limit is collision-free
+  and tight to 1.5 px.
+
+With the fix disabled, the new test gave a 64 × 64 floor instead of 790, and
+the harness reported "PNL-KPIS leaves its parent" on the Dashboard template.
+
+The 056 corpus goldens for engine, host and codegen are unchanged.
+`cobolt-form-host` passes: 154, 21 and 0 tests in its three suites.
+
+**Observable effect on PowerDemo3.** Some responsive demos now have a larger
+window minimum:
+- `responsive-anchors-form`: 840 × 620 → 840 × 621.
+- `responsive-collide-form`: 640 → 725 wide.
+- `responsive-dock-form`: 760 → 873 wide.
+
+`responsive-flow-form` stays at 652 × 512. Its `WrapContents`-off row `FL-5`
+is exempt as described above. Without the exemption it would have held the
+window at 1096 wide.
+
+**Guide.** The paragraph "A responsive window stops before its controls
+collide" now also describes the parent-edge limit and the cases it leaves
+alone, including the items of a one-line Flow.
+
 ## [PowerRustCOBOL 1.80.50] — 2026-10-01
 
 ### Fix: a Splitter pane lays out its own children on a responsive form

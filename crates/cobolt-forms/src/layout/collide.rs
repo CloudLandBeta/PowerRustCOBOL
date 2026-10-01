@@ -18,6 +18,12 @@
 //! Siblings that touch or overlap in the design (a label on its card, two
 //! flush toolbar buttons) are the developer's choice and are not constrained.
 //!
+//! Likewise a visible control that is fully **inside** its parent's client
+//! area (the form's, at top level) at the designed size must never cross
+//! that edge: a `Top,Left` button near the right of a form stops the window
+//! narrowing before it would be cut off. A control that already overflows its
+//! parent in the design is not constrained.
+//!
 //! Searched, not derived: the solver is the single source of truth, so this
 //! asks it at candidate sizes rather than re-deriving anchoring, docking,
 //! flex and breakpoints a second time.
@@ -63,6 +69,64 @@ fn apart_pairs(controls: &[Control], rects: &std::collections::HashMap<String, L
     pairs
 }
 
+/// The client rectangle `parent` lays its children out in, in layout `o`:
+/// the form's laid-out area for `None`, a laid-out container's client, or
+/// `None` where no container geometry is recorded (a Splitter, a SideMenu, a
+/// repeating group carry their contents themselves).
+fn parent_client(o: &crate::layout::LayoutOutput, parent: Option<&str>) -> Option<LRect> {
+    match parent {
+        None => Some(LRect::new(0.0, 0.0, o.laid_out_size.0, o.laid_out_size.1)),
+        Some(p) => o.containers.get(p).map(|g| g.client),
+    }
+}
+
+/// Whether `r` lies inside `client`, edges included.
+fn inside(r: &LRect, client: &LRect) -> bool {
+    r.x >= client.x - COLLIDE_TOUCH_EPS
+        && r.y >= client.y - COLLIDE_TOUCH_EPS
+        && r.right() <= client.right() + COLLIDE_TOUCH_EPS
+        && r.bottom() <= client.bottom() + COLLIDE_TOUCH_EPS
+}
+
+/// Whether `parent` (the form for `None`) is a `Flow` container with
+/// `WrapContents` off: one line, clipped — its items running past its edge is
+/// that layout's intended behaviour, not something the window must prevent.
+fn clips_one_line(controls: &[Control], form_props: &BTreeMap<String, PropValue>, parent: Option<&str>) -> bool {
+    use crate::layout::props::{self, FormBag, PropSource};
+    let flow_nowrap = |src: &dyn PropSource| props::layout_mode(src) == crate::layout::LayoutMode::Flow && !src.flag("WrapContents");
+    match parent {
+        None => flow_nowrap(&FormBag(form_props)),
+        Some(p) => controls.iter().find(|c| c.id == p).is_some_and(|c| flow_nowrap(c)),
+    }
+}
+
+/// The visible controls that are fully inside their parent's client area (the
+/// form's, for a top-level control) at the designed size — the ones the
+/// window must never push past that edge. A control that already overflows in
+/// the design is the developer's choice and is not constrained, and neither is
+/// an item of a one-line, clipped Flow ([`clips_one_line`]).
+fn contained(
+    controls: &[Control],
+    form_props: &BTreeMap<String, PropValue>,
+    o: &crate::layout::LayoutOutput,
+) -> Vec<(String, Option<String>)> {
+    let ids: std::collections::HashSet<&str> = controls.iter().map(|c| c.id.as_str()).collect();
+    controls
+        .iter()
+        .filter(|c| c.visible && !c.control_type.is_non_visual() && !o.hidden.contains(&c.id))
+        .filter_map(|c| {
+            // A parent that does not exist puts the control at form level.
+            let parent = c.parent.clone().filter(|p| ids.contains(p.as_str()));
+            if clips_one_line(controls, form_props, parent.as_deref()) {
+                return None;
+            }
+            let r = o.rects.get(&c.id)?;
+            let client = parent_client(o, parent.as_deref())?;
+            inside(r, &client).then(|| (c.id.clone(), parent))
+        })
+        .collect()
+}
+
 /// Whether two rectangles touch or overlap: no gap between them on either
 /// axis.
 fn touching(a: &LRect, b: &LRect) -> bool {
@@ -82,7 +146,8 @@ pub fn window_size_limits(
     let at = |w: f32, h: f32| solve(&LayoutInput::new(controls, designed, (w, h), form_props, breakpoints));
     let base = at(designed.0, designed.1);
     let pairs = apart_pairs(controls, &base.rects, &base.hidden);
-    if pairs.is_empty() {
+    let held = contained(controls, form_props, &base);
+    if pairs.is_empty() && held.is_empty() {
         return SizeLimits { min: floor, max: (f32::INFINITY, f32::INFINITY) };
     }
     let collides = |w: f32, h: f32| {
@@ -90,6 +155,10 @@ pub fn window_size_limits(
         pairs.iter().any(|(a, b)| match (o.rects.get(a), o.rects.get(b)) {
             _ if o.hidden.contains(a) || o.hidden.contains(b) => false,
             (Some(ra), Some(rb)) => touching(ra, rb),
+            _ => false,
+        }) || held.iter().any(|(c, p)| match (o.rects.get(c), parent_client(&o, p.as_deref())) {
+            _ if o.hidden.contains(c) => false,
+            (Some(r), Some(client)) => !inside(r, &client),
             _ => false,
         })
     };
@@ -314,12 +383,16 @@ mod tests {
         assert_eq!(key, layout_fingerprint(&[field.clone(), button.clone()], (420.0, 200.0), &none, &[]));
         button.properties.insert("Anchor".into(), PropValue::String("Top,Left".into()));
         let b = cache.get(&[field, button], (420.0, 200.0), &none, &[]);
-        assert!(a.min.0 > b.min.0, "a Left button no longer limits the width: {a:?} → {b:?}");
+        // Top,Left, the button no longer meets the field; it now limits the
+        // width only by its own right edge at 400 — a different answer, so
+        // the cache searched again.
+        assert!((a.min.0 - 341.0).abs() <= 1.0 && (b.min.0 - 400.0).abs() <= 1.0, "{a:?} → {b:?}");
     }
 
     /// Two controls on different pages of a TabControl are never on screen
     /// together: a `Left` field on page 0 and a `Right` button on page 1 limit
-    /// nothing; the same pair on one page stops the window where they meet.
+    /// the window only as each would alone (by its own page's edges); the
+    /// same pair on one page stops the window where they meet.
     #[test]
     fn controls_on_different_tab_pages_never_collide() {
         let s = |v: &str| PropValue::String(v.into());
@@ -331,17 +404,86 @@ mod tests {
         f.tab = Some(0);
         b.tab = Some(1);
         let apart = limits(&[tabs.clone(), f.clone(), b.clone()], (420.0, 200.0));
-        let floor = crate::layout::window_min_size(&[], (420.0, 200.0), &BTreeMap::new(), &[]);
-        assert_eq!(apart.min, floor, "different pages: {apart:?}");
+        let alone_f = limits(&[tabs.clone(), f.clone()], (420.0, 200.0)).min;
+        let alone_b = limits(&[tabs.clone(), b.clone()], (420.0, 200.0)).min;
+        let alone = (alone_f.0.max(alone_b.0), alone_f.1.max(alone_b.1));
+        assert_eq!(apart.min, alone, "different pages: {apart:?}");
         b.tab = Some(0);
         let together = limits(&[tabs, f, b], (420.0, 200.0));
         assert!(together.min.0 > 300.0, "same page: {together:?}");
         println!("tab pages: floor {:?} apart, {:?} on one page", apart.min, together.min);
     }
 
+    /// A control inside its parent at the designed size is never pushed past
+    /// the parent's edge: a lone `Top,Left` button at x 760..790 of an 800
+    /// wide form stops the window at 790 wide (it used to shrink to the
+    /// floor and leave the button outside); a `Top,Left` label near the
+    /// bottom of a Panel stretched on all four edges stops the height where
+    /// the Panel's client would end above it.
+    #[test]
+    fn shrinking_stops_before_a_control_would_leave_its_parent() {
+        let lone = anchored("B", (760, 20, 30, 30), "Top,Left");
+        let l = limits(&[lone], (800.0, 600.0));
+        assert!((l.min.0 - 790.0).abs() <= 1.0, "min width {:?}", l.min);
+        assert!(l.max.0.is_infinite() && l.max.1.is_infinite(), "{l:?}");
+
+        let panel = with(ctrl("P", ControlType::Panel, (20, 20, 360, 260), None), "Anchor", PropValue::String("Top,Bottom,Left,Right".into()));
+        let client = panel.content_rect();
+        let lbl = with(ctrl("L", ControlType::Label, (40, 230, 80, 20), Some("P")), "Anchor", PropValue::String("Top,Left".into()));
+        // The Panel's client ends (client bottom − 250) above the label's
+        // bottom at 250, so the form may lose that much height and no more.
+        let room = (client.y + client.h - 250) as f32;
+        let l = limits(&[panel, lbl], (400.0, 300.0));
+        assert!((l.min.1 - (300.0 - room)).abs() <= 1.0, "min height {:?}, room {room}", l.min);
+        println!("a lone Top,Left button stops the width at {:.0}; a label in a stretched panel stops the height at {:.0}", 790.0, l.min.1);
+    }
+
+    /// A `Flow` with `WrapContents` off is one line, clipped: its row running
+    /// past the container's edge does not hold the window. The Flow sits in a
+    /// `MinMax(100px, 1fr)` grid column, so the declared minimum lets it
+    /// narrow well below its row. The same items in a wrapping Flow wrap onto
+    /// a second line its fixed height cannot show, so they do hold the window.
+    #[test]
+    fn a_one_line_flows_overflow_does_not_hold_the_window() {
+        let s = |v: &str| PropValue::String(v.into());
+        let grid = with(ctrl("G", ControlType::Panel, (0, 0, 800, 300), None), "Dock", s("Fill"));
+        let grid = with(with(grid, "LayoutMode", s("Grid")), "GridColumns", s("MinMax(100px, 1fr)"));
+        let gc = grid.content_rect();
+        let flow = |wrap: bool| {
+            let f = ctrl("FL", ControlType::Panel, (gc.x, gc.y, gc.w, 60), Some("G"));
+            with(with(with(f, "LayoutMode", s("Flow")), "WrapContents", PropValue::Bool(wrap)), "AlignSelf", s("Start"))
+        };
+        let fc = flow(false).content_rect();
+        let form = |wrap: bool| {
+            let mut v = vec![grid.clone(), flow(wrap)];
+            v.extend((0..7).map(|k| ctrl(&format!("I{k}"), ControlType::Button, (fc.x + k * 90, fc.y, 90, 30), Some("FL"))));
+            v
+        };
+        let at = |v: &[Control]| (limits(v, (800.0, 300.0)).min, crate::layout::window_min_size(v, (800.0, 300.0), &BTreeMap::new(), &[]));
+        let (one_line, one_floor) = at(&form(false));
+        assert_eq!(one_line.0, one_floor.0, "WrapContents off: clipped, the width is not held");
+        assert!(one_line.0 < 300.0, "the declared minimum is the grid's, well below the row: {one_line:?}");
+        let (wrapping, wrap_floor) = at(&form(true));
+        assert!(wrapping.0 > wrap_floor.0 + 1.0 && wrapping.0 > 600.0, "a wrapping Flow holds its items: {wrapping:?} over {wrap_floor:?}");
+        println!("one-line Flow: min width {:.0}; wrapping Flow: min width {:.0}", one_line.0, wrapping.0);
+    }
+
+    /// What already overflows its parent in the design, and what is hidden,
+    /// constrains nothing.
+    #[test]
+    fn a_control_already_outside_or_hidden_does_not_limit_the_window() {
+        let outside = anchored("O", (790, 20, 30, 30), "Top,Left"); // past 800
+        let mut hidden = anchored("H", (760, 60, 30, 30), "Top,Left");
+        hidden.visible = false;
+        let l = limits(&[outside, hidden], (800.0, 600.0));
+        let floor = crate::layout::window_min_size(&[], (800.0, 600.0), &BTreeMap::new(), &[]);
+        assert_eq!(l.min, floor);
+    }
+
     /// Controls that touch or overlap in the design (a label on its card, a
-    /// hidden control) constrain nothing, and a form with nothing apart keeps
-    /// only its declared floor.
+    /// hidden control) constrain nothing as a pair: the window stops only
+    /// where `B`, keeping 120 from the right, would cross the form's left
+    /// edge (320 wide) — the overlap with `A` and the hidden `C` add nothing.
     #[test]
     fn what_touches_in_the_design_and_what_is_hidden_constrain_nothing() {
         let a = anchored("A", (20, 20, 200, 30), "Top,Left");
@@ -350,7 +492,7 @@ mod tests {
         c.visible = false;
         let l = limits(&[a, b, c], (420.0, 200.0));
         let floor = crate::layout::window_min_size(&[], (420.0, 200.0), &BTreeMap::new(), &[]);
-        assert_eq!(l.min, floor);
+        assert!((l.min.0 - 320.0).abs() <= 1.0 && l.min.1 == floor.1, "{l:?}");
         assert!(l.max.0.is_infinite());
     }
 }
