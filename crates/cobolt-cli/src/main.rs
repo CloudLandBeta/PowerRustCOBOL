@@ -14,6 +14,7 @@
 //! rcrun build   <file.cbl>            # compile a single console program → bin/<name>
 //! rcrun build   [cobolt.toml]         # compile a project → single native binary in bin/
 //! rcrun package [cobolt.toml]         # package project into a zip archive
+//! rcrun mcp     [--project <path>]    # serve the coding-agent tools over stdio (spec 080)
 //! rcrun version                       # print version and exit
 //! ```
 //!
@@ -54,15 +55,21 @@ use std::io::{self, Read, Write};
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 fn main() {
-    tracing_subscriber::fmt()
+    let args: Vec<String> = std::env::args().collect();
+
+    let tracing = tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_env("COBOLT_LOG")
                 .add_directive(tracing::Level::WARN.into()),
         )
-        .with_target(false)
-        .init();
-
-    let args: Vec<String> = std::env::args().collect();
+        .with_target(false);
+    if args.get(1).map(String::as_str) == Some("mcp") {
+        // `rcrun mcp`'s stdout IS the protocol stream: one stray log line
+        // there is an invalid JSON-RPC message (spec 080).
+        tracing.with_writer(std::io::stderr).init();
+    } else {
+        tracing.init();
+    }
 
     match args.get(1).map(|s| s.as_str()) {
         Some("run") => cmd_run(&args[2..]),
@@ -71,6 +78,7 @@ fn main() {
         Some("check") => cmd_check(&args[2..]),
         Some("build") => cmd_build(&args[2..]),
         Some("package") => cmd_package(&args[2..]),
+        Some("mcp") => cmd_mcp(&args[2..]),
         Some("version") => cmd_version(),
         Some("help") | Some("--help") | Some("-h") => cmd_help(),
         Some(other) => {
@@ -340,6 +348,43 @@ fn cmd_check(args: &[String]) {
     }
 }
 
+/// `rcrun mcp [--project <manifest|folder>]` — serve the coding-agent tools
+/// (spec 080) over stdio, one JSON-RPC message per line, for the project named
+/// or the one in the working directory. Opens no network port. A project that
+/// cannot be read is not an error here: every tool then answers "no project
+/// open", which is what the agent should see.
+fn cmd_mcp(args: &[String]) {
+    let mut project: Option<PathBuf> = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--project" => match it.next() {
+                Some(p) => project = Some(PathBuf::from(p)),
+                None => {
+                    eprintln!("rcrun mcp: --project needs a project file or folder");
+                    process::exit(2);
+                }
+            },
+            other => {
+                eprintln!("rcrun mcp: unknown argument '{other}'");
+                process::exit(2);
+            }
+        }
+    }
+    let start = project
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."));
+    // rcrun carries the workspace version, not the product's (spec 080 plan F8).
+    let host = cobolt_project_tools::HeadlessHost::new(start, env!("CARGO_PKG_VERSION"));
+    let mut tools = cobolt_project_tools::ProjectTools::new(host);
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    if let Err(e) = cobolt_mcp::serve(&mut stdin.lock(), &mut stdout.lock(), &mut tools) {
+        eprintln!("rcrun mcp: {e}");
+        process::exit(1);
+    }
+}
+
 fn cmd_version() {
     println!("rcrun {} (RustCOBOL runtime)", env!("CARGO_PKG_VERSION"));
 }
@@ -368,6 +413,9 @@ fn cmd_help() {
         "         [--quiet]                       Suppress build progress output\n",
         "  rcrun package [cobolt.toml]           Package project into a zip archive\n",
         "         [--output <path.zip>]           Override the output archive path\n",
+        "  rcrun mcp     [--project <path>]      Serve the coding-agent tools (MCP) over stdio\n",
+        "                                         for the project file or folder (default: the\n",
+        "                                         working directory); opens no network port\n",
         "  rcrun version                         Print version\n",
         "  rcrun help                            Print this message\n",
         "\n",

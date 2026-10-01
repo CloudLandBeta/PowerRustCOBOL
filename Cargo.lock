@@ -1432,8 +1432,10 @@ dependencies = [
  "cobolt-form-host",
  "cobolt-forms",
  "cobolt-lexer",
+ "cobolt-mcp",
  "cobolt-media",
  "cobolt-parser",
+ "cobolt-project-tools",
  "cobolt-runtime",
  "cobolt-semantic",
  "cobolt-stdlib",
@@ -1707,7 +1709,7 @@ dependencies = [
  "cobolt-semantic",
  "serde",
  "serde_json",
- "toml",
+ "toml_edit 0.22.27",
 ]
 
 [[package]]

@@ -170,9 +170,10 @@ plus version/CHANGELOG.
     `FileList` with the IDE's extension routing; `HeadlessHost` and the
     public `record_in_manifest` (dedupe, `/`, a generated file leaves
     `sources`, re-seal through `designation_record`, no write when nothing
-    changed). Note: `toml::Value` re-serialises keys alphabetically (the
-    workspace's `toml` has no `preserve_order`); every key survives, order and
-    comments do not. 3 tests: the record + `authorize_form_start` = `Allowed`,
+    changed). ~~`toml::Value`~~ — **corrected at 1.80.57** (operator ruling):
+    `record_in_manifest` now edits through `toml_edit` 0.22 (the line `toml`
+    0.8 already pulls) and touches only the owned keys, every other byte kept;
+    test `host_keeps_every_byte_it_does_not_own`. 3 tests at 1.80.56: the record + `authorize_form_start` = `Allowed`,
     unknown keys kept, duplicate record writes nothing; unparseable/missing
     manifest → `NoProject`; 6 extension routes.
   - Read first: plan §1.5; `project_model.rs:852-878`; T0.3's API.
@@ -385,7 +386,22 @@ plus version/CHANGELOG.
 
 ## Phase 2 — `rcrun mcp` (headless, stdio)
 
-- [ ] **T2.1 — `rcrun mcp [--project <manifest|folder>]`** (R11, R11a, R12, R14; AC6a)
+- [x] **T2.1 — `rcrun mcp [--project <manifest|folder>]`** (R11, R11a, R12, R14; AC6a)
+  - **Result (1.80.57):** `Some("mcp") => cmd_mcp` in `main.rs`; tracing is
+    initialised with a stderr writer when the subcommand is `mcp`;
+    `--project <manifest|folder>` or the working directory → `HeadlessHost`
+    (version = `CARGO_PKG_VERSION`, plan F8) → `cobolt_mcp::serve` on
+    stdin/stdout; help text and module doc. `tests/mcp_stdio.rs` (2 tests):
+    `initialize`; `tools/list` equal (names + schemas) to
+    `ProjectTools::list_tools()`; `check` text equal to the in-process answer
+    (1 error, `forms/MAIN-FORM.cfrm`, line 4); all 3 stdout lines JSON-RPC;
+    0 `TcpListener` in `cobolt-cli/src`; `lsof -a -i -p <pid>` lists no inet
+    socket; an unreadable manifest → 7/7 tools "no project open".
+    Same commit: the T1.2 manifest-rewrite deviation fixed (`toml_edit`,
+    see T1.2) — `host_keeps_every_byte_it_does_not_own`: 19 of 23 lines of a
+    commented, custom-ordered manifest with `[zebra]`/`[ide]` tables
+    byte-identical, the 4 owned lines edited, `generated` added, seal
+    `Allowed`. `cobolt-project-tools` no longer depends on `toml`.
   - Read first: `crates/cobolt-cli/src/main.rs:56-100, 343-391`;
     `crates/cobolt-cli/Cargo.toml`; `crates/cobolt-cli/tests/main_form_gate.rs`
     (how the CLI is tested).
@@ -403,6 +419,12 @@ plus version/CHANGELOG.
     **AC6a.**
 
 **Gate 2:** the phase gate.
+  - **Result (1.80.57):** `cargo build --workspace` finished.
+    `cobolt-project-tools` lib 36, tools 7, http 1 passed, build 1 ignored;
+    `cobolt-cli` 5 + 4 + 2 (`mcp_stdio`) passed; `cobolt-mcp` 19;
+    `test_mcp_tool_parity` 3; `cobolt-compiler --lib` 149; `cobolt-ide --bin`
+    1277 passed, 1 failed (known `every_document_ships_in_every_language`), 3
+    ignored.
 
 ---
 

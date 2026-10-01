@@ -8,6 +8,28 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.57] — 2026-10-01
+
+### Spec 080 Phase 2 — `rcrun mcp`: the coding-agent tools, headless
+
+`rcrun mcp [--project <manifest|folder>]` serves the seven coding-agent tools
+over stdio (one JSON-RPC message per line), so an agent such as Claude Code
+can check, regenerate and build a project with the IDE closed. Without
+`--project` it uses the project in the working directory; a project that
+cannot be read makes every tool answer "no project open". It opens no network
+port, and its log output goes to stderr so stdout stays a clean protocol
+stream.
+
+Also: when a tool records a file in the project manifest without the IDE
+open, it now changes only the keys it owns — the `[files]` list, `[forms]
+main-form` and `main-form-seal` — and keeps every other byte of the
+developer's file: comments, key order, blank lines and tables the tools know
+nothing about.
+
+Tests: `cobolt-cli` `mcp_stdio` (2) — the same tool list and the same `check`
+answer as the in-process tools, every stdout line JSON-RPC, no inet socket;
+`host_keeps_every_byte_it_does_not_own` in `cobolt-project-tools`.
+
 ## [PowerRustCOBOL 1.80.56] — 2026-10-01
 
 ### Spec 080 Phase 1 — `cobolt-project-tools`: one tool set for coding agents

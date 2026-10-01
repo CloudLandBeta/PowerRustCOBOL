@@ -30,4 +30,6 @@ cobolt-runtime  = { path = "../cobolt-runtime" }
 
 serde      = { workspace = true }
 serde_json = { workspace = true }
-toml       = { workspace = true }
+# Manifest edits that keep every byte the tools do not own (comments, key
+# order, unknown tables). The 0.22 line is the one `toml` 0.8 already pulls.
+toml_edit  = "0.22"

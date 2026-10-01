@@ -182,51 +182,62 @@ impl ProjectHost for HeadlessHost {
 /// Add `rel` to `[files] <list>` of the manifest at `manifest` (deduplicated,
 /// `/` separators — the IDE's `add_file_to`; a generated file also leaves
 /// `sources`, as `add_generated` does), re-seal the main-form designation
-/// with `designation_record`, and write the file back. Every key the tools
-/// do not own survives the round trip. Nothing is written when nothing
-/// changed.
+/// with `designation_record`, and write the file back.
+///
+/// **The developer's project file is theirs.** The edit goes through
+/// `toml_edit`, and only the keys a tool owns are touched — the one
+/// `[files]` list (plus `sources` for a generated file), `[forms] main-form`
+/// and `main-form-seal`. Every other byte — comments, key order, blank lines,
+/// tables the tools know nothing of — is written back exactly as it was read.
+/// Nothing is written when nothing changed.
 pub fn record_in_manifest(manifest: &Path, rel: &str, list: FileList) -> Result<(), String> {
+    use toml_edit::{value, Array, DocumentMut, Item, Table};
+
     let text = std::fs::read_to_string(manifest)
         .map_err(|e| format!("the project file cannot be read ({e})"))?;
-    let mut doc: toml::Value =
-        toml::from_str(&text).map_err(|e| format!("the project file cannot be parsed ({e})"))?;
+    let mut doc: DocumentMut = text
+        .parse()
+        .map_err(|e| format!("the project file cannot be parsed ({e})"))?;
     let rel = rel.replace('\\', "/");
-    let table = doc
-        .as_table_mut()
-        .ok_or_else(|| "the project file is not a table".to_owned())?;
-
-    let files = table
-        .entry("files")
-        .or_insert_with(|| toml::Value::Table(Default::default()))
-        .as_table_mut()
-        .ok_or_else(|| "[files] is not a table".to_owned())?;
     let mut changed = false;
-    if list == FileList::Generated {
-        if let Some(src) = files.get_mut("sources").and_then(|v| v.as_array_mut()) {
-            let before = src.len();
-            src.retain(|v| v.as_str() != Some(rel.as_str()));
-            changed |= src.len() != before;
+
+    {
+        if !doc.contains_key("files") {
+            doc.insert("files", Item::Table(Table::new()));
         }
-    }
-    let entries = files
-        .entry(list.key())
-        .or_insert_with(|| toml::Value::Array(Vec::new()))
-        .as_array_mut()
-        .ok_or_else(|| format!("[files] {} is not a list", list.key()))?;
-    if !entries.iter().any(|v| v.as_str() == Some(rel.as_str())) {
-        entries.push(toml::Value::String(rel.clone()));
-        changed = true;
+        let files = doc["files"]
+            .as_table_like_mut()
+            .ok_or_else(|| "[files] is not a table".to_owned())?;
+        if list == FileList::Generated {
+            if let Some(src) = files.get_mut("sources").and_then(|i| i.as_array_mut()) {
+                let before = src.len();
+                src.retain(|v| v.as_str() != Some(rel.as_str()));
+                changed |= src.len() != before;
+            }
+        }
+        if files.get(list.key()).is_none() {
+            files.insert(list.key(), value(Array::new()));
+        }
+        let entries = files
+            .get_mut(list.key())
+            .and_then(|i| i.as_array_mut())
+            .ok_or_else(|| format!("[files] {} is not a list", list.key()))?;
+        if !entries.iter().any(|v| v.as_str() == Some(rel.as_str())) {
+            entries.push(rel.as_str());
+            changed = true;
+        }
     }
 
     // The re-seal: what an IDE save restates on every save.
-    let forms: Vec<String> = files
-        .get("forms")
-        .and_then(|v| v.as_array())
+    let forms: Vec<String> = doc
+        .get("files")
+        .and_then(|f| f.get("forms"))
+        .and_then(|i| i.as_array())
         .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect())
         .unwrap_or_default();
-    let project = table
+    let project = doc
         .get("project")
-        .and_then(|v| v.as_table())
+        .and_then(|i| i.as_table_like())
         .ok_or_else(|| "the project file has no [project] table".to_owned())?;
     let name = project
         .get("name")
@@ -244,24 +255,37 @@ pub fn record_in_manifest(manifest: &Path, rel: &str, list: FileList) -> Result<
         &name,
         &forms,
     ) {
-        let forms_tbl = table
-            .entry("forms")
-            .or_insert_with(|| toml::Value::Table(Default::default()))
-            .as_table_mut()
-            .ok_or_else(|| "[forms] is not a table".to_owned())?;
-        for (key, value) in [("main-form", main), ("main-form-seal", seal)] {
-            if forms_tbl.get(key).and_then(|v| v.as_str()) != Some(value.as_str()) {
-                forms_tbl.insert(key.to_owned(), toml::Value::String(value));
-                changed = true;
+        for (key, new) in [("main-form", main), ("main-form-seal", seal)] {
+            let current = doc.get("forms").and_then(|f| f.get(key)).and_then(|v| v.as_str());
+            if current == Some(new.as_str()) || (current.is_none() && new.is_empty()) {
+                continue;
             }
+            if !doc.contains_key("forms") {
+                doc.insert("forms", Item::Table(Table::new()));
+            }
+            let forms_tbl = doc["forms"]
+                .as_table_like_mut()
+                .ok_or_else(|| "[forms] is not a table".to_owned())?;
+            match forms_tbl.get_mut(key).and_then(|i| i.as_value_mut()) {
+                // Keep the key's own spacing and any trailing comment.
+                Some(v) => {
+                    let decor = v.decor().clone();
+                    *v = toml_edit::Value::from(new);
+                    *v.decor_mut() = decor;
+                }
+                None => {
+                    forms_tbl.insert(key, value(new));
+                }
+            }
+            changed = true;
         }
     }
 
     if !changed {
         return Ok(());
     }
-    let out = toml::to_string_pretty(&doc).map_err(|e| e.to_string())?;
-    std::fs::write(manifest, out).map_err(|e| format!("the project file cannot be written ({e})"))
+    std::fs::write(manifest, doc.to_string())
+        .map_err(|e| format!("the project file cannot be written ({e})"))
 }
 
 #[cfg(test)]
@@ -319,6 +343,81 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&manifest).unwrap(), text);
         let _ = before;
         println!("host: 2 records (form, generated), seal verifies (Allowed), 2 foreign keys kept, 1 duplicate record wrote nothing");
+    }
+
+    /// The developer's project file is theirs: comments, key order, blank
+    /// lines and unrelated tables survive a record byte for byte; only the
+    /// edited keys change, and the seal they carry verifies.
+    #[test]
+    fn host_keeps_every_byte_it_does_not_own() {
+        let dir = tmp("bytes");
+        form(&dir, "MAIN", true);
+        form(&dir, "ORDERS", false);
+        let manifest = dir.join("Shop.project.toml");
+        let before = "\
+# Shop — the developer's own notes, kept at the top.
+[project]
+version = \"2.1.0\"   # bumped by hand
+name = \"Shop\"
+main = \"\"
+structure = 1
+
+# The zebra table sorts last alphabetically but sits here on purpose.
+[zebra]
+stripes = 12
+
+[files]
+# forms first, my way
+forms = [\"forms/MAIN.cfrm\"]   # the door
+sources = [\"src/a.cbl\", \"generated/MAIN.cbl\"]
+
+[forms]
+theme = \"nord\"
+main-form = \"STALE\"   # keep this comment
+main-form-seal = \"0000\"
+
+[ide]
+theme = \"dark-glass\"
+";
+        std::fs::write(&manifest, before).unwrap();
+        record_in_manifest(&manifest, "forms/ORDERS.cfrm", FileList::Forms).unwrap();
+        record_in_manifest(&manifest, "generated/MAIN.cbl", FileList::Generated).unwrap();
+        let after = std::fs::read_to_string(&manifest).unwrap();
+
+        let d = cobolt_compiler::main_form_guard::read_designation(
+            &dir,
+            &["forms/MAIN.cfrm".to_owned(), "forms/ORDERS.cfrm".to_owned()],
+        )
+        .unwrap()
+        .unwrap();
+        let seal = cobolt_compiler::main_form_guard::seal("Shop", &d.main_form_id, &d.form_ids);
+        // What the file must be: the original with exactly the owned keys edited.
+        let expected = before
+            .replace(
+                "forms = [\"forms/MAIN.cfrm\"]   # the door",
+                "forms = [\"forms/MAIN.cfrm\", \"forms/ORDERS.cfrm\"]   # the door",
+            )
+            .replace(
+                "sources = [\"src/a.cbl\", \"generated/MAIN.cbl\"]",
+                "sources = [\"src/a.cbl\"]\ngenerated = [\"generated/MAIN.cbl\"]",
+            )
+            .replace("main-form = \"STALE\"", "main-form = \"MAIN\"")
+            .replace("main-form-seal = \"0000\"", &format!("main-form-seal = \"{seal}\""));
+        assert_eq!(after, expected, "only the owned keys may change");
+        assert_eq!(
+            authorize_form_start(&dir.join("forms/MAIN.cfrm"), None),
+            StartVerdict::Allowed,
+            "the written seal verifies"
+        );
+        let kept = before.lines().filter(|l| after.lines().any(|a| a == *l)).count();
+        let edited = before.lines().count() - kept;
+        println!(
+            "host: {} bytes in, {} bytes out; {kept} of {} lines byte-identical, {edited} edited \
+             (forms, sources, main-form, main-form-seal), 1 added (generated); seal verifies",
+            before.len(),
+            after.len(),
+            before.lines().count()
+        );
     }
 
     #[test]

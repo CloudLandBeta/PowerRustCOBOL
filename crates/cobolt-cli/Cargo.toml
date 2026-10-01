@@ -39,6 +39,10 @@ zip       = { version = "2", default-features = false, features = ["deflate"] } 
 # Phase 11 — binary compiler
 cobolt-compiler = { path = "../cobolt-compiler" }
 
+# Spec 080 — `rcrun mcp`: the coding-agent tools, served over stdio.
+cobolt-mcp           = { path = "../cobolt-mcp" }
+cobolt-project-tools = { path = "../cobolt-project-tools" }
+
 # Standalone GUI form runner (`rcrun run-form`) — the shared form host, so Run
 # Form in the IDE is exactly what `rcrun build` ships (spec 042).
 cobolt-form-host = { path = "../cobolt-form-host" }
