@@ -8,6 +8,55 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.37] — 2026-10-01
+
+### Fix: one indexed format on disk, and a MEMORY file without PERSISTENCE is read-only
+
+Operator, 2026-10-01: make `PRCIDXD1` and `PRCIDX1` compatible; MEMORY is for
+speeding up queries ("data half-baked is a dangerous thing"); keep `WITH
+PERSISTENCE` as it is.
+
+- **One at-rest format.** `STORAGE IS MEMORY WITH PERSISTENCE` now saves as
+  `PRCIDXD1`, the container DISK programs write (`IndexedFile::save` →
+  `write_disk_container`). `PRCIDX1` is read only: a legacy file is read by
+  both modes and rewritten as `PRCIDXD1` the first time a program opens it
+  for writing, every record kept. `MEMORY` and `DISK` are ways of using a
+  file, not two kinds of file. An outside reader (driver, report tool,
+  PowerChat) has one container plus the `.cidx`.
+- **MEMORY without PERSISTENCE is read-only.** `OPEN INPUT` only. `OUTPUT`,
+  `I-O` and `EXTEND` return the new status `37`
+  (`status::OPEN_MODE_NOT_ALLOWED`), and the file is left as it was.
+  - **Before:** writes were accepted and silently thrown away at `CLOSE`, and
+    `OPEN OUTPUT` emptied the file on disk.
+- **IDE.** Creating a data file and editing records in the grid use the DISK
+  engine for MEMORY definitions too. This also fixes grid edits to a MEMORY
+  file without PERSISTENCE, which were never saved.
+- **Measured cost of the unified save**, at 100 000 records (release build):
+  - `CLOSE` of a MEMORY WITH PERSISTENCE file: 18 ms as legacy `PRCIDX1`,
+    6.1 s as `PRCIDXD1`;
+  - file size: 1.9 MB as `PRCIDX1`, 10.5 MB as `PRCIDXD1`.
+  
+  The save writes record by record through the engine. A bulk loader would
+  remove this cost; it is not part of this change. The Guide states the cost
+  and recommends DISK for data that changes.
+- **Tests:**
+  - `a_memory_file_is_saved_in_the_one_at_rest_format`: new file → `PRCIDXD1`
+    read in place by DISK; legacy `INPUT` byte-identical; I-O save converts,
+    3/3 records kept; timings printed.
+  - `tests/cobol/fileio/idx_mem_persist.cbl` rewritten (8 cases, now driven
+    by `idx_memory_is_read_only_without_persistence`): PERSISTENCE survives
+    and a DISK program reads it; read-only MEMORY reads; OUTPUT, I-O and
+    EXTEND give 37; the file is untouched after the refusals.
+  - Tests that used a MEMORY write as a way to make a `PRCIDX1` file now
+    write it explicitly: `close_as_legacy_prcidx1`, and a byte-level encoder
+    in `test_registered_files.rs`.
+- **Docs.** Guide (storage modes, transactions, model file search, registered
+  files), `indexed-file-format-en.md` (also corrects the DISK row, whose
+  default engine said redb, and "any other content is treated as empty",
+  refused since 2026-09-24), `cobol85-supported-syntax-en.md`, and
+  `STORAGE_VARIANTS.md`. Per GOLDEN RULE #8, the five translations of the two
+  changed `docs/` documents are deleted.
+
 ## [PowerRustCOBOL 1.80.36] — 2026-10-01
 
 ### Fix (docs): an imported indexed file brings its keys, not its field names and PICTUREs

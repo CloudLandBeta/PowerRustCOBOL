@@ -734,14 +734,16 @@ A declarative may also `PERFORM` a paragraph of the non-declarative portion.
   starts a new one; `ROLLBACK` undoes every change since the last `COMMIT`/`OPEN`.
   **DISK** storage makes `COMMIT`/`CLOSE` durable on disk. **MEMORY** storage
   keeps `COMMIT`/`ROLLBACK` purely in RAM (never writes to disk); a plain
-  `STORAGE IS MEMORY` file is ephemeral, and `STORAGE IS MEMORY WITH PERSISTENCE`
-  saves to disk on `CLOSE` only. (Crash-recovery via a durable write-ahead log is
+  `STORAGE IS MEMORY` file is read-only (`OPEN INPUT` only; other modes return
+  status 37), and `STORAGE IS MEMORY WITH PERSISTENCE` saves to disk on `CLOSE`
+  only. (Crash-recovery via a durable write-ahead log is
   future work — this is in-run, program-level rollback.)
 - ✅ **`SELECT … STORAGE [MODE] IS MEMORY | DISK [WITH COMPRESSION] [WITH
   PERSISTENCE]`** (INDEXED files; PowerRustCOBOL extension). Default storage is
   `DISK`. `WITH COMPRESSION` compresses the stored record (keys evaluated on the
-  uncompressed record); `WITH PERSISTENCE` (MEMORY only) saves the in-RAM file on
-  `CLOSE`. `OPEN OUTPUT` always (re)creates the on-disk container.
+  uncompressed record); without `WITH PERSISTENCE` a MEMORY file is a read-only
+  copy for queries, and with it (MEMORY only) the in-RAM file is writable and
+  saved on `CLOSE`. Both modes write the same on-disk container, `PRCIDXD1`.
 - ✅ `WRITE rec [FROM id] [{BEFORE|AFTER} ADVANCING n [LINE[S]]]
   [INVALID KEY …][NOT …][END-WRITE]`.
 - ✅ `REWRITE rec [FROM id] [INVALID KEY …][END-REWRITE]`;

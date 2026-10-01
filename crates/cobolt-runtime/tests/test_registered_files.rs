@@ -123,23 +123,72 @@ fn primary() -> KeySpec {
     KeySpec { offset: 0, len: 9, duplicates: false }
 }
 
-/// `rows` actors in a DISK (`PRCIDXD1`) or MEMORY (`PRCIDX1`) container;
-/// every other one earns 100000.
+/// `rows` actors — every other one earns 100000 — in a `PRCIDXD1` container
+/// (what both native engines write since 1.80.37), or, with `disk` false, in
+/// a legacy `PRCIDX1` one, the in-RAM format MEMORY programs wrote before.
 fn build_actors(path: &Path, rows: u64, disk: bool) {
-    let mut f: Box<dyn IndexedStore> = if disk {
-        Box::new(cobolt_runtime::indexed_disk::DiskIndexedFile::new(path, RECORD_LEN, primary(), Vec::new()))
-    } else {
-        // WITH PERSISTENCE, or a MEMORY file keeps its records to itself.
-        let mut f = cobolt_runtime::indexed::IndexedFile::new(path, RECORD_LEN, primary(), Vec::new());
-        f.set_persist(true);
-        Box::new(f)
-    };
+    let records = (1..=rows).map(|id| record(id, if id % 2 == 1 { "100000" } else { "250000" }));
+    if !disk {
+        write_legacy_prcidx1(path, &records.collect::<Vec<_>>());
+        return;
+    }
+    let mut f: Box<dyn IndexedStore> =
+        Box::new(cobolt_runtime::indexed_disk::DiskIndexedFile::new(path, RECORD_LEN, primary(), Vec::new()));
     assert_eq!(f.open(OpenMode::Output), status::OK);
-    for id in 1..=rows {
-        let salary = if id % 2 == 1 { "100000" } else { "250000" };
-        assert_eq!(f.write(&record(id, salary)), status::OK);
+    for rec in records {
+        assert_eq!(f.write(&rec), status::OK);
     }
     f.close();
+}
+
+/// A legacy `PRCIDX1` container, byte for byte as the in-RAM engine wrote it
+/// before 1.80.37: header, the one primary key, the records in key order, and
+/// the CRC-32 of everything before it. No engine writes this format any more,
+/// so the test writes it to prove it is still read.
+fn write_legacy_prcidx1(path: &Path, records: &[Vec<u8>]) {
+    fn crc32(data: &[u8]) -> u32 {
+        let mut crc: u32 = 0xFFFF_FFFF;
+        for &byte in data {
+            crc ^= byte as u32;
+            for _ in 0..8 {
+                let mask = (crc & 1).wrapping_neg();
+                crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+            }
+        }
+        !crc
+    }
+    let len = RECORD_LEN as u32;
+    let mut out = Vec::new();
+    out.extend_from_slice(b"PRCIDX1\0");
+    out.extend_from_slice(&1u16.to_le_bytes()); // version
+    out.extend_from_slice(&0u16.to_le_bytes()); // flags: not compressed
+    out.push(1); // fixed-length records
+    out.push(0);
+    for v in [len, len, len] {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    out.extend_from_slice(&1u16.to_le_bytes()); // one key
+    out.extend_from_slice(&0u64.to_le_bytes()); // created
+    out.extend_from_slice(&0u64.to_le_bytes()); // updated
+    out.extend_from_slice(&1u16.to_le_bytes()); // key number 1
+    out.push(0); // no duplicates
+    out.push(0); // ascending
+    out.extend_from_slice(&1u16.to_le_bytes()); // one part
+    out.extend_from_slice(&0u16.to_le_bytes()); // no name
+    out.extend_from_slice(&0u32.to_le_bytes()); // offset
+    out.extend_from_slice(&9u32.to_le_bytes()); // length
+    out.push(0); // encoding: bytes
+    out.push(0);
+    let mut sorted: Vec<&Vec<u8>> = records.iter().collect();
+    sorted.sort_by(|a, b| a[0..9].cmp(&b[0..9]));
+    out.extend_from_slice(&(sorted.len() as u64).to_le_bytes());
+    for rec in sorted {
+        out.extend_from_slice(&len.to_le_bytes());
+        out.extend_from_slice(rec);
+    }
+    let crc = crc32(&out);
+    out.extend_from_slice(&crc.to_le_bytes());
+    std::fs::write(path, out).unwrap();
 }
 
 fn cidx(length: usize, purpose: &str) -> String {

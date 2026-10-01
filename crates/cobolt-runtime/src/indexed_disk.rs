@@ -3295,7 +3295,7 @@ mod tests {
         assert_eq!(m.open(OpenMode::Output), status::OK);
         assert_eq!(m.write(&rec("7", "SEVEN")), status::OK);
         assert_eq!(m.write(&rec("8", "EIGHT")), status::OK);
-        assert_eq!(m.close(), status::OK);
+        assert_eq!(m.close_as_legacy_prcidx1(), status::OK, "a MEMORY file written before 1.80.37");
         assert_eq!(container_magic(&p).as_ref().map(|m| &m[..]), Some(&b"PRCIDX1\0"[..]));
 
         let mut d = newfile(p.clone(), true, false);
@@ -3336,7 +3336,7 @@ mod tests {
         let mut m = memfile(p.clone(), true);
         assert_eq!(m.open(OpenMode::Output), status::OK);
         assert_eq!(m.write(&rec("4", "FOUR")), status::OK);
-        assert_eq!(m.close(), status::OK);
+        assert_eq!(m.close_as_legacy_prcidx1(), status::OK, "a MEMORY file written before 1.80.37");
         let before = std::fs::read(&p).unwrap();
 
         let mut d = newfile(p.clone(), true, false);

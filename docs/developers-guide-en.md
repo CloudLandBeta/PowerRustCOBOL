@@ -9017,13 +9017,15 @@ by the file's `ORGANIZATION`. On top of that, PowerRustCOBOL adds:
 > or its length changed. Recreate the file, or copy its records into a new one
 > with the current description.
 
-- **`STORAGE [MODE] IS MEMORY | DISK`** chooses an in-RAM table or a persistent
-  on-disk store. **Default is DISK.**
+- **`STORAGE [MODE] IS MEMORY | DISK`** chooses how a program holds the file
+  while it is open: the whole file in RAM, or read and written on disk as it
+  goes. **Default is DISK.** On disk, both write the same format.
 - **`WITH [DATA] COMPRESSION`** transparently compresses records (no external
   dependencies).
-- **`WITH PERSISTENCE`** (MEMORY only) makes an in-RAM file save itself to disk
-  on `CLOSE`. Without it, a `STORAGE IS MEMORY` file is **ephemeral** (see the
-  next section). The phrases combine: `STORAGE IS MEMORY WITH COMPRESSION WITH PERSISTENCE`.
+- **`WITH PERSISTENCE`** (MEMORY only) lets an in-RAM file be changed and saves
+  it to disk on `CLOSE`. Without it, a `STORAGE IS MEMORY` file is a
+  **read-only** copy held for fast queries (see the next section). The phrases
+  combine: `STORAGE IS MEMORY WITH COMPRESSION WITH PERSISTENCE`.
 - **Composite and alternate keys**, ascending key order, and `WITH DUPLICATES`
   semantics are honoured.
 
@@ -9032,19 +9034,19 @@ by the file's `ORGANIZATION`. On top of that, PowerRustCOBOL adds:
 The two storage modes differ in *when* a record actually lands on disk — this
 matters for performance and for what survives across runs:
 
-- **`STORAGE IS MEMORY`** keeps the whole file in RAM while it is open.
-  `WRITE`/`REWRITE`/`DELETE` mutate only the in-memory image, and `COMMIT`/
-  `ROLLBACK` are pure **in-RAM transaction boundaries** — **`COMMIT` never
-  writes to disk** (that would defeat the point of an in-memory file). By
-  default a MEMORY file is **ephemeral**: nothing is written back, so its
-  contents are gone after `CLOSE`. `OPEN` still *loads* an existing disk file
-  into RAM if one is present.
-  - Add **`WITH PERSISTENCE`** to have the file written to its disk container
-    **on `CLOSE` only** (never on `COMMIT`). That is how you keep an in-RAM file
-    between runs while paying the disk cost just once, at close.
-  - **`OPEN OUTPUT` always (re)creates the disk file**, in either mode — so the
-    file exists on disk even for an ephemeral file (it will simply be empty
-    unless `WITH PERSISTENCE` saved data at `CLOSE`).
+- **`STORAGE IS MEMORY`** loads the whole file into RAM on `OPEN`, so every
+  `READ` and `START` after that is served from memory. **Without `WITH
+  PERSISTENCE` it is read-only**: it opens `INPUT` only, and `OPEN OUTPUT`,
+  `I-O` and `EXTEND` are refused with FILE STATUS **37**, the file on disk left
+  exactly as it was. That is its purpose: a fast copy of a file for queries.
+  (It used to accept writes and throw them away at `CLOSE`, and `OPEN OUTPUT`
+  emptied the file on disk. Data that looks saved and is not is the danger, so
+  it is refused instead.)
+  - **`WITH PERSISTENCE`** makes it writable. `WRITE`/`REWRITE`/`DELETE` change
+    the in-RAM image, `COMMIT`/`ROLLBACK` are pure **in-RAM transaction
+    boundaries** (**`COMMIT` never writes to disk**), and the file is written
+    back **on `CLOSE` only**. That is how you keep an in-RAM file between runs
+    while paying the disk cost just once, at close.
 - **`STORAGE IS DISK`** (the default storage mode) writes each record and its
   index pages to the file **as the operation happens**, and flushes the record
   directory plus a durability sync (`fsync`) **on `COMMIT` and on `CLOSE`**. It
@@ -9054,20 +9056,22 @@ matters for performance and for what survives across runs:
   **uncompressed logical record**, so search order and key comparisons are
   unaffected.
 
-**Changing a file's storage mode.** The two modes keep their data in different
-on-disk formats, and a file can move between them freely — one program may
-declare it `STORAGE IS DISK` and another `STORAGE IS MEMORY`:
+**One format on disk.** `MEMORY` and `DISK` are ways of *using* a file, not
+two kinds of file. Both write the same container (`PRCIDXD1`), so one program
+may declare a file `STORAGE IS DISK` and another `STORAGE IS MEMORY`, and
+both read and write the same data. An outside reader, such as a driver, a
+report tool or PowerChat, has a single format to understand: the data file
+plus its `.cidx`.
 
-- Opened as **MEMORY**, a file written by a DISK program loads with all its
-  records. Opened `INPUT`, it is only read: nothing is ever written back, `WITH
-  PERSISTENCE` or not. Opened `I-O` or `EXTEND` with `WITH PERSISTENCE`, `CLOSE`
-  saves it back **in the DISK format**, so the DISK program still reads it,
-  including the records the MEMORY program added.
-- Opened as **DISK** `I-O` or `EXTEND`, a file written by a MEMORY program is
-  converted to the DISK format on `OPEN`, every record kept. From then on it is
-  a DISK-format file, which a MEMORY program also reads. Opened `INPUT`, it is
-  converted into a temporary copy that is read instead and deleted at `CLOSE`;
-  the file itself is not changed.
+- Opened as **MEMORY**, the file loads with all its records. With `WITH
+  PERSISTENCE`, `CLOSE` writes it back in that same format, including the
+  records the program added, and a DISK program reads it as before.
+- **Files written by a MEMORY program before 1.80.37** are in an older
+  container (`PRCIDX1`). They are still read by both modes. The first time
+  one is opened for writing, by a DISK program `I-O` or `EXTEND` or by a
+  MEMORY program `WITH PERSISTENCE`, it is rewritten in the current format,
+  every record kept. A DISK program opening one `INPUT` reads a converted
+  temporary copy that is deleted at `CLOSE`, leaving the file unchanged.
 
 **`OPEN INPUT` never changes a file**, in either storage mode, and needs no
 write permission, so a read-only file, or one on a read-only share, can be
@@ -9080,13 +9084,14 @@ itself.
 A file that is not an indexed file at all is refused on `OPEN` (FILE STATUS
 90); it is never read as an empty file and never overwritten.
 
-> ⚠️ **Durability caveat.** A plain `STORAGE IS MEMORY` file keeps *nothing*: at
-> `CLOSE` its in-RAM contents are discarded. Use `WITH PERSISTENCE` when the data
-> must survive, remembering it is saved only at `CLOSE` — if the program crashes
-> or `STOP RUN`s before a clean `CLOSE`, the in-RAM changes are lost. (For
-> `STORAGE IS DISK`, durability lands at each `COMMIT`/`CLOSE` instead.)
-> `ROLLBACK` always undoes changes since the last `COMMIT`/`OPEN`, in RAM, for
-> both modes.
+> ⚠️ **Durability caveat.** `STORAGE IS MEMORY WITH PERSISTENCE` saves only at
+> `CLOSE`: if the program crashes or `STOP RUN`s before a clean `CLOSE`, the
+> in-RAM changes are lost. Saving rewrites the whole file, which for a large
+> file takes noticeably longer than a DISK program's `CLOSE` (in our
+> measurement, about 6 seconds for 100 000 records). For data that changes,
+> prefer `STORAGE IS DISK`: durability lands at each `COMMIT`/`CLOSE`, and
+> nothing is rewritten. `ROLLBACK` always undoes changes since the last
+> `COMMIT`/`OPEN`, in RAM, for both modes.
 
 ### What `ACCESS MODE` changes about writing and updating
 
@@ -9226,9 +9231,10 @@ The COBOL verbs **`COMMIT`** and **`ROLLBACK`** apply to your *open indexed
 files*: a `COMMIT` confirms the pending `WRITE`/`REWRITE`/`DELETE` operations
 (so a later `ROLLBACK` can no longer undo them); a `ROLLBACK` discards changes
 made since the last `COMMIT`/`OPEN`. For **`STORAGE IS DISK`** a `COMMIT` also
-makes those changes *durable on disk*; for **`STORAGE IS MEMORY`** it is purely
-an in-RAM boundary (durability, if wanted, comes from `WITH PERSISTENCE` at
-`CLOSE` — see above). (These are **file** transactions — for SQL transactions use
+makes those changes *durable on disk*; for **`STORAGE IS MEMORY WITH
+PERSISTENCE`** it is purely an in-RAM boundary (the file is written at `CLOSE`
+— see above). A MEMORY file without `WITH PERSISTENCE` is read-only, so it has
+nothing to commit. (These are **file** transactions — for SQL transactions use
 `COBOL::"EXEC-SQL"` with `BEGIN`/`COMMIT`/`ROLLBACK`.)
 
 ```mermaid
@@ -10375,22 +10381,19 @@ anywhere on that path. There is no writable handle to obtain.
 
 #### Memory, and which engine actually opens your file
 
-A file that already exists has already chosen its engine. The three containers
-PowerRustCOBOL writes are mutually unreadable — a `STORAGE IS MEMORY` file and a
-`STORAGE IS DISK` file are different formats on disk — so nothing decides this
-at search time. The container does.
+A file that already exists has already chosen its container, and the
+container decides how it is read, not the search:
 
-What *is* decided at search time is whether to pay that engine's cost:
-
-| Your file's storage | How it reads | Memory cost |
+| The file's container | How it reads | Memory cost |
 |---|---|---|
-| `STORAGE IS MEMORY` | loaded whole | grows with the file |
-| `STORAGE IS DISK` | records on demand | bounded, any size |
+| `PRCIDXD1`: written by any program since 1.80.37, DISK or MEMORY | records on demand | bounded, any size |
+| redb | records on demand | bounded, any size |
+| `PRCIDX1`: written by a MEMORY program before 1.80.37 | loaded whole | grows with the file |
 
 So the project carries a **memory limit** — *Project Settings → Runtime → Model
 file-search memory*, stored in `cobolt.toml` as `[agents] file_memory_limit_mb`,
-64 MB unless you change it — and it applies to the first row only.
-Ask to search a memory-resident file larger than that limit and the tool
+64 MB unless you change it — and it applies to the last row only.
+Ask to search such a file larger than that limit and the tool
 declines, naming both numbers:
 
 ```
@@ -10404,9 +10407,9 @@ That is deliberately a refusal rather than an attempt. A process killed for
 running out of memory tells you nothing; this tells you the two numbers and the
 two ways out.
 
-> 💡 **Rule of thumb.** `STORAGE IS MEMORY` suits small, hot reference data —
-> lookup tables, code lists. For anything that grows with your business, build
-> it `STORAGE IS DISK` and the size stops being a question.
+> 💡 **Rule of thumb.** An old `PRCIDX1` file stops being a question the
+> first time a program opens it for writing: it is rewritten in the current
+> format, and from then on it is read in place.
 
 #### What a delivered `.cidx` is trusted for
 
@@ -10541,8 +10544,8 @@ were.
 project's memory limit **and** no more than half of the machine's free memory
 at that moment. A larger one is read in place from disk, a page at a time, if
 it is a local (or OS network path) `STORAGE IS DISK` file. Anything else too
-large — a `STORAGE IS MEMORY` file, or any file on an `smb://` share — is
-refused, and `RegisterFileBytes` / `RegisterLimitBytes` give you both numbers.
+large — a legacy `PRCIDX1` file (written by a MEMORY program before 1.80.37),
+or any file on an `smb://` share — is refused, and `RegisterFileBytes` / `RegisterLimitBytes` give you both numbers.
 
 | `RegisterResult` | Meaning |
 |---|---|

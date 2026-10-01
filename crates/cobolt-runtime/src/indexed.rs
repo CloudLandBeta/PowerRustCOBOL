@@ -67,6 +67,7 @@ pub mod status {
     pub const NOT_FOUND: &str = "23"; // record not found / no current record
     pub const BOUNDARY: &str = "24"; // boundary violation
     pub const FILE_NOT_FOUND: &str = "35"; // OPEN INPUT/I-O of a non-existent file
+    pub const OPEN_MODE_NOT_ALLOWED: &str = "37"; // the file does not support this OPEN mode
     pub const ATTR_MISMATCH: &str = "39"; // existing file attributes ≠ declared file
     pub const NO_NEXT: &str = "46"; // sequential READ with no current record established
     pub const NOT_OPEN_INPUT: &str = "47";
@@ -243,6 +244,7 @@ pub enum KeyEncoding {
 }
 
 impl KeyEncoding {
+    #[cfg(test)] // only the legacy PRCIDX1 test encoder writes it
     fn to_u8(self) -> u8 {
         match self {
             KeyEncoding::Bytes => 0,
@@ -387,12 +389,10 @@ pub struct IndexedFile {
     /// boundary). When `false` (default) the file is ephemeral: nothing is
     /// written back, though `OPEN OUTPUT` always (re)creates the disk file.
     persist: bool,
-    /// Creation timestamp (ms), preserved across load/save.
+    /// Creation timestamp (ms) a legacy `PRCIDX1` file recorded. Read on
+    /// load; only the test encoder of that format writes it any more.
+    #[cfg_attr(not(test), allow(dead_code))]
     created_ms: u64,
-    /// The file on disk is a `PRCIDXD1` container — a `STORAGE IS DISK` file
-    /// opened here as MEMORY. It is saved back in that format, so the DISK
-    /// program that owns it can still read it.
-    disk_container: bool,
 }
 
 impl IndexedFile {
@@ -421,7 +421,6 @@ impl IndexedFile {
             compressing: false,
             persist: false,
             created_ms: 0,
-            disk_container: false,
         }
     }
 
@@ -513,11 +512,18 @@ impl IndexedFile {
         if self.open.is_some() {
             return status::LOGIC_ERROR;
         }
+        // `STORAGE IS MEMORY` without `WITH PERSISTENCE` is a read-only copy
+        // held for fast queries (operator, 2026-10-01): it opens `INPUT` only.
+        // Writing to it used to be allowed and silently thrown away at CLOSE,
+        // and `OPEN OUTPUT` emptied the file on disk on the way in. Data that
+        // looks saved and is not is the danger; refuse instead.
+        if !self.persist && mode != OpenMode::Input {
+            return status::OPEN_MODE_NOT_ALLOWED;
+        }
         match mode {
             OpenMode::Output => {
                 self.records.clear();
                 self.rebuild_alt_index();
-                self.disk_container = false;
                 // OPEN OUTPUT always (re)creates the on-disk container, even for
                 // an ephemeral (non-persistent) MEMORY file — so the file exists
                 // on disk regardless of the WITH PERSISTENCE setting.
@@ -543,12 +549,10 @@ impl IndexedFile {
                                 self.records.insert(pkey, rec);
                             }
                             self.rebuild_alt_index();
-                            self.disk_container = true;
                         }
                         Err(st) => return st,
                     }
                 } else if self.path.exists() {
-                    self.disk_container = false;
                     match self.load() {
                         Ok(stored) => {
                             // Strict mode: the declared SELECT/FD keys + record
@@ -1158,18 +1162,41 @@ impl IndexedFile {
         })
     }
 
+    /// Persist the records. Always as a `PRCIDXD1` container — the one
+    /// at-rest format, whichever way the file is used (operator, 2026-10-01):
+    /// `STORAGE IS MEMORY` is a way of working, records held in RAM and
+    /// written back here, not a format of its own. A `PRCIDX1` file a MEMORY
+    /// program wrote before this is still read, and becomes `PRCIDXD1` the
+    /// first time it is saved — so an outside reader (a driver, a report
+    /// tool, PowerChat) has a single container to understand.
     fn save(&self) -> std::io::Result<()> {
-        if self.disk_container {
-            return crate::indexed_disk::write_disk_container(
-                &self.path,
-                self.record_len,
-                &self.primary,
-                &self.alternates,
-                &self.key_names,
-                self.compressing,
-                &self.records_in_key_order(),
-            );
-        }
+        crate::indexed_disk::write_disk_container(
+            &self.path,
+            self.record_len,
+            &self.primary,
+            &self.alternates,
+            &self.key_names,
+            self.compressing,
+            &self.records_in_key_order(),
+        )
+    }
+
+    /// `CLOSE`, leaving the file as a legacy `PRCIDX1` container — for tests
+    /// that prove such a file is still read.
+    #[cfg(test)]
+    pub(crate) fn close_as_legacy_prcidx1(&mut self) -> &'static str {
+        let persist = self.persist;
+        self.persist = false;
+        let st = self.close();
+        self.persist = persist;
+        self.save_legacy_prcidx1().expect("legacy PRCIDX1 written");
+        st
+    }
+
+    /// The legacy `PRCIDX1` encoding, kept for tests that must produce a file
+    /// written before the formats were unified, to prove it is still read.
+    #[cfg(test)]
+    pub(crate) fn save_legacy_prcidx1(&self) -> std::io::Result<()> {
         let info = self.inspect();
         let mut out = Vec::new();
         out.extend_from_slice(b"PRCIDX1\0"); // 8-byte magic
@@ -1360,6 +1387,7 @@ pub(crate) fn crc32(data: &[u8]) -> u32 {
 }
 
 /// Current wall-clock time in milliseconds since the Unix epoch (0 on failure).
+#[cfg(test)] // only the legacy PRCIDX1 test encoder writes it
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1643,6 +1671,91 @@ mod tests {
         assert_eq!(&r.unwrap()[5..10], b"ALICE");
     }
 
+    /// 1.80.37 — one at-rest format. A MEMORY file `WITH PERSISTENCE` is saved
+    /// as `PRCIDXD1`, which the DISK engine opens in place. A legacy `PRCIDX1`
+    /// file is still read, is left alone by an `INPUT` session, and becomes
+    /// `PRCIDXD1` with every record the first time a writable session saves it.
+    /// The cost of a `CLOSE` is measured for both encodings at 100 000 records.
+    #[test]
+    fn a_memory_file_is_saved_in_the_one_at_rest_format() {
+        use crate::indexed_disk::{is_disk_container, DiskIndexedFile};
+        use std::time::Instant;
+
+        // A new MEMORY file → PRCIDXD1, readable by the DISK engine.
+        let p = tmp("unified-new");
+        let _ = std::fs::remove_file(&p);
+        let mut m = newfile(p.clone(), false);
+        assert_eq!(m.open(OpenMode::Output), status::OK);
+        m.write(&rec("1", "ALICE"));
+        m.write(&rec("2", "BOB"));
+        assert_eq!(m.close(), status::OK);
+        assert!(is_disk_container(&p), "saved as PRCIDXD1");
+        let mut d = DiskIndexedFile::new(&p, 15, KeySpec { offset: 0, len: 5, duplicates: false }, vec![KeySpec { offset: 5, len: 10, duplicates: false }]);
+        assert_eq!(d.open(OpenMode::Input), status::OK, "the DISK engine opens it in place");
+        assert_eq!(&d.read_key(b"00002").0.unwrap()[5..8], b"BOB");
+        d.close();
+
+        // A legacy PRCIDX1 file: an INPUT session reads it and leaves it alone…
+        let q = tmp("unified-legacy");
+        let _ = std::fs::remove_file(&q);
+        let mut old = newfile(q.clone(), false);
+        old.open(OpenMode::Output);
+        old.write(&rec("7", "SEVEN"));
+        old.write(&rec("8", "EIGHT"));
+        old.close_as_legacy_prcidx1();
+        let before = std::fs::read(&q).unwrap();
+        let mut r = newfile(q.clone(), false);
+        assert_eq!(r.open(OpenMode::Input), status::OK);
+        assert_eq!(&r.read_key(b"00008").0.unwrap()[5..10], b"EIGHT");
+        r.close();
+        assert_eq!(std::fs::read(&q).unwrap(), before, "INPUT never rewrites it");
+        // …and the first writable session saves it as PRCIDXD1, records kept.
+        let mut w = newfile(q.clone(), false);
+        assert_eq!(w.open(OpenMode::Io), status::OK);
+        w.write(&rec("9", "NINE"));
+        assert_eq!(w.close(), status::OK);
+        assert!(is_disk_container(&q), "converted on save");
+        let mut back = newfile(q.clone(), false);
+        assert_eq!(back.open(OpenMode::Input), status::OK);
+        for (k, v) in [(b"00007", &b"SEVEN"[..]), (b"00008", &b"EIGHT"[..]), (b"00009", &b"NINE"[..])] {
+            assert_eq!(&back.read_key(k).0.unwrap()[5..5 + v.len()], v);
+        }
+        back.close();
+
+        // What a CLOSE costs, legacy encoding against the unified one.
+        const N: u32 = 100_000;
+        let big = tmp("unified-timing");
+        let mut t = newfile(big.clone(), false);
+        t.open(OpenMode::Output);
+        for i in 0..N {
+            t.write(&rec(&format!("{i:05}"), &format!("N{i}")));
+        }
+        let t0 = Instant::now();
+        t.save_legacy_prcidx1().unwrap();
+        let legacy = t0.elapsed();
+        let legacy_bytes = std::fs::metadata(&big).unwrap().len();
+        let t0 = Instant::now();
+        assert_eq!(t.close(), status::OK);
+        let unified = t0.elapsed();
+        let unified_bytes = std::fs::metadata(&big).unwrap().len();
+        let rate = |d: std::time::Duration| N as f64 / d.as_secs_f64().max(1e-9);
+        println!(
+            "Unified at-rest format (1.80.37):\n  \
+             new MEMORY file → PRCIDXD1, opened in place by the DISK engine: yes\n  \
+             legacy PRCIDX1: INPUT leaves it byte-identical; I-O save → PRCIDXD1, 3/3 records kept\n  \
+             CLOSE of {N} records (15 bytes, primary + 1 alternate):\n    \
+             PRCIDX1  (legacy)  {:>8.1} ms  {:>10.0} rec/s  {legacy_bytes} bytes\n    \
+             PRCIDXD1 (unified) {:>8.1} ms  {:>10.0} rec/s  {unified_bytes} bytes",
+            legacy.as_secs_f64() * 1000.0,
+            rate(legacy),
+            unified.as_secs_f64() * 1000.0,
+            rate(unified),
+        );
+        for f in [&p, &q, &big] {
+            let _ = std::fs::remove_file(f);
+        }
+    }
+
     #[test]
     fn prcidx_schema_round_trips_and_inspect_discovers_it() {
         // Write a file with a named primary + a WITH DUPLICATES alternate, then
@@ -1654,7 +1767,7 @@ mod tests {
         f.open(OpenMode::Output);
         f.write(&rec("1", "ALICE"));
         f.write(&rec("2", "BOB"));
-        f.close();
+        f.close_as_legacy_prcidx1();
 
         let info = IndexedFile::inspect_path(&p)
             .unwrap()
@@ -1757,7 +1870,7 @@ mod tests {
         let mut f = newfile(p.clone(), false);
         f.open(OpenMode::Output);
         f.write(&rec("1", "ALICE"));
-        f.close();
+        f.close_as_legacy_prcidx1();
         // Flip a byte in the middle of the records region.
         let mut bytes = std::fs::read(&p).unwrap();
         let mid = bytes.len() / 2;

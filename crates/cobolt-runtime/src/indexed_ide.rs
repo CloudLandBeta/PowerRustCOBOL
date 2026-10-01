@@ -11,7 +11,7 @@ use std::path::Path;
 use cobolt_indexed::{IndexedDefinition, RecordFormatDef, StorageMode};
 
 use crate::indexed::{
-    status, IndexedFile, IndexedFileInfo, IndexedStore, KeySpec, OpenMode, ReadDir, StartOp,
+    status, IndexedFileInfo, IndexedStore, KeySpec, OpenMode, ReadDir, StartOp,
 };
 
 /// Schema comparison result for drift detection (R26).
@@ -139,6 +139,9 @@ pub fn create_empty_from_definition(def: &IndexedDefinition, path: &Path) -> std
     };
     let (primary, alternates) = key_specs_from_def(def);
 
+    // One at-rest format (1.80.37): a definition that says MEMORY names how a
+    // program holds the records, not how they are stored, so its data file is
+    // created as `PRCIDXD1` like any other.
     let mut file: Box<dyn IndexedStore> = match def.storage {
         StorageMode::Disk => {
             let f =
@@ -146,9 +149,9 @@ pub fn create_empty_from_definition(def: &IndexedDefinition, path: &Path) -> std
             Box::new(f)
         }
         StorageMode::Memory => {
-            let mut f = IndexedFile::new(path, record_len, primary, alternates);
+            let mut f =
+                crate::indexed_disk::DiskIndexedFile::new(path, record_len, primary, alternates);
             f.set_compressing(def.compression);
-            f.set_persist(def.persistence);
             let names: Vec<Option<String>> = std::iter::once(def.keys.primary.name.clone())
                 .chain(def.keys.alternates.iter().map(|k| k.name.clone()))
                 .collect();
@@ -199,7 +202,11 @@ impl GridSession {
             // does not exist yet sniffs as `Prcidxd1`, matching what
             // `create_empty_from_definition` would create for this same
             // definition.
-            StorageMode::Disk => match sniff_disk_format(path) {
+            // MEMORY too (1.80.37): edits made here must reach the file, and a
+            // MEMORY program never writes one. The disk engine edits it in
+            // place, and turns a legacy `PRCIDX1` file into `PRCIDXD1` on this
+            // I-O open, every record kept.
+            StorageMode::Disk | StorageMode::Memory => match sniff_disk_format(path) {
                 DiskFormat::Redb => {
                     let mut f = crate::indexed_redb::RedbIndexedFile::new(
                         path, record_len, primary, alternates,
@@ -217,11 +224,6 @@ impl GridSession {
                     Box::new(f)
                 }
             },
-            StorageMode::Memory => {
-                let mut f = IndexedFile::new(path, record_len, primary, alternates);
-                f.set_strict_metadata(false);
-                Box::new(f)
-            }
         };
 
         let st = file.open(OpenMode::Io);

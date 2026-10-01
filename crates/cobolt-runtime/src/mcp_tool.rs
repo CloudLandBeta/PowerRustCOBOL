@@ -581,15 +581,17 @@ fn scan(
 
 /// Which engine an existing container demands.
 ///
-/// **Not a preference — a fact about the bytes on disk.** The three engines
-/// write three different containers: `PRCIDX1\0` for the in-RAM engine,
-/// `PRCIDXD1` for the paged on-disk one, and redb's own. A file written by one
-/// cannot be opened by another, so for a file that already exists the storage
-/// mode is not something a caller gets to choose.
+/// **Not a preference — a fact about the bytes on disk.** Since 1.80.37 both
+/// native engines write `PRCIDXD1` (`STORAGE IS MEMORY` holds the records in
+/// RAM and writes them back in that format); redb writes its own. `PRCIDX1\0`
+/// is what the in-RAM engine wrote before, still read and loaded whole. For a
+/// file that already exists, the storage mode is not something a caller gets
+/// to choose.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Container {
-    /// `PRCIDX1` — the in-RAM engine. **Loads the whole file**, so its cost is
-    /// the file's size and it is the only one the memory limit constrains.
+    /// `PRCIDX1` — the legacy in-RAM container. **Loads the whole file**, so
+    /// its cost is the file's size and it is the only one the memory limit
+    /// constrains.
     InRam,
     /// `PRCIDXD1` — paged B+tree, records read on demand. Bounded RAM.
     PagedDisk,
@@ -1174,7 +1176,11 @@ mod tests {
             let mut rec = vec![b' '; 111];
             rec[0..9].copy_from_slice(b"        1");
             assert_eq!(f.write(&rec), status::OK);
+            // A MEMORY program writes the one at-rest format now (1.80.37)…
             f.close();
+            assert_eq!(sniff_container(&inram), Container::PagedDisk);
+            // …and a file one wrote before is still recognised as in-RAM.
+            f.save_legacy_prcidx1().unwrap();
             assert_eq!(sniff_container(&inram), Container::InRam);
         }
 
@@ -1223,7 +1229,8 @@ mod tests {
         let mut rec = vec![b' '; 111];
         rec[0..9].copy_from_slice(b"        1");
         assert_eq!(f.write(&rec), status::OK);
-        f.close();
+        // A legacy PRCIDX1 file: the one container still loaded whole.
+        f.close_as_legacy_prcidx1();
 
         let cidx = write_fixture(&dir, "actors.cidx", &fixture("Performers", "Key"));
         let mut set = IndexedToolSet::new();
@@ -1364,7 +1371,8 @@ mod tests {
         rec[0..9].copy_from_slice(b"        7");
         rec[99..110].copy_from_slice(b"     777000");
         assert_eq!(f.write(&rec), status::OK);
-        f.close();
+        // A legacy PRCIDX1 file: the one container still loaded whole.
+        f.close_as_legacy_prcidx1();
 
         let cidx = write_fixture(
             &dir,

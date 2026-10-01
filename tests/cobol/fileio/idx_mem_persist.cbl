@@ -1,12 +1,15 @@
        IDENTIFICATION DIVISION.
       *> ============================================================
       *> IDX-MEM-PERSIST
-      *> STORAGE IS MEMORY persistence policy (PowerRustCOBOL ext.):
-      *>   - default MEMORY is EPHEMERAL: COMMIT/CLOSE do NOT write to
-      *>     disk, so data is gone after CLOSE/reopen.
+      *> STORAGE IS MEMORY policy (PowerRustCOBOL ext., 1.80.37):
       *>   - MEMORY WITH PERSISTENCE writes to disk on CLOSE (only),
-      *>     so data survives CLOSE/reopen.
-      *>   - OPEN OUTPUT always (re)creates the disk file in both modes.
+      *>     so data survives CLOSE/reopen, and it is written in the
+      *>     one at-rest format: a STORAGE IS DISK program reads the
+      *>     same file in place.
+      *>   - MEMORY without PERSISTENCE is a READ-ONLY copy held for
+      *>     fast queries: OPEN INPUT reads the file; OPEN OUTPUT,
+      *>     I-O and EXTEND are refused with FILE STATUS 37, and the
+      *>     file on disk is left exactly as it was.
       *> Self-checking: each case prints PASS/FAIL; a summary closes.
       *> ============================================================
        PROGRAM-ID. IDX-MEM-PERSIST.
@@ -19,50 +22,77 @@
                ACCESS MODE IS DYNAMIC
                RECORD KEY IS P-ID
                FILE STATUS IS P-ST.
-           SELECT EPH-FILE ASSIGN TO "/tmp/idx-mem-eph.dat"
+           SELECT DISK-FILE ASSIGN TO "/tmp/idx-mem-pers.dat"
+               ORGANIZATION IS INDEXED
+               STORAGE IS DISK
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS D-ID
+               FILE STATUS IS D-ST.
+           SELECT QUERY-FILE ASSIGN TO "/tmp/idx-mem-pers.dat"
                ORGANIZATION IS INDEXED
                STORAGE IS MEMORY
                ACCESS MODE IS DYNAMIC
-               RECORD KEY IS E-ID
-               FILE STATUS IS E-ST.
+               RECORD KEY IS Q-ID
+               FILE STATUS IS Q-ST.
        DATA DIVISION.
        FILE SECTION.
        FD  PERS-FILE.
        01  PERS-REC.
            05 P-ID                 PIC 9(3).
            05 P-NAME               PIC X(8).
-       FD  EPH-FILE.
-       01  EPH-REC.
-           05 E-ID                 PIC 9(3).
-           05 E-NAME               PIC X(8).
+       FD  DISK-FILE.
+       01  DISK-REC.
+           05 D-ID                 PIC 9(3).
+           05 D-NAME               PIC X(8).
+       FD  QUERY-FILE.
+       01  QUERY-REC.
+           05 Q-ID                 PIC 9(3).
+           05 Q-NAME               PIC X(8).
        WORKING-STORAGE SECTION.
        01  TEST-COUNTERS.
            05 TESTS-RUN            PIC 9(4) VALUE 0.
            05 TESTS-PASSED         PIC 9(4) VALUE 0.
            05 TESTS-FAILED         PIC 9(4) VALUE 0.
        01  P-ST                    PIC XX   VALUE "  ".
-       01  E-ST                    PIC XX   VALUE "  ".
+       01  D-ST                    PIC XX   VALUE "  ".
+       01  Q-ST                    PIC XX   VALUE "  ".
        01  WS-PCOUNT               PIC 9(3) VALUE 0.
-       01  WS-ECOUNT               PIC 9(3) VALUE 0.
-       01  WS-EOPEN-ST             PIC XX   VALUE "  ".
+       01  WS-DCOUNT               PIC 9(3) VALUE 0.
+       01  WS-QCOUNT               PIC 9(3) VALUE 0.
+       01  WS-AFTER-COUNT          PIC 9(3) VALUE 0.
        01  WS-FOUND-NAME           PIC X(8) VALUE SPACES.
+       01  WS-QUERY-NAME           PIC X(8) VALUE SPACES.
+       01  WS-OUTPUT-ST            PIC XX   VALUE "  ".
+       01  WS-IO-ST                PIC XX   VALUE "  ".
+       01  WS-EXTEND-ST            PIC XX   VALUE "  ".
        PROCEDURE DIVISION.
        MAIN-PARA.
            DISPLAY "============================================".
            DISPLAY "IDX-MEM-PERSIST".
-           DISPLAY "STORAGE IS MEMORY: ephemeral (default) vs".
-           DISPLAY "  WITH PERSISTENCE (save on CLOSE only)".
+           DISPLAY "STORAGE IS MEMORY: WITH PERSISTENCE saves on".
+           DISPLAY "  CLOSE; without it the file is read-only".
            DISPLAY "--------------------------------------------".
            PERFORM BUILD-PERSISTENT.
            PERFORM VERIFY-PERSISTENT.
-           PERFORM BUILD-EPHEMERAL.
-           PERFORM VERIFY-EPHEMERAL.
+           PERFORM VERIFY-AS-DISK.
+           PERFORM QUERY-READ-ONLY.
+           PERFORM QUERY-WRITES-REFUSED.
+           PERFORM COUNT-AFTER-REFUSALS.
            PERFORM MP001-PERS-COUNT.
            PERFORM MP002-PERS-VALUE.
-           PERFORM MP003-EPH-FILE-CREATED.
-           PERFORM MP004-EPH-DISCARDED.
+           PERFORM MP003-DISK-READS-IT.
+           PERFORM MP004-QUERY-READS.
+           PERFORM MP005-OUTPUT-REFUSED.
+           PERFORM MP006-IO-REFUSED.
+           PERFORM MP007-EXTEND-REFUSED.
+           PERFORM MP008-FILE-UNTOUCHED.
            DISPLAY "--------------------------------------------".
-           DISPLAY "CASES EXERCISED : 4".
+           DISPLAY "CASES EXERCISED : 8".
+           DISPLAY "  MEMORY WITH PERSISTENCE: OPEN OUTPUT, WRITE x3,".
+           DISPLAY "    COMMIT, CLOSE; OPEN INPUT, READ NEXT, READ key".
+           DISPLAY "  STORAGE IS DISK on the same file: READ NEXT".
+           DISPLAY "  MEMORY (read-only): OPEN INPUT, READ NEXT,".
+           DISPLAY "    READ key; OPEN OUTPUT / I-O / EXTEND -> 37".
            DISPLAY "TESTS RUN       : " TESTS-RUN.
            DISPLAY "TESTS PASSED    : " TESTS-PASSED.
            DISPLAY "TESTS FAILED    : " TESTS-FAILED.
@@ -86,7 +116,6 @@
            MOVE 0 TO WS-PCOUNT.
            MOVE SPACES TO WS-FOUND-NAME.
            OPEN INPUT PERS-FILE.
-      *>   Sequential count first (cursor at start), then a random read.
            PERFORM UNTIL P-ST NOT = "00"
                READ PERS-FILE NEXT
                    AT END MOVE "10" TO P-ST
@@ -99,35 +128,57 @@
                NOT INVALID KEY MOVE P-NAME TO WS-FOUND-NAME
            END-READ.
            CLOSE PERS-FILE.
-      *> ---- write 3 records to the EPHEMERAL memory file, COMMIT, CLOSE ----
-       BUILD-EPHEMERAL.
-           OPEN OUTPUT EPH-FILE.
-           MOVE 1 TO E-ID. MOVE "ONE"   TO E-NAME. WRITE EPH-REC.
-           MOVE 2 TO E-ID. MOVE "TWO"   TO E-NAME. WRITE EPH-REC.
-           MOVE 3 TO E-ID. MOVE "THREE" TO E-NAME. WRITE EPH-REC.
-           COMMIT.
-           CLOSE EPH-FILE.
-      *> ---- reopen the ephemeral file: it exists (OPEN OUTPUT made it),
-      *>      but COMMIT/CLOSE persisted nothing, so it is empty ----
-       VERIFY-EPHEMERAL.
-           MOVE 0 TO WS-ECOUNT.
-           OPEN INPUT EPH-FILE.
-           MOVE E-ST TO WS-EOPEN-ST.
-           PERFORM UNTIL E-ST NOT = "00"
-               READ EPH-FILE NEXT
-                   AT END MOVE "10" TO E-ST
-                   NOT AT END ADD 1 TO WS-ECOUNT
+      *> ---- the same file through a STORAGE IS DISK program ----
+       VERIFY-AS-DISK.
+           MOVE 0 TO WS-DCOUNT.
+           OPEN INPUT DISK-FILE.
+           PERFORM UNTIL D-ST NOT = "00"
+               READ DISK-FILE NEXT
+                   AT END MOVE "10" TO D-ST
+                   NOT AT END ADD 1 TO WS-DCOUNT
                END-READ
            END-PERFORM.
-           CLOSE EPH-FILE.
+           CLOSE DISK-FILE.
+      *> ---- the read-only copy: it reads ----
+       QUERY-READ-ONLY.
+           MOVE 0 TO WS-QCOUNT.
+           MOVE SPACES TO WS-QUERY-NAME.
+           OPEN INPUT QUERY-FILE.
+           PERFORM UNTIL Q-ST NOT = "00"
+               READ QUERY-FILE NEXT
+                   AT END MOVE "10" TO Q-ST
+                   NOT AT END ADD 1 TO WS-QCOUNT
+               END-READ
+           END-PERFORM.
+           MOVE 3 TO Q-ID.
+           READ QUERY-FILE
+               INVALID KEY CONTINUE
+               NOT INVALID KEY MOVE Q-NAME TO WS-QUERY-NAME
+           END-READ.
+           CLOSE QUERY-FILE.
+      *> ---- …and refuses every mode that could change the file ----
+       QUERY-WRITES-REFUSED.
+           OPEN OUTPUT QUERY-FILE.
+           MOVE Q-ST TO WS-OUTPUT-ST.
+           OPEN I-O QUERY-FILE.
+           MOVE Q-ST TO WS-IO-ST.
+           OPEN EXTEND QUERY-FILE.
+           MOVE Q-ST TO WS-EXTEND-ST.
+      *> ---- after the refusals, the file still holds its 3 records ----
+       COUNT-AFTER-REFUSALS.
+           MOVE 0 TO WS-AFTER-COUNT.
+           OPEN INPUT DISK-FILE.
+           PERFORM UNTIL D-ST NOT = "00"
+               READ DISK-FILE NEXT
+                   AT END MOVE "10" TO D-ST
+                   NOT AT END ADD 1 TO WS-AFTER-COUNT
+               END-READ
+           END-PERFORM.
+           CLOSE DISK-FILE.
       *> ---- assertions ----
        MP001-PERS-COUNT.
            ADD 1 TO TESTS-RUN.
-           IF WS-PCOUNT = 3
-               PERFORM PASS-IT
-           ELSE
-               PERFORM FAIL-IT
-           END-IF.
+           IF WS-PCOUNT = 3 PERFORM PASS-IT ELSE PERFORM FAIL-IT END-IF.
            DISPLAY "  MP001 WITH PERSISTENCE survives CLOSE/reopen (3)".
        MP002-PERS-VALUE.
            ADD 1 TO TESTS-RUN.
@@ -137,22 +188,46 @@
                PERFORM FAIL-IT
            END-IF.
            DISPLAY "  MP002 persisted record value intact (key 2=BETA)".
-       MP003-EPH-FILE-CREATED.
+       MP003-DISK-READS-IT.
            ADD 1 TO TESTS-RUN.
-           IF WS-EOPEN-ST = "00"
+           IF WS-DCOUNT = 3 PERFORM PASS-IT ELSE PERFORM FAIL-IT END-IF.
+           DISPLAY "  MP003 a STORAGE IS DISK program reads it (3)".
+       MP004-QUERY-READS.
+           ADD 1 TO TESTS-RUN.
+           IF WS-QCOUNT = 3 AND WS-QUERY-NAME = "GAMMA"
                PERFORM PASS-IT
            ELSE
                PERFORM FAIL-IT
            END-IF.
-           DISPLAY "  MP003 OPEN OUTPUT created the ephemeral file (st 00)".
-       MP004-EPH-DISCARDED.
+           DISPLAY "  MP004 read-only MEMORY reads it (3, key 3=GAMMA)".
+       MP005-OUTPUT-REFUSED.
            ADD 1 TO TESTS-RUN.
-           IF WS-ECOUNT = 0
+           IF WS-OUTPUT-ST = "37"
                PERFORM PASS-IT
            ELSE
                PERFORM FAIL-IT
            END-IF.
-           DISPLAY "  MP004 ephemeral: COMMIT/CLOSE persisted nothing (0)".
+           DISPLAY "  MP005 read-only MEMORY: OPEN OUTPUT -> 37".
+       MP006-IO-REFUSED.
+           ADD 1 TO TESTS-RUN.
+           IF WS-IO-ST = "37" PERFORM PASS-IT ELSE PERFORM FAIL-IT END-IF.
+           DISPLAY "  MP006 read-only MEMORY: OPEN I-O -> 37".
+       MP007-EXTEND-REFUSED.
+           ADD 1 TO TESTS-RUN.
+           IF WS-EXTEND-ST = "37"
+               PERFORM PASS-IT
+           ELSE
+               PERFORM FAIL-IT
+           END-IF.
+           DISPLAY "  MP007 read-only MEMORY: OPEN EXTEND -> 37".
+       MP008-FILE-UNTOUCHED.
+           ADD 1 TO TESTS-RUN.
+           IF WS-AFTER-COUNT = 3
+               PERFORM PASS-IT
+           ELSE
+               PERFORM FAIL-IT
+           END-IF.
+           DISPLAY "  MP008 the refusals left the file as it was (3)".
        PASS-IT.
            ADD 1 TO TESTS-PASSED.
            DISPLAY "  PASS".

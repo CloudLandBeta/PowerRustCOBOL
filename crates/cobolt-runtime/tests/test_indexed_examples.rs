@@ -75,6 +75,7 @@ fn run_fixture(tag: &str, raw: &str) -> Vec<String> {
 const IDX_CRUD: &str = include_str!("../../../tests/cobol/fileio/idx_crud.cbl");
 const IDX_PERSIST: &str = include_str!("../../../tests/cobol/fileio/idx_persist.cbl");
 const IDX_TX: &str = include_str!("../../../tests/cobol/fileio/idx_tx.cbl");
+const IDX_MEM_PERSIST: &str = include_str!("../../../tests/cobol/fileio/idx_mem_persist.cbl");
 
 #[test]
 fn idx_crud_disk_compressed() {
@@ -122,4 +123,18 @@ fn idx_tx_commit_rollback_memory() {
     let mem = IDX_TX.replace("STORAGE IS DISK", "STORAGE IS MEMORY WITH PERSISTENCE");
     let out = run_fixture("tx-mem", &mem);
     assert_eq!(out, vec!["TX 0001 ALPHA", "TX 0002 BETA", "TX 0003 GAMMA"]);
+}
+
+/// 1.80.37 — `STORAGE IS MEMORY` policy, through the self-checking program:
+/// WITH PERSISTENCE saves on CLOSE in the one at-rest format (a DISK program
+/// reads it); without it the file is read-only — OUTPUT, I-O and EXTEND are
+/// refused with 37 and the file keeps its records.
+#[test]
+fn idx_memory_is_read_only_without_persistence() {
+    let out = run_fixture("mem-persist", IDX_MEM_PERSIST);
+    let passed: Vec<&String> = out.iter().filter(|l| l.trim_start().starts_with("MP0")).collect();
+    assert_eq!(passed.len(), 8, "{out:#?}");
+    assert!(out.iter().any(|l| l.contains("TESTS FAILED    : 0000")), "{out:#?}");
+    assert!(out.iter().any(|l| l.contains("OVERALL RESULT  : PASS")), "{out:#?}");
+    println!("{}", out.join("\n"));
 }

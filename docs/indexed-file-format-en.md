@@ -189,15 +189,16 @@ for it (it always loads leniently).
 
 ## Storage modes (`STORAGE IS MEMORY | DISK`)
 
-The `STORAGE MODE` clause selects which engine — and therefore which on-disk
-container — backs an INDEXED file. **The default storage mode is `DISK`** (when
-no `STORAGE` clause is present). `WITH COMPRESSION` applies to either mode;
+The `STORAGE MODE` clause selects how a program holds an INDEXED file while it
+is open, not how the file is stored: since 1.80.37 both native modes write the
+same container, `PRCIDXD1`. **The default storage mode is `DISK`** (when no
+`STORAGE` clause is present). `WITH COMPRESSION` applies to either mode;
 `WITH PERSISTENCE` applies to `MEMORY` only.
 
-| Mode | Engine | Container | Notes |
+| Mode | Engine | Container written | Notes |
 |------|--------|-----------|-------|
-| `MEMORY` | in-RAM `BTreeMap` (`indexed.rs`) | `PRCIDX1` (this document) | whole file in memory; **ephemeral by default** — `COMMIT` never writes to disk. With `WITH PERSISTENCE`, saved to `PRCIDX1` on `CLOSE` only. `OPEN OUTPUT` always (re)creates the container. |
-| `DISK` (default) | crash-safe redb store (`indexed_redb.rs`) since 1.62.73; the paged B+tree (`indexed_disk.rs`) with `--indexed-engine rust` | redb's own, or `PRCIDXD1` for the paged engine | records + indexes read on demand; bounded RAM; always persistent (per-op writes, `fsync` on `COMMIT`/`CLOSE`) |
+| `MEMORY` | in-RAM `BTreeMap` (`indexed.rs`) | `PRCIDXD1` | the whole file loaded on `OPEN`. **Read-only without `WITH PERSISTENCE`**: `OPEN INPUT` only, and `OUTPUT`/`I-O`/`EXTEND` are refused with status 37, the file untouched. With `WITH PERSISTENCE`: writable, `COMMIT` stays in RAM, and the file is rewritten as `PRCIDXD1` on `CLOSE` only. |
+| `DISK` (default) | the paged B+tree (`indexed_disk.rs`); the crash-safe redb store (`indexed_redb.rs`) when chosen by name | `PRCIDXD1`, or redb's own | records + indexes read on demand; bounded RAM; always persistent (per-op writes, `fsync` on `COMMIT`/`CLOSE`) |
 
 The **`PRCIDXD1`** disk container is a single paged file (4 KiB pages):
 
@@ -211,22 +212,26 @@ The **`PRCIDXD1`** disk container is a single paged file (4 KiB pages):
 * a **free list** threads freed pages for reuse.
 
 `WITH COMPRESSION` (`compress.rs`) is a dependency-free PackBits-style RLE
-applied to each stored record (`PRCIDXD1`) or each record in the records section
-(`PRCIDX1`); a one-byte tag guarantees the encoding never grows, and the
+applied to each stored record (`PRCIDXD1`, and the records section of a legacy
+`PRCIDX1` file); a one-byte tag guarantees the encoding never grows, and the
 container header records that compression is on.
 
-> `PRCIDXD1` is for native DISK-mode storage. The discoverable, Fujitsu-import
-> oriented metadata above is the `PRCIDX1` (MEMORY-mode) container; an importer
-> should target `PRCIDX1` unless it specifically needs the paged on-disk layout.
+> `PRCIDXD1` carries the same key schema in its header (page 0), so either
+> container is discoverable. An importer may still produce `PRCIDX1`, the
+> simpler single-blob layout described above: PowerRustCOBOL reads it, and
+> rewrites it as `PRCIDXD1` the first time a program opens it for writing.
 
 ## Backward compatibility
 
-* `PRCIDX1` (magic `PRCIDX1\0`) — current self-describing MEMORY-mode format
-  (read + write).
-* `PRCIDXD1` (magic `PRCIDXD1`) — DISK-mode paged B+tree container.
+* `PRCIDXD1` (magic `PRCIDXD1`) — the paged B+tree container, and since
+  1.80.37 the one format both native modes write (read + write).
+* `PRCIDX1` (magic `PRCIDX1\0`) — the self-describing format MEMORY-mode
+  programs wrote before 1.80.37. Read only: rewritten as `PRCIDXD1` the first
+  time a program opens it for writing, every record kept.
 * `PRCISAM1` (magic `PRCISAM1`) — legacy records-only container (read only;
-  re-saved as `PRCIDX1` on the next `CLOSE` of a writable open).
-* Any other content — treated as an empty file.
+  rewritten as `PRCIDXD1` on the next save).
+* An empty file holds no records. Any other content is refused on `OPEN`
+  (FILE STATUS 90), never taken for an empty file and never overwritten.
 
 ---
 

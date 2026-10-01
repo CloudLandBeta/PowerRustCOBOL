@@ -33,12 +33,12 @@ Semantic expectations:
 - If the `STORAGE` clause is omitted, storage defaults to `DISK`.
 - If `WITH COMPRESSION` appears without a `STORAGE` clause, the file uses the default storage backend, therefore disk with compression.
 - Compression is transparent to COBOL logic. Keys are evaluated from the logical uncompressed record.
-- `STORAGE IS MEMORY` keeps records and indexes in memory. It is **ephemeral by
-  default**: `COMMIT`/`ROLLBACK` are in-RAM only (never write to disk) and the
-  contents are discarded at `CLOSE`. Add `WITH PERSISTENCE` to save the file to
-  disk on `CLOSE` (only). `OPEN OUTPUT` always (re)creates the disk container.
-  (These memory variants declare `WITH PERSISTENCE` because they verify data
-  across a `CLOSE`/reopen.)
+- `STORAGE IS MEMORY` keeps records and indexes in memory. Without `WITH
+  PERSISTENCE` it is **read-only** (since 1.80.37): `OPEN INPUT` only, and
+  `OUTPUT`/`I-O`/`EXTEND` return status 37 with the file untouched. Add `WITH
+  PERSISTENCE` to make it writable: `COMMIT`/`ROLLBACK` stay in RAM and the file
+  is saved on `CLOSE` (only), in the same `PRCIDXD1` container a DISK program
+  writes. (These memory variants declare `WITH PERSISTENCE` because they write.)
 - `STORAGE IS DISK` persists changes at `WRITE`, `REWRITE`, and `DELETE` time,
   with an `fsync` at `COMMIT`/`CLOSE`.
 

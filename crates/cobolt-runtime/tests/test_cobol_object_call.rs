@@ -131,7 +131,7 @@ fn an_inline_file_status_inside_invalid_key_reports_each_branch() {
                ORGANIZATION IS INDEXED
                ACCESS MODE IS DYNAMIC
                RECORD KEY IS CUST-ID
-               STORAGE IS MEMORY.
+               STORAGE IS MEMORY WITH PERSISTENCE.
        DATA DIVISION.
        FILE SECTION.
        FD  CUST.
