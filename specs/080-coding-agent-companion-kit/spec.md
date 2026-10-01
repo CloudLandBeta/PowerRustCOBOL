@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — Coding-agent companion kit (Claude Code first)
 
-- **Status:** draft
+- **Status:** clarified (operator answered Q1–Q4, 2026-10-01)
 - **Folder:** specs/080-coding-agent-companion-kit/
 - **Author:** Anthropic Claude Codex Agent, for the operator   **Date:** 2026-10-01
 
@@ -106,16 +106,29 @@ coding agents can be added later as further targets.
   - not the developer's home-folder path, login name, or git name and
     e-mail. These are replaced by placeholders, as in the AI export
     (1.80.32).
-  The export is refused if any key stored on the machine, or any of those
-  personal details, still appears in any kit file (operator, 2026-10-01).
+  The export is refused if any key stored on the machine still appears in
+  any kit file, or if any of those personal details still appears in a file
+  the export **generates** or in a value it inserts (a path, a name). The
+  reference files copied verbatim (the Guide, the syntax document) are
+  checked for stored keys only: a login such as `main` or `data` would
+  otherwise match ordinary words in them (operator, 2026-10-01, ruling on
+  plan finding F1).
 - **R5 (ubiquitous):** Every kit file shall record the IDE version that wrote
-  it.
+  it. A Markdown file records it in a comment at its top. A JSON file
+  (`.claude/settings.json`, `.mcp.json`) cannot hold a comment, so its version
+  and content stamp are recorded in the kit manifest,
+  `.claude/powerrustcobol-kit.json`, which lists every kit file with the
+  version that wrote it and a hash of what was written (the stamp R3 compares).
+  *(clarified 2026-10-01)*
 - **R6 (state):** While the kit's version differs from the running IDE's, the
   IDE shall say so when the project opens and offer to refresh the kit.
 
 **Reference pack (what makes the code right)**
 - **R7 (constraint):** The reference pack shall be generated from the same
-  sources the binary uses, never hand-maintained:
+  sources the binary uses, never hand-maintained. It contains the **whole**
+  English Developer's Guide plus the generated tables (operator, Q4,
+  2026-10-01); relevance is left to the agent's own search and to the KB
+  lookup tool (R11). Its sources:
   - the System KB control, property, method and event tables;
   - the built-ins registry (`BUILTINS`);
   - the supported-syntax document;
@@ -144,23 +157,40 @@ coding agents can be added later as further targets.
   a change against the reference (no invented verb, property or event) and
   against the rules in R8 before the change is reported done.
 
-**IDE MCP server (how the agent checks its work)**
+**MCP tools (how the agent checks its work)**
 - **R11 (state):** While a project is open, the IDE shall serve MCP tools
-  that act on that project only:
+  that act on that project only. The same tools shall also be served headless
+  by **`rcrun mcp`**, so the agent can check and build with the IDE closed
+  (operator, Q2, 2026-10-01). Both servers dispatch one shared implementation
+  of the tools; neither is a special case of the other. The tools:
   - list the project's files;
   - check (diagnostics, with file and line);
   - regenerate the COBOL of one form or of all forms;
   - build the binary;
   - validate a `.cfrm` or `.cidx` file;
-  - look up a control, property, method, event or built-in in the System KB.
-- **R12 (constraint):** The MCP tools shall be bound to `127.0.0.1` only. They
-  shall refuse any path outside the open project, and shall not write
-  outside it.
+  - look up a control, property, method, event or built-in in the System KB;
+  - add a new form or indexed-file definition to the project, re-sealing the
+    main-form designation the way the IDE does, so the manifest is never
+    hand-edited (operator, 2026-10-01, ruling on plan finding F5).
+- **R11a (ubiquitous):** The IDE serves the tools over HTTP on `127.0.0.1`, on a
+  port that is an IDE setting with a fixed default; the export writes that
+  port into `.mcp.json`, so changing it means re-exporting. `rcrun mcp
+  [--project <manifest>]` serves them over stdio (one JSON-RPC message per
+  line), started by the agent itself as an MCP command; without `--project`
+  it uses the project manifest in its working directory. `.mcp.json` names
+  both servers. *(port and manifest defaults clarified 2026-10-01)*
+- **R12 (constraint):** The MCP tools shall be reachable from the same machine
+  only: the IDE server is bound to `127.0.0.1`, and `rcrun mcp` uses stdio and
+  opens no port (operator, Q1, 2026-10-01: a remote or web Claude Code is a
+  later spec). The tools shall refuse any path outside the project, and
+  shall not write outside it.
 - **R13 (constraint):** The MCP tools shall not expose any operation on the
   PowerRustCOBOL installation, the machine configuration or API keys.
 - **R14 (event):** When a tool is called while no project is open, or while
   the open project is not the one the kit was written for, the tool shall
-  answer with that fact. It shall not act on another project.
+  answer with that fact. It shall not act on another project. For `rcrun mcp`
+  the project is the one it was started with; a manifest that cannot be read
+  makes every tool answer "no project".
 
 **Restriction**
 - **R15 (constraint):** The permissions in `.claude/settings.json` shall:
@@ -189,6 +219,11 @@ coding agents can be added later as further targets.
     beyond it (a feature).
 - **R19 (constraint):** The agent shall not invent syntax, properties or
   events to avoid writing a report.
+- **R19a (state):** While a project has files in `docs/compiler-requests/`,
+  the IDE project tree shall show a **Compiler requests** node listing them,
+  newest first, each opening in the editor (operator, Q3, 2026-10-01). The
+  node is read from the folder, so a report written by the agent appears
+  without any other step; the node is absent when the folder is empty.
 
 **Agent-neutral generation**
 - **R20 (ubiquitous):** The kit's content (rules, reference, skills, report
@@ -224,6 +259,12 @@ coding agents can be added later as further targets.
   open, every tool answers "no project open".
 - [ ] **AC6 (R11)** — Regenerating a form through MCP produces the same
   `.cbl` as the IDE's Generate. Building through MCP produces the binary.
+- [ ] **AC6a (R11, R11a, R12)** — `rcrun mcp --project <manifest>` answers
+  `initialize` and `tools/list` over stdio with the same tool set as the IDE
+  server, runs check with the same result, and opens no network port.
+- [ ] **AC6b (R19a)** — With two reports in `docs/compiler-requests/`, the
+  project tree shows a Compiler requests node with both, newest first; with
+  none, no node.
 - [ ] **AC7 (R15)** — The written `.claude/settings.json` parses. It contains
   the allow and deny rules of R15, and no rule that grants access outside the
   project.
@@ -264,24 +305,27 @@ coding agents can be added later as further targets.
   leaderboard) and this kit are separate files with separate purposes. The
   kit does not include the AI export.
 
-## 7. Open questions
+## 7. Decisions (were open questions)
 
-- **Q1 — "Remote" Claude Code.** The IDE's MCP server is bound to
-  `127.0.0.1`, so Claude Code must run on the same machine as the IDE.
-  *Proposed:* same machine only in this spec; a remote transport is a later
-  spec.
-  Is a Claude Code session on another computer, or Claude Code on the web,
-  required now? If so, it needs an authenticated, network-reachable endpoint,
-  which is a different security model.
-- **Q2 — Without the IDE running.** Should the MCP tools also be served by
-  `rcrun` (e.g. `rcrun mcp`), so the agent can check and build with the IDE
-  closed? You chose the IDE MCP server; this would add a headless fallback
-  sharing the same tools.
-- **Q3 — Where the gap report goes.** It is written into the project. Should
-  the IDE also collect these reports somewhere for sending to the
-  PowerRustCOBOL team (e.g. a "Compiler requests" node in the project tree),
-  or is the file enough?
-- **Q4 — Size of the reference pack.** The full Guide alone is several MB.
-  *Proposed:* include the Guide whole, plus the KB-generated tables, and
-  leave relevance to the agent's own search.
-  Or include the tables only, plus a lookup tool (R11)?
+Answered by the operator on 2026-10-01:
+
+- **Q1 — Remote Claude Code.** Same machine only. The IDE server listens on
+  `127.0.0.1`; `rcrun mcp` is stdio. A remote or web Claude Code needs an
+  authenticated network endpoint and is a later spec. → R12.
+- **Q2 — Without the IDE running.** Yes: `rcrun mcp` serves the same tools
+  headless. → R11, R11a, AC6a.
+- **Q3 — Where the gap report goes.** A file in the project **and** a
+  Compiler requests node in the IDE project tree. → R17, R19a, AC6b.
+- **Q4 — Size of the reference pack.** The whole English Guide plus the
+  KB-generated tables. → R7.
+
+Rulings on the plan's findings, 2026-10-01: **F1** — R4 checks stored keys in
+every kit file and personal details in generated files and inserted values
+only (→ R4). **F5** — the tools include adding a form or indexed file to the
+project (→ R11).
+
+Assumptions recorded during clarification (not operator decisions; `/plan`
+may revisit them):
+- A JSON kit file's version and stamp live in the kit manifest (R5).
+- The IDE server's port is an IDE setting with a fixed default, baked into
+  `.mcp.json` at export (R11a).

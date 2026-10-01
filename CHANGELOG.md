@@ -8,6 +8,27 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.42] — 2026-10-01
+
+### Spec 080 — coding-agent companion kit: clarified, planned, tasks
+
+`specs/080-coding-agent-companion-kit/` now has a clarified spec, a plan and
+a task list. The operator's rulings on 2026-10-01:
+- Claude Code runs on the same machine as the IDE; a remote endpoint is a
+  later spec.
+- `rcrun mcp` serves the same tools headless, beside the IDE's server.
+- A gap report is a file in the project and a Compiler requests node in the
+  project tree.
+- The reference pack is the whole Guide plus the generated tables.
+- Stored keys are refused in every kit file, personal details in generated
+  files only.
+- The tools can add a form or indexed file to the project, re-sealing the
+  main-form designation.
+
+The plan puts the tools in a new crate, `cobolt-project-tools`, shared by
+`rcrun mcp` (stdio) and the IDE (HTTP on 127.0.0.1). The work is 34 tasks in
+eight phases. Documentation only; no code changed.
+
 ## [PowerRustCOBOL 1.80.41] — 2026-10-01
 
 ### PowerDemo3: twelve forms that demonstrate the responsive layout
