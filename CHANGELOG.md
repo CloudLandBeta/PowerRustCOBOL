@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.36] — 2026-10-01
+
+### Fix (docs): an imported indexed file brings its keys, not its field names and PICTUREs
+
+The Guide said that importing an indexed data file "builds a matching
+`.cidx`", which reads as if the whole definition came back. It does not.
+- The `.cidx` (the definition) carries every field's name and PICTURE.
+- The data file (PRCIDXD1, PRCIDX1 or redb) carries only its key schema:
+  position, length, encoding, duplicates and, optionally, the key's name.
+
+So `fields_from_schema` rebuilds the keys at their positions as `PIC X(n)`,
+and fills the rest with `FILLER-n`. The Guide now says so, with a caveat to
+set the real names and PICTUREs in the Indexed File Editor afterwards. No
+code changed.
+
 ## [PowerRustCOBOL 1.80.33] — 2026-10-01
 
 ### Fix: a responsive window stops before its controls touch (spec 056 R18)

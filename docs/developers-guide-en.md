@@ -1536,8 +1536,24 @@ vector-index entries. The `Knowledge Base/` root itself cannot be deleted.
 
 To **import an existing file** into a category, **right-click the ➕** and choose
 *Import existing…*. For **Indexed Files**, this picks an on-disk `.idx` (or similar)
-data file and builds a matching `.cidx` when the file carries a self-describing
-schema.
+data file and builds a starting `.cidx` from it when the file carries a
+self-describing schema.
+
+That starting point is only as rich as the data file. The `.cidx` is the
+definition: it holds every field's name and PICTURE. The data file holds only
+its **key schema**:
+- each key's position, length and encoding;
+- whether the key allows duplicates;
+- optionally, the key's name.
+
+So the imported `.cidx` has the keys at their real positions, as
+alphanumeric fields (`PIC X(n)`), named after the key when the file recorded
+a name. Every other byte of the record comes in as `FILLER-n`.
+
+> ⚠️ **Caveat.** After an import, open the `.cidx` in the Indexed File Editor
+> and give the fields their real names and PICTUREs: numeric, packed and
+> binary fields cannot be recovered from the data file. The record layout your
+> program uses always comes from its FD, never from the data file.
 
 > **Note.** Generated `.cbl` files live in `generated/`, are tracked
 > automatically, and open read-only. Editing belongs in the form (the Designer),
