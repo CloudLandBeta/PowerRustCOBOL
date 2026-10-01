@@ -8,6 +8,26 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.31] — 2026-10-01
+
+### Spec 080 — a coding-agent companion kit (Claude Code first), draft
+
+`specs/080-coding-agent-companion-kit/spec.md`. It specifies a kit that one
+IDE export writes into the developer's project:
+- a brief and a reference pack generated from the System KB, `BUILTINS`, the
+  supported-syntax document and the Guide;
+- skills and a reviewer subagent;
+- restricted permissions;
+- a connection to new project-scoped IDE MCP tools: check, regenerate, build,
+  validate, KB lookup.
+
+With it, Claude Code can build desktop projects the way PowerDemo3 and
+PowerChat were built, without touching PowerRustCOBOL. Where a request needs
+something the product lacks, it writes a Markdown report to
+`docs/compiler-requests/`. Generation is agent-neutral. The spec has four
+open questions (remote use, a headless `rcrun` fallback, collecting reports,
+the size of the reference pack). Documentation only; no code changed.
+
 ## [PowerRustCOBOL 1.80.30] — 2026-10-01
 
 ### Export and import the AI setup — models, agents, leaderboard — with no API key in the file
