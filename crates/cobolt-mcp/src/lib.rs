@@ -51,7 +51,7 @@ pub mod server;
 pub mod transport;
 pub mod types;
 
-pub use server::{serve, McpHandler};
+pub use server::{dispatch, serve, McpHandler};
 pub use types::{
     Content, InitializeResult, Request, Response, RpcError, ServerInfo, Tool, ToolResult,
     PROTOCOL_VERSION,

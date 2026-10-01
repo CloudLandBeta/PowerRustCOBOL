@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.43] — 2026-10-01
+
+### Spec 080 T0.1 — `cobolt_mcp::dispatch`: one message in, one reply out
+
+The MCP server's per-message dispatch, until now private to the stdio loop, is
+public as `cobolt_mcp::dispatch(raw, handler)`. It takes one whole JSON-RPC
+body — newlines and all — and returns the reply, or nothing for a
+notification. `serve` calls it unchanged. This is groundwork for the
+coding-agent kit's HTTP endpoint, which hands it a request body instead of a
+line. No behaviour change; no new dependency (`cobolt-mcp` still depends on
+serde and serde_json only). One new test: `cobolt-mcp` 19 passed (was 18).
+
 ## [PowerRustCOBOL 1.80.42] — 2026-10-01
 
 ### Spec 080 — coding-agent companion kit: clarified, planned, tasks

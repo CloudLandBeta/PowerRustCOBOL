@@ -41,7 +41,11 @@ criteria it serves, and how to verify it. Check off as completed.
 
 ## Phase 0 — Groundwork in existing crates (no behaviour change)
 
-- [ ] **T0.1 — `cobolt_mcp::dispatch`: one message in, one reply out** (R11, R11a; prerequisite of AC5, AC6a)
+- [x] **T0.1 — `cobolt_mcp::dispatch`: one message in, one reply out** (R11, R11a; prerequisite of AC5, AC6a)
+  - **Result (1.80.43):** `handle_one` → `pub fn dispatch`, re-exported; `serve`
+    unchanged. New test `dispatch_takes_a_multi_line_body_and_ignores_a_notification`.
+    `cobolt-mcp`: 19 passed, 0 failed (was 18). `cargo tree -p cobolt-mcp -e normal`:
+    serde + serde_json only.
   - Read first: `crates/cobolt-mcp/src/server.rs:65-166`, `lib.rs:50-58`.
   - Files: `crates/cobolt-mcp/src/server.rs`, `crates/cobolt-mcp/src/lib.rs`.
   - Do: rename the private `handle_one` to `pub fn dispatch(raw: &[u8], handler:

@@ -68,7 +68,7 @@ pub fn serve<R: BufRead, W: Write, H: McpHandler>(
     handler: &mut H,
 ) -> io::Result<()> {
     while let Some(raw) = read_message(input)? {
-        let Some(response) = handle_one(&raw, handler) else {
+        let Some(response) = dispatch(&raw, handler) else {
             continue; // a notification — no reply is the correct reply
         };
         let body = serde_json::to_vec(&response).map_err(io::Error::other)?;
@@ -78,7 +78,12 @@ pub fn serve<R: BufRead, W: Write, H: McpHandler>(
 }
 
 /// Dispatch one raw message. `None` means "no reply is owed".
-fn handle_one<H: McpHandler>(raw: &[u8], handler: &mut H) -> Option<Response> {
+///
+/// This is the whole protocol for one message, with no framing around it —
+/// which is what lets a transport that is not a line stream (an HTTP request
+/// body, spec 080) serve the same handler as [`serve`] does. A body may span
+/// several lines: only [`serve`]'s framing cares about newlines.
+pub fn dispatch<H: McpHandler>(raw: &[u8], handler: &mut H) -> Option<Response> {
     let request: Request = match serde_json::from_slice(raw) {
         Ok(r) => r,
         Err(e) => {
@@ -330,5 +335,34 @@ mod tests {
     fn a_notification_is_never_answered_even_when_its_method_is_unknown() {
         let replies = exchange(&[json!({"jsonrpc":"2.0","method":"no/such/notification"})]);
         assert!(replies.is_empty(), "got {replies:?}");
+    }
+
+    /// `dispatch` is one message in, one reply out, with no framing: a body
+    /// pretty-printed across several lines (an HTTP request body, spec 080)
+    /// dispatches whole, and a notification owes no reply.
+    #[test]
+    fn dispatch_takes_a_multi_line_body_and_ignores_a_notification() {
+        let mut spy = Spy::default();
+        let pretty = serde_json::to_string_pretty(&json!({
+            "jsonrpc":"2.0","id":7,"method":"tools/call",
+            "params":{"name":"search_actors","arguments":{"query":"a\nb"}}
+        }))
+        .unwrap();
+        let lines = pretty.lines().count();
+        assert!(lines > 1, "the body must span lines to prove the point");
+        let reply = dispatch(pretty.as_bytes(), &mut spy).expect("a request is answered");
+        assert_eq!(reply.id, json!(7));
+        assert!(reply.result.is_some(), "{reply:?}");
+        assert_eq!(spy.calls.len(), 1);
+        assert_eq!(spy.calls[0].1["query"], "a\nb");
+
+        let note = br#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
+        assert!(dispatch(note, &mut spy).is_none(), "a notification owes no reply");
+
+        println!(
+            "dispatch: 1 request over {lines} lines answered (id 7), \
+             1 notification unanswered, {} tool call recorded",
+            spy.calls.len()
+        );
     }
 }
