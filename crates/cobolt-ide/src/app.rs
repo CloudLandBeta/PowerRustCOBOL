@@ -13934,8 +13934,9 @@ impl CoboltApp {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
         let (bundle, summary) = crate::ai_bundle::build(&self.llm, db.as_ref(), &self.leaderboard, now);
-        match crate::ai_bundle::export(&bundle, &self.llm, path) {
-            Ok(()) => {
+        let personal = crate::ai_bundle::Personal::from_environment();
+        match crate::ai_bundle::export(&bundle, &self.llm, &personal, path) {
+            Ok(removed) => {
                 let msg = tr
                     .ai_exported
                     .replacen("{}", &path.display().to_string(), 1)
@@ -13943,6 +13944,10 @@ impl CoboltApp {
                     .replacen("{}", &summary.agents.to_string(), 1)
                     .replacen("{}", &summary.leaderboard_rows.to_string(), 1);
                 self.output.push_status(msg);
+                if removed > 0 {
+                    self.output
+                        .push_status(tr.ai_export_personal.replacen("{}", &removed.to_string(), 1));
+                }
                 if !summary.skipped_files.is_empty() {
                     self.output.push_status(
                         tr.ai_export_skipped

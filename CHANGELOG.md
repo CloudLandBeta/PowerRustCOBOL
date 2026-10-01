@@ -8,6 +8,34 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.32] — 2026-10-01
+
+### The AI export carries nothing about the person who made it
+
+The rule from the operator: "do not include any API Keys, nor any sensitive
+information about myself". 1.80.30 already left the keys out; this closes the
+rest.
+
+- **`ai_bundle::Personal`** replaces these with placeholders, case-insensitively
+  and only as whole words, in both their raw and their JSON-escaped (Windows
+  path) form:
+  - the home folder becomes `~`;
+  - the login name becomes `<user>`;
+  - git's global `user.name` becomes `<name removed>`;
+  - git's global `user.email` becomes `<e-mail removed>`.
+  This applies anywhere in the file: prompts, `mcp.json` paths, knowledge.
+- **The leaderboard's `last_error` is dropped.** A provider's error text can
+  name an account or an organisation.
+- **The export is refused**, and nothing is written, if a detail survives. It
+  is also refused if the cleaned text no longer parses.
+- **The Output panel says how many details were replaced** (new string, six
+  languages).
+- **Spec 080 R4 / AC3:** the kit follows the same rule.
+- Test `nothing_about_the_exporter_survives_an_export`: 7 details planted in
+  a prompt, `mcp.json` paths (POSIX and Windows) and a leaderboard error; all
+  replaced, none survive, and the file still reads back.
+- Guide updated.
+
 ## [PowerRustCOBOL 1.80.31] — 2026-10-01
 
 ### Spec 080 — a coding-agent companion kit (Claude Code first), draft

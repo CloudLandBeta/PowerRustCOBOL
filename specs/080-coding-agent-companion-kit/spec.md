@@ -100,10 +100,14 @@ coding agents can be added later as further targets.
     byte for byte.
   - A kit-owned file the developer has edited (its stamp no longer matches
     its content) is not overwritten. It is named in the Output panel instead.
-- **R4 (constraint):** The kit shall carry no secret: no API key, token,
-  password or credential of any kind. The same rule as the AI export applies
-  (1.80.30): the export is refused if any key stored on the machine appears
-  in any kit file.
+- **R4 (constraint):** The kit shall carry no secret and nothing personal
+  about the developer:
+  - no API key, token, password or credential of any kind;
+  - not the developer's home-folder path, login name, or git name and
+    e-mail. These are replaced by placeholders, as in the AI export
+    (1.80.32).
+  The export is refused if any key stored on the machine, or any of those
+  personal details, still appears in any kit file (operator, 2026-10-01).
 - **R5 (ubiquitous):** Every kit file shall record the IDE version that wrote
   it.
 - **R6 (state):** While the kit's version differs from the running IDE's, the
@@ -207,9 +211,10 @@ coding agents can be added later as further targets.
   kit skill, keeps both. The developer's text survives byte for byte, the
   edited skill is not overwritten, and the skill is named in the Output
   panel.
-- [ ] **AC3 (R4)** — With a key stored on the machine, no kit file contains it.
-  A planted key in a source the kit copies makes the export refuse, and
-  nothing is written.
+- [ ] **AC3 (R4)** — With a key stored on the machine, no kit file contains it,
+  nor the developer's home path, login, git name or e-mail, even when they
+  are planted in a prompt or a path. A planted key or detail that cannot be
+  replaced makes the export refuse, and nothing is written.
 - [ ] **AC4 (R7)** — Every control type, property, method and event in the
   System KB tables, and every `BUILTINS` entry, appears in the reference
   pack. A test compares the two sets.

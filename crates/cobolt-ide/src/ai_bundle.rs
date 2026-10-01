@@ -21,6 +21,13 @@
 //! - and, as the last word, [`export`] refuses to write a file in which any
 //!   key this IDE holds appears verbatim — whatever route it took to get there.
 //!
+//! Nor does it carry anything about the person who exported it ([`Personal`]):
+//! their home folder, login name, and the name and e-mail git knows them by
+//! are replaced by neutral placeholders wherever they appear — in an agent's
+//! prompt, an `mcp.json` path, anywhere — and a leaderboard row's last error
+//! (a provider's own text, which can name an account or organisation) is
+//! dropped. The export is refused if any of them survives.
+//!
 //! The import therefore ends by asking for the key of every provider the file
 //! names; that is what makes the file safe to pass around.
 //!
@@ -136,6 +143,7 @@ pub fn build(
     let mut board = board.clone();
     for e in &mut board.entries {
         e.endpoint = strip_userinfo(&e.endpoint);
+        e.last_error = None;
     }
     summary.providers = providers.len();
     summary.agents = entries.len();
@@ -153,16 +161,128 @@ pub fn build(
     (bundle, summary)
 }
 
-/// Serialise `bundle` and write it to `path` — unless a key `llm` holds is
-/// found in the text, in which case nothing is written.
-pub fn export(bundle: &AiBundle, llm: &LlmConfig, path: &Path) -> Result<(), String> {
+/// What identifies the person exporting: each value with the placeholder
+/// that replaces it.
+#[derive(Debug, Clone, Default)]
+pub struct Personal {
+    needles: Vec<(String, &'static str)>,
+}
+
+impl Personal {
+    /// From this machine: home folder, login name, and git's global
+    /// `user.name` / `user.email`.
+    pub fn from_environment() -> Self {
+        let git = |key: &str| {
+            std::process::Command::new("git")
+                .args(["config", "--global", "--get", key])
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        };
+        let home = dirs::home_dir().map(|h| h.to_string_lossy().to_string());
+        let login = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).ok();
+        Self::new(home, login, git("user.name"), git("user.email"))
+    }
+
+    pub fn new(home: Option<String>, login: Option<String>, name: Option<String>, email: Option<String>) -> Self {
+        let mut needles = Vec::new();
+        // Longest first, so the home folder goes before the login inside it.
+        for (v, placeholder, min) in [
+            (home, "~", 2),
+            (email, "<e-mail removed>", 3),
+            (name, "<name removed>", 4),
+            (login, "<user>", 4),
+        ] {
+            if let Some(v) = v.map(|v| v.trim().trim_end_matches(['/', '\\']).to_string()) {
+                if v.chars().count() >= min {
+                    needles.push((v, placeholder));
+                }
+            }
+        }
+        Self { needles }
+    }
+
+    /// `text` with every personal detail replaced; and how many were.
+    fn scrub(&self, text: &str) -> (String, usize) {
+        let mut out = text.to_string();
+        let mut n = 0;
+        for (v, placeholder) in &self.needles {
+            // Both as written and as JSON escapes it (a Windows path).
+            let escaped = serde_json::to_string(v).unwrap_or_default();
+            let escaped = escaped.trim_matches('"').to_string();
+            for form in [v.clone(), escaped] {
+                let (next, k) = replace_word_ci(&out, &form, placeholder);
+                out = next;
+                n += k;
+            }
+        }
+        (out, n)
+    }
+
+    /// Which kind of personal detail `text` still contains, if any.
+    fn find(&self, text: &str) -> Option<&'static str> {
+        self.needles
+            .iter()
+            .find(|(v, _)| replace_word_ci(text, v, "").1 > 0)
+            .map(|(_, p)| *p)
+    }
+}
+
+/// Replace `needle` case-insensitively where it is not part of a longer word,
+/// so a login of "dev" never mangles "developer".
+fn replace_word_ci(text: &str, needle: &str, with: &str) -> (String, usize) {
+    if needle.is_empty() {
+        return (text.to_string(), 0);
+    }
+    let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
+    let lower = text.to_lowercase();
+    let pat = needle.to_lowercase();
+    if lower.len() != text.len() {
+        // Lower-casing changed byte offsets (rare scripts): match exactly.
+        let n = text.matches(needle).count();
+        return (text.replace(needle, with), n);
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    let mut n = 0;
+    while let Some(off) = lower[i..].find(&pat) {
+        let at = i + off;
+        let end = at + pat.len();
+        let before = text[..at].chars().next_back();
+        let after = text[end..].chars().next();
+        out.push_str(&text[i..at]);
+        if word(before) && word(needle.chars().next()) || word(after) && word(needle.chars().next_back()) {
+            out.push_str(&text[at..end]);
+        } else {
+            out.push_str(with);
+            n += 1;
+        }
+        i = end;
+    }
+    out.push_str(&text[i..]);
+    (out, n)
+}
+
+/// Serialise `bundle`, replace every personal detail, and write it to `path` —
+/// unless a key `llm` holds, or a personal detail, is still in the text, in
+/// which case nothing is written. Returns how many details were replaced.
+pub fn export(bundle: &AiBundle, llm: &LlmConfig, personal: &Personal, path: &Path) -> Result<usize, String> {
     let json = serde_json::to_string_pretty(bundle).map_err(|e| e.to_string())?;
+    let (json, removed) = personal.scrub(&json);
     if let Some(where_) = find_key(&json, llm) {
         return Err(format!(
             "Export refused: an API key was found in the configuration ({where_}). Nothing was written."
         ));
     }
-    std::fs::write(path, json).map_err(|e| e.to_string())
+    if let Some(kind) = personal.find(&json) {
+        return Err(format!(
+            "Export refused: a personal detail ({kind}) could not be removed. Nothing was written."
+        ));
+    }
+    serde_json::from_str::<AiBundle>(&json).map_err(|e| format!("Export refused: {e}. Nothing was written."))?;
+    std::fs::write(path, json).map_err(|e| e.to_string())?;
+    Ok(removed)
 }
 
 /// Read and check a bundle.
@@ -470,7 +590,7 @@ mod tests {
         board.ensure_models(&[("anthropic".into(), "claude-opus-5-5".into(), String::new())]);
         let (bundle, summary) = build(&llm, Some(&db), &board, 1);
         let out = src.path().join("ai.json");
-        export(&bundle, &llm, &out).unwrap();
+        export(&bundle, &llm, &Personal::default(), &out).unwrap();
         let text = std::fs::read_to_string(&out).unwrap();
         for secret in ["sk-ant-SECRET", "sk-openai-SECRET", "hunter2pass", "ghp_live", "abc123456789", "u:pw@"] {
             assert!(!text.contains(secret), "{secret} leaked into the export");
@@ -514,7 +634,7 @@ mod tests {
         let mut bundle = build(&llm, None, &Leaderboard::default(), 1).0;
         bundle.provider_models.insert("x".into(), vec!["sk-ant-SECRET-0123456789".into()]);
         let out = dir.path().join("ai.json");
-        let err = export(&bundle, &llm, &out).unwrap_err();
+        let err = export(&bundle, &llm, &Personal::default(), &out).unwrap_err();
         assert!(err.contains("providerkey::anthropic") && !err.contains("SECRET"), "{err}");
         assert!(!out.exists());
     }
@@ -543,6 +663,46 @@ mod tests {
         assert_eq!(db.load_prompt("Helper"), "theirs\n");
         assert!(!dst.path().join("escape.txt").exists());
         assert_eq!(s.skipped_agents.len(), 1, "{:?}", s.skipped_agents);
+    }
+
+    #[test]
+    fn nothing_about_the_exporter_survives_an_export() {
+        let src = project();
+        let llm = machine();
+        let mut db = AgentsDb::load(src.path());
+        db.create(
+            "Reporter",
+            "Ask Emerson Lopes (emersonlopes@gmail.com, EmersonLopes@Gmail.com) or emersonlopes.\n\
+             Notes in /Users/emersonlopes/Documents/notes.md. A developer, not dev.\n",
+        )
+        .unwrap();
+        let dir = src.path().join("agentic_ai/Reporter");
+        std::fs::write(
+            dir.join("mcp.json"),
+            r#"{"s":{"command":"/Users/emersonlopes/bin/srv","args":["C:\\Users\\emersonlopes\\x"]}}"#,
+        )
+        .unwrap();
+        let db = AgentsDb::load(src.path());
+        let mut board = Leaderboard::default();
+        board.ensure_models(&[("openai".into(), "gpt".into(), String::new())]);
+        board.entries[0].last_error = Some("org-emersonlopes-1234 quota exceeded".into());
+        let me = Personal::new(
+            Some("/Users/emersonlopes".into()),
+            Some("emersonlopes".into()),
+            Some("Emerson Lopes".into()),
+            Some("emersonlopes@gmail.com".into()),
+        );
+        let (bundle, _) = build(&llm, Some(&db), &board, 1);
+        let out = src.path().join("ai.json");
+        let removed = export(&bundle, &llm, &me, &out).unwrap();
+        let text = std::fs::read_to_string(&out).unwrap();
+        let lower = text.to_lowercase();
+        for detail in ["emersonlopes", "emerson lopes", "gmail", "org-"] {
+            assert!(!lower.contains(detail), "{detail} leaked: {text}");
+        }
+        assert!(text.contains("~/Documents/notes.md") && text.contains("A developer, not dev."));
+        assert!(read(&out).is_ok(), "still a valid file");
+        println!("AI config export: {removed} personal details replaced; none survive.");
     }
 
     #[test]

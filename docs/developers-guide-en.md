@@ -516,6 +516,18 @@ is emptied, while the servers themselves are kept. And if any key stored on
 your machine were still to turn up in the file, the export is refused and
 nothing is written.
 
+**Nor does it carry anything about you.** Wherever they appear (an agent's
+prompt, a path in `mcp.json`, anywhere else), these are replaced by neutral
+placeholders:
+- your home folder, which becomes `~`;
+- your login name;
+- the name and e-mail your global git configuration knows you by.
+
+A leaderboard row's last error message is dropped, because a provider's error
+text can name your account or organisation. The Output panel says how many
+details were replaced. As with keys, if one could not be removed, nothing is
+written.
+
 Because of that, an import ends by asking for keys: a window lists every
 provider the file uses, with one key field each, and says whether you already
 have a key stored for it. Type your own key, or leave the field empty to keep
@@ -531,9 +543,10 @@ Agents need an open project; with none open, only the providers and the
 leaderboard are exported or imported. Agent files larger than 1 MB, and files
 that are not text, are left out of an export, and the Output panel names them.
 
-> ⚠️ **Caveat — read before you share.** Only the credentials listed above are
-> removed. If you pasted a password into an agent's prompt or knowledge files,
-> it travels with them. The file is plain text: read it before you share it.
+> ⚠️ **Caveat — read before you share.** Only the credentials and personal
+> details listed above are removed. A password, a colleague's address or a
+> customer's name pasted into an agent's prompt or knowledge files travels with
+> them. The file is plain text: read it before you share it.
 
 **When a call fails.** The error window opens with the reason on its own line at
 the top, above a rule, and the full connection log underneath. The headline is
