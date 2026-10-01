@@ -8,6 +8,15 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.47] — 2026-10-01
+
+### Spec 080 T0.5 — the AI export's redaction is reusable
+
+`Personal::scrub`, `Personal::find` and `find_key` in `ai_bundle.rs` are
+visible to the rest of the IDE (`pub(crate)`), so the coding-agent kit can
+apply the same redaction and the same refusal as the AI configuration export
+(1.80.32). No logic change; the `ai_bundle` tests are unchanged (5 passed).
+
 ## [PowerRustCOBOL 1.80.46] — 2026-10-01
 
 ### Spec 080 T0.4 — `docs_embed::embedded_doc`

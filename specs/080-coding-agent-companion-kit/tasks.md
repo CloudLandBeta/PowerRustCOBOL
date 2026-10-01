@@ -118,7 +118,9 @@ criteria it serves, and how to verify it. Check off as completed.
     resolves `developers-guide-en.md` and `cobol85-supported-syntax-en.md` and
     prints their byte sizes; the existing guards behave as before.
 
-- [ ] **T0.5 — Make the AI-export redaction reusable** (R4; prerequisite of AC3)
+- [x] **T0.5 — Make the AI-export redaction reusable** (R4; prerequisite of AC3)
+  - **Result (1.80.47):** three `fn` → `pub(crate) fn`, nothing else.
+    `ai_bundle`: 5 passed before, 5 passed after.
   - Read first: `crates/cobolt-ide/src/ai_bundle.rs:160-286, 530-546`.
   - Files: `crates/cobolt-ide/src/ai_bundle.rs`.
   - Do: `Personal::scrub`, `Personal::find`, `find_key` → `pub(crate)`. No

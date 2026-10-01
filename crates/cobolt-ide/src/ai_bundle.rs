@@ -204,7 +204,7 @@ impl Personal {
     }
 
     /// `text` with every personal detail replaced; and how many were.
-    fn scrub(&self, text: &str) -> (String, usize) {
+    pub(crate) fn scrub(&self, text: &str) -> (String, usize) {
         let mut out = text.to_string();
         let mut n = 0;
         for (v, placeholder) in &self.needles {
@@ -221,7 +221,7 @@ impl Personal {
     }
 
     /// Which kind of personal detail `text` still contains, if any.
-    fn find(&self, text: &str) -> Option<&'static str> {
+    pub(crate) fn find(&self, text: &str) -> Option<&'static str> {
         self.needles
             .iter()
             .find(|(v, _)| replace_word_ci(text, v, "").1 > 0)
@@ -532,7 +532,7 @@ pub fn strip_userinfo(url: &str) -> String {
 
 /// Which stored credential `text` contains, if any — named by its slot, never
 /// by its value.
-fn find_key(text: &str, llm: &LlmConfig) -> Option<String> {
+pub(crate) fn find_key(text: &str, llm: &LlmConfig) -> Option<String> {
     let current = std::iter::once(("the active model", llm.api_key.as_str()));
     llm.api_keys
         .iter()
