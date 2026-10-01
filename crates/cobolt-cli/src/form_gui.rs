@@ -268,6 +268,11 @@ pub fn cmd_run_form(args: &[String]) {
     // on stdin; DebugEvents leave as `@DBG <json>` lines on stdout. Plain
     // stdout lines remain DISPLAY output. The program starts paused at line 1.
     let debug_mode = args.iter().any(|a| a == "--debug");
+    // The indexed-file engine, resolved exactly as `rcrun run` resolves it
+    // (`--indexed-engine`/`-I`, then `COBOL_INDEXED_ENGINE`, then the default).
+    // The IDE passes the project's choice here. The root interpreter gets it
+    // below and the host hands it to every child form it opens.
+    let indexed_engine = crate::resolve_indexed_engine(args);
     // When ANY diagnostic is enabled, the IDE forwards `--diagnostics-dump
     // <project>`; write the detailed per-control dump once, at launch.
     let diagnostics_dump_project: Option<String> = args
@@ -485,6 +490,7 @@ pub fn cmd_run_form(args: &[String]) {
             // dispatched as `AGENT-HELPER` while the generated loop compares
             // against `"Agent-Helper"` and matches nothing.
             interp.set_control_ids(control_ids);
+            interp.set_indexed_engine(indexed_engine);
             let _ = bridge_tx.send(interp.shared_rust_bridge());
             interp.set_input_channel(input_rx);
             interp.set_event_counter(pending);
@@ -686,6 +692,7 @@ pub fn cmd_run_form(args: &[String]) {
         form_source: Some(form_source),
         child_theme: Some(child_theme),
         child_interpreter_setup: None,
+        indexed_engine,
         shared_rust_bridge,
         fx_entrance,
         fx_exit,
@@ -719,6 +726,27 @@ pub fn cmd_run_form(args: &[String]) {
 mod tests {
     use super::*;
     use cobolt_forms::{Control, ControlType};
+
+    /// `rcrun run-form` reads the engine from the argument list the IDE builds
+    /// (`<form> <program> --designer … --indexed-engine <project setting>`),
+    /// with the same resolver `rcrun run` uses. The project setting names the
+    /// default engine `prcidxd1`, so that spelling must resolve too. No
+    /// environment variable is set here: the flag is given in every case.
+    #[test]
+    fn run_form_takes_the_indexed_engine_from_the_ides_arguments() {
+        use cobolt_runtime::IndexedEngine;
+        let argv = |engine: &str| -> Vec<String> {
+            ["main.cfrm", "main.cbl", "--designer", "--theme-default", "liquid-glass", "--indexed-engine", engine]
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        };
+        assert_eq!(crate::resolve_indexed_engine(&argv("redb")), IndexedEngine::Redb);
+        assert_eq!(crate::resolve_indexed_engine(&argv("prcidxd1")), IndexedEngine::Rust);
+        let short: Vec<String> =
+            ["main.cfrm", "main.cbl", "-I", "redb"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(crate::resolve_indexed_engine(&short), IndexedEngine::Redb);
+    }
 
     /// 038 T6 — the `--fx-*` args round-trip through the parser, and the
     /// kill-switch zeroes them regardless of what the args say.

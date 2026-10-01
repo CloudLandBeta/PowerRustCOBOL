@@ -9383,7 +9383,13 @@ flowchart LR
 ### Pluggable storage engines
 
 Choose the engine with `rcrun --indexed-engine <name>` (or the
-`COBOL_INDEXED_ENGINE` environment variable):
+`COBOL_INDEXED_ENGINE` environment variable). For a project, choose it once in
+**Settings → Default Indexed File Engine**. Run, Run Form, Debug Form and Build
+all use that choice, for every form, including the forms another form opens.
+A built application carries the choice with it. When the project leaves it
+empty, the application uses `COBOL_INDEXED_ENGINE` on the machine that runs it.
+The engine decides only how **new** files are created: a file that already
+exists always opens with the engine that wrote it.
 
 
 | Engine           | Use it for                                                                                                                                                      |
@@ -11077,7 +11083,7 @@ is.
 | Command        | Flag                               | What it does                                                                                                                                                                                                                    |
 | -------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `run`, `check` | `--source-format <fmt>`            | `free` (default), `fixed`, `fixed-relaxed`, `auto` — see **Bringing card-image source across** below                                                                                                                           |
-| `run`          | `--indexed-engine <name>`, `-I`    | ISAM engine: `rust` (default), `rm-cobol85`, `fujitsu`, `redb`                                                                                                                                                                   |
+| `run`, `run-form` | `--indexed-engine <name>`, `-I` | ISAM engine: `rust` (default), `rm-cobol85`, `fujitsu`, `redb`                                                                                                                                                                   |
 | `run`          | `--indexed-log <basic|full>`       | Per-file INDEXED transaction log → `<assign-path>.log`                                                                                                                                                                          |
 | `run`          | `--indexed-log-format <text|json>` | Log line format; `json` is NDJSON for Grafana/Loki                                                                                                                                                                               |
 | `run`          | `--switch <NAME>=<ON|OFF>`         | Initial state of a `SPECIAL-NAMES` external switch, by its implementor name (repeatable) — see **External switches and user-defined classes**                                                                                   |
@@ -12733,8 +12739,9 @@ A rough mental map to speed you up. These are *analogies*, not exact equivalents
 - **Data Binding Guardian** — the validator that checks bindings before a save,
   run, debug, Check, Build or package, reporting Blockers, Warnings and Info.
 - **Engine** — the storage backend for indexed files, chosen with
-  `rcrun --indexed-engine`. The default is the crash-safe **`redb`** engine; the
-  older paged `rust` engine is still there by name.
+  `rcrun --indexed-engine` or, for a project, **Settings → Default Indexed File
+  Engine**. The default is the paged `rust` engine; the crash-safe **`redb`**
+  engine is chosen by name.
 - **Event** — something the user or the system does; named `onSomething`.
 - **`EXEC RUST` block** — a block of host-language code embedded in a handler,
   compiled into the application at Build (§13). It reaches the form through

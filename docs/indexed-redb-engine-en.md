@@ -39,6 +39,24 @@ The default paged engine, and the `rm-cobol85` / `fujitsu` aliases that delegate
 to the built-in Rust container, are chosen the same way
 (`--indexed-engine rust`, `--indexed-engine fujitsu`, …).
 
+**Form applications and built binaries.** A project chooses its engine in
+**Settings → Default Indexed File Engine** (`indexed_engine` under `[ide]` in
+the project file: `prcidxd1`, `redb`, or empty for the default). Every surface
+that runs the project uses that choice, and every form gets it, including the
+forms another form opens:
+
+- **Run** applies it to the program.
+- **Run Form** and **Debug Form** pass it as `rcrun run-form --indexed-engine`.
+  `run-form` reads `--indexed-engine`, `-I` and `COBOL_INDEXED_ENGINE` exactly
+  as `rcrun run` does.
+- **Build** writes it into the application, which has no project file beside
+  it. When the project leaves it empty, the application uses
+  `COBOL_INDEXED_ENGINE` on the machine that runs it, and otherwise the
+  default.
+
+The choice governs only the files a program **creates**. A file that already
+exists always opens with the engine that wrote it.
+
 Implementation:
 [`crates/cobolt-runtime/src/indexed_redb.rs`](../crates/cobolt-runtime/src/indexed_redb.rs).
 

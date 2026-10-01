@@ -8,6 +8,59 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.40] — 2026-10-01
+
+### Fix: the project's indexed-file engine reaches forms and the built application
+
+A project chooses its engine in **Settings → Default Indexed File Engine**
+(`[ide] indexed_engine`). Before this fix only **Run** used it. A form
+application created new indexed files with the default engine everywhere
+else.
+
+**The defect.**
+- `rcrun run-form` received `--indexed-engine` from the IDE and ignored it.
+- Child forms built their own interpreters with the default engine, whatever
+  the main form used.
+- `rcrun build` did not read the setting, so a built application always used
+  the default engine. It did not read `COBOL_INDEXED_ENGINE` either.
+- The setting names the default engine `prcidxd1`, and the runtime did not
+  recognise that name.
+
+**The fix.**
+- `rcrun run-form` resolves the engine with the same function as `rcrun run`:
+  `--indexed-engine` or `-I`, then `COBOL_INDEXED_ENGINE`, then the default.
+  It applies the engine to the main form's interpreter.
+- `FormHostConfig` has a new `indexed_engine` field. The one form host
+  (spec 042) applies it to every child interpreter it starts: a child window,
+  a modal child and a SideMenu pane occupant.
+- A build reads `[ide] indexed_engine` and writes it into the generated
+  source as `PROJECT_INDEXED_ENGINE`. The application applies it to the main
+  form, to every child form through the host, and to a console program. When
+  the project leaves it empty, the application uses `COBOL_INDEXED_ENGINE`,
+  and otherwise the default. This is the same order Run Form applies, because
+  the IDE passes the project's choice to `run-form` as `--indexed-engine`.
+- `IndexedEngine::parse` accepts `prcidxd1` (and `prcidx1`) as the `rust`
+  engine.
+- The engine still decides only how new files are created. An existing file
+  opens with the engine that wrote it, and `ENGINE IS` on a `SELECT` still
+  outranks the configured engine.
+
+**Hosts touched.** `rcrun run-form` (`cobolt-cli/src/form_gui.rs`), embedded
+child forms (`cobolt-form-host/src/host.rs`) and the compiled binary
+(`cobolt-compiler/src/lib.rs`, form and console runners).
+
+**Documentation.** `docs/developers-guide-en.md` (engine selection, the
+`rcrun` flag table, and the glossary entry, which still said the default was
+`redb`) and `docs/indexed-redb-engine-en.md`. Neither document had
+translations on disk, so none were deleted.
+
+**Tests.**
+- `cobolt-form-host`: `a_child_form_creates_indexed_files_with_the_hosts_engine`.
+  It fails without the host change: the child writes a `PRCIDXD1` file.
+- `cobolt-compiler`: `the_project_indexed_engine_is_baked_into_the_binary`.
+- `cobolt-runtime`: `the_ides_engine_names_parse`.
+- `cobolt-cli`: `run_form_takes_the_indexed_engine_from_the_ides_arguments`.
+
 ## [PowerRustCOBOL 1.80.39] — 2026-10-01
 
 ### Fix: `SelectAll()` selects a TextBox's whole text

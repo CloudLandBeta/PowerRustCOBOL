@@ -154,6 +154,14 @@ pub struct FormHostConfig {
     /// application registers its EXEC RUST blocks here; `rcrun` needs none).
     pub child_interpreter_setup:
         Option<std::sync::Arc<dyn Fn(&mut cobolt_runtime::interpreter::Interpreter) + Send + Sync>>,
+    /// The indexed-file engine the application creates new files with — the
+    /// one the glue gave its ROOT interpreter (`rcrun run-form
+    /// --indexed-engine`, the project setting a compiled binary carries).
+    /// Every child interpreter this host spawns gets the same engine, so a
+    /// file created from a child form is the same format as one created from
+    /// the main form. An existing file still opens with the engine that wrote
+    /// it, whatever this says.
+    pub indexed_engine: cobolt_runtime::indexed::IndexedEngine,
     /// 051 Q1 (operator ruling) — the ONE process-wide EXEC RUST object
     /// bridge, cloned into every child interpreter. `None` ⇒ children keep
     /// private bridges (single-form runs are unaffected either way).
@@ -413,6 +421,7 @@ impl FormHost {
             form_source,
             child_theme,
             child_interpreter_setup,
+            indexed_engine,
             shared_rust_bridge,
             fx_entrance,
             fx_exit,
@@ -585,6 +594,7 @@ impl FormHost {
             form_source,
             child_theme,
             child_interpreter_setup,
+            indexed_engine,
             shared_rust_bridge,
             surface,
             footer_ids,
@@ -3339,6 +3349,7 @@ pub struct FormHost {
     child_theme: Option<ChildThemeSource>,
     child_interpreter_setup:
         Option<std::sync::Arc<dyn Fn(&mut cobolt_runtime::interpreter::Interpreter) + Send + Sync>>,
+    indexed_engine: cobolt_runtime::indexed::IndexedEngine,
     shared_rust_bridge:
         Option<std::sync::Arc<std::sync::Mutex<cobolt_runtime::rust_bridge::RustBridge>>>,
     /// 049 — own window, or the shell's ContentPane (see [`Surface`]).
@@ -4269,6 +4280,7 @@ impl FormHost {
             let handle = handle.to_string();
             let req_tx = self.form_req_tx.clone();
             let setup = self.child_interpreter_setup.clone();
+            let indexed_engine = self.indexed_engine;
             let bridge = self.shared_rust_bridge.clone();
             let err_tx = display_tx.clone();
             // 061 — when this process is being debugged, the form it is about
@@ -4295,6 +4307,9 @@ impl FormHost {
                         program, ev_rx, state_tx, display_tx, bridge,
                     );
                 interp.set_control_ids(control_ids);
+                // The parent's engine: a child form creates files in the same
+                // format as the form that opened it.
+                interp.set_indexed_engine(indexed_engine);
                 interp.set_input_channel(input_rx);
                 interp.set_event_counter(pending);
                 interp.set_form_host(req_tx, &handle, &form_object, closed_rx);
@@ -6059,6 +6074,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             form_source: source,
             child_theme: None,
             child_interpreter_setup: None,
+            indexed_engine: Default::default(),
             shared_rust_bridge: None,
             fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
             fx_exit: cobolt_forms::window_fx::FxSpec::default(),
@@ -6114,6 +6130,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             form_source: None,
             child_theme: None,
             child_interpreter_setup: None,
+            indexed_engine: Default::default(),
             shared_rust_bridge: None,
             fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
             fx_exit: cobolt_forms::window_fx::FxSpec::default(),
@@ -6413,6 +6430,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
                 form_source: source,
                 child_theme: None,
                 child_interpreter_setup: None,
+                indexed_engine: Default::default(),
                 shared_rust_bridge: None,
                 fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
                 fx_exit: cobolt_forms::window_fx::FxSpec::default(),
@@ -6554,6 +6572,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             form_source: source,
             child_theme: None,
             child_interpreter_setup: None,
+            indexed_engine: Default::default(),
             shared_rust_bridge: None,
             fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
             fx_exit: cobolt_forms::window_fx::FxSpec::default(),
@@ -6566,6 +6585,93 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             surface: Surface::Window,
         });
         (host, closed_rx, form_req_tx)
+    }
+
+    /// A child form creates indexed files with the engine the host was given —
+    /// the one `rcrun run-form --indexed-engine` / the project setting gave the
+    /// ROOT interpreter. Every child used to be built with the runtime default,
+    /// so a project set to redb wrote redb files from its main form and
+    /// PRCIDXD1 files from every form it opened.
+    #[test]
+    fn a_child_form_creates_indexed_files_with_the_hosts_engine() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("child.idx");
+        let path_lit = path.to_string_lossy().replace('"', "");
+        let src = format!(
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\n\
+             ENVIRONMENT DIVISION.\nINPUT-OUTPUT SECTION.\nFILE-CONTROL.\n    \
+             SELECT IDX-FILE ASSIGN TO \"{path_lit}\"\n        \
+             ORGANIZATION IS INDEXED\n        ACCESS MODE IS DYNAMIC\n        \
+             RECORD KEY IS IDX-KEY.\n\
+             DATA DIVISION.\nFILE SECTION.\nFD IDX-FILE.\n01 IDX-REC.\n    \
+             05 IDX-KEY PIC X(4).\n    05 IDX-DATA PIC X(10).\n\
+             PROCEDURE DIVISION.\n    OPEN OUTPUT IDX-FILE.\n    \
+             MOVE \"0001\" TO IDX-KEY.\n    MOVE \"CHILD\" TO IDX-DATA.\n    \
+             WRITE IDX-REC.\n    CLOSE IDX-FILE.\n    STOP RUN.\n"
+        );
+        let source: Option<FormSource> = Some(Box::new(move |id: &str| {
+            if id.eq_ignore_ascii_case("CHILD") {
+                Ok((cobolt_forms::Form::new("CHILD", "Child", 240, 160), program_from(&src)))
+            } else {
+                Err(format!("no form named '{id}'"))
+            }
+        }));
+        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let (mut host, _form) = FormHost::new(FormHostConfig {
+            form: cobolt_forms::Form::new("MAIN-FORM", "Main", 320, 200),
+            flat: Vec::new(),
+            state: HashMap::new(),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx,
+            form_source: source,
+            child_theme: None,
+            child_interpreter_setup: None,
+            indexed_engine: cobolt_runtime::indexed::IndexedEngine::Redb,
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Window,
+        });
+        // The same spawn path a child window and a modal child take.
+        host.ensure_occupant("CHILD").expect("occupant builds");
+
+        // The child's program runs on its own thread; wait for its file.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        let magic = loop {
+            if let Ok(bytes) = std::fs::read(&path) {
+                // Either container's magic — until one is written, the file
+                // may still be being laid out.
+                if bytes.starts_with(b"redb") || bytes.starts_with(b"PRCIDX") {
+                    break bytes[..8.min(bytes.len())].to_vec();
+                }
+            }
+            assert!(std::time::Instant::now() < deadline, "the child never created {path:?}");
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        };
+        assert_eq!(
+            &magic[..4],
+            b"redb",
+            "a child form must create its file with the host's engine (redb), got {:?}",
+            String::from_utf8_lossy(&magic)
+        );
     }
 
     /// 049 R28/R29 regression — a child window opened by a ContentPane
@@ -6785,6 +6891,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             form_source: source,
             child_theme: None,
             child_interpreter_setup: None,
+            indexed_engine: Default::default(),
             shared_rust_bridge: None,
             fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
             fx_exit: cobolt_forms::window_fx::FxSpec::default(),
@@ -6915,6 +7022,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             form_source: None,
             child_theme: None,
             child_interpreter_setup: None,
+            indexed_engine: Default::default(),
             shared_rust_bridge: None,
             fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
             fx_exit: cobolt_forms::window_fx::FxSpec::default(),
@@ -7026,6 +7134,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             // Children paint procedural Liquid Glass; the root is Elegance.
             child_theme: None,
             child_interpreter_setup: None,
+            indexed_engine: Default::default(),
             shared_rust_bridge: None,
             fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
             fx_exit: cobolt_forms::window_fx::FxSpec::default(),
@@ -7146,6 +7255,7 @@ mod parity {
                 form_source: None,
                 child_theme: None,
                 child_interpreter_setup: None,
+                indexed_engine: Default::default(),
                 shared_rust_bridge: None,
                 fx_entrance: FxSpec::default(),
                 fx_exit: FxSpec::default(),
@@ -7244,6 +7354,7 @@ mod parity {
             form_source: None,
             child_theme: None,
             child_interpreter_setup: None,
+            indexed_engine: Default::default(),
             shared_rust_bridge: None,
             fx_entrance: FxSpec::default(),
             fx_exit: FxSpec::default(),
@@ -7339,6 +7450,7 @@ mod parity {
             form_source: None,
             child_theme: None,
             child_interpreter_setup: None,
+            indexed_engine: Default::default(),
             shared_rust_bridge: None,
             fx_entrance: FxSpec::default(),
             fx_exit: FxSpec::default(),
@@ -7421,7 +7533,7 @@ mod parity {
             pending: Arc::new(AtomicUsize::new(0)),
             finished: Arc::new(AtomicBool::new(false)),
             form_req_rx, closed_tx, form_req_tx,
-            form_source: None, child_theme: None, child_interpreter_setup: None,
+            form_source: None, child_theme: None, child_interpreter_setup: None, indexed_engine: Default::default(),
             shared_rust_bridge: None,
             fx_entrance: FxSpec::default(), fx_exit: FxSpec::default(), fx_restore: false,
             theme_pack: None,
@@ -7484,6 +7596,7 @@ mod parity {
             form_source: None,
             child_theme: None,
             child_interpreter_setup: None,
+            indexed_engine: Default::default(),
             shared_rust_bridge: None,
             fx_entrance: FxSpec::parse(entrance),
             fx_exit: FxSpec::parse(exit),
@@ -7603,6 +7716,7 @@ mod parity {
                 form_source: None,
                 child_theme: None,
                 child_interpreter_setup: None,
+                indexed_engine: Default::default(),
                 shared_rust_bridge: None,
                 fx_entrance: FxSpec::default(),
                 fx_exit: FxSpec::default(),
@@ -7687,6 +7801,7 @@ mod parity {
                 form_source: None,
                 child_theme: None,
                 child_interpreter_setup: None,
+                indexed_engine: Default::default(),
                 shared_rust_bridge: None,
                 fx_entrance: FxSpec::default(),
                 fx_exit: FxSpec::default(),
@@ -7802,6 +7917,7 @@ mod parity {
                 form_source: None,
                 child_theme: None,
                 child_interpreter_setup: None,
+                indexed_engine: Default::default(),
                 shared_rust_bridge: None,
                 fx_entrance: FxSpec::default(),
                 fx_exit: FxSpec::default(),
@@ -8149,6 +8265,7 @@ mod parity {
                 form_source: source,
                 child_theme: None,
                 child_interpreter_setup: None,
+                indexed_engine: Default::default(),
                 shared_rust_bridge: None,
                 fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
                 fx_exit: cobolt_forms::window_fx::FxSpec::default(),
@@ -8305,6 +8422,7 @@ mod parity {
             form_source: None,
             child_theme: None,
             child_interpreter_setup: None,
+            indexed_engine: Default::default(),
             shared_rust_bridge: None,
             fx_entrance: FxSpec::default(),
             fx_exit: FxSpec::default(),
@@ -8412,6 +8530,7 @@ mod parity {
             form_source: None,
             child_theme: None,
             child_interpreter_setup: None,
+            indexed_engine: Default::default(),
             shared_rust_bridge: None,
             fx_entrance: FxSpec::default(),
             fx_exit: FxSpec::default(),
@@ -8563,6 +8682,7 @@ mod parity {
                 form_source: None,
                 child_theme: None,
                 child_interpreter_setup: None,
+                indexed_engine: Default::default(),
                 shared_rust_bridge: None,
                 fx_entrance: FxSpec::parse(""),
                 fx_exit: FxSpec::parse(""),
@@ -10058,6 +10178,7 @@ mod parity {
             form_source,
             child_theme: Some(child_theme),
             child_interpreter_setup: None,
+            indexed_engine: Default::default(),
             shared_rust_bridge: None,
             fx_entrance: FxSpec::default(),
             fx_exit: FxSpec::default(),

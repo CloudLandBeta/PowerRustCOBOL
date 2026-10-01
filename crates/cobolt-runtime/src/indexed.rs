@@ -162,7 +162,10 @@ impl IndexedEngine {
             .replace(['_', ' '], "-")
             .as_str()
         {
-            "rust" | "rstcobol" | "rustcobol" | "native" => Some(Self::Rust),
+            // `prcidxd1` is how the IDE's project setting names this engine
+            // (by its container), so the setting must parse wherever it lands:
+            // `rcrun run-form --indexed-engine` and the compiled binary.
+            "rust" | "rstcobol" | "rustcobol" | "native" | "prcidxd1" | "prcidx1" => Some(Self::Rust),
             // `default` names whatever the default currently is, so it moved
             // with it rather than staying pinned to the PRCIDXD1 engine.
             "default" => Some(Self::default()),
@@ -1901,6 +1904,18 @@ mod tests {
         assert_eq!(E::parse("Fujitsu COBOL85"), Some(E::Fujitsu));
         assert_eq!(E::parse("bogus"), None);
         assert_eq!(E::Rust.name(), "rust");
+    }
+
+    /// The IDE's project setting (`[ide] indexed_engine`) names the engines
+    /// `prcidxd1` and `redb`. Both must parse, because that string is what
+    /// `rcrun run-form --indexed-engine` receives and what a compiled binary
+    /// carries baked in.
+    #[test]
+    fn the_ides_engine_names_parse() {
+        use IndexedEngine as E;
+        assert_eq!(E::parse("prcidxd1"), Some(E::Rust));
+        assert_eq!(E::parse("PRCIDXD1"), Some(E::Rust));
+        assert_eq!(E::parse("redb"), Some(E::Redb));
         assert_eq!(E::RmCobol85.name(), "rm-cobol85");
         assert_eq!(E::Fujitsu.name(), "fujitsu");
     }

@@ -763,6 +763,22 @@ const FOCUS_RING_COLOR_DEFAULT_LINE: &str = "const PROJECT_FOCUS_RING_COLOR: &st
 const FOCUS_RING_PULSE_DEFAULT_LINE: &str = "const PROJECT_FOCUS_RING_PULSE: bool = false;";
 const FOCUS_RING_ENABLED_DEFAULT_LINE: &str = "const PROJECT_FOCUS_RING_ENABLED: bool = true;";
 
+/// The indexed-engine constant every generated `main.rs` carries, as
+/// `generate_main_rs` writes it — empty, the runtime's own default.
+/// `build_core` replaces it with the project's `[ide] indexed_engine`.
+const INDEXED_ENGINE_DEFAULT_LINE: &str = "const PROJECT_INDEXED_ENGINE: &str = \"\";";
+
+/// Put the project's indexed-file engine into a generated `main.rs`.
+fn bake_indexed_engine(main_rs: String, engine: &str) -> String {
+    main_rs.replace(
+        INDEXED_ENGINE_DEFAULT_LINE,
+        &format!(
+            "const PROJECT_INDEXED_ENGINE: &str = \"{}\";",
+            engine.trim().escape_default()
+        ),
+    )
+}
+
 /// Put the project's focus ring into a generated `main.rs`.
 fn bake_focus_ring(main_rs: String, enabled: bool, color: &str, pulse: bool) -> String {
     main_rs
@@ -883,6 +899,20 @@ struct CoboltProject {
     /// `[agents]` — run-time settings for the model's tools (spec 075).
     #[serde(default)]
     agents: AgentsConfig,
+    /// `[ide]` — only the one setting a built application carries.
+    #[serde(default)]
+    ide: IdeConfig,
+}
+
+/// `[ide]` in the project manifest — the subset a build reads. Everything else
+/// in it is the IDE's own appearance and stays out of the binary.
+#[derive(Debug, Clone, Default, Deserialize)]
+struct IdeConfig {
+    /// The indexed-file engine the application creates new files with
+    /// (`prcidxd1`, `redb`, or empty for the runtime default). Baked into the
+    /// generated source, because a shipped binary has no manifest to read.
+    #[serde(default)]
+    indexed_engine: String,
 }
 
 /// `[agents]` in the project manifest (spec 065 R34 / 075).
@@ -1289,6 +1319,7 @@ pub fn build_single_file(
         integrations: ProjectIntegrations::default(),
         rag: RagConfig::default(),
         agents: AgentsConfig::default(),
+        ide: IdeConfig::default(),
     };
     build_core(proj, project_dir, opts, false)
 }
@@ -2131,6 +2162,7 @@ fn build_core(
         &proj.forms.focus_ring_color,
         proj.forms.focus_ring_pulse,
     );
+    let main_rs = bake_indexed_engine(main_rs, &proj.ide.indexed_engine);
     write_if_changed(&src_dir.join("main.rs"), main_rs.as_bytes())?;
 
     // ── 10. Run cargo build --release ─────────────────────────────────────────
@@ -3536,6 +3568,7 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         std::thread::spawn(move || {
             let mut interp = Interpreter::new_with_channels(program, ev_rx, state_tx, display_tx);
             interp.set_control_ids(control_ids);
+            interp.set_indexed_engine(indexed_engine());
             let _ = bridge_tx.send(interp.shared_rust_bridge());
             // Compiled EXEC RUST blocks, before the run (spec 041 R2/R9): one
             // process-wide object bridge, so every block — in the main form or
@@ -3645,6 +3678,9 @@ fn run_form_app(program: cobolt_ast::program::Program) {
                 interp.register_exec_rust_blocks(crate::exec_rust_blocks::register);
             },
         )),
+        // Every child form creates indexed files in the same format as the
+        // main form (the host applies it to each interpreter it spawns).
+        indexed_engine: indexed_engine(),
         shared_rust_bridge: bridge_rx.recv().ok(),
         fx_entrance,
         fx_exit,
@@ -3708,6 +3744,25 @@ static PROGRAM_AST: &[u8] = include_bytes!("../assets/program.bin");
 /// their manifests reference, so a themed app is self-contained without
 /// carrying the packs' authoring imagery.
 {themes_const}{theme_default_const}{window_fx_const}{connections_const}
+/// The project's indexed-file engine (`[ide] indexed_engine` in cobolt.toml),
+/// baked in because a shipped binary has no manifest to read it from.
+{indexed_engine_line}
+
+/// The engine this application creates NEW indexed files with: the project's
+/// choice, else `COBOL_INDEXED_ENGINE` on the machine that runs it, else the
+/// runtime default. The same order `rcrun run-form` applies when the IDE hands
+/// it the project's choice as `--indexed-engine`. An existing file always opens
+/// with the engine that wrote it, whatever this returns.
+fn indexed_engine() -> cobolt_runtime::IndexedEngine {{
+    use cobolt_runtime::IndexedEngine;
+    IndexedEngine::parse(PROJECT_INDEXED_ENGINE)
+        .or_else(|| {{
+            std::env::var("COBOL_INDEXED_ENGINE")
+                .ok()
+                .and_then(|name| IndexedEngine::parse(&name))
+        }})
+        .unwrap_or_default()
+}}
 // ── Entry point ───────────────────────────────────────────────────────────────
 fn main() {{
     tracing_subscriber::fmt()
@@ -3750,6 +3805,7 @@ fn load_program_by_id(form_id: &str) -> Option<cobolt_ast::program::Program> {{
 fn run_headless(program: cobolt_ast::program::Program) {{
     use cobolt_runtime::Interpreter;
     let mut interp = Interpreter::new(program);
+    interp.set_indexed_engine(indexed_engine());
     // Compiled EXEC RUST blocks, before the run (spec 041 R2).
     interp.register_exec_rust_blocks(exec_rust_blocks::register);
     match interp.run() {{
@@ -3775,6 +3831,7 @@ fn run_headless(program: cobolt_ast::program::Program) {{
         run_call = run_call,
         form_runtime_code = form_runtime_code,
         ast_mismatch_help = AST_MISMATCH_HELP,
+        indexed_engine_line = INDEXED_ENGINE_DEFAULT_LINE,
     )
 }
 
@@ -8383,6 +8440,7 @@ mod resolve_main_tests {
             integrations: ProjectIntegrations::default(),
             rag: RagConfig::default(),
             agents: AgentsConfig::default(),
+            ide: IdeConfig::default(),
         }
     }
 
@@ -8922,6 +8980,43 @@ mod resolve_main_tests {
         assert!(baked.contains("const PROJECT_FOCUS_RING_ENABLED: bool = false;"));
         assert!(baked.contains(r##"const PROJECT_FOCUS_RING_COLOR: &str = "#FF8800";"##));
         assert!(baked.contains("const PROJECT_FOCUS_RING_PULSE: bool = true;"));
+    }
+
+    /// The project's indexed-file engine reaches the compiled binary: read from
+    /// `[ide] indexed_engine`, baked into the generated source, and applied to
+    /// the main form's interpreter, to every child form (through the host) and
+    /// to a console program. A project without the setting keeps the runtime
+    /// default, and `COBOL_INDEXED_ENGINE` is still honoured at run time.
+    #[test]
+    fn the_project_indexed_engine_is_baked_into_the_binary() {
+        let manifest = "[project]\nname = \"Demo\"\nversion = \"1.0.0\"\nmain = \"main.cbl\"\n\n\
+                        [ide]\ntheme = \"dark\"\nindexed_engine = \"redb\"\n";
+        let proj: CoboltProject = toml::from_str(manifest).expect("manifest parses");
+        assert_eq!(proj.ide.indexed_engine, "redb");
+        let old: CoboltProject =
+            toml::from_str("[project]\nname = \"Old\"\nversion = \"1.0.0\"\nmain = \"m.cbl\"\n")
+                .expect("a manifest without [ide] still parses");
+        assert_eq!(old.ide.indexed_engine, "");
+
+        let src = generate_main_rs(
+            "Demo", "1.2.3", true, &["MAIN"], "MAIN", &[], &[], &[], "",
+            "none:600:ease-out", "none:600:ease-out", false,
+        "[]", 64,
+        );
+        assert!(src.contains(r#"const PROJECT_INDEXED_ENGINE: &str = "";"#));
+        // Main form, every child form, and the console runner.
+        assert!(src.contains(
+            "interp.set_control_ids(control_ids);\n            interp.set_indexed_engine(indexed_engine());"
+        ));
+        assert!(src.contains("indexed_engine: indexed_engine(),"));
+        assert!(src.contains(
+            "let mut interp = Interpreter::new(program);\n    interp.set_indexed_engine(indexed_engine());"
+        ));
+        assert!(src.contains(r#"std::env::var("COBOL_INDEXED_ENGINE")"#));
+
+        let baked = bake_indexed_engine(src, &proj.ide.indexed_engine);
+        assert!(baked.contains(r#"const PROJECT_INDEXED_ENGINE: &str = "redb";"#));
+        assert!(!baked.contains(r#"const PROJECT_INDEXED_ENGINE: &str = "";"#));
     }
 
     /// The `[forms]` values reach the baked triples through `fx_triple` —
