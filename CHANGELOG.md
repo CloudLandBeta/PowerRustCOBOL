@@ -8,6 +8,60 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.35] — 2026-10-01
+
+### Obsolete scaling style: a migrated PowerCOBOL form follows its window in proportion (spec 081)
+
+A new form property, **Obsolete scaling style** (`ObsoleteScalingStyle`, 0–7,
+default 0). It is a sum of flags:
+- 1 resizes every control by the window ratio;
+- 2 moves it;
+- 4 scales its font by the smaller of the two ratios.
+
+The operator named it to say what it is: a bridge for migrated forms, not the
+way to design new ones.
+
+- **Engine** (`layout::scale`):
+  - It is a mode of the one spec-056 solver: offsets from the parent's client
+    times `rx`/`ry`, sizes times `rx`/`ry` within
+    `MinWidth`/`MaxWidth`/`MinHeight`/`MaxHeight`.
+  - The font is `min(rx, ry)` within `MinFontScale`/`MaxFontScale`, times the
+    system factor.
+  - Children scale within their container's scaled client, and breakpoint
+    overrides apply first.
+  - A control anchored to edges other than its type's default, or docked,
+    keeps anchoring or docking (operator's Q3). On a migrated form, where
+    every control has the default anchor, everything scales.
+  - The new `Placement::Scaled` has its inverse, so canvas drags and COBOL
+    geometry writes map back to the design. The form minimum honours a
+    scaled control's `MinWidth`/`MinHeight`.
+- **Any value other than 0 lays the form out**, even with `Responsive` off
+  (`Form::lays_out`). The stored `Responsive` switch is never changed.
+- **Run time** (`cobolt-form-host`, one path for the window, child forms,
+  panes, `rcrun run-form` and the compiled binary):
+  - `me::ObsoleteScalingStyle` switches the layout on or off as the design
+    now says.
+  - A value outside 0–7 is refused, and the kept value is sent back, so the
+    program reads it.
+- **IDE:**
+  - a Properties combo with all eight values, translated into six languages
+    and shown on every form;
+  - prop help in six languages;
+  - the designer, agent and `me::` resolver property lists updated.
+- **System KB** prose added; `chunked.data` regenerated (2012 records).
+  **Guide**: "Migrating a PowerCOBOL form: *Obsolete scaling style*".
+- **Tests:**
+  - `layout::scale::tests` (7) cover AC2–AC7 and the inverse:
+    - (100, 50, 80, 30) at 2 × 1.5 → (100, 50, 160, 45) / (200, 75, 80, 30) /
+      (200, 75, 160, 45);
+    - font 12 → 18.
+  - A host test: a non-responsive form with style 3 is laid out; 0 turns the
+    layout off; 9 is refused and 0 is echoed back; 3 turns it on again.
+  - A designer canvas test with the same fixture gives the same rectangle.
+- **Deferred:** AC8 (the collision ceiling under style 1) waits for the
+  1.80.33 collision limits, which are on `fixes`, to meet `features` on
+  `main`.
+
 ## [PowerRustCOBOL 1.80.34] — 2026-10-01
 
 ### Spec 081 — Obsolete scaling style, draft

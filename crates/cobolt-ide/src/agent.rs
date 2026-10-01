@@ -541,6 +541,7 @@ pub(crate) fn form_property_valid(key: &str) -> bool {
             | "maxfontscale"
             | "minformwidth"
             | "minformheight"
+            | "obsoletescalingstyle"
     )
 }
 

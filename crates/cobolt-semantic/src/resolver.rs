@@ -87,6 +87,7 @@ pub const UNIVERSAL_FORM_PROPS: &[&str] = &[
     "MaxFontScale",
     "MinFormWidth",
     "MinFormHeight",
+    "ObsoleteScalingStyle",
 ];
 
 // ── Entry point ───────────────────────────────────────────────────────────────

@@ -16407,7 +16407,7 @@ impl CoboltApp {
         // preview's own size, and the rail narrows afterwards (R23, R26).
         let preview_responsive = {
             let f = &self.designers[idx].1.form;
-            f.responsive.then(|| (f.layout.clone(), f.breakpoints.clone()))
+            f.lays_out().then(|| (f.layout.clone(), f.breakpoints.clone()))
         };
         let designed_controls = if preview_responsive.is_some() { controls.clone() } else { Vec::new() };
         let preview_rail = cobolt_forms::breadcrumb::shell_side_menu_in(&controls).map(|side| {

@@ -7914,7 +7914,7 @@ impl DesignerPanel {
             ui.available_height()
         };
         // 056 R30/R88 — on a responsive form, the size the canvas shows it at.
-        if self.form.responsive {
+        if self.form.lays_out() {
             self.show_view_at_bar(ui, &tr);
         }
         egui::ScrollArea::both()
@@ -11846,7 +11846,7 @@ impl DesignerPanel {
     /// `Absolute` parent or a form that is not responsive.
     pub(crate) fn item_parent_mode(&self, id: &str) -> Option<cobolt_forms::layout::LayoutMode> {
         use cobolt_forms::layout::{props, LayoutMode};
-        if !self.form.responsive {
+        if !self.form.lays_out() {
             return None;
         }
         let c = self.form.find_control(id)?;
@@ -12046,7 +12046,7 @@ impl DesignerPanel {
     /// dock edge of a docked control instead.
     pub(crate) fn anchor_gizmo(&self) -> Option<(String, Vec<(Edge4, egui::Pos2, bool)>, Option<cobolt_forms::layout::props::Dock>)> {
         use cobolt_forms::layout::props::{self, Dock};
-        if !self.form.responsive || self.selected_ids.len() != 1 {
+        if !self.form.lays_out() || self.selected_ids.len() != 1 {
             return None;
         }
         let id = self.selected_ids[0].clone();
@@ -12210,7 +12210,7 @@ impl DesignerPanel {
     /// always.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn resize_form_by_grip(&mut self, edge: FormEdge, orig_w: i32, orig_h: i32, dx: i32, dy: i32, gp: i32, sn: bool) {
-        if self.form.responsive {
+        if self.form.lays_out() {
             let (mut w, mut h) = self.canvas_size();
             if matches!(edge, FormEdge::Right | FormEdge::Corner) {
                 w = (orig_w + dx).clamp(FORM_MIN_SIZE, FORM_MAX_SIZE) as f32;
@@ -12256,7 +12256,7 @@ impl DesignerPanel {
     pub(crate) fn override_target(&self) -> Option<String> {
         use cobolt_forms::layout::breakpoints;
         let bp = self.view_breakpoint.as_deref()?;
-        if !self.form.responsive || !self.form.breakpoints.iter().any(|b| b.name == bp) {
+        if !self.form.lays_out() || !self.form.breakpoints.iter().any(|b| b.name == bp) {
             return None;
         }
         let design = breakpoints::design_breakpoint(&self.form.breakpoints, self.form.width as f32)?;
@@ -12403,7 +12403,7 @@ impl DesignerPanel {
     pub(crate) fn canvas_size(&self) -> (f32, f32) {
         let designed = (self.form.width as f32, self.form.height as f32);
         match self.view_size {
-            Some(v) if self.form.responsive => v,
+            Some(v) if self.form.lays_out() => v,
             _ => designed,
         }
     }
@@ -12413,7 +12413,7 @@ impl DesignerPanel {
     /// lays out exactly as designed (R81), and a flex, flow or grid container
     /// places its children at every size, the designed one included.
     pub(crate) fn canvas_is_laid_out(&self) -> bool {
-        self.form.responsive
+        self.form.lays_out()
     }
 
     /// Spec 056 R23/R29 — the canvas's layout of `controls` at the view size,
@@ -13853,7 +13853,7 @@ impl DesignerPanel {
                     // Final size was applied live during `dragged()`; nothing more to do.
                     // A responsive form's grip moved only the VIEW (R88): the
                     // design did not change, so the form is not dirty.
-                    if !self.form.responsive {
+                    if !self.form.lays_out() {
                         self.dirty = true;
                     }
                 }
@@ -14623,6 +14623,7 @@ pub(crate) const FORM_PROP_KEYS: &[&str] = &[
     "MaxFontScale",
     "MinFormWidth",
     "MinFormHeight",
+    "ObsoleteScalingStyle",
 ];
 
 /// The spelling under which `key` is already stored on `ctrl`, or `key` itself
@@ -19764,7 +19765,7 @@ mod property_key_case_tests {
             // Window start position
             "x", "y", "startposition",
             // 056 Responsive design
-            "responsive", "breakpoints", "layoutmode", "flexdirection", "flexwrap", "justifycontent", "alignitems", "aligncontent", "gap", "rowgap", "columngap", "gridcolumns", "gridrows", "justifyitems", "flowdirection", "wrapcontents", "padding", "paddingleft", "paddingtop", "paddingright", "paddingbottom", "fontscaling", "minfontscale", "maxfontscale", "minformwidth", "minformheight",
+            "responsive", "breakpoints", "layoutmode", "flexdirection", "flexwrap", "justifycontent", "alignitems", "aligncontent", "gap", "rowgap", "columngap", "gridcolumns", "gridrows", "justifyitems", "flowdirection", "wrapcontents", "padding", "paddingleft", "paddingtop", "paddingright", "paddingbottom", "fontscaling", "minfontscale", "maxfontscale", "minformwidth", "minformheight", "obsoletescalingstyle",
         ] {
             assert!(
                 canonical_form_prop_key(word).is_some(),
@@ -22758,6 +22759,34 @@ mod responsive_canvas_tests_056 {
         plain.form.responsive = false;
         plain.resize_form_by_grip(FormEdge::Corner, 400, 300, 200, 100, 8, false);
         assert_eq!((plain.form.width, plain.form.height), (600, 400));
+    }
+
+    /// Spec 081 AC10 (designer half) — a form that is not responsive but has
+    /// an obsolete scaling style is laid out on the canvas, and the grip views
+    /// it scaled: the host fixture of
+    /// `an_obsolete_scaling_style_lays_out_a_form_that_is_not_responsive_081`
+    /// lands at the same (200, 75, 160, 45) at 800 × 450. The design and the
+    /// stored `Responsive` switch are untouched.
+    #[test]
+    fn the_canvas_scales_a_form_with_an_obsolete_scaling_style_081() {
+        let ctx = egui::Context::default();
+        let st = DesignerState { anim: &Default::default() };
+        let mut f = Form::new("F", "F", 400, 300);
+        f.layout.insert("ObsoleteScalingStyle".into(), PropValue::Int(3));
+        let mut b = Control::new("BTN", ControlType::Button, 0, 0);
+        b.rect = cobolt_forms::model::Rect::new(100, 50, 80, 30);
+        f.controls.push(b);
+        let mut d = DesignerPanel::new(f);
+        assert!(d.canvas_is_laid_out());
+        d.resize_form_by_grip(FormEdge::Corner, 400, 300, 400, 150, 8, false);
+        assert_eq!(d.canvas_size(), (800.0, 450.0));
+        let pr = d.canvas_prepare(&ctx, &d.form.controls.clone(), &st);
+        let r = pr.layout.rects["BTN"];
+        assert_eq!((r.x, r.y, r.w, r.h), (200.0, 75.0, 160.0, 45.0));
+        assert_eq!((d.form.width, d.form.height, d.form.responsive, d.dirty), (400, 300, false, false));
+        d.set_form_prop("ObsoleteScalingStyle", "0".into());
+        assert_eq!(d.get_form_prop("ObsoleteScalingStyle").as_deref(), Some("0"));
+        assert!(!d.canvas_is_laid_out(), "0: back to a form that is not laid out");
     }
 
     /// AC14 (R30) — the breakpoint views: the widest width of each range at

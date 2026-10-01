@@ -78,6 +78,14 @@ pub const EPSILON: f32 = 0.01;
 pub const FONT_SCALING: &str = "None";
 pub const MIN_FONT_SCALE: &str = "0.85";
 pub const MAX_FONT_SCALE: &str = "1.5";
+/// Spec 081 — `ObsoleteScalingStyle`: 0 is off (spec-056 layout); otherwise
+/// a set of these flags.
+pub const OBSOLETE_SCALING_STYLE: i64 = 0;
+pub const SCALING_RESIZE: i64 = 1;
+pub const SCALING_REPOSITION: i64 = 2;
+pub const SCALING_FONT: i64 = 4;
+/// Every flag at once: the largest value the property takes.
+pub const SCALING_STYLE_MAX: i64 = SCALING_RESIZE | SCALING_REPOSITION | SCALING_FONT;
 /// The smallest surface a responsive form lays out for (R18).
 pub const MIN_FORM_WIDTH: i64 = 64;
 pub const MIN_FORM_HEIGHT: i64 = 64;
@@ -182,6 +190,7 @@ pub fn form_defaults() -> Vec<(&'static str, PropValue)> {
         ("FontScaling", s(FONT_SCALING)),
         ("MinFontScale", s(MIN_FONT_SCALE)),
         ("MaxFontScale", s(MAX_FONT_SCALE)),
+        ("ObsoleteScalingStyle", PropValue::Int(OBSOLETE_SCALING_STYLE)),
         ("MinFormWidth", PropValue::Int(MIN_FORM_WIDTH)),
         ("MinFormHeight", PropValue::Int(MIN_FORM_HEIGHT)),
     ]);

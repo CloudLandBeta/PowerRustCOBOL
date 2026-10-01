@@ -4118,7 +4118,7 @@ impl PropertiesPanel {
             ui.label(RichText::new(text).small().italics().color(Color32::GRAY));
             ui.add_space(4.0);
         };
-        if !form.responsive {
+        if !form.lays_out() {
             hint(ui, tr.layout_off_hint);
             return;
         }
@@ -4206,7 +4206,26 @@ impl PropertiesPanel {
                 action.form_props.push(("Responsive".into(), on.to_string()));
             }
         });
-        if !form.responsive {
+        // Spec 081 — the PowerCOBOL-style compatibility mode. Shown on every
+        // form, responsive or not: setting it is what lays a migrated form out.
+        property_row_keyed(ui, tr.lbl_obsolete_scaling_style, Some("ObsoleteScalingStyle"), |ui| {
+            let cur = cobolt_forms::layout::scale::style(&props::FormBag(&form.layout));
+            let opts = [
+                tr.val_scaling_0, tr.val_scaling_1, tr.val_scaling_2, tr.val_scaling_3,
+                tr.val_scaling_4, tr.val_scaling_5, tr.val_scaling_6, tr.val_scaling_7,
+            ];
+            egui::ComboBox::from_id_salt("obsolete-scaling-style")
+                .selected_text(opts[cur as usize])
+                .width(ui.available_width())
+                .show_ui(ui, |ui| {
+                    for (v, label) in opts.iter().enumerate() {
+                        if ui.selectable_label(cur as usize == v, *label).clicked() && cur as usize != v {
+                            action.form_props.push(("ObsoleteScalingStyle".into(), v.to_string()));
+                        }
+                    }
+                });
+        });
+        if !form.lays_out() {
             ui.add_space(4.0);
             return;
         }

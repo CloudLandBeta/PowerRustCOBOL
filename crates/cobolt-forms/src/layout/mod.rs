@@ -34,6 +34,7 @@ pub mod inverse;
 pub mod limits;
 pub mod minsize;
 pub mod props;
+pub mod scale;
 pub mod tracks;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -154,6 +155,13 @@ pub enum Placement {
     Docked(Dock),
     /// Placed by a flex, grid or flow parent.
     Item(LayoutMode),
+    /// Scaled by the window ratio on a form with an obsolete scaling style
+    /// (spec 081): `style` is its flags.
+    Scaled {
+        style: i64,
+        designed_parent: LRect,
+        parent: LRect,
+    },
 }
 
 /// A laid-out container, for the designer's overlays (R45).
@@ -308,7 +316,7 @@ pub(crate) fn client_of(c: &Control, at: LRect) -> LRect {
 /// run-form window takes as its minimum inner size — or `None` for a form that
 /// is not responsive, whose window keeps no minimum, as before.
 pub fn min_size_of(form: &crate::model::Form) -> Option<(f32, f32)> {
-    form.responsive.then(|| {
+    form.lays_out().then(|| {
         window_min_size(
             &form.controls,
             (form.width as f32, form.height as f32),
@@ -355,14 +363,27 @@ pub fn solve(input: &LayoutInput<'_>) -> LayoutOutput {
 fn solve_at_breakpoint(input: &LayoutInput<'_>, bp: Option<&Breakpoint>) -> LayoutOutput {
     let form = FormBag(input.form_props);
     let tree = Tree::new(input.controls);
-    let font_factor = fonts::form_factor(
-        &form,
-        input.designed_size.0,
-        input.available.0,
-        bp,
-        input.system_text_factor,
-        input.pinned_font_scale,
-    );
+    // Spec 081 — a form with an obsolete scaling style takes its font from
+    // the window ratio instead of `FontScaling`.
+    let scaling = scale::style(&form);
+    let font_factor = if scale::scales_font(scaling) {
+        scale::font_factor(
+            &form,
+            input.designed_size,
+            input.available,
+            input.system_text_factor,
+            input.pinned_font_scale,
+        )
+    } else {
+        fonts::form_factor(
+            &form,
+            input.designed_size.0,
+            input.available.0,
+            bp,
+            input.system_text_factor,
+            input.pinned_font_scale,
+        )
+    };
 
     let min_size = minsize::form_min(input, &tree);
     let laid_out_size = (
@@ -430,6 +451,10 @@ fn place_children(
 
     // A flex, grid or flow container places its children itself (R50).
     let content = (mode != LayoutMode::Absolute).then(|| place_items(input, parent, src, mode, &visual, client, out));
+    // Spec 081 — on a scaling form, every control the developer did not
+    // anchor or dock on purpose follows the window ratio.
+    let scaling = scale::style(&FormBag(input.form_props));
+    let scaled = |c: &Control| scaling != 0 && !scale::opted_out(c);
 
     // Docked controls first, in z-order, each taking an edge of what remains
     // (R12); every other control is anchored against the FULL client rect
@@ -460,6 +485,22 @@ fn place_children(
         let c = &input.controls[i];
         // Placed above, by its dock or its flex/grid/flow parent.
         if content.is_some() || docked.iter().any(|(d, _)| *d == i) {
+            continue;
+        }
+        if scaled(c) {
+            let r = scale::place(
+                designed_rect(input, c),
+                designed_client,
+                client,
+                scaling,
+                props::width_limits(c),
+                props::height_limits(c),
+            );
+            out.rects.insert(c.id.clone(), r);
+            out.placement.insert(
+                c.id.clone(),
+                Placement::Scaled { style: scaling, designed_parent: designed_client, parent: client },
+            );
             continue;
         }
         let (r, x, y) = anchor::place(

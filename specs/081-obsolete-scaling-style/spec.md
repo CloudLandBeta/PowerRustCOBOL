@@ -5,7 +5,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 # Spec — Obsolete scaling style: proportional resize, reposition and font (`ObsoleteScalingStyle`)
 
-- **Status:** draft
+- **Status:** approved (operator, 2026-10-01; Q1–Q5 settled in §7)
 - **Folder:** specs/081-obsolete-scaling-style/
 - **Author:** Anthropic Claude Codex Agent, for the operator   **Date:** 2026-10-01
 
@@ -97,11 +97,12 @@ forms and the compiled binary all scale identically.
   - 1 – Resize only
   - 2 – Reposition only
   - 3 – Resize and reposition
+  - 4 – Resize the font only
   - 5 – Resize and resize the font
+  - 6 – Reposition and resize the font
   - 7 – Resize, reposition and resize the font
   
-  The values 4 and 6 are accepted from the `.cfrm` file and from COBOL, and
-  shown as their combination (see Q1).
+  All eight values are listed (Q1).
 - **R3 (constraint):** `ObsoleteScalingStyle` shall be written to the `.cfrm` only when it
   is not 0. A form saved before this feature shall load with 0 and lay out
   exactly as before.
@@ -111,9 +112,15 @@ forms and the compiled binary all scale identically.
   out by the responsive engine, whether or not `Responsive` is on. Setting
   `ObsoleteScalingStyle` in the designer shall not change the stored `Responsive`
   value.
-- **R5 (state):** While `ObsoleteScalingStyle` is not 0, the layout shall ignore every
-  control's `Anchor` and `Dock`. Scaling governs placement and size; the
-  stored values are kept, and apply again if `ObsoleteScalingStyle` returns to 0.
+- **R5 (state):** While `ObsoleteScalingStyle` is not 0, every control shall be
+  scaled (R6–R9) **except** one the developer anchored or docked on purpose.
+  That control keeps its spec-056 anchoring or docking (Q3).
+  - Every control stores an `Anchor`, because the engine seeds its type's
+    default. So "on purpose" means: `Anchor` differs from the type's default
+    (`Top,Left`, or `Top,Left,Right` for a MenuBar, `Bottom,Left,Right` for a
+    StatusBar), or `Dock` is not `None`.
+  - A migrated form, whose controls all carry the default, scales whole.
+  - An explicit `Top,Left` cannot be told from the default, and scales.
 
 **The arithmetic.** In what follows, `rx` = available width ÷ designed width
 and `ry` = available height ÷ designed height, for the form's client area.
@@ -200,10 +207,12 @@ All use a form designed **400 × 300**, with a Button at (100, 50, 80, 30),
   and not its anchor. Back at 0, it follows its anchor again.
 - [ ] **AC5 (R7)** — `MinWidth` 100 on a Button 80 wide, at half size with style
   1, gives 100, not 40.
-- [ ] **AC6 (R8)** — A Panel with no border inset or padding, at (40, 40, 200, 100), with a child TextBox at
-  (60, 60, 100, 20), with style 3 at 800 × 450: the panel is
-  (80, 60, 400, 150), and the child is scaled within it to (120, 90, 200, 30)
-  in form space.
+- [ ] **AC6 (R8)** — A Panel at (40, 40, 200, 100) with a child TextBox at
+  (60, 60, 100, 20), style 3 at 800 × 450: the panel is (80, 60, 400, 150).
+  The child is scaled by the panel's **client** ratios: its 2 px border
+  inset makes the client (42, 42, 196, 96) designed and (82, 62, 396, 146)
+  laid out, so the child is (82 + 18·396/196, 62 + 18·146/96, 100·396/196,
+  20·146/96) in form space.
 - [ ] **AC7 (R10)** — Resizing 400 → 801 → 400 returns every rectangle exactly
   to its designed value.
 - [ ] **AC8 (R12)** — With style 1, two buttons 20 px apart in a row: the
@@ -238,24 +247,15 @@ All use a form designed **400 × 300**, with a Button at (100, 50, 80, 30),
 - **Fix vs feature:** a **feature**. It is beyond COBOL-85, and a new form
   capability. It goes on `features`, with a z bump.
 
-## 7. Open questions
+## 7. Questions — settled (operator, 2026-10-01)
 
-- **Q1 — Values 4 and 6** (font only, and reposition with font). The
-  designer list shows only the five PowerCOBOL developers know, plus None.
-  Should 4 and 6 also be listed, or stay accepted but unlisted?
-  *Proposed:* accepted, not listed.
-- **Q2 — Breakpoints.** R13 applies breakpoint overrides, then scales.
-  Alternatively, a scaling form could ignore breakpoints entirely (simpler,
-  closer to PowerCOBOL). *Proposed:* apply them, since a form that has none
-  is unaffected.
-- **Q3 — Per-control opt-out.** Should a control be able to stay fixed in a
-  scaling form? A logo, or a toolbar that should not stretch, for example
-  through an `Anchor` respected while scaling, or a `ScaleWithForm = false`.
-  *Proposed:* not in this spec, apart from `ScaleFont`, which already exists.
-- **Q4 — Font ratio.** `min(rx, ry)` keeps text inside its control. The
-  alternatives are width only (as `Fluid` does), or the geometric mean.
-  *Proposed:* `min`.
-- **Q5 — Aspect ratio.** Non-uniform scaling stretches a square button into a
-  rectangle. Should there be a "keep proportions" option (scale by
-  `min(rx, ry)` on both axes, centred)? *Proposed:* not now; ask after
-  migrated forms have been tried.
+- **Q1 — Values 4 and 6:** listed, with all eight values in the designer.
+- **Q2 — Breakpoints:** overrides apply first, then scaling.
+- **Q3 — Per-control opt-out:** yes. A control anchored or docked on purpose
+  keeps that placement (R5, with the default-anchor reading above).
+- **Q4 — Font ratio:** `min(rx, ry)`.
+- **Q5 — Aspect ratio:** no "keep proportions" option now.
+- **Deferred:** AC8 (the collision ceiling under style 1). The collision
+  limits (1.80.33) are on `fixes`, and `features` cannot take them until both
+  are merged into `main`. When they meet, `layout::size_limits_of` must also
+  switch from `form.responsive` to `form.lays_out()`, and AC8 gets its test.
