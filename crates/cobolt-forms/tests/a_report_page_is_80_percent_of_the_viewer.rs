@@ -104,7 +104,15 @@ fn max_width_as_a_percentage_is_honoured() {
 
 #[test]
 fn every_shipped_template_is_80_percent_of_the_viewer_up_to_1600_px() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/PowerChat/samples/report-templates.txt");
+    // Read at run time from the repository's example, never compiled in.
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("the repository root")
+        .join("examples")
+        .join("PowerChat")
+        .join("samples")
+        .join("report-templates.txt");
     let text = std::fs::read_to_string(path).expect("the shipped templates");
     let mut templates: Vec<(String, String)> = Vec::new();
     for part in text.split("\n=== ").map(|p| p.trim_start_matches("=== ")) {

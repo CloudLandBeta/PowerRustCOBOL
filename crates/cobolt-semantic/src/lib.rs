@@ -34,6 +34,7 @@ pub mod duplicates;
 pub mod exec_rust;
 pub mod flagging;
 pub mod external;
+pub mod file_keys;
 pub mod reports;
 pub mod resolver;
 pub mod symbol_table;
@@ -222,6 +223,10 @@ fn analyze_contained(
     // Pass 1d: a report printed into a Viewer (spec 062) — a rendered
     // organization needs a Viewer to render it, and has no printed page.
     reports::check(program, &mut diagnostics);
+
+    // Pass 1e: an INDEXED file's RECORD KEY and ALTERNATE RECORD KEYs are
+    // fields of its own record.
+    file_keys::check(program, &mut diagnostics);
 
     // Pass 2: name resolution (carries the 049 R17 form-format map).
     resolver::resolve(

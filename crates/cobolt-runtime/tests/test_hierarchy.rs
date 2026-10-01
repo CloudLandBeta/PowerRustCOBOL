@@ -333,6 +333,61 @@ fn same_named_sibling_leaves_each_keep_their_own_bytes() {
     assert_eq!(out, vec!["ACALAM", "ACALAM"], "each F keeps its own VALUE");
 }
 
+/// Operator report, 2026-09-30 (LugSys, a PowerCOBOL copybook): two GROUPS of
+/// the same name both REDEFINE the file status — one splits it in two
+/// characters, the other hangs 88-level conditions on its first character —
+/// and a REDEFINES group of the time splits it again. Keyed by the shared
+/// name, the second group replaced the first: `ST1`/`ST2` read spaces after
+/// `MOVE "00" TO ST`, `WS-OK` never held, and `WS-HHMM` stayed zero.
+#[test]
+fn same_named_redefining_groups_each_overlay_their_target() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. DUPGRP.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-AREA GLOBAL.
+           02  ST              PIC X(002).
+           02  WS-STAT         REDEFINES ST PIC X(002).
+           02  F REDEFINES ST.
+               03  ST1         PIC X(001).
+               03  ST2         PIC X(001).
+           02  F REDEFINES ST.
+               03  F           PIC X(001).
+                   88  WS-OK       VALUE "0".
+                   88  WS-CHVINV   VALUE "2".
+               03  F           PIC X(001).
+           02  WS-HORA         PIC 9(008).
+           02  F REDEFINES WS-HORA.
+               03  WS-HHMM     PIC 9(004).
+               03  F REDEFINES WS-HHMM.
+                   04  WS-HORR PIC 9(002).
+                   04  WS-MINR PIC 9(002).
+               03  WS-SEGR     PIC 9(002).
+               03  F           PIC 9(002).
+           02  F REDEFINES WS-HORA.
+               03  WS-HHMMSS   PIC 9(006).
+               03  F           PIC X(002).
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE "00" TO ST
+           DISPLAY "[" ST1 "][" ST2 "]"
+           IF WS-OK DISPLAY "OK" ELSE DISPLAY "NOT OK" END-IF
+           MOVE "23" TO WS-STAT
+           IF WS-CHVINV DISPLAY "CHVINV" ELSE DISPLAY "NOT CHVINV" END-IF
+           IF WS-OK DISPLAY "OK" ELSE DISPLAY "NOT OK" END-IF
+           MOVE 12345678 TO WS-HORA
+           DISPLAY WS-HHMM " " WS-HORR " " WS-MINR " " WS-SEGR " " WS-HHMMSS
+           STOP RUN.
+"#;
+    let out = run_capture(src);
+    assert_eq!(
+        out,
+        vec!["[0][0]", "OK", "CHVINV", "NOT OK", "1234 12 34 56 123456"],
+        "every same-named REDEFINES group overlays its target"
+    );
+}
+
 /// `MOVE … TO T(i)(start:len)` splices into occurrence `i`. The subscript was
 /// dropped, so the characters went to an item named plain `T` and the table
 /// never changed (found 2026-09-25 building a sort key in PowerChat).

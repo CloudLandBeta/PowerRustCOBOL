@@ -8,6 +8,50 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.26] — 2026-09-30
+
+### Fix — same-named REDEFINES groups each overlay their target; a RECORD KEY outside its record is an error
+
+Two defects from a PowerCOBOL developer's project (LugSys, operator,
+2026-09-30).
+
+- **Same-named groups that REDEFINE one item.** A PowerCOBOL copybook
+  redefines the file status twice under the same name:
+  `02 F REDEFINES ST. 03 ST1 … 03 ST2 …` and
+  `02 F REDEFINES ST. 03 F PIC X. 88 WS-OK VALUE "0".`
+  Both groups were keyed `F`, so the second replaced the first:
+  - `ST1` and `ST2` read spaces after `MOVE "00" TO ST`;
+  - `WS-OK` and `WS-CHVINV` never held;
+  - the same shape under `WS-HORA` left `WS-HHMM` and `WS-HORR` at zero.
+
+  1.70.206 made same-named *elementary* siblings separate storage. Now same-named
+  groups, and elementary items that carry 88-level conditions, get separate
+  storage too. Each takes a synthetic name no program can write, as a FILLER
+  key does, so its REDEFINES overlay and its conditions work as for any named
+  item. The developer reported having to test `ST` instead of `WS-OK`; the
+  copybook now works as written.
+- **`RECORD KEY` / `ALTERNATE RECORD KEY` must be fields of the file's own
+  record.** Nothing checked it. A SELECT naming a key the FD no longer had
+  compiled cleanly, `WRITE` answered `00`, and every `READ` by key answered
+  `23`. Once the SELECT was corrected, the file written under the wrong key
+  answered `OPEN` with `39` — the developer's "error 39 out of nowhere". It
+  is now a compile error that names the key and the FD, in `rcrun check`,
+  Run Form, the IDE's check and the build (`cobolt-semantic` `file_keys`).
+- Tests:
+  - `same_named_redefining_groups_each_overlay_their_target` (the copybook's
+    shapes: two `F REDEFINES ST`, 88s on a same-named leaf, a nested
+    REDEFINES under `WS-HORA`);
+  - `test_record_key` (3).
+- NIST, the 8 protected modules re-run: NC 95, SQ 85, IF 45, IX 41, ST 39,
+  RL 34, IC 25, SM 16 programs; 100 % of 8,362 assertions.
+- Sweeps: `cobolt-runtime` 130/130; `cobolt-semantic`, `cobolt-compiler`
+  145/145, and the example compile tests, all green.
+- Developer's Guide: a caveat in the indexed-files section — the keys belong
+  to the record, and what status 39 means.
+- Also: the 1.80.24 report-width test reads the PowerChat templates through a
+  path built at run time. Its literal `../../examples/…` path made
+  `sdk_covers_every_compile_time_asset` take it for a compile-time include.
+
 ## [PowerRustCOBOL 1.80.25] — 2026-09-30
 
 ### Fix — an agent's answer cut off by its output limit is completed, not cut short in silence

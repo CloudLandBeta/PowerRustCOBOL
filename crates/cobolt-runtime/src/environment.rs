@@ -346,16 +346,27 @@ pub struct CondName {
     pub quals: Vec<String>,
 }
 
-/// A copy of `data` in which every elementary item that shares its name with
-/// a sibling is renamed `FILLER`, or `None` when there is none to rename.
+/// A copy of `data` in which every item that shares its name with a sibling
+/// is made distinct, or `None` when there is none to rename.
 ///
 /// COBOL-85 lets a program declare such items — only a *reference* to one is
 /// an error, since no qualification can single it out — so they hold bytes
 /// and VALUEs like any FILLER and must get a slot each.
+///
+/// * A plain elementary item becomes `FILLER`.
+/// * A GROUP, or an elementary item that hosts 88-level conditions, keeps
+///   storage under a synthetic name no program can write (it holds `\u{2}`,
+///   like a FILLER key): it needs a name of its own, because a REDEFINES
+///   group's overlay is built from its named descriptions and a condition is
+///   tied to its host by name. PowerCOBOL copybooks do this all the time —
+///   `02 F REDEFINES ST. 03 ST1 …` and `02 F REDEFINES ST. 03 F PIC X.
+///   88 WS-OK VALUE "0".` side by side — and with both groups keyed `F` the
+///   second replaced the first: `ST1`, `ST2` read spaces and `WS-OK` never
+///   held (operator report, 2026-09-30).
 fn anonymize_ambiguous_leaves(data: &DataDivision) -> Option<DataDivision> {
     fn ambiguous(siblings: &[DataDecl], i: usize) -> bool {
         let c = &siblings[i];
-        if !c.children.is_empty() || c.level == 88 || c.level == 66 {
+        if c.level == 88 || c.level == 66 {
             return false;
         }
         let Some(name) = c.name.as_deref().filter(|n| !n.eq_ignore_ascii_case("FILLER")) else {
@@ -375,7 +386,14 @@ fn anonymize_ambiguous_leaves(data: &DataDivision) -> Option<DataDivision> {
             .filter(|&i| ambiguous(&decl.children, i))
             .collect();
         for i in hits {
-            decl.children[i].name = Some("FILLER".to_owned());
+            let child = &mut decl.children[i];
+            let plain_leaf = child.children.is_empty();
+            if plain_leaf {
+                child.name = Some("FILLER".to_owned());
+            } else {
+                let base = child.name.clone().unwrap_or_default();
+                child.name = Some(format!("{base}\u{2}{i}"));
+            }
         }
         decl.children.iter_mut().for_each(rename);
     }

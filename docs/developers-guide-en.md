@@ -8937,6 +8937,15 @@ by the file's `ORGANIZATION`. On top of that, PowerRustCOBOL adds:
            STORAGE MODE IS DISK WITH DATA COMPRESSION.
 ```
 
+> **⚠️ Caveat — the keys belong to the record.** `RECORD KEY` and every
+> `ALTERNATE RECORD KEY` must name a field of that file's own `FD`. If you
+> rename the key field in the `FD` and forget the `SELECT`, the program does
+> not compile: the error names the key and the `FD`. A file already written
+> with a different key layout answers `OPEN` with status **39**. Status 39
+> means the file on disk was made for another description: a key field moved,
+> or its length changed. Recreate the file, or copy its records into a new one
+> with the current description.
+
 - **`STORAGE [MODE] IS MEMORY | DISK`** chooses an in-RAM table or a persistent
   on-disk store. **Default is DISK.**
 - **`WITH [DATA] COMPRESSION`** transparently compresses records (no external
