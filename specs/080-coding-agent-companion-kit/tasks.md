@@ -430,7 +430,16 @@ plus version/CHANGELOG.
 
 ## Phase 3 — The IDE serves the tools over HTTP
 
-- [ ] **T3.1 — MCP-port setting** (R11a, R21; AC11)
+- [x] **T3.1 — MCP-port setting** (R11a, R21; AC11)
+  - **Result (1.80.58):** `LlmConfig.mcp_port` (`#[serde(default =
+    "default_mcp_port")]`, 5720), in `defaults()` and saved machine-level
+    beside `inspection_port`. New `llm::resolve_mcp_port(requested,
+    inspection)` is the Settings clamp: 1024–65535 and never the inspection
+    port (else the default, or the next port when the default IS the
+    inspection port). Settings row after the agent-access row, same layout;
+    `Tr` `ai_mcp_port`, `ai_mcp_port_hint` ×6. Test
+    `the_mcp_port_defaults_round_trips_and_never_equals_the_inspection_port`:
+    old config → 5720, 6123 round-trips, 4 resolve cases.
   - Read first: `cobolt-ide/src/llm.rs:62-65, 296-304, 330-340, 880-895`;
     `panels/settings_form.rs:85, 184, 310-321, 1475-1500`;
     `i18n.rs:462` (`ai_inspection_port`, all six tables).
@@ -445,7 +454,29 @@ plus version/CHANGELOG.
     — an old config gets 5720; a saved value round-trips; equal-to-inspection
     is rejected.
 
-- [ ] **T3.2 — `IdeHost` and the listener** (R11, R12, R14; AC5)
+- [x] **T3.2 — `IdeHost` and the listener** (R11, R12, R14; AC5)
+  - **Result (1.80.58):** `agent_kit/mod.rs` (`KIT_MANIFEST`, `kit_id_of`)
+    and `agent_kit/ide_host.rs`: `Snapshot` (manifest, unsaved = dirty
+    designers + dirty writable tabs + a dirty inspector, building =
+    `pending_build_rx.is_some()`, crates), `IdeShared` (snapshot, request
+    channel, egui `Context` for `request_repaint`, the tools' `Shared`),
+    `IdeHost: ProjectHost` (record waits ≤ 5 s for the UI thread), `IdeTools`
+    (the MCP handler the listener serves) and `start_listener`. `CoboltApp::new`
+    starts it on `127.0.0.1:<mcp_port>` after the inspection endpoint and
+    writes one Output line (`ai_mcp_listening` / `ai_mcp_failed`); every frame
+    `publish_agent_tools_snapshot` + `drain_agent_tools` (record →
+    `handle_record` → `add_generated`/`add_file_to` + `save_project`, which
+    re-seals — the plan's `do_save_project` is bypassed only so the save's
+    result can be answered; `Written` → `editor.reload_file`; each call → one
+    `mcp_activity` line). `Tr` `ai_mcp_listening`, `ai_mcp_failed`,
+    `mcp_activity` ×6; test `coding_agent_tools_strings_in_every_language`
+    (30 strings, placeholders equal to English). Tests
+    `ide_host_answers_no_project_and_different_project` (also over a real
+    listener: open kit's id served, another id → "different project") and
+    `ide_host_record_reaches_the_project_model_and_saves_once` (2 forms in the
+    model, 1 save, seal `Allowed`, 1 activity line). Form re-validation of the
+    tree semaphore after a write is not added: the IDE re-validates forms
+    before Run/Build/Check as before.
   - Read first: `app.rs:1980-1994, 2182-2193, 14565-14580` (startup, Output
     line, per-frame publish); `app.rs:1058, 2165` (an `mpsc` receiver drained
     in `update`); `designer.rs:2501`; `editor.rs:2088, 2118`;
@@ -465,7 +496,18 @@ plus version/CHANGELOG.
     "different project" answer; a `record` round-trip through the channel
     reaches the project model and the manifest is saved once.
 
-- [ ] **T3.3 — Conflict rules with the open IDE** (R11, R14; plan §5 risk 1)
+- [x] **T3.3 — Conflict rules with the open IDE** (R11, R14; plan §5 risk 1)
+  - **Result (1.80.58):** `ide_host::decide(snapshot, tool, target)` →
+    `Allow | RefuseUnsaved(path) | RefuseBuilding`, applied by `IdeTools`
+    before every call; a refusal names the project-relative file. On every
+    call the UI thread first runs `reload_forms_changed_on_disk`: a clean open
+    designer whose `.cfrm` on disk serialises differently is rebuilt from disk
+    (as `load_form_from_path` sets one up; its handler marks are not carried
+    over), and a clean inspector runs `reload_if_stale`. Test
+    `conflicts_decision_table` (13 decisions printed). **Filter note:** the
+    test lives in `agent_kit::ide_host::tests` (tasks.md named the files
+    `ide_host.rs` and `app.rs` only), so the filter is `agent_kit`, not
+    `agent_kit::conflicts`.
   - Read first: `app.rs:1495-1533` (`InspectState::reload_if_stale`).
   - Files: `crates/cobolt-ide/src/agent_kit/ide_host.rs`,
     `crates/cobolt-ide/src/app.rs`.
@@ -481,6 +523,21 @@ plus version/CHANGELOG.
 -H 'Content-Type: application/json' http://127.0.0.1:5720/mcp/x -d
 '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'` lists seven tools (record the
 output in the commit message).
+  - **Result (1.80.58):** `cargo build --workspace` finished. `cobolt-ide
+    --bin` 1283 passed, 1 failed (known `every_document_ships_in_every_language`),
+    3 ignored (1281 + 6 new); `cobolt-project-tools` lib 36, tools 7, http 1,
+    build 1 ignored; `cobolt-cli` 5 + 4 + 2; `cobolt-mcp` 19;
+    `test_mcp_tool_parity` 3; `cobolt-compiler --lib` 149.
+    **The manual IDE launch + `curl` was not run** (operator ruling: the GUI is
+    never driven by an agent). Substituted by the automated test
+    `the_ide_listener_lists_seven_tools_as_the_gate_curl_would`, which starts
+    the very listener `CoboltApp::new` starts (`start_listener`) on a real
+    loopback port and POSTs the plan's request: `POST /mcp/x tools/list` →
+    7 tools: list_files, check, regenerate, add_to_project, build, validate,
+    kb_lookup; `Host: evil.example` → 403. **Left to the operator:** start the
+    IDE and run the `curl` above against `127.0.0.1:5720`, and confirm the
+    Output line "Coding-agent tools (MCP) listening on 127.0.0.1:5720" and the
+    new Settings row.
 
 ---
 

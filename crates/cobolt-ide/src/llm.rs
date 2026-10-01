@@ -63,6 +63,12 @@ pub struct LlmConfig {
     /// Always bound on 127.0.0.1 only; a change takes effect on restart.
     #[serde(default = "default_inspection_port")]
     pub inspection_port: u16,
+    /// TCP port of the coding-agent tools (spec 080): the IDE serves them
+    /// over HTTP on 127.0.0.1 only, and the kit writes this port into the
+    /// project's `.mcp.json`, so a change takes effect on restart and needs
+    /// the kit re-exported. Never equal to [`Self::inspection_port`].
+    #[serde(default = "default_mcp_port")]
+    pub mcp_port: u16,
     /// API keys for this RUN. Current project models use stable
     /// `profile::<uuid>` slots; provider/model slots remain only for migration.
     ///
@@ -303,6 +309,30 @@ pub fn default_inspection_port() -> u16 {
     5719
 }
 
+/// Default localhost port for the coding-agent tools (spec 080) — one above
+/// the inspection endpoint's.
+pub fn default_mcp_port() -> u16 {
+    5720
+}
+
+/// The MCP port a Settings edit may store: 1024–65535 and never the
+/// inspection port's (the two listeners cannot share one); anything else
+/// falls back to the default — or, when the default IS the inspection port,
+/// to the port next to it.
+pub fn resolve_mcp_port(requested: u16, inspection_port: u16) -> u16 {
+    if requested >= 1024 && requested != inspection_port {
+        return requested;
+    }
+    let fallback = default_mcp_port();
+    if fallback != inspection_port {
+        fallback
+    } else if inspection_port < u16::MAX {
+        inspection_port + 1
+    } else {
+        inspection_port - 1
+    }
+}
+
 pub fn default_max_review_revisions() -> u32 {
     2
 }
@@ -336,6 +366,7 @@ impl LlmConfig {
             unreviewed_temperature: default_unreviewed_temperature(),
             agentic_ai_enabled: true,
             inspection_port: default_inspection_port(),
+            mcp_port: default_mcp_port(),
             api_keys: std::collections::HashMap::new(),
             deleted_api_key_slots: HashSet::new(),
             natively_stored_slots: HashSet::new(),
@@ -889,6 +920,7 @@ impl LlmConfig {
             .map(|(cfg, _)| cfg)
             .unwrap_or_else(Self::defaults);
         machine.inspection_port = self.inspection_port;
+        machine.mcp_port = self.mcp_port;
         // Provider configuration is machine-wide (spec 048 D1): it lives here,
         // beside the credentials it pairs with, not in any project file.
         machine.provider_configs = self.provider_configs.clone();
@@ -9161,5 +9193,41 @@ mod block_literal_contract_tests {
             DEFAULT_EVENT_HANDLER_PROMPT.contains("never `n order`"),
             "the contract must say the character after a \\n escape is content"
         );
+    }
+
+    /// Spec 080 T3.1 — the coding-agent tools' port: an old configuration
+    /// gets 5720, a saved value survives a round trip, and a Settings edit can
+    /// never store the inspection port (or a privileged one).
+    #[test]
+    fn the_mcp_port_defaults_round_trips_and_never_equals_the_inspection_port() {
+        let dir = std::env::temp_dir().join(format!("prc_llm_mcp_{}", crate::agents_db::new_uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("llm_config.json");
+
+        // A configuration written before the field existed.
+        let mut old = serde_json::to_value(LlmConfig::defaults()).unwrap();
+        old.as_object_mut().unwrap().remove("mcp_port");
+        std::fs::write(&path, serde_json::to_string(&old).unwrap()).unwrap();
+        assert_eq!(load_machine_config_at(&path).mcp_port, 5720, "old config → default");
+
+        let mut cfg = load_machine_config_at(&path);
+        cfg.mcp_port = 6123;
+        cfg.save_machine_at(&path).unwrap();
+        assert_eq!(load_machine_config_at(&path).mcp_port, 6123, "a saved value round-trips");
+
+        let cases = [
+            (6123, 5719, 6123),
+            (5719, 5719, 5720), // equal to inspection → default
+            (5720, 5720, 5721), // default IS the inspection port → next one
+            (80, 5719, 5720),   // privileged → default
+        ];
+        for (req, insp, want) in cases {
+            assert_eq!(resolve_mcp_port(req, insp), want, "resolve({req}, {insp})");
+        }
+        println!(
+            "mcp port: old config → 5720, 6123 round-trips, {} resolve cases (equal-to-inspection rejected)",
+            cases.len()
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

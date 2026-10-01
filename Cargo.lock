@@ -1580,6 +1580,7 @@ dependencies = [
  "cobolt-forms",
  "cobolt-indexed",
  "cobolt-lexer",
+ "cobolt-mcp",
  "cobolt-media",
  "cobolt-parser",
  "cobolt-project-tools",

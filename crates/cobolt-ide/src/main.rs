@@ -15,6 +15,7 @@
 //! ```
 
 pub mod agent;
+pub mod agent_kit;
 pub mod ai_bundle;
 pub mod agent_actions;
 pub mod agent_lint;

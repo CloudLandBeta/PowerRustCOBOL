@@ -8,6 +8,37 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.58] — 2026-10-01
+
+### Spec 080 Phase 3 — the IDE serves the coding-agent tools
+
+While PowerRustCOBOL AI runs, it serves the seven coding-agent tools over
+HTTP on `127.0.0.1` (MCP Streamable HTTP, JSON replies), so an agent such as
+Claude Code can check, regenerate and build the open project:
+
+- **Settings ▸ Coding-agent tools port** — 5720 by default, never the agent
+  access (inspection) port; a change takes effect on restart, and the
+  coding-agent kit must then be re-exported. The Output panel says where the
+  tools listen, or why they could not start.
+- A request is served only for the project whose kit is open; with no project
+  open every tool answers "no project open", with another project open it
+  says so.
+- The IDE stays the only writer of its project file while it is open: a file
+  the agent adds goes through the IDE's own project model and save, which
+  re-seals the main-form designation.
+- A tool that would write a form or indexed definition with unsaved edits in
+  the IDE is refused, naming the file; `build` is refused while the IDE is
+  building. Before each call, open forms with no unsaved edits that the
+  agent changed on disk are reloaded, so the IDE never regenerates from a
+  stale copy.
+- Each tool call is one line in the Output panel.
+
+New IDE strings in all six languages: `ai_mcp_port`, `ai_mcp_port_hint`,
+`ai_mcp_listening`, `ai_mcp_failed`, `mcp_activity`. Tests: 6 new in
+`cobolt-ide` (1283 passed; the one known red), including the listener
+answering `tools/list` with seven tools on a real loopback port. The manual
+IDE check is left to the operator.
+
 ## [PowerRustCOBOL 1.80.57] — 2026-10-01
 
 ### Spec 080 Phase 2 — `rcrun mcp`: the coding-agent tools, headless

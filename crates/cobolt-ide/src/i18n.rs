@@ -811,6 +811,11 @@ pub struct Tr {
     pub settings_ai_reviewer_hint: &'static str,
     pub ai_inspection_hint: &'static str,
     pub ai_inspection_listening: &'static str,
+    pub ai_mcp_port: &'static str,
+    pub ai_mcp_port_hint: &'static str,
+    pub ai_mcp_listening: &'static str,
+    pub ai_mcp_failed: &'static str,
+    pub mcp_activity: &'static str,
     pub ai_thinking: &'static str,
     // Agent performance ratings: the developer's post-workflow star row.
     pub grace_rate_title: &'static str,
@@ -2579,6 +2584,11 @@ const EN: Tr = Tr {
     settings_ai_reviewer_hint: "Optional second model that pedantically reviews the primary agent's answers. It may be any model, the primary's own included.",
     ai_inspection_hint:        "egui inspection / MCP endpoint on 127.0.0.1 (restart to apply)",
     ai_inspection_listening:   "Agent access (MCP/inspection) listening on {}",
+    ai_mcp_port: "Coding-agent tools port",
+    ai_mcp_port_hint: "Coding-agent tools (MCP) on 127.0.0.1; restart to apply, then re-export the coding-agent kit. Must differ from the agent access port.",
+    ai_mcp_listening: "Coding-agent tools (MCP) listening on {}",
+    ai_mcp_failed: "Coding-agent tools (MCP) could not start on {}: {}",
+    mcp_activity: "Coding agent: {} {}",
     ai_thinking:               "Thinking…",
     grace_rate_title:          "Rate each agent's work:",
     grace_rate_hint:           "★–★★ reject (−10) · ★★★ neutral · ★★★★–★★★★★ praise (+5). Click the same star again to clear.",
@@ -4102,6 +4112,11 @@ const ES: Tr = Tr {
     agents_proficiency_unreviewed: "Prueba la competencia COBOL de este modelo (sin compañero — resultado sin revisión).",
     ai_inspection_hint:        "Punto de acceso egui inspection / MCP en 127.0.0.1 (reinicie para aplicar)",
     ai_inspection_listening:   "Acceso de agentes (MCP/inspección) escuchando en {}",
+    ai_mcp_port: "Puerto de herramientas para agentes de código",
+    ai_mcp_port_hint: "Herramientas para agentes de código (MCP) en 127.0.0.1; reinicie para aplicar y vuelva a exportar el kit para agentes de código. Debe ser distinto del puerto de acceso para agentes.",
+    ai_mcp_listening: "Herramientas para agentes de código (MCP) escuchando en {}",
+    ai_mcp_failed: "Las herramientas para agentes de código (MCP) no pudieron iniciarse en {}: {}",
+    mcp_activity: "Agente de código: {} {}",
     ai_thinking:               "Pensando…",
     grace_rate_title:          "Califica el trabajo de cada agente:",
     grace_rate_hint:           "★–★★ rechazo (−10) · ★★★ neutro · ★★★★–★★★★★ elogio (+5). Haz clic en la misma estrella para borrar.",
@@ -5625,6 +5640,11 @@ const PT: Tr = Tr {
     agents_proficiency_unreviewed: "Testa a competência COBOL deste modelo (sem companheiro — resultado sem revisão).",
     ai_inspection_hint:        "Ponto de acesso egui inspection / MCP em 127.0.0.1 (reinicie para aplicar)",
     ai_inspection_listening:   "Acesso de agentes (MCP/inspeção) escutando em {}",
+    ai_mcp_port: "Porta das ferramentas para agentes de código",
+    ai_mcp_port_hint: "Ferramentas para agentes de código (MCP) em 127.0.0.1; reinicie para aplicar e exporte de novo o kit para agentes de código. Deve ser diferente da porta de acesso para agentes.",
+    ai_mcp_listening: "Ferramentas para agentes de código (MCP) escutando em {}",
+    ai_mcp_failed: "As ferramentas para agentes de código (MCP) não puderam iniciar em {}: {}",
+    mcp_activity: "Agente de código: {} {}",
     ai_thinking:               "Pensando…",
     grace_rate_title:          "Avalie o trabalho de cada agente:",
     grace_rate_hint:           "★–★★ rejeição (−10) · ★★★ neutro · ★★★★–★★★★★ elogio (+5). Clique na mesma estrela para limpar.",
@@ -7147,6 +7167,11 @@ const JA: Tr = Tr {
     agents_proficiency_unreviewed: "このモデルの COBOL 習熟度をテストします（コンパニオンなし — 結果は未レビュー）。",
     ai_inspection_hint:        "egui inspection / MCP エンドポイント（127.0.0.1、再起動後に有効）",
     ai_inspection_listening:   "エージェント アクセス（MCP/インスペクション）を {} で待機中",
+    ai_mcp_port: "コーディングエージェント用ツールのポート",
+    ai_mcp_port_hint: "コーディングエージェント用ツール（MCP、127.0.0.1）。再起動後に有効になります。その後、コーディングエージェント キットを再エクスポートしてください。エージェント アクセス ポートとは別の番号にしてください。",
+    ai_mcp_listening: "コーディングエージェント用ツール（MCP）を {} で待機中",
+    ai_mcp_failed: "コーディングエージェント用ツール（MCP）を {} で開始できませんでした: {}",
+    mcp_activity: "コーディングエージェント: {} {}",
     ai_thinking:               "考え中…",
     grace_rate_title:          "各エージェントの作業を評価:",
     grace_rate_hint:           "★–★★ 不合格 (−10) · ★★★ 中立 · ★★★★–★★★★★ 称賛 (+5)。同じ星をもう一度クリックすると解除。",
@@ -8676,6 +8701,11 @@ const ZH: Tr = Tr {
     agents_proficiency_unreviewed: "测试此模型的 COBOL 熟练度（无同伴 — 结果未经评审）。",
     ai_inspection_hint: "egui inspection / MCP 端点（127.0.0.1，重启后生效）",
     ai_inspection_listening: "智能体访问（MCP/检查协议）正在 {} 上监听",
+    ai_mcp_port: "编码智能体工具端口",
+    ai_mcp_port_hint: "编码智能体工具（MCP，127.0.0.1）；重启后生效，然后请重新导出编码智能体套件。必须与智能体访问端口不同。",
+    ai_mcp_listening: "编码智能体工具（MCP）正在 {} 上监听",
+    ai_mcp_failed: "编码智能体工具（MCP）无法在 {} 上启动：{}",
+    mcp_activity: "编码智能体：{} {}",
     ai_thinking: "思考中…",
     grace_rate_title: "为每个智能体的工作评分：",
     grace_rate_hint: "★–★★ 拒绝 (−10) · ★★★ 中性 · ★★★★–★★★★★ 表扬 (+5)。再次点击同一颗星即可清除。",
@@ -10200,6 +10230,11 @@ const FR: Tr = Tr {
     agents_proficiency_unreviewed: "Teste la compétence COBOL de ce modèle (sans compagnon — résultat non révisé).",
     ai_inspection_hint:        "Point d'accès egui inspection / MCP sur 127.0.0.1 (redémarrer pour appliquer)",
     ai_inspection_listening:   "Accès des agents (MCP/inspection) à l'écoute sur {}",
+    ai_mcp_port: "Port des outils pour agents de codage",
+    ai_mcp_port_hint: "Outils pour agents de codage (MCP) sur 127.0.0.1 ; redémarrer pour appliquer, puis réexporter le kit pour agents de codage. Doit différer du port d'accès des agents.",
+    ai_mcp_listening: "Outils pour agents de codage (MCP) à l'écoute sur {}",
+    ai_mcp_failed: "Les outils pour agents de codage (MCP) n'ont pas pu démarrer sur {} : {}",
+    mcp_activity: "Agent de codage : {} {}",
     ai_thinking:               "Réflexion…",
     grace_rate_title:          "Évaluez le travail de chaque agent :",
     grace_rate_hint:           "★–★★ rejet (−10) · ★★★ neutre · ★★★★–★★★★★ éloge (+5). Cliquez à nouveau sur la même étoile pour effacer.",
@@ -11659,5 +11694,38 @@ mod viewer_tooltip_tests {
                 "{lang:?} looks untranslated: {same:?}"
             );
         }
+    }
+
+    /// Spec 080's IDE strings so far (T3.1 port setting, T3.2 listener and
+    /// activity lines): non-empty in all six tables, translated (not a copy of
+    /// English), and every `{}` the English carries kept.
+    #[test]
+    fn coding_agent_tools_strings_in_every_language() {
+        let pick = |tr: &Tr| {
+            [
+                ("ai_mcp_port", tr.ai_mcp_port),
+                ("ai_mcp_port_hint", tr.ai_mcp_port_hint),
+                ("ai_mcp_listening", tr.ai_mcp_listening),
+                ("ai_mcp_failed", tr.ai_mcp_failed),
+                ("mcp_activity", tr.mcp_activity),
+            ]
+        };
+        let en = pick(&Language::English.tr());
+        let mut checked = 0;
+        for &lang in Language::ALL {
+            for ((name, text), (_, english)) in pick(&lang.tr()).into_iter().zip(en) {
+                assert!(!text.trim().is_empty(), "{lang:?}/{name} is empty");
+                assert_eq!(
+                    text.matches("{}").count(),
+                    english.matches("{}").count(),
+                    "{lang:?}/{name}: placeholders differ from English in {text:?}"
+                );
+                if lang != Language::English {
+                    assert_ne!(text, english, "{lang:?}/{name} is untranslated");
+                }
+                checked += 1;
+            }
+        }
+        println!("i18n: {checked} spec-080 strings checked (5 keys × {} languages)", Language::ALL.len());
     }
 }

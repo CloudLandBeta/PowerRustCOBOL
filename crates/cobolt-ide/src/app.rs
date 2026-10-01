@@ -1105,6 +1105,12 @@ pub struct CoboltApp {
     /// Clone of the root egui context, so async file dialogs can wake the UI
     /// from their worker thread when the user finishes picking.
     egui_ctx: egui::Context,
+
+    /// The coding-agent tools (spec 080): the state the HTTP listener's
+    /// threads read (published every frame) …
+    agent_tools: std::sync::Arc<crate::agent_kit::ide_host::IdeShared>,
+    /// … and what they ask of the UI thread (drained every frame).
+    agent_tools_rx: std::sync::mpsc::Receiver<crate::agent_kit::ide_host::HostRequest>,
 }
 
 /// An app-level file dialog awaiting the user, identifying what to do with the
@@ -1993,6 +1999,16 @@ impl CoboltApp {
             Err(e) => Err(format!("{inspection_addr}: {e}")),
         };
 
+        // ── Coding-agent tools (spec 080): MCP over HTTP, loopback only ────────
+        // Always on, like the inspection endpoint (plan D12): with no project
+        // open every tool answers "no project open". The port is a machine
+        // setting that takes effect on restart.
+        let (agent_tools, agent_tools_rx) =
+            crate::agent_kit::ide_host::IdeShared::new(Some(cc.egui_ctx.clone()));
+        let mcp_port = crate::llm::LlmConfig::load().mcp_port;
+        let mcp_status = crate::agent_kit::ide_host::start_listener(&agent_tools, mcp_port)
+            .map_err(|e| (format!("127.0.0.1:{mcp_port}"), e));
+
         let mut app = Self {
             project: ProjectPanel::new(),
             editor: EditorPanel::new(),
@@ -2175,6 +2191,8 @@ impl CoboltApp {
             build_phase: (0.0, String::new()),
             pending_file: None,
             egui_ctx: cc.egui_ctx.clone(),
+            agent_tools,
+            agent_tools_rx,
         };
         // Surface the agent endpoint in the Output console (translated when the
         // language loads; English at first frame matches the console's startup
@@ -2189,6 +2207,14 @@ impl CoboltApp {
                 app.output
                     .push_status(format!("Agent access endpoint failed to start: {e}"));
             }
+        }
+        {
+            let tr = app.lang.tr();
+            let line = match &mcp_status {
+                Ok(addr) => tr.ai_mcp_listening.replacen("{}", addr, 1),
+                Err((addr, e)) => tr.ai_mcp_failed.replacen("{}", addr, 1).replacen("{}", e, 1),
+            };
+            app.output.push_status(line);
         }
 
         // Can this machine Build? Probed on every start — it is one cheap
@@ -4649,6 +4675,115 @@ impl CoboltApp {
             }
             Err(e) => {
                 self.output.push_status(format!("Save project failed: {e}"));
+            }
+        }
+    }
+
+    /// Spec 080 — publish the open project, the files with unsaved edits,
+    /// whether a build runs and the project's crates, for the coding-agent
+    /// tools on the listener's threads.
+    fn publish_agent_tools_snapshot(&self) {
+        let mut unsaved: Vec<PathBuf> = self
+            .designers
+            .iter()
+            .filter(|(_, d)| d.dirty)
+            .map(|(p, _)| p.clone())
+            .collect();
+        unsaved.extend(
+            self.editor
+                .tabs
+                .iter()
+                .filter(|t| t.dirty && !t.read_only)
+                .map(|t| t.path.clone()),
+        );
+        if let Some(st) = &self.inspect {
+            if st.designer.dirty {
+                unsaved.push(st.path.clone());
+            }
+        }
+        self.agent_tools.publish(crate::agent_kit::ide_host::Snapshot {
+            manifest: self
+                .cobolt_project
+                .as_ref()
+                .and(self.project_path.clone()),
+            unsaved,
+            building: self.pending_build_rx.is_some(),
+            crates: self
+                .cobolt_project
+                .as_ref()
+                .map(|p| p.crates.iter().map(|c| c.lib_name()).collect())
+                .unwrap_or_default(),
+        });
+    }
+
+    /// Spec 080 — apply what the coding-agent tools asked of the IDE: record
+    /// a file through the project model and its save (which re-seals), reload
+    /// what they wrote, and say each call in Output — after reloading any
+    /// clean open form whose `.cfrm` changed on disk (T3.3), so the IDE never
+    /// regenerates or saves over the agent's edit from a stale copy.
+    fn drain_agent_tools(&mut self) {
+        use crate::agent_kit::ide_host::{handle_record, HostRequest};
+        while let Ok(req) = self.agent_tools_rx.try_recv() {
+            match req {
+                HostRequest::Record { rel, list, reply } => {
+                    let path = self.project_path.clone();
+                    let result = handle_record(self.cobolt_project.as_mut(), &rel, list, |p| match &path {
+                        Some(path) => save_project(p, path).map_err(|e| e.to_string()),
+                        None => Err("the project has not been saved yet".to_owned()),
+                    });
+                    if result.is_ok() {
+                        if let Some(dir) = self.project_dir() {
+                            let abs = dir.join(&rel);
+                            self.project.refresh_form(&abs);
+                        }
+                    }
+                    let _ = reply.send(result);
+                }
+                HostRequest::Written(paths) => {
+                    for p in &paths {
+                        self.editor.reload_file(p);
+                    }
+                }
+                HostRequest::Called { tool, target } => {
+                    self.reload_forms_changed_on_disk();
+                    let line = self
+                        .lang
+                        .tr()
+                        .mcp_activity
+                        .replacen("{}", &tool, 1)
+                        .replacen("{}", &target, 1);
+                    self.output.push_status(line.trim_end().to_owned());
+                }
+            }
+        }
+    }
+
+    /// Spec 080 T3.3 — an open designer with no unsaved edits, or the
+    /// Main-Pane inspector, whose `.cfrm` on disk now differs from what it
+    /// holds (a coding agent edited it) reloads from disk.
+    fn reload_forms_changed_on_disk(&mut self) {
+        for (path, designer) in self.designers.iter_mut() {
+            if designer.dirty {
+                continue;
+            }
+            let Ok(on_disk) = load_form(path) else { continue };
+            let same = match (
+                cobolt_forms::form_to_string(&on_disk),
+                cobolt_forms::form_to_string(&designer.form),
+            ) {
+                (Ok(a), Ok(b)) => a == b,
+                _ => true,
+            };
+            if !same {
+                // As a freshly opened form is set up (`load_form_from_path`).
+                let mut dp = DesignerPanel::new(on_disk);
+                dp.cfrm_dir = path.parent().map(|p| p.to_path_buf());
+                *designer = dp;
+            }
+        }
+        if let Some(st) = &mut self.inspect {
+            if !st.designer.dirty {
+                st.reload_if_stale();
             }
         }
     }
@@ -14531,6 +14666,10 @@ impl eframe::App for CoboltApp {
                 .as_ref()
                 .map(|p| p.crates.iter().map(|c| c.lib_name()).collect()),
         );
+        // Spec 080 — what the coding-agent tools may see of the IDE this
+        // frame, then whatever they asked of it.
+        self.publish_agent_tools_snapshot();
+        self.drain_agent_tools();
         // Remember the language across restarts. Written only on a real change,
         // so this costs nothing on a normal frame.
         if self.lang != self.lang_persisted {
