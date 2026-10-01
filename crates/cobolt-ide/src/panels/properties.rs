@@ -9198,6 +9198,18 @@ impl PropertiesPanel {
                     None,
                     8,
                 );
+                // An answer cut off by MaximumTokens is continued this often.
+                int_prop_row(
+                    ui,
+                    id,
+                    "MaximumContinuations",
+                    "Max continuations",
+                    ctrl,
+                    action,
+                    0..=20,
+                    None,
+                    4,
+                );
 
                 section_header(ui, tr.sec_cobol_integration);
                 {

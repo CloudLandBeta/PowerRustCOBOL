@@ -170,11 +170,12 @@ pub fn body_for(req: &AskRequest, protocol: Protocol) -> String {
                 messages.push(serde_json::json!({"role": "system", "content": system}));
             }
             messages.push(serde_json::json!({"role": "user", "content": req.prompt}));
+            let num_ctx = ollama_context_tokens(serde_json::Value::Array(messages.clone()).to_string().len(), max_tokens as u64);
             serde_json::json!({
                 "model": req.model,
                 "messages": messages,
                 "stream": false,
-                "options": {"temperature": temperature, "num_predict": max_tokens},
+                "options": {"temperature": temperature, "num_predict": max_tokens, "num_ctx": num_ctx},
             })
         }
         Protocol::OpenAiChat => {
@@ -242,6 +243,50 @@ pub fn parse_reply(status: u16, body: &str) -> Result<String, String> {
         "HTTP {status}: no assistant message in the reply — {}",
         clip(body)
     ))
+}
+
+/// Why one reply document — or one streamed piece — says the model stopped:
+/// OpenAI's `choices[0].finish_reason`, Anthropic's `stop_reason` (in a
+/// stream, `message_delta`'s `delta.stop_reason`), Ollama's `done_reason`.
+fn stop_reason_in(json: &serde_json::Value) -> Option<String> {
+    [
+        json.pointer("/choices/0/finish_reason"),
+        json.pointer("/delta/stop_reason"),
+        json.get("stop_reason"),
+        json.get("done_reason"),
+    ]
+    .into_iter()
+    .flatten()
+    .find_map(|v| v.as_str())
+    .map(str::trim)
+    .filter(|s| !s.is_empty())
+    .map(str::to_owned)
+}
+
+/// [`stop_reason_in`] for a whole reply body; `None` when it says nothing.
+pub fn stop_reason_of(body: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(body).ok().and_then(|v| stop_reason_in(&v))
+}
+
+/// The model stopped because it reached its output limit (`MaximumTokens`),
+/// not because the answer was finished.
+pub fn is_cut_by_length(reason: &str) -> bool {
+    matches!(
+        reason.trim().to_ascii_lowercase().as_str(),
+        "length" | "max_tokens" | "max_output_tokens" | "model_length"
+    )
+}
+
+/// The context Ollama is asked to hold, in tokens, for a request whose
+/// messages serialise to `message_chars` characters and may answer with
+/// `max_tokens`. Ollama's own default is a few thousand tokens and it drops
+/// the START of a prompt that does not fit, without a word — the
+/// instructions and the documents a chat was asked about. Sized to the
+/// request (a token is taken as 3 characters, which over-counts), rounded up
+/// to 4096, never below 8192 nor above 65536.
+pub fn ollama_context_tokens(message_chars: usize, max_tokens: u64) -> u64 {
+    let need = (message_chars as u64).div_ceil(3) + max_tokens + 512;
+    need.div_ceil(4096).saturating_mul(4096).clamp(8192, 65536)
 }
 
 /// `body` (from [`body_for`]) asking for a STREAMED reply.
@@ -320,6 +365,11 @@ pub struct StreamAssembler {
     pub finished: bool,
     /// Whether any line carried anything at all — the answer has begun.
     pub started: bool,
+    /// Why the model stopped, in the provider's own words: OpenAI's
+    /// `finish_reason`, Anthropic's `stop_reason`, Ollama's `done_reason`.
+    /// `length` / `max_tokens` mean the answer was CUT by `MaximumTokens`
+    /// ([`is_cut_by_length`]).
+    pub stop_reason: Option<String>,
     shape: StreamShape,
     /// Tool calls by the index the stream gives them.
     calls: std::collections::BTreeMap<u64, StreamCall>,
@@ -374,6 +424,9 @@ impl StreamAssembler {
         }
         if kind == "message_stop" || json.get("done").and_then(serde_json::Value::as_bool) == Some(true) {
             self.finished = true;
+        }
+        if let Some(r) = stop_reason_in(&json) {
+            self.stop_reason = Some(r);
         }
         let num = |p: &str| json.pointer(p).and_then(serde_json::Value::as_u64);
         if let Some(n) = num("/usage/prompt_tokens")
@@ -513,6 +566,7 @@ impl StreamAssembler {
                     }
                     serde_json::json!({
                         "content": content,
+                        "stop_reason": self.stop_reason,
                         "usage": { "input_tokens": self.input_tokens, "output_tokens": self.output_tokens },
                     })
                     .to_string()
@@ -525,6 +579,7 @@ impl StreamAssembler {
                         .collect();
                     serde_json::json!({
                         "message": { "role": "assistant", "content": self.text, "tool_calls": calls },
+                        "done_reason": self.stop_reason,
                         "prompt_eval_count": self.input_tokens,
                         "eval_count": self.output_tokens,
                     })
@@ -545,7 +600,8 @@ impl StreamAssembler {
                         })
                         .collect();
                     serde_json::json!({
-                        "choices": [{ "message": { "role": "assistant", "content": self.text, "tool_calls": calls } }],
+                        "choices": [{ "message": { "role": "assistant", "content": self.text, "tool_calls": calls },
+                                      "finish_reason": self.stop_reason }],
                         "usage": { "prompt_tokens": self.input_tokens, "completion_tokens": self.output_tokens },
                     })
                     .to_string()
@@ -554,6 +610,7 @@ impl StreamAssembler {
         }
         serde_json::json!({
             "message": { "content": self.text },
+            "done_reason": self.stop_reason,
             "prompt_eval_count": self.input_tokens,
             "eval_count": self.output_tokens,
         })
@@ -707,6 +764,47 @@ mod tests {
         a.feed(r#"data: {"choices":[{"delta":{"content":"Hi"}}]}"#);
         a.feed(r#"data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#);
         assert_eq!(parse_reply(200, &a.into_body()), Err("HTTP 200: Overloaded".to_string()));
+    }
+
+    #[test]
+    fn the_stop_reason_is_read_in_every_provider_shape() {
+        let cases = [
+            (r#"{"choices":[{"message":{"content":"x"},"finish_reason":"length"}]}"#, "length"),
+            (r#"{"content":[{"type":"text","text":"x"}],"stop_reason":"max_tokens"}"#, "max_tokens"),
+            (r#"{"message":{"content":"x"},"done":true,"done_reason":"length"}"#, "length"),
+            (r#"{"message":{"content":"x"},"done":true,"done_reason":"stop"}"#, "stop"),
+        ];
+        for (body, want) in cases {
+            assert_eq!(stop_reason_of(body).as_deref(), Some(want), "{body}");
+        }
+        assert!(is_cut_by_length("length") && is_cut_by_length("max_tokens"));
+        assert!(!is_cut_by_length("stop") && !is_cut_by_length("end_turn"));
+        // Streamed: the reason on a closing line reaches the rebuilt body.
+        for lines in [
+            vec![r#"data: {"choices":[{"delta":{"content":"Hi"}}]}"#, r#"data: {"choices":[{"delta":{},"finish_reason":"length"}]}"#, "data: [DONE]"],
+            vec![r#"{"message":{"content":"Hi"},"done":false}"#, r#"{"message":{"content":""},"done":true,"done_reason":"length"}"#],
+            vec![r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}"#,
+                 r#"data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"}}"#, r#"data: {"type":"message_stop"}"#],
+        ] {
+            let mut asm = StreamAssembler::default();
+            lines.iter().for_each(|l| { asm.feed(l); });
+            let body = asm.into_body();
+            assert!(stop_reason_of(&body).is_some_and(|r| is_cut_by_length(&r)), "{body}");
+        }
+    }
+
+    #[test]
+    fn ollama_is_given_a_context_that_holds_the_request() {
+        let mut req = AskRequest { prompt: "short".into(), max_tokens: 8192, ..AskRequest::default() };
+        let small: serde_json::Value = serde_json::from_str(&body_for(&req, Protocol::OllamaChat)).unwrap();
+        assert_eq!(small["options"]["num_ctx"], 12288, "8192 to answer plus the prompt, rounded up");
+        req.prompt = "x".repeat(90_000);
+        let big: serde_json::Value = serde_json::from_str(&body_for(&req, Protocol::OllamaChat)).unwrap();
+        let n = big["options"]["num_ctx"].as_u64().unwrap();
+        assert!(n >= 30_000 + 8192 && n % 4096 == 0, "{n}");
+        assert_eq!(ollama_context_tokens(10_000_000, 8192), 65536, "capped");
+        let openai: serde_json::Value = serde_json::from_str(&body_for(&req, Protocol::OpenAiChat)).unwrap();
+        assert!(openai.get("options").is_none(), "only Ollama takes num_ctx");
     }
 
     #[test]

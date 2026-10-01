@@ -80,7 +80,7 @@ pub(super) struct ToolLoop {
     start_timeout_ms: u64,
     started_at: std::time::Instant,
     generation: u64,
-    tools: Vec<ToolSpec>,
+    pub(super) tools: Vec<ToolSpec>,
     turns: Vec<Turn>,
     rounds: u32,
     max_rounds: u32,
@@ -89,6 +89,36 @@ pub(super) struct ToolLoop {
     pending: std::collections::VecDeque<ToolCall>,
     results: Vec<(ToolCall, String)>,
     pub(super) waiting: Waiting,
+    /// The answer so far, when the model was cut off by `MaximumTokens` and
+    /// was asked to go on: every piece, in order, without a seam.
+    pub(super) partial: String,
+    /// How many times it was asked to go on, and how many it may be
+    /// (`MaximumContinuations`, 4 unless set; 0 turns it off).
+    continuations: u32,
+    max_continuations: u32,
+    /// A `StreamReply` Ask: the continuation's text is shown too, after
+    /// what was shown already.
+    pub(super) show_partials: bool,
+}
+
+/// What the model is told when its answer was cut off by its output limit.
+/// It goes on from where it stopped; the pieces are joined as they come.
+pub(super) const CONTINUE_PROMPT: &str = "Your previous answer was cut off by the length limit. \
+Continue it exactly where it stopped - mid-sentence if that is where it stopped. Do not repeat \
+anything already written, do not start over, and do not add any introduction or comment.";
+
+/// A plain `Ask` (no tools) in flight: what a continuation needs to send its
+/// next request, kept until the reply is read.
+#[derive(Debug, Clone)]
+pub(crate) struct PlainAsk {
+    pub(crate) req: AskRequest,
+    pub(crate) protocol: Protocol,
+    pub(crate) url: String,
+    pub(crate) headers: Vec<(String, String)>,
+    pub(crate) timeout_ms: u64,
+    pub(crate) start_timeout_ms: u64,
+    pub(crate) generation: u64,
+    pub(crate) show_partials: bool,
 }
 
 impl Interpreter {
@@ -185,8 +215,83 @@ impl Interpreter {
                 pending: Default::default(),
                 results: Vec::new(),
                 waiting: Waiting::Nothing,
+                partial: String::new(),
+                continuations: 0,
+                max_continuations: self.agent_max_continuations(obj),
+                show_partials: false,
             },
         );
+    }
+
+    /// `MaximumContinuations`: how many times an answer cut off by
+    /// `MaximumTokens` is asked to go on. Unset reads as 4; `0` turns it off.
+    pub(super) fn agent_max_continuations(&self, obj: &str) -> u32 {
+        match self.obj_get(obj, "MaximumContinuations").trim() {
+            "" => 4,
+            v => v.parse::<u32>().unwrap_or(4),
+        }
+    }
+
+    /// A plain `Ask` came back cut off by its output limit: it becomes a loop
+    /// with no tools, whose next round asks the model to go on. False when it
+    /// may not (no continuations allowed, or the Ask is no longer current).
+    pub(super) fn agent_continue_plain(&mut self, obj: &str, text: &str, usage: Usage) -> bool {
+        let Some(p) = self.plain_asks.get(obj).cloned() else {
+            return false;
+        };
+        let live = self
+            .async_generations
+            .get(obj)
+            .map(|g| g.load(std::sync::atomic::Ordering::Relaxed))
+            .unwrap_or(0);
+        if live != p.generation || self.agent_max_continuations(obj) == 0 || text.is_empty() {
+            return false;
+        }
+        let prompt = p.req.prompt.clone();
+        self.agent_begin_tool_loop(
+            obj,
+            p.req,
+            p.protocol,
+            false,
+            p.url,
+            p.headers,
+            p.timeout_ms,
+            p.start_timeout_ms,
+            p.generation,
+            Vec::new(),
+        );
+        let Some(l) = self.tool_loops.get_mut(obj) else {
+            return false;
+        };
+        l.usage.add(usage);
+        l.rounds = 1;
+        l.show_partials = p.show_partials;
+        l.partial.push_str(text);
+        l.continuations = 1;
+        l.turns = vec![
+            Turn::User(prompt),
+            Turn::Assistant(Reply::Text(text.to_owned())),
+            Turn::User(CONTINUE_PROMPT.to_owned()),
+        ];
+        if self.agent_is_verbose(obj) {
+            self.agent_log(format!(
+                "[agent {obj}] the answer was cut off by MaximumTokens — asking the model to go on (1)"
+            ));
+        }
+        self.obj_set(obj, "Busy", "1".to_owned());
+        self.tool_loop_send(obj);
+        true
+    }
+
+    /// Why the last answer stopped, read by the program: `StopReason` in the
+    /// provider's words, `Truncated` when it was still cut off after every
+    /// continuation, `ContinuationCount` how many it took.
+    pub(super) fn agent_publish_stop(&mut self, obj: &str, reason: Option<&str>, continuations: u32) {
+        let reason = reason.unwrap_or("").to_owned();
+        let cut = crate::agent_runtime::is_cut_by_length(&reason);
+        self.obj_set(obj, "StopReason", reason);
+        self.obj_set(obj, "Truncated", if cut { "1" } else { "0" }.to_owned());
+        self.obj_set(obj, "ContinuationCount", continuations.to_string());
     }
 
     /// Is this loop still the one its control is waiting on? A `Cancel`, a
@@ -225,8 +330,31 @@ impl Interpreter {
                 };
                 l.usage.add(usage);
                 l.rounds += 1;
+                let reason = crate::agent_runtime::stop_reason_of(body);
+                let cut = reason.as_deref().is_some_and(crate::agent_runtime::is_cut_by_length);
                 match reply {
-                    Reply::Text(text) => self.tool_loop_answer(obj, text),
+                    // Cut off by the output limit: asked to go on, the pieces
+                    // joined (operator, 2026-09-30: "the agent must interact
+                    // with the model to retrieve a complete response").
+                    Reply::Text(text) if cut && l.continuations < l.max_continuations && !text.is_empty() => {
+                        l.partial.push_str(&text);
+                        l.continuations += 1;
+                        let n = l.continuations;
+                        l.turns.push(Turn::Assistant(Reply::Text(text)));
+                        l.turns.push(Turn::User(CONTINUE_PROMPT.to_owned()));
+                        if self.agent_is_verbose(obj) {
+                            self.agent_log(format!(
+                                "[agent {obj}] the answer was cut off by MaximumTokens — asking the model to go on ({n})"
+                            ));
+                        }
+                        self.tool_loop_send(obj);
+                    }
+                    Reply::Text(text) => {
+                        let whole = std::mem::take(&mut l.partial) + &text;
+                        let n = l.continuations;
+                        self.agent_publish_stop(obj, reason.as_deref(), n);
+                        self.tool_loop_answer(obj, whole)
+                    }
                     Reply::Calls { text, calls, raw_content } => {
                         if l.rounds >= l.max_rounds {
                             let max = l.max_rounds;
@@ -373,11 +501,15 @@ impl Interpreter {
     /// `Cancel` finds something to cancel.
     pub(super) fn tool_loop_keep_pending(&mut self, obj: &str) {
         if let Some(l) = self.tool_loops.get(obj) {
+            // A loop with no tools is a plain Ask being continued: like a
+            // plain Ask, `TimeoutSeconds` is the silence between pieces, so
+            // its clock restarts with each request.
+            let started_at = if l.tools.is_empty() { std::time::Instant::now() } else { l.started_at };
             self.async_pending.insert(
                 obj.to_string(),
                 crate::async_op::PendingOp {
                     generation: l.generation,
-                    started_at: l.started_at,
+                    started_at,
                     timeout_ms: l.timeout_ms,
                     awaiting_start: None,
                 },
@@ -421,9 +553,10 @@ impl Interpreter {
             headers: l.headers.clone(),
         };
         // Streamed like every agent request, so the loop can tell a model that
-        // has begun its answer from one that never will; its text is not
-        // shown on the way (the program answers a round, not the reader).
-        self.agent_spawn_streamed(obj, l.url.clone(), body, l.protocol, cfg, l.generation, false);
+        // has begun its answer from one that never will. A tool round's text
+        // is not shown on the way (the program answers a round, not the
+        // reader); a `StreamReply` answer that is being continued is.
+        self.agent_spawn_streamed(obj, l.url.clone(), body, l.protocol, cfg, l.generation, l.show_partials);
     }
 
     /// At every `COBOL-WAIT-EVENT`: a program-answered call whose handler has

@@ -141,11 +141,13 @@ pub fn body_for_turns(
             }
             messages.extend(chat_messages(turns, fenced, ollama));
             let mut v = if ollama {
+                let chars = Value::Array(messages.clone()).to_string().len();
+                let num_ctx = crate::agent_runtime::ollama_context_tokens(chars, max_tokens as u64);
                 json!({
                     "model": req.model,
                     "messages": messages,
                     "stream": false,
-                    "options": {"temperature": temperature, "num_predict": max_tokens},
+                    "options": {"temperature": temperature, "num_predict": max_tokens, "num_ctx": num_ctx},
                 })
             } else {
                 json!({

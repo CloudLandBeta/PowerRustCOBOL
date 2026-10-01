@@ -729,6 +729,14 @@ pub static PROP_HELP: &[PropHelp] = &[
         "模型单次回复可生成的最大 token 数（以 max_tokens / num_predict 发送）。默认 1024。",
         "Nombre maximal de tokens que le modèle peut générer pour une réponse (envoyé comme max_tokens / num_predict). Par défaut : 1024.",
     ] },
+    PropHelp { ty: "AgentObject", prop: "MaximumContinuations", text: [
+        "How many times an answer cut off by the output limit (MaximumTokens) is continued (default 4). The model is sent its answer so far and asked to go on where it stopped; the pieces are joined and onResponse fires once. 0 turns it off. StopReason, Truncated and ContinuationCount tell what happened.",
+        "Cuántas veces se continúa una respuesta cortada por el límite de salida (MaximumTokens) (por defecto 4). Se envía al modelo su respuesta hasta ese punto y se le pide que siga donde se detuvo; las partes se unen y onResponse se dispara una sola vez. 0 lo desactiva. StopReason, Truncated y ContinuationCount indican lo que pasó.",
+        "Quantas vezes uma resposta cortada pelo limite de saída (MaximumTokens) é continuada (padrão 4). O modelo recebe a resposta até ali e é pedido que continue de onde parou; as partes são unidas e onResponse dispara uma única vez. 0 desativa. StopReason, Truncated e ContinuationCount dizem o que aconteceu.",
+        "出力上限（MaximumTokens）で途中で切れた回答を続けさせる回数（既定値 4）。それまでの回答をモデルに送り、止まった所から続けるよう求めます。各部分はつなげられ、onResponse は 1 回だけ発生します。0 で無効。StopReason、Truncated、ContinuationCount で結果がわかります。",
+        "被输出上限（MaximumTokens）截断的回答最多续写几次（默认 4）。会把已有的回答发回给模型，请它从中断处继续；各部分拼接起来，onResponse 只触发一次。0 表示关闭。StopReason、Truncated 和 ContinuationCount 说明发生了什么。",
+        "Nombre de fois qu'une réponse coupée par la limite de sortie (MaximumTokens) est poursuivie (4 par défaut). Le modèle reçoit sa réponse jusque-là et doit reprendre là où il s'est arrêté ; les morceaux sont joints et onResponse ne se déclenche qu'une fois. 0 le désactive. StopReason, Truncated et ContinuationCount indiquent ce qui s'est passé.",
+    ] },
     PropHelp { ty: "AgentObject", prop: "MaximumToolRounds", text: [
         "How many rounds of tool calls one Ask may take (default 8). If the model is still calling tools at the limit, the Ask ends with onError and LastError names MaximumToolRounds.",
         "Cuántas rondas de llamadas a herramientas puede usar un Ask (por defecto 8). Si el modelo sigue llamando herramientas al llegar al límite, el Ask termina con onError y LastError menciona MaximumToolRounds.",

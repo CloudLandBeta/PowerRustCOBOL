@@ -165,6 +165,8 @@ fn declared_readers() -> Vec<(ControlType, Vec<(&'static str, Reader)>)> {
                 // Spec 072 — how tools are offered, and how many rounds.
                 ("ToolProtocol", Runtime),
                 ("MaximumToolRounds", Runtime),
+                // An answer cut off by MaximumTokens is continued this often.
+                ("MaximumContinuations", Runtime),
             ],
         ),
         (

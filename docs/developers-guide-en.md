@@ -10031,6 +10031,34 @@ control's own properties. `Temperature`, `MaximumTokens` and `TimeoutSeconds`
 are always the agent's own. A `KnowledgeBase` has a `ModelEntry` too, for its
 `Endpoint` embedder.
 
+**A long answer is never cut short in silence.** `MaximumTokens` is the most
+a model may write in one reply. Every provider says why its model stopped, and
+when the reason is that limit, the agent does not hand you half an answer. It
+sends the conversation back with the answer so far and asks the model to go on
+exactly where it stopped, up to `MaximumContinuations` times (default 4), then
+joins the pieces. `onResponse` fires once, with the whole answer, and a
+`StreamReply` agent keeps showing the text as it grows. Three properties say
+what happened:
+
+| Property | Meaning |
+|---|---|
+| `StopReason` | Why the model stopped, in the provider's words: `stop` or `end_turn` (finished), `length` or `max_tokens` (cut off by the limit), `tool_calls`. |
+| `ContinuationCount` | How many times the answer had to be continued. |
+| `Truncated` | 1 when the answer is still incomplete: the limit cut it off and the continuations ran out (or `MaximumContinuations` is 0). |
+
+```cobol
+       AGT-1--ONRESPONSE.
+           MOVE AGT-1::LastReply TO WS-ANSWER
+           IF AGT-1::Truncated = "1"
+               MOVE "Incomplete answer: ask for less." TO LBL-STATUS::Caption
+           END-IF.
+```
+
+A local Ollama model is also told how much text to hold (`num_ctx`), sized to
+the request. Ollama's own default is a few thousand tokens, and it drops the
+START of a prompt that does not fit without a word — the instructions and the
+documents the model was asked about.
+
 If the entry does not exist, or its provider needs a key (every provider but
 local Ollama) and none is stored, `Ask` fails at once with `onError` naming the
 entry — nothing is sent. When an entry an agent has used is changed or withdrawn — by this form
@@ -10501,6 +10529,7 @@ declared, and every value in it is a string.
 | `RegisterFile(data-path, cidx-path [, name])` / `UnregisterFile(name)` | Offers or withdraws an indexed file by its path — local, network or `smb://` — with no `FD`. |
 | `ToolProtocol` | `Native` (default), `Fenced`, or `None` — see below. |
 | `MaximumToolRounds` | How many rounds of tool calls one `Ask` may take (default 8). |
+| `MaximumContinuations` | How many times an answer cut off by `MaximumTokens` is continued (default 4; see "A long answer is never cut short in silence"). |
 | `LastInputTokens`, `LastOutputTokens` | Tokens the provider reported for the last `Ask`, summed over every round. |
 | `LastToolCallCount` | How many tools the model called during the last `Ask`. |
 

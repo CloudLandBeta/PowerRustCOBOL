@@ -1449,6 +1449,10 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
         "LastInputTokens",
         "LastOutputTokens",
         "LastToolCallCount",
+        // Why the last answer stopped, and whether it had to be continued.
+        "StopReason",
+        "Truncated",
+        "ContinuationCount",
         "ToolCallId",
         "ToolName",
         "ToolArguments",
@@ -5614,6 +5618,9 @@ impl Control {
                 props.insert("ToolProtocol".into(), PropValue::String("Native".into()));
                 // Rounds of tool calls one Ask may take before it gives up.
                 props.insert("MaximumToolRounds".into(), PropValue::Int(8));
+                // An answer cut off by MaximumTokens is asked to go on this
+                // many times (operator, 2026-09-30); 0 turns it off.
+                props.insert("MaximumContinuations".into(), PropValue::Int(4));
             }
             ControlType::KnowledgeBase => {
                 // Spec 068. Where the collections live: relative paths are the

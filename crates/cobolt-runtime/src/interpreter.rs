@@ -1544,6 +1544,9 @@ pub struct Interpreter {
     agent_declared_tools: HashMap<String, Vec<agent_loop::DeclaredTool>>,
     /// Spec 072 — each tool-offering `Ask` in progress, by control id.
     tool_loops: HashMap<String, agent_loop::ToolLoop>,
+    /// A plain `Ask` in flight, kept so an answer cut off by `MaximumTokens`
+    /// can be continued (`MaximumContinuations`).
+    plain_asks: HashMap<String, agent_loop::PlainAsk>,
     /// Spec 072 — `SetToolResult(call-id, text)`, waiting to be collected.
     tool_results: HashMap<String, String>,
     /// Generated data-binding helper CALL state, keyed by binding id.
@@ -2059,6 +2062,7 @@ impl Interpreter {
             designed_menus: HashMap::new(),
             agent_declared_tools: HashMap::new(),
             tool_loops: HashMap::new(),
+            plain_asks: HashMap::new(),
             tool_results: HashMap::new(),
             binding_states: HashMap::new(),
             event_rx: None,
@@ -12557,6 +12561,19 @@ impl Interpreter {
         );
         self.obj_set(obj, "PartialReply", String::new());
         self.obj_set(obj, "ReplyPiece", String::new());
+        self.plain_asks.insert(
+            obj.to_string(),
+            agent_loop::PlainAsk {
+                req: req.clone(),
+                protocol,
+                url: url.clone(),
+                headers: cfg.headers.clone(),
+                timeout_ms,
+                start_timeout_ms: start_ms,
+                generation,
+                show_partials,
+            },
+        );
         self.agent_spawn_streamed(obj, url, body, protocol, cfg, generation, show_partials);
     }
 
@@ -12570,6 +12587,13 @@ impl Interpreter {
             op.started_at = std::time::Instant::now();
             op.awaiting_start = None;
         }
+        // A continued answer streams from empty again: what was shown before
+        // it comes first, so `PartialReply` keeps growing and `ReplyPiece`
+        // stays only what is new.
+        let text = match self.tool_loops.get(obj) {
+            Some(l) if l.show_partials => format!("{}{text}", l.partial),
+            _ => text,
+        };
         let before = self.obj_get(obj, "PartialReply");
         let piece = text.strip_prefix(before.as_str()).unwrap_or(&text).to_owned();
         self.obj_set(obj, "ReplyPiece", piece);
@@ -12582,7 +12606,8 @@ impl Interpreter {
     /// restarts. A tool loop keeps its clock: `TimeoutSeconds` bounds its
     /// whole question, handler waits included (072 Q3).
     fn agent_alive(&mut self, obj: &str) {
-        let tool_loop = self.tool_loops.contains_key(obj);
+        // A loop with no tools is a plain Ask being continued, timed like one.
+        let tool_loop = self.tool_loops.get(obj).is_some_and(|l| !l.tools.is_empty());
         if let Some(op) = self.async_pending.get_mut(obj) {
             op.awaiting_start = None;
             if !tool_loop {
@@ -12710,8 +12735,23 @@ impl Interpreter {
         self.obj_set(obj, "LastOutputTokens", usage.output.to_string());
         self.obj_set(obj, "LastToolCallCount", "0".to_owned());
         match ag::parse_reply(status, body) {
-            Ok(text) => self.agent_answered(obj, text),
-            Err(message) => self.agent_failed(obj, &message),
+            Ok(text) => {
+                // Cut off by `MaximumTokens`: the model is asked to go on, and
+                // `onResponse` waits for the whole answer.
+                let reason = ag::stop_reason_of(body);
+                if reason.as_deref().is_some_and(ag::is_cut_by_length)
+                    && self.agent_continue_plain(obj, &text, usage)
+                {
+                    return;
+                }
+                self.plain_asks.remove(obj);
+                self.agent_publish_stop(obj, reason.as_deref(), 0);
+                self.agent_answered(obj, text)
+            }
+            Err(message) => {
+                self.plain_asks.remove(obj);
+                self.agent_failed(obj, &message)
+            }
         }
     }
 
@@ -23346,6 +23386,188 @@ mod queued_event_spelling_tests {
             "each partial extends the last: {partials:?}"
         );
         assert!("COBOL streams fine.".starts_with(partials.last().unwrap().as_str()));
+    }
+
+    /// A local model server for the continuation tests: answers each request
+    /// with the next of `pieces` as an OpenAI-style stream ending in its own
+    /// `finish_reason`, and keeps every request body it was sent.
+    fn cutting_server(
+        pieces: Vec<(&'static str, &'static str)>,
+    ) -> (u16, std::sync::Arc<std::sync::Mutex<Vec<String>>>, std::thread::JoinHandle<()>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let log = seen.clone();
+        let server = std::thread::spawn(move || {
+            for (text, reason) in pieces {
+                let (mut sock, _) = listener.accept().unwrap();
+                let mut buf = [0u8; 16384];
+                let mut got = Vec::new();
+                let body = loop {
+                    let n = sock.read(&mut buf).unwrap();
+                    assert!(n > 0, "a whole request");
+                    got.extend_from_slice(&buf[..n]);
+                    let raw = String::from_utf8_lossy(&got).into_owned();
+                    if let Some(at) = raw.find("\r\n\r\n") {
+                        let len = raw[..at]
+                            .lines()
+                            .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().to_owned()))
+                            .and_then(|v| v.parse::<usize>().ok())
+                            .unwrap_or(0);
+                        if got.len() >= at + 4 + len {
+                            break raw[at + 4..].to_owned();
+                        }
+                    }
+                };
+                log.lock().unwrap().push(body);
+                sock.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n")
+                    .unwrap();
+                // A pause before and after the piece, so a `StreamReply` Ask
+                // (throttled to ten updates a second) shows it on the way.
+                std::thread::sleep(std::time::Duration::from_millis(150));
+                let piece = serde_json::json!({"choices":[{"delta":{"content": text}}]});
+                sock.write_all(format!("data: {piece}\n\n").as_bytes()).unwrap();
+                sock.flush().unwrap();
+                std::thread::sleep(std::time::Duration::from_millis(150));
+                let end = serde_json::json!({"choices":[{"delta":{},"finish_reason": reason}]});
+                sock.write_all(format!("data: {end}\n\ndata: [DONE]\n\n").as_bytes()).unwrap();
+                sock.flush().unwrap();
+            }
+        });
+        (port, seen, server)
+    }
+
+    /// Run an Ask against `port` until `onResponse` (or a failure): the
+    /// partial replies shown and how many responses fired.
+    fn ask_until_answered(i: &mut Interpreter, port: u16, stream: bool) -> (Vec<String>, u32) {
+        i.set_control_ids(["Agent-Helper"]);
+        i.obj_set("Agent-Helper", "AgentURL", format!("http://127.0.0.1:{port}/v1/chat/completions"));
+        i.obj_set("Agent-Helper", "AgentAPI", "Custom".into());
+        i.obj_set("Agent-Helper", "TimeoutSeconds", "10".into());
+        if stream {
+            i.obj_set("Agent-Helper", "StreamReply", "true".into());
+        }
+        i.agent_ask("Agent-Helper", "Explain the whole policy.");
+        let (mut partials, mut responses) = (Vec::new(), 0);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        while responses == 0 && std::time::Instant::now() < deadline {
+            i.drain_async_ops();
+            while let Some((_, ev)) = i.async_dispatch_queue.pop_front() {
+                match ev.as_str() {
+                    "onPartialReply" => partials.push(i.obj_get("Agent-Helper", "PartialReply")),
+                    "onResponse" => responses += 1,
+                    "onError" | "onTimeout" => panic!("{ev}: {}", i.obj_get("Agent-Helper", "LastError")),
+                    _ => {}
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        (partials, responses)
+    }
+
+    /// Operator (2026-09-30): an answer cut off by the model's output limit
+    /// must be completed — "the agent must interact with the model to
+    /// retrieve a complete response". The model stops twice on `length`;
+    /// each time it is sent its own answer so far and asked to go on, and
+    /// `onResponse` fires once, with the three pieces joined.
+    #[test]
+    fn an_answer_cut_off_by_its_output_limit_is_continued_and_joined() {
+        let t = std::time::Instant::now();
+        let (port, seen, server) = cutting_server(vec![
+            ("Part one, ", "length"),
+            ("part two, ", "length"),
+            ("the end.", "stop"),
+        ]);
+        let mut i = interp();
+        let (partials, responses) = ask_until_answered(&mut i, port, true);
+        server.join().unwrap();
+        assert_eq!(responses, 1, "onResponse fires once, for the whole answer");
+        assert_eq!(i.obj_get("Agent-Helper", "LastReply"), "Part one, part two, the end.");
+        assert_eq!(i.obj_get("Agent-Helper", "ContinuationCount"), "2");
+        assert_eq!(i.obj_get("Agent-Helper", "StopReason"), "stop");
+        assert_eq!(i.obj_get("Agent-Helper", "Truncated"), "0");
+        let sent = seen.lock().unwrap().clone();
+        assert_eq!(sent.len(), 3, "the question, then two continuations");
+        let second: serde_json::Value = serde_json::from_str(&sent[1]).unwrap();
+        let msgs = second["messages"].as_array().unwrap();
+        assert_eq!(msgs[msgs.len() - 2]["role"], "assistant");
+        assert_eq!(msgs[msgs.len() - 2]["content"], "Part one, ");
+        assert!(msgs[msgs.len() - 1]["content"].as_str().unwrap().contains("Continue it exactly where it stopped"));
+        let third: serde_json::Value = serde_json::from_str(&sent[2]).unwrap();
+        let n = third["messages"].as_array().unwrap().len();
+        assert_eq!(n, msgs.len() + 2, "each continuation carries the whole conversation");
+        assert!(partials.len() >= 2, "the answer was shown on the way: {partials:?}");
+        assert!(
+            partials.windows(2).all(|w| w[1].starts_with(&w[0])),
+            "what is shown keeps growing across the continuations: {partials:?}"
+        );
+        assert!(partials.iter().any(|p| p.starts_with("Part one, part two")), "a continuation shown after its start: {partials:?}");
+        println!(
+            "continuation: 3 requests (1 question + 2 continuations), {} partial updates, \
+             answer {} chars, StopReason stop, {:.0} ms",
+            partials.len(),
+            i.obj_get("Agent-Helper", "LastReply").len(),
+            t.elapsed().as_secs_f64() * 1000.0
+        );
+    }
+
+    /// The same for an agent that offers tools — PowerChat's, which search a
+    /// Knowledge Base: its final round, cut off, is continued inside the loop,
+    /// and the tools are still offered on each continuation.
+    #[test]
+    fn a_tool_offering_answer_cut_off_is_continued_too() {
+        let (port, seen, server) = cutting_server(vec![("First half, ", "length"), ("second half.", "stop")]);
+        let mut i = interp();
+        i.set_control_ids(["Agent-Helper"]);
+        i.exec_method(
+            "Agent-Helper",
+            "AddTool",
+            &[CobolValue::from_str("lookup", 6), CobolValue::from_str("Looks a thing up", 16)],
+        );
+        let (_, responses) = ask_until_answered(&mut i, port, false);
+        server.join().unwrap();
+        assert_eq!(responses, 1);
+        assert_eq!(i.obj_get("Agent-Helper", "LastReply"), "First half, second half.");
+        assert_eq!(i.obj_get("Agent-Helper", "ContinuationCount"), "1");
+        let sent = seen.lock().unwrap().clone();
+        assert_eq!(sent.len(), 2);
+        let second: serde_json::Value = serde_json::from_str(&sent[1]).unwrap();
+        assert!(second["tools"].is_array(), "the tools are still offered: {second}");
+    }
+
+    /// `MaximumContinuations` bounds it: past the limit the answer is given
+    /// as far as it got, and `Truncated` says it is not complete.
+    #[test]
+    fn continuations_stop_at_their_maximum_and_say_truncated() {
+        let (port, seen, server) = cutting_server(vec![("One, ", "length"), ("two, ", "length")]);
+        let mut i = interp();
+        i.set_control_ids(["Agent-Helper"]);
+        i.obj_set("Agent-Helper", "MaximumContinuations", "1".into());
+        let (_, responses) = ask_until_answered(&mut i, port, false);
+        server.join().unwrap();
+        assert_eq!(responses, 1);
+        assert_eq!(i.obj_get("Agent-Helper", "LastReply"), "One, two, ");
+        assert_eq!(i.obj_get("Agent-Helper", "Truncated"), "1");
+        assert_eq!(i.obj_get("Agent-Helper", "StopReason"), "length");
+        assert_eq!(i.obj_get("Agent-Helper", "ContinuationCount"), "1");
+        assert_eq!(seen.lock().unwrap().len(), 2);
+    }
+
+    /// `MaximumContinuations = 0` keeps the old behaviour: one request, the
+    /// answer as it came, `Truncated` set.
+    #[test]
+    fn no_continuation_when_turned_off() {
+        let (port, seen, server) = cutting_server(vec![("Only this", "length")]);
+        let mut i = interp();
+        i.set_control_ids(["Agent-Helper"]);
+        i.obj_set("Agent-Helper", "MaximumContinuations", "0".into());
+        let (_, responses) = ask_until_answered(&mut i, port, false);
+        server.join().unwrap();
+        assert_eq!(responses, 1);
+        assert_eq!(i.obj_get("Agent-Helper", "LastReply"), "Only this");
+        assert_eq!(i.obj_get("Agent-Helper", "Truncated"), "1");
+        assert_eq!(seen.lock().unwrap().len(), 1);
     }
 
     /// The retired `Stream`, seeded TRUE on every older AgentObject, does not

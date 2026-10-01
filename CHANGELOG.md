@@ -8,6 +8,58 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.25] — 2026-09-30
+
+### Fix — an agent's answer cut off by its output limit is completed, not cut short in silence
+
+Reported with PowerChat: a question about a document of ten pages always got
+a short answer (operator, 2026-09-30: "if so, the agent must interact with the
+model to retrieve a complete response, paginating if needed"). Every provider
+says why its model stopped — OpenAI's `finish_reason`, Anthropic's
+`stop_reason`, Ollama's `done_reason` — and the runtime threw that away, so an
+answer cut by `MaximumTokens` read exactly like a finished one.
+
+- **The stop reason is read**, streamed or not, in the three shapes, and
+  published: `StopReason` (the provider's words), `Truncated` (1 when still
+  incomplete) and `ContinuationCount`.
+- **A cut answer is continued.** When the reason is the output limit
+  (`length`, `max_tokens`), the agent sends the conversation back with the
+  answer so far and asks the model to go on exactly where it stopped. It does
+  this up to `MaximumContinuations` times (new; default 4; 0 turns it off) and
+  joins the pieces. `onResponse` fires once, with the whole answer.
+  `StreamReply` keeps showing the text as it grows. A tool-offering agent
+  (PowerChat's, which search a Knowledge Base) is continued inside its loop,
+  with its tools still offered.
+- **Ollama is told the context to hold** (`num_ctx`), sized to the request:
+  a token is taken as 3 characters, the answer's `MaximumTokens` is added, and
+  the total is rounded up to 4096, within 8192–65536. Ollama's default is a
+  few thousand tokens, and it silently drops the start of a prompt that does
+  not fit — the instructions and the documents the model was asked about.
+- **Timing.** A continued plain `Ask` keeps the plain `Ask`'s clock:
+  `TimeoutSeconds` is the silence between pieces.
+- **Hosts.** The change is all in the shared interpreter (`agent_runtime`,
+  `agent_tools`, `interpreter/agent_loop`), so it reaches Run Form, embedded
+  child forms and the compiled binary alike. No host wiring changed.
+- **Tests:**
+  - `an_answer_cut_off_by_its_output_limit_is_continued_and_joined`: 3
+    requests, 3 partial updates that only grow, one `onResponse` with the
+    three pieces;
+  - `a_tool_offering_answer_cut_off_is_continued_too`;
+  - `continuations_stop_at_their_maximum_and_say_truncated`;
+  - `no_continuation_when_turned_off`;
+  - `the_stop_reason_is_read_in_every_provider_shape` (whole replies, and
+    streams that rebuild their body);
+  - `ollama_is_given_a_context_that_holds_the_request`.
+  - Sweeps: `cobolt-runtime` all green; `test_agent_tool_calling` 12/12.
+    `powerchat_runs` 16/17, the one red being
+    `powerchat_settings_topics_documents_and_chat`, which fails on the parent
+    commit too.
+- **Properties pane:** a "Max continuations" row. Hover help is in six
+  languages.
+- **System KB:** the four new properties; `chunked.data` regenerated.
+- **Developer's Guide:** "A long answer is never cut short in silence", and
+  the tool-calling table.
+
 ## [PowerRustCOBOL 1.80.24] — 2026-09-30
 
 ### Fix — PowerChat's reports take 80 % of the chat, up to 1600 px

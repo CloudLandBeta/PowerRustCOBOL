@@ -722,7 +722,7 @@ fn seed_missing_props(form: &mut Form) {
         // AgentObject's spec-072 tool settings: the row appears in the pane,
         // and the value is the reader's own default, so nothing a saved form
         // does changes. Only a type whose `Control::new` seeds the key gets it.
-        for key in ["EnterAsTab", "AutoEnter", "ToolProtocol", "MaximumToolRounds"] {
+        for key in ["EnterAsTab", "AutoEnter", "ToolProtocol", "MaximumToolRounds", "MaximumContinuations"] {
             if c.get_prop(key).is_none() {
                 if let Some(value) = seeded.get_prop(key) {
                     c.set_prop(key, value.clone());
