@@ -8,6 +8,32 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.34] — 2026-10-01
+
+### Spec 081 — Obsolete scaling style, draft
+
+`specs/081-obsolete-scaling-style/spec.md`. It specifies a form property shown
+as **Obsolete scaling style** (`ObsoleteScalingStyle`), for forms migrated
+from PowerCOBOL:
+- The value is a set of flags: 1 resize, 2 reposition, 4 font.
+- The designer lists 0 None and the values 1, 2, 3, 5 and 7.
+- While the value is not 0, every control's position and/or size scales by
+  the window ratio, and the font by `min(rx, ry)`. Anchors and docking are
+  ignored.
+- It is a mode of the one spec-056 solver: the same on every surface,
+  idempotent, and bounded by the 1.80.33 collision limits.
+- It can be set from COBOL at run time.
+
+The operator named it "Obsolete scaling style": a compatibility mode, not the
+way to build new forms. Five open questions remain:
+- whether to list the values 4 and 6;
+- how it interacts with breakpoints;
+- a per-control opt-out;
+- the font ratio;
+- keeping the aspect ratio.
+
+Documentation only; no code changed.
+
 ## [PowerRustCOBOL 1.80.32] — 2026-10-01
 
 ### The AI export carries nothing about the person who made it
