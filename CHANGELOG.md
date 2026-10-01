@@ -8,6 +8,41 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.141] — 2026-10-03
+
+### Fix: a Snackbar is high-contrast unless the developer chose its colours
+
+The operator's screenshot: PowerDemo3's critical notification, "Get a valid
+API Key at ollama.com", painted white text on near-white. Their rule: "a
+snackbar must be high contrast, unless the user has specifically set
+otherwise".
+
+- **Cause.** The Snackbar took any non-empty `BackgroundColor` and
+  `ForegroundColor` as the developer's choice. PowerDemo3's Snackbar, saved by
+  an older version, carries `#F0F0F0` / `#FFFFFF`, the universal seeds every
+  control started with. They replaced the critical red. The category's
+  near-white ink was then passed to the painter as "explicit", so
+  `readable_ink_on` never checked it.
+- **Fix** (`snackbar.rs`, `paint::draw_snackbar`):
+  - The seeded values (`DEFAULT_BACKGROUND_COLOR` and the two neumorphic
+    surfaces for the background, `DEFAULT_FOREGROUND_COLOR` for the ink)
+    mean "not chosen", the renderer-wide convention of
+    `user_background_color`, so the category's colours apply.
+  - `SnackVisual` gains `foreground_chosen`. An ink the developer did not
+    choose is checked against the background in effect, and drawn black or
+    white below 4.5:1. That covers the text, the icon, the buttons and the
+    close glyph.
+  - An ink the developer chose is used as set.
+- **No form needed changing.** New Snackbars already start with empty
+  colours; this repairs the ones saved before that.
+- **Test:** `snackbar_contrast`. With the seeded colours, every category
+  reaches at least 4.5:1: info 7.7, warning 5.6, error 8.0, critical 12.1. A
+  chosen light background with no ink gives 20.1:1. Both colours chosen are
+  kept.
+- **Guide and System KB updated;** `chunked.data` regenerated. It must be
+  regenerated again when this meets `features` on `main`, whose 1.80.35 also
+  changed the KB.
+
 ## [PowerRustCOBOL 1.80.140] — 2026-10-03
 
 ### Spec 086 approved: the PowerCOBOL converter takes a whole application
