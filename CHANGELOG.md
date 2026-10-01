@@ -8,6 +8,37 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.38] — 2026-10-01
+
+### Fix: `SetFocus()` gives a control the keyboard focus
+
+A developer reported a validation problem on a form. After a validation error
+in `EDT-CODIGO`, `INVOKE EDT-CODIGO::SetFocus()` never brought the caret back
+to the field. `EDT-NOME::SetFocus()`, on the next field, only appeared to work.
+
+**The defect.** `SetFocus()` and `Focus()` stored `Focused = 1` on the control,
+and no renderer or host ever read that value, so the call did nothing in any
+surface. When validation passed, Enter (`EnterAsTab`) had already moved the
+caret to the next field before the handler ran. That is why the same call
+looked like it worked in one case and failed in the other.
+
+**The fix.**
+- The call is now a command. Each call writes `_SetFocus` with a sequence
+  number that is never repeated, process-wide.
+- On every interactive frame the renderer gives the keyboard focus to each
+  control whose number changed.
+- The request runs after the frame's Tab/Enter move, so the handler's choice
+  wins.
+- A request is used once, so the operator can click elsewhere afterwards.
+- A second call on the same control is a new request.
+- A request made while a modal child form blocks the form is kept until the
+  form is released.
+- Every host gets the fix with no host change: `rcrun run-form`, embedded child
+  forms and the compiled binary all render through the same engine.
+
+**Tests.** `crates/cobolt-forms/tests/set_focus_moves_the_keyboard_focus.rs`
+has 4 tests. All 4 fail without the renderer change.
+
 ## [PowerRustCOBOL 1.80.37] — 2026-10-01
 
 ### Fix: one indexed format on disk, and a MEMORY file without PERSISTENCE is read-only

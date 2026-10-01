@@ -2261,6 +2261,9 @@ fn render_form_inner(
     let mut tab_targets: Vec<TabTarget> = Vec::new();
     let tab_step = if interactive {
         apply_pending_tab_focus(ui);
+        // After the Tab/Enter move, so a handler's `SetFocus()` — which always
+        // arrives after the keystroke that woke it — has the last word.
+        apply_cobol_focus_requests(ui, scope, &live_controls);
         tab_targets = collect_tab_targets(scope, input, controls, &order);
 
         resolve_tab_traversal(ui, &mut tab_targets)
@@ -3085,6 +3088,35 @@ fn apply_pending_tab_focus(ui: &egui::Ui) {
     if let Some(Some(focus_id)) = pending {
         ui.ctx().memory_mut(|m| m.request_focus(focus_id));
         ui.data_mut(|d| d.insert_temp(pending_id, None::<egui::Id>));
+    }
+}
+
+/// The live property a COBOL `ctl::SetFocus()` writes. Its value is a sequence
+/// number the interpreter never repeats, so a CHANGE is the request — the same
+/// control focused twice in a row is two requests, not one.
+pub const SET_FOCUS_PROP: &str = "_SetFocus";
+
+/// Give the keyboard focus to each control whose `SetFocus()` sequence moved
+/// since the last frame. Edge-triggered: the number seen is remembered, so a
+/// request is acted on once and the operator can click elsewhere afterwards.
+fn apply_cobol_focus_requests(ui: &egui::Ui, scope: Option<egui::Id>, controls: &[Control]) {
+    // A form blocked behind a modal child cannot take the focus. Leave the
+    // request pending (unseen) so it lands the frame the form is released —
+    // `SetFocus()` then `OpenFormSync` must work in either order.
+    if !ui.is_enabled() {
+        return;
+    }
+    for ctrl in controls {
+        let Some(seq) = ctrl.get_prop(SET_FOCUS_PROP).map(|v| v.as_str().to_owned()) else {
+            continue;
+        };
+        let widget = rt_id_in(scope, &ctrl.id);
+        let seen_id = widget.with("set-focus-seen");
+        if ui.data(|d| d.get_temp::<String>(seen_id)).as_deref() == Some(seq.as_str()) {
+            continue;
+        }
+        ui.data_mut(|d| d.insert_temp(seen_id, seq));
+        ui.ctx().memory_mut(|m| m.request_focus(widget));
     }
 }
 

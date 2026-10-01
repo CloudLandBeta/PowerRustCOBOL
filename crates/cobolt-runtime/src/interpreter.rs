@@ -15332,8 +15332,17 @@ impl Interpreter {
                 self.obj_set(obj, "Enabled", "0".into());
                 none
             }
+            // A COMMAND, not state: every call writes a value never written
+            // before, and the renderer moves the keyboard focus each time it
+            // sees `_SetFocus` change. It used to store `Focused = 1`, which
+            // nothing read, so the call did nothing at all — and a second call
+            // on the same control would have been the same value anyway.
+            // Process-wide, so a child form reopened in the same window can
+            // never repeat a value its predecessor already used.
             "SETFOCUS" | "FOCUS" => {
-                self.obj_set(obj, "Focused", "1".into());
+                static SET_FOCUS_SEQ: AtomicU64 = AtomicU64::new(0);
+                let n = SET_FOCUS_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                self.obj_set(obj, "_SetFocus", n.to_string());
                 none
             }
             "BRINGTOFRONT" => {
