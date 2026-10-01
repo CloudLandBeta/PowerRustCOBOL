@@ -8,6 +8,27 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.27] — 2026-10-01
+
+### PowerChat and PowerDemo3 example data, as the IDE last saved them
+
+The operator's local changes to the two example projects (operator,
+2026-10-01):
+
+- **PowerChat:**
+  - `built_with_version` is 1.80.23.
+  - `data/convs.idx`, `data/models.idx` and `data/settings.idx` are as the
+    application last wrote them.
+- **PowerDemo3:**
+  - `built_with_version` is 1.80.10.
+  - `data/idxfiles/actors.idx` is updated.
+  - `forms/Charts/charts-form.cfrm` was re-saved by the IDE, which writes the
+    shadow properties at their defaults (no change to how the form looks).
+- **Not committed:** the new PowerChat data files from local use — the
+  conversation turns, topics, folders, templates, prompt versions and the
+  Knowledge Base under `assets/KB` — which the example has never shipped.
+  No code changes.
+
 ## [PowerRustCOBOL 1.80.26] — 2026-09-30
 
 ### Fix — same-named REDEFINES groups each overlay their target; a RECORD KEY outside its record is an error

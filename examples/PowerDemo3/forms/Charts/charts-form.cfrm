@@ -119,6 +119,12 @@
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
   </Control>
   <Control id="BarChart-1" type="BarChart" x="24" y="64" w="392" h="240" tab-order="0" z-order="1" visible="true" enabled="true">
     <Property name="Title">Revenue by quarter</Property>
@@ -158,6 +164,14 @@
     <Property name="BorderBlur">8</Property>
     <Property name="BorderTransparency">51</Property>
     <Property name="Transparency">35</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
   </Control>
   <Control id="LineChart-1" type="LineChart" x="448" y="64" w="392" h="240" tab-order="0" z-order="2" visible="true" enabled="true">
     <Property name="Title">Orders per month</Property>
@@ -197,6 +211,14 @@
     <Property name="BorderBlur">0</Property>
     <Property name="BorderTransparency">0</Property>
     <Property name="Transparency">28</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
   </Control>
   <Control id="PieChart-1" type="PieChart" x="872" y="64" w="392" h="240" tab-order="0" z-order="3" visible="true" enabled="true">
     <Property name="Title">Share by region</Property>
@@ -234,6 +256,14 @@
     <Property name="BorderBlur">0</Property>
     <Property name="BorderTransparency">0</Property>
     <Property name="Transparency">28</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
   </Control>
   <Control id="AreaChart-1" type="AreaChart" x="24" y="320" w="392" h="240" tab-order="0" z-order="4" visible="true" enabled="true">
     <Property name="Title">Cumulative volume</Property>
@@ -275,6 +305,14 @@
     <Property name="BorderBlur">0</Property>
     <Property name="BorderTransparency">0</Property>
     <Property name="Transparency">28</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
   </Control>
   <Control id="ScatterChart-1" type="ScatterChart" x="448" y="320" w="392" h="240" tab-order="0" z-order="5" visible="true" enabled="true">
     <Property name="Title">Price against weight</Property>
@@ -312,6 +350,14 @@
     <Property name="BorderBlur">0</Property>
     <Property name="BorderTransparency">0</Property>
     <Property name="Transparency">28</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
   </Control>
   <Control id="DonutChart-1" type="DonutChart" x="872" y="320" w="392" h="240" tab-order="0" z-order="6" visible="true" enabled="true">
     <Property name="Title">Storage in use</Property>
@@ -349,6 +395,14 @@
     <Property name="BorderBlur">0</Property>
     <Property name="BorderTransparency">0</Property>
     <Property name="Transparency">28</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
   </Control>
   <Control id="Button-CHART-LOAD" type="Button" x="24" y="584" w="236" h="40" tab-order="0" z-order="7" visible="true" enabled="true">
     <Property name="Caption">Load the first data set</Property>
@@ -1072,5 +1126,11 @@
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
   </Control>
 </Form>
