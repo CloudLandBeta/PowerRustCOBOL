@@ -15404,7 +15404,16 @@ impl Interpreter {
                 self.obj_set(obj, "ForegroundColor", arg(0));
                 none
             }
-            "SELECTALL" => none,
+            // A COMMAND, like `SetFocus()` above: every call writes a value
+            // never written before, and the renderer focuses the TextBox and
+            // selects its whole text each time it sees `_SelectAll` change. It
+            // used to be accepted and do nothing.
+            "SELECTALL" => {
+                static SELECT_ALL_SEQ: AtomicU64 = AtomicU64::new(0);
+                let n = SELECT_ALL_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                self.obj_set(obj, "_SelectAll", n.to_string());
+                none
+            }
             "CLEAR" => {
                 // 055 — on a Snackbar, `Clear()` empties the BUTTON LIST and
                 // nothing else (operator, 2026-09-02): it is how a handler

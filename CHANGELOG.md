@@ -8,6 +8,37 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.39] — 2026-10-01
+
+### Fix: `SelectAll()` selects a TextBox's whole text
+
+`INVOKE EDT-NOME::SelectAll()` was accepted and did nothing. The IntelliSense
+offered it as "Select all text", but the interpreter's arm returned without
+writing anything, and the System KB said "Accepted; currently a no-op."
+
+**The fix.**
+- The call is now a command, built the same way as `SetFocus()` (1.80.38).
+  Each call writes `_SelectAll` with a sequence number that is never repeated,
+  process-wide.
+- On every interactive frame the renderer gives the keyboard focus to each
+  TextBox whose number changed and selects all of its characters.
+- The focus is taken before the TextBox's editor runs in the same frame. egui
+  collapses the stored selection of an editor that does not hold the focus,
+  so the selection survives only because of that order.
+- A request is used once, so the operator can click or type afterwards. A
+  second call on the same control is a new request.
+- A request made while a modal child form blocks the form is kept until the
+  form is released.
+- Every host gets the fix with no host change: `rcrun run-form`, embedded child
+  forms and the compiled binary all render through the same engine.
+
+**Documentation.** The System KB method table (`cobolt-compiler`) now
+describes the call, and `assets/knowledge/chunked.data` was regenerated. The
+Developer's Guide does not mention `SelectAll()`, so it is unchanged.
+
+**Tests.** `crates/cobolt-forms/tests/select_all_selects_the_whole_text.rs`
+has 2 tests. Both fail without the renderer change.
+
 ## [PowerRustCOBOL 1.80.38] — 2026-10-01
 
 ### Fix: `SetFocus()` gives a control the keyboard focus

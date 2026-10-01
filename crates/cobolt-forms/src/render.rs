@@ -2264,6 +2264,7 @@ fn render_form_inner(
         // After the Tab/Enter move, so a handler's `SetFocus()` — which always
         // arrives after the keystroke that woke it — has the last word.
         apply_cobol_focus_requests(ui, scope, &live_controls);
+        apply_cobol_select_all_requests(ui, scope, &live_controls);
         tab_targets = collect_tab_targets(scope, input, controls, &order);
 
         resolve_tab_traversal(ui, &mut tab_targets)
@@ -3117,6 +3118,49 @@ fn apply_cobol_focus_requests(ui: &egui::Ui, scope: Option<egui::Id>, controls: 
         }
         ui.data_mut(|d| d.insert_temp(seen_id, seq));
         ui.ctx().memory_mut(|m| m.request_focus(widget));
+    }
+}
+
+/// The live property a COBOL `ctl::SelectAll()` writes — a never-repeated
+/// sequence number, exactly like [`SET_FOCUS_PROP`].
+pub const SELECT_ALL_PROP: &str = "_SelectAll";
+
+/// Focus each TextBox whose `SelectAll()` sequence moved since the last frame,
+/// and select its whole text. Edge-triggered like `SetFocus()`, so the operator
+/// can click or type afterwards without the selection being forced back.
+///
+/// It runs before the TextBox's editor in the same frame, and the focus is
+/// taken here first: egui's editor collapses the stored selection of an
+/// editor that does not hold the focus, so the selection survives only because
+/// the focus is already there when the editor reads it.
+fn apply_cobol_select_all_requests(ui: &egui::Ui, scope: Option<egui::Id>, controls: &[Control]) {
+    // Same reason as `SetFocus()`: a form behind a modal child keeps the
+    // request until it is released.
+    if !ui.is_enabled() {
+        return;
+    }
+    for ctrl in controls.iter().filter(|c| c.control_type == ControlType::TextBox) {
+        let Some(seq) = ctrl.get_prop(SELECT_ALL_PROP).map(|v| v.as_str().to_owned()) else {
+            continue;
+        };
+        // The id the TextBox's own `TextEdit` is given (`.id(ctrl_id)`).
+        let widget = rt_id_in(scope, &ctrl.id);
+        let seen_id = widget.with("select-all-seen");
+        if ui.data(|d| d.get_temp::<String>(seen_id)).as_deref() == Some(seq.as_str()) {
+            continue;
+        }
+        ui.data_mut(|d| d.insert_temp(seen_id, seq));
+        ui.ctx().memory_mut(|m| m.request_focus(widget));
+        // Under the caret the editor holds the raw `Text` (never the
+        // PICTURE-edited view), and a password mask keeps the character count,
+        // so this count is the whole buffer.
+        let chars = ctrl.get_prop("Text").map(|v| v.as_str().chars().count()).unwrap_or(0);
+        let mut state = egui::text_edit::TextEditState::load(ui.ctx(), widget).unwrap_or_default();
+        state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+            egui::text::CCursor::new(0),
+            egui::text::CCursor::new(chars),
+        )));
+        state.store(ui.ctx(), widget);
     }
 }
 

@@ -7415,7 +7415,7 @@ fn methods_reference_doc() -> String {
                 ("SetText(text: String) / GetText() → String", "Write / read the `Text`."),
                 ("AppendText(text: String)", "Append to the text."),
                 ("Clear()", "Empty `Text` (and `Items`)."),
-                ("SelectAll()", "Accepted; currently a no-op."),
+                ("SelectAll()", "Give the TextBox the keyboard focus and select its whole text."),
             ],
         ),
         (
