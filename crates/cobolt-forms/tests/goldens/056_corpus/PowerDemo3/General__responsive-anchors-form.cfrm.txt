@@ -31,7 +31,7 @@ PNL-LIVE rect=[480 104 816 404] font=13
 PNL-STAGE rect=[24 104 464 404] font=13
 SB-INFO rect=[0 594 840 620] font=13
 STG-CAP rect=[40 112 448 134] font=13
-shapes=266 digest=f094f182d0c7d935
+shapes=267 digest=2d938ccc59ff403f
 ## Run 0.75x 750x525
 A-B rect=[184 352 304 388] font=13
 A-BL rect=[40 352 160 388] font=13
@@ -64,7 +64,7 @@ PNL-LIVE rect=[480 104 816 404] font=13
 PNL-STAGE rect=[24 104 464 404] font=13
 SB-INFO rect=[0 594 840 620] font=13
 STG-CAP rect=[40 112 448 134] font=13
-shapes=269 digest=cfbad862282d934e
+shapes=270 digest=566385022d665c96
 ## Preview 0.75x 750x525
 A-B rect=[184 352 304 388] font=13
 A-BL rect=[40 352 160 388] font=13
@@ -97,7 +97,7 @@ PNL-LIVE rect=[480 104 816 404] font=13
 PNL-STAGE rect=[24 104 464 404] font=13
 SB-INFO rect=[0 594 840 620] font=13
 STG-CAP rect=[40 112 448 134] font=13
-shapes=269 digest=cfbad862282d934e
+shapes=270 digest=566385022d665c96
 ## Canvas 1x 1000x700
 A-B rect=[264 432 384 468] font=13
 A-BL rect=[40 432 160 468] font=13
@@ -130,7 +130,7 @@ PNL-LIVE rect=[640 104 976 484] font=13
 PNL-STAGE rect=[24 104 624 484] font=13
 SB-INFO rect=[0 674 1000 700] font=13
 STG-CAP rect=[40 112 608 134] font=13
-shapes=266 digest=f183894914b97044
+shapes=267 digest=b5618e4dc70f6b91
 ## Run 1x 1000x700
 A-B rect=[264 432 384 468] font=13
 A-BL rect=[40 432 160 468] font=13
@@ -163,7 +163,7 @@ PNL-LIVE rect=[640 104 976 484] font=13
 PNL-STAGE rect=[24 104 624 484] font=13
 SB-INFO rect=[0 674 1000 700] font=13
 STG-CAP rect=[40 112 608 134] font=13
-shapes=270 digest=88d81b55248cb0d7
+shapes=271 digest=bc653654ee3548b8
 ## Preview 1x 1000x700
 A-B rect=[264 432 384 468] font=13
 A-BL rect=[40 432 160 468] font=13
@@ -196,7 +196,7 @@ PNL-LIVE rect=[640 104 976 484] font=13
 PNL-STAGE rect=[24 104 624 484] font=13
 SB-INFO rect=[0 674 1000 700] font=13
 STG-CAP rect=[40 112 608 134] font=13
-shapes=270 digest=88d81b55248cb0d7
+shapes=271 digest=bc653654ee3548b8
 ## Canvas 1.5x 1500x1050
 A-B rect=[514 782 634 818] font=13
 A-BL rect=[40 782 160 818] font=13
@@ -229,7 +229,7 @@ PNL-LIVE rect=[1140 104 1476 834] font=13
 PNL-STAGE rect=[24 104 1124 834] font=13
 SB-INFO rect=[0 1024 1500 1050] font=13
 STG-CAP rect=[40 112 1108 134] font=13
-shapes=266 digest=5e1b81e9f58b468c
+shapes=267 digest=a32769e1257e25db
 ## Run 1.5x 1500x1050
 A-B rect=[514 782 634 818] font=13
 A-BL rect=[40 782 160 818] font=13
@@ -262,7 +262,7 @@ PNL-LIVE rect=[1140 104 1476 834] font=13
 PNL-STAGE rect=[24 104 1124 834] font=13
 SB-INFO rect=[0 1024 1500 1050] font=13
 STG-CAP rect=[40 112 1108 134] font=13
-shapes=270 digest=078ac1bf694b6726
+shapes=271 digest=66425ae574a84b5d
 ## Preview 1.5x 1500x1050
 A-B rect=[514 782 634 818] font=13
 A-BL rect=[40 782 160 818] font=13
@@ -295,4 +295,4 @@ PNL-LIVE rect=[1140 104 1476 834] font=13
 PNL-STAGE rect=[24 104 1124 834] font=13
 SB-INFO rect=[0 1024 1500 1050] font=13
 STG-CAP rect=[40 112 1108 134] font=13
-shapes=270 digest=078ac1bf694b6726
+shapes=271 digest=66425ae574a84b5d

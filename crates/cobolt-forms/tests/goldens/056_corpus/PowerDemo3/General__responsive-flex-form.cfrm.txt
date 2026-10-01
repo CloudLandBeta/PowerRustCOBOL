@@ -185,7 +185,7 @@ WR-8-C-5 rect=- font=13
 WR-8-C-6 rect=- font=13
 WR-8-C-7 rect=- font=13
 WR-8-C-8 rect=- font=13
-shapes=311 digest=810b6a215d0b0a94
+shapes=312 digest=4d85588e733fb85a
 ## Run 0.75x 900x585
 AI-1 rect=- font=13
 AI-1-C-1 rect=- font=13
@@ -372,7 +372,7 @@ WR-8-C-5 rect=- font=13
 WR-8-C-6 rect=- font=13
 WR-8-C-7 rect=- font=13
 WR-8-C-8 rect=- font=13
-shapes=312 digest=4c4ae3b8e0ae0392
+shapes=313 digest=e0df1bf2d3c58ea4
 ## Preview 0.75x 900x585
 AI-1 rect=- font=13
 AI-1-C-1 rect=- font=13
@@ -559,7 +559,7 @@ WR-8-C-5 rect=- font=13
 WR-8-C-6 rect=- font=13
 WR-8-C-7 rect=- font=13
 WR-8-C-8 rect=- font=13
-shapes=312 digest=4c4ae3b8e0ae0392
+shapes=313 digest=e0df1bf2d3c58ea4
 ## Canvas 1x 1200x780
 AI-1 rect=- font=13
 AI-1-C-1 rect=- font=13
@@ -746,7 +746,7 @@ WR-8-C-5 rect=- font=13
 WR-8-C-6 rect=- font=13
 WR-8-C-7 rect=- font=13
 WR-8-C-8 rect=- font=13
-shapes=311 digest=74bc07540a85fed2
+shapes=312 digest=9fe74957b307f34d
 ## Run 1x 1200x780
 AI-1 rect=- font=13
 AI-1-C-1 rect=- font=13
@@ -933,7 +933,7 @@ WR-8-C-5 rect=- font=13
 WR-8-C-6 rect=- font=13
 WR-8-C-7 rect=- font=13
 WR-8-C-8 rect=- font=13
-shapes=312 digest=c120e86726c6dedf
+shapes=313 digest=8bee17159aae8f3e
 ## Preview 1x 1200x780
 AI-1 rect=- font=13
 AI-1-C-1 rect=- font=13
@@ -1120,7 +1120,7 @@ WR-8-C-5 rect=- font=13
 WR-8-C-6 rect=- font=13
 WR-8-C-7 rect=- font=13
 WR-8-C-8 rect=- font=13
-shapes=312 digest=c120e86726c6dedf
+shapes=313 digest=8bee17159aae8f3e
 ## Canvas 1.5x 1800x1170
 AI-1 rect=- font=13
 AI-1-C-1 rect=- font=13
@@ -1307,7 +1307,7 @@ WR-8-C-5 rect=- font=13
 WR-8-C-6 rect=- font=13
 WR-8-C-7 rect=- font=13
 WR-8-C-8 rect=- font=13
-shapes=311 digest=a63802cbe21679df
+shapes=312 digest=bd25da2dfb808fb6
 ## Run 1.5x 1800x1170
 AI-1 rect=- font=13
 AI-1-C-1 rect=- font=13
@@ -1494,7 +1494,7 @@ WR-8-C-5 rect=- font=13
 WR-8-C-6 rect=- font=13
 WR-8-C-7 rect=- font=13
 WR-8-C-8 rect=- font=13
-shapes=312 digest=a758b5f592f2758c
+shapes=313 digest=eec63464da1c71d7
 ## Preview 1.5x 1800x1170
 AI-1 rect=- font=13
 AI-1-C-1 rect=- font=13
@@ -1681,4 +1681,4 @@ WR-8-C-5 rect=- font=13
 WR-8-C-6 rect=- font=13
 WR-8-C-7 rect=- font=13
 WR-8-C-8 rect=- font=13
-shapes=312 digest=a758b5f592f2758c
+shapes=313 digest=eec63464da1c71d7

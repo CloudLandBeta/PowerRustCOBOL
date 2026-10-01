@@ -36,7 +36,7 @@ SD-RESTORE rect=[14 388 176 422] font=12.25
 SD-SWAP rect=[14 348 176 382] font=12.25
 SD-TABLET rect=[14 148 176 182] font=12.25
 SD-WIDE rect=[14 268 176 302] font=12.25
-shapes=429 digest=97b66cff956de581
+shapes=430 digest=65b9ebf4b7ba73e1
 ## Run 0.75x 960x600
 BP-HELP rect=[869 16 946 48] font=12.25
 BP-MENU rect=[22 16 81 48] font=12.25
@@ -74,7 +74,7 @@ SD-RESTORE rect=[14 388 176 422] font=12.25
 SD-SWAP rect=[14 348 176 382] font=12.25
 SD-TABLET rect=[14 148 176 182] font=12.25
 SD-WIDE rect=[14 268 176 302] font=12.25
-shapes=430 digest=0528d272b1c536d5
+shapes=431 digest=f7a86e58a9d6b22d
 ## Preview 0.75x 960x600
 BP-HELP rect=[869 16 946 48] font=12.25
 BP-MENU rect=[22 16 81 48] font=12.25
@@ -112,7 +112,7 @@ SD-RESTORE rect=[14 388 176 422] font=12.25
 SD-SWAP rect=[14 348 176 382] font=12.25
 SD-TABLET rect=[14 148 176 182] font=12.25
 SD-WIDE rect=[14 268 176 302] font=12.25
-shapes=430 digest=0528d272b1c536d5
+shapes=431 digest=f7a86e58a9d6b22d
 ## Canvas 1x 1280x800
 BP-HELP rect=[1162 16 1266 48] font=13
 BP-MENU rect=[22 16 102 48] font=13
@@ -150,7 +150,7 @@ SD-RESTORE rect=[14 388 226 422] font=13
 SD-SWAP rect=[14 348 226 382] font=13
 SD-TABLET rect=[14 148 226 182] font=13
 SD-WIDE rect=[14 268 226 302] font=13
-shapes=429 digest=9249e0ee705eae98
+shapes=430 digest=c0c4fcb683b4c3a6
 ## Run 1x 1280x800
 BP-HELP rect=[1162 16 1266 48] font=13
 BP-MENU rect=[22 16 102 48] font=13
@@ -188,7 +188,7 @@ SD-RESTORE rect=[14 388 226 422] font=13
 SD-SWAP rect=[14 348 226 382] font=13
 SD-TABLET rect=[14 148 226 182] font=13
 SD-WIDE rect=[14 268 226 302] font=13
-shapes=430 digest=0362b2176626fe36
+shapes=431 digest=e6d1df9168af2ec4
 ## Preview 1x 1280x800
 BP-HELP rect=[1162 16 1266 48] font=13
 BP-MENU rect=[22 16 102 48] font=13
@@ -226,7 +226,7 @@ SD-RESTORE rect=[14 388 226 422] font=13
 SD-SWAP rect=[14 348 226 382] font=13
 SD-TABLET rect=[14 148 226 182] font=13
 SD-WIDE rect=[14 268 226 302] font=13
-shapes=430 digest=0362b2176626fe36
+shapes=431 digest=e6d1df9168af2ec4
 ## Canvas 1.5x 1920x1200
 BP-HELP rect=[1802 16 1906 48] font=15.5
 BP-MENU rect=[22 16 102 48] font=15.5
@@ -264,7 +264,7 @@ SD-RESTORE rect=[14 388 286 422] font=15.5
 SD-SWAP rect=[14 348 286 382] font=15.5
 SD-TABLET rect=[14 148 286 182] font=15.5
 SD-WIDE rect=[14 268 286 302] font=15.5
-shapes=429 digest=d2210a9319c29f35
+shapes=430 digest=5ab293736379198b
 ## Run 1.5x 1920x1200
 BP-HELP rect=[1802 16 1906 48] font=15.5
 BP-MENU rect=[22 16 102 48] font=15.5
@@ -302,7 +302,7 @@ SD-RESTORE rect=[14 388 286 422] font=15.5
 SD-SWAP rect=[14 348 286 382] font=15.5
 SD-TABLET rect=[14 148 286 182] font=15.5
 SD-WIDE rect=[14 268 286 302] font=15.5
-shapes=430 digest=b804da247b15c890
+shapes=431 digest=8b0545e9bb2f070c
 ## Preview 1.5x 1920x1200
 BP-HELP rect=[1802 16 1906 48] font=15.5
 BP-MENU rect=[22 16 102 48] font=15.5
@@ -340,4 +340,4 @@ SD-RESTORE rect=[14 388 286 422] font=15.5
 SD-SWAP rect=[14 348 286 382] font=15.5
 SD-TABLET rect=[14 148 286 182] font=15.5
 SD-WIDE rect=[14 268 286 302] font=15.5
-shapes=430 digest=b804da247b15c890
+shapes=431 digest=8b0545e9bb2f070c

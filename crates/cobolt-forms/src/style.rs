@@ -104,6 +104,16 @@ pub fn style_control(c: &mut Control) {
             set_b(c, "ShadowBlur", true);
             set_i(c, "ShadowBlurStrength", 10);
         }
+        // A StatusBar letters its items in its own ForegroundColor on its own
+        // BackgroundColor, on every surface. Its seeds - white ink on the
+        // `#F0F0F0` sentinel - are a pair no theme replaces under the modern
+        // (Classic glass) style, so the bar read white on light grey.
+        ControlType::StatusBar => {
+            set(c, "BackgroundColor", SURFACE);
+            set(c, "ForegroundColor", TEXT);
+            set(c, "BorderStyle", "Single");
+            set(c, "BorderColor", SURFACE_BORDER);
+        }
         _ => {
             // Charts, pictures and the rest keep their own faces; they only
             // take the type and the flat background flag above.
@@ -273,6 +283,24 @@ pub fn ensure_text_contrast(form: &mut Form, backdrop_known: bool) -> Vec<String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A StatusBar on a modern form letters its items readably: the seeded
+    /// white ink on the `#F0F0F0` seed is about 1.1:1, the modern pair is
+    /// well above WCAG AA's 4.5:1.
+    #[test]
+    fn a_modern_status_bar_is_readable() {
+        let pair = |c: &Control| {
+            let get = |k: &str| rgba(c.get_prop(k).unwrap().as_str()).map(|(r, g, b, _)| (r, g, b)).unwrap();
+            contrast(get("ForegroundColor"), get("BackgroundColor"))
+        };
+        let seeded = Control::new("SB", ControlType::StatusBar, 0, 0);
+        let mut styled = seeded.clone();
+        style_control(&mut styled);
+        let (before, after) = (pair(&seeded), pair(&styled));
+        assert!(before < 4.5, "the seeds were readable after all: {before:.2}:1");
+        assert!(after >= 4.5, "a modern StatusBar must be readable, got {after:.2}:1");
+        println!("StatusBar ink on its surface: seeded {before:.2}:1, modern {after:.2}:1 (AA 4.5:1)");
+    }
 
     #[test]
     fn white_text_on_a_white_card_turns_black() {

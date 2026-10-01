@@ -40,7 +40,7 @@ DB-SEARCH rect=[70 15 370 49] font=11
 DB-SETTINGS rect=[14 680 156 716] font=11
 DB-TITLE rect=[522 16 1006 48] font=17
 SB-INFO rect=[0 730 1020 756] font=11
-shapes=437 digest=f745b6c2aa793f78
+shapes=438 digest=2b6abc5589301cc3
 ## Run 0.75x 1020x645
 DB-BAR rect=[188 318 1002 498] font=11
 DB-CUSTOMERS rect=- font=13
@@ -82,7 +82,7 @@ DB-SEARCH rect=[70 15 370 49] font=11
 DB-SETTINGS rect=[14 680 156 716] font=11
 DB-TITLE rect=[522 16 1006 48] font=17
 SB-INFO rect=[0 730 1020 756] font=11
-shapes=511 digest=cdcaaf9988e0f1a9
+shapes=512 digest=6c0033d4a9d365da
 ## Preview 0.75x 1020x645
 DB-BAR rect=[188 318 1002 498] font=11
 DB-CUSTOMERS rect=- font=13
@@ -124,7 +124,7 @@ DB-SEARCH rect=[70 15 370 49] font=11
 DB-SETTINGS rect=[14 680 156 716] font=11
 DB-TITLE rect=[522 16 1006 48] font=17
 SB-INFO rect=[0 730 1020 756] font=11
-shapes=511 digest=cdcaaf9988e0f1a9
+shapes=512 digest=6c0033d4a9d365da
 ## Canvas 1x 1360x860
 DB-BAR rect=[238 200 783 501] font=13
 DB-CUSTOMERS rect=[238 515 504 816] font=13
@@ -166,7 +166,7 @@ DB-SEARCH rect=[70 15 370 49] font=13
 DB-SETTINGS rect=[14 784 206 820] font=13
 DB-TITLE rect=[650 16 1346 48] font=20
 SB-INFO rect=[0 834 1360 860] font=13
-shapes=622 digest=3d100ee550d8ca90
+shapes=623 digest=d1faf41b9236227f
 ## Run 1x 1360x860
 DB-BAR rect=[238 200 783 501] font=13
 DB-CUSTOMERS rect=[238 515 504 816] font=13
@@ -208,7 +208,7 @@ DB-SEARCH rect=[70 15 370 49] font=13
 DB-SETTINGS rect=[14 784 206 820] font=13
 DB-TITLE rect=[650 16 1346 48] font=20
 SB-INFO rect=[0 834 1360 860] font=13
-shapes=704 digest=c919abdab9bd7082
+shapes=705 digest=899e5068357b5b2d
 ## Preview 1x 1360x860
 DB-BAR rect=[238 200 783 501] font=13
 DB-CUSTOMERS rect=[238 515 504 816] font=13
@@ -250,7 +250,7 @@ DB-SEARCH rect=[70 15 370 49] font=13
 DB-SETTINGS rect=[14 784 206 820] font=13
 DB-TITLE rect=[650 16 1346 48] font=20
 SB-INFO rect=[0 834 1360 860] font=13
-shapes=704 digest=c919abdab9bd7082
+shapes=705 digest=899e5068357b5b2d
 ## Canvas 1.5x 2040x1290
 DB-BAR rect=[238 200 1123 716] font=17
 DB-CUSTOMERS rect=[238 730 674 1246] font=17
@@ -292,7 +292,7 @@ DB-SEARCH rect=[70 15 370 49] font=17
 DB-SETTINGS rect=[14 1214 206 1250] font=17
 DB-TITLE rect=[650 16 2026 48] font=26
 SB-INFO rect=[0 1264 2040 1290] font=17
-shapes=622 digest=fa61b311bcdc6fbf
+shapes=623 digest=05243727598d6612
 ## Run 1.5x 2040x1290
 DB-BAR rect=[238 200 1123 716] font=17
 DB-CUSTOMERS rect=[238 730 674 1246] font=17
@@ -334,7 +334,7 @@ DB-SEARCH rect=[70 15 370 49] font=17
 DB-SETTINGS rect=[14 1214 206 1250] font=17
 DB-TITLE rect=[650 16 2026 48] font=26
 SB-INFO rect=[0 1264 2040 1290] font=17
-shapes=704 digest=6f98a38d0c2dda5d
+shapes=705 digest=e138f543b5c3d992
 ## Preview 1.5x 2040x1290
 DB-BAR rect=[238 200 1123 716] font=17
 DB-CUSTOMERS rect=[238 730 674 1246] font=17
@@ -376,4 +376,4 @@ DB-SEARCH rect=[70 15 370 49] font=17
 DB-SETTINGS rect=[14 1214 206 1250] font=17
 DB-TITLE rect=[650 16 2026 48] font=26
 SB-INFO rect=[0 1264 2040 1290] font=17
-shapes=704 digest=6f98a38d0c2dda5d
+shapes=705 digest=e138f543b5c3d992

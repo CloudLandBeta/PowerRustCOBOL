@@ -351,12 +351,12 @@
     <Property name="CornerRadius">6</Property>
   </Control>
   <Control id="SB-INFO" type="StatusBar" x="0" y="774" w="1280" h="26" tab-order="0" z-order="5" visible="true" enabled="true">
-    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ForegroundColor">#1F2933FF</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">13</Property>
     <Property name="Bold">false</Property>
@@ -381,6 +381,7 @@
     <Property name="CornerRadius">0</Property>
     <Property name="BorderStyle">Single</Property>
     <Property name="Dock">Bottom</Property>
+    <Property name="BorderColor">#DDE3EAFF</Property>
   </Control>
   <Control id="PNL-SIDE" type="Panel" x="0" y="64" w="240" h="710" tab-order="0" z-order="6" visible="true" enabled="true">
     <Property name="BackgroundColor">#FFFFFFFF</Property>

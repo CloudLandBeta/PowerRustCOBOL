@@ -27,7 +27,7 @@ RT-CMDS rect=[405 100 801 456] font=13
 RT-LOG rect=[24 472 801 512] font=13
 RT-STAGE rect=[24 100 389 456] font=13
 SB-INFO rect=[0 550 825 576] font=13
-shapes=427 digest=87d23f60133e90fe
+shapes=428 digest=eec4a1876021c203
 ## Run 0.75x 825x540
 LBL-INTRO rect=[24 50 801 90] font=13
 LBL-TITLE rect=[24 14 801 46] font=20
@@ -56,7 +56,7 @@ RT-CMDS rect=[405 100 801 456] font=13
 RT-LOG rect=[24 472 801 512] font=13
 RT-STAGE rect=[24 100 389 456] font=13
 SB-INFO rect=[0 550 825 576] font=13
-shapes=428 digest=323173eaaf6603ce
+shapes=429 digest=ccc35adca11aef33
 ## Preview 0.75x 825x540
 LBL-INTRO rect=[24 50 801 90] font=13
 LBL-TITLE rect=[24 14 801 46] font=20
@@ -85,7 +85,7 @@ RT-CMDS rect=[405 100 801 456] font=13
 RT-LOG rect=[24 472 801 512] font=13
 RT-STAGE rect=[24 100 389 456] font=13
 SB-INFO rect=[0 550 825 576] font=13
-shapes=428 digest=323173eaaf6603ce
+shapes=429 digest=ccc35adca11aef33
 ## Canvas 1x 1100x720
 LBL-INTRO rect=[24 50 1076 90] font=13
 LBL-TITLE rect=[24 14 1076 46] font=20
@@ -114,7 +114,7 @@ RT-CMDS rect=[680 100 1076 600] font=13
 RT-LOG rect=[24 616 1076 656] font=13
 RT-STAGE rect=[24 100 664 600] font=13
 SB-INFO rect=[0 694 1100 720] font=13
-shapes=427 digest=c76dcebb6bff74bb
+shapes=428 digest=cb3c106bf0c1cbd9
 ## Run 1x 1100x720
 LBL-INTRO rect=[24 50 1076 90] font=13
 LBL-TITLE rect=[24 14 1076 46] font=20
@@ -143,7 +143,7 @@ RT-CMDS rect=[680 100 1076 600] font=13
 RT-LOG rect=[24 616 1076 656] font=13
 RT-STAGE rect=[24 100 664 600] font=13
 SB-INFO rect=[0 694 1100 720] font=13
-shapes=428 digest=37517c38c5183fee
+shapes=429 digest=379162bed84a7076
 ## Preview 1x 1100x720
 LBL-INTRO rect=[24 50 1076 90] font=13
 LBL-TITLE rect=[24 14 1076 46] font=20
@@ -172,7 +172,7 @@ RT-CMDS rect=[680 100 1076 600] font=13
 RT-LOG rect=[24 616 1076 656] font=13
 RT-STAGE rect=[24 100 664 600] font=13
 SB-INFO rect=[0 694 1100 720] font=13
-shapes=428 digest=37517c38c5183fee
+shapes=429 digest=379162bed84a7076
 ## Canvas 1.5x 1650x1080
 LBL-INTRO rect=[24 50 1626 90] font=13
 LBL-TITLE rect=[24 14 1626 46] font=20
@@ -201,7 +201,7 @@ RT-CMDS rect=[1230 100 1626 960] font=13
 RT-LOG rect=[24 976 1626 1016] font=13
 RT-STAGE rect=[24 100 1214 960] font=13
 SB-INFO rect=[0 1054 1650 1080] font=13
-shapes=427 digest=e06c339a86801f72
+shapes=428 digest=e4c00d30b7418f9e
 ## Run 1.5x 1650x1080
 LBL-INTRO rect=[24 50 1626 90] font=13
 LBL-TITLE rect=[24 14 1626 46] font=20
@@ -230,7 +230,7 @@ RT-CMDS rect=[1230 100 1626 960] font=13
 RT-LOG rect=[24 976 1626 1016] font=13
 RT-STAGE rect=[24 100 1214 960] font=13
 SB-INFO rect=[0 1054 1650 1080] font=13
-shapes=428 digest=c8bab457bc441f97
+shapes=429 digest=5c9b90bc491964b1
 ## Preview 1.5x 1650x1080
 LBL-INTRO rect=[24 50 1626 90] font=13
 LBL-TITLE rect=[24 14 1626 46] font=20
@@ -259,4 +259,4 @@ RT-CMDS rect=[1230 100 1626 960] font=13
 RT-LOG rect=[24 976 1626 1016] font=13
 RT-STAGE rect=[24 100 1214 960] font=13
 SB-INFO rect=[0 1054 1650 1080] font=13
-shapes=428 digest=c8bab457bc441f97
+shapes=429 digest=5c9b90bc491964b1

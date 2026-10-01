@@ -23,7 +23,7 @@ LBL-TITLE rect=[24 14 726 46] font=16
 PNL-CTRL rect=[410 100 726 520] font=10.5
 PNL-SAMPLES rect=[24 100 394 520] font=10.5
 SB-INFO rect=[0 534 750 560] font=10.5
-shapes=270 digest=7afed9d7f63a5afa
+shapes=271 digest=8eb93d461b47dd32
 ## Run 0.75x 750x525
 F-AUTO rect=[42 326 260 344] font=12
 F-BODY rect=[42 118 376 146] font=10.5
@@ -48,7 +48,7 @@ LBL-TITLE rect=[24 14 726 46] font=16
 PNL-CTRL rect=[410 100 726 520] font=10.5
 PNL-SAMPLES rect=[24 100 394 520] font=10.5
 SB-INFO rect=[0 534 750 560] font=10.5
-shapes=272 digest=1bad9deab9b803a4
+shapes=273 digest=9be6b838a3b1b478
 ## Preview 0.75x 750x525
 F-AUTO rect=[42 326 260 344] font=12
 F-BODY rect=[42 118 376 146] font=10.5
@@ -73,7 +73,7 @@ LBL-TITLE rect=[24 14 726 46] font=16
 PNL-CTRL rect=[410 100 726 520] font=10.5
 PNL-SAMPLES rect=[24 100 394 520] font=10.5
 SB-INFO rect=[0 534 750 560] font=10.5
-shapes=272 digest=1bad9deab9b803a4
+shapes=273 digest=9be6b838a3b1b478
 ## Canvas 1x 1000x700
 F-AUTO rect=[42 326 313 347] font=15
 F-BODY rect=[42 118 626 146] font=13
@@ -98,7 +98,7 @@ LBL-TITLE rect=[24 14 976 46] font=20
 PNL-CTRL rect=[660 100 976 660] font=13
 PNL-SAMPLES rect=[24 100 644 660] font=13
 SB-INFO rect=[0 674 1000 700] font=13
-shapes=270 digest=c9880ef10d8d36d9
+shapes=271 digest=c5b0342be6a02006
 ## Run 1x 1000x700
 F-AUTO rect=[42 326 313 347] font=15
 F-BODY rect=[42 118 626 146] font=13
@@ -123,7 +123,7 @@ LBL-TITLE rect=[24 14 976 46] font=20
 PNL-CTRL rect=[660 100 976 660] font=13
 PNL-SAMPLES rect=[24 100 644 660] font=13
 SB-INFO rect=[0 674 1000 700] font=13
-shapes=272 digest=5445d72bceea44b4
+shapes=273 digest=4db5d441430774a1
 ## Preview 1x 1000x700
 F-AUTO rect=[42 326 313 347] font=15
 F-BODY rect=[42 118 626 146] font=13
@@ -148,7 +148,7 @@ LBL-TITLE rect=[24 14 976 46] font=20
 PNL-CTRL rect=[660 100 976 660] font=13
 PNL-SAMPLES rect=[24 100 644 660] font=13
 SB-INFO rect=[0 674 1000 700] font=13
-shapes=272 digest=5445d72bceea44b4
+shapes=273 digest=4db5d441430774a1
 ## Canvas 1.5x 1500x1050
 F-AUTO rect=[42 326 445 356] font=22.5
 F-BODY rect=[42 118 1126 146] font=19.5
@@ -173,7 +173,7 @@ LBL-TITLE rect=[24 14 1476 46] font=30
 PNL-CTRL rect=[1160 100 1476 1010] font=19.5
 PNL-SAMPLES rect=[24 100 1144 1010] font=19.5
 SB-INFO rect=[0 1024 1500 1050] font=19.5
-shapes=270 digest=2f3ddfb1ffa285f5
+shapes=271 digest=8d0786d8f0e3755e
 ## Run 1.5x 1500x1050
 F-AUTO rect=[42 326 445 356] font=22.5
 F-BODY rect=[42 118 1126 146] font=19.5
@@ -198,7 +198,7 @@ LBL-TITLE rect=[24 14 1476 46] font=30
 PNL-CTRL rect=[1160 100 1476 1010] font=19.5
 PNL-SAMPLES rect=[24 100 1144 1010] font=19.5
 SB-INFO rect=[0 1024 1500 1050] font=19.5
-shapes=272 digest=f0986b8701484bc4
+shapes=273 digest=668fddeecf3943d1
 ## Preview 1.5x 1500x1050
 F-AUTO rect=[42 326 445 356] font=22.5
 F-BODY rect=[42 118 1126 146] font=19.5
@@ -223,4 +223,4 @@ LBL-TITLE rect=[24 14 1476 46] font=30
 PNL-CTRL rect=[1160 100 1476 1010] font=19.5
 PNL-SAMPLES rect=[24 100 1144 1010] font=19.5
 SB-INFO rect=[0 1024 1500 1050] font=19.5
-shapes=272 digest=f0986b8701484bc4
+shapes=273 digest=668fddeecf3943d1

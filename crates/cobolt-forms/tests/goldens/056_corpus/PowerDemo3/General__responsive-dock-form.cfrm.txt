@@ -22,7 +22,7 @@ TB-NEW rect=[242 84 305 116] font=13
 TB-OPEN rect=[313 84 376 116] font=13
 TB-SAVE rect=[385 84 448 116] font=13
 TB-SEARCH rect=[456 84 583 116] font=13
-shapes=299 digest=fea3c78834969f48
+shapes=300 digest=e878fe570a004cb2
 ## Run 0.75x 825x525
 BTN-FLOAT rect=[393 417 593 451] font=13
 BTN-HDR rect=[389 16 525 48] font=13
@@ -46,7 +46,7 @@ TB-NEW rect=[242 84 305 116] font=13
 TB-OPEN rect=[313 84 376 116] font=13
 TB-SAVE rect=[385 84 448 116] font=13
 TB-SEARCH rect=[456 84 583 116] font=13
-shapes=392 digest=ba16b585451dbf15
+shapes=393 digest=008b0d4b472e9915
 ## Preview 0.75x 825x525
 BTN-FLOAT rect=[393 417 593 451] font=13
 BTN-HDR rect=[389 16 525 48] font=13
@@ -70,7 +70,7 @@ TB-NEW rect=[242 84 305 116] font=13
 TB-OPEN rect=[313 84 376 116] font=13
 TB-SAVE rect=[385 84 448 116] font=13
 TB-SEARCH rect=[456 84 583 116] font=13
-shapes=392 digest=ba16b585451dbf15
+shapes=393 digest=008b0d4b472e9915
 ## Canvas 1x 1100x700
 BTN-FLOAT rect=[668 592 868 626] font=13
 BTN-HDR rect=[664 16 800 48] font=13
@@ -94,7 +94,7 @@ TB-NEW rect=[242 84 322 116] font=13
 TB-OPEN rect=[330 84 410 116] font=13
 TB-SAVE rect=[418 84 498 116] font=13
 TB-SEARCH rect=[506 84 858 116] font=13
-shapes=299 digest=803d72acc4c1e542
+shapes=300 digest=5b6a085a10da0056
 ## Run 1x 1100x700
 BTN-FLOAT rect=[668 592 868 626] font=13
 BTN-HDR rect=[664 16 800 48] font=13
@@ -118,7 +118,7 @@ TB-NEW rect=[242 84 322 116] font=13
 TB-OPEN rect=[330 84 410 116] font=13
 TB-SAVE rect=[418 84 498 116] font=13
 TB-SEARCH rect=[506 84 858 116] font=13
-shapes=415 digest=d0a831d3e700b229
+shapes=416 digest=ea6c22f10c179361
 ## Preview 1x 1100x700
 BTN-FLOAT rect=[668 592 868 626] font=13
 BTN-HDR rect=[664 16 800 48] font=13
@@ -142,7 +142,7 @@ TB-NEW rect=[242 84 322 116] font=13
 TB-OPEN rect=[330 84 410 116] font=13
 TB-SAVE rect=[418 84 498 116] font=13
 TB-SEARCH rect=[506 84 858 116] font=13
-shapes=415 digest=d0a831d3e700b229
+shapes=416 digest=ea6c22f10c179361
 ## Canvas 1.5x 1650x1050
 BTN-FLOAT rect=[1218 942 1418 976] font=13
 BTN-HDR rect=[1214 16 1350 48] font=13
@@ -166,7 +166,7 @@ TB-NEW rect=[242 84 322 116] font=13
 TB-OPEN rect=[330 84 410 116] font=13
 TB-SAVE rect=[418 84 498 116] font=13
 TB-SEARCH rect=[506 84 1408 116] font=13
-shapes=299 digest=0c8f9410189abd45
+shapes=300 digest=ab02e7d9c88ef810
 ## Run 1.5x 1650x1050
 BTN-FLOAT rect=[1218 942 1418 976] font=13
 BTN-HDR rect=[1214 16 1350 48] font=13
@@ -190,7 +190,7 @@ TB-NEW rect=[242 84 322 116] font=13
 TB-OPEN rect=[330 84 410 116] font=13
 TB-SAVE rect=[418 84 498 116] font=13
 TB-SEARCH rect=[506 84 1408 116] font=13
-shapes=415 digest=14f5d105ccb83359
+shapes=416 digest=471de5288256126c
 ## Preview 1.5x 1650x1050
 BTN-FLOAT rect=[1218 942 1418 976] font=13
 BTN-HDR rect=[1214 16 1350 48] font=13
@@ -214,4 +214,4 @@ TB-NEW rect=[242 84 322 116] font=13
 TB-OPEN rect=[330 84 410 116] font=13
 TB-SAVE rect=[418 84 498 116] font=13
 TB-SEARCH rect=[506 84 1408 116] font=13
-shapes=415 digest=14f5d105ccb83359
+shapes=416 digest=471de5288256126c

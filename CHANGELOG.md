@@ -8,6 +8,32 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.48] — 2026-10-01
+
+### Fix: a StatusBar on a modern form is readable
+
+The status bars of PowerDemo3's responsive demos showed their text in white
+on light grey, about 1.1:1 against the 4.5:1 that readable text needs. The
+same happened to any StatusBar dropped on a modern form.
+
+**The defect.** A StatusBar paints its items in its own `ForegroundColor` on
+its own `BackgroundColor`, the same way in the designer, Preview, Run Form
+and the compiled binary. Its seeds are white ink on the `#F0F0F0` background
+sentinel. The modern style (`style::style_control`) had no case for the
+StatusBar, and under the Classic glass a modern form uses, no theme replaces
+that pair.
+
+**The fix.** The modern style now gives a StatusBar the surface `#FFFFFF`,
+the text colour `#1F2933` (about 15:1) and the surface border. The eleven
+demo forms with a status bar carry the same values.
+
+**Tests.** `style::tests::a_modern_status_bar_is_readable` measures both
+pairs: it fails on the seeded pair and passes at 4.5:1 or more on the modern
+one. The engine corpus golden of the eleven forms was re-captured as a named
+change. Only their paint digests changed (one shape more each: the bar's
+border); no rectangle or font moved. The host and generated-COBOL goldens
+are unchanged.
+
 ## [PowerRustCOBOL 1.80.47] — 2026-10-01
 
 ### Spec 080 T0.5 — the AI export's redaction is reusable

@@ -86,7 +86,7 @@ LBL-TITLE rect=[0 12 825 44] font=20
 PNL-BAR rect=[0 82 825 126] font=13
 PNL-GRID rect=[0 134 825 506] font=13
 SB-INFO rect=[0 514 825 540] font=13
-shapes=939 digest=76087ff56d415a82
+shapes=940 digest=3463bdc1f4965866
 ## Run 0.75x 825x540
 FB-BRK rect=[697 88 817 120] font=13
 FB-BU rect=[308 88 389 120] font=13
@@ -174,7 +174,7 @@ LBL-TITLE rect=[0 12 825 44] font=20
 PNL-BAR rect=[0 82 825 126] font=13
 PNL-GRID rect=[0 134 825 506] font=13
 SB-INFO rect=[0 514 825 540] font=13
-shapes=940 digest=667cd4713b6de171
+shapes=941 digest=5e34a743a1bf6933
 ## Preview 0.75x 825x540
 FB-BRK rect=[697 88 817 120] font=13
 FB-BU rect=[308 88 389 120] font=13
@@ -262,7 +262,7 @@ LBL-TITLE rect=[0 12 825 44] font=20
 PNL-BAR rect=[0 82 825 126] font=13
 PNL-GRID rect=[0 134 825 506] font=13
 SB-INFO rect=[0 514 825 540] font=13
-shapes=940 digest=667cd4713b6de171
+shapes=941 digest=5e34a743a1bf6933
 ## Canvas 1x 1100x720
 FB-BRK rect=[720 88 844 120] font=13
 FB-BU rect=[318 88 402 120] font=13
@@ -350,7 +350,7 @@ LBL-TITLE rect=[0 12 1100 44] font=20
 PNL-BAR rect=[0 82 1100 126] font=13
 PNL-GRID rect=[0 134 1100 686] font=13
 SB-INFO rect=[0 694 1100 720] font=13
-shapes=939 digest=01b93c2f7bd7aefe
+shapes=940 digest=4cf0e683ba850908
 ## Run 1x 1100x720
 FB-BRK rect=[720 88 844 120] font=13
 FB-BU rect=[318 88 402 120] font=13
@@ -438,7 +438,7 @@ LBL-TITLE rect=[0 12 1100 44] font=20
 PNL-BAR rect=[0 82 1100 126] font=13
 PNL-GRID rect=[0 134 1100 686] font=13
 SB-INFO rect=[0 694 1100 720] font=13
-shapes=940 digest=299c1b55b52d6fbb
+shapes=941 digest=b526f0834c641bf3
 ## Preview 1x 1100x720
 FB-BRK rect=[720 88 844 120] font=13
 FB-BU rect=[318 88 402 120] font=13
@@ -526,7 +526,7 @@ LBL-TITLE rect=[0 12 1100 44] font=20
 PNL-BAR rect=[0 82 1100 126] font=13
 PNL-GRID rect=[0 134 1100 686] font=13
 SB-INFO rect=[0 694 1100 720] font=13
-shapes=940 digest=299c1b55b52d6fbb
+shapes=941 digest=b526f0834c641bf3
 ## Canvas 1.5x 1650x1080
 FB-BRK rect=[720 88 844 120] font=13
 FB-BU rect=[318 88 402 120] font=13
@@ -614,7 +614,7 @@ LBL-TITLE rect=[0 12 1650 44] font=20
 PNL-BAR rect=[0 82 1650 126] font=13
 PNL-GRID rect=[0 134 1650 1046] font=13
 SB-INFO rect=[0 1054 1650 1080] font=13
-shapes=939 digest=8e192fa46c300252
+shapes=940 digest=cc75a30b17d95c6e
 ## Run 1.5x 1650x1080
 FB-BRK rect=[720 88 844 120] font=13
 FB-BU rect=[318 88 402 120] font=13
@@ -702,7 +702,7 @@ LBL-TITLE rect=[0 12 1650 44] font=20
 PNL-BAR rect=[0 82 1650 126] font=13
 PNL-GRID rect=[0 134 1650 1046] font=13
 SB-INFO rect=[0 1054 1650 1080] font=13
-shapes=940 digest=d42f013d7a9d5f0b
+shapes=941 digest=6ad09ca4522da545
 ## Preview 1.5x 1650x1080
 FB-BRK rect=[720 88 844 120] font=13
 FB-BU rect=[318 88 402 120] font=13
@@ -790,4 +790,4 @@ LBL-TITLE rect=[0 12 1650 44] font=20
 PNL-BAR rect=[0 82 1650 126] font=13
 PNL-GRID rect=[0 134 1650 1046] font=13
 SB-INFO rect=[0 1054 1650 1080] font=13
-shapes=940 digest=d42f013d7a9d5f0b
+shapes=941 digest=6ad09ca4522da545
