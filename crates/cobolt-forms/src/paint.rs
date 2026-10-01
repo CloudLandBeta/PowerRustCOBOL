@@ -10441,6 +10441,9 @@ fn open_css_box(
             if let Some(mx) = style.max_width {
                 w = w.min(mx * k);
             }
+            if let Some(share) = style.max_width_share {
+                w = w.min(avail * share);
+            }
             // An inline box: as wide as its content, when that is known.
             if style.fit_content && style.width.is_none() && style.width_share.is_none() {
                 if let Some(c) = styled_content_width(painter, ctx, style, blocks) {

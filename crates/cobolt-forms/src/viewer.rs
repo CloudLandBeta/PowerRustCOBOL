@@ -688,6 +688,9 @@ pub struct BoxStyle {
     /// `width` as a share of the space available (0–1), when it was a percentage.
     pub width_share: Option<f32>,
     pub max_width: Option<f32>,
+    /// `max-width` as a share of the space available (0–1), when it was a
+    /// percentage — a report page's `max-width: 80%`.
+    pub max_width_share: Option<f32>,
     pub shadow: Option<BoxShadow>,
     pub text_align: Option<TextAlign>,
     /// `border-radius` as a share of the box's shorter side (`50%` makes a
@@ -3739,7 +3742,15 @@ fn apply_declaration(
                 bx.width_share = None;
             }
         }
-        "max-width" => bx.max_width = px(v),
+        "max-width" => {
+            if let Some(p) = lv.strip_suffix('%').and_then(|p| p.trim().parse::<f32>().ok()) {
+                bx.max_width_share = Some((p / 100.0).clamp(0.0, 1.0));
+                bx.max_width = None;
+            } else {
+                bx.max_width = px(v);
+                bx.max_width_share = None;
+            }
+        }
         "box-shadow" => {
             bx.shadow = None;
             if lv != "none" {

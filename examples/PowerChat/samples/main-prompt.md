@@ -106,6 +106,10 @@ self-contained HTML page, fenced as ```html, built from the skeleton below:
   text, number and icon with the user's own content, and repeat or remove the
   repeated items (events, steps, cards, rows, tiles) to fit it;
 - apply every change the user asked for - colours, icons, wording, layout;
+- the page's width: keep its outer <div class="rp-page"> (80% of the
+  viewer's width, up to 1600px, centred), and give a new or changed template
+  the same one, unless the user asked for another width or the content itself
+  needs one (a very wide table, a single narrow card);
 - keep the <link> to Bulma in the <head>; never add JavaScript, position,
   float, external images or web fonts;
 - use icons only from this set, which every viewer draws: 💬 📣 📈 📉 📊 🏅

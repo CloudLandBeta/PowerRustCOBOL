@@ -1984,6 +1984,68 @@ fn powerchat_offers_report_templates_and_saves_a_new_one() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Operator (2026-09-30): a report takes 80 % of the Viewer, up to 1600 px.
+/// A PowerChat that already stored the templates shipped before keeps
+/// them in data/templates.idx, so the chat upgrades them: a stored template
+/// still exactly as it shipped (samples/report-templates-previous.txt) takes
+/// the shipped one of its name, with its 80 % page; one the user changed is
+/// left as it is.
+#[test]
+fn powerchat_upgrades_the_shipped_templates_and_keeps_a_changed_one() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // The user's own Executive, defined in a chat answer under that name.
+    const REPLY: &str = "Here is your report.\n```html\n<html><head><link rel=\"stylesheet\" \
+        href=\"https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css\"></head><body>\
+        <div class=\"ex-page\"><p>MY-OWN-EXECUTIVE</p></div>\
+        </body></html>\n```\n<!--REPORT-TEMPLATE\nNAME: Executive\nSUITS: my own sober report.\n-->\n";
+    let (url, requests) = report_server("TEMPLATE: Executive", REPLY);
+    let (root, data) = report_setup("upgrade", &url, 1);
+    let shipped = project().join("samples");
+    let previous = std::fs::read_to_string(shipped.join("report-templates-previous.txt")).unwrap();
+    assert!(!previous.contains("rp-page"), "the previous templates are the fixed-width ones");
+
+    // 1. A PowerChat from before: the samples folder as it shipped then.
+    let old = root.join("samples-old");
+    std::fs::create_dir_all(&old).unwrap();
+    std::fs::copy(shipped.join("main-prompt.md"), old.join("main-prompt.md")).unwrap();
+    std::fs::write(old.join("report-templates.txt"), &previous).unwrap();
+    std::env::set_var("POWERCHAT_SAMPLES", &old);
+    let t = Instant::now();
+    let mut s = Session::start("chat-form.cfrm");
+    s.wait_for("AGENT-1", "SystemPrompt", |v| v.contains("- Animated:"));
+    s.type_into("Txt-Input", "A report on leave, my own way");
+    s.click("Btn-Send");
+    s.wait_for("Vwr-Chat", "_ConversationHtml", |v| v.contains("Here is your report"));
+    s.quit();
+    let before = String::from_utf8_lossy(&std::fs::read(data.join("templates.idx")).unwrap()).into_owned();
+    assert!(!before.contains("rp-page") && before.contains("MY-OWN-EXECUTIVE"), "the old templates, Executive changed");
+
+    // 2. This version: the shipped templates upgraded, the user's kept.
+    std::env::set_var("POWERCHAT_SAMPLES", &shipped);
+    requests.lock().unwrap().clear();
+    let mut s = Session::start("chat-form.cfrm");
+    s.wait_for("AGENT-1", "SystemPrompt", |v| v.contains("- Animated:"));
+    s.type_into("Txt-Input", "Another report");
+    s.click("Btn-Send");
+    s.wait_for("Vwr-Chat", "_ConversationHtml", |v| v.matches("Here is your report").count() >= 1);
+    s.quit();
+    let after = String::from_utf8_lossy(&std::fs::read(data.join("templates.idx")).unwrap()).into_owned();
+    let upgraded = after.matches("<div class=\"rp-page\">").count();
+    assert!(upgraded >= 10, "the ten untouched templates carry the 80 % page ({upgraded})");
+    let sent = requests.lock().unwrap().clone();
+    let request = sent.iter().find(|b| b.contains("Skeleton:")).expect("the chosen template sent");
+    let skeleton = request.rsplit("Skeleton:").next().unwrap();
+    assert!(skeleton.contains("MY-OWN-EXECUTIVE") && !skeleton.contains("rp-page"),
+        "the user's Executive is kept, not replaced");
+    assert!(request.contains("80% of the"), "the TEMPLATE section carries the width rule");
+    println!(
+        "\n  ── PowerChat, templates upgraded to the 80 % page ───────\n  11 templates stored from the previous set, Executive changed by the user; \
+         after the upgrade {upgraded} carry the 80 % page and the user's Executive is kept — {:.0} ms\n",
+        t.elapsed().as_secs_f64() * 1000.0
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// With several agents the orchestrator plans first; a report with no
 /// template chosen yet is answered `ASK:` — a question for the user, shown
 /// as the answer, not split into tasks.

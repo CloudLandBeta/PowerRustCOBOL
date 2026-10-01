@@ -9,7 +9,7 @@ Suits: any report for management, clients or an audit - sober and professional: 
 <style>
   :root { --navy: #1f3a5f; --ink: #26313d; --muted: #6b7785; --rule: #d9dee4; --paper: #ffffff; }
   body { background: var(--paper); color: var(--ink); }
-  .ex-page { margin: 0 auto; padding: 36px 32px 40px; }
+  .ex-page { max-width: 820px; margin: 0 auto; padding: 36px 32px 40px; }
   .ex-head { border-bottom: 3px solid var(--navy); padding-bottom: 14px; margin-bottom: 22px; }
   .ex-kicker { color: var(--muted); font-size: 0.75rem; letter-spacing: 2px; text-transform: uppercase; }
   .ex-title { color: var(--navy); font-size: 1.9rem; font-weight: 700; line-height: 1.2; margin-top: 4px; }
@@ -35,12 +35,9 @@ Suits: any report for management, clients or an audit - sober and professional: 
   .ex-recs { margin-left: 1.2rem; }
   .ex-recs li { margin-bottom: 6px; }
   .ex-note { color: var(--muted); font-size: 0.75rem; border-top: 1px solid var(--rule); padding-top: 10px; margin-top: 26px; }
-  /* The page: 80 % of the viewer, up to 1600 px, centred. */
-  .rp-page { width: 80%; max-width: 1600px; margin: 0 auto; }
 </style>
 </head>
 <body>
-<div class="rp-page">
 <div class="ex-page">
   <div class="ex-head">
     <p class="ex-kicker">Legal department · Quarterly review</p>
@@ -83,7 +80,6 @@ Suits: any report for management, clients or an audit - sober and professional: 
 
   <p class="ex-note">Sources: contract register (28 Sep 2026), approval workflow log Q3 2026.</p>
 </div>
-</div>
 </body>
 </html>
 
@@ -102,26 +98,23 @@ Suits: explaining a concept, a policy or a topic: a gradient header with the que
   .in-kicker { color: #e0e7ff; font-size: 0.8rem; letter-spacing: 3px; text-transform: uppercase; }
   .in-title { color: #ffffff; font-size: 2.4rem; font-weight: 800; line-height: 1.15; margin-top: 6px; }
   .in-sub { color: #e0e7ff; font-size: 1rem; margin-top: 8px; }
-  .in-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin: -46px auto 0; padding: 0 22px; }
+  .in-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; max-width: 900px; margin: -46px auto 0; padding: 0 22px; }
   .in-card { background: #ffffff; border-radius: 16px; padding: 22px 20px; text-align: center; box-shadow: 0 8px 22px rgba(30, 27, 75, 0.12); }
   .in-circle { display: flex; align-items: center; justify-content: center; width: 70px; height: 70px; border-radius: 50%;
                margin: 0 auto 12px; color: #ffffff; font-size: 2rem; }
   .in-card-title { font-weight: 800; font-size: 1.1rem; margin-bottom: 6px; }
   .in-card-text { color: var(--muted); font-size: 0.88rem; line-height: 1.5; }
-  .in-fact { margin: 24px auto 0; background: #ffffff; border-radius: 16px; display: grid;
+  .in-fact { max-width: 856px; margin: 24px auto 0; background: #ffffff; border-radius: 16px; display: grid;
              grid-template-columns: 170px 1fr; box-shadow: 0 4px 14px rgba(30, 27, 75, 0.08); }
   .in-fact-num { display: flex; align-items: center; justify-content: center; background: var(--ink); color: #ffffff;
                  font-size: 2.6rem; font-weight: 800; border-radius: 16px 0 0 16px; }
   .in-fact-text { padding: 18px 22px; font-size: 0.95rem; line-height: 1.55; }
-  .in-tip { margin: 18px auto 34px; background: #fff1f2; border-left: 6px solid var(--c3);
+  .in-tip { max-width: 856px; margin: 18px auto 34px; background: #fff1f2; border-left: 6px solid var(--c3);
             border-radius: 10px; padding: 14px 20px; display: flex; align-items: center; gap: 14px; }
   .in-tip-icon { color: var(--c3); font-size: 1.7rem; }
-  /* The page: 80 % of the viewer, up to 1600 px, centred. */
-  .rp-page { width: 80%; max-width: 1600px; margin: 0 auto; }
 </style>
 </head>
 <body>
-<div class="rp-page">
   <div class="in-hero">
     <p class="in-kicker">Legal guide</p>
     <p class="in-title">What is a confidentiality agreement?</p>
@@ -148,7 +141,6 @@ Suits: explaining a concept, a policy or a topic: a gradient header with the que
 
   <div class="in-tip"><p class="in-tip-icon">⚠️</p>
     <p><strong>Always:</strong> sign the NDA before sending any internal document to the other party.</p></div>
-</div>
 </body>
 </html>
 
@@ -168,7 +160,7 @@ Suits: tips, rules, checklists or 'N things to know': the count large beside the
   .ls-count { color: var(--c1); font-size: 5rem; font-weight: 800; line-height: 1; }
   .ls-title { color: var(--ink); font-size: 1.9rem; font-weight: 800; line-height: 1.15; text-transform: uppercase; }
   .ls-sub { color: var(--muted); text-align: center; padding: 0 20px 22px; }
-  .ls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 0 auto; padding: 0 22px 20px; }
+  .ls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 880px; margin: 0 auto; padding: 0 22px 20px; }
   .ls-item { display: flex; align-items: center; gap: 16px; background: #ffffff; border-radius: 14px; padding: 16px 18px;
              box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06); }
   .ls-num { display: flex; align-items: center; justify-content: center; width: 58px; height: 58px; border-radius: 14px;
@@ -177,15 +169,12 @@ Suits: tips, rules, checklists or 'N things to know': the count large beside the
   .ls-body { flex: 1; }
   .ls-name { font-weight: 800; font-size: 1rem; }
   .ls-text { color: var(--muted); font-size: 0.85rem; line-height: 1.45; margin-top: 2px; }
-  .ls-key { margin: 6px auto 30px; background: var(--ink); color: #ffffff; border-radius: 14px;
+  .ls-key { max-width: 836px; margin: 6px auto 30px; background: var(--ink); color: #ffffff; border-radius: 14px;
             padding: 16px 22px; display: flex; align-items: center; gap: 16px; }
   .ls-key-icon { font-size: 2rem; color: var(--c3); }
-  /* The page: 80 % of the viewer, up to 1600 px, centred. */
-  .rp-page { width: 80%; max-width: 1600px; margin: 0 auto; }
 </style>
 </head>
 <body>
-<div class="rp-page">
   <div class="ls-head">
     <p class="ls-count">6</p>
     <p class="ls-title">Rules for<br>remote work</p>
@@ -215,7 +204,6 @@ Suits: tips, rules, checklists or 'N things to know': the count large beside the
 
   <div class="ls-key"><p class="ls-key-icon">⭐</p>
     <p><strong style="color: #ffffff">Most important:</strong> rule 3 — a data leak from a personal device is a serious offence.</p></div>
-</div>
 </body>
 </html>
 
@@ -242,12 +230,9 @@ Suits: history, a project's phases or milestones over time: a band of round icon
   .th-year { color: var(--brand-dark); font-weight: 800; font-size: 2.1rem; line-height: 1.1; text-align: center; }
   .th-name { color: var(--ink); font-weight: 700; font-size: 0.95rem; text-align: center; margin: 8px 0 10px; }
   .th-text { color: var(--muted); font-size: 0.82rem; line-height: 1.5; text-align: center; }
-  /* The page: 80 % of the viewer, up to 1600 px, centred. */
-  .rp-page { width: 80%; max-width: 1600px; margin: 0 auto; }
 </style>
 </head>
 <body>
-<div class="rp-page">
   <div class="th-header">
     <span class="th-logo">◆ AEON</span>
     <span class="th-title">Timeline of our company's history</span>
@@ -288,7 +273,6 @@ Suits: history, a project's phases or milestones over time: a band of round icon
       <p class="th-text">Web development, CRM integration and e-commerce support joined the offer.</p>
     </div>
   </div>
-</div>
 </body>
 </html>
 
@@ -305,7 +289,7 @@ Suits: two options side by side - products, plans, before and after, pros and co
   body { background: var(--paper); color: var(--ink); }
   .cp-title { color: var(--ink); font-size: 2rem; font-weight: 800; text-align: center; padding: 30px 20px 4px; text-transform: uppercase; }
   .cp-sub { color: var(--muted); text-align: center; padding-bottom: 24px; }
-  .cp-grid { display: grid; grid-template-columns: 1fr 70px 1fr; margin: 0 auto; padding: 0 20px; }
+  .cp-grid { display: grid; grid-template-columns: 1fr 70px 1fr; max-width: 860px; margin: 0 auto; padding: 0 20px; }
   .cp-head { display: flex; flex-direction: column; align-items: center; padding: 22px 12px 18px; color: #ffffff; }
   .cp-a { background: var(--a); }
   .cp-b { background: var(--b); }
@@ -324,14 +308,11 @@ Suits: two options side by side - products, plans, before and after, pros and co
   .cp-yes { color: #16a34a; font-weight: 800; font-size: 1.1rem; }
   .cp-no { color: #dc2626; font-weight: 800; font-size: 1.1rem; }
   .cp-text { font-size: 0.88rem; }
-  .cp-verdict { margin: 22px auto 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 0 20px; }
+  .cp-verdict { max-width: 820px; margin: 22px auto 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 0 20px; }
   .cp-v { border-radius: 12px; padding: 14px 18px; color: #ffffff; }
-  /* The page: 80 % of the viewer, up to 1600 px, centred. */
-  .rp-page { width: 80%; max-width: 1600px; margin: 0 auto; }
 </style>
 </head>
 <body>
-<div class="rp-page">
   <p class="cp-title">Office or remote?</p>
   <p class="cp-sub">How the two ways of working compare under the new policy</p>
 
@@ -359,7 +340,6 @@ Suits: two options side by side - products, plans, before and after, pros and co
     <div class="cp-v" style="background: var(--a-dark)"><strong style="color: #ffffff">Choose office</strong> for onboarding and team days.</div>
     <div class="cp-v" style="background: var(--b-dark)"><strong style="color: #ffffff">Choose remote</strong> for focused, individual work.</div>
   </div>
-</div>
 </body>
 </html>
 
@@ -376,7 +356,7 @@ Suits: figures by region, state, branch or site: a tile map coloured by intensit
   body { background: var(--paper); color: var(--ink); }
   .mp-title { color: var(--ink); font-size: 2rem; font-weight: 800; text-align: center; padding: 30px 20px 4px; text-transform: uppercase; }
   .mp-sub { color: var(--muted); text-align: center; padding-bottom: 24px; }
-  .mp-body { display: grid; grid-template-columns: 3fr 2fr; gap: 26px; margin: 0 auto; padding: 0 22px; }
+  .mp-body { display: grid; grid-template-columns: 3fr 2fr; gap: 26px; max-width: 940px; margin: 0 auto; padding: 0 22px; }
   .mp-map { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
   .mp-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 62px; border-radius: 8px; }
   .mp-code { font-weight: 800; font-size: 0.9rem; }
@@ -393,12 +373,9 @@ Suits: figures by region, state, branch or site: a tile map coloured by intensit
   .mp-fill { background: var(--s4); border-radius: 999px; height: 12px; }
   .mp-amount { font-weight: 800; font-size: 0.85rem; text-align: right; }
   .mp-note { color: var(--muted); font-size: 0.75rem; text-align: center; padding: 22px 20px 30px; }
-  /* The page: 80 % of the viewer, up to 1600 px, centred. */
-  .rp-page { width: 80%; max-width: 1600px; margin: 0 auto; }
 </style>
 </head>
 <body>
-<div class="rp-page">
   <p class="mp-title">Sales by state</p>
   <p class="mp-sub">Revenue in R$ million, 2026 · darker = higher</p>
 
@@ -453,7 +430,6 @@ Suits: figures by region, state, branch or site: a tile map coloured by intensit
     </div>
   </div>
   <p class="mp-note">Source: sales ledger, January–August 2026.</p>
-</div>
 </body>
 </html>
 
@@ -471,7 +447,7 @@ Suits: survey results, KPIs or performance - when the numbers are the story: big
   .st-head { background: var(--ink); color: #ffffff; text-align: center; padding: 30px 20px 26px; }
   .st-title { color: #ffffff; font-size: 2rem; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
   .st-sub { color: #cbd5e1; font-size: 0.95rem; margin-top: 4px; }
-  .st-body { margin: 0 auto; padding: 26px 22px 32px; }
+  .st-body { max-width: 860px; margin: 0 auto; padding: 26px 22px 32px; }
   .st-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 26px; }
   .st-kpi { background: #ffffff; border-radius: 12px; padding: 18px 14px; text-align: center;
             box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08); border-top: 6px solid var(--c1); }
@@ -493,12 +469,9 @@ Suits: survey results, KPIs or performance - when the numbers are the story: big
   .st-insight { background: var(--ink); color: #ffffff; border-radius: 12px; padding: 18px 22px; display: flex;
                 align-items: center; gap: 18px; }
   .st-insight-icon { font-size: 2.2rem; color: var(--c3); }
-  /* The page: 80 % of the viewer, up to 1600 px, centred. */
-  .rp-page { width: 80%; max-width: 1600px; margin: 0 auto; }
 </style>
 </head>
 <body>
-<div class="rp-page">
   <div class="st-head">
     <p class="st-title">Employee survey 2026</p>
     <p class="st-sub">1,240 answers · 86 % participation</p>
@@ -547,7 +520,6 @@ Suits: survey results, KPIs or performance - when the numbers are the story: big
       <p><strong style="color: #ffffff">Insight:</strong> satisfaction rises with flexible hours — teams that offer them score 18 points higher.</p>
     </div>
   </div>
-</div>
 </body>
 </html>
 
@@ -566,7 +538,7 @@ Suits: a procedure, an approval or a decision path: numbered step cards joined b
   .fl-title { color: var(--ink); font-size: 2rem; font-weight: 800; text-align: center; padding: 30px 20px 4px; text-transform: uppercase; }
   .fl-sub { color: var(--muted); text-align: center; padding-bottom: 26px; }
   .fl-row { display: grid; grid-template-columns: 1fr 40px 1fr 40px 1fr 40px 1fr; align-items: center;
-            margin: 0 auto; padding: 0 18px; }
+            max-width: 940px; margin: 0 auto; padding: 0 18px; }
   .fl-step { background: #ffffff; border-radius: 14px; padding: 16px 12px; text-align: center;
              box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08); border-top: 6px solid var(--step); }
   .fl-num { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 50%;
@@ -575,17 +547,14 @@ Suits: a procedure, an approval or a decision path: numbered step cards joined b
   .fl-name { font-weight: 800; font-size: 0.95rem; margin-top: 4px; }
   .fl-who { color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
   .fl-arrow { color: #94a3b8; font-size: 1.6rem; text-align: center; }
-  .fl-branch { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 22px auto 0; padding: 0 18px; }
+  .fl-branch { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 900px; margin: 22px auto 0; padding: 0 18px; }
   .fl-path { border-radius: 14px; padding: 14px 18px; display: flex; align-items: center; gap: 14px; }
   .fl-path-tag { font-weight: 800; font-size: 0.8rem; color: #ffffff; border-radius: 6px; padding: 3px 10px; }
-  .fl-diagram { margin: 24px auto 34px; background: #ffffff; border-radius: 14px; padding: 18px;
+  .fl-diagram { max-width: 900px; margin: 24px auto 34px; background: #ffffff; border-radius: 14px; padding: 18px;
                 box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08); }
-  /* The page: 80 % of the viewer, up to 1600 px, centred. */
-  .rp-page { width: 80%; max-width: 1600px; margin: 0 auto; }
 </style>
 </head>
 <body>
-<div class="rp-page">
   <p class="fl-title">How a contract is approved</p>
   <p class="fl-sub">Four steps, one decision</p>
 
@@ -622,7 +591,6 @@ flowchart LR
   C -->|No| E[Signature]
     </div>
   </div>
-</div>
 </body>
 </html>
 
@@ -639,7 +607,7 @@ Suits: levels, priorities, rankings or approval limits: a centred pyramid of tie
   body { background: var(--paper); color: var(--ink); }
   .hi-title { color: var(--ink); font-size: 2rem; font-weight: 800; text-align: center; padding: 30px 20px 4px; text-transform: uppercase; }
   .hi-sub { color: var(--muted); text-align: center; padding-bottom: 24px; }
-  .hi-body { display: grid; grid-template-columns: 3fr 2fr; gap: 26px; margin: 0 auto; padding: 0 22px 34px; align-items: center; }
+  .hi-body { display: grid; grid-template-columns: 3fr 2fr; gap: 26px; max-width: 920px; margin: 0 auto; padding: 0 22px 34px; align-items: center; }
   .hi-pyramid { display: flex; flex-direction: column; align-items: center; gap: 6px; }
   .hi-level { display: flex; align-items: center; justify-content: center; gap: 10px; height: 58px; border-radius: 10px;
               color: #ffffff; font-weight: 800; font-size: 1rem; }
@@ -650,12 +618,9 @@ Suits: levels, priorities, rankings or approval limits: a centred pyramid of tie
   .hi-dot { width: 16px; height: 16px; border-radius: 50%; flex: none; }
   .hi-note-name { font-weight: 800; font-size: 0.9rem; }
   .hi-note-text { color: var(--muted); font-size: 0.8rem; }
-  /* The page: 80 % of the viewer, up to 1600 px, centred. */
-  .rp-page { width: 80%; max-width: 1600px; margin: 0 auto; }
 </style>
 </head>
 <body>
-<div class="rp-page">
   <p class="hi-title">Who approves what</p>
   <p class="hi-sub">Approval levels by contract value</p>
 
@@ -675,7 +640,6 @@ Suits: levels, priorities, rankings or approval limits: a centred pyramid of tie
       <div class="hi-note"><div class="hi-dot" style="background: var(--l5)"></div><div><p class="hi-note-name">Up to R$ 50 k</p><p class="hi-note-text">Team lead</p></div></div>
     </div>
   </div>
-</div>
 </body>
 </html>
 
@@ -693,7 +657,7 @@ Suits: the parts of a whole - a system, a product, a document or a contract: the
   body { background: var(--paper); color: var(--ink); }
   .an-title { color: var(--ink); font-size: 2rem; font-weight: 800; text-align: center; padding: 30px 20px 4px; text-transform: uppercase; }
   .an-sub { color: var(--muted); text-align: center; padding-bottom: 24px; }
-  .an-body { display: grid; grid-template-columns: 1fr 260px 1fr; gap: 14px; align-items: center; margin: 0 auto; padding: 0 20px 34px; }
+  .an-body { display: grid; grid-template-columns: 1fr 260px 1fr; gap: 14px; align-items: center; max-width: 960px; margin: 0 auto; padding: 0 20px 34px; }
   .an-side { display: flex; flex-direction: column; gap: 14px; }
   .an-call { display: flex; align-items: center; gap: 10px; }
   .an-left { justify-content: flex-end; text-align: right; }
@@ -707,12 +671,9 @@ Suits: the parts of a whole - a system, a product, a document or a contract: the
              border-radius: 50%; background: var(--ink); color: #ffffff; text-align: center; }
   .an-core-icon { font-size: 4rem; }
   .an-core-name { color: #ffffff; font-weight: 800; font-size: 1.2rem; margin-top: 6px; }
-  /* The page: 80 % of the viewer, up to 1600 px, centred. */
-  .rp-page { width: 80%; max-width: 1600px; margin: 0 auto; }
 </style>
 </head>
 <body>
-<div class="rp-page">
   <p class="an-title">Anatomy of a contract</p>
   <p class="an-sub">The six parts every agreement has</p>
 
@@ -737,7 +698,6 @@ Suits: the parts of a whole - a system, a product, a document or a contract: the
         <div class="an-card"><p class="an-name">Termination</p><p class="an-text">How either party may end it</p></div></div>
     </div>
   </div>
-</div>
 </body>
 </html>
 
@@ -760,23 +720,20 @@ Suits: announcements, launches and growth stories opened in a browser: CSS3 anim
   .an-title { color: #ffffff; font-size: 2.6rem; font-weight: 800; line-height: 1.1; margin-top: 8px; }
   .an-figure { color: var(--c1); font-size: 5rem; font-weight: 800; line-height: 1; margin-top: 14px; animation: pulse 2.4s ease-in-out infinite; }
   .an-caption { color: #94a3b8; }
-  .an-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 0 auto; padding: 0 22px 20px; }
+  .an-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; max-width: 880px; margin: 0 auto; padding: 0 22px 20px; }
   .an-card { background: #1e293b; border-radius: 16px; padding: 20px; text-align: center; animation: rise 0.7s ease-out both; }
   .an-card:nth-child(2) { animation-delay: 0.15s; }
   .an-card:nth-child(3) { animation-delay: 0.3s; }
   .an-icon { font-size: 2rem; }
   .an-value { font-size: 2.2rem; font-weight: 800; margin-top: 6px; }
   .an-label { color: #94a3b8; font-size: 0.85rem; }
-  .an-bars { margin: 6px auto 40px; background: #1e293b; border-radius: 16px; padding: 20px 22px; }
+  .an-bars { max-width: 836px; margin: 6px auto 40px; background: #1e293b; border-radius: 16px; padding: 20px 22px; }
   .an-bar-row { display: grid; grid-template-columns: 110px 1fr 50px; gap: 12px; align-items: center; margin-bottom: 10px; }
   .an-track { background: #334155; border-radius: 999px; height: 16px; }
   .an-fill { height: 16px; border-radius: 999px; animation: grow 1.2s ease-out both; }
-  /* The page: 80 % of the viewer, up to 1600 px, centred. */
-  .rp-page { width: 80%; max-width: 1600px; margin: 0 auto; }
 </style>
 </head>
 <body>
-<div class="rp-page">
   <div class="an-hero">
     <p class="an-kicker">Product launch</p>
     <p class="an-title">Orbita 2.0 is live</p>
@@ -793,7 +750,6 @@ Suits: announcements, launches and growth stories opened in a browser: CSS3 anim
     <div class="an-bar-row"><p>Desktop</p><div class="an-track"><div class="an-fill" style="width: 29%; background: var(--c2)"></div></div><p>29%</p></div>
     <div class="an-bar-row"><p>Tablet</p><div class="an-track"><div class="an-fill" style="width: 7%; background: var(--c3)"></div></div><p>7%</p></div>
   </div>
-</div>
 </body>
 </html>
 

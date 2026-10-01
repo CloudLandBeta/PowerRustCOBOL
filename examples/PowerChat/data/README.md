@@ -14,7 +14,7 @@ each one the first time it is needed:
 | `prompt-versions.idx` | Every version of each topic's system prompt, and of the main prompt (topic id `*MAIN`) |
 | `prompts.idx` | The versions before 1.70.332, when a text held 1,000 characters: copied into `prompt-versions.idx` the first time the Prompt screen opens, then only kept |
 | `folders.idx` | Each topic's document folders, so an empty one still shows |
-| `templates.idx` | The report templates the chat offers — name, what it suits, its HTML page: the shipped ones (from `samples/report-templates.txt`) and every one changed or described in a conversation |
+| `templates.idx` | The report templates the chat offers — name, what it suits, its HTML page: the shipped ones (from `samples/report-templates.txt`; one still exactly as an earlier version shipped it, per `samples/report-templates-previous.txt`, is upgraded when the chat starts) and every one changed or described in a conversation |
 
 Set the `POWERCHAT_DATA` environment variable to keep them somewhere else.
 Keys are not here: they are in the application's key store

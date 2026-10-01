@@ -673,6 +673,22 @@
        01 WS-SAMPLES-DIR     GLOBAL PIC X(240).
        01 WS-RTPL-PATH       GLOBAL PIC X(240).
        01 WS-RTSEED-PATH     GLOBAL PIC X(240).
+      *>   An upgrade of the shipped templates (operator, 2026-09-30: a
+      *>   report is 80 % of the viewer, up to 1600 px). The templates shipped
+      *>   before are samples/report-templates-previous.txt: a stored template
+      *>   still equal to one of them was never changed, and takes the shipped
+      *>   template of its name; one the user changed is left as it is.
+      *>   WS-RT-MODE: "S" seed, "O" read the previous ones, "U" upgrade.
+       01 WS-RT-MODE         GLOBAL PIC X VALUE "S".
+       01 WS-RT-UPGRADED     GLOBAL PIC X VALUE "N".
+       01 WS-RTPREV-PATH     GLOBAL PIC X(240).
+       01 WS-RTNEW-PATH      GLOBAL PIC X(240).
+       01 WS-OLD-TPLS        GLOBAL.
+           05 WS-OLD-N       PIC 9(3) VALUE 0.
+           05 WS-OLD-TPL     OCCURS 40 TIMES.
+               10 WS-OLD-NAME PIC X(40).
+               10 WS-OLD-SKEL PIC X(12000).
+       01 WS-OLD-I           GLOBAL PIC 9(3).
        01 WS-RT-NAME         GLOBAL PIC X(40).
        01 WS-RT-SUITS        GLOBAL PIC X(300).
        01 WS-RT-SKEL         GLOBAL PIC X(12000).
@@ -1658,6 +1674,10 @@
            MOVE SPACES TO WS-RTSEED-PATH
            STRING FUNCTION TRIM(WS-SAMPLES-DIR) "/report-templates.txt"
                DELIMITED BY SIZE INTO WS-RTSEED-PATH
+           MOVE WS-RTSEED-PATH TO WS-RTNEW-PATH
+           MOVE SPACES TO WS-RTPREV-PATH
+           STRING FUNCTION TRIM(WS-SAMPLES-DIR) "/report-templates-previous.txt"
+               DELIMITED BY SIZE INTO WS-RTPREV-PATH
            MOVE SPACES TO WS-MPSEED-PATH
            STRING FUNCTION TRIM(WS-SAMPLES-DIR) "/main-prompt.md"
                DELIMITED BY SIZE INTO WS-MPSEED-PATH
@@ -2277,12 +2297,17 @@
                CLOSE RTPL-FILE
                OPEN I-O RTPL-FILE
            END-IF
+           IF WS-RT-UPGRADED = "N"
+               MOVE "Y" TO WS-RT-UPGRADED
+               CALL "PC-UPGRADE-TEMPLATES"
+           END-IF
            MOVE LOW-VALUES TO RT-NAME
            MOVE "N" TO WS-EOF
            START RTPL-FILE KEY IS >= RT-NAME
                INVALID KEY MOVE "Y" TO WS-EOF
            END-START
            IF WS-EOF = "Y"
+               MOVE "S" TO WS-RT-MODE
                CALL "PC-SEED-TEMPLATES"
                MOVE LOW-VALUES TO RT-NAME
                MOVE "N" TO WS-EOF
@@ -2312,7 +2337,9 @@
        ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-      *>   RTPL-FILE open I-O and empty: the shipped templates written in.
+      *>   RTPL-FILE open I-O and empty: the shipped templates written in
+      *>   (WS-RT-MODE "S"). The same reading serves the upgrade: "O" keeps
+      *>   the previous templates, "U" offers each shipped one to the store.
       *>   "=== name" opens each; its "Suits:" line says what it suits, and
       *>   every other line is its HTML skeleton, indentation kept. A missing
       *>   samples file leaves it empty - the chat still answers.
@@ -2329,7 +2356,7 @@
                    NOT AT END
                        EVALUATE TRUE
                            WHEN RTSEED-REC(1:4) = "=== "
-                               CALL "PC-PUT-TEMPLATE"
+                               CALL "PC-TAKE-TEMPLATE"
                                MOVE FUNCTION TRIM(RTSEED-REC(5:)) TO WS-RT-NAME
                                MOVE SPACES TO WS-RT-SUITS WS-RT-SKEL
                                MOVE 1 TO WS-RT-PT
@@ -2351,13 +2378,101 @@
                        END-EVALUATE
                END-READ
            END-PERFORM
-           CALL "PC-PUT-TEMPLATE"
+           CALL "PC-TAKE-TEMPLATE"
            CLOSE RTSEED-FILE
            MOVE "N" TO WS-EOF
 
            GOBACK.
 
        END PROGRAM PC-SEED-TEMPLATES.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-TAKE-TEMPLATE IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   One template read from a samples file - WS-RT-NAME and
+      *>   WS-RT-SKEL - goes where WS-RT-MODE says.
+           IF WS-RT-NAME = SPACES OR WS-RT-SKEL = SPACES
+               EXIT PROGRAM
+           END-IF
+           EVALUATE WS-RT-MODE
+               WHEN "O"
+                   IF WS-OLD-N < 40
+                       ADD 1 TO WS-OLD-N
+                       MOVE WS-RT-NAME TO WS-OLD-NAME(WS-OLD-N)
+                       MOVE WS-RT-SKEL TO WS-OLD-SKEL(WS-OLD-N)
+                   END-IF
+               WHEN "U"
+                   CALL "PC-UPGRADE-ONE"
+               WHEN OTHER
+                   CALL "PC-PUT-TEMPLATE"
+           END-EVALUATE
+
+           GOBACK.
+
+       END PROGRAM PC-TAKE-TEMPLATE.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-UPGRADE-TEMPLATES IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   RTPL-FILE open I-O: every stored template still exactly as an
+      *>   earlier version shipped it takes the shipped template of its
+      *>   name. Once per run; without a previous file, nothing changes.
+           MOVE 0 TO WS-OLD-N
+           MOVE WS-RTPREV-PATH TO WS-RTSEED-PATH
+           MOVE "O" TO WS-RT-MODE
+           CALL "PC-SEED-TEMPLATES"
+           IF WS-OLD-N > 0
+               MOVE WS-RTNEW-PATH TO WS-RTSEED-PATH
+               MOVE "U" TO WS-RT-MODE
+               CALL "PC-SEED-TEMPLATES"
+           END-IF
+           MOVE WS-RTNEW-PATH TO WS-RTSEED-PATH
+           MOVE "S" TO WS-RT-MODE
+
+           GOBACK.
+
+       END PROGRAM PC-UPGRADE-TEMPLATES.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. PC-UPGRADE-ONE IS COMMON PROGRAM.
+
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+      *>   WS-RT-NAME, WS-RT-SUITS and WS-RT-SKEL in - a shipped template:
+      *>   the stored one of that name is replaced only when it equals a
+      *>   previous shipped version of it, so a user's change is never lost.
+           MOVE WS-RT-NAME TO RT-NAME
+           READ RTPL-FILE
+               INVALID KEY EXIT PROGRAM
+           END-READ
+           IF RT-SKEL = WS-RT-SKEL
+               EXIT PROGRAM
+           END-IF
+           PERFORM VARYING WS-OLD-I FROM 1 BY 1 UNTIL WS-OLD-I > WS-OLD-N
+               IF WS-OLD-NAME(WS-OLD-I) = WS-RT-NAME
+                   IF WS-OLD-SKEL(WS-OLD-I) = RT-SKEL
+                       IF WS-RT-SUITS NOT = SPACES
+                           MOVE WS-RT-SUITS TO RT-SUITS
+                       END-IF
+                       MOVE WS-RT-SKEL TO RT-SKEL
+                       REWRITE RTPL-REC
+                       END-REWRITE
+                       COMMIT
+                       EXIT PROGRAM
+                   END-IF
+               END-IF
+           END-PERFORM
+
+           GOBACK.
+
+       END PROGRAM PC-UPGRADE-ONE.
 
        IDENTIFICATION DIVISION.
        PROGRAM-ID. PC-PUT-TEMPLATE IS COMMON PROGRAM.

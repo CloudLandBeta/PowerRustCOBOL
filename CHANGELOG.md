@@ -8,6 +8,50 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.24] — 2026-09-30
+
+### Fix — PowerChat's reports take 80 % of the chat, up to 1600 px
+
+A report PowerChat wrote was a narrow column in the middle of a wide chat
+(operator, 2026-09-30, with a screenshot: an Executive report about 820 px
+wide in a Viewer about 2000 px wide). Every report template capped its page
+with a fixed `max-width` between 820 and 960 px, and the model copies its
+template's CSS. The operator's rule: *unless the user asks otherwise or the
+content dictates a width, a report is 80 % of the Viewer, up to 1600 px.*
+
+- **Viewer: `max-width` in % is honoured.** It was read only in pixels, so a
+  `max-width: 80%` was dropped without a word. It now takes its share of the
+  space available, as `width: 80%` already did.
+- **The eleven templates** lose their fixed widths and wrap their page in
+  `<div class="rp-page">` with `width: 80%; max-width: 1600px; margin: 0 auto`.
+- **The main prompt's `TEMPLATE` section** tells the model to keep that page,
+  and to give a new or changed template the same one, unless the user asks
+  for another width or the content needs one.
+- **Stored templates are upgraded, a user's own are kept.** An install
+  already holds the old templates in `data/templates.idx`. When the chat
+  starts, a stored template still exactly as it shipped (the shipped set is
+  kept in `samples/report-templates-previous.txt`) takes the new one of its
+  name. One the user changed is left as it is. Conversations already saved
+  keep their reports as they were written.
+- The 1600 px are CSS pixels, which the Viewer scales with its font size (16
+  CSS px = its base font).
+- Tests:
+  - `a_report_page_is_80_percent_of_the_viewer` checks `max-width: 80%` at
+    two Viewer widths. It also paints the page of each of the eleven
+    templates in a 1000 px and a 2600 px Viewer: 80.0 % in the first, and
+    capped at 1600 CSS px in the second;
+  - `powerchat_upgrades_the_shipped_templates_and_keeps_a_changed_one`: of
+    11 stored templates, the 10 never changed are upgraded and the user's
+    Executive is kept.
+- The generated-COBOL snapshot of `chat-form` is re-captured for this change.
+  The System KB's Viewer text is updated and `chat-form`'s code regenerated.
+  The Developer's Guide's CSS table and PowerChat row, and both PowerChat
+  READMEs, are updated.
+- Noted while writing the upgrade: a combined `IF A(I) = B AND C(I) = D`
+  over 12000-byte table entries came out false inside the chat form's nested
+  program, while nested `IF`s gave the right answer. A standalone program
+  with the same shapes does not reproduce it, so it is recorded here, not
+  fixed.
 ## [PowerRustCOBOL 1.80.23] — 2026-09-30
 
 ### Tasks — 078 AWS controls through MCP (spec and plan approved)

@@ -101,6 +101,13 @@ opens inside the window, in the content pane beside the menu.
    `samples/report-templates.txt`, and the ones in use are in
    `data/templates.idx`. Delete that file to start again from the shipped
    ones.
+   A report takes **80 % of the chat's width, up to 1600 px**, unless you ask
+   for another width or its content needs one: every template's page is a
+   `<div class="rp-page">` with that width. A shipped template that a newer
+   PowerChat improves is upgraded in `data/templates.idx` the next time the
+   chat starts, but only if you never changed it. The versions shipped before
+   are in `samples/report-templates-previous.txt`, and a template you changed
+   is left exactly as it is.
 
 The flags at the foot of the menu switch the interface between English,
 Portuguese, Spanish, French, Japanese and Chinese, at once.
