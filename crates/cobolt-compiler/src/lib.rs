@@ -813,6 +813,15 @@ struct FormsConfig {
     focus_ring_color: String,
     #[serde(default, rename = "focus-ring-pulse")]
     focus_ring_pulse: bool,
+    // 056 R73 — new forms are responsive, and the table they start with. The
+    // compiler reads them so the manifest round-trips through either copy;
+    // what a built form does comes from its own `.cfrm`, never from these.
+    #[serde(default)]
+    #[allow(dead_code)]
+    responsive: bool,
+    #[serde(default)]
+    #[allow(dead_code)]
+    breakpoints: String,
 }
 
 /// Absent `[forms]` is every default — and the focus ring's is ON, which a
@@ -831,6 +840,8 @@ impl Default for FormsConfig {
             focus_ring: true,
             focus_ring_color: String::new(),
             focus_ring_pulse: false,
+            responsive: false,
+            breakpoints: String::new(),
         }
     }
 }
@@ -5328,7 +5339,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             "How the image is scaled inside the control. PictureBox: Normal = its own size, shrunk only when it does not fit, placed by ImageAlignment; Zoom = as large as fits, aspect kept; Stretch = fills the box; CenterImage = its own size (shrunk to fit), centred; AutoSize = the control takes the image's own size.",
         ),
         "ImageAlignment" => ("anchor name, e.g. `MiddleCenter`, `TopLeft`, `BottomRight`", "PictureBox: where the image sits when it does not fill the box (SizeMode Normal or Zoom). CenterImage always centres; Stretch and Fill cover the box."),
-        "ShowFrame" => (BOOL_DOMAIN, "Draws the frame/background behind the image."),
+        "ShowFrame" => (BOOL_DOMAIN, "Draws the frame/background behind the image. A PictureBox placed in the designer starts with it off (only the image shows); a form saved without it keeps the frame."),
         "Source" => ("path to GIF / WebP / APNG / still image", "Animated image the Animator plays."),
         "AutoPlay" => (BOOL_DOMAIN, "Starts playing when the form loads."),
         "Loop" => (BOOL_DOMAIN, "Restarts the animation when it ends."),

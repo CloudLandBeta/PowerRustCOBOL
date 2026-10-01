@@ -50,6 +50,10 @@ pub mod picture;
 /// disagree with it. The notification's LIFETIME lives in `cobolt-form-host` —
 /// there is no clock in here.
 pub mod snackbar;
+// Spec 079 — the modern look for new forms, readable text across theme
+// switches, and forms to start from.
+pub mod style;
+pub mod templates;
 pub mod theme;
 pub mod theme_pack;
 pub mod xml;

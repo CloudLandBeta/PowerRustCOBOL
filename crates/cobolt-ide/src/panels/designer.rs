@@ -4414,6 +4414,10 @@ impl DesignerPanel {
         if let Some(style) = self.neumorphic_seed() {
             ctrl.apply_glass_style_defaults(style);
         }
+        // 079 — on a modern form every new control takes the modern look.
+        if self.form.control_style == cobolt_forms::style::MODERN {
+            cobolt_forms::style::style_control(&mut ctrl);
+        }
         // Assign z_order = highest existing + 1
         let max_z = self
             .form
@@ -6341,7 +6345,9 @@ impl DesignerPanel {
                         .project_theme_defaults(self.form.theme.as_deref(), style)
                         .cloned();
                     self.form.apply_glass_style_defaults_with(style, table.as_ref());
-
+                    // 079 — text the switch left unreadable takes black or
+                    // white, whichever reads on its new background.
+                    cobolt_forms::style::ensure_text_contrast(&mut self.form, true);
                 }
                 self.dirty = true;
 
@@ -6399,7 +6405,15 @@ impl DesignerPanel {
                     let table = self
                         .project_theme_defaults(target.as_deref(), style)
                         .cloned();
+                    // 079 — the form's own background is what the text sits
+                    // on only under Liquid Glass (the default); any other
+                    // theme may paint its own surfaces, so there only the
+                    // backgrounds stated on the controls are trusted.
+                    let known = target
+                        .as_deref()
+                        .is_none_or(|t| t == cobolt_forms::theme::LIQUID_GLASS);
                     self.form.apply_theme_defaults_with(target, table.as_ref());
+                    cobolt_forms::style::ensure_text_contrast(&mut self.form, known);
                     self.dirty = true;
                 }
 
@@ -23011,5 +23025,71 @@ mod responsive_canvas_tests_056 {
         assert_eq!(d.hit_top_id(510, 30).as_deref(), Some("BTN"), "where it is painted");
         assert_eq!(d.hit_top_id(310, 30), None, "not where it was designed");
         assert_eq!(d.form.controls[0].rect.x, 300, "the design is untouched");
+    }
+}
+
+#[cfg(test)]
+mod modern_forms_tests_079 {
+    use super::*;
+    use cobolt_forms::style::{contrast, text_background, MIN_TEXT_CONTRAST};
+    use cobolt_forms::templates::{build, FormTemplate, Texts};
+
+    fn rgb(hex: &str) -> (u8, u8, u8) {
+        let h = hex.trim_start_matches('#');
+        let p = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).unwrap();
+        (p(0), p(2), p(4))
+    }
+
+    /// Every text control whose background the form states reads at 4.5:1.
+    fn worst_contrast(f: &Form) -> f32 {
+        let mut worst = 21.0f32;
+        for c in &f.controls {
+            let Some(PropValue::String(fg)) = c.properties.get("ForegroundColor") else { continue };
+            if !matches!(c.control_type, ControlType::Label | ControlType::Button | ControlType::TextBox) {
+                continue;
+            }
+            if let Some(bg) = text_background(f, c, true) {
+                worst = worst.min(contrast(rgb(fg), bg));
+            }
+        }
+        worst
+    }
+
+    /// A control dropped on a modern form takes the modern look; on a classic
+    /// form it keeps `Control::new`'s seeding, as before.
+    #[test]
+    fn a_control_dropped_on_a_modern_form_is_modern() {
+        let modern = build(FormTemplate::Blank, "F", "F", Some((640, 480)), &Texts::default());
+        let mut dp = DesignerPanel::new(modern);
+        dp.add_control(ControlType::TextBox, 40, 40);
+        let tb = dp.form.controls.last().unwrap();
+        assert_eq!(tb.get_prop("BorderStyle").unwrap().as_str(), "Single", "flat, not Fixed3D");
+        assert_eq!(tb.get_prop("CornerRadius").unwrap().as_i64(), cobolt_forms::style::palette::FIELD_RADIUS);
+        assert_eq!(tb.get_prop("FontSize").unwrap().as_i64(), cobolt_forms::style::palette::TEXT_SIZE);
+
+        let mut classic = DesignerPanel::new(Form::new("G", "G", 640, 480));
+        classic.add_control(ControlType::TextBox, 40, 40);
+        let tb = classic.form.controls.last().unwrap();
+        assert_eq!(tb.get_prop("BorderStyle").unwrap().as_str(), "Fixed3D", "a classic form is unchanged");
+    }
+
+    /// Operator (2026-10-01): moving from one theme to another, elements stay
+    /// high-contrast. Every template, through every glass style and back,
+    /// keeps its stated text at 4.5:1 or better.
+    #[test]
+    fn switching_style_keeps_every_template_readable() {
+        let mut report = Vec::new();
+        for t in [FormTemplate::RecordEntry, FormTemplate::ListDetails, FormTemplate::Dashboard] {
+            let mut dp = DesignerPanel::new(build(t, "F", "F", None, &Texts::default()));
+            let mut worst_seen = 21.0f32;
+            for s in ["Neumorphic Dark", "Neumorphic Light", "Enhanced", "Classic", "Neumorphic Dark"] {
+                dp.set_form_prop_direct("GlassStyle", s.to_owned());
+                let w = worst_contrast(&dp.form);
+                assert!(w >= MIN_TEXT_CONTRAST, "{t:?} after {s}: worst contrast {w:.2}");
+                worst_seen = worst_seen.min(w);
+            }
+            report.push(format!("{t:?} worst {worst_seen:.1}"));
+        }
+        println!("079 contrast across 5 style switches: {}", report.join(", "));
     }
 }

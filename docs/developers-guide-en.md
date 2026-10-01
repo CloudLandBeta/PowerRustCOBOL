@@ -299,7 +299,8 @@ This walkthrough produces a one-button window that shows a message.
 2. **Create a form.** In the project tree, click the **➕** next to **Forms**.
    This opens the *New Form* dialog — set a name (`main-form`), a title, and a
    size, then create. The form is saved under `forms/` and opens in the **Form
-   Designer**.
+   Designer**. (The dialog can also start you from a template; see *Starting a
+   new form* below.)
 3. **Drop a button.** Drag a **Button** from the toolbox onto the canvas. With
    it selected, set its `Caption` to `Say hello` in the properties pane.
 4. **Drop a label.** Drag a **Label** from the toolbox onto the canvas.
@@ -1881,6 +1882,40 @@ enforces — an explicit `Picture`'s width, or `MaximumLength`. A box with neith
 is never full, so the property does nothing there. This is the classic
 data-entry rhythm: type a six-digit date into `9(6)` and the cursor is already
 in the next field.
+
+### Starting a new form
+
+The *New Form* dialog has two choices that decide how a form looks from its
+first minute:
+
+- **Start from** — a **Blank form**, or a template laid out and ready to fill:
+  **Record entry** (a title, a card of labelled fields, and New / Delete /
+  Save buttons at the bottom right), **List and details** (a search box and a
+  grid on the left, the selected record's fields on the right) or
+  **Dashboard** (three indicator cards sharing the width, two charts below).
+  A template brings its own size, writes its captions in the IDE's language,
+  and is responsive: its fields stretch and its buttons follow the window's
+  edges from the first run. It writes no code — the handlers are yours.
+- **Modern style** — on by default. Fields are flat with a thin border and
+  rounded corners, cards are white on a light background, text is dark and
+  one size, the main button is the accent colour. **Every control you drop on
+  the form later takes the same look**, so the form stays consistent as it
+  grows. Untick it for the classic look; a template is always modern.
+
+A project created with this version makes **responsive** forms
+(**Settings → New forms are responsive**, ticked). A project created earlier
+keeps making forms as before until you tick it; no existing form is ever
+changed for you.
+
+**Changing a form's theme keeps its text readable.** When you switch a form's
+theme or glass style, any label, button or field whose text would no longer
+stand out from its new background — below the 4.5:1 contrast that
+accessibility guidelines ask of text — takes black or white, whichever reads.
+It is part of the same change, so **Undo** puts the old colours back.
+
+A **PictureBox** you place starts with **ShowFrame** off: only the image shows,
+and a transparent PNG lets the form show through. Tick it for the card behind
+the image. Forms saved before keep the frame they had.
 
 **Seeing where the focus is.** The control that has the focus in a running
 form wears a border — the *focus ring* — so a data-entry operator never loses

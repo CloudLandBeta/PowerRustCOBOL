@@ -225,6 +225,7 @@ enum OwnedEvent {
         start_position: crate::model::FormStartPosition,
         // 056 Responsive design
         responsive: bool,
+        control_style: String,
     },
     ControlStart(AttrPairs),
     // 056 — the form's layout bag (`<FormLayout …/>`), attributes only.
@@ -362,6 +363,8 @@ fn next_owned<R: std::io::BufRead>(
                     let responsive = get_attr(e, b"responsive")?
                         .map(|v| v == "true" || v == "1")
                         .unwrap_or(false);
+                    // 079 — absent means the classic seeding.
+                    let control_style = get_attr(e, b"control-style")?.unwrap_or_default();
 
                     Ok(OwnedEvent::FormStart {
                         name,
@@ -396,6 +399,7 @@ fn next_owned<R: std::io::BufRead>(
                         y,
                         start_position,
                         responsive,
+                        control_style,
                     })
                 }
                 b"FormLayout" => Ok(OwnedEvent::FormLayout(attr_pairs(e)?)),
@@ -543,6 +547,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 y,
                 start_position,
                 responsive,
+                control_style,
             } => {
                 // Build a base Form using Form::new (populates default form_events)
                 let mut f = Form::new(&name, &title, width, height);
@@ -574,6 +579,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 f.y = y;
                 f.start_position = start_position;
                 f.responsive = responsive;
+                f.control_style = control_style;
                 // form_events was pre-populated with empty OnLoad/OnClose stubs;
                 // parse_form_body will overwrite them if <form-events> is present.
                 parse_form_body(reader, &mut buf, &mut f)?;
@@ -1646,6 +1652,9 @@ pub fn form_to_string(form: &Form) -> Result<String, FormError> {
         // 056 R1 — written only when on, so every other form is unchanged.
         if form.responsive {
             elem.push_attribute(("responsive", "true"));
+        }
+        if !form.control_style.is_empty() {
+            elem.push_attribute(("control-style", form.control_style.as_str()));
         }
         w.write_event(Event::Start(elem))?;
 

@@ -366,6 +366,17 @@ pub struct FormsConfig {
     #[serde(default, rename = "focus-ring-pulse")]
     pub focus_ring_pulse: bool,
 
+    // ── Spec 056 — responsive design for NEW forms ─────────────────────────
+    /// New forms are created responsive (R73). Absent ⇒ false, so a project
+    /// made before 1.80 keeps creating forms exactly as it did; a project
+    /// created by 1.80 has it true (R74). It never changes an existing form.
+    #[serde(default)]
+    pub responsive: bool,
+    /// The breakpoint table new forms start with, as
+    /// `Name:MinWidth:FontFactor;…` (R58, R74). Empty ⇒ the built-in table.
+    #[serde(default)]
+    pub breakpoints: String,
+
     // ── The main-form designation, and its seal ────────────────────────────
     // Only the main form starts an application: `rcrun` and a built binary
     // open the form the project designates, never one a caller names. These
@@ -404,6 +415,12 @@ impl FormsConfig {
             entrance_effect: "matrix-rain".into(),
             // Matrix-rain has its own 1500–4000 ms band (fly-through).
             entrance_ms: 2000,
+            // 056 R74 — a project created by 1.80 makes responsive forms, with
+            // the default breakpoint table written out where it can be edited.
+            responsive: true,
+            breakpoints: cobolt_forms::layout::breakpoints::to_text(
+                &cobolt_forms::layout::defaults::default_breakpoints(),
+            ),
             ..Self::default()
         }
     }
@@ -425,6 +442,8 @@ impl Default for FormsConfig {
             focus_ring: true,
             focus_ring_color: String::new(),
             focus_ring_pulse: false,
+            responsive: false,
+            breakpoints: String::new(),
             // No designation until a save records one from the form files.
             main_form: String::new(),
             main_form_seal: String::new(),
@@ -2448,5 +2467,26 @@ main = "main.cbl"
         let old: CoboltProject = toml::from_str(legacy).expect("a pre-stamp project must load");
         assert_eq!(old.project.built_with_version, "");
         assert!(old.project.build_is_stale_for("1.60.29"));
+    }
+}
+
+#[cfg(test)]
+mod responsive_new_forms_tests_056 {
+    use super::*;
+
+    /// 056 R73/R74 (AC35): a project created now makes responsive forms and
+    /// writes the default breakpoint table where it can be edited; a project
+    /// whose `[forms]` says nothing — every project made before 1.80 — keeps
+    /// making forms as it did.
+    #[test]
+    fn new_projects_make_responsive_forms_and_old_ones_do_not() {
+        let fresh = FormsConfig::new_project_defaults();
+        assert!(fresh.responsive);
+        assert_eq!(fresh.breakpoints, "Compact:0:1;Medium:600:1;Expanded:1024:1");
+        let old: FormsConfig = toml::from_str("theme = \"liquid-glass\"").unwrap();
+        assert!(!old.responsive, "absent means off");
+        assert!(old.breakpoints.is_empty());
+        let back: FormsConfig = toml::from_str(&toml::to_string(&fresh).unwrap()).unwrap();
+        assert!(back.responsive && back.breakpoints == fresh.breakpoints, "round-trips");
     }
 }

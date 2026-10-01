@@ -4186,12 +4186,12 @@ pub static PROP_HELP: &[PropHelp] = &[
         "Fichier image à afficher, relatif au projet ou absolu (PNG, JPG, SVG, etc.).",
     ] },
     PropHelp { ty: "PictureBox", prop: "ShowFrame", text: [
-        "0 = draws only the image, with no frame, background or border (transparent areas show what is behind). Default 1.",
-        "0 = dibuja solo la imagen, sin marco, fondo ni borde (las zonas transparentes dejan ver lo que hay detrás). Predeterminado 1.",
-        "0 = desenha só a imagem, sem moldura, fundo ou borda (as áreas transparentes mostram o que está atrás). Padrão 1.",
-        "0 = 枠・背景・枠線なしで画像だけを描画します（透明部分からは背後が見えます）。既定は 1。",
-        "0 = 只绘制图像，不绘制外框、背景或边框（透明区域会露出后面的内容）。默认 1。",
-        "0 = dessine uniquement l'image, sans cadre, fond ni bordure (les zones transparentes laissent voir l'arrière-plan). 1 par défaut.",
+        "0 = draws only the image, with no frame, background or border (transparent areas show what is behind). A new image starts at 0.",
+        "0 = dibuja solo la imagen, sin marco, fondo ni borde (las zonas transparentes dejan ver lo que hay detrás). Una imagen nueva empieza en 0.",
+        "0 = desenha só a imagem, sem moldura, fundo ou borda (as áreas transparentes mostram o que está atrás). Uma imagem nova começa em 0.",
+        "0 = 枠・背景・枠線なしで画像だけを描画します（透明部分からは背後が見えます）。新しい画像は 0 で始まります。",
+        "0 = 只绘制图像，不绘制外框、背景或边框（透明区域会露出后面的内容）。新放置的图像默认为 0。",
+        "0 = dessine uniquement l'image, sans cadre, fond ni bordure (les zones transparentes laissent voir l'arrière-plan). Une nouvelle image commence à 0.",
     ] },
     PropHelp { ty: "PictureBox", prop: "SizeMode", text: [
         "Normal: own size, shrunk only if too big, placed by ImageAlignment. Zoom: largest that fits. Stretch: fills. CenterImage: centred. AutoSize: the box takes the image's size.",

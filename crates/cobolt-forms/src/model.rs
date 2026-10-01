@@ -4969,7 +4969,9 @@ impl Control {
                 props.insert("BorderColor".into(), PropValue::String("#888888".into()));
                 // When false, the surrounding frame/background is not drawn — only
                 // the image shows (transparent PNG areas reveal what's behind).
-                props.insert("ShowFrame".into(), PropValue::Bool(true));
+                // A new image starts frameless (operator, 2026-10-01); a saved
+                // form that does not state it still paints its frame.
+                props.insert("ShowFrame".into(), PropValue::Bool(false));
             }
             ControlType::Animator => {
                 // Plays an animated image (GIF / WebP / APNG) or a still image.
@@ -7619,6 +7621,11 @@ pub struct Form {
     /// `Responsive design` (R1). False unless the `.cfrm` says `responsive="true"`
     /// (R2), so no form that exists changes behaviour on load.
     pub responsive: bool,
+    /// The look a control dropped on this form starts with (spec 079): empty
+    /// is the classic seeding `Control::new` gives, `"modern"` the flat,
+    /// rounded, light look of [`crate::style`]. Written to the `.cfrm` only
+    /// when set, so every existing form reads as it did.
+    pub control_style: String,
     /// The form's own layout properties — `LayoutMode` and its container
     /// properties, `Padding`, `FontScaling`, the font-scale limits and the
     /// smallest form size. Only what differs from the seeded default is held
@@ -7696,6 +7703,7 @@ impl Form {
             y: 0,
             start_position: FormStartPosition::default(),
             responsive: false,
+            control_style: String::new(),
             layout: std::collections::BTreeMap::new(),
             breakpoints: crate::layout::defaults::default_breakpoints(),
         };

@@ -60,6 +60,8 @@ pub struct SettingsDraft {
     pub focus_ring: bool,
     pub focus_ring_color: String,
     pub focus_ring_pulse: bool,
+    /// 056 R76 — "New forms are responsive".
+    pub new_forms_responsive: bool,
     // ── Runtime ──
     pub fixed_format: bool,
     /// `[agents] file_memory_limit_mb`, shown with its default filled in.
@@ -159,6 +161,7 @@ impl SettingsDraft {
             focus_ring: p.forms.focus_ring,
             focus_ring_color: p.forms.focus_ring_color.clone(),
             focus_ring_pulse: p.forms.focus_ring_pulse,
+            new_forms_responsive: p.forms.responsive,
             fixed_format: p.runtime.fixed_format,
             file_memory_limit_mb: match p.agents.file_memory_limit_mb {
                 0 => cobolt_compiler::DEFAULT_FILE_MEMORY_LIMIT_MB,
@@ -246,6 +249,9 @@ impl SettingsDraft {
         p.forms.focus_ring = self.focus_ring;
         p.forms.focus_ring_color = self.focus_ring_color.clone();
         p.forms.focus_ring_pulse = self.focus_ring_pulse;
+        // Only the project's choice for FUTURE forms: no existing form is
+        // touched (R76, R77).
+        p.forms.responsive = self.new_forms_responsive;
         p.runtime.fixed_format = self.fixed_format;
         // The default is stored as 0, so a project that never changes it keeps
         // no `[agents]` table.
@@ -1847,6 +1853,26 @@ impl SettingsForm {
                                 }
                             }
                         }
+
+                        // 056 R76 — whether NEW forms are created responsive.
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(egui::Label::new(tr.set_new_forms_responsive).truncate());
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            ui.checkbox(&mut self.draft.new_forms_responsive, "")
+                                .on_hover_text(tr.set_new_forms_responsive_hint);
+                        });
 
                         // Keyboard focus ring — the border marking the control Tab
                         // moved to, in every form of the project. Colour + pulse.

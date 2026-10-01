@@ -111,6 +111,10 @@ struct NewFormDialog {
     /// Project-relative folder the save dialog should open in — set when the
     /// dialog was raised by a folder row's `[+]`. `None` means `forms/`.
     target_dir: Option<String>,
+    /// 079 — what the form starts from: a blank canvas or a template.
+    template: cobolt_forms::templates::FormTemplate,
+    /// 079 — the modern look (on by default). A template is always modern.
+    modern: bool,
 }
 
 impl NewFormDialog {
@@ -124,6 +128,8 @@ impl NewFormDialog {
             theme: "Classic".into(),
             form_theme: String::new(), // inherit the project default
             target_dir: None,
+            template: cobolt_forms::templates::FormTemplate::Blank,
+            modern: true,
         }
     }
 }
@@ -13080,11 +13086,45 @@ impl CoboltApp {
                         ui.label(tr.dlg_form_title);
                         ui.text_edit_singleline(&mut self.new_form.title);
                         ui.end_row();
+                        // 079 — start from a blank canvas or a template; a
+                        // template brings its own size.
+                        use cobolt_forms::templates::FormTemplate as T;
+                        let name_of = |t: T| match t {
+                            T::Blank => tr.tpl_blank,
+                            T::RecordEntry => tr.tpl_record_entry,
+                            T::ListDetails => tr.tpl_list_details,
+                            T::Dashboard => tr.tpl_dashboard,
+                        };
+                        ui.label(tr.dlg_form_template);
+                        let before = self.new_form.template;
+                        egui::ComboBox::from_id_salt("new-form-template")
+                            .selected_text(name_of(self.new_form.template))
+                            .width(200.0)
+                            .show_ui(ui, |ui| {
+                                for t in T::ALL {
+                                    ui.selectable_value(&mut self.new_form.template, t, name_of(t));
+                                }
+                            });
+                        if self.new_form.template != before && self.new_form.template != T::Blank {
+                            let (w, h) = self.new_form.template.size();
+                            self.new_form.width = w.to_string();
+                            self.new_form.height = h.to_string();
+                        }
+                        ui.end_row();
+                        let blank = self.new_form.template == T::Blank;
                         ui.label(tr.dlg_form_width);
-                        ui.text_edit_singleline(&mut self.new_form.width);
+                        ui.add_enabled(blank, egui::TextEdit::singleline(&mut self.new_form.width));
                         ui.end_row();
                         ui.label(tr.dlg_form_height);
-                        ui.text_edit_singleline(&mut self.new_form.height);
+                        ui.add_enabled(blank, egui::TextEdit::singleline(&mut self.new_form.height));
+                        ui.end_row();
+                        ui.label(tr.dlg_form_modern);
+                        let mut modern = self.new_form.modern || !blank;
+                        ui.add_enabled(blank, egui::Checkbox::without_text(&mut modern))
+                            .on_hover_text(tr.dlg_form_modern_hint);
+                        if blank {
+                            self.new_form.modern = modern;
+                        }
                         ui.end_row();
                         // 050 — the FORM THEME: the whole catalogue (Liquid
                         // Glass, Elegance, and every installed asset pack), the
@@ -13138,9 +13178,12 @@ impl CoboltApp {
                         // disabled under a theme that owns the whole look.
                         let self_contained =
                             crate::theme_ui::is_self_contained(ui.ctx(), &resolved);
+                        // 079 — a modern form has its own surface; the glass
+                        // style is for the classic look.
+                        let modern_form = self.new_form.modern || self.new_form.template != T::Blank;
                         ui.label(tr.lbl_glass_style);
                         let resp = ui
-                            .add_enabled_ui(!self_contained, |ui| {
+                            .add_enabled_ui(!self_contained && !modern_form, |ui| {
                                 egui::ComboBox::from_id_salt("new-form-glass-style")
                                     .selected_text(self.new_form.theme.as_str())
                                     .width(200.0)
@@ -13405,6 +13448,24 @@ impl CoboltApp {
         self.apply_main_form_invariant();
     }
 
+    /// 079 — the captions a template writes, in the IDE's language.
+    fn template_texts(&self) -> cobolt_forms::templates::Texts {
+        let tr = self.lang.tr();
+        cobolt_forms::templates::Texts {
+            code: tr.tpl_txt_code.into(),
+            name: tr.tpl_txt_name.into(),
+            email: tr.tpl_txt_email.into(),
+            phone: tr.tpl_txt_phone.into(),
+            new: tr.tpl_txt_new.into(),
+            save: tr.tpl_txt_save.into(),
+            delete: tr.tpl_txt_delete.into(),
+            search: tr.tpl_txt_search.into(),
+            details: tr.tpl_txt_details.into(),
+            kpis: [tr.tpl_txt_kpi1.into(), tr.tpl_txt_kpi2.into(), tr.tpl_txt_kpi3.into()],
+            charts: [tr.tpl_txt_chart1.into(), tr.tpl_txt_chart2.into()],
+        }
+    }
+
     fn create_new_form(&mut self) {
         let w: u32 = self.new_form.width.parse().unwrap_or(640);
         let h: u32 = self.new_form.height.parse().unwrap_or(480);
@@ -13416,7 +13477,39 @@ impl CoboltApp {
         if self.reject_duplicate_form_cobol_id(&form_name, None, "create form") {
             return;
         }
-        let mut form = Form::new(form_name.clone(), self.new_form.title.clone(), w, h);
+        // 079 — a template, or a modern blank form, comes from
+        // `cobolt_forms::templates` with its captions in the IDE's language;
+        // a classic blank form is `Form::new`, as before.
+        let template = self.new_form.template;
+        let modern = self.new_form.modern || template != cobolt_forms::templates::FormTemplate::Blank;
+        let mut form = if modern {
+            let mut f = cobolt_forms::templates::build(
+                template,
+                &form_name,
+                &self.new_form.title,
+                Some((w, h)),
+                &self.template_texts(),
+            );
+            if template == cobolt_forms::templates::FormTemplate::Blank {
+                // A blank form follows the project's own setting below.
+                f.responsive = false;
+            }
+            f
+        } else {
+            Form::new(form_name.clone(), self.new_form.title.clone(), w, h)
+        };
+        // 056 R75 — a project whose new forms are responsive writes that INTO
+        // the form, with the project's breakpoint table, so the form means the
+        // same thing wherever it is copied or built.
+        if let Some(p) = &self.cobolt_project {
+            if p.forms.responsive {
+                form.responsive = true;
+                if !p.forms.breakpoints.trim().is_empty() {
+                    form.breakpoints =
+                        cobolt_forms::layout::breakpoints::from_text(&p.forms.breakpoints, &form.breakpoints);
+                }
+            }
+        }
         // 050 — the form theme the developer picked in the dialog. Empty means
         // "inherit the project default", which is what an empty `Form::theme`
         // already means, so nothing is written in that case.
@@ -13433,7 +13526,9 @@ impl CoboltApp {
         let glass_applies = !self
             .resolve_surface_theme(Some(chosen_theme.as_str()))
             .is_self_contained();
-        if style.is_neumorphic() && glass_applies {
+        if modern {
+            // The modern look is the form's own surface; no glass seeding.
+        } else if style.is_neumorphic() && glass_applies {
             form.apply_glass_style_defaults(style);
         } else {
             form.glass_style = style;

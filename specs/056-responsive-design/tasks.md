@@ -666,22 +666,31 @@ Precondition: `git diff 0241901 HEAD -- crates` shows only version.rs.
 
 ## Phase 9 — Responsive by default for new projects (R73–R77)
 
-- [ ] **T9.1 — `[forms] responsive` + default breakpoints** (R73, R74)
+- [x] **T9.1 — `[forms] responsive` + default breakpoints** (R73, R74)
   - Read first: `project_model.rs` `FormsConfig`, `new_project_defaults`,
     `Default`; compiler copy (~789-820) and its baking into `main.rs`.
   - Files: `project_model.rs`, `cobolt-compiler/src/lib.rs`.
 
-- [ ] **T9.2 — New forms written responsive** (R75)
+- [x] **T9.2 — New forms written responsive** (R75)
   - Read first: `app.rs` `create_new_form`/`save_new_form_to` (~13424-13510),
     paste-form path.
 
-- [ ] **T9.3 — Settings checkbox** (R76)
+- [x] **T9.3 — Settings checkbox** (R76)
   - Read first: `settings_form.rs` focus-ring row pattern.
   - Files: `settings_form.rs`, `i18n.rs`.
 
-- [ ] **T9.4 — Verify** (R77; AC35)
+- [x] **T9.4 — Verify** (R77; AC35)
   - Verify: AC35 through the IDE's own creation path; no upgrade registered
     (`project_upgrade.rs` UPGRADES unchanged); Gate F; commit.
+
+
+> **Phase 9 result (2026-10-01, with spec 079).** `[forms] responsive` and
+> `breakpoints` in both manifest copies; `new_project_defaults` sets them (the
+> default table written out); a project without the key reads false. A new form
+> takes the project's setting, with its table (`create_new_form`); a template
+> from spec 079 is always responsive. Settings → "New forms are responsive" (six
+> languages) changes only future forms. `UPGRADES` untouched. Test:
+> `responsive_new_forms_tests_056`.
 
 ## Phase 10 — Documentation, KB, i18n completeness
 

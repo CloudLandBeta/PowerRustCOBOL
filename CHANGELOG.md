@@ -8,6 +8,65 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.29] — 2026-10-01
+
+### A new form starts modern, from a template, responsive — and stays readable across themes (spec 079; spec 056 Phase 9)
+
+The operator's three gaps that kept new forms looking like 1998, plus two
+requests made while they were built (operator, 2026-10-01).
+
+- **Modern style** (`cobolt_forms::style`):
+  - A form can carry `control-style="modern"`, written to the `.cfrm` only
+    when set.
+  - Every control created on such a form takes the modern look: flat fields
+    with a thin border, rounded corners, white cards on a light background,
+    dark text in one size, and the accent colour on the main button.
+  - `Control::new` is untouched. Its defaults are the "not chosen" markers
+    the painters and the theme switch read, so no existing form changes (the
+    example-corpus goldens did not move).
+  - The New Form dialog offers it, checked by default; the classic look stays
+    available.
+- **Templates** (`cobolt_forms::templates`): Blank form, Record entry, List
+  and details, Dashboard.
+  - Each is modern and responsive (anchors; flex rows for the dashboard's
+    cards and charts), with captions in the IDE's language and no code.
+  - The dialog's *Start from* row fills in the template's size.
+- **Responsive by default** (spec 056 Phase 9, R73–R77):
+  - `[forms] responsive` and `breakpoints` are in both manifest copies; a new
+    project has them on, with the default table.
+  - A new form takes the project's setting; a project without the key keeps
+    making forms as before.
+  - Settings → **New forms are responsive** (six languages) changes only
+    future forms. `UPGRADES` is unchanged.
+- **Contrast across themes:** after a theme or glass-style switch, a control
+  whose text falls below 4.5:1 on the background it now sits on takes black
+  or white, whichever reads. This is part of the same undoable change. Only
+  backgrounds the form states are judged; a theme's own painted surfaces are
+  left to the painters.
+- **PictureBox `ShowFrame`** starts off for a placed image; a saved form that
+  does not state it keeps its frame. Hover help (six languages) and the
+  System KB say so.
+- **i18n:** 22 new texts in six languages.
+- **Docs:** Developer's Guide "Starting a new form"; spec
+  `specs/079-modern-new-forms/spec.md`; spec 056 T9.1–T9.4 ticked.
+- **Tests:**
+  - `form_templates_079`: each template round-trips; it lays out at its size,
+    +400×240 and 1920×1080 with nothing leaving its container, overlapping or
+    shrinking; it reads at ≥ 5.2:1 as built and after every glass style.
+  - `modern_forms_tests_079` (2).
+  - `style::tests` (3).
+  - `responsive_new_forms_tests_056`.
+- **Sweeps:**
+  - `cobolt-forms --features render` green except the known
+    `test_maps_demo_form`.
+  - `cobolt-ide` 1291/1292: `every_document_ships_in_every_language`
+    (expected until the translation cycle).
+  - `cobolt-compiler`, `cobolt-form-host` and `cobolt-codegen` green.
+- **System KB:** `assets/knowledge/chunked.data` was regenerated (2,010
+  records). The semantic model it is embedded with had been removed from this
+  machine, and was downloaded again at the operator's go-ahead (487.7 MB).
+  `prebuilt_chunked_kb_matches_the_published_documentation` is green.
+
 ## [PowerRustCOBOL 1.80.28] — 2026-10-01
 
 ### Fix — PowerChat answers every part of a long question, in order, and never drops one in silence
