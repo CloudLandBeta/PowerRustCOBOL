@@ -56,7 +56,13 @@ criteria it serves, and how to verify it. Check off as completed.
     notification returns `None`. `cargo tree -p cobolt-mcp` still shows serde
     + serde_json only.
 
-- [ ] **T0.2 — `cobolt_compiler::system_documentation()`** (R7; prerequisite of AC4)
+- [x] **T0.2 — `cobolt_compiler::system_documentation()`** (R7; prerequisite of AC4)
+  - **Result (1.80.44):** the eight `std::fs::write` calls became pushes into the
+    returned `Vec`; `publish_system_documentation` loops over it. New test
+    `system_documentation_is_what_publishing_writes` (8 documents, 543 237 bytes,
+    byte-equal, no extra file). Filtered run: 5 passed, 0 failed.
+    `prebuilt_chunked_kb_matches_the_published_documentation`: 1 passed;
+    `chunked.data` unchanged.
   - Read first: `crates/cobolt-compiler/src/lib.rs:3968-4977`;
     `crates/cobolt-ide/src/grace_host.rs:4498` (the freshness test).
   - Files: `crates/cobolt-compiler/src/lib.rs`.

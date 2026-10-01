@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.44] — 2026-10-01
+
+### Spec 080 T0.2 — `cobolt_compiler::system_documentation()`
+
+The eight System Knowledge Base documents are now returned by one function,
+`system_documentation()`, as `(file name, text)` pairs;
+`publish_system_documentation` writes exactly those. The coding-agent kit's
+reference pack will be built from the same function, so it can never describe
+a different platform than the binary that exported it. The text is
+byte-identical: `prebuilt_chunked_kb_matches_the_published_documentation` is
+green and `assets/knowledge/chunked.data` is unchanged. New test
+`system_documentation_is_what_publishing_writes` (8 documents, 543 237 bytes).
+
 ## [PowerRustCOBOL 1.80.43] — 2026-10-01
 
 ### Spec 080 T0.1 — `cobolt_mcp::dispatch`: one message in, one reply out

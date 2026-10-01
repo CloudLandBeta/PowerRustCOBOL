@@ -4023,9 +4023,22 @@ fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result
 /// System Knowledge Base root; compilation does NOT call it, because these
 /// documents describe the platform rather than any one project.
 pub fn publish_system_documentation(root: &std::path::Path) -> Result<(), std::io::Error> {
-    let project_dir = root;
-    let kb_dir = project_dir.join("Knowledge Base");
+    let kb_dir = root.join("Knowledge Base");
     std::fs::create_dir_all(&kb_dir)?;
+    for (name, text) in system_documentation() {
+        std::fs::write(kb_dir.join(name), text)?;
+    }
+    Ok(())
+}
+
+/// The System Knowledge Base documents as `(file name, text)` pairs, in the
+/// order [`publish_system_documentation`] writes them.
+///
+/// The one source of that text: publishing writes exactly these bytes, and the
+/// coding-agent kit (spec 080) builds its reference pack from them, so the pack
+/// can never describe a different platform than the binary that exported it.
+pub fn system_documentation() -> Vec<(&'static str, String)> {
+    let mut docs: Vec<(&'static str, String)> = Vec::with_capacity(8);
     
     // Write File 1: rustcobol_extensions.md
     let rc_ext = r##"# PowerRustCOBOL Extensions & Syntax
@@ -4428,7 +4441,7 @@ What the form declares governs the whole nest. With `DECIMAL-POINT IS COMMA` in 
 
 Without the clause, `.` is the decimal point and `,` groups digits, the usual way round. Comma-formatted currency is obtained by putting the clause on the FORM — never by declaring it inside a handler to compensate.
 "##;
-    std::fs::write(kb_dir.join("rustcobol_extensions.md"), rc_ext)?;
+    docs.push(("rustcobol_extensions.md", rc_ext.to_string()));
 
     // Write File 2: ide_functionalities.md
     let ide_funcs = r##"# PowerRustCOBOL IDE Functionalities
@@ -4468,24 +4481,18 @@ There are two separate stores, and they are never merged on disk:
 
 Both stores are searched for every request, and the matching subject records — not whole documents — are injected into the agents' context. Each excerpt carries a `SOURCE:` line naming its store, because the two use identically shaped paths: a System KB hit reads `Knowledge Base/form_designer_controls.md`, which is exactly how a project file would read even though the project contains no such file. Cite the project-relative path only for Project Knowledge Base excerpts; a System Knowledge Base excerpt is platform documentation and must never be reported as a project file, nor requested from the developer.
 "##;
-    std::fs::write(kb_dir.join("ide_functionalities.md"), ide_funcs)?;
+    docs.push(("ide_functionalities.md", ide_funcs.to_string()));
 
     // Write File 3: form_designer_controls.md — generated from the same model
     // the designer and runtime execute (`Control::new` seeds the defaults, so
     // each property's type and default can never drift from the code), and
     // enriched with curated value domains, ranges and per-control methods so
     // agents can generate valid code on the first attempt.
-    std::fs::write(
-        kb_dir.join("form_designer_controls.md"),
-        controls_reference_doc(),
-    )?;
+    docs.push(("form_designer_controls.md", controls_reference_doc()));
 
     // Write File 5: control_methods_reference.md — the complete closed method
     // vocabulary with parameter types and return values.
-    std::fs::write(
-        kb_dir.join("control_methods_reference.md"),
-        methods_reference_doc(),
-    )?;
+    docs.push(("control_methods_reference.md", methods_reference_doc()));
 
     // Write File 4: agents_registry.md
     let agents_reg = r##"# PowerRustCOBOL Agent Registry
@@ -4508,7 +4515,7 @@ This document lists all built-in specialist and reviewer agents configured in th
 - **Version Control Agent**: Specialist responsible for executing repository actions (Git status, branch, commit, push, merge, revert, rebase).
   - **Companion Reviewer**: `Version Control Agent Pedantic Reviewer`
 "##;
-    std::fs::write(kb_dir.join("agents_registry.md"), agents_reg)?;
+    docs.push(("agents_registry.md", agents_reg.to_string()));
 
     // Write File 6: form_themes.md — what a theme is, how one is selected, and
     // the two rules agents kept getting wrong (self-contained themes ignore
@@ -4642,7 +4649,7 @@ image skins a control at any size. States other than `Normal` fall back to
 cover is painted by Liquid Glass. A pack id that collides with a built-in id
 loses: the built-in wins.
 "##;
-    std::fs::write(kb_dir.join("form_themes.md"), themes)?;
+    docs.push(("form_themes.md", themes.to_string()));
 
     // Write File 7: form_layout_and_events.md — the layout model, the complete
     // form event catalogue, and the hosting/shell rules.
@@ -4897,7 +4904,7 @@ opened it, on both paths — a menu load and `OpenFormSync` / `OpenFormAsync`.
   Forms never read each other's data items; they talk through published form
   properties, `super::X`, and windowHandler methods.
 "##;
-    std::fs::write(kb_dir.join("form_layout_and_events.md"), layout)?;
+    docs.push(("form_layout_and_events.md", layout.to_string()));
 
     // Write File 8: project_model_and_settings.md — what a project IS. The
     // agents could describe every control and still not know where a file
@@ -5025,12 +5032,9 @@ Free form is the default for new projects.
 - **API keys** — never in the manifest. They resolve from the machine-local
   store by model-profile id, so a manifest can be committed and shared safely.
 "##;
-    std::fs::write(
-        kb_dir.join("project_model_and_settings.md"),
-        project_model,
-    )?;
+    docs.push(("project_model_and_settings.md", project_model.to_string()));
 
-    Ok(())
+    docs
 }
 
 // ── System Knowledge Base generation (controls + methods reference) ──────────
@@ -11118,6 +11122,33 @@ mod runtime_only_property_tests {
 
 #[cfg(test)]
 mod published_documentation_tests {
+    /// `system_documentation()` is exactly what publishing writes: the same
+    /// eight files, the same bytes, nothing else in the folder (spec 080 T0.2).
+    #[test]
+    fn system_documentation_is_what_publishing_writes() {
+        let dir = std::env::temp_dir().join(format!("prc_kb_sysdoc_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        super::publish_system_documentation(&dir).expect("publish");
+        let docs = super::system_documentation();
+        assert_eq!(docs.len(), 8, "eight System KB documents");
+        let mut total = 0usize;
+        for (name, text) in &docs {
+            let written = std::fs::read_to_string(dir.join("Knowledge Base").join(name))
+                .unwrap_or_else(|e| panic!("{name} not written: {e}"));
+            assert_eq!(&written, text, "{name} differs from what was published");
+            println!("  {name}: {} bytes", text.len());
+            total += text.len();
+        }
+        let on_disk = std::fs::read_dir(dir.join("Knowledge Base")).unwrap().count();
+        assert_eq!(on_disk, docs.len(), "publishing wrote a file the list lacks");
+        println!(
+            "system_documentation: {} documents, {total} bytes, byte-equal to the {on_disk} published files",
+            docs.len()
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A fenced example that CONTAINS ``` must survive being read.
     ///
     /// Balance is NOT the invariant — that was the first version of this test
