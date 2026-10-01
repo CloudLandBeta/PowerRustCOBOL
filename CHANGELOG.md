@@ -8,6 +8,59 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.50] — 2026-10-01
+
+### Fix: a Splitter pane lays out its own children on a responsive form
+
+**Defect.** On a responsive form, the children of a Splitter pane kept their
+designed size. `Dock = Fill` and stretch anchors inside a pane were ignored.
+When the layout moved the splitter across the split axis, the pane moved but
+its children did not: a horizontal splitter anchored `Bottom` moved down 100
+and its pane children stayed at their designed `y`.
+
+**Root cause.** `layout::carry_splitter` (`crates/cobolt-forms/src/layout/mod.rs`)
+placed the panes in the laid-out splitter's geometry, which is correct. It
+then moved each pane's subtree rigidly with `splitter::reflow_in_subtree`,
+the rule a divider drag uses (removed `reflow_pane_subtree`). That rule moves
+controls only along the split axis and never reads `Anchor`, `Dock` or the
+pane's `LayoutMode`. The inspector already offered those rows for a pane's
+children, so the layout ignored settings the developer could make.
+
+**Fix.** The Splitter still places its panes (R27). Each pane is now laid out
+like any container (R26): its children go through `place_children` from the
+designed pane's client to the client of the pane the splitter gives it, so
+anchors, docks and flex, grid and flow apply. The pane's container geometry
+is recorded. The render derives the panes from the same laid-out splitter,
+finds them unchanged and reflows nothing again. A divider moved at run time
+still reflows a pane's contents by its `ResizeBehavior`, starting from the
+laid-out state.
+
+**Tests.** `layout::tests::a_splitter_panes_children_are_laid_out_in_the_pane`
+uses a splitter anchored `Bottom,Left,Right` that moves down 100 and widens
+200, and checks three children:
+- a `Fill` panel fills pane 1;
+- a `Top,Left` label keeps its (10, 10) offset in pane 2 on both axes;
+- a `Top,Left,Right` field stretches with pane 2.
+
+With the fix disabled the `Fill` panel stayed at its designed
+(127, 67, 40, 40), against an expected (24, 164, 243, 192).
+
+`responsive_precedence_056::owner_positioned_controls_ignore_their_layout_properties`
+asserted the old behaviour for a pane child: `P1-LBL`, docked `Fill`, was
+placed as if it had no `Dock`. It now asserts, through the run renderer,
+that `P1-LBL` fills the laid-out pane 1, so the render does not move it a
+second time. With the fix disabled it was drawn at (132, 72, 60, 20) instead
+of (24, 64, 243, 292). The repeating-group half of the test is unchanged.
+
+The 056 corpus goldens for engine, host and codegen are unchanged, including
+PowerDemo3's `Containers/splitter-form`.
+
+**Guide.** The Splitter section now explains that, on a responsive form, each
+pane lays its controls out inside the space it receives, and that Resize
+Behavior applies only when the line moves at run time.
+
+## [PowerRustCOBOL 1.80.43] — 2026-10-01
+
 ## [PowerRustCOBOL 1.80.49] — 2026-10-01
 
 ### Fix: each TabControl page is its own layout set

@@ -13,7 +13,7 @@
 //! | `AUTO` Label | (20, 20, 10, 10), AutoSize, 15 pt | measured at 20 pt BEFORE layout |
 //! | `SPLIT` Splitter | (20, 60, 300, 200) | all four anchors → 500 × 300; its panes reflow on THAT rect |
 //! | `P2-LBL` in pane 2 | — | carried by the pane (owner-positioned) |
-//! | `P1-LBL` in pane 1 | `Anchor = Top,Right`, `Dock = Fill` | ignored: its owner places it |
+//! | `P1-LBL` in pane 1 | `Anchor = Top,Right`, `Dock = Fill` | fills pane 1: a pane lays out its children |
 //! | `CARD` repeating group, 2 items | (340, 60, 200, 60) | `Anchor = Top,Right` → x 540; instances step from THERE |
 //! | `NAME` in `CARD` | `Anchor = Top,Right`, `Dock = Fill` | ignored: carried with the card |
 //! | `BOX` Panel | (460, 280, 120, 60) | `Anchor = Bottom,Right` → (660, 380) |
@@ -201,8 +201,12 @@ fn every_mechanism_operates_on_the_laid_out_rects_in_the_order_of_r26() {
     );
 }
 
-/// AC12 / R27 — a Splitter pane's and a repeating group's contents with
-/// `Anchor`/`Dock` set are placed by their owner, as if those were not set.
+/// AC12 / R27 — a repeating group's contents with `Anchor`/`Dock` set are
+/// placed by their owner, as if those were not set. A Splitter owns its PANES,
+/// not what is inside them: a pane lays its children out like any container,
+/// so `P1-LBL`'s `Dock = Fill` fills pane 1 of the laid-out splitter, and the
+/// render — which derives the pane from that splitter — draws it there
+/// without reflowing it a second time.
 #[test]
 fn owner_positioned_controls_ignore_their_layout_properties() {
     let (controls, layout) = fixture();
@@ -210,7 +214,7 @@ fn owner_positioned_controls_ignore_their_layout_properties() {
         .iter()
         .map(|c| {
             let mut c = c.clone();
-            if matches!(c.id.as_str(), "P1-LBL" | "NAME") {
+            if c.id == "NAME" {
                 let _ = c.properties.remove("Anchor");
                 let _ = c.properties.remove("Dock");
             }
@@ -219,34 +223,21 @@ fn owner_positioned_controls_ignore_their_layout_properties() {
         .collect();
     let (with_props, _) = draw(Surface::Run, &controls, &layout);
     let (without, _) = draw(Surface::Run, &plain, &layout);
-    for id in ["P1-LBL", "CARD.CARD-1.NAME", "CARD.CARD-2.NAME"] {
+    for id in ["CARD.CARD-1.NAME", "CARD.CARD-2.NAME"] {
         assert_eq!(at(&with_props, id), at(&without, id), "{id}: its owner places it, its Anchor/Dock do not");
     }
-    // Where the pane's own rule puts it: the designed pane 1 → pane 1 of the
-    // laid-out splitter, under the pane's `ResizeBehavior` — as a divider drag
-    // or a COBOL resize of the splitter moves it.
-    let split = controls.iter().find(|c| c.id == "SPLIT").unwrap();
     let pane1_ctrl = controls.iter().find(|c| c.id == cobolt_forms::splitter::pane_id("SPLIT", 1)).unwrap();
-    let designed_lbl = controls.iter().find(|c| c.id == "P1-LBL").unwrap().rect;
-    let laid_split = at(&with_props, "SPLIT");
-    let laid_split = MRect::new(laid_split.0 as i32, laid_split.1 as i32, laid_split.2 as i32, laid_split.3 as i32);
-    let expected = cobolt_forms::splitter::reflow_in_subtree(
-        cobolt_forms::splitter::PaneResize::of(pane1_ctrl),
-        1,
-        cobolt_forms::splitter::geometry(split, split.rect).pane1,
-        cobolt_forms::splitter::geometry(split, laid_split).pane1,
-        designed_lbl,
-        designed_lbl,
-        cobolt_forms::splitter::is_horizontal(split),
-    );
-    let pane1 = at(&with_props, &cobolt_forms::splitter::pane_id("SPLIT", 1));
+    let pane1 = at(&with_props, &pane1_ctrl.id);
+    let inset = pane1_ctrl.content_rect();
+    let (l, t) = ((inset.x - pane1_ctrl.rect.x) as f32, (inset.y - pane1_ctrl.rect.y) as f32);
+    let (rr, b) = ((pane1_ctrl.rect.w - inset.w) as f32 - l, (pane1_ctrl.rect.h - inset.h) as f32 - t);
     let lbl = at(&with_props, "P1-LBL");
     assert_eq!(
         lbl,
-        (expected.x as f32, expected.y as f32, expected.w as f32, expected.h as f32),
-        "not docked Fill, not pinned right: where its pane's ResizeBehavior puts it"
+        (pane1.0 + l, pane1.1 + t, pane1.2 - l - rr, pane1.3 - t - b),
+        "Dock = Fill fills the laid-out pane 1 {pane1:?}"
     );
-    println!("056 T4.7 R27: P1-LBL {lbl:?} in pane 1 {pane1:?}; NAME {:?}", at(&with_props, "CARD.CARD-1.NAME"));
+    println!("056 T4.7 R27: P1-LBL {lbl:?} fills pane 1 {pane1:?}; NAME {:?}", at(&with_props, "CARD.CARD-1.NAME"));
 }
 
 /// AC10 (engine half) — canvas, run form and preview draw the same laid-out

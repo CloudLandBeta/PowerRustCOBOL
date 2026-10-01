@@ -696,11 +696,12 @@ fn place_items(
 }
 
 /// A laid-out Splitter's panes and their contents (R26 step 5, R27): each pane
-/// takes its place in the LAID-OUT splitter's geometry, and each pane's
-/// subtree reflows from the designed pane to that one exactly as a divider
-/// drag reflows it (`splitter::reflow_in_subtree`, the render's own rule), so
-/// the render — which derives the panes from the splitter it is given — finds
-/// every control already where that splitter puts it.
+/// takes its place in the LAID-OUT splitter's geometry — the splitter owns
+/// the panes — and lays its own children out inside that rect as any
+/// container does (anchors, docks, or its flex/grid/flow `LayoutMode`). The
+/// render, which derives the panes from the splitter it is given, finds every
+/// pane where the layout put it and moves nothing again; only a divider moved
+/// at run time reflows a pane's contents, by the pane's `ResizeBehavior`.
 fn carry_splitter(
     input: &LayoutInput<'_>,
     tree: &Tree,
@@ -713,7 +714,6 @@ fn carry_splitter(
     let model = |r: LRect| Rect::new(r.x.round() as i32, r.y.round() as i32, r.w.round() as i32, r.h.round() as i32);
     let before = crate::splitter::geometry(s, model(designed));
     let after = crate::splitter::geometry(s, model(laid));
-    let horizontal = crate::splitter::is_horizontal(s);
     for &i in tree.children(Some(&s.id)) {
         let pane = &input.controls[i];
         let Some(n) = crate::splitter::pane_index(pane) else {
@@ -726,46 +726,29 @@ fn carry_splitter(
             continue;
         };
         let (b, a) = if n == 1 { (before.pane1, after.pane1) } else { (before.pane2, after.pane2) };
-        out.rects.insert(pane.id.clone(), LRect::from_model(a));
-        out.placement.insert(
-            pane.id.clone(),
-            Placement::Rigid { dx: (a.x - b.x) as f32, dy: (a.y - b.y) as f32 },
-        );
-        let behavior = crate::splitter::PaneResize::of(pane);
-        for &j in tree.children(Some(&pane.id)) {
-            let root = model(designed_rect(input, &input.controls[j]));
-            reflow_pane_subtree(input, tree, j, root, (behavior, n, b, a, horizontal), out);
+        let (b, a) = (LRect::from_model(b), LRect::from_model(a));
+        out.rects.insert(pane.id.clone(), a);
+        out.placement.insert(pane.id.clone(), Placement::Rigid { dx: a.x - b.x, dy: a.y - b.y });
+        if tree.children(Some(&pane.id)).is_empty() {
+            continue;
         }
-    }
-}
-
-/// One control of a pane's subtree and everything under it, reflowed with the
-/// subtree's root (see [`carry_splitter`]).
-fn reflow_pane_subtree(
-    input: &LayoutInput<'_>,
-    tree: &Tree,
-    i: usize,
-    root: Rect,
-    how: (crate::splitter::PaneResize, u8, Rect, Rect, bool),
-    out: &mut LayoutOutput,
-) {
-    let (behavior, n, before, after, horizontal) = how;
-    let c = &input.controls[i];
-    let d = designed_rect(input, c);
-    let moved = crate::splitter::reflow_in_subtree(
-        behavior,
-        n,
-        before,
-        after,
-        root,
-        Rect::new(d.x.round() as i32, d.y.round() as i32, d.w.round() as i32, d.h.round() as i32),
-        horizontal,
-    );
-    let (dx, dy) = (moved.x as f32 - d.x.round(), moved.y as f32 - d.y.round());
-    out.rects.insert(c.id.clone(), LRect::new(d.x + dx, d.y + dy, d.w, d.h));
-    out.placement.insert(c.id.clone(), Placement::Rigid { dx, dy });
-    for &j in tree.children(Some(&c.id)) {
-        reflow_pane_subtree(input, tree, j, root, how, out);
+        // The pane is a container like any other: its children are anchored,
+        // docked or placed by its `LayoutMode` from the DESIGNED pane to the
+        // pane this splitter gives it.
+        let (dclient, lclient) = (client_of(pane, b), client_of(pane, a));
+        let mode = props::layout_mode(pane);
+        out.containers.insert(
+            pane.id.clone(),
+            ContainerGeom {
+                mode,
+                designed_client: dclient,
+                client: lclient,
+                columns: Vec::new(),
+                rows: Vec::new(),
+                gaps: (0.0, 0.0),
+            },
+        );
+        place_children(input, tree, Some(&pane.id), pane, mode, dclient, lclient, out);
     }
 }
 
@@ -1091,6 +1074,47 @@ mod tests {
         let o = solve_at(&[k, l0, l1], (400.0, 300.0), (100.0, 100.0));
         assert_eq!(o.min_size.0, (300.0 + frame.horizontal()).max(defaults::MIN_FORM_WIDTH as f32));
         println!("tab pages: Fill on page 0 and page 1 both {full:?}; flex pages start at y {}; minimum width {}", kc.y, o.min_size.0);
+    }
+
+    /// R26/R27 — a Splitter places its panes; a pane lays out its OWN
+    /// children inside the pane's actual rect. The splitter, designed at
+    /// (20, 60, 300, 200) in a 600 × 400 form and anchored `Bottom,Left,Right`,
+    /// moves down 100 and widens 200 at 800 × 500. In pane 1 a `Dock = Fill`
+    /// panel takes the whole pane; in pane 2 a `Top,Left` label keeps its
+    /// 10, 10 offset from the pane on BOTH axes, and a `Top,Left,Right` field
+    /// stretches with the pane.
+    #[test]
+    fn a_splitter_panes_children_are_laid_out_in_the_pane() {
+        let s = |v: &str| PropValue::String(v.into());
+        let mut form = crate::model::Form::new("F", "F", 600, 400);
+        form.controls.push(with(ctrl("S", ControlType::Splitter, (20, 60, 300, 200), None), "Anchor", s("Bottom,Left,Right")));
+        form.sync_splitter_panes();
+        let (n1, n2) = (crate::splitter::pane_id("S", 1), crate::splitter::pane_id("S", 2));
+        let p1 = form.find_control(&n1).unwrap().rect;
+        let p2 = form.find_control(&n2).unwrap().rect;
+        form.controls.push(with(ctrl("FILL", ControlType::Panel, (p1.x + 5, p1.y + 5, 40, 40), Some(&n1)), "Dock", s("Fill")));
+        form.controls.push(ctrl("LBL", ControlType::Label, (p2.x + 10, p2.y + 10, 60, 20), Some(&n2)));
+        form.controls.push(with(
+            ctrl("FLD", ControlType::TextBox, (p2.x + 10, p2.y + 40, p2.w - 20, 24), Some(&n2)),
+            "Anchor",
+            s("Top,Left,Right"),
+        ));
+        let o = solve_at(&form.controls, (600.0, 400.0), (800.0, 500.0));
+        assert_eq!(r(&o, "S"), (20.0, 160.0, 500.0, 200.0));
+        let pane1 = o.rects[&n1];
+        let pane2 = o.rects[&n2];
+        let c1 = client_of(form.find_control(&n1).unwrap(), pane1);
+        assert_eq!(r(&o, "FILL"), (c1.x, c1.y, c1.w, c1.h), "Fill takes pane 1 ({pane1:?})");
+        assert_eq!((r(&o, "LBL").0 - pane2.x, r(&o, "LBL").1 - pane2.y), (10.0, 10.0), "the label keeps its offset in pane 2 ({pane2:?})");
+        let fld = r(&o, "FLD");
+        assert_eq!((fld.0 - pane2.x, fld.1 - pane2.y, pane2.right() - (fld.0 + fld.2)), (10.0, 40.0, 10.0), "the field stretches with pane 2");
+        // The render derives the panes from the laid-out splitter and finds
+        // them already there: the geometry the solver used.
+        let mut laid = form.controls[0].clone();
+        laid.rect = Rect::new(20, 160, 500, 200);
+        let g = crate::splitter::geometry(&laid, laid.rect);
+        assert_eq!((pane1, pane2), (LRect::from_model(g.pane1), LRect::from_model(g.pane2)));
+        println!("splitter at 800×500: pane 1 {pane1:?} FILL {:?}; pane 2 {pane2:?} LBL {:?} FLD {fld:?}", r(&o, "FILL"), r(&o, "LBL"));
     }
 
     #[test]

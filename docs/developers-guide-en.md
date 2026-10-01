@@ -2322,10 +2322,20 @@ What you do **not** set is where they sit: the division line decides that.
   splitter inside a pane included**: the inner splitter travels with the
   outer division, and its own panes and their contents travel with it.
 
+  **On a responsive form**, the window's layout places the splitter and the
+  splitter places its two panes. Each pane then lays out its own controls
+  inside the space it actually received, the same way any Panel does. So
+  `Anchor`, `Dock` (`Fill` included) and the pane's own `LayoutMode` (Flex,
+  Grid, Flow) apply inside a pane. A control docked `Fill` in a pane fills
+  it, and one anchored `Top,Left` keeps its distance from the pane's corner
+  on both axes. The Resize Behavior above applies only when the line moves
+  while the form runs.
+
 
   > **A pane never resizes what is in it.** Moving the division changes the
   > pane's own rectangle and the *positions* of its contents — never their
-  > `Width` or `Height`. The pane is a **viewport**: a control too big for it
+  > `Width` or `Height` (only a responsive window resize does, through the
+  > controls' own anchors and docks). The pane is a **viewport**: a control too big for it
   > is clipped by the pane's edge, not shrunk to fit.
   >
 
