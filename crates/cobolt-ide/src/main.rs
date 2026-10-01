@@ -15,6 +15,7 @@
 //! ```
 
 pub mod agent;
+pub mod ai_bundle;
 pub mod agent_actions;
 pub mod agent_lint;
 pub mod agent_ratings;

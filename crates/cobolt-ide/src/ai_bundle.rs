@@ -1,0 +1,557 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! Export and import of the AI configuration — model providers, the
+//! project's agents and the model leaderboard — as one JSON file, so a
+//! developer sets a machine up once and hands the result to the next one.
+//!
+//! # No credential leaves the machine
+//!
+//! The file is meant to be shared, so it carries **no secret**:
+//!
+//! - API keys are never read into it — the provider records it is built from
+//!   have no key field, and agents name a provider, never a key;
+//! - an endpoint's `user:password@` part is dropped;
+//! - an agent's `mcp.json` keeps its servers but loses every `env` and
+//!   `headers` value and every field whose name says key, token, secret,
+//!   password, authorization or credential;
+//! - and, as the last word, [`export`] refuses to write a file in which any
+//!   key this IDE holds appears verbatim — whatever route it took to get there.
+//!
+//! The import therefore ends by asking for the key of every provider the file
+//! names; that is what makes the file safe to pass around.
+//!
+//! # Import merges
+//!
+//! Nothing is deleted. A provider's endpoint is replaced; an agent with the
+//! same name is overwritten (the local id is kept, so companion links survive);
+//! a leaderboard row is replaced only by a more recent test of the same model.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Component, Path};
+
+use serde::{Deserialize, Serialize};
+
+use crate::agents_db::{AgentDef, AgentsDb};
+use crate::leaderboard::Leaderboard;
+use crate::llm::{LlmConfig, ProviderConfig};
+
+/// What the `format` field of every file says, so an import can refuse a
+/// file that is something else.
+pub const FORMAT: &str = "powerrustcobol-ai-config";
+/// The layout version this build writes and reads.
+pub const FILE_VERSION: u32 = 1;
+/// Agent files larger than this are left out of the bundle (and named in the
+/// export summary): a knowledge base is not configuration.
+pub const MAX_AGENT_FILE_BYTES: u64 = 1024 * 1024;
+/// A stored key shorter than this is too short to search for without false
+/// alarms; no real provider key is.
+const MIN_KEY_LEN_TO_SCAN: usize = 8;
+
+/// The file.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AiBundle {
+    pub format: String,
+    pub version: u32,
+    #[serde(default)]
+    pub ide_version: String,
+    #[serde(default)]
+    pub exported_at_unix: i64,
+    #[serde(default)]
+    pub providers: Vec<ProviderConfig>,
+    #[serde(default)]
+    pub provider_models: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub agents: Vec<AgentEntry>,
+    #[serde(default)]
+    pub leaderboard: Option<Leaderboard>,
+}
+
+/// One agent: its `agent.json` plus the text files of its folder, keyed by
+/// their path inside `agentic_ai/<name>/` (forward slashes).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentEntry {
+    pub agent: AgentDef,
+    #[serde(default)]
+    pub files: BTreeMap<String, String>,
+}
+
+/// What an export wrote.
+#[derive(Debug, Default)]
+pub struct ExportSummary {
+    pub providers: usize,
+    pub agents: usize,
+    pub leaderboard_rows: usize,
+    /// Agent files left out — too large, or not text.
+    pub skipped_files: Vec<String>,
+}
+
+/// What an import changed, and the providers whose keys must be asked for.
+#[derive(Debug, Default)]
+pub struct ImportSummary {
+    pub providers: usize,
+    pub agents: usize,
+    pub leaderboard_rows: usize,
+    /// Agents not imported, with the reason.
+    pub skipped_agents: Vec<String>,
+    /// Every provider id the file names (providers and agents alike), in
+    /// order, without duplicates.
+    pub providers_named: Vec<String>,
+}
+
+/// Build the bundle from this machine's configuration and, when a project is
+/// open, its agents.
+pub fn build(
+    llm: &LlmConfig,
+    agents: Option<&AgentsDb>,
+    board: &Leaderboard,
+    now_unix: i64,
+) -> (AiBundle, ExportSummary) {
+    let mut summary = ExportSummary::default();
+    let providers: Vec<ProviderConfig> = llm
+        .provider_configs
+        .iter()
+        .map(|p| ProviderConfig {
+            endpoint: strip_userinfo(&p.endpoint),
+            ..p.clone()
+        })
+        .collect();
+    let provider_models = llm
+        .provider_models
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    let mut entries = Vec::new();
+    if let Some(db) = agents {
+        for a in &db.agents {
+            let mut agent = a.clone();
+            agent.endpoint = strip_userinfo(&agent.endpoint);
+            let files = agent_files(&db.agent_dir(&a.name), &a.name, &mut summary.skipped_files);
+            entries.push(AgentEntry { agent, files });
+        }
+    }
+    let mut board = board.clone();
+    for e in &mut board.entries {
+        e.endpoint = strip_userinfo(&e.endpoint);
+    }
+    summary.providers = providers.len();
+    summary.agents = entries.len();
+    summary.leaderboard_rows = board.entries.len();
+    let bundle = AiBundle {
+        format: FORMAT.into(),
+        version: FILE_VERSION,
+        ide_version: crate::version::VERSION.into(),
+        exported_at_unix: now_unix,
+        providers,
+        provider_models,
+        agents: entries,
+        leaderboard: Some(board),
+    };
+    (bundle, summary)
+}
+
+/// Serialise `bundle` and write it to `path` — unless a key `llm` holds is
+/// found in the text, in which case nothing is written.
+pub fn export(bundle: &AiBundle, llm: &LlmConfig, path: &Path) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(bundle).map_err(|e| e.to_string())?;
+    if let Some(where_) = find_key(&json, llm) {
+        return Err(format!(
+            "Export refused: an API key was found in the configuration ({where_}). Nothing was written."
+        ));
+    }
+    std::fs::write(path, json).map_err(|e| e.to_string())
+}
+
+/// Read and check a bundle.
+pub fn read(path: &Path) -> Result<AiBundle, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let bundle: AiBundle = serde_json::from_str(&text).map_err(|e| format!("Not a configuration file: {e}"))?;
+    if bundle.format != FORMAT {
+        return Err("Not a PowerRustCOBOL AI configuration file.".into());
+    }
+    if bundle.version > FILE_VERSION {
+        return Err(format!(
+            "This file was written by a newer PowerRustCOBOL (format {}); this build reads format {FILE_VERSION}.",
+            bundle.version
+        ));
+    }
+    Ok(bundle)
+}
+
+/// Merge `bundle` into this machine and, when given, the project's agents.
+/// The caller saves `llm` and `board` afterwards; agents are written here.
+pub fn apply(
+    bundle: &AiBundle,
+    llm: &mut LlmConfig,
+    agents: Option<&mut AgentsDb>,
+    board: &mut Leaderboard,
+) -> ImportSummary {
+    let mut s = ImportSummary::default();
+    let named = |id: &str, s: &mut ImportSummary| {
+        let id = id.trim();
+        if !id.is_empty() && !s.providers_named.iter().any(|p| p == id) {
+            s.providers_named.push(id.to_string());
+        }
+    };
+
+    for p in &bundle.providers {
+        if crate::llm::Provider::from_id(&p.provider).is_none() {
+            continue;
+        }
+        let cfg = llm.ensure_provider_config(&p.provider);
+        cfg.endpoint = p.endpoint.clone();
+        cfg.endpoint_user_edited = p.endpoint_user_edited;
+        s.providers += 1;
+        named(&p.provider, &mut s);
+    }
+    for (provider, models) in &bundle.provider_models {
+        llm.provider_models.insert(provider.clone(), models.clone());
+    }
+
+    if let Some(db) = agents {
+        // The local id wins for an agent that already exists, so links to it
+        // stay valid; an imported companion link is mapped the same way.
+        let mut id_map: BTreeMap<String, String> = BTreeMap::new();
+        let mut taken: BTreeSet<String> = db.agents.iter().map(|a| a.id.clone()).collect();
+        for e in &bundle.agents {
+            let id = match db.by_name(&e.agent.name) {
+                Some(local) => local.id.clone(),
+                None if taken.contains(&e.agent.id) => crate::agents_db::new_uuid(),
+                None => e.agent.id.clone(),
+            };
+            taken.insert(id.clone());
+            id_map.insert(e.agent.id.clone(), id);
+        }
+        for e in &bundle.agents {
+            let name = e.agent.name.trim();
+            if !crate::agents_db::valid_name(name) {
+                s.skipped_agents.push(format!("{name}: not a valid agent name"));
+                continue;
+            }
+            let mut def = e.agent.clone();
+            def.id = id_map[&e.agent.id].clone();
+            def.companion = def.companion.as_ref().and_then(|c| id_map.get(c).cloned());
+            let dir = db.agent_dir(name);
+            let mut failed = None;
+            for (rel, text) in &e.files {
+                if !safe_relative(rel) {
+                    failed = Some(format!("{name}: unsafe file path {rel}"));
+                    break;
+                }
+                let target = dir.join(rel);
+                if let Some(parent) = target.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if let Err(err) = std::fs::write(&target, text) {
+                    failed = Some(format!("{name}: {rel}: {err}"));
+                    break;
+                }
+            }
+            if let Some(why) = failed {
+                s.skipped_agents.push(why);
+                continue;
+            }
+            // The prompt now belongs to whoever exported it: no upgrade may
+            // replace it as an untouched default.
+            if e.files.contains_key(&format!("{name}_prompt.md")) {
+                let _ = std::fs::remove_file(dir.join(".prompt-revision"));
+            }
+            if let Err(err) = db.save_agent(&def) {
+                s.skipped_agents.push(format!("{name}: {err}"));
+                continue;
+            }
+            match db.agents.iter_mut().find(|a| a.name.eq_ignore_ascii_case(name)) {
+                Some(local) => *local = def.clone(),
+                None => db.agents.push(def.clone()),
+            }
+            s.agents += 1;
+            if !def.no_model {
+                named(&def.provider, &mut s);
+            }
+        }
+        db.sort_rail();
+    }
+
+    if let Some(theirs) = &bundle.leaderboard {
+        for e in &theirs.entries {
+            let same = |x: &crate::leaderboard::Entry| {
+                x.provider.eq_ignore_ascii_case(&e.provider) && x.model.eq_ignore_ascii_case(&e.model)
+            };
+            match board.entries.iter_mut().find(|x| same(x)) {
+                Some(mine) if mine.tested_at_unix >= e.tested_at_unix => continue,
+                Some(mine) => *mine = e.clone(),
+                None => board.entries.push(e.clone()),
+            }
+            s.leaderboard_rows += 1;
+        }
+        for r in &theirs.retired {
+            let known = board.retired.iter().any(|x| {
+                x.provider.eq_ignore_ascii_case(&r.provider) && x.model.eq_ignore_ascii_case(&r.model)
+            });
+            if !known {
+                board.retired.push(r.clone());
+            }
+        }
+    }
+    s
+}
+
+/// The providers among `named` that take a key, with whether one is already
+/// stored — the rows of the "enter API keys" step.
+pub fn providers_needing_keys(named: &[String], llm: &LlmConfig) -> Vec<(String, bool)> {
+    named
+        .iter()
+        .filter(|p| crate::llm::provider_requires_key(p))
+        .map(|p| {
+            let stored = llm
+                .api_keys
+                .get(&crate::llm::provider_key_slot(p))
+                .is_some_and(|k| !k.trim().is_empty());
+            (p.clone(), stored)
+        })
+        .collect()
+}
+
+/// The text files of an agent folder, minus what is not configuration.
+fn agent_files(dir: &Path, name: &str, skipped: &mut Vec<String>) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+                continue;
+            }
+            let Ok(rel) = p.strip_prefix(dir) else { continue };
+            let rel = rel.to_string_lossy().replace('\\', "/");
+            if rel == "agent.json" || rel == ".prompt-revision" {
+                continue;
+            }
+            if e.metadata().map(|m| m.len()).unwrap_or(0) > MAX_AGENT_FILE_BYTES {
+                skipped.push(format!("{name}/{rel}"));
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&p) else {
+                skipped.push(format!("{name}/{rel}"));
+                continue;
+            };
+            let text = if rel == "mcp.json" { redact_mcp(&text) } else { text };
+            out.insert(rel, text);
+        }
+    }
+    out
+}
+
+/// `mcp.json` without its credentials: server definitions stay, every `env`
+/// and `headers` value and every secret-named field is emptied. A file that is
+/// not JSON is replaced by an empty object rather than shipped unread.
+pub fn redact_mcp(text: &str) -> String {
+    fn secret_name(k: &str) -> bool {
+        let k = k.to_ascii_lowercase();
+        ["key", "token", "secret", "password", "authorization", "credential"]
+            .iter()
+            .any(|w| k.contains(w))
+    }
+    fn blank_all(v: &mut serde_json::Value) {
+        if let serde_json::Value::Object(m) = v {
+            for x in m.values_mut() {
+                if x.is_string() || x.is_number() {
+                    *x = serde_json::Value::String(String::new());
+                } else {
+                    blank_all(x);
+                }
+            }
+        }
+    }
+    fn walk(v: &mut serde_json::Value) {
+        match v {
+            serde_json::Value::Object(m) => {
+                for (k, x) in m.iter_mut() {
+                    let lk = k.to_ascii_lowercase();
+                    if lk == "env" || lk == "headers" {
+                        blank_all(x);
+                    } else if secret_name(k) && x.is_string() {
+                        *x = serde_json::Value::String(String::new());
+                    } else if let serde_json::Value::String(s) = x {
+                        *s = strip_userinfo(s);
+                    } else {
+                        walk(x);
+                    }
+                }
+            }
+            serde_json::Value::Array(a) => a.iter_mut().for_each(walk),
+            _ => {}
+        }
+    }
+    match serde_json::from_str::<serde_json::Value>(text) {
+        Ok(mut v) => {
+            walk(&mut v);
+            serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".into()) + "\n"
+        }
+        Err(_) => "{}\n".into(),
+    }
+}
+
+/// A URL without its `user:password@` part.
+pub fn strip_userinfo(url: &str) -> String {
+    let Some(scheme_end) = url.find("://") else {
+        return url.to_string();
+    };
+    let rest = &url[scheme_end + 3..];
+    let host_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    match rest[..host_end].rfind('@') {
+        Some(at) => format!("{}{}", &url[..scheme_end + 3], &rest[at + 1..]),
+        None => url.to_string(),
+    }
+}
+
+/// Which stored credential `text` contains, if any — named by its slot, never
+/// by its value.
+fn find_key(text: &str, llm: &LlmConfig) -> Option<String> {
+    let current = std::iter::once(("the active model", llm.api_key.as_str()));
+    llm.api_keys
+        .iter()
+        .map(|(slot, k)| (slot.as_str(), k.as_str()))
+        .chain(current)
+        .find(|(_, k)| k.trim().len() >= MIN_KEY_LEN_TO_SCAN && text.contains(k.trim()))
+        .map(|(slot, _)| slot.to_string())
+}
+
+/// A path that stays inside the agent folder.
+fn safe_relative(rel: &str) -> bool {
+    let p = Path::new(rel);
+    !rel.is_empty() && p.components().all(|c| matches!(c, Component::Normal(_)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::llm::provider_key_slot;
+
+    fn project() -> tempfile::TempDir {
+        tempfile::tempdir().unwrap()
+    }
+
+    fn machine() -> LlmConfig {
+        let mut llm = LlmConfig::load_defaults_for_test();
+        llm.ensure_provider_config("anthropic").endpoint = "https://api.anthropic.com/v1".into();
+        llm.ensure_provider_config("openai").endpoint = "https://me:hunter2pass@proxy.example/v1".into();
+        llm.provider_models.insert("anthropic".into(), vec!["claude-opus-5-5".into()]);
+        llm.store_api_key(provider_key_slot("anthropic"), "sk-ant-SECRET-0123456789");
+        llm.store_api_key(provider_key_slot("openai"), "sk-openai-SECRET-987654");
+        llm
+    }
+
+    #[test]
+    fn an_export_carries_no_key_and_an_import_asks_for_each() {
+        let src = project();
+        let llm = machine();
+        let mut db = AgentsDb::load(src.path());
+        let id = db.create("Reporter", "Write reports.\n").unwrap();
+        let mut def = db.by_id(&id).unwrap().clone();
+        def.provider = "groq".into();
+        def.model = "llama".into();
+        db.save_agent(&def).unwrap();
+        let db = AgentsDb::load(src.path());
+        let dir = src.path().join("agentic_ai/Reporter");
+        std::fs::write(
+            dir.join("mcp.json"),
+            r#"{"mcpServers":{"gh":{"command":"gh-mcp","env":{"GITHUB_TOKEN":"ghp_live_ABCDEFGHIJ"},"url":"https://u:pw@host/x","apiKey":"abc123456789"}}}"#,
+        )
+        .unwrap();
+        std::fs::write(dir.join("knowledge/notes.md"), "Domain notes.\n").unwrap();
+
+        let mut board = Leaderboard::default();
+        board.ensure_models(&[("anthropic".into(), "claude-opus-5-5".into(), String::new())]);
+        let (bundle, summary) = build(&llm, Some(&db), &board, 1);
+        let out = src.path().join("ai.json");
+        export(&bundle, &llm, &out).unwrap();
+        let text = std::fs::read_to_string(&out).unwrap();
+        for secret in ["sk-ant-SECRET", "sk-openai-SECRET", "hunter2pass", "ghp_live", "abc123456789", "u:pw@"] {
+            assert!(!text.contains(secret), "{secret} leaked into the export");
+        }
+        assert!(text.contains("gh-mcp") && text.contains("Domain notes."), "configuration kept");
+        assert_eq!(summary.agents, db.agents.len());
+
+        // Another machine, another project: nothing configured, no key.
+        let dst = project();
+        let mut other = LlmConfig::load_defaults_for_test();
+        let mut other_db = AgentsDb::load(dst.path());
+        let mut other_board = Leaderboard::default();
+        let back = read(&out).unwrap();
+        let s = apply(&back, &mut other, Some(&mut other_db), &mut other_board);
+        assert_eq!(other.provider_endpoint("openai"), "https://proxy.example/v1");
+        assert_eq!(other_db.load_prompt("Reporter"), "Write reports.\n");
+        assert!(dst.path().join("agentic_ai/Reporter/knowledge/notes.md").exists());
+        assert_eq!(AgentsDb::load(dst.path()).by_name("Reporter").unwrap().provider, "groq");
+        assert_eq!(other_board.entries.len(), 1);
+        assert!(s.skipped_agents.is_empty(), "{:?}", s.skipped_agents);
+        let ask = providers_needing_keys(&s.providers_named, &other);
+        let ids: Vec<&str> = ask.iter().map(|(p, _)| p.as_str()).collect();
+        for p in ["anthropic", "openai", "groq"] {
+            assert!(ids.contains(&p), "asks for the {p} key: {ids:?}");
+        }
+        assert!(ask.iter().all(|(_, stored)| !stored), "no key came across");
+        println!(
+            "AI config bundle: {} providers, {} agents, {} leaderboard rows exported; {} keys asked for on import: {}",
+            summary.providers,
+            summary.agents,
+            summary.leaderboard_rows,
+            ask.len(),
+            ids.join(", ")
+        );
+    }
+
+    #[test]
+    fn an_export_holding_a_key_is_refused_and_writes_nothing() {
+        let dir = project();
+        let llm = machine();
+        let mut bundle = build(&llm, None, &Leaderboard::default(), 1).0;
+        bundle.provider_models.insert("x".into(), vec!["sk-ant-SECRET-0123456789".into()]);
+        let out = dir.path().join("ai.json");
+        let err = export(&bundle, &llm, &out).unwrap_err();
+        assert!(err.contains("providerkey::anthropic") && !err.contains("SECRET"), "{err}");
+        assert!(!out.exists());
+    }
+
+    #[test]
+    fn an_import_never_writes_outside_the_agent_folder_and_keeps_local_ids() {
+        let dst = project();
+        let mut db = AgentsDb::load(dst.path());
+        let local = db.create("Helper", "local\n").unwrap();
+        let mut theirs = db.by_id(&local).unwrap().clone();
+        theirs.id = "their-id".into();
+        let mut evil = theirs.clone();
+        evil.name = "Evil".into();
+        evil.id = "evil-id".into();
+        let bundle = AiBundle {
+            format: FORMAT.into(),
+            version: FILE_VERSION,
+            agents: vec![
+                AgentEntry { agent: theirs, files: [("Helper_prompt.md".to_string(), "theirs\n".to_string())].into() },
+                AgentEntry { agent: evil, files: [("../../escape.txt".to_string(), "x".to_string())].into() },
+            ],
+            ..Default::default()
+        };
+        let s = apply(&bundle, &mut LlmConfig::load_defaults_for_test(), Some(&mut db), &mut Leaderboard::default());
+        assert_eq!(db.by_name("Helper").unwrap().id, local, "local id kept");
+        assert_eq!(db.load_prompt("Helper"), "theirs\n");
+        assert!(!dst.path().join("escape.txt").exists());
+        assert_eq!(s.skipped_agents.len(), 1, "{:?}", s.skipped_agents);
+    }
+
+    #[test]
+    fn userinfo_is_stripped_and_a_foreign_file_is_refused() {
+        assert_eq!(strip_userinfo("https://a:b@h.io/v1?q=1"), "https://h.io/v1?q=1");
+        assert_eq!(strip_userinfo("http://localhost:11434"), "http://localhost:11434");
+        let dir = project();
+        let p = dir.path().join("x.json");
+        std::fs::write(&p, r#"{"format":"other","version":1}"#).unwrap();
+        assert!(read(&p).is_err());
+    }
+}

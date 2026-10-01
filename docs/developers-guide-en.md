@@ -499,6 +499,42 @@ host, paste the key, and use **Refresh models** to pull the current catalogue.
 **Test** sends one request so you can confirm the credential before relying on
 it.
 
+**Sharing the AI setup: Export AI… / Import AI….** On the same row as the
+managers, **Export AI…** writes one JSON file holding:
+- the configured providers and their endpoints, with each provider's model list;
+- this project's agents, each with its prompt, steering, policies, skills,
+  knowledge and `mcp.json`;
+- the Model Leaderboard.
+
+Hand that file to a colleague, or open it on your next machine, and **Import
+AI…** sets everything up in one step instead of an afternoon of clicking.
+
+**The file never carries an API key.** Keys are not part of it. A
+`user:password@` in an endpoint is dropped. In `mcp.json` every `env` and
+`headers` value, and every field named like a key, token, secret or password,
+is emptied, while the servers themselves are kept. And if any key stored on
+your machine were still to turn up in the file, the export is refused and
+nothing is written.
+
+Because of that, an import ends by asking for keys: a window lists every
+provider the file uses, with one key field each, and says whether you already
+have a key stored for it. Type your own key, or leave the field empty to keep
+the stored one, or press **Later** and add it in the Model Providers Manager.
+
+Importing **merges** — nothing is deleted:
+- each provider's endpoint is replaced by the imported one;
+- an agent with the same name is overwritten, but keeps its local identity, so
+  its companion links stay valid;
+- a leaderboard row is replaced only by a more recent test of the same model.
+
+Agents need an open project; with none open, only the providers and the
+leaderboard are exported or imported. Agent files larger than 1 MB, and files
+that are not text, are left out of an export, and the Output panel names them.
+
+> ⚠️ **Caveat — read before you share.** Only the credentials listed above are
+> removed. If you pasted a password into an agent's prompt or knowledge files,
+> it travels with them. The file is plain text: read it before you share it.
+
 **When a call fails.** The error window opens with the reason on its own line at
 the top, above a rule, and the full connection log underneath. The headline is
 the provider's own sentence, quoted — *"You exceeded your current quota, please

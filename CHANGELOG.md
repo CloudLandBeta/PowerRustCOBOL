@@ -8,6 +8,49 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.30] — 2026-10-01
+
+### Export and import the AI setup — models, agents, leaderboard — with no API key in the file
+
+Setting up the AI on a new machine or project meant configuring every
+provider, agent and model again by hand (operator, 2026-10-01). Now it is one
+file.
+
+- **Export AI… / Import AI…**, two new buttons in Project settings, next to the
+  Agents, Models and Leaderboard managers.
+- **The file** (`crate::ai_bundle`, format `powerrustcobol-ai-config` v1)
+  holds:
+  - the providers with their endpoints and model lists;
+  - the open project's agents (`agent.json` plus their text files, up to
+    1 MiB each);
+  - the leaderboard.
+- **No key leaves the machine:**
+  - keys are never read into the file;
+  - endpoint `user:password@` is stripped;
+  - in `mcp.json`, `env` and `headers` values and secret-named fields are
+    emptied;
+  - the export is **refused, and nothing is written**, if any stored key
+    still appears verbatim in the text. The refusal names the key's slot,
+    never its value.
+- **Import merges:**
+  - provider endpoints are replaced;
+  - a same-named agent is overwritten but keeps its local id, and imported
+    companion links are remapped;
+  - a leaderboard row is replaced only by a newer test of the same model,
+    and retired rows are united;
+  - a file path that would leave its agent folder is refused.
+- **Then it asks for the keys** (operator): a fixed-size window lists every
+  provider the file names (providers and agents), one password field each,
+  and shows whether a key is already stored. An empty field keeps the stored
+  key; **Later** defers to the Model Providers Manager.
+- 14 new strings in all six languages.
+- Tests:
+  - `ai_bundle::tests` (4): no key, password, token or userinfo survives an
+    export, and an import asks for every provider; an export holding a key is
+    refused; no path escapes; userinfo stripping and a foreign file.
+  - `import_keys_modal::tests` (1).
+- Guide: "Sharing the AI setup" in *The AI assistant*.
+
 ## [PowerRustCOBOL 1.80.29] — 2026-10-01
 
 ### A new form starts modern, from a template, responsive — and stays readable across themes (spec 079; spec 056 Phase 9)

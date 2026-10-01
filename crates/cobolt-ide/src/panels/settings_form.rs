@@ -384,6 +384,10 @@ pub struct SettingsFormAction {
 
     /// Open the Model Leaderboard (spec 040).
     pub open_leaderboard: bool,
+    /// Export the AI configuration (providers, agents, leaderboard) — no keys.
+    pub export_ai_config: bool,
+    /// Import an AI configuration file, then ask for its providers' keys.
+    pub import_ai_config: bool,
 }
 
 /// Common license identifiers offered in the dropdown.
@@ -862,6 +866,20 @@ impl SettingsForm {
                                         .clicked()
                                     {
                                         action.open_leaderboard = true;
+                                    }
+                                    if ui
+                                        .button(tr.ai_export)
+                                        .on_hover_text(tr.ai_export_hint)
+                                        .clicked()
+                                    {
+                                        action.export_ai_config = true;
+                                    }
+                                    if ui
+                                        .button(tr.ai_import)
+                                        .on_hover_text(tr.ai_import_hint)
+                                        .clicked()
+                                    {
+                                        action.import_ai_config = true;
                                     }
                                 });
                             });
