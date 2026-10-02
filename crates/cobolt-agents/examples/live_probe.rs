@@ -37,6 +37,7 @@ fn main() {
         // The probe checks that a provider answers at all, so hidden reasoning
         // and no visible text is a reachable model, not a failure.
         reasoning_counts_as_reply: true,
+        reasoning_effort: None,
     };
 
     let on_chunk = |chunk: &str| {

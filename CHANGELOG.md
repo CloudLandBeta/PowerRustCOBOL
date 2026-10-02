@@ -8,6 +8,33 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.81] — 2026-10-02
+
+### Fix: Grace answers without hidden reasoning and skips the prompt review
+
+A designer request made at least five Grace calls in a row before and after
+the specialists worked, and on a reasoning model (`nemotron-3-ultra`, then
+`nemotron-3-nano:30b` on Ollama Cloud) each call thought silently before it
+answered. Two switches now sit at the bottom of the Model Providers Manager,
+both off by default:
+
+- **Grace reasons before answering.** Off, every Grace call (the prompt
+  review, the clarity check, planning, a task assigned to her, the final
+  report) sends `reasoning_effort: "none"` to an Ollama model. Ollama's
+  OpenAI-compatible endpoint documents that value as "no thinking output".
+  Other providers never receive the field. The transport builds its extra
+  request fields in one object (`request_params`), because rig's
+  `additional_params` replaces rather than merges.
+- **Review my request before Grace starts.** Off, a designer request goes
+  straight to the workflow, the way an accepted review does, one call sooner.
+  On, the review works exactly as before.
+
+Both persist in the project's AI settings. A project saved before this
+release reads them as off. Specialists and reviewers are unaffected.
+Tests: `reasoning_effort_reaches_ollama_only`,
+`grace_is_fast_by_default_and_the_switches_round_trip`. The Developer's
+Guide describes both switches under the Model Providers Manager.
+
 ## [PowerRustCOBOL 1.80.80] — 2026-10-02
 
 ### Examples: the responsive demos move to the Responsive Layout menu

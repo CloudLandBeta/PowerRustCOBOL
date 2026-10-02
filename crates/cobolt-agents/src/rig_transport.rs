@@ -181,6 +181,9 @@ pub struct AgentCall {
     pub max_tokens: u32,
     /// Native tools granted to this agent (empty = plain completion).
     pub tools: AgentTools,
+    /// `Some("none")` asks an Ollama model to answer without hidden
+    /// reasoning; see [`request_params`]. Ignored by every other provider.
+    pub reasoning_effort: Option<String>,
 }
 
 /// The transport's result: final text plus exact token usage as reported by
@@ -417,6 +420,8 @@ pub struct ChatCall {
     /// answered it: the endpoint resolved, the credential was accepted and the
     /// stream produced tokens. Callers that only need reachability set this.
     pub reasoning_counts_as_reply: bool,
+    /// As [`AgentCall::reasoning_effort`].
+    pub reasoning_effort: Option<String>,
 }
 
 /// Invoke one streamed chat synchronously (worker-thread callers).
@@ -473,13 +478,14 @@ where
     if sends_sampling_params(&call.provider, &call.model) {
         builder = builder.temperature(call.temperature as f64);
     }
-    builder = if uses_max_completion_tokens(&call.provider) {
-        builder.additional_params(serde_json::json!({
-            "max_completion_tokens": call.max_tokens
-        }))
-    } else {
-        builder.max_tokens(call.max_tokens as u64)
-    };
+    if !uses_max_completion_tokens(&call.provider) {
+        builder = builder.max_tokens(call.max_tokens as u64);
+    }
+    if let Some(params) =
+        request_params(&call.provider, call.max_tokens, call.reasoning_effort.as_deref())
+    {
+        builder = builder.additional_params(params);
+    }
     if !call.skills.trim().is_empty() {
         builder = builder.context(&call.skills);
     }
@@ -752,6 +758,30 @@ impl ContinuedReply {
     }
 }
 
+/// The request fields rig has no builder method for, in ONE object:
+/// `additional_params` replaces rather than merges, so a second call would
+/// silently drop the first.
+///
+/// `reasoning_effort` goes to Ollama only. Its OpenAI-compatible endpoint
+/// documents `"none"` as "no thinking output"; another provider may reject
+/// the field or read it differently.
+fn request_params(
+    provider: &str,
+    max_tokens: u32,
+    reasoning_effort: Option<&str>,
+) -> Option<serde_json::Value> {
+    let mut params = serde_json::Map::new();
+    if uses_max_completion_tokens(provider) {
+        params.insert("max_completion_tokens".into(), max_tokens.into());
+    }
+    if let Some(effort) = reasoning_effort {
+        if provider.to_ascii_lowercase().starts_with("ollama") {
+            params.insert("reasoning_effort".into(), effort.into());
+        }
+    }
+    (!params.is_empty()).then_some(serde_json::Value::Object(params))
+}
+
 /// Shared completion body: build the Rig agent from the profile, then run a
 /// bounded tool loop — the model's native tool calls are executed through the
 /// host closures and their results fed back, all inside this one call.
@@ -763,13 +793,14 @@ where
     if sends_sampling_params(&call.provider, &call.model) {
         builder = builder.temperature(call.temperature as f64);
     }
-    builder = if uses_max_completion_tokens(&call.provider) {
-        builder.additional_params(serde_json::json!({
-            "max_completion_tokens": call.max_tokens
-        }))
-    } else {
-        builder.max_tokens(call.max_tokens as u64)
-    };
+    if !uses_max_completion_tokens(&call.provider) {
+        builder = builder.max_tokens(call.max_tokens as u64);
+    }
+    if let Some(params) =
+        request_params(&call.provider, call.max_tokens, call.reasoning_effort.as_deref())
+    {
+        builder = builder.additional_params(params);
+    }
     if !call.skills.trim().is_empty() {
         builder = builder.context(&call.skills);
     }
@@ -1053,6 +1084,18 @@ mod tests {
 
     /// Real OpenAI needs `max_completion_tokens`; every compatible gateway
     /// keeps the classic `max_tokens` (the legacy transport's switch).
+    #[test]
+    fn reasoning_effort_reaches_ollama_only() {
+        let ollama = request_params("ollama_cloud", 8192, Some("none")).unwrap();
+        assert_eq!(ollama["reasoning_effort"], "none");
+        assert!(ollama.get("max_completion_tokens").is_none());
+        assert!(request_params("ollama", 8192, None).is_none());
+        let openai = request_params("openai", 8192, Some("none")).unwrap();
+        assert!(openai.get("reasoning_effort").is_none(), "{openai}");
+        assert_eq!(openai["max_completion_tokens"], 8192);
+        assert!(request_params("anthropic", 8192, Some("none")).is_none());
+    }
+
     #[test]
     fn token_limit_parameter_is_provider_keyed() {
         assert!(uses_max_completion_tokens("openai"));

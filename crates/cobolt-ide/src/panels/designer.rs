@@ -7587,7 +7587,17 @@ impl DesignerPanel {
                         self.ai_open_questions.clear();
                         do_send = false;
                     }
+                    // With the prompt review off (the default), the request
+                    // runs as written: straight to the path an accepted
+                    // review takes, one Grace call sooner.
                     if do_send
+                        && !llm_cfg.prompt_review
+                        && self.review_rx.is_none()
+                        && self.review_modal.is_none()
+                        && !self.global_ai_prompt.trim().is_empty()
+                    {
+                        self.review_accepted = Some(self.global_ai_prompt.clone());
+                    } else if do_send
                         && self.review_rx.is_none()
                         && self.review_modal.is_none()
                         && !self.global_ai_prompt.trim().is_empty()

@@ -1427,6 +1427,11 @@ impl DbAgentInvoker {
             temperature: cfg.temperature,
             max_tokens: cfg.max_tokens.max(policy.min_max_tokens),
             tools,
+            reasoning_effort: if agent.eq_ignore_ascii_case(GRACE) {
+                crate::llm::grace_reasoning_effort(&cfg)
+            } else {
+                None
+            },
         };
         crate::llm::push_ai_log(
             crate::llm::AiLogKind::Info,

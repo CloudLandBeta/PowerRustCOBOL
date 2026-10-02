@@ -167,6 +167,10 @@ pub struct ProjectAiSettings {
     pub max_review_revisions: u32,
     #[serde(default = "crate::llm::default_unreviewed_temperature")]
     pub unreviewed_temperature: Option<f32>,
+    #[serde(default)]
+    pub grace_reasoning: bool,
+    #[serde(default)]
+    pub prompt_review: bool,
     #[serde(default = "crate::llm::default_agentic_ai_enabled")]
     pub agentic_ai_enabled: bool,
     #[serde(default)]
@@ -210,6 +214,8 @@ impl Default for ProjectAiSettings {
             verbose_log: false,
             max_review_revisions: crate::llm::default_max_review_revisions(),
             unreviewed_temperature: crate::llm::default_unreviewed_temperature(),
+            grace_reasoning: false,
+            prompt_review: false,
             agentic_ai_enabled: true,
             reviewer_provider: String::new(),
             reviewer_endpoint: String::new(),
@@ -245,6 +251,8 @@ impl ProjectAiSettings {
             verbose_log: llm.verbose_log,
             max_review_revisions: llm.max_review_revisions,
             unreviewed_temperature: llm.unreviewed_temperature,
+            grace_reasoning: llm.grace_reasoning,
+            prompt_review: llm.prompt_review,
             agentic_ai_enabled: llm.agentic_ai_enabled,
             reviewer_provider: llm.reviewer_provider.clone(),
             reviewer_endpoint: llm.reviewer_endpoint.clone(),
@@ -271,6 +279,8 @@ impl ProjectAiSettings {
         llm.verbose_log = self.verbose_log;
         llm.max_review_revisions = self.max_review_revisions;
         llm.unreviewed_temperature = self.unreviewed_temperature;
+        llm.grace_reasoning = self.grace_reasoning;
+        llm.prompt_review = self.prompt_review;
         llm.agentic_ai_enabled = self.agentic_ai_enabled;
         llm.reviewer_provider = self.reviewer_provider.clone();
         llm.reviewer_endpoint = self.reviewer_endpoint.clone();

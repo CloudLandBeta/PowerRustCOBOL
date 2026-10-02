@@ -54,6 +54,17 @@ pub struct LlmConfig {
     /// 4.7+) never receive a temperature either way.
     #[serde(default = "default_unreviewed_temperature")]
     pub unreviewed_temperature: Option<f32>,
+    /// Grace's hidden reasoning on an Ollama model. Off by default: Grace
+    /// routes and plans, and on a reasoning model each of her calls spent
+    /// minutes thinking before it answered. Off sends `reasoning_effort:
+    /// "none"`; other providers are unaffected either way.
+    #[serde(default)]
+    pub grace_reasoning: bool,
+    /// Grace's prompt review: she rewrites a designer request and shows it
+    /// back before any work starts. Off by default, since it is one more call
+    /// before the workflow begins; the request then runs as written.
+    #[serde(default)]
+    pub prompt_review: bool,
     /// Master switch for the agentic assistant surfaces. Defaults on for
     /// existing configurations; turning it off restores a traditional editor
     /// feel while preserving saved model profiles and keys.
@@ -364,6 +375,8 @@ impl LlmConfig {
             verbose_log: false,
             max_review_revisions: default_max_review_revisions(),
             unreviewed_temperature: default_unreviewed_temperature(),
+            grace_reasoning: false,
+            prompt_review: false,
             agentic_ai_enabled: true,
             inspection_port: default_inspection_port(),
             mcp_port: default_mcp_port(),
@@ -1789,6 +1802,7 @@ fn run_mesh_request(
                 temperature: req.temperature,
                 max_tokens,
                 reasoning_counts_as_reply: req.reasoning_counts_as_reply,
+                reasoning_effort: req.reasoning_effort.clone(),
             };
             push_ai_log(
                 AiLogKind::Detail,
@@ -1976,6 +1990,7 @@ fn mesh_request_base(cfg: &LlmConfig) -> cobolt_agents::MeshRequest {
         verbose: cfg.verbose_log,
         // Off for every caller that reads the reply. `spawn_test` turns it on.
         reasoning_counts_as_reply: false,
+        reasoning_effort: None,
     }
 }
 
@@ -2157,7 +2172,14 @@ pub fn spawn_prompt_review(
     req.system_prompt = crate::prompt_polish::REVIEW_INSTRUCTION.to_string();
     req.context = context.to_string();
     req.user_prompt = format!("ORIGINAL REQUEST (verbatim):\n{request}");
+    req.reasoning_effort = grace_reasoning_effort(cfg);
     run_mesh_request(req, "prompt review", None)
+}
+
+/// What Grace's calls ask of the model's hidden reasoning: `"none"` unless
+/// [`LlmConfig::grace_reasoning`] is on. The transport sends it to Ollama only.
+pub fn grace_reasoning_effort(cfg: &LlmConfig) -> Option<String> {
+    (!cfg.grace_reasoning).then(|| "none".to_string())
 }
 
 pub fn spawn_compaction(cfg: &LlmConfig, history: &[ChatTurn]) -> Receiver<LlmResponse> {
@@ -7475,6 +7497,24 @@ mod extract_code_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Grace is fast by default (1.80.81): no hidden reasoning, no prompt
+    /// review. Both switches survive the per-project round-trip.
+    #[test]
+    fn grace_is_fast_by_default_and_the_switches_round_trip() {
+        let mut llm = LlmConfig::load_defaults_for_test();
+        assert!(!llm.grace_reasoning && !llm.prompt_review);
+        assert_eq!(grace_reasoning_effort(&llm).as_deref(), Some("none"));
+        llm.grace_reasoning = true;
+        llm.prompt_review = true;
+        assert_eq!(grace_reasoning_effort(&llm), None);
+        let saved = crate::project_model::ProjectAiSettings::from_llm(&llm);
+        let mut back = LlmConfig::load_defaults_for_test();
+        saved.apply_to_llm(&mut back);
+        assert!(back.grace_reasoning && back.prompt_review);
+        let old: LlmConfig = serde_json::from_str("{}").unwrap_or_else(|_| LlmConfig::load_defaults_for_test());
+        assert!(!old.grace_reasoning && !old.prompt_review, "an old config is fast too");
+    }
 
     /// The developer's COBOL code-generation standard is a MANDATORY section of
     /// the Event Handler prompt, and it overrides the language contract where

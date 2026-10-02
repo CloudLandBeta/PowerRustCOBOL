@@ -556,6 +556,27 @@ impl ModelsModal {
                             }
                         });
                         ui.add_space(4.0);
+                        // Grace's speed switches (1.80.81): both off by
+                        // default, so a request reaches the workflow in one
+                        // call fewer and each of her calls answers directly.
+                        ui.horizontal(|ui| {
+                            if ui
+                                .checkbox(&mut llm.grace_reasoning, tr.models_grace_reasoning)
+                                .on_hover_text(tr.models_grace_reasoning_hint)
+                                .changed()
+                            {
+                                action.applied = true;
+                            }
+                            ui.add_space(16.0);
+                            if ui
+                                .checkbox(&mut llm.prompt_review, tr.models_prompt_review)
+                                .on_hover_text(tr.models_prompt_review_hint)
+                                .changed()
+                            {
+                                action.applied = true;
+                            }
+                        });
+                        ui.add_space(4.0);
                         // Semantic Knowledge Base search model. Machine-wide
                         // (the model cache is per-user, not per-project), but
                         // surfaced here because this is where models live.

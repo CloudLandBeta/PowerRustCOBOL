@@ -500,6 +500,22 @@ host, paste the key, and use **Refresh models** to pull the current catalogue.
 **Test** sends one request so you can confirm the credential before relying on
 it.
 
+Two switches at the bottom of the manager decide how quickly Grace answers.
+Both are off unless you turn them on:
+- **Grace reasons before answering.** Many current models think silently
+  before they reply, and on a large model that thinking is most of the wait.
+  Off, Grace's calls to an Ollama model ask it to answer directly. Other
+  providers ignore the switch.
+- **Review my request before Grace starts.** On, Grace first rewrites your
+  request from the Form Designer, marks what could be read two ways, and lets
+  you edit it before any work starts. It is a useful check on a long or
+  ambiguous request, and it costs one more call to the model. Off, your request
+  runs as you wrote it.
+
+> ⚠️ **Caveat:** a small model planning without reasoning can misread a
+> complicated request. If Grace's plans start missing steps, turn reasoning
+> back on, or give Grace a larger model, before blaming the specialists.
+
 **Sharing the AI setup: Export AI… / Import AI….** On the same row as the
 managers, **Export AI…** writes one JSON file holding:
 - the configured providers and their endpoints, with each provider's model list;

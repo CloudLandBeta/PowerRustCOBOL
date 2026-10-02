@@ -40,6 +40,8 @@ pub struct MeshRequest {
     /// caller asking whether the model is REACHABLE may set this; anything
     /// that parses the reply needs visible text.
     pub reasoning_counts_as_reply: bool,
+    /// See [`crate::rig_transport::AgentCall::reasoning_effort`].
+    pub reasoning_effort: Option<String>,
 }
 
 pub struct Specialist {
