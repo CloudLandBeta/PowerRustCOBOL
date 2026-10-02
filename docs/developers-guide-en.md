@@ -12123,6 +12123,12 @@ module's event loop, which branches to the matching event procedure.
 A user procedure is just a named procedure you add via **➕ Add** (the COBOL
 Structure list); it sees the form's `GLOBAL` data and is callable by name.
 
+**Every procedure name is unique in its form.** Each procedure is its own
+nested program, and COBOL-85 lets a source hold only one program of each name.
+Two user procedures with the same name - or one named like the form or like a
+handler - are refused by **Check**, Run and Build with *"program '…' is declared
+more than once"*. **➕ Add** always proposes a name that is still free.
+
 **Procedure-local data is private.** A procedure may declare its own
 `WORKING-STORAGE`; those items are visible only inside it. A `GLOBAL` clause on a
 procedure-local item shares nothing outward (the procedure is a leaf — there is

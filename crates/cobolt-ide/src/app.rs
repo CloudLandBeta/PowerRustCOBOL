@@ -21732,9 +21732,17 @@ mod manifest_name_tests {
 
     fn form_with_onload(code: &str) -> cobolt_forms::Form {
         let mut f = cobolt_forms::Form::new("T", "T", 320, 200);
-        let mut ev = EventBinding::new("onLoad", "T--ONLOAD");
-        ev.code = code.to_string();
-        f.form_events.push(ev);
+        // `Form::new` already binds an empty onLoad: fill THAT one in. A second
+        // binding would generate a second T--ONLOAD program, which semantic
+        // analysis rightly refuses (1.80.74).
+        match f.form_events.iter_mut().find(|b| b.event == "onLoad") {
+            Some(ev) => ev.code = code.to_string(),
+            None => {
+                let mut ev = EventBinding::new("onLoad", "T--ONLOAD");
+                ev.code = code.to_string();
+                f.form_events.push(ev);
+            }
+        }
         f
     }
 

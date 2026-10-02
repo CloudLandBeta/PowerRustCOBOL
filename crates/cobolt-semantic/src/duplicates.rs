@@ -70,6 +70,30 @@ fn check_program(program: &Program, diagnostics: &mut Vec<SemanticDiagnostic>) {
     }
 }
 
+/// Reject a program-name used twice in one compilation unit: the outermost
+/// program and every program it contains, however deeply, must each have a
+/// name of its own. Two contained programs called `DO-IT` were accepted, and a
+/// `CALL "DO-IT"` silently reached the last one - in a RAD form that is two
+/// user procedures with the same name. Run once, from the outermost program.
+pub fn check_program_names(program: &Program, diagnostics: &mut Vec<SemanticDiagnostic>) {
+    fn walk(p: &Program, seen: &mut HashSet<String>, diagnostics: &mut Vec<SemanticDiagnostic>) {
+        let name = p.identification.program_id.trim();
+        if !name.is_empty() && !seen.insert(name.to_ascii_uppercase()) {
+            diagnostics.push(SemanticDiagnostic {
+                severity: Severity::Error,
+                message: format!(
+                    "program '{name}' is declared more than once; every program in a source must have its own PROGRAM-ID"
+                ),
+                span: p.span,
+            });
+        }
+        for nested in &p.nested_programs {
+            walk(nested, seen, diagnostics);
+        }
+    }
+    walk(program, &mut HashSet::new(), diagnostics);
+}
+
 /// Record one name; emit an error if it was already seen in this scope.
 fn record(
     name: &str,

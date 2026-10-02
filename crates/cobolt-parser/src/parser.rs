@@ -523,6 +523,11 @@ impl Parser {
 pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Program {
     use cobolt_ast::program::Program;
 
+    // Where this program begins - its IDENTIFICATION DIVISION header - so a
+    // diagnostic about the program as a whole (a repeated PROGRAM-ID) points
+    // at it rather than at line 0.
+    let start = p.peek_span();
+
     // IDENTIFICATION DIVISION (required)
     let identification = parse_identification_division(p);
 
@@ -658,7 +663,7 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
     }
 
     Program {
-        span: Span::dummy(),
+        span: start,
         rust_items,
         identification,
         environment,

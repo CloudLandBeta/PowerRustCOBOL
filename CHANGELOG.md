@@ -8,6 +8,47 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.74] — 2026-10-01
+
+### Fix: two procedures with the same name are an error
+
+A developer reported that creating two user procedures with the same name
+gave no error.
+
+**The defect.** Each user procedure (and each event handler) is generated
+as a nested program whose PROGRAM-ID is its name. Semantic analysis checked
+paragraph and section names but never program-names, so two contained
+programs called `DO-IT` were accepted: `rcrun check` said OK, and
+`CALL "DO-IT"` silently ran the LAST of the two. The IDE could also make the
+duplicate itself: **➕ Add** numbered a new procedure `USER-PROC-<count+1>`,
+so after deleting `USER-PROC-2` of three, the next one was a second
+`USER-PROC-3`.
+
+**The fix.**
+- `duplicates::check_program_names`, run once from the outermost program,
+  makes every program-name in a source unique: the outermost program's and
+  every contained program's, however deep, compared without regard to case.
+  A repeat is an error at its second declaration, so **Check**, Run Form,
+  Build, `rcrun check`/`run`/`build` and the coding-agent `check` tool all
+  refuse it.
+- **➕ Add** proposes the first free `USER-PROC-n`.
+- The error points at the second program's `IDENTIFICATION DIVISION`: the
+  parser now records where each program begins (`Program.span`), where every
+  program used to carry a dummy span, so the error showed at line 0.
+- The IDE test helper `form_with_onload` filled a SECOND onLoad binding
+  beside the one `Form::new` seeds, which generated `T--ONLOAD` twice; it
+  now fills the seeded one.
+
+**Tests.** `test_duplicates` gains three tests:
+- `two_contained_programs_with_one_name_are_an_error`;
+- `a_contained_program_named_like_its_container_is_an_error`;
+- `contained_programs_with_distinct_names_are_fine`.
+
+The IDE test `a_new_procedure_never_reuses_a_taken_name` covers **➕ Add**.
+
+**Guide.** The section *Procedures: the form-module model* now says every
+procedure name is unique in its form.
+
 ## [PowerRustCOBOL 1.80.73] — 2026-10-01
 
 ### Spec 080 Phase 7 — finalizing the coding-agent kit

@@ -189,7 +189,11 @@ impl FormLoadFormat {
 pub fn analyze_with(program: &Program, opts: &AnalyzeOptions) -> SemanticResult {
     // The outermost program of a compilation unit inherits nothing: there is no
     // enclosing program to declare a GLOBAL item for it.
-    analyze_contained(program, &[], opts)
+    let mut result = analyze_contained(program, &[], opts);
+    // Program-names are unique across the whole unit, so this is checked once,
+    // here, rather than per contained program.
+    duplicates::check_program_names(program, &mut result.diagnostics);
+    result
 }
 
 /// [`analyze`], for a program CONTAINED in another, told which `GLOBAL` items

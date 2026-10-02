@@ -6184,8 +6184,16 @@ impl DesignerPanel {
     /// command. Returns the new procedure's index.
     pub fn add_user_procedure(&mut self) -> usize {
         let index = self.form.user_procedures.len();
+        // The first free USER-PROC-n: numbering by the count gave a second
+        // USER-PROC-3 once USER-PROC-2 of three had been deleted, and two
+        // procedures with one name are two programs with one PROGRAM-ID.
+        let taken = |n: usize| {
+            let name = format!("USER-PROC-{n}");
+            self.form.user_procedures.iter().any(|p| p.name.trim().eq_ignore_ascii_case(&name))
+        };
+        let n = (1..).find(|n| !taken(*n)).unwrap_or(index + 1);
         let proc = cobolt_forms::model::UserProcedure {
-            name: format!("USER-PROC-{}", index + 1),
+            name: format!("USER-PROC-{n}"),
             code: String::new(),
         };
         self.apply(Cmd::AddProcedure { index, proc });
@@ -19407,6 +19415,26 @@ mod text_align_tests {
         d.undo();
         d.remove_data_binding("NOT-BOUND");
         assert_eq!(d.form.data_bindings.len(), 1, "a control with no binding: nothing happens");
+    }
+
+    /// A new procedure takes the first free USER-PROC-n: with USER-PROC-2 of
+    /// three deleted, the next one is USER-PROC-2 again, never a second
+    /// USER-PROC-3 (two procedures with one name are one PROGRAM-ID twice).
+    #[test]
+    fn a_new_procedure_never_reuses_a_taken_name() {
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        for _ in 0..3 {
+            d.add_user_procedure();
+        }
+        d.form.user_procedures.retain(|p| p.name != "USER-PROC-2");
+        d.add_user_procedure();
+        let names: Vec<&str> = d.form.user_procedures.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["USER-PROC-1", "USER-PROC-3", "USER-PROC-2"]);
+        d.add_user_procedure();
+        let mut unique: Vec<String> = d.form.user_procedures.iter().map(|p| p.name.to_ascii_uppercase()).collect();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), d.form.user_procedures.len(), "every name is unique: {unique:?}");
     }
 
     /// Operator, 2026-07-29: undo/redo of a step that changes COBOL procedure
