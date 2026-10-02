@@ -8,6 +8,31 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.89] — 2026-10-02
+
+### Feature: five Slick IDE themes
+
+The operator asked for a style with no pastel colours, just two colours and
+white. Five themes, one per pairing:
+
+| Theme | Dark colour | Accent |
+|---|---|---|
+| Slick Navy & Teal | `#12305C` | teal `#0E8282` (text `#0A5C5C`) |
+| Slick Graphite & Indigo | `#1E2430` | indigo `#4F46E5` (text `#443CC5`) |
+| Slick Slate & Coral | `#2E4A7D` | coral `#C64C28` (text `#8D361D`) |
+| Slick Charcoal & Emerald | `#23272F` | emerald `#0D8566` (text `#095E49`) |
+| Slick Piano & Coral | piano black `#0B0B0D` | deep coral `#C34F36` (text `#8B3826`) |
+
+They use Aurora's painting with a white palette (`aurora::slick`). The
+backdrop is a white-to-light-grey wash with no glows, waves or discs; the
+panes are white cards with a neutral shadow; the corner glows alternate
+the two colours. Build is a solid dark pill and Run a solid accent pill,
+both with white text; the other buttons are white with dark or accent ink.
+The selected inspector tab takes the dark colour (new `tab_selected`
+palette field). Where an accent was too light for text or white-on-accent,
+a darker shade of the same hue is used. The contrast tests run over all
+seven Aurora-family palettes.
+
 ## [PowerRustCOBOL 1.80.88] — 2026-10-02
 
 ### Feature: the Aurora Prime IDE theme

@@ -86,7 +86,7 @@ impl Theme {
     /// Whether this is an Aurora theme (Pastel or Prime), whose surfaces are
     /// painted by `crate::aurora` (backdrop, pane tints, corner glows, pills).
     pub fn is_aurora(&self) -> bool {
-        matches!(self.id, "aurora-pastel" | "aurora-prime")
+        crate::aurora::palette_for(self.id).is_some()
     }
 
     /// Whether this is one of the discrete "soft UI" neumorphic themes
@@ -1296,6 +1296,73 @@ pub const AURORA_PRIME: Theme = Theme {
     ed_generated: rgb(59, 45, 166),
 };
 
+/// A slick two-colour theme: white and its variants, `dark` for text and
+/// chrome, the accent for actions (`accent_ink` on white, `accent` for the
+/// solid fills). Its painted palette is the matching `aurora::SLICK_*`.
+const fn slick_theme(
+    id: &'static str,
+    name: &'static str,
+    dark: Color32,
+    dim: Color32,
+    accent_ink: Color32,
+    accent: Color32,
+) -> Theme {
+    Theme {
+        id,
+        name,
+        dark: false,
+        bg_panel: rgba(255, 255, 255, 245),
+        bg_control: rgb(246, 247, 249),
+        bg_hover: rgb(255, 255, 255),
+        bg_active: rgb(227, 230, 235),
+        bg_extreme: rgb(255, 255, 255),
+        faint_bg: rgb(242, 244, 247),
+        code_bg: rgb(251, 252, 254),
+        accent,
+        border_dim: rgba(120, 128, 140, 70),
+        border_hi: accent,
+        text_dim: dim,
+        text_bright: dark,
+        selection: Color32::from_rgba_premultiplied(
+            (accent.r() as u16 * 56 / 255) as u8,
+            (accent.g() as u16 * 56 / 255) as u8,
+            (accent.b() as u16 * 56 / 255) as u8,
+            56,
+        ),
+        hyperlink: accent_ink,
+        warn: rgb(138, 75, 0),
+        error: rgb(180, 35, 24),
+        ed_plain: dark,
+        ed_keyword: accent_ink,
+        ed_data: dark,
+        ed_paragraph: accent_ink,
+        ed_string: dim,
+        ed_comment: rgb(107, 114, 128),
+        ed_generated: accent_ink,
+    }
+}
+
+pub const SLICK_NAVY_TEAL: Theme = slick_theme(
+    "slick-navy-teal", "Slick Navy & Teal",
+    rgb(18, 48, 92), rgb(54, 79, 116), rgb(10, 92, 92), rgb(14, 130, 130),
+);
+pub const SLICK_GRAPHITE_INDIGO: Theme = slick_theme(
+    "slick-graphite-indigo", "Slick Graphite & Indigo",
+    rgb(30, 36, 48), rgb(75, 80, 89), rgb(68, 60, 197), rgb(79, 70, 229),
+);
+pub const SLICK_SLATE_CORAL: Theme = slick_theme(
+    "slick-slate-coral", "Slick Slate & Coral",
+    rgb(46, 74, 125), rgb(52, 79, 129), rgb(141, 54, 29), rgb(198, 76, 40),
+);
+pub const SLICK_CHARCOAL_EMERALD: Theme = slick_theme(
+    "slick-charcoal-emerald", "Slick Charcoal & Emerald",
+    rgb(35, 39, 47), rgb(77, 80, 87), rgb(9, 94, 73), rgb(13, 133, 102),
+);
+pub const SLICK_PIANO_CORAL: Theme = slick_theme(
+    "slick-piano-coral", "Slick Piano & Coral",
+    rgb(11, 11, 13), rgb(79, 79, 81), rgb(139, 56, 38), rgb(195, 79, 54),
+);
+
 /// Neumorphic Dark — the dark counterpart of Neumorphic Light, built the same
 /// way: a flat neutral canvas (Panel/Control/Code share one fill; depth comes
 /// from `paint_neumorphic_relief`, not a differently-coloured surface), with
@@ -1461,6 +1528,11 @@ pub const THEMES: &[Theme] = &[
     SILVER_GLASS,
     AURORA_PASTEL,
     AURORA_PRIME,
+    SLICK_NAVY_TEAL,
+    SLICK_GRAPHITE_INDIGO,
+    SLICK_SLATE_CORAL,
+    SLICK_CHARCOAL_EMERALD,
+    SLICK_PIANO_CORAL,
 ];
 
 /// The default theme (preserves the original look).
@@ -1631,8 +1703,8 @@ mod tests {
     fn the_theme_registry_size_is_pinned() {
         assert_eq!(
             THEMES.len(),
-            35,
-            "17 original + 12 light + Classic + Neumorphic Light/Dark/Cobalt + Silver Glass + Aurora Pastel/Prime"
+            40,
+            "17 original + 12 light + Classic + Neumorphic Light/Dark/Cobalt + Silver Glass + Aurora Pastel/Prime + 5 Slick"
         );
     }
 

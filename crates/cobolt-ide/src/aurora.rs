@@ -39,6 +39,10 @@ pub struct Palette {
     /// Section header band and its title ink.
     pub band: Color32,
     pub band_ink: Color32,
+    /// The selected inspector tab's fill (its text is white).
+    pub tab_selected: Color32,
+    /// The colour of the shadow under every pane card.
+    pub shadow: Color32,
 }
 
 /// The toolbar's pill per button.
@@ -103,6 +107,8 @@ pub const PASTEL: Palette = Palette {
     tabs: [rgb(220, 235, 255), rgb(205, 223, 252), rgb(203, 238, 222), rgb(224, 216, 252)],
     band: rgb(220, 235, 255),
     band_ink: rgb(23, 62, 134),
+    tab_selected: rgb(18, 22, 27),
+    shadow: rgba8(28, 56, 110, 64),
 };
 
 /// Aurora Prime: the same surfaces in live secondary and tertiary colours
@@ -142,13 +148,101 @@ pub const PRIME: Palette = Palette {
     tabs: [rgb(203, 230, 255), rgb(201, 211, 255), rgb(189, 242, 220), rgb(226, 204, 255)],
     band: rgb(191, 227, 255),
     band_ink: rgb(15, 58, 122),
+    tab_selected: rgb(18, 22, 27),
+    shadow: rgba8(28, 56, 110, 64),
 };
+
+/// A slick two-colour palette: white and its variants, plus `dark` (text,
+/// chrome, solid Build) and the accent (`accent_ink` for text on white,
+/// `accent_top`/`accent_bottom` for the solid Run pill). No glows, waves or
+/// tints: the backdrop is white to light grey, the panes white cards, and
+/// only the corner glows, pills, tabs and bands carry the two colours.
+const fn slick(
+    dark: Color32,
+    dark_top: Color32,
+    accent_ink: Color32,
+    accent_top: Color32,
+    accent_bottom: Color32,
+) -> Palette {
+    const CLEAR: Color32 = Color32::TRANSPARENT;
+    let white = rgb(255, 255, 255);
+    let off = rgb(242, 244, 247);
+    Palette {
+        wash: [white, rgb(246, 247, 249), rgb(238, 240, 243)],
+        glows: [CLEAR, CLEAR, CLEAR],
+        waves: [(CLEAR, CLEAR), (CLEAR, CLEAR)],
+        discs: [CLEAR, CLEAR],
+        panes: [
+            rgba8(250, 251, 252, 245),
+            rgba8(255, 255, 255, 248),
+            rgba8(255, 255, 255, 248),
+            rgba8(246, 247, 249, 245),
+        ],
+        corners: [
+            Color32::from_rgba_premultiplied(
+                (dark.r() as u16 * 217 / 255) as u8,
+                (dark.g() as u16 * 217 / 255) as u8,
+                (dark.b() as u16 * 217 / 255) as u8,
+                217,
+            ),
+            accent_top,
+            Color32::from_rgba_premultiplied(
+                (dark.r() as u16 * 217 / 255) as u8,
+                (dark.g() as u16 * 217 / 255) as u8,
+                (dark.b() as u16 * 217 / 255) as u8,
+                217,
+            ),
+            accent_top,
+        ],
+        pills: Pills {
+            open: pill_of(white, off, dark),
+            check: pill_of(white, off, accent_ink),
+            search: pill_of(white, off, dark),
+            build: pill_of(dark_top, dark, white),
+            run: pill_of(accent_top, accent_bottom, white),
+            debug: pill_of(white, off, dark),
+            stop: pill_of(white, off, accent_ink),
+        },
+        tabs: [off, rgb(236, 239, 243), off, rgb(236, 239, 243)],
+        band: rgb(236, 239, 243),
+        band_ink: dark,
+        tab_selected: dark,
+        shadow: rgba8(15, 20, 30, 46),
+    }
+}
+
+/// Slick: deep navy and teal.
+pub const SLICK_NAVY_TEAL: Palette =
+    slick(rgb(18, 48, 92), rgb(65, 89, 125), rgb(10, 92, 92), rgb(14, 130, 130), rgb(11, 107, 107));
+/// Slick: graphite and electric indigo.
+pub const SLICK_GRAPHITE_INDIGO: Palette =
+    slick(rgb(30, 36, 48), rgb(84, 89, 98), rgb(68, 60, 197), rgb(79, 70, 229), rgb(65, 57, 188));
+/// Slick: slate blue and coral.
+pub const SLICK_SLATE_CORAL: Palette =
+    slick(rgb(46, 74, 125), rgb(63, 88, 135), rgb(141, 54, 29), rgb(198, 76, 40), rgb(162, 62, 33));
+/// Slick: charcoal and emerald.
+pub const SLICK_CHARCOAL_EMERALD: Palette =
+    slick(rgb(35, 39, 47), rgb(86, 89, 95), rgb(9, 94, 73), rgb(13, 133, 102), rgb(11, 109, 84));
+/// Slick: piano black and deep coral.
+pub const SLICK_PIANO_CORAL: Palette =
+    slick(rgb(11, 11, 13), rgb(84, 84, 86), rgb(139, 56, 38), rgb(195, 79, 54), rgb(160, 65, 44));
 
 /// The active Aurora palette, or `None` under any other theme.
 pub fn palette() -> Option<&'static Palette> {
-    match crate::theme::active().id {
+    palette_for(crate::theme::active().id)
+}
+
+/// The Aurora palette of the theme `id`, or `None` for a theme that is not
+/// in the family.
+pub fn palette_for(id: &str) -> Option<&'static Palette> {
+    match id {
         "aurora-pastel" => Some(&PASTEL),
         "aurora-prime" => Some(&PRIME),
+        "slick-navy-teal" => Some(&SLICK_NAVY_TEAL),
+        "slick-graphite-indigo" => Some(&SLICK_GRAPHITE_INDIGO),
+        "slick-slate-coral" => Some(&SLICK_SLATE_CORAL),
+        "slick-charcoal-emerald" => Some(&SLICK_CHARCOAL_EMERALD),
+        "slick-piano-coral" => Some(&SLICK_PIANO_CORAL),
         _ => None,
     }
 }
@@ -341,7 +435,7 @@ pub fn pane_shadow() -> Shadow {
         offset: [0, 8],
         blur: 22,
         spread: 0,
-        color: Color32::from_rgba_unmultiplied(28, 56, 110, 64),
+        color: palette().unwrap_or(&PASTEL).shadow,
     }
 }
 
@@ -483,7 +577,15 @@ mod tests {
     /// white on a saturated face (Run), 7:1 for dark ink on a pastel one.
     #[test]
     fn every_pill_ink_reads_on_its_gradient() {
-        for (theme, pal) in [("pastel", &PASTEL), ("prime", &PRIME)] {
+        for (theme, pal) in [
+            ("pastel", &PASTEL),
+            ("prime", &PRIME),
+            ("navy-teal", &SLICK_NAVY_TEAL),
+            ("graphite-indigo", &SLICK_GRAPHITE_INDIGO),
+            ("slate-coral", &SLICK_SLATE_CORAL),
+            ("charcoal-emerald", &SLICK_CHARCOAL_EMERALD),
+            ("piano-coral", &SLICK_PIANO_CORAL),
+        ] {
             let ps = &pal.pills;
             for (name, p) in [
                 ("open", ps.open),
@@ -536,7 +638,15 @@ mod tests {
     /// through and dark text reads on them.
     #[test]
     fn pane_text_reads_on_every_tint() {
-        for (theme, pal) in [(crate::theme::AURORA_PASTEL, &PASTEL), (crate::theme::AURORA_PRIME, &PRIME)] {
+        for (theme, pal) in [
+            (crate::theme::AURORA_PASTEL, &PASTEL),
+            (crate::theme::AURORA_PRIME, &PRIME),
+            (crate::theme::SLICK_NAVY_TEAL, &SLICK_NAVY_TEAL),
+            (crate::theme::SLICK_GRAPHITE_INDIGO, &SLICK_GRAPHITE_INDIGO),
+            (crate::theme::SLICK_SLATE_CORAL, &SLICK_SLATE_CORAL),
+            (crate::theme::SLICK_CHARCOAL_EMERALD, &SLICK_CHARCOAL_EMERALD),
+            (crate::theme::SLICK_PIANO_CORAL, &SLICK_PIANO_CORAL),
+        ] {
             // Judged on the tint's opaque colour: what dark text sits on.
             let opaque = |c: Color32| {
                 let a = c.a() as f32 / 255.0;
@@ -549,6 +659,8 @@ mod tests {
                 assert!(contrast_ratio(theme.text_dim, t) >= 6.5, "{}: {t:?}", theme.id);
             }
             assert!(contrast_ratio(pal.band_ink, opaque(pal.band)) >= 7.0, "{} band", theme.id);
+            assert!(contrast_ratio(Color32::WHITE, pal.tab_selected) >= 7.0, "{} selected tab", theme.id);
+            assert!(crate::aurora::palette_for(theme.id).is_some(), "{} has a palette", theme.id);
         }
     }
 }

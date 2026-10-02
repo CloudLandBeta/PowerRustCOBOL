@@ -4417,7 +4417,10 @@ impl PropertiesPanel {
             // Events blue, Procs mint, Anim lavender) under dark ink.
             let aurora_tabs = crate::aurora::palette().map(|p| p.tabs);
             let (fill, text) = if selected {
-                (sel_fill, sel_text)
+                match crate::aurora::palette() {
+                    Some(p) => (p.tab_selected, Color32::WHITE),
+                    None => (sel_fill, sel_text),
+                }
             } else if let Some(tabs) = aurora_tabs {
                 let base = tabs[i];
                 let fill = if resp.hovered() { base.lerp_to_gamma(Color32::WHITE, 0.35) } else { base };

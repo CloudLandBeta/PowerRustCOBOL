@@ -11686,7 +11686,7 @@ writes a per-control diagnostics dump named after the project.
 ---
 ## 20. Appearance and internationalisation
 
-- **Themes.** ⚙ ▸ *Settings* offers 35 colour themes — dark (Dark Glass
+- **Themes.** ⚙ ▸ *Settings* offers 40 colour themes — dark (Dark Glass
   [default], Deep Blue, Dark+, Monokai, Solarized Dark, Nord, Dracula, and
   more), light (Light+, GitHub Light, One Light, Gruvbox Light, Ayu Light,
   Quiet Light, Tomorrow, Material Lighter, Nord Light, Rosé Pine Dawn,
@@ -11707,6 +11707,12 @@ writes a per-control diagnostics dump named after the project.
   orange, never a pure red, yellow or blue. The backdrop, the corner glows,
   the toolbar buttons and the tabs carry the strong colour, while the panes
   stay light enough for dark text to read just as well.
+  Five **Slick** themes use two colours and white, nothing pastel: white
+  cards on a white-to-light-grey backdrop, one dark colour for text, chrome
+  and the solid Build button, and one accent for the Run button, links and
+  the corner glows. They are **Navy & Teal**, **Graphite & Indigo**,
+  **Slate & Coral**, **Charcoal & Emerald** and **Piano & Coral** (glossy
+  black with a deep coral).
   There is also an optional **background image** with an opacity control.
   Under either Aurora theme the image replaces the gradient backdrop.
   Settings are saved **per project** in `cobolt.toml`. The project tree and
