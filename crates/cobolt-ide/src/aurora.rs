@@ -746,6 +746,12 @@ mod tests {
             let r = contrast_ratio(Color32::WHITE, seen);
             assert!(r >= 7.0, "white on {seen:?}: {r:.2}:1");
         }
+        // The frameless panels (menu bar, toolbar) sit on the theme's panel
+        // fill over the same room: white menu text at 4.5:1 at least.
+        let bar = over(crate::theme::SPATIAL.bg_panel, room);
+        let r = contrast_ratio(Color32::WHITE, bar);
+        assert!(r >= 4.5, "white on the bars {bar:?}: {r:.2}:1");
+        assert!(crate::theme::SPATIAL.bg_panel.a() < 128, "the panel fill must let the desktop show");
         assert!(PASTEL.see_through.is_none() && SLICK_NAVY_TEAL.see_through.is_none());
     }
 

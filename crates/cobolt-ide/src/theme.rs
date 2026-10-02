@@ -1370,7 +1370,10 @@ pub const SPATIAL: Theme = Theme {
     id: "spatial",
     name: "Spatial",
     dark: true,
-    bg_panel: rgba(66, 65, 62, 225),
+    // 45 %: egui fills the menu bar, the toolbar and every frameless panel
+    // with this, so it is what decides whether the desktop shows at all. At
+    // 88 % the see-through window looked solid grey (operator, 2026-10-02).
+    bg_panel: rgba(66, 65, 62, 115),
     bg_control: rgb(82, 81, 78),
     bg_hover: rgb(98, 97, 94),
     bg_active: rgb(120, 119, 115),

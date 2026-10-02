@@ -8,6 +8,27 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.92] — 2026-10-02
+
+### Fix: the Spatial window actually shows the desktop
+
+In 1.80.91 the operator saw a solid grey window under Spatial. The painted
+background was see-through, but egui fills the menu bar, the toolbar and
+every frameless panel with the theme's `bg_panel`, and Spatial's was the
+glass grey at 88 %. It sits on top of the tint, so the desktop barely
+showed.
+
+Spatial's `bg_panel` is now 45 %. Over the worst case, a white wallpaper
+under the tint, white menu text still reads at 5.34:1; the
+see-through test checks it at 4.5:1. Popups (menus, combo lists, modals)
+float over busy content, so under a see-through theme `window_fill` is the
+same glass made opaque.
+
+Still opaque: the Form Designer and other separate windows. They are
+created opaque and composited over white on purpose
+(`apply_opaque_viewport_theme`), and eframe gives the app no handle to
+blur a secondary window.
+
 ## [PowerRustCOBOL 1.80.91] — 2026-10-02
 
 ### Feature: Spatial is see-through, over a blurred desktop

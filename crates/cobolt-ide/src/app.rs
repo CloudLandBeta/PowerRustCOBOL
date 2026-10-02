@@ -14299,7 +14299,15 @@ pub(crate) fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
     let text_bright = theme.text_bright;
 
     // ── Window / panel fills ──────────────────────────────────────────────
-    v.window_fill = bg_panel;
+    // A see-through theme keeps its panels translucent, but a popup (a combo
+    // list, a menu, a modal) floats over busy content and must stay solid.
+    v.window_fill = if crate::aurora::palette_for(theme.id).is_some_and(|p| p.see_through.is_some()) {
+        let a = bg_panel.a().max(1) as f32 / 255.0;
+        let un = |c: u8| (c as f32 / a).round().min(255.0) as u8;
+        egui::Color32::from_rgb(un(bg_panel.r()), un(bg_panel.g()), un(bg_panel.b()))
+    } else {
+        bg_panel
+    };
     v.panel_fill = bg_panel;
     v.faint_bg_color = theme.faint_bg;
     v.extreme_bg_color = bg_extreme;
