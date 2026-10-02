@@ -8,6 +8,31 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.75] — 2026-10-01
+
+### Fix: PowerDemo3's responsive demos open from the side menu
+
+The operator reported that the IDE refused PowerDemo3 with a semantic error:
+"menu item 'rspa' (Responsive: anchors and limits) loads form
+'responsive-anchors-form', whose FormFormat is Standalone — a menu load
+requires Embedded or Both (049 R17)".
+
+**The defect.** The twelve responsive demos added at 1.80.41 carried no
+`form-format`, so they were `Standalone`. The side menu loads them into its
+content pane, which needs `Embedded` or `Both`. The build checks this, but no
+test ran that check over the shipped examples, so it was not caught.
+
+**The fix.**
+- The twelve forms are `form-format="Both"`, like the rest of PowerDemo3:
+  they open in the side menu's pane and on their own.
+- New test `example_menus_open_their_forms`. It runs `validate_menu_targets`,
+  the check the build uses, over every SideMenu and MenuBar of PowerDemo3
+  and PowerChat: 4 menus and 93 items.
+- Before the fix the test reported the twelve items; now it reports none.
+
+The corpus goldens (engine, host, generated COBOL) are unchanged: the format
+moves no control and changes no generated line.
+
 ## [PowerRustCOBOL 1.80.74] — 2026-10-01
 
 ### Fix: two procedures with the same name are an error

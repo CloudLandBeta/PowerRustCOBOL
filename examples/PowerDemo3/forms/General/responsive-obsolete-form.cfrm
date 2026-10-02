@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="RESPONSIVE-OBSOLETE-FORM" title="Responsive - obsolete scaling style (migrated form)" width="800" height="560" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" control-style="modern">
+<Form name="RESPONSIVE-OBSOLETE-FORM" title="Responsive - obsolete scaling style (migrated form)" width="800" height="560" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" form-format="Both" control-style="modern">
   <FormLayout MinFormHeight="400" MinFormWidth="560" ObsoleteScalingStyle="7"/>
   <working-storage><![CDATA[       01 WS-NUM GLOBAL PIC 9(5).
        01 WS-WIN-W GLOBAL PIC Z(4)9.

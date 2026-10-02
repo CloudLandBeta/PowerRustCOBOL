@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="RESPONSIVE-GRID-FORM" title="Responsive - grid containers" width="1200" height="780" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" responsive="true" control-style="modern">
+<Form name="RESPONSIVE-GRID-FORM" title="Responsive - grid containers" width="1200" height="780" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" form-format="Both" responsive="true" control-style="modern">
   <Breakpoints>
     <Breakpoint name="Compact" min-width="0" font-factor="1">
       <Override control="DE-HOST" property="GridColumns">Auto MinMax(140px, 1fr)</Override>

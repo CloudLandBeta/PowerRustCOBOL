@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="RESPONSIVE-NESTED-FORM" title="Responsive - nested containers" width="1200" height="780" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" responsive="true" control-style="modern">
+<Form name="RESPONSIVE-NESTED-FORM" title="Responsive - nested containers" width="1200" height="780" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" form-format="Both" responsive="true" control-style="modern">
   <FormLayout Gap="12" GridColumns="MinMax(200px, 280px) MinMax(360px, 1fr)" GridRows="56px MinMax(340px, 1fr) 26px" LayoutMode="Grid" Padding="12"/>
   <Breakpoints>
     <Breakpoint name="Compact" min-width="0" font-factor="1">

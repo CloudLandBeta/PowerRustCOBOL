@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="RESPONSIVE-COLLIDE-FORM" title="Responsive - the window stops before controls touch" width="900" height="560" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" responsive="true" control-style="modern">
+<Form name="RESPONSIVE-COLLIDE-FORM" title="Responsive - the window stops before controls touch" width="900" height="560" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" form-format="Both" responsive="true" control-style="modern">
   <FormLayout MinFormHeight="540" MinFormWidth="640"/>
   <working-storage><![CDATA[       01 WS-NUM GLOBAL PIC 9(5).
        01 WS-WIN-W GLOBAL PIC Z(4)9.
