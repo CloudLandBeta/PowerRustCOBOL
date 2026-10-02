@@ -253,14 +253,15 @@ pub const SPATIAL: Palette = Palette {
     glows: [rgb(96, 92, 84), rgb(84, 86, 88), rgb(90, 86, 80)],
     waves: [(Color32::TRANSPARENT, Color32::TRANSPARENT), (Color32::TRANSPARENT, Color32::TRANSPARENT)],
     discs: [Color32::TRANSPARENT, Color32::TRANSPARENT],
-    // Glass at 74 %: the blurred desktop shows through. Over the worst case,
-    // a white wallpaper under the see-through tint, white text still reads
-    // about 7:1.
+    // Glass at 30 %: over the 30 % panel fill a pane is about 50 % opaque,
+    // so the blurred desktop shows through the whole window. White text
+    // stays crisp over a dark or mid-tone wallpaper; over a bright white one
+    // it fades (the blur softens the desktop, it does not darken it).
     panes: [
-        rgba8(66, 65, 62, 189),
-        rgba8(70, 69, 66, 189),
-        rgba8(66, 65, 62, 189),
-        rgba8(60, 59, 56, 196),
+        rgba8(66, 65, 62, 77),
+        rgba8(70, 69, 66, 77),
+        rgba8(66, 65, 62, 77),
+        rgba8(60, 59, 56, 82),
     ],
     corners: [
         rgba8(255, 255, 255, 140),
@@ -287,7 +288,8 @@ pub const SPATIAL: Palette = Palette {
     edge: rgba8(255, 255, 255, 36),
     radius: 26,
     pill_radius: 18,
-    see_through: Some(rgba8(28, 27, 25, 128)),
+    // No tint: the window's own glass is the only thing over the desktop.
+    see_through: Some(Color32::TRANSPARENT),
 };
 
 /// Slick: deep navy and teal.
@@ -729,29 +731,35 @@ mod tests {
         crate::theme::set_active(crate::theme::default_theme());
     }
 
-    /// Spatial is see-through: over the worst desktop, pure white, the
-    /// blur tint and then each glass pane composite to a grey that white
-    /// text still reads on at 7:1.
+    /// Spatial is see-through at about 50 %: a glass pane over the glass
+    /// panel fill lets half the blurred desktop through. White text reads at
+    /// 7:1 over a dark or mid-tone wallpaper. Over a bright white one it does
+    /// not, by the operator's choice of transparency; that is documented,
+    /// not tested away.
     #[test]
-    fn spatial_text_reads_over_a_white_desktop() {
+    fn spatial_is_half_transparent_and_reads_on_dark_and_mid_wallpapers() {
         let over = |top: Color32, under: Color32| {
             let a = top.a() as f32 / 255.0;
             let ch = |t: u8, u: u8| (t as f32 + u as f32 * (1.0 - a)).round().min(255.0) as u8;
             Color32::from_rgb(ch(top.r(), under.r()), ch(top.g(), under.g()), ch(top.b(), under.b()))
         };
-        let tint = SPATIAL.see_through.expect("Spatial is see-through");
-        let room = over(tint, Color32::WHITE);
+        let bar_alpha = crate::theme::SPATIAL.bg_panel.a() as f32 / 255.0;
         for pane in SPATIAL.panes {
-            let seen = over(pane, room);
-            let r = contrast_ratio(Color32::WHITE, seen);
-            assert!(r >= 7.0, "white on {seen:?}: {r:.2}:1");
+            let pane_alpha = pane.a() as f32 / 255.0;
+            let stacked = 1.0 - (1.0 - bar_alpha) * (1.0 - pane_alpha);
+            assert!((0.45..=0.56).contains(&stacked), "pane over panel is {stacked:.2} opaque");
         }
-        // The frameless panels (menu bar, toolbar) sit on the theme's panel
-        // fill over the same room: white menu text at 4.5:1 at least.
-        let bar = over(crate::theme::SPATIAL.bg_panel, room);
-        let r = contrast_ratio(Color32::WHITE, bar);
-        assert!(r >= 4.5, "white on the bars {bar:?}: {r:.2}:1");
-        assert!(crate::theme::SPATIAL.bg_panel.a() < 128, "the panel fill must let the desktop show");
+        let tint = SPATIAL.see_through.expect("Spatial is see-through");
+        assert_eq!(tint.a(), 0, "no tint over the desktop");
+        for wall in [Color32::from_rgb(42, 36, 64), Color32::from_rgb(106, 106, 128)] {
+            let bar = over(crate::theme::SPATIAL.bg_panel, wall);
+            assert!(contrast_ratio(Color32::WHITE, bar) >= 4.5, "menu text on {wall:?}");
+            for pane in SPATIAL.panes {
+                let seen = over(pane, bar);
+                let r = contrast_ratio(Color32::WHITE, seen);
+                assert!(r >= 7.0, "white on {seen:?} over {wall:?}: {r:.2}:1");
+            }
+        }
         assert!(PASTEL.see_through.is_none() && SLICK_NAVY_TEAL.see_through.is_none());
     }
 

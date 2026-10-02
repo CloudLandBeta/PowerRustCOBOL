@@ -1370,10 +1370,11 @@ pub const SPATIAL: Theme = Theme {
     id: "spatial",
     name: "Spatial",
     dark: true,
-    // 45 %: egui fills the menu bar, the toolbar and every frameless panel
-    // with this, so it is what decides whether the desktop shows at all. At
-    // 88 % the see-through window looked solid grey (operator, 2026-10-02).
-    bg_panel: rgba(66, 65, 62, 115),
+    // 30 %: egui fills the menu bar, the toolbar and every frameless panel
+    // with this, so it decides how much desktop shows. With a glass pane
+    // (also 30 %) on top the window is about 50 % opaque, the transparency
+    // the operator asked for (2026-10-02; 88 % and then 45 % read as solid).
+    bg_panel: rgba(66, 65, 62, 77),
     bg_control: rgb(82, 81, 78),
     bg_hover: rgb(98, 97, 94),
     bg_active: rgb(120, 119, 115),

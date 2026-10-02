@@ -8,6 +8,27 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.93] — 2026-10-02
+
+### Fix: Spatial is 50 % transparent
+
+The operator found 1.80.92 still too opaque and asked for 50 %. Three
+translucent layers were stacking: the 50 % smoky tint, the 45 % panel
+fill, and each 74 % glass pane, so a pane hid about 93 % of the desktop.
+Now:
+- the tint is gone (the blur stays);
+- the panel fill (`bg_panel`, which egui gives the menu bar, the toolbar
+  and every frameless panel) is 30 %;
+- each glass pane is 30 %, so a pane over the panel fill comes to about
+  51 % opaque.
+
+Readability now depends on the wallpaper, as the operator's chosen
+transparency implies. The test checks white text at 7:1 on the panes and
+4.5:1 on the bars over a dark wallpaper (`#2A2440`) and a mid-tone one
+(`#6A6A80`). Over pure white the panes measure about 2.7:1. The guarantee
+1.80.91 claimed for a white wallpaper no longer holds, and the
+Developer's Guide says so.
+
 ## [PowerRustCOBOL 1.80.92] — 2026-10-02
 
 ### Fix: the Spatial window actually shows the desktop
