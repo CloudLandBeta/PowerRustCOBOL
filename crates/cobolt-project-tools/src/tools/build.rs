@@ -116,6 +116,10 @@ fn start(shared: &Arc<Shared>, manifest: PathBuf, workspace_root: Option<PathBuf
             progress: None,
             target: None,
             full,
+            // Built from disk, like `rcrun build`: the files are what the
+            // agent saved (a host with unsaved edits refuses before this), so
+            // the forms' COBOL is regenerated from them first.
+            regenerate_forms: true,
         };
         let started = Instant::now();
         let result = (shared.builder)(&manifest, &opts);

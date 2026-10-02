@@ -8,6 +8,82 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.60] — 2026-10-01
+
+### Fix: `rcrun build` regenerates the forms' COBOL before compiling
+
+**Defect.** Spec 080 finding F9. `rcrun build` compiled whatever generated
+COBOL was already on disk. A `.cfrm` edited outside the IDE, by hand, by an
+agent or by a merge, therefore shipped its OLD generated program. Only the
+IDE regenerated before Build.
+
+**Root cause.** `cobolt_compiler::build_project` → `build_core`
+(`crates/cobolt-compiler/src/lib.rs`) read `files.generated` and never
+regenerated anything. Regeneration lived only in the IDE:
+`regenerate_all_forms` and `regenerate_all_indexed_files`, called from
+`do_build_binary_with`.
+
+**Fix.**
+- New `cobolt_codegen::project` module:
+  - `regenerate_project` rewrites every form's program from its `.cfrm` with
+    the IDE's generator (`cobolt_codegen::generate`).
+  - It also rewrites every indexed file's facade and `COPYBOOKS/<stem>.SEL` /
+    `.FD` from its `.cidx`, as the IDE does.
+  - Files go to the one shared location rule, `generated_rel`: a tracked
+    generated entry with the same file name (a relocated one, spec 033 R7),
+    else `generated/<file>`. Each file is tracked as generated, like the IDE's
+    `add_generated`.
+  - A definition that cannot be read is skipped and reported, and its old file
+    is left alone, as in the IDE. A file that cannot be written fails the
+    build.
+- `build_core` calls it before collecting sources (new step 1b) whenever a
+  real project backs the build.
+- `BuildOptions::regenerate_forms` is on by default and `rcrun build` sets
+  it. The IDE turns it off because it has just regenerated from its open
+  designers' LIVE, possibly unsaved, state, which the compiler cannot see.
+- The IDE's own path rule (`generated_cbl_path`, `generated_indexed_cbl_path`)
+  now calls the same `generated_rel`, so both builds write the same files.
+
+**User code.** A generated `.cbl` holds no developer-only text. Every
+handler and procedure body lives in the `.cfrm` (`EventBinding::code`,
+`UserProcedure::code`), and `generate_with_user_lines` only reports where
+those bodies land in the generated file. Regeneration loses nothing the IDE's
+Generate would keep. Text typed by hand into a `generated/` file is replaced
+exactly as every IDE build replaces it. `rcrun build` does not rewrite the
+project manifest: a generated program it creates for a form that never had
+one is tracked for that build only, and the IDE adds it to the project when
+it next regenerates.
+
+**Tests.**
+- `cobolt_codegen::project::tests::a_projects_generated_cobol_is_rewritten_from_its_definitions`
+  covers:
+  - a stale `generated/main.cbl` rewritten and moved from `sources` to
+    `generated`;
+  - a relocated `generated/screens/child.cbl` rewritten in place;
+  - an indexed facade with its `.SEL` and `.FD`;
+  - an unreadable `.cfrm` skipped with its old file untouched.
+- `cobolt_codegen::project::tests::the_generated_file_rule`.
+- `cobolt_compiler::regenerate_before_build_tests::a_build_compiles_the_forms_current_code_not_a_stale_generated_file`:
+  - the form's handler names the copybook `FRESH-F9-BOOK`, while the stale
+    file on disk names `STALE-F9-BOOK`;
+  - the build now stops on `FRESH-F9-BOOK`, and the generated file equals
+    the generator's output;
+  - with `regenerate_forms` off, the stale file is compiled.
+
+  With the regeneration step disabled, the test failed with "copybook not
+  found: 'STALE-F9-BOOK'".
+- The IDE's `generated_path_tests` now asserts the shared rule through
+  `generated_rel_in`.
+- Results:
+  - `cobolt-codegen`: all suites passed (62 lib tests).
+  - `cobolt-compiler --lib`: 147 passed.
+  - `cobolt-cli`: 5 and 4 passed.
+  - `cobolt-ide --bin cobolt-ide`: 1299 passed, 1 failed. The failure is the
+    known unrelated `docs_embed::tests::every_document_ships_in_every_language`.
+
+**Guide.** The caveat "`rcrun build` trusts the disk", under the
+limitations list, is replaced by "`rcrun build` regenerates, like the IDE".
+
 ## [PowerRustCOBOL 1.80.59] — 2026-10-01
 
 ### Fix: a wrapping container no longer demands room to stack every item; Splitter panes count toward the window minimum

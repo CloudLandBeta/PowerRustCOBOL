@@ -1472,6 +1472,7 @@ version = "0.2.0"
 dependencies = [
  "bincode",
  "cobolt-ast",
+ "cobolt-codegen",
  "cobolt-forms",
  "cobolt-lexer",
  "cobolt-parser",

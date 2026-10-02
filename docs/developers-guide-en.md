@@ -12770,10 +12770,16 @@ A consolidated list so you are never surprised:
   a handle created in any form's block resolves in every other form's
   blocks, and blocks from different forms take turns on it. Values stored
   through the bridge must be thread-safe (`Send`) for that reason.
-- **`rcrun build` trusts the disk.** The IDE regenerates every form's COBOL
-  before Build/Run/Debug/Check; a bare `rcrun build` compiles whatever
-  generated code is already on disk. Build from the IDE at least once after
-  editing forms.
+- **`rcrun build` regenerates, like the IDE.** Before it compiles, `rcrun
+  build` rewrites every form's generated COBOL from its `.cfrm`, and every
+  indexed file's facade and `COPYBOOKS/<name>.SEL`/`.FD` from its `.cidx`.
+  It uses the same generator and the same files the IDE's Generate uses, so
+  a form edited outside the IDE builds its current code. Your handlers and
+  procedures live in the `.cfrm`, so nothing you wrote is lost. Anything
+  typed by hand into a `generated/` file is replaced, as it is on every IDE
+  build. `rcrun build` leaves the project file as it is: a generated program
+  it creates for a form that never had one is used for this build, and the
+  IDE adds it to the project the next time it regenerates.
 - **OO COBOL.** `CLASS`/`METHOD` definitions are out of scope.
 - **ISAM interchange.** The on-disk format is original and **not**
   binary-compatible with any third-party ISAM.

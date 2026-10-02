@@ -4997,6 +4997,11 @@ impl CoboltApp {
                 // Host only — there is no cross-compilation (spec 041 R17).
                 target: None,
                 full,
+                // `regenerate_all_forms` / `regenerate_all_indexed_files` above
+                // already wrote every generated program — with the same
+                // generator and file rule the compiler uses, but from the open
+                // designers' LIVE state, which the compiler cannot see.
+                regenerate_forms: false,
             };
             let result = build_project(&manifest, &opts).map_err(|e| e.to_string());
             let _ = tx.send(result);

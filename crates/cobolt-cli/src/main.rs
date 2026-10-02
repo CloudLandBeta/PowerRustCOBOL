@@ -469,6 +469,8 @@ fn cmd_build(args: &[String]) {
         // Host only — there is no cross-compilation (spec 041 R17).
         target: None,
         full,
+        // Every form's generated COBOL is rebuilt from its `.cfrm` first.
+        regenerate_forms: true,
     };
 
     let target = target.unwrap_or_else(|| std::path::PathBuf::from("cobolt.toml"));

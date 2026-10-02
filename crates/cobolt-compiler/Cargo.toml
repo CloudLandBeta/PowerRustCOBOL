@@ -19,6 +19,8 @@ cobolt-ast      = { path = "../cobolt-ast" }
 cobolt-parser   = { path = "../cobolt-parser" }
 cobolt-semantic = { path = "../cobolt-semantic" }
 cobolt-forms    = { path = "../cobolt-forms" }
+# A build regenerates the forms' generated COBOL first, as the IDE does.
+cobolt-codegen  = { path = "../cobolt-codegen" }
 
 serde      = { workspace = true }
 serde_json = { workspace = true }

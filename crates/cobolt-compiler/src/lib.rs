@@ -1283,6 +1283,13 @@ pub struct BuildOptions {
     /// behaves oddly since I updated", and it is what stamps
     /// `built_with_version` into the project (spec: version-stamped projects).
     pub full: bool,
+    /// Regenerate every form's and indexed file's generated COBOL from its
+    /// `.cfrm` / `.cidx` on disk before compiling (on by default), so a
+    /// definition edited outside the IDE never builds its old generated code.
+    /// The IDE turns it off only because it has just regenerated them itself,
+    /// with the same generator and the same file rule
+    /// (`cobolt_codegen::project`), from its designers' live state.
+    pub regenerate_forms: bool,
 }
 
 impl Default for BuildOptions {
@@ -1293,6 +1300,7 @@ impl Default for BuildOptions {
             progress: None,
             target: None,
             full: false,
+            regenerate_forms: true,
         }
     }
 }
@@ -1522,7 +1530,7 @@ fn host_triple() -> Result<String, CompilerError> {
 
 /// Shared build pipeline used by both [`build_project`] and [`build_single_file`].
 fn build_core(
-    proj: CoboltProject,
+    mut proj: CoboltProject,
     project_dir: PathBuf,
     opts: &BuildOptions,
     // Spec 044 R21/R22 — whether a real `cobolt.toml` backs this build. It
@@ -1583,6 +1591,30 @@ fn build_core(
     // models). Existing copies under `<project>/Knowledge Base/` are left
     // alone: they are the developer's files to remove.
     let bin_name = sanitize_package_name(&proj.project.name);
+
+    // ── 1b. Regenerate the generated COBOL ───────────────────────────────────
+    // A form's `.cbl` and an indexed file's facade are build artefacts of the
+    // `.cfrm` / `.cidx`, which hold every line the developer wrote. The IDE
+    // regenerates them before every Build; a build started anywhere else
+    // (`rcrun build`) did not, so a form edited outside the IDE shipped its OLD
+    // generated code. Same generator, same file rule, so the two agree. The
+    // manifest on disk is not rewritten: a newly generated file is tracked for
+    // this build, and the IDE records it the next time it regenerates.
+    if has_project && opts.regenerate_forms {
+        report(0.07, "Regenerating the forms' COBOL…");
+        let done = cobolt_codegen::project::regenerate_project(
+            &project_dir,
+            &proj.files.forms,
+            &proj.files.indexed,
+            &mut proj.files.generated,
+            &mut proj.files.sources,
+        )
+        .ctx(|| "regenerate the forms' generated COBOL".to_string())?;
+        log(&format!("   {} generated program(s) regenerated", done.written.len()));
+        for (rel, why) in &done.skipped {
+            log(&format!("⚠️  {rel}: not regenerated ({why}) — its generated code is unchanged"));
+        }
+    }
 
     // ── 2. Collect all source files ───────────────────────────────────────────
     report(0.10, "Collecting source files…");
@@ -11446,5 +11478,62 @@ mod knowledge_base_build_tests {
         )
         .unwrap();
         assert_eq!(rag.rag.embedder, "builtin");
+    }
+}
+
+/// Spec 080 F9 — `build_project` regenerates the forms' generated COBOL
+/// before compiling, as the IDE does before Build.
+#[cfg(test)]
+mod regenerate_before_build_tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    /// A form whose button handler names the copybook `FRESH-F9-BOOK`, and a
+    /// STALE generated program left on disk that names `STALE-F9-BOOK`. Neither
+    /// copybook exists, so the build stops at the first one it meets — which
+    /// says which program it compiled. It must be the regenerated one: the
+    /// error names `FRESH-F9-BOOK`, and `generated/main.cbl` on disk is exactly
+    /// what the generator writes for the form. With `regenerate_forms` off
+    /// (the IDE, which has just regenerated from its live designers), the
+    /// file on disk is compiled as it is.
+    #[test]
+    fn a_build_compiles_the_forms_current_code_not_a_stale_generated_file() {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("prc-f9-{nanos}"));
+        fs::create_dir_all(dir.join("forms")).unwrap();
+        fs::create_dir_all(dir.join("generated")).unwrap();
+        let mut form = cobolt_forms::Form::new("MAIN", "Main", 400, 300);
+        form.main_form = true;
+        let mut btn = cobolt_forms::Control::new("BTN-GO", cobolt_forms::ControlType::Button, 10, 10);
+        let mut on_click = cobolt_forms::EventBinding::for_control("BTN-GO", "onClick");
+        on_click.code = "       PROCEDURE DIVISION.\n           COPY \"FRESH-F9-BOOK\".\n".into();
+        btn.events.push(on_click);
+        form.controls.push(btn);
+        cobolt_forms::save_form(&form, &dir.join("forms/main.cfrm")).unwrap();
+        let stale = "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. MAIN.\n       PROCEDURE DIVISION.\n           COPY \"STALE-F9-BOOK\".\n";
+        fs::write(dir.join("generated/main.cbl"), stale).unwrap();
+        let manifest = dir.join("f9.project.toml");
+        fs::write(
+            &manifest,
+            "[project]\nname = \"f9\"\nversion = \"0.1.0\"\nmain = \"\"\n\n[files]\nforms = [\"forms/main.cfrm\"]\ngenerated = [\"generated/main.cbl\"]\n",
+        )
+        .unwrap();
+
+        let build = |regenerate_forms: bool| {
+            let opts = BuildOptions { verbose: false, regenerate_forms, ..Default::default() };
+            build_project(&manifest, &opts).err().map(|e| e.to_string()).unwrap_or_default()
+        };
+        let kept = build(false);
+        assert!(kept.contains("STALE-F9-BOOK"), "regeneration off compiles the file as it is: {kept}");
+        let err = build(true);
+        assert!(err.contains("FRESH-F9-BOOK"), "the build compiled the stale program: {err}");
+        assert_eq!(
+            fs::read_to_string(dir.join("generated/main.cbl")).unwrap(),
+            cobolt_codegen::generate(&form),
+            "the generated file is what the IDE's Generate writes"
+        );
+        let _ = fs::remove_dir_all(&dir);
+        println!("F9: stale program off → {kept:.60}…; regenerated → {err:.60}…");
     }
 }

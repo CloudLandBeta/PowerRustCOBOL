@@ -54,11 +54,10 @@ fn in_generated(
     project_dir: Option<&Path>,
     file_name: &str,
 ) -> Option<PathBuf> {
+    // The one location rule, shared with `rcrun build`'s regeneration
+    // (`cobolt_codegen::project::generated_rel`).
     let dir = project_dir?;
-    if let Some(rel) = generated.and_then(|g| tracked_generated_rel(g, file_name)) {
-        return Some(dir.join(rel));
-    }
-    Some(dir.join("generated").join(file_name))
+    Some(dir.join(cobolt_codegen::project::generated_rel(generated.unwrap_or(&[]), file_name)))
 }
 
 /// The record-descriptor copybooks the IDE writes beside an indexed facade:
