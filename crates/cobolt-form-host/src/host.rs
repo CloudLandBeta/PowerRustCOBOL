@@ -4710,9 +4710,18 @@ impl FormHost {
         self.see_through && self.root.surface_theme.see_through()
     }
 
-    /// The root form's painting theme.
-    pub(crate) fn root_surface_theme(&self) -> &dyn cobolt_forms::surface_theme::SurfaceTheme {
-        self.root.surface_theme.as_ref()
+    /// Whether the shell's window wants the desktop behind it blurred: its
+    /// root form's theme is see-through, OR the form shown in the ContentPane
+    /// is. The shell window is always transparent (R43), so a Spatial form
+    /// embedded under a non-Spatial shell showed the desktop sharp when only
+    /// the root was asked (operator, 2026-10-02).
+    pub(crate) fn shell_wants_os_blur(&self) -> bool {
+        self.root.surface_theme.see_through()
+            || self
+                .active_occupant
+                .as_ref()
+                .and_then(|k| self.occupants.get(k))
+                .is_some_and(|occ| occ.body.surface_theme.see_through())
     }
 }
 
@@ -7275,6 +7284,24 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             "Greyed paints its layer over the root while the child's window is open"
         );
         println!("root under a Liquid Glass child: all {} of its Elegance fills kept", own.len());
+    }
+
+    /// Spec 083 — a Spatial form shown in the ContentPane of a shell whose own
+    /// form is not Spatial still gets the desktop blurred behind it. The shell
+    /// asked only its root form, so the embedded form showed the desktop sharp
+    /// through the always-transparent shell window (operator, 2026-10-02).
+    #[test]
+    fn a_spatial_contentpane_occupant_blurs_the_shell() {
+        let (mut host, _closed_rx, _req_tx) = host_with_caller_and_child();
+        host.child_theme = Some(Box::new(|_form: &cobolt_forms::Form| {
+            (None, cobolt_forms::surface_theme::spatial())
+        }));
+        assert!(!host.shell_wants_os_blur(), "a Liquid Glass shell alone does not blur");
+        host.ensure_occupant("CALLER").expect("occupant builds");
+        host.show_occupant(Some("CALLER"));
+        assert!(host.shell_wants_os_blur(), "the Spatial occupant on the pane blurs it");
+        host.show_occupant(None);
+        assert!(!host.shell_wants_os_blur(), "and stops once the pane shows the root again");
     }
 }
 

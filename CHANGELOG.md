@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.100] — 2026-10-02
+
+### Fix: a Spatial form shown in the ContentPane blurs the desktop
+
+The application shell asked the operating system for the blur only when its
+own root form used a see-through theme. A Spatial form loaded into the
+ContentPane of a shell whose main form was not Spatial therefore showed the
+desktop sharp through the shell's always-transparent window. The shell now
+asks for the blur while either its root form or the form shown in the pane is
+see-through, and stops when the pane returns to a form that is not. Reaches
+`rcrun run-form` and compiled applications, which share the one form host.
+
+Test: `a_spatial_contentpane_occupant_blurs_the_shell`.
+
 ## [PowerRustCOBOL 1.80.99] — 2026-10-02
 
 ### Fix: the Maps example masks its OpenRouteService key
