@@ -2125,8 +2125,9 @@ then reads.
 ### Responsive examples in PowerDemo3
 
 PowerDemo3 has twelve forms that show the responsive layout, filed in
-`forms/Responsive Layout/`. Open them from **General** in its side menu; each one shows the window size, the active
-breakpoint and the font scale along its bottom edge as you resize it.
+`forms/Responsive Layout/`. Open them from **Samples → Responsive Layout** in
+its side menu; each one shows the window size, the active breakpoint and the
+font scale along its bottom edge as you resize it.
 
 | Menu entry | Form | What it shows |
 |---|---|---|
@@ -2144,8 +2145,9 @@ breakpoint and the font scale along its bottom edge as you resize it.
 | Responsive: dashboard | `responsive-dashboard-form` | All of it together: a docked header (a Flex row) and navigation, a Grid of indicator cards, charts and a data grid, Fluid fonts, and two breakpoints that rearrange it. |
 
 > 📷 Screenshot needed — `responsive-dashboard.png`: run PowerDemo3, open
-> **General → Responsive: dashboard**, and capture the window twice: once wide
-> (about 1400 px) and once narrow (about 550 px). Place the two side by side.
+> **Samples → Responsive Layout → Responsive: dashboard**, and capture the
+> window twice: once wide (about 1400 px) and once narrow (about 550 px). Place
+> the two side by side.
 
 Three things these forms had to be built around, which your own forms will
 meet too:

@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.80] — 2026-10-02
+
+### Examples: the responsive demos move to the Responsive Layout menu
+
+PowerDemo3's side menu (`SideMenu-1`) now lists the twelve responsive demos
+under **Samples → Responsive Layout** instead of **Samples → General**, in
+the same order. The empty "Sub Item" placeholder is gone. The menu was written
+through the hash-protected menu writer, and `example_menus_open_their_forms`
+checks it (94 items, no problems). The Developer's Guide gives the new path.
+
 ## [PowerRustCOBOL 1.80.79] — 2026-10-02
 
 ### Fix: Grace's prompt review gets her planning view

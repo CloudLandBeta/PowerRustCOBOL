@@ -113,6 +113,79 @@ menu:
     type: action
     icon: flex-layout
     enabled: true
+    items:
+    - id: rspa
+      label: 'Responsive: anchors and limits'
+      type: action
+      icon: form
+      action: open-form:responsive-anchors-form
+      enabled: true
+    - id: rspb
+      label: 'Responsive: docking'
+      type: action
+      icon: form
+      action: open-form:responsive-dock-form
+      enabled: true
+    - id: rspc
+      label: 'Responsive: flex'
+      type: action
+      icon: form
+      action: open-form:responsive-flex-form
+      enabled: true
+    - id: rspd
+      label: 'Responsive: grid'
+      type: action
+      icon: form
+      action: open-form:responsive-grid-form
+      enabled: true
+    - id: rspe
+      label: 'Responsive: flow'
+      type: action
+      icon: form
+      action: open-form:responsive-flow-form
+      enabled: true
+    - id: rspf
+      label: 'Responsive: breakpoints'
+      type: action
+      icon: form
+      action: open-form:responsive-breakpoints-form
+      enabled: true
+    - id: rspg
+      label: 'Responsive: font scaling'
+      type: action
+      icon: form
+      action: open-form:responsive-fonts-form
+      enabled: true
+    - id: rsph
+      label: 'Responsive: nested containers'
+      type: action
+      icon: form
+      action: open-form:responsive-nested-form
+      enabled: true
+    - id: rspi
+      label: 'Responsive: from COBOL'
+      type: action
+      icon: form
+      action: open-form:responsive-runtime-form
+      enabled: true
+    - id: rspj
+      label: 'Responsive: collision limits'
+      type: action
+      icon: form
+      action: open-form:responsive-collide-form
+      enabled: true
+    - id: rspk
+      label: 'Responsive: obsolete scaling'
+      type: action
+      icon: form
+      action: open-form:responsive-obsolete-form
+      enabled: true
+    - id: rspl
+      label: 'Responsive: dashboard'
+      type: action
+      icon: form
+      action: open-form:responsive-dashboard-form
+      enabled: true
   - id: gizd
     label: Containers
     type: action
@@ -330,80 +403,4 @@ menu:
       icon: window
       action: open-form:props-parent-form
       enabled: true
-    - id: rspa
-      label: 'Responsive: anchors and limits'
-      type: action
-      icon: form
-      action: open-form:responsive-anchors-form
-      enabled: true
-    - id: rspb
-      label: 'Responsive: docking'
-      type: action
-      icon: form
-      action: open-form:responsive-dock-form
-      enabled: true
-    - id: rspc
-      label: 'Responsive: flex'
-      type: action
-      icon: form
-      action: open-form:responsive-flex-form
-      enabled: true
-    - id: rspd
-      label: 'Responsive: grid'
-      type: action
-      icon: form
-      action: open-form:responsive-grid-form
-      enabled: true
-    - id: rspe
-      label: 'Responsive: flow'
-      type: action
-      icon: form
-      action: open-form:responsive-flow-form
-      enabled: true
-    - id: rspf
-      label: 'Responsive: breakpoints'
-      type: action
-      icon: form
-      action: open-form:responsive-breakpoints-form
-      enabled: true
-    - id: rspg
-      label: 'Responsive: font scaling'
-      type: action
-      icon: form
-      action: open-form:responsive-fonts-form
-      enabled: true
-    - id: rsph
-      label: 'Responsive: nested containers'
-      type: action
-      icon: form
-      action: open-form:responsive-nested-form
-      enabled: true
-    - id: rspi
-      label: 'Responsive: from COBOL'
-      type: action
-      icon: form
-      action: open-form:responsive-runtime-form
-      enabled: true
-    - id: rspj
-      label: 'Responsive: collision limits'
-      type: action
-      icon: form
-      action: open-form:responsive-collide-form
-      enabled: true
-    - id: rspk
-      label: 'Responsive: obsolete scaling'
-      type: action
-      icon: form
-      action: open-form:responsive-obsolete-form
-      enabled: true
-    - id: rspl
-      label: 'Responsive: dashboard'
-      type: action
-      icon: form
-      action: open-form:responsive-dashboard-form
-      enabled: true
-  - id: qois
-    label: Sub Item
-    type: action
-    enabled: true
-hash: 769d40dfca9e626cd6cee9e45f6ee854a7eb1c862b958b536ee3e0366ee5d7e0
+hash: 9a23246222b154cc5668e8fbfda686333bbea8fa66d45bf1b12fbcfe4fb2bf97
