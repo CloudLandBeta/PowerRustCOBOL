@@ -999,6 +999,10 @@ pub struct CoboltApp {
     /// Project-structure upgrades due on the open project, offered once per
     /// open. Empty = the project is current (or the developer said Not now).
     project_upgrades: Vec<&'static dyn crate::project_upgrade::ProjectUpgrade>,
+    /// Spec 080 R6 — the open project's coding-agent kit was written by
+    /// another version: that version and the kit's target, offered a refresh
+    /// once per open (after the structure upgrades).
+    agent_kit_refresh: Option<(String, crate::agent_kit::Target)>,
     /// Documentation viewer window (Help → Documentation).
     doc_viewer: crate::panels::doc_viewer::DocViewer,
     /// IDE-wide debug switches (Help → Debug Settings) and their modal. Machine-
@@ -2158,6 +2162,7 @@ impl CoboltApp {
             toolchain_prompt: None,
             ollama_prompt: None,
             project_upgrades: Vec::new(),
+            agent_kit_refresh: None,
             doc_viewer: Default::default(),
             debug: crate::debug_settings::DebugSettings::load(),
             debug_modal: Default::default(),
@@ -4599,6 +4604,10 @@ impl CoboltApp {
                 // the R3 repair, so an ambiguous designation is settled before
                 // the seal upgrade is asked whether it applies.
                 self.detect_project_upgrades();
+                // Spec 080 R6 — a kit another version wrote is offered a refresh.
+                self.agent_kit_refresh = self
+                    .project_dir()
+                    .and_then(|d| crate::agent_kit::refresh_offer(&d, crate::version::VERSION));
             }
             Err(e) => {
                 self.output.push_status(format!(
@@ -12234,6 +12243,98 @@ impl CoboltApp {
         }
     }
 
+    /// Spec 080 R6 — offer to refresh a coding-agent kit another version
+    /// wrote. Shown after the structure upgrades; **Not now** (or ✕) costs
+    /// nothing and the offer returns on the next open.
+    fn show_agent_kit_refresh_modal(&mut self, ctx: &Context, tr: &Tr) {
+        if !self.project_upgrades.is_empty() {
+            return;
+        }
+        let Some((kit_version, target)) = self.agent_kit_refresh.clone() else {
+            return;
+        };
+        let mut open = true;
+        let mut refresh = false;
+        let mut later = false;
+        egui::Window::new(tr.agent_kit_refresh_title)
+            .id(egui::Id::new("agent_kit_refresh"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.set_max_width(480.0);
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(
+                        tr.agent_kit_refresh_detail
+                            .replacen("{}", &kit_version, 1)
+                            .replacen("{}", crate::version::VERSION, 1),
+                    )
+                    .size(13.0),
+                );
+                ui.add_space(12.0);
+                ui.separator();
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(tr.agent_kit_refresh_apply).clicked() {
+                        refresh = true;
+                    }
+                    if ui.button(tr.agent_kit_refresh_later).clicked() {
+                        later = true;
+                    }
+                });
+                ui.add_space(4.0);
+            });
+        if refresh || later || !open {
+            self.agent_kit_refresh = None;
+        }
+        if refresh {
+            self.do_export_agent_kit(target);
+        }
+    }
+
+    /// Spec 080 R1 — write the coding-agent kit for `target` into the open
+    /// project and list every file in the Output panel (or why nothing was
+    /// written).
+    fn do_export_agent_kit(&mut self, target: crate::agent_kit::Target) {
+        let tr = self.lang.tr();
+        let Some(manifest) = self.project_path.clone() else {
+            return;
+        };
+        let personal = crate::ai_bundle::Personal::from_environment();
+        let ctx = crate::agent_kit::ExportContext {
+            ide_version: crate::version::VERSION,
+            mcp_port: self.llm.mcp_port,
+            rcrun: crate::project_model::find_cobolt_binary(),
+            home: dirs::home_dir(),
+            personal: &personal,
+            llm: &self.llm,
+        };
+        match crate::agent_kit::export(&manifest, target, &ctx) {
+            Ok(report) => {
+                use crate::agent_kit::stamp::Decision;
+                for (rel, decision) in &report.files {
+                    let line = match decision {
+                        Decision::Write | Decision::Replace => tr.agent_kit_wrote,
+                        Decision::KeepEdited => tr.agent_kit_kept_edited,
+                        Decision::Merge => tr.agent_kit_merged,
+                    };
+                    self.output.push_status(line.replacen("{}", rel, 1));
+                }
+                let target_name = match target {
+                    crate::agent_kit::Target::ClaudeCode => tr.agent_kit_target_claude_code,
+                };
+                self.output.push_status(
+                    tr.agent_kit_done
+                        .replacen("{}", target_name, 1)
+                        .replacen("{}", &report.files.len().to_string(), 1),
+                );
+            }
+            Err(e) => self.output.push_status(e.message(&tr)),
+        }
+    }
+
     /// Run the accepted upgrades and save the project once. A failure keeps
     /// whatever succeeded before it — a partial run is still a consistent
     /// project, and the next open offers the rest.
@@ -15059,6 +15160,7 @@ impl eframe::App for CoboltApp {
         self.show_about(ctx);
         self.show_sdk_location(ctx, &tr);
         self.show_project_upgrade_modal(ctx, &tr);
+        self.show_agent_kit_refresh_modal(ctx, &tr);
         self.show_toolchain_prompt(ctx, &tr);
         self.show_ollama_prompt(ctx, &tr);
         self.show_ai_setup_modal(ctx, &tr);
@@ -15185,6 +15287,19 @@ impl eframe::App for CoboltApp {
                     if ui.add_enabled(has_project, egui::Button::new(tr.menu_package_project)).clicked() {
                         self.do_package_project(); ui.close();
                     }
+                    // Spec 080 R1 — one item per coding agent the kit can target.
+                    ui.add_enabled_ui(has_project, |ui| {
+                        ui.menu_button(tr.menu_export_agent_kit, |ui| {
+                            if ui
+                                .button(tr.agent_kit_target_claude_code)
+                                .on_hover_text(tr.menu_export_agent_kit_hint)
+                                .clicked()
+                            {
+                                self.do_export_agent_kit(crate::agent_kit::Target::ClaudeCode);
+                                ui.close();
+                            }
+                        });
+                    });
                     let building = self.pending_build_rx.is_some();
                     let build_label = if building { "⏳ Building…" } else { "🔨 Build Binary  (bin/)" };
                     if ui.add_enabled(has_project && !building, egui::Button::new(build_label))

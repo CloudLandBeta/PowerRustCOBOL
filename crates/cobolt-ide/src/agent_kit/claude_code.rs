@@ -38,40 +38,34 @@ impl KitWriter for ClaudeCodeWriter {
             rel: BRIEF_FILE.into(),
             body: brief(c),
             kind: KitFileKind::Section,
-            generated: true,
         }];
         out.push(KitFile {
             rel: ".claude/settings.json".into(),
             body: pretty(&settings(c)),
             kind: KitFileKind::Json,
-            generated: true,
         });
         for skill in &c.skills {
             out.push(KitFile {
                 rel: format!(".claude/skills/{}/SKILL.md", skill.name),
                 body: skill_file(c, skill),
                 kind: KitFileKind::FrontMatterMarkdown,
-                generated: true,
             });
         }
         out.push(KitFile {
             rel: format!(".claude/agents/{}.md", c.reviewer.name),
             body: reviewer_file(c),
             kind: KitFileKind::FrontMatterMarkdown,
-            generated: true,
         });
         out.push(KitFile {
             rel: ".mcp.json".into(),
             body: pretty(&mcp_json(c)),
             kind: KitFileKind::Json,
-            generated: true,
         });
         for doc in &c.reference {
             out.push(KitFile {
                 rel: format!("{REFERENCE_DIR}/{}", doc.name),
                 body: doc.body.clone(),
                 kind: KitFileKind::Markdown,
-                generated: !doc.verbatim,
             });
         }
         out
@@ -267,21 +261,18 @@ mod tests {
                 rel: "agent/RULES.txt".into(),
                 body: c.brief_rules.iter().map(|r| format!("{}: {}\n", r.id, r.text)).collect(),
                 kind: KitFileKind::Markdown,
-                generated: true,
             }];
             for s in &c.skills {
                 out.push(KitFile {
                     rel: format!("agent/skill-{}.txt", s.name),
                     body: s.steps.join("\n"),
                     kind: KitFileKind::Markdown,
-                    generated: true,
                 });
             }
             out.push(KitFile {
                 rel: "agent/servers.json".into(),
                 body: serde_json::to_string(&c.servers).unwrap(),
                 kind: KitFileKind::Json,
-                generated: true,
             });
             out
         }
@@ -290,8 +281,8 @@ mod tests {
     fn content_with_pack() -> KitContent {
         let mut c = sample();
         c.reference = vec![
-            RefDoc { name: "README.md".into(), title: "Index".into(), body: "# Index\n".into(), verbatim: false },
-            RefDoc { name: "developers-guide.md".into(), title: "Guide".into(), body: "# Guide\n".into(), verbatim: true },
+            RefDoc { name: "README.md".into(), title: "Index".into(), body: "# Index\n".into() },
+            RefDoc { name: "developers-guide.md".into(), title: "Guide".into(), body: "# Guide\n".into() },
         ];
         c
     }
@@ -372,8 +363,6 @@ mod tests {
         }
         let skills = claude.iter().filter(|f| f.rel.starts_with(".claude/skills/") && f.rel.ends_with("/SKILL.md")).count();
         assert_eq!(skills, 7);
-        let guide = claude.iter().find(|f| f.rel == "docs/powerrustcobol/developers-guide.md").unwrap();
-        assert!(!guide.generated, "a verbatim reference file is not a generated one");
 
         let mcp = claude.iter().find(|f| f.rel == ".mcp.json").unwrap();
         let v: Value = serde_json::from_str(&mcp.body).unwrap();

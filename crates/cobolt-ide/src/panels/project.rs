@@ -171,6 +171,9 @@ pub struct ProjectPanel {
     /// A row key that keyboard navigation asked to scroll into view; consumed on
     /// the next frame's render, keeping a one-row margin from the edge (R15).
     scroll_to_key: Option<String>,
+    /// Spec 080 R19a — the gap reports in `docs/compiler-requests/`, cached on
+    /// the folder's modification time: `(folder, mtime, reports newest first)`.
+    compiler_requests: Option<(PathBuf, Option<SystemTime>, Vec<PathBuf>)>,
 }
 
 /// One keyboard-navigable tree row (spec 033).
@@ -200,6 +203,7 @@ impl Default for ProjectPanel {
             nav_rows: Vec::new(),
             scroll_to_key: None,
             anchors: Default::default(),
+            compiler_requests: None,
         }
     }
 }
@@ -613,6 +617,9 @@ impl ProjectPanel {
                     for cat in Category::TOP {
                         self.show_category(ui, cat, proj, &cur, events, tr);
                     }
+                    // Spec 080 R19a — not a category: read from the folder,
+                    // read-only, absent when there is no report.
+                    self.show_compiler_requests(ui, events, tr);
                 });
                 // Spec 059 — the rect this header actually painted. Taken from
                 // `response`, the whole horizontal row, not `inner`: `inner` is
@@ -952,6 +959,50 @@ impl ProjectPanel {
     }
 
     /// Draw one fixed category node (L2) and its items (L3).
+    /// The gap reports, newest first — re-read only when the folder changes.
+    fn compiler_request_rows(&mut self) -> Vec<PathBuf> {
+        let Some(root) = &self.root else {
+            return Vec::new();
+        };
+        let dir = root.join(crate::agent_kit::content::GAP_REPORT_DIR);
+        let mtime = std::fs::metadata(&dir).and_then(|m| m.modified()).ok();
+        match &self.compiler_requests {
+            Some((d, m, rows)) if *d == dir && *m == mtime => rows.clone(),
+            _ => {
+                let rows = compiler_requests_in(&dir);
+                self.compiler_requests = Some((dir, mtime, rows.clone()));
+                rows
+            }
+        }
+    }
+
+    /// Spec 080 R19a — the Compiler requests node: one row per report, each
+    /// opening in the editor. Drawn only when there is a report.
+    fn show_compiler_requests(&mut self, ui: &mut Ui, events: &mut Vec<ProjectPanelEvent>, tr: &Tr) {
+        let rows = self.compiler_request_rows();
+        if rows.is_empty() {
+            return;
+        }
+        let id = ui.make_persistent_id("project_compiler_requests");
+        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
+            .show_header(ui, |ui| {
+                tree_icon(ui, draw_folder_icon);
+                ui.label(RichText::new(tr.cat_compiler_requests).strong());
+            })
+            .body(|ui| {
+                for path in &rows {
+                    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    ui.horizontal(|ui| {
+                        ui.add_space(6.0);
+                        tree_icon(ui, draw_document_icon);
+                        if ui.selectable_label(false, name).clicked() {
+                            events.push(ProjectPanelEvent::Open(path.clone()));
+                        }
+                    });
+                }
+            });
+    }
+
     fn show_category(
         &mut self,
         ui: &mut Ui,
@@ -2186,6 +2237,29 @@ fn control_node(
 /// One file row (L3) inside a non-form category. Single click opens it in the
 /// Main Pane; `color` tints the label; `removable` adds a remove context menu.
 #[allow(clippy::too_many_arguments)]
+/// Spec 080 R19a — the `.md` gap reports in `dir`, newest first: by the
+/// `YYYY-MM-DD` the file name starts with, then by modification time.
+pub(crate) fn compiler_requests_in(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut rows: Vec<(String, Option<SystemTime>, PathBuf)> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && p.extension().is_some_and(|x| x.eq_ignore_ascii_case("md")))
+        .map(|p| {
+            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let date: String = name.chars().take(10).collect();
+            let dated = date.len() == 10
+                && date.chars().enumerate().all(|(i, c)| if i == 4 || i == 7 { c == '-' } else { c.is_ascii_digit() });
+            let mtime = std::fs::metadata(&p).and_then(|m| m.modified()).ok();
+            (if dated { date } else { String::new() }, mtime, p)
+        })
+        .collect();
+    rows.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then(a.2.cmp(&b.2)));
+    rows.into_iter().map(|(_, _, p)| p).collect()
+}
+
 fn file_row(
     ui: &mut Ui,
     rel: &str,
@@ -3045,5 +3119,34 @@ mod walkthrough_anchor_tests {
         assert_eq!(walkthrough_scroll_key(Anchor::ProjectRoot), "wt:root");
         // And they cannot collide with the selection namespace.
         assert!(!a.starts_with("project:"));
+    }
+}
+
+#[cfg(test)]
+mod compiler_requests_tests {
+    use super::*;
+
+    /// AC6b: two reports → both, newest first; a non-`.md` file ignored; no
+    /// report (or no folder) → no rows, so no node.
+    #[test]
+    fn compiler_requests_newest_first_and_absent_when_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("docs/compiler-requests");
+        assert!(compiler_requests_in(&dir).is_empty(), "no folder → no node");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(compiler_requests_in(&dir).is_empty(), "empty folder → no node");
+        std::fs::write(dir.join("2026-09-30-drag-and-drop.md"), "# a\n").unwrap();
+        std::fs::write(dir.join("2026-10-01-selection-start.md"), "# b\n").unwrap();
+        std::fs::write(dir.join("notes.txt"), "not a report").unwrap();
+        let rows: Vec<String> = compiler_requests_in(&dir)
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(rows, vec!["2026-10-01-selection-start.md", "2026-09-30-drag-and-drop.md"]);
+
+        // The panel reads the folder through its mtime cache.
+        let mut panel = ProjectPanel { root: Some(tmp.path().to_path_buf()), ..Default::default() };
+        assert_eq!(panel.compiler_request_rows().len(), 2);
+        println!("compiler requests: {} reports listed newest first {rows:?}; 1 non-.md ignored; empty → no node", rows.len());
     }
 }

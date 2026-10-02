@@ -35,12 +35,7 @@ const KB_NAMES: [(&str, &str, &str); 6] = [
 /// The whole pack, in the order the index lists it.
 pub fn pack(version: &str) -> Vec<RefDoc> {
     let mut docs = Vec::new();
-    let verbatim = |name: &str, title: &str, body: String| RefDoc {
-        name: name.into(),
-        title: title.into(),
-        body,
-        verbatim: true,
-    };
+    let verbatim = |name: &str, title: &str, body: String| RefDoc { name: name.into(), title: title.into(), body };
     if let Some(guide) = crate::docs_embed::embedded_doc("developers-guide-en.md") {
         docs.push(verbatim("developers-guide.md", "PowerRustCOBOL Developer's Guide", guide.to_owned()));
     }
@@ -57,22 +52,19 @@ pub fn pack(version: &str) -> Vec<RefDoc> {
         name: "builtins.md".into(),
         title: "Built-ins (the COBOL object's methods)".into(),
         body: builtins_doc(),
-        verbatim: false,
     });
     docs.push(RefDoc {
         name: "cfrm-format.md".into(),
         title: "The .cfrm form file".into(),
         body: cfrm_doc(),
-        verbatim: false,
     });
     docs.push(RefDoc {
         name: "cidx-format.md".into(),
         title: "The .cidx indexed-file definition".into(),
         body: cidx_doc(),
-        verbatim: false,
     });
     let index = readme(version, &docs);
-    docs.insert(0, RefDoc { name: "README.md".into(), title: "Reference pack".into(), body: index, verbatim: false });
+    docs.insert(0, RefDoc { name: "README.md".into(), title: "Reference pack".into(), body: index });
     docs
 }
 

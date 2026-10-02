@@ -662,8 +662,14 @@ output in the commit message).
     scanned, none leaked. `a_planted_key_refuses_and_nothing_is_written`: 3
     refusals (key in the name, key in the rcrun path, a login — `reviewer` —
     that is a word of the kit's own text), directory snapshot unchanged each
-    time. **Note for the operator:** per the F1 ruling a login that is an
-    ordinary word of the generated text refuses the export.
+    time. ~~A login that is an ordinary word of the generated text refuses
+    the export.~~ **Corrected at 1.80.71** (operator ruling at the Phase 4
+    review): personal details are checked only in the inserted values
+    (`redact::check_inserted`, after the scrub); stored keys stay checked in
+    every written file. The `generated`/`verbatim` flags this needed are gone.
+    Test `only_inserted_values_are_checked_for_personal_details`: logins
+    `reviewer`, `main`, `form` export, with the project name and rcrun path
+    scrubbed; a detail left in an inserted value refuses.
   - Read first: `ai_bundle.rs:167-286, 535-544`; plan §4 D8, §9 F1.
   - Files: `crates/cobolt-ide/src/agent_kit/redact.rs`,
     `crates/cobolt-ide/src/i18n.rs` (`agent_kit_refused`,
@@ -706,7 +712,17 @@ output in the commit message).
 
 ## Phase 5 — IDE surfaces
 
-- [ ] **T5.1 — File ▸ Export coding-agent kit ▸ Claude Code** (R1, R21; AC1, AC11)
+- [x] **T5.1 — File ▸ Export coding-agent kit ▸ Claude Code** (R1, R21; AC1, AC11)
+  - **Result (1.80.71):** a File submenu after Package Project (enabled
+    with a project), one item per target; `do_export_agent_kit` passes the
+    IDE version, `llm.mcp_port`, `find_cobolt_binary()`, `dirs::home_dir()`,
+    `Personal::from_environment()` and `self.llm`; one Output line per file
+    (`agent_kit_wrote` for Write/Replace, `agent_kit_kept_edited`,
+    `agent_kit_merged`), then `agent_kit_done`, or `ExportError::message`.
+    7 `Tr` keys ×6. The temporary `allow(dead_code)` in `agent_kit/mod.rs`
+    is removed. `cargo build -p cobolt-ide` clean of new warnings; i18n and
+    agent_kit tests green. **Manual export (screenshot) not run** — the GUI
+    is never driven by an agent; left to the operator.
   - Read first: `app.rs:15079-15118`; `app.rs:13927-13961` (how the AI export
     reports to Output).
   - Files: `crates/cobolt-ide/src/app.rs`, `crates/cobolt-ide/src/i18n.rs`.
@@ -722,7 +738,17 @@ output in the commit message).
     cobolt-ide i18n agent_kit`; manual: export into a scratch copy of
     PowerChat, Output lists every file (screenshot in the commit message).
 
-- [ ] **T5.2 — Refresh offer on project open** (R6, R21; AC11)
+- [x] **T5.2 — Refresh offer on project open** (R6, R21; AC11)
+  - **Result (1.80.71):** `agent_kit::{needs_refresh, refresh_offer,
+    Target::from_id}`; `CoboltApp.agent_kit_refresh` set after
+    `detect_project_upgrades`; `show_agent_kit_refresh_modal` (the upgrade
+    modal's shape, `.resizable(false)`, shown only once no structure upgrade
+    is pending): Refresh runs the T5.1 export for the kit's target; Not now
+    / ✕ clear it until the next open. 4 `Tr` keys ×6. Test
+    `agent_kit::tests::refresh_offered_only_for_a_kit_of_another_version`:
+    equal no, older yes, newer yes, no kit no; no manifest / unreadable
+    manifest → no offer, older → offer for claude-code. Manual check left to
+    the operator.
   - Read first: `app.rs:4504-4605, 12083-12142`.
   - Files: `crates/cobolt-ide/src/app.rs`, `crates/cobolt-ide/src/agent_kit/mod.rs`,
     `crates/cobolt-ide/src/i18n.rs`.
@@ -737,7 +763,16 @@ output in the commit message).
     unreadable → no (no kit). Manual: open a project whose manifest says an
     older version — the offer appears once.
 
-- [ ] **T5.3 — Compiler requests node** (R19a, R21; AC6b, AC11)
+- [x] **T5.3 — Compiler requests node** (R19a, R21; AC6b, AC11)
+  - **Result (1.80.71):** `panels/project.rs` — `compiler_requests_in(dir)`
+    (`.md` only; sorted by the leading `YYYY-MM-DD`, then mtime, newest
+    first), cached on the folder's mtime in `ProjectPanel`;
+    `show_compiler_requests` draws after the `Category::TOP` loop, absent
+    when empty, a row click → `ProjectPanelEvent::Open`. `Tr`
+    `cat_compiler_requests` ×6. Test
+    `compiler_requests_newest_first_and_absent_when_empty`: no folder / empty
+    folder → no rows; 2 reports newest first; a `.txt` ignored; the panel's
+    cached read returns 2. Manual check left to the operator.
   - Read first: `panels/project.rs:52-90, 600-620, 955-1000`;
     `app.rs:958-966` (mtime cache pattern).
   - Files: `crates/cobolt-ide/src/panels/project.rs`,
@@ -752,6 +787,12 @@ output in the commit message).
 
 **Gate 5:** the phase gate; `cargo run -p cobolt-ide` launches and the three
 surfaces work (operator glance).
+  - **Result (1.80.71):** `cargo build --workspace` finished. `cobolt-ide
+    --bin` 1295 passed, 1 failed (known `every_document_ships_in_every_language`),
+    3 ignored (1292 + 3 new); `cobolt-project-tools` 36 + 1 + 7 (build 1
+    ignored); `cobolt-mcp` 19; `test_mcp_tool_parity` 3; `cobolt-compiler
+    --lib` 149; `cobolt-cli` 5 + 4 + 2. **The IDE launch and the three
+    surfaces are left to the operator** (no GUI driving).
 
 ---
 

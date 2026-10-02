@@ -92,7 +92,6 @@ pub struct Planned {
     pub bytes: Option<String>,
     /// What the kit itself contributes — the part a redaction scan reads.
     pub kit_text: String,
-    pub generated: bool,
     /// The file's manifest entry after this export, if it has one.
     pub entry: Option<FileEntry>,
 }
@@ -241,7 +240,7 @@ pub fn plan(project_dir: &Path, files: &[KitFile], old: Option<&KitManifest>, ve
 }
 
 fn keep(f: &KitFile, kit_text: String, prior: Option<FileEntry>) -> Planned {
-    Planned { rel: f.rel.clone(), decision: Decision::KeepEdited, bytes: None, kit_text, generated: f.generated, entry: prior }
+    Planned { rel: f.rel.clone(), decision: Decision::KeepEdited, bytes: None, kit_text, entry: prior }
 }
 
 fn plan_markdown(f: &KitFile, version: &str, current: Option<String>, exists: bool, prior: Option<FileEntry>) -> Planned {
@@ -260,7 +259,7 @@ fn plan_markdown(f: &KitFile, version: &str, current: Option<String>, exists: bo
         (Some(text), _) if *text == bytes => Decision::Replace,
         _ => return keep(f, bytes, prior),
     };
-    Planned { rel: f.rel.clone(), decision, kit_text: bytes.clone(), bytes: Some(bytes), generated: f.generated, entry: Some(entry) }
+    Planned { rel: f.rel.clone(), decision, kit_text: bytes.clone(), bytes: Some(bytes), entry: Some(entry) }
 }
 
 fn plan_section(f: &KitFile, version: &str, current: Option<String>, exists: bool, prior: Option<FileEntry>) -> Planned {
@@ -278,7 +277,7 @@ fn plan_section(f: &KitFile, version: &str, current: Option<String>, exists: boo
         decision,
         bytes: Some(bytes),
         kit_text: block.clone(),
-        generated: f.generated,
+       
         entry: Some(entry.clone()),
     };
     if !exists {
@@ -336,7 +335,7 @@ fn plan_json(f: &KitFile, version: &str, current: Option<String>, exists: bool, 
             decision: Decision::Write,
             bytes: Some(pretty(&new)),
             kit_text,
-            generated: f.generated,
+           
             entry: Some(entry(false)),
         };
     }
@@ -360,7 +359,7 @@ fn plan_json(f: &KitFile, version: &str, current: Option<String>, exists: bool, 
             decision: Decision::Replace,
             bytes: Some(pretty(&new)),
             kit_text,
-            generated: f.generated,
+           
             entry: Some(entry(false)),
         };
     }
@@ -369,7 +368,7 @@ fn plan_json(f: &KitFile, version: &str, current: Option<String>, exists: bool, 
         decision: Decision::Merge,
         bytes: Some(pretty(&merge(&existing, &new, old_owned.as_ref()))),
         kit_text,
-        generated: f.generated,
+       
         entry: Some(entry(true)),
     }
 }
@@ -415,25 +414,22 @@ mod tests {
 
     fn kit(version: &str) -> Vec<KitFile> {
         vec![
-            KitFile { rel: "CLAUDE.md".into(), body: format!("# Brief\n\nWritten by {version}.\n"), kind: KitFileKind::Section, generated: true },
+            KitFile { rel: "CLAUDE.md".into(), body: format!("# Brief\n\nWritten by {version}.\n"), kind: KitFileKind::Section },
             KitFile {
                 rel: ".claude/skills/demo/SKILL.md".into(),
                 body: "---\nname: demo\ndescription: \"d\"\n---\n\n# demo\n".into(),
                 kind: KitFileKind::FrontMatterMarkdown,
-                generated: true,
             },
-            KitFile { rel: "docs/powerrustcobol/README.md".into(), body: "# Pack\n".into(), kind: KitFileKind::Markdown, generated: true },
+            KitFile { rel: "docs/powerrustcobol/README.md".into(), body: "# Pack\n".into(), kind: KitFileKind::Markdown },
             KitFile {
                 rel: ".mcp.json".into(),
                 body: r#"{"mcpServers":{"powerrustcobol":{"type":"stdio","command":"rcrun"}}}"#.into(),
                 kind: KitFileKind::Json,
-                generated: true,
             },
             KitFile {
                 rel: ".claude/settings.json".into(),
                 body: r#"{"permissions":{"allow":["Edit(./**)","mcp__powerrustcobol__check"],"deny":["Bash"]}}"#.into(),
                 kind: KitFileKind::Json,
-                generated: true,
             },
         ]
     }

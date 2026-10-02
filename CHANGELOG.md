@@ -8,6 +8,37 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.71] — 2026-10-01
+
+### Spec 080 Phase 5 — the coding-agent kit in the IDE
+
+- **File ▸ Export coding-agent kit ▸ Claude Code** (with a project open)
+  writes the kit into the project and lists every file in the Output
+  panel: written, merged into a file of yours, or kept because you edited
+  it — or says why nothing was written.
+- **A kit written by another version is offered a refresh** when the project
+  opens, after any project-structure upgrade. *Not now* changes nothing,
+  and the offer comes back on the next open.
+- **Compiler requests** appears in the project tree when
+  `docs/compiler-requests/` holds gap reports: newest first, each opening
+  in the editor, with no other step after the agent writes one. With no
+  report there is no node.
+- **Personal details are checked only where they can enter the kit**
+  (operator ruling at the Phase 4 review): the values the export inserts —
+  the project's name and the `rcrun` path — are scrubbed and then checked,
+  and refuse the export if a detail survives. The kit's own fixed text is
+  no longer scanned for them, so a login that is an ordinary word of it
+  (`main`, `reviewer`, `form`) no longer refuses the export. Stored API keys
+  are still checked in every file the kit writes.
+
+New IDE strings in all six languages: `menu_export_agent_kit`,
+`menu_export_agent_kit_hint`, `agent_kit_target_claude_code`,
+`agent_kit_wrote`, `agent_kit_kept_edited`, `agent_kit_merged`,
+`agent_kit_done`, `agent_kit_refresh_title`, `agent_kit_refresh_detail`,
+`agent_kit_refresh_apply`, `agent_kit_refresh_later`,
+`cat_compiler_requests`. Tests: 3 new in `cobolt-ide` (1295 passed; the one
+known red). The manual check of the three surfaces is left to the operator.
+
 ## [PowerRustCOBOL 1.80.70] — 2026-10-01
 
 ### Spec 080 Phase 4 — the coding-agent kit generator

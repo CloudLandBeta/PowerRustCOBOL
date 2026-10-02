@@ -16,10 +16,6 @@
 //!     ─▶ redact::check (refuse: nothing written) ─▶ stamp::write (manifest last)
 //! ```
 
-// The export is wired to the IDE in the next phase of spec 080; until then
-// only its tests reach it.
-#![cfg_attr(not(test), allow(dead_code))]
-
 pub mod claude_code;
 pub mod content;
 pub mod ide_host;
@@ -62,6 +58,28 @@ impl Target {
             Target::ClaudeCode => Box::new(claude_code::ClaudeCodeWriter),
         }
     }
+
+    /// The target a kit manifest names (`KitWriter::target`).
+    pub fn from_id(id: &str) -> Option<Target> {
+        [Target::ClaudeCode].into_iter().find(|t| t.writer().target() == id)
+    }
+}
+
+/// Whether a kit written by `kit` should be offered a refresh by an IDE at
+/// `version` (R6): only when there is a kit and another version wrote it.
+pub fn needs_refresh(kit: Option<&stamp::KitManifest>, version: &str) -> bool {
+    kit.is_some_and(|m| m.ide_version != version)
+}
+
+/// The refresh offer for the project in `project_dir`: the kit's version and
+/// its target, when [`needs_refresh`] says so.
+pub fn refresh_offer(project_dir: &Path, version: &str) -> Option<(String, Target)> {
+    let kit = stamp::read_manifest(project_dir);
+    if !needs_refresh(kit.as_ref(), version) {
+        return None;
+    }
+    let kit = kit?;
+    Some((kit.ide_version.clone(), Target::from_id(&kit.target)?))
 }
 
 /// What an export needs from the machine it runs on.
@@ -134,6 +152,12 @@ pub fn export(project: &Path, target: Target, ctx: &ExportContext) -> Result<Exp
         }
         RcrunLocation::OnPath => RcrunLocation::OnPath,
     };
+    let rcrun_text = match &rcrun {
+        RcrunLocation::UnderHome(p) | RcrunLocation::Absolute(p) => p.clone(),
+        RcrunLocation::OnPath => String::new(),
+    };
+    let inserted = [(claude_code::BRIEF_FILE, project_name.clone()), (".mcp.json", rcrun_text)];
+    let inserted: Vec<(&str, &str)> = inserted.iter().map(|(f, v)| (*f, v.as_str())).collect();
 
     let old = stamp::read_manifest(&dir);
     let kit_id = old.as_ref().map(|m| m.kit_id.clone()).unwrap_or_else(stamp::new_kit_id);
@@ -155,14 +179,14 @@ pub fn export(project: &Path, target: Target, ctx: &ExportContext) -> Result<Exp
     let planned = stamp::plan(&dir, &files, old.as_ref(), ctx.ide_version);
     let manifest = stamp::manifest_for(writer.target(), ctx.ide_version, &kit_id, ctx.mcp_port, &planned);
     let manifest_text = stamp::manifest_text(&manifest);
-    let scan = redact::check(&planned, (KIT_MANIFEST, &manifest_text), ctx.llm, ctx.personal)
-        .map_err(ExportError::Refused)?;
+    redact::check_inserted(&inserted, ctx.personal).map_err(ExportError::Refused)?;
+    let scanned = redact::check(&planned, (KIT_MANIFEST, &manifest_text), ctx.llm).map_err(ExportError::Refused)?;
     stamp::write(&dir, &planned, &manifest).map_err(|e| ExportError::Failed(e.to_string()))?;
     Ok(ExportReport {
         files: planned.into_iter().map(|p| (p.rel, p.decision)).collect(),
         kit_id,
         replaced,
-        scanned: scan.files,
+        scanned,
     })
 }
 
@@ -170,6 +194,30 @@ pub fn export(project: &Path, target: Target, ctx: &ExportContext) -> Result<Exp
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    /// R6: equal → no offer; older or newer → an offer; no or unreadable kit
+    /// manifest → no offer (there is no kit).
+    #[test]
+    fn refresh_offered_only_for_a_kit_of_another_version() {
+        let m = |v: &str| stamp::manifest_for("claude-code", v, "k-x", 5720, &[]);
+        let cases = [
+            ("equal", needs_refresh(Some(&m("1.80.71")), "1.80.71"), false),
+            ("older", needs_refresh(Some(&m("1.80.70")), "1.80.71"), true),
+            ("newer", needs_refresh(Some(&m("1.80.99")), "1.80.71"), true),
+            ("no kit", needs_refresh(None, "1.80.71"), false),
+        ];
+        for (name, got, want) in cases {
+            assert_eq!(got, want, "{name}");
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(refresh_offer(tmp.path(), "1.80.71").is_none(), "no manifest");
+        std::fs::create_dir_all(tmp.path().join(".claude")).unwrap();
+        std::fs::write(tmp.path().join(KIT_MANIFEST), "{ not json").unwrap();
+        assert!(refresh_offer(tmp.path(), "1.80.71").is_none(), "unreadable manifest");
+        std::fs::write(tmp.path().join(KIT_MANIFEST), stamp::manifest_text(&m("1.80.70"))).unwrap();
+        assert_eq!(refresh_offer(tmp.path(), "1.80.71"), Some(("1.80.70".into(), Target::ClaudeCode)));
+        println!("refresh: 4 version cases + 3 manifest cases (none, unreadable, older → offer for claude-code)");
+    }
 
     fn copy_dir(from: &Path, to: &Path) {
         std::fs::create_dir_all(to).unwrap();

@@ -7,16 +7,18 @@
 //! **No secret and nothing personal in the kit** (spec 080 R4, T4.5).
 //!
 //! The AI export's own redaction (`ai_bundle`), applied where the kit can
-//! carry a developer's details (plan D8, operator ruling on F1):
+//! carry a developer's details (plan D8; operator rulings on F1 and at
+//! Phase 4 review, 2026-10-01):
 //!
-//! - the values the export **inserts** — the project's name, the `rcrun`
-//!   path — have the home folder, login, git name and e-mail replaced before
-//!   any text is rendered ([`scrub_value`]);
-//! - every file about to be written is scanned for any key stored on this
-//!   machine, and every file the export **generates** for a personal detail
-//!   that is still there ([`check`]). The reference documents copied verbatim
-//!   from the binary are scanned for keys only — a login such as `main` would
-//!   otherwise match ordinary words in the Guide.
+//! - a login or a name can reach the kit only through the values the export
+//!   **inserts** — the project's name, the `rcrun` path. Those have the home
+//!   folder, login, git name and e-mail replaced before any text is rendered
+//!   ([`scrub_value`]), and are checked afterwards: a detail still in one
+//!   refuses the export ([`check_inserted`]). The kit's own fixed text is not
+//!   scanned for personal details — a login such as `main` or `reviewer` is
+//!   an ordinary word there;
+//! - every file about to be written, and the kit manifest, is scanned for any
+//!   key stored on this machine ([`check`]).
 //!
 //! Any hit refuses the export before the first byte is written.
 
@@ -54,35 +56,34 @@ pub fn scrub_value(personal: &Personal, value: &str) -> (String, usize) {
     personal.scrub(value)
 }
 
-/// What a passing scan looked at.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Scan {
-    pub files: usize,
-    pub generated: usize,
+/// Refuse when a personal detail survived the scrub of an inserted value.
+/// `inserted` is `(file it goes into, value)`.
+pub fn check_inserted(inserted: &[(&str, &str)], personal: &Personal) -> Result<(), Refusal> {
+    for (file, value) in inserted {
+        if let Some(kind) = personal.find(value) {
+            return Err(Refusal::Personal { file: (*file).into(), kind });
+        }
+    }
+    Ok(())
 }
 
 /// Scan what the export is about to write — the kit's own part of every file
-/// that will be written, and the kit manifest — and refuse on the first hit.
-pub fn check(planned: &[Planned], manifest: (&str, &str), llm: &LlmConfig, personal: &Personal) -> Result<Scan, Refusal> {
-    let mut scan = Scan::default();
+/// that will be written, and the kit manifest — for a stored key; refuse on
+/// the first. Returns how many files were scanned.
+pub fn check(planned: &[Planned], manifest: (&str, &str), llm: &LlmConfig) -> Result<usize, Refusal> {
     let written = planned
         .iter()
         .filter(|p| p.bytes.is_some())
-        .map(|p| (p.rel.as_str(), p.kit_text.as_str(), p.generated))
-        .chain(std::iter::once((manifest.0, manifest.1, true)));
-    for (rel, text, generated) in written {
-        scan.files += 1;
+        .map(|p| (p.rel.as_str(), p.kit_text.as_str()))
+        .chain(std::iter::once(manifest));
+    let mut files = 0;
+    for (rel, text) in written {
+        files += 1;
         if let Some(slot) = find_key(text, llm) {
             return Err(Refusal::Key { file: rel.into(), slot });
         }
-        if generated {
-            scan.generated += 1;
-            if let Some(kind) = personal.find(text) {
-                return Err(Refusal::Personal { file: rel.into(), kind });
-            }
-        }
     }
-    Ok(scan)
+    Ok(files)
 }
 
 #[cfg(test)]
@@ -172,9 +173,11 @@ mod tests {
             }
             let text = String::from_utf8_lossy(&bytes).to_lowercase();
             scanned += 1;
-            let generated = !path.to_string_lossy().contains("docs/powerrustcobol/developers-guide")
-                && !path.to_string_lossy().contains("docs/powerrustcobol/cobol85");
-            if generated {
+            let copied = ["developers-guide", "cobol85", "controls", "control-methods", "rustcobol-extensions",
+                          "form-layout", "form-themes", "project-model"]
+                .iter()
+                .any(|d| path.to_string_lossy().contains(&format!("docs/powerrustcobol/{d}")));
+            if !copied {
                 for needle in ["emersonlopes", "emerson lopes", "gmail.com", "/users/"] {
                     assert!(!text.contains(needle), "{needle} leaked into {}", path.display());
                 }
@@ -215,15 +218,41 @@ mod tests {
             assert!(msg.contains("Nothing was written") && !msg.contains(KEY), "{msg}");
             refusals += 1;
         }
-        // A personal detail the scrub cannot reach: a login that is an
-        // ordinary word of the kit's own text.
-        let word_login = Personal::new(None, Some("reviewer".into()), None, None);
-        let dir = project("Shop");
-        let before = snapshot(dir.path());
-        let err = export(dir.path(), Target::ClaudeCode, &ctx(&llm, &word_login, "/opt/prc/rcrun")).unwrap_err();
-        assert!(matches!(err, ExportError::Refused(Refusal::Personal { kind: "<user>", .. })), "{err:?}");
-        assert_eq!(snapshot(dir.path()), before);
-        refusals += 1;
-        println!("redaction: {refusals} refusals (key in the name, key in the rcrun path, unremovable login); project unchanged each time");
+        println!("redaction: {refusals} key refusals (in the name, in the rcrun path); project unchanged each time");
+    }
+
+    /// R4 as ruled at Phase 4 review: a login that is an ordinary word of the
+    /// kit's own text (`reviewer`, `main`) does not refuse; the same login
+    /// planted in an inserted value is replaced and appears in none of them;
+    /// a detail an inserted value still holds refuses.
+    #[test]
+    fn only_inserted_values_are_checked_for_personal_details() {
+        let llm = machine();
+        let mut exported = 0;
+        for login in ["reviewer", "main", "form"] {
+            let word_login = Personal::new(None, Some(login.into()), None, None);
+            let dir = project(&format!("{login} shop"));
+            let report = export(
+                dir.path(),
+                Target::ClaudeCode,
+                &ctx(&llm, &word_login, &format!("/opt/{login}/rcrun")),
+            )
+            .unwrap_or_else(|e| panic!("login {login} refused: {e:?}"));
+            assert!(report.replaced >= 2, "{login}: the inserted values were not scrubbed");
+            let brief = std::fs::read_to_string(dir.path().join("CLAUDE.md")).unwrap();
+            assert!(brief.contains("**<user> shop**"), "{login}: project name not scrubbed");
+            assert!(brief.contains("powerrustcobol-reviewer"), "the kit's own text must stay intact");
+            let mcp = std::fs::read_to_string(dir.path().join(".mcp.json")).unwrap();
+            assert!(mcp.contains("/opt/<user>/rcrun"), "{login}: rcrun path not scrubbed");
+            exported += 1;
+        }
+        let me = me();
+        let err = check_inserted(&[("CLAUDE.md", "Shop"), (".mcp.json", "/opt/emersonlopes/rcrun")], &me).unwrap_err();
+        assert_eq!(err, Refusal::Personal { file: ".mcp.json".into(), kind: "<user>" });
+        assert!(check_inserted(&[("CLAUDE.md", "Shop"), (".mcp.json", "/opt/<user>/rcrun")], &me).is_ok());
+        println!(
+            "redaction: {exported} exports with a login that is a template word (reviewer, main, form) \
+             succeeded with their inserted values scrubbed; a detail left in an inserted value refuses"
+        );
     }
 }

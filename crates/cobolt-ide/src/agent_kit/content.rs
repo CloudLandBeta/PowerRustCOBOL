@@ -111,10 +111,6 @@ pub struct RefDoc {
     pub name: String,
     pub title: String,
     pub body: String,
-    /// Copied verbatim from what the binary carries (the Guide, the syntax
-    /// document, the System KB documents). Scanned for stored keys only,
-    /// never for personal details (R4, operator ruling on F1).
-    pub verbatim: bool,
 }
 
 /// Where `rcrun` is, said without the developer's home folder (R4, plan F3).
@@ -175,9 +171,6 @@ pub struct KitFile {
     pub rel: String,
     pub body: String,
     pub kind: KitFileKind,
-    /// The body is composed by the kit (scanned for personal details too);
-    /// `false` for a reference document copied verbatim.
-    pub generated: bool,
 }
 
 /// How a kit file is stamped and owned (plan §3.3).
