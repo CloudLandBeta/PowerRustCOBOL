@@ -272,6 +272,14 @@ pub trait SurfaceTheme: Debug + Send + Sync {
     /// Surfaces that skip it lose nothing structural: such widgets fall back to
     /// their crate's own default palette.
     fn install_widget_visuals(&self, _ctx: &Context) {}
+
+    /// Whether a form in this theme wants its WINDOW see-through: created
+    /// transparent, its backdrop translucent, and the desktop behind it
+    /// blurred by the operating system (spec 083 R2, R3). Only Spatial says
+    /// yes; every other theme keeps the window it always had.
+    fn see_through(&self) -> bool {
+        false
+    }
 }
 
 // ── Liquid Glass ────────────────────────────────────────────────────────────
@@ -505,6 +513,123 @@ pub fn elegance() -> Arc<dyn SurfaceTheme> {
     Arc::new(EleganceTheme::new())
 }
 
+// ── Spatial ─────────────────────────────────────────────────────────────────
+
+/// Spatial (spec 083): the IDE's Spatial look for an application. Warm grey
+/// translucent glass, white text, large radii, no saturated colour; the form
+/// window is see-through over the system-blurred desktop. Controls are
+/// lighter glass on the glass, inputs a darker recessed well, and the one
+/// bright surface is a toggle that is ON.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SpatialTheme;
+
+fn glass(r: u8, g: u8, b: u8, a: u8) -> Color32 {
+    Color32::from_rgba_unmultiplied(r, g, b, a)
+}
+
+mod spat {
+    use egui::Color32;
+    /// Text, a slider's travelled rail and its knob.
+    pub const INK: Color32 = Color32::from_rgb(255, 255, 255);
+    /// Labels' secondary text, hints.
+    pub const DIM: Color32 = Color32::from_rgb(226, 224, 218);
+    /// Control corner radius, and card (panel, group box) radius.
+    pub const CONTROL_RADIUS: f32 = 14.0;
+    pub const CARD_RADIUS: f32 = 24.0;
+}
+
+impl SurfaceTheme for SpatialTheme {
+    fn id(&self) -> &str {
+        crate::theme::SPATIAL
+    }
+
+    fn is_self_contained(&self) -> bool {
+        true
+    }
+
+    fn see_through(&self) -> bool {
+        true
+    }
+
+    fn surface(&self, role: SurfaceRole, state: SurfaceState) -> Option<SurfaceSpec> {
+        let rim = if state.selected { glass(255, 255, 255, 200) } else { glass(255, 255, 255, 46) };
+        let width = if state.selected { 1.5 } else { 1.0 };
+        if role == SurfaceRole::Toggle {
+            return Some(SurfaceSpec {
+                fill: Some(if state.on { glass(245, 244, 240, 240) } else { Color32::TRANSPARENT }),
+                border: if state.on { glass(255, 255, 255, 240) } else { glass(255, 255, 255, 120) },
+                border_width: 1.0,
+            });
+        }
+        let fill = match role {
+            SurfaceRole::Card => Some(glass(255, 255, 255, 26)),
+            SurfaceRole::Input => Some(glass(0, 0, 0, 46)),
+            SurfaceRole::Button => Some(glass(255, 255, 255, 40)),
+            SurfaceRole::Shape | SurfaceRole::Accent | SurfaceRole::Toggle => None,
+        };
+        Some(SurfaceSpec { fill, border: rim, border_width: width })
+    }
+
+    fn token(&self, tok: ColorToken) -> Option<Color32> {
+        Some(match tok {
+            ColorToken::Text | ColorToken::LabelText => spat::INK,
+            ColorToken::DimText => spat::DIM,
+            ColorToken::SliderFill | ColorToken::SliderKnob => spat::INK,
+            // The form's own glass: translucent, so the blurred desktop shows.
+            ColorToken::FormBackground => glass(66, 65, 62, 150),
+            ColorToken::InputBg => glass(0, 0, 0, 46),
+            ColorToken::Card => glass(255, 255, 255, 26),
+            ColorToken::CardRaised => glass(255, 255, 255, 40),
+            ColorToken::Border => glass(255, 255, 255, 46),
+            ColorToken::Focus => glass(255, 255, 255, 200),
+            // Accents stay soft and light: no saturated colour on the glass.
+            ColorToken::Accent(name) => match name {
+                AccentName::Blue => Color32::from_rgb(150, 190, 255),
+                AccentName::Green => Color32::from_rgb(160, 225, 190),
+                AccentName::Red => Color32::from_rgb(255, 170, 160),
+                AccentName::Purple => Color32::from_rgb(200, 180, 255),
+                AccentName::Amber => Color32::from_rgb(255, 214, 150),
+                AccentName::Sky => Color32::from_rgb(170, 220, 255),
+            },
+        })
+    }
+
+    fn radius(&self, kind: RadiusKind) -> Option<f32> {
+        Some(match kind {
+            RadiusKind::Control => spat::CONTROL_RADIUS,
+            RadiusKind::Card => spat::CARD_RADIUS,
+        })
+    }
+
+    fn data_marks(&self) -> Option<Vec<Color32>> {
+        Some(vec![
+            Color32::from_rgb(255, 255, 255),
+            Color32::from_rgb(150, 190, 255),
+            Color32::from_rgb(160, 225, 190),
+            Color32::from_rgb(255, 214, 150),
+            Color32::from_rgb(200, 180, 255),
+            Color32::from_rgb(255, 170, 160),
+        ])
+    }
+
+    /// Whites and warm greys first, then the soft accents.
+    fn swatches(&self) -> Vec<Color32> {
+        const HEX: [u32; 18] = [
+            0xFFFFFF, 0xF2F1ED, 0xE2E0DA, 0xC9C7C1, 0xA9A7A1, 0x8A8883,
+            0x6E6C68, 0x55534F, 0x42413E, 0x33322F, 0x262523, 0x1C1B19,
+            0x96BEFF, 0xA0E1BE, 0xFFD696, 0xC8B4FF, 0xFFAAA0, 0xAADCFF,
+        ];
+        HEX.iter()
+            .map(|v| Color32::from_rgb((v >> 16) as u8, ((v >> 8) & 0xFF) as u8, (v & 0xFF) as u8))
+            .collect()
+    }
+}
+
+/// The shared Spatial instance.
+pub fn spatial() -> Arc<dyn SurfaceTheme> {
+    Arc::new(SpatialTheme)
+}
+
 // ── The registry ────────────────────────────────────────────────────────────
 
 /// The theme a resolved catalogue id paints with — **the one place a procedural
@@ -521,6 +646,7 @@ pub fn elegance() -> Arc<dyn SurfaceTheme> {
 pub fn for_theme_id(id: &str) -> Arc<dyn SurfaceTheme> {
     match id.trim() {
         crate::theme::ELEGANCE => elegance(),
+        crate::theme::SPATIAL => spatial(),
         _ => liquid_glass(),
     }
 }

@@ -8,6 +8,66 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.95] — 2026-10-02
+
+### Feature: the Spatial form theme, window blur for applications, and `BorderStyle` Glow (spec 083)
+
+The operator wanted the IDE's Spatial look for the applications they build.
+Spec 083 is registered in `specs/083-spatial-form-theme/spec.md`.
+
+- **Spatial form theme.** A third built-in procedural theme (`spatial`,
+  self-contained) beside Liquid Glass and Elegance, implemented as a
+  `SurfaceTheme` with no painter changes:
+  - surfaces: warm grey translucent glass; cards and buttons are lighter
+    glass on the glass, inputs a darker recessed well, an ON toggle bright
+    white;
+  - text, radii and colour sets: white text, 14 px control and 24 px card
+    radii, soft unsaturated accents, chart series and swatches.
+- **See-through windows, blurred, on three systems.** `SurfaceTheme` gains
+  `see_through()`, true only for Spatial. Under it the form host:
+  - creates the window transparent;
+  - paints the theme's translucent glass as the form's backdrop, since a
+    solid `BackgroundColor`, gradient or picture would hide the desktop.
+    This happens at render time, so the form file is unchanged;
+  - keeps the operating system's blur in step each second (`sync_os_blur`),
+    for a plain form window and for the SideMenu shell.
+- **The new crate `cobolt-os-blur`** is shared by the IDE (replacing its
+  private `os_blur`) and the form host:
+  - macOS: the window-server background blur, for every window of the app;
+  - Windows: the DWM acrylic system backdrop (Windows 11) and blur-behind
+    (Windows 10), for every window on the UI thread;
+  - Linux: winit's blur request for the main window, which KDE on Wayland
+    honours.
+
+  It has no dependencies and type-checks for macOS, Windows and Linux. It is
+  in the compiled-application SDK (`SDK_CRATES`, 14 crates now), which the
+  SDK closure test caught.
+- **`BorderStyle` `Glow`, on every control with a border.** A discreet edge
+  in `BorderColor` at 40 %, whose four corners glow in `BorderGlowTopLeft`,
+  `BorderGlowTopRight`, `BorderGlowBottomRight` and `BorderGlowBottomLeft`,
+  fading along both edges; it follows `CornerRadius` and `BorderWidth`.
+  The four colours are ordinary colour properties:
+  - unset, they are a white specular glow, and they are never seeded, so
+    existing forms load and save byte-identically;
+  - the inspector offers `Glow` in every BorderStyle list and shows the four
+    rows only while it is selected;
+  - `draw_control_body` publishes the control's colours for the border
+    painter, so its 13 callers did not change.
+- **Tests:**
+  - `a_glow_border_paints_its_corners_on_every_face_path`: each corner's
+    colour near its corner and the grey edge mid-way, under Liquid Glass,
+    Elegance and Spatial, with and without a gradient;
+  - `a_spatial_form_is_see_through_and_blurred`: a Spatial form gets a
+    see-through, blurred window with a translucent backdrop over its own
+    solid colour; Liquid Glass gets none of it;
+  - the catalogue tests now list Spatial; the blur crate's own test.
+- **Knowledge Base and docs:** the System KB documents Spatial, `Glow` and
+  the four properties, and `chunked.data` is regenerated. The Developer's
+  Guide has a Spatial section and the `Glow` row and example.
+
+Not testable here: the Windows and Linux blur paths compile for their
+targets but have only been run on macOS.
+
 ## [PowerRustCOBOL 1.80.94] — 2026-10-02
 
 ### Fix: the Form Designer and the other IDE windows are see-through too

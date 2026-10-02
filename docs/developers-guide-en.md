@@ -2757,7 +2757,7 @@ frame, and container **children** are clipped to the rectangular content area
 (the rounded corners are cosmetic on the frame).
 
 **Every border style follows that radius**, on every control that has one.
-`BorderStyle` takes five values in the properties pane:
+`BorderStyle` takes six values in the properties pane:
 
 
 | Style               | What it draws                                                                                                                                                           |
@@ -2766,6 +2766,29 @@ frame, and container **children** are clipped to the rectangular content area
 | `Single`            | One line of `BorderWidth` in `BorderColor`, following the corner radius.                                                                                                 |
 | `Fixed3D`, `Raised` | A relief lit from the top-left: the top and left edges in a lighter shade of `BorderColor`, the bottom and right in a darker one, meeting halfway round the corner arcs. |
 | `Sunken`            | The same relief inverted, so the control reads as pressed into the form.                                                                                                |
+| `Glow`              | A discreet edge in `BorderColor` whose four corners glow, each in its own colour, fading out along both edges, like light catching the corners of a glass panel.          |
+
+**`Glow` and its four colours.** Choose `Glow` and four colour rows appear under
+*BorderStyle*: `BorderGlowTopLeft`, `BorderGlowTopRight`,
+`BorderGlowBottomRight` and `BorderGlowBottomLeft`. Leave them unset for a
+white highlight, brightest at the top-left, or give each corner its own colour.
+They are ordinary colour properties, so a program can change them while it
+runs, for example to light a card when it is selected:
+
+```cobol
+           IF WS-SELECTED = "Y"
+               SET CARD-1::BorderGlowTopLeft     TO "#60BEFF"
+               SET CARD-1::BorderGlowBottomRight TO "#A896FF"
+           END-IF
+```
+
+The glow follows `CornerRadius` and `BorderWidth` like every other style; a
+`BorderWidth` of 2 or 3 shows it best. The edge between the corners is your
+`BorderColor` at 40 %, so a darker `BorderColor` makes the glow stand out more.
+
+> 📷 Screenshot needed — `border-glow.png`: a Spatial form with three panels
+> using `BorderStyle` `Glow`: one with the default white glow, one with
+> sky/mint/lavender/peach corners, one with a single bright top-left corner.
 
 The relief follows the corner radius exactly as `Single` does — before
 1.61.170 it drew four straight lines on the bounding box and ran out past the
@@ -5967,11 +5990,43 @@ types, and the knob, gauge, switch and file-drop controls. Charts draw their
 series in the theme's accent family instead of the built-in colours, so a chart
 sits inside the form rather than on top of it.
 
+#### Spatial
+
+**Spatial** is the third built-in theme, for applications that should look
+like a floating glass panel over the desktop. Its surfaces are warm grey
+translucent glass with white text, large rounded corners and soft,
+unsaturated accents. It is the one **see-through** theme:
+
+- **The window is transparent.** The desktop shows through the form, and the
+  operating system blurs it, the way a room behind frosted glass is softened.
+  This works on macOS and Windows, and on Linux where the desktop offers it
+  (KDE on Wayland). Elsewhere the desktop shows through without blur.
+- **The form's backdrop is the theme's glass.** A solid *Back color*, a
+  background gradient or a background picture on the form would hide the
+  desktop, so under Spatial they are set aside. Choose another theme and they
+  come back unchanged.
+- **Read it over a darker desktop.** White text stays crisp over a dark or
+  colourful wallpaper; over a very bright one it fades.
+
+```text
+Project-wide   Settings → Appearance → Default form theme → Spatial
+One form only  Designer → form Appearance → Theme → Spatial
+```
+
+Spatial pairs naturally with `BorderStyle` `Glow`: a card with the default
+white glow looks like a lit glass edge. The same look is available for the
+IDE itself as the **Spatial** IDE theme (see *Appearance and
+internationalisation*).
+
+> 📷 Screenshot needed — `form-theme-spatial.png`: a running Spatial form over
+> a colourful desktop, with the blur visible behind it, a few buttons, a text
+> box and a panel with `BorderStyle` `Glow`.
+
 #### Themes that own the whole look
 
 Some themes supply only *part* of the appearance and let Liquid Glass fill in the
 rest. Others define the **complete** look and want nothing layered over it —
-Elegance is one of these. A theme declares which kind it is, and the IDE follows
+Elegance and Spatial are two of these. A theme declares which kind it is, and the IDE follows
 that declaration everywhere.
 
 For a theme that owns the whole look:

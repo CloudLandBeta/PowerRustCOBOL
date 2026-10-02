@@ -531,7 +531,10 @@ impl FormHost {
         }
 
         let (fx_hide_chrome, fx_transparent) = fx_window_flags(&fx_entrance);
-        let see_through = fx_transparent || (surface != Surface::Pane && form.transparency > 0);
+        // A see-through form theme (Spatial, spec 083) makes the window
+        // see-through too: the desktop behind it shows, blurred.
+        let see_through = fx_transparent
+            || (surface != Surface::Pane && (form.transparency > 0 || surface_theme.see_through()));
 
         let host = FormHost {
             root: FormBody {
@@ -2596,11 +2599,25 @@ impl FormBody {
             };
             tex.map(|t| (t.id(), t.size_vec2()))
         };
+        // Under a see-through theme (Spatial, spec 083) the backdrop is the
+        // theme's translucent glass: a form's own solid colour, gradient or
+        // picture would hide the blurred desktop the theme exists to show.
+        let see_through = self.surface_theme.see_through();
+        let (image, color_hex) = match see_through
+            .then(|| self.surface_theme.token(cobolt_forms::surface_theme::ColorToken::FormBackground))
+            .flatten()
+        {
+            Some(glass) => {
+                let [r, g, b, a] = glass.to_srgba_unmultiplied();
+                (None, format!("#{r:02X}{g:02X}{b:02X}{a:02X}"))
+            }
+            None => (image, self.bg_hex.clone()),
+        };
         cobolt_forms::render::Backdrop {
             paint: true,
-            color_hex: self.bg_hex.clone(),
+            color_hex,
             transparency: self.transparency,
-            gradient_enabled: self.bg_gradient_enabled,
+            gradient_enabled: self.bg_gradient_enabled && !see_through,
             gradient_start_hex: self.bg_gradient_start.clone(),
             gradient_end_hex: self.bg_gradient_end.clone(),
             gradient_direction: self.bg_gradient_direction.clone(),
@@ -4661,6 +4678,44 @@ impl FormHost {
     }
 }
 
+/// Keep the operating system's blur behind this application's windows in
+/// step with what the form wants (spec 083 R3): on when its theme is
+/// see-through, off otherwise. winit blurs the main window where the platform
+/// lets it (macOS, KDE on Wayland); `cobolt_os_blur` reaches every window,
+/// child forms included (macOS, Windows), and is repeated each second so a
+/// window opened since is caught. One form host per process, one UI thread:
+/// the state is the thread's.
+pub(crate) fn sync_os_blur(frame: &eframe::Frame, want: bool) {
+    use std::cell::Cell;
+    use std::time::{Duration, Instant};
+    thread_local! {
+        static STATE: Cell<(Option<bool>, Option<Instant>)> = const { Cell::new((None, None)) };
+    }
+    let (last, at) = STATE.with(Cell::get);
+    if last != Some(want) {
+        if let Some(window) = frame.winit_window() {
+            window.set_blur(want);
+        }
+        cobolt_os_blur::set_all_windows(want);
+        STATE.with(|s| s.set((Some(want), Some(Instant::now()))));
+    } else if want && at.is_none_or(|t| t.elapsed() >= Duration::from_secs(1)) {
+        cobolt_os_blur::set_all_windows(true);
+        STATE.with(|s| s.set((Some(true), Some(Instant::now()))));
+    }
+}
+
+impl FormHost {
+    /// Whether this host's window wants the desktop behind it blurred.
+    pub(crate) fn wants_os_blur(&self) -> bool {
+        self.see_through && self.root.surface_theme.see_through()
+    }
+
+    /// The root form's painting theme.
+    pub(crate) fn root_surface_theme(&self) -> &dyn cobolt_forms::surface_theme::SurfaceTheme {
+        self.root.surface_theme.as_ref()
+    }
+}
+
 impl eframe::App for FormHost {
     /// What the framebuffer is cleared to before anything is painted. On a
     /// see-through window (038 — an entrance that plays over the desktop)
@@ -4685,7 +4740,8 @@ impl eframe::App for FormHost {
     // nothing to steal focus back from (operator report, 2026-09-19: "when
     // clicked does not return focus to the modal"). Strictly worse than the
     // reactive refocus in `update_children`, which this path relies on.
-    fn ui(&mut self, root_ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, root_ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        sync_os_blur(frame, self.wants_os_blur());
         self.ui_impl(root_ui);
     }
 }
@@ -7286,6 +7342,63 @@ mod parity {
         assert!(build(30, Surface::Window));
         assert!(!build(0, Surface::Window));
         assert!(!build(30, Surface::Pane));
+    }
+
+    /// Spec 083 R2/R3 (AC2): a Spatial form gets a see-through window and
+    /// asks for the desktop to be blurred, with the theme's translucent glass
+    /// as its backdrop even when the form carries a solid colour; a Liquid
+    /// Glass form does neither.
+    #[test]
+    fn a_spatial_form_is_see_through_and_blurred() {
+        let build = |theme: std::sync::Arc<dyn cobolt_forms::surface_theme::SurfaceTheme>| -> FormHost {
+            let mut form = cobolt_forms::Form::new("SPACE", "Space", 320, 200);
+            form.background_color = "#F4F6F9FF".into();
+            let (ev_tx, _ev_rx) = mpsc::channel();
+            let (input_tx, _input_rx) = mpsc::channel();
+            let (_state_tx, state_rx) = mpsc::channel();
+            let (_display_tx, display_rx) = mpsc::channel();
+            let (form_req_tx, form_req_rx) = mpsc::channel();
+            let (closed_tx, _closed_rx) = mpsc::channel();
+            let (host, _f) = FormHost::new(FormHostConfig {
+                form,
+                flat: Vec::new(),
+                state: HashMap::new(),
+                ev_tx,
+                input_tx,
+                state_rx,
+                display_rx,
+                pending: Arc::new(AtomicUsize::new(0)),
+                finished: Arc::new(AtomicBool::new(false)),
+                form_req_rx,
+                closed_tx,
+                form_req_tx,
+                form_source: None,
+                child_theme: None,
+                child_interpreter_setup: None,
+                indexed_engine: Default::default(),
+                shared_rust_bridge: None,
+                fx_entrance: FxSpec::default(),
+                fx_exit: FxSpec::default(),
+                fx_restore: false,
+                theme_pack: None,
+                surface_theme: theme,
+                icon_path: None,
+                title_fallback: String::new(),
+                hooks: Box::new(NoHooks),
+                surface: Surface::Window,
+            });
+            host
+        };
+        let spatial = build(cobolt_forms::surface_theme::spatial());
+        assert!(spatial.see_through, "a Spatial window is see-through");
+        assert!(spatial.wants_os_blur(), "and asks for the desktop blur");
+        let ctx = egui::Context::default();
+        let backdrop = spatial.root.backdrop(&ctx, egui::vec2(320.0, 200.0));
+        let alpha = u8::from_str_radix(&backdrop.color_hex[7..9], 16).unwrap();
+        assert!(alpha < 255, "the backdrop is the theme's translucent glass, not #F4F6F9FF: {}", backdrop.color_hex);
+        let glass = build(cobolt_forms::surface_theme::liquid_glass());
+        assert!(!glass.see_through && !glass.wants_os_blur(), "Liquid Glass keeps its window");
+        assert_eq!(glass.root.backdrop(&ctx, egui::vec2(320.0, 200.0)).color_hex, "#F4F6F9FF");
     }
 
     /// Property audit, 2026-09-26: a COBOL write to the form's own window

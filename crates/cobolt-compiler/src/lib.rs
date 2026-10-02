@@ -2878,7 +2878,7 @@ fn walk_controls(controls: &[cobolt_forms::Control]) -> Vec<&cobolt_forms::Contr
 /// [`sdk_manifest`] names exactly this list as the workspace members — keeping
 /// both beside [`resolve_workspace_root`] is what stops the shipped layout and
 /// the layout we look for from drifting apart.
-pub const SDK_CRATES: [&str; 13] = [
+pub const SDK_CRATES: [&str; 14] = [
     "cobolt-ast",
     "cobolt-codegen",
     // spec 074 — document import. `cobolt-kb` depends on it.
@@ -2894,6 +2894,9 @@ pub const SDK_CRATES: [&str; 13] = [
     // depends on it, so the closure guard below requires it here.
     "cobolt-mcp",
     "cobolt-media",
+    // spec 083 — desktop blur behind a see-through (Spatial) form window.
+    // `cobolt-form-host` depends on it, so the closure guard requires it.
+    "cobolt-os-blur",
     "cobolt-parser",
     "cobolt-runtime",
     "cobolt-semantic",
@@ -4631,7 +4634,7 @@ single control, and a theme is never "installed" onto controls one at a time.
 
 Two kinds exist:
 
-- **Procedural** — drawn entirely in code. `liquid-glass` and `elegance`.
+- **Procedural** — drawn entirely in code. `liquid-glass`, `elegance` and `spatial`.
 - **Asset pack** — composited from 9-slice images in `assets/themes/<id>/`,
   described by a `theme.toml` manifest. Packs are discovered at start-up, so a
   new one is a drop-in with no code change.
@@ -4645,11 +4648,22 @@ falls back to Liquid Glass, which is why a partial theme is a legitimate theme.
 |---|---|---|---|
 | `liquid-glass` | Liquid Glass | Procedural | no |
 | `elegance` | Elegance | Procedural | **yes** |
+| `spatial` | Spatial | Procedural | **yes** |
 | `neumorphic` | Neumorphic | Asset pack | declared in its manifest |
 | `cobalt-steel` | Cobalt Steel | Asset pack | declared in its manifest |
 
 `liquid-glass` is the default look and the base every other theme falls back to.
 `elegance` is flat slate surfaces with a cool accent family, drawn in code.
+`spatial` is warm grey translucent glass with white text and large radii, in
+the manner of spatial-computing interfaces, and it is the one **see-through**
+theme: the form's window is created transparent, its backdrop is the
+theme's translucent glass (a solid `BackgroundColor`, gradient or picture on
+the form is set aside, since it would hide the desktop), and the operating
+system blurs the desktop behind the window and every other window of the
+application. Blur works on macOS and Windows, and on Linux where the
+compositor offers it (KDE on Wayland); elsewhere the window is see-through
+without blur. White text reads best over a darker wallpaper. Pair it with
+`BorderStyle` `Glow` for the corner-lit glass edge.
 
 **An unknown id, an empty id, or no selection at all resolves to
 `liquid-glass`.** Nothing fails and nothing is reported: that is the fallback
@@ -5474,10 +5488,14 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
 
         // ── Borders ──
         "BorderStyle" => (
-            "one of: `None` | `Single` | `Fixed3D` | `Raised` | `Sunken`",
-            "Border drawing style, on every control that carries the property (Button included). `Single` is one line of `BorderWidth` in `BorderColor`; `Fixed3D`/`Raised` draw a relief lit from the top-left (lighter top and left, darker bottom and right); `Sunken` inverts it. ALL of them follow the control's `CornerRadius`, meeting halfway round each corner arc, and all draw the same whatever paints the face — glass, background gradient, form theme or asset pack. Under the Neumorphic glass style `Fixed3D` and `Raised` come from the form's own shadow stack and read as RAISED, and `Sunken` turns that relief over (shadow top-left, highlight bottom-right) so the control reads as pressed IN — while `Single` stays the developer's own flat line in `BorderColor` / `BorderWidth`, as on every other style (before 1.70.263 it was relief there too, so the colour did nothing).",
+            "one of: `None` | `Single` | `Fixed3D` | `Raised` | `Sunken` | `Glow`",
+            "Border drawing style, on every control that carries the property (Button included). `Single` is one line of `BorderWidth` in `BorderColor`; `Fixed3D`/`Raised` draw a relief lit from the top-left (lighter top and left, darker bottom and right); `Sunken` inverts it. ALL of them follow the control's `CornerRadius`, meeting halfway round each corner arc, and all draw the same whatever paints the face — glass, background gradient, form theme or asset pack. Under the Neumorphic glass style `Fixed3D` and `Raised` come from the form's own shadow stack and read as RAISED, and `Sunken` turns that relief over (shadow top-left, highlight bottom-right) so the control reads as pressed IN — while `Single` stays the developer's own flat line in `BorderColor` / `BorderWidth`, as on every other style (before 1.70.263 it was relief there too, so the colour did nothing). `Glow` (spec 083) draws a discreet edge in `BorderColor` at 40 % whose four corners glow in `BorderGlowTopLeft`, `BorderGlowTopRight`, `BorderGlowBottomRight` and `BorderGlowBottomLeft`, each fading out along both edges; unset, they are a white specular glow brightest at the top-left. Like every style it follows `CornerRadius` and `BorderWidth`, and the four colours are ordinary colour properties, settable in the inspector (shown under BorderStyle while it is Glow) and from COBOL (`SET CARD-1::BorderGlowTopLeft TO \"#60BEFF\"`).",
         ),
-        "BorderColor" => (COLOR_DOMAIN, "Border line color."),
+        "BorderColor" => (COLOR_DOMAIN, "Border line color. Under `BorderStyle` `Glow` it is the discreet edge between the glowing corners, drawn at 40 %."),
+        "BorderGlowTopLeft" | "BorderGlowTopRight" | "BorderGlowBottomRight" | "BorderGlowBottomLeft" => (
+            COLOR_DOMAIN,
+            "`BorderStyle` `Glow` only: the colour that corner of the border glows in, fading out along both edges into `BorderColor`. Unset, the four make a white specular glow, brightest at the top-left (`#FFFFFFE6`, `#FFFFFFB3`, `#FFFFFF33`, `#FFFFFF4D` from top-left clockwise). Set from COBOL like any colour: `SET BTN-1::BorderGlowTopLeft TO \"#60BEFF\"`. Written to the form only once set.",
+        ),
         "BorderWidth" => ("pixels ≥ 0", "Border line thickness."),
 
         // ── Check / radio ──

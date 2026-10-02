@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name         = "cobolt-os-blur"
+description  = "Blur the desktop behind PowerRustCOBOL windows (macOS window server, Windows DWM), shared by the IDE and the form host"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+# No dependencies on purpose: the platform calls are declared here, so the
+# crate type-checks for every target from any machine (spec 083 AC3).
+[dependencies]

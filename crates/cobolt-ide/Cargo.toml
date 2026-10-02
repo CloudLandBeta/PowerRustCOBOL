@@ -33,6 +33,8 @@ chrono      = { version = "0.4", default-features = false, features = ["clock", 
 
 # Form designer
 cobolt-forms    = { path = "../cobolt-forms", features = ["render", "office"] }
+# Spec 083 — desktop blur behind every IDE window under a see-through theme.
+cobolt-os-blur  = { path = "../cobolt-os-blur" }
 cobolt-codegen  = { path = "../cobolt-codegen" }
 cobolt-indexed  = { path = "../cobolt-indexed" }
 

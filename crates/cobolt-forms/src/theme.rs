@@ -34,6 +34,11 @@ pub const LIQUID_GLASS: &str = "liquid-glass";
 /// in UI text, docs, or generated COBOL (spec 047 R9).
 pub const ELEGANCE: &str = "elegance";
 
+/// The stable id of the built-in **Spatial** theme (spec 083): warm grey
+/// translucent glass, white text, large radii, and a see-through window over
+/// the system-blurred desktop.
+pub const SPATIAL: &str = "spatial";
+
 /// Whether a theme is drawn procedurally or composited from an asset pack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThemeKind {
@@ -95,6 +100,20 @@ impl FormTheme {
             self_contained: true,
         }
     }
+
+    /// The built-in procedural **Spatial** theme (spec 083 R1).
+    ///
+    /// Self-contained: its glass is its own, so the Liquid Glass register's
+    /// frost and relief must not be layered over it.
+    pub fn spatial() -> Self {
+        FormTheme {
+            id: SPATIAL.to_owned(),
+            display_name: "Spatial".to_owned(),
+            kind: ThemeKind::Procedural,
+            pack: None,
+            self_contained: true,
+        }
+    }
 }
 
 /// The extensible catalog of selectable themes (R1, R2).
@@ -113,7 +132,7 @@ impl ThemeCatalog {
     /// this order.
     pub fn builtin() -> Self {
         ThemeCatalog {
-            themes: vec![FormTheme::liquid_glass(), FormTheme::elegance()],
+            themes: vec![FormTheme::liquid_glass(), FormTheme::elegance(), FormTheme::spatial()],
         }
     }
 
@@ -125,7 +144,7 @@ impl ThemeCatalog {
     /// hunting for an `assets/themes/<id>/` folder that will never exist and
     /// warning when it is missing (spec 047 R-3).
     pub fn procedural_ids() -> &'static [&'static str] {
-        &[LIQUID_GLASS, ELEGANCE]
+        &[LIQUID_GLASS, ELEGANCE, SPATIAL]
     }
 
     /// Append discovered asset-pack themes to the built-in catalog, skipping any
@@ -238,7 +257,7 @@ mod tests {
 
         assert_eq!(
             cat.ids(),
-            vec![LIQUID_GLASS, ELEGANCE],
+            vec![LIQUID_GLASS, ELEGANCE, SPATIAL],
             "Liquid Glass must stay first (resolve falls back to themes[0])"
         );
 
@@ -263,7 +282,7 @@ mod tests {
     fn elegance_catalog_procedural_ids_cover_both_builtins() {
         let ids = ThemeCatalog::procedural_ids();
         println!("procedural ids (never looked up as packs): {ids:?}");
-        assert_eq!(ids, [LIQUID_GLASS, ELEGANCE]);
+        assert_eq!(ids, [LIQUID_GLASS, ELEGANCE, SPATIAL]);
         for t in ThemeCatalog::builtin().themes() {
             assert!(
                 ids.contains(&t.id.as_str()),

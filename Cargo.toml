@@ -19,6 +19,7 @@ members = [
     "crates/cobolt-codegen",
     "crates/cobolt-compiler",   # Phase 11 — embed+bundle binary compiler
     "crates/cobolt-form-host",  # spec 042 — the ONE form host (run-form + built apps)
+    "crates/cobolt-os-blur",    # spec 083 — desktop blur behind see-through windows (macOS, Windows)
     # "crates/cobolt-plugin-api",
     # "crates/cobolt-plugin-loader",
     "crates/cobolt-dap",       # wire-compatible Debug Adapter Protocol (client + adapter)

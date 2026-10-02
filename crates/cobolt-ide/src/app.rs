@@ -14431,7 +14431,7 @@ pub(crate) fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
 fn apply_opaque_viewport_theme(ctx: &Context, theme: &crate::theme::Theme) {
     apply_glass_visuals(ctx, theme);
     // A see-through theme (Spatial) wants these windows see-through too:
-    // they are created transparent under it and blurred by `os_blur`, so the
+    // they are created transparent under it and blurred by `cobolt_os_blur`, so the
     // glass stays glass instead of being composited over white.
     if crate::aurora::palette_for(theme.id).is_some_and(|p| p.see_through.is_some()) {
         return;
@@ -14769,13 +14769,13 @@ impl eframe::App for CoboltApp {
             }
             // Every other IDE window (designer, grid, debugger, inspector)
             // too: eframe gives the app no handle on them, so ask the OS.
-            crate::os_blur::set_all_windows(want_blur);
+            cobolt_os_blur::set_all_windows(want_blur);
             self.blur_synced_at = Some(std::time::Instant::now());
         } else if want_blur
             && self.blur_synced_at.is_none_or(|t| t.elapsed() >= std::time::Duration::from_secs(1))
         {
             // A window opened since the last sync starts unblurred.
-            crate::os_blur::set_all_windows(true);
+            cobolt_os_blur::set_all_windows(true);
             self.blur_synced_at = Some(std::time::Instant::now());
         }
         // The whole IDE is laid out with Context-level panels (top bar, side

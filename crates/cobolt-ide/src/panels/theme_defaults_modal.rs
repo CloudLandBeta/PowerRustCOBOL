@@ -63,7 +63,7 @@ enum Editor {
     Choice(&'static [&'static str]),
 }
 
-const BORDER_STYLES: &[&str] = &["None", "Single", "Fixed3D", "Raised", "Sunken"];
+const BORDER_STYLES: &[&str] = &["None", "Single", "Fixed3D", "Raised", "Sunken", "Glow"];
 const DIRECTIONS: &[&str] = &[
     "North", "NorthEast", "East", "SouthEast", "South", "SouthWest", "West", "NorthWest",
 ];

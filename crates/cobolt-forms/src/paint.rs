@@ -509,6 +509,112 @@ fn button_content_layout(
     (text_pos, Some(image_rect))
 }
 
+/// The four `BorderStyle = Glow` corner colours, top-left, top-right,
+/// bottom-right, bottom-left (spec 083 R5).
+pub const GLOW_PROPS: [&str; 4] = [
+    "BorderGlowTopLeft",
+    "BorderGlowTopRight",
+    "BorderGlowBottomRight",
+    "BorderGlowBottomLeft",
+];
+
+/// Their values when unset: a white specular glow, brightest where light
+/// from above catches the top corners (spec 083 R6).
+pub const GLOW_DEFAULTS: [&str; 4] = ["#FFFFFFE6", "#FFFFFFB3", "#FFFFFF33", "#FFFFFF4D"];
+
+/// A control's four glow colours: its own properties, each falling back to
+/// [`GLOW_DEFAULTS`] when unset or unreadable.
+pub fn glow_colors_of(ctrl: &Control) -> [Color32; 4] {
+    std::array::from_fn(|i| {
+        ctrl.get_prop(GLOW_PROPS[i])
+            .and_then(|v| parse_hex(v.as_str()))
+            .or_else(|| parse_hex(GLOW_DEFAULTS[i]))
+            .unwrap_or(Color32::WHITE)
+    })
+}
+
+thread_local! {
+    /// The glow colours of the control being painted: published by
+    /// `draw_control_body` before it paints, read by `draw_control_border`.
+    /// The border painter has thirteen callers that know only the style,
+    /// width and colour; this carries the one control-level fact the Glow
+    /// style needs to them all, without changing what they pass.
+    static GLOW: std::cell::Cell<Option<[Color32; 4]>> = const { std::cell::Cell::new(None) };
+}
+
+/// Publish `ctrl`'s glow colours for the border painter.
+pub(crate) fn publish_glow_colors(ctrl: &Control) {
+    GLOW.with(|g| g.set(Some(glow_colors_of(ctrl))));
+}
+
+/// The glow colours in force: the control being painted, else the defaults.
+fn current_glow_colors() -> [Color32; 4] {
+    GLOW.with(|g| g.get()).unwrap_or_else(|| {
+        std::array::from_fn(|i| parse_hex(GLOW_DEFAULTS[i]).unwrap_or(Color32::WHITE))
+    })
+}
+
+/// `BorderStyle = Glow`: a discreet edge in `color` (at 40 %) whose four
+/// corners glow in `corners` (top-left, top-right, bottom-right,
+/// bottom-left), each fading out along the edges. It follows the control's
+/// own outline, inside `rect`, like every other style.
+pub fn draw_glow_border(
+    painter: &egui::Painter,
+    rect: Rect,
+    rounding: egui::CornerRadius,
+    width: f32,
+    color: Color32,
+    corners: [Color32; 4],
+) {
+    let bw = width.clamp(0.0, 20.0);
+    if bw <= 0.0 {
+        return;
+    }
+    let path_rect = rect.shrink(bw * 0.5);
+    let cap = 0.5 * path_rect.width().min(path_rect.height()).max(0.0);
+    let r = |stored: u8| (f32::from(stored) - bw * 0.5).clamp(0.0, cap);
+    let mut outline = Vec::new();
+    egui::epaint::tessellator::path::rounded_rectangle(
+        &mut outline,
+        path_rect,
+        egui::epaint::CornerRadiusF32 {
+            nw: r(rounding.nw),
+            ne: r(rounding.ne),
+            sw: r(rounding.sw),
+            se: r(rounding.se),
+        },
+    );
+    if outline.len() < 2 {
+        return;
+    }
+    let edge = color.gamma_multiply(0.4);
+    let points = [rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom()];
+    // How far a corner's glow reaches along the edges: 46 px on a large
+    // control, less on a small one so the four glows never merge into one.
+    let max_r = f32::from(rounding.nw.max(rounding.ne).max(rounding.sw).max(rounding.se));
+    let reach = (0.45 * rect.width().min(rect.height())).min(46.0) + max_r;
+    let n = outline.len();
+    for i in 0..n {
+        let (a, b) = (outline[i], outline[(i + 1) % n]);
+        let steps = ((a.distance(b) / 3.0).ceil() as usize).max(1);
+        for k in 0..steps {
+            let p0 = a.lerp(b, k as f32 / steps as f32);
+            let p1 = a.lerp(b, (k + 1) as f32 / steps as f32);
+            let mid = p0.lerp(p1, 0.5);
+            let mut ink = edge;
+            let mut best = 0.0_f32;
+            for (c, corner) in points.iter().zip(corners) {
+                let w = (1.0 - mid.distance(*c) / reach).max(0.0);
+                if w > best {
+                    best = w;
+                    ink = edge.lerp_to_gamma(corner, w);
+                }
+            }
+            painter.line_segment([p0, p1], Stroke::new(bw, ink));
+        }
+    }
+}
+
 /// Shared so the TreeView's tick box gets the same rim vocabulary — Single,
 /// Double, Dashed, None — as every control frame, rather than a private stroke
 /// that only ever knew one style.
@@ -525,6 +631,10 @@ pub(crate) fn draw_control_border(
         return;
     }
     let style_l = style.trim().to_ascii_lowercase();
+    if style_l == "glow" {
+        draw_glow_border(painter, rect, rounding, bw, color, current_glow_colors());
+        return;
+    }
     if style_l == "single" {
         // StrokeKind::Inside keeps the whole stroke within `rect` at the exact
         // integer face radius — no fractional concentric radius (inexpressible
@@ -2546,6 +2656,7 @@ fn draw_control_body(
 ) {
     use crate::ControlType as CT;
 
+    publish_glow_colors(ctrl);
     let r = ctrl.rect;
     // Compute the base rect, then apply scale around the control center.
     let base_rect = egui::Rect::from_min_size(
@@ -26292,6 +26403,87 @@ mod border_3d_tests {
     /// This walks the paths a property can reach and asserts each style is
     /// distinguishable, so the next branch to grow its own border cannot
     /// quietly flatten them again.
+    /// `BorderStyle = Glow` (spec 083 R5): the four corners carry their own
+    /// colours and the middle of each edge the discreet `BorderColor`, on
+    /// every face path — Liquid Glass, Elegance and Spatial, with and without
+    /// a background gradient.
+    #[test]
+    fn a_glow_border_paints_its_corners_on_every_face_path() {
+        let corners = ["#FF0000", "#00FF00", "#0000FF", "#FFFF00"];
+        let themes: [Option<std::sync::Arc<dyn crate::surface_theme::SurfaceTheme>>; 3] = [
+            None,
+            Some(crate::surface_theme::for_theme_id(crate::theme::ELEGANCE)),
+            Some(crate::surface_theme::for_theme_id(crate::theme::SPATIAL)),
+        ];
+        for theme in themes {
+            for gradient in [false, true] {
+                let mut c = Control::new("C", ControlType::Button, 0, 0);
+                c.rect = crate::model::Rect::new(0, 0, 200, 120);
+                c.set_prop("BorderStyle", "Glow");
+                c.set_prop("BorderWidth", crate::PropValue::Int(3));
+                c.set_prop("BorderColor", "#808080");
+                c.set_prop("CornerRadius", crate::PropValue::Int(12));
+                for (p, v) in GLOW_PROPS.iter().zip(corners) {
+                    c.set_prop(*p, v);
+                }
+                if gradient {
+                    c.set_prop("BackgroundGradientEnabled", crate::PropValue::Bool(true));
+                    c.set_prop("BackgroundGradientStartColor", "#FFFFFF");
+                    c.set_prop("BackgroundGradientEndColor", "#202020");
+                }
+                let ctx = egui::Context::default();
+                if let Some(t) = theme.clone() {
+                    set_surface_theme(&ctx, t);
+                }
+                let mut full = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0))),
+                        ..Default::default()
+                    },
+                    |ui| draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None),
+                );
+                full.textures_delta.clear();
+                // The glow is drawn as 3 px segments; collect (midpoint, colour).
+                let mut segs: Vec<(Pos2, Color32)> = Vec::new();
+                fn walk(s: &egui::Shape, out: &mut Vec<(Pos2, Color32)>) {
+                    match s {
+                        egui::Shape::LineSegment { points, stroke } if (stroke.width - 3.0).abs() < 0.01 => {
+                            out.push((points[0].lerp(points[1], 0.5), stroke.color));
+                        }
+                        egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                        _ => {}
+                    }
+                }
+                for cs in &full.shapes {
+                    walk(&cs.shape, &mut segs);
+                }
+                let label = format!("theme {:?}, gradient {gradient}", theme.as_ref().map(|t| t.id().to_owned()));
+                assert!(segs.len() > 40, "{label}: glow segments painted ({})", segs.len());
+                let nearest = |p: Pos2| segs.iter().min_by(|a, b| a.0.distance(p).total_cmp(&b.0.distance(p))).unwrap().1;
+                let rect = egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 120.0));
+                let probes = [
+                    rect.left_top() + Vec2::new(14.0, 1.5),
+                    rect.right_top() + Vec2::new(-14.0, 1.5),
+                    rect.right_bottom() + Vec2::new(-14.0, -1.5),
+                    rect.left_bottom() + Vec2::new(14.0, -1.5),
+                ];
+                for (k, p) in probes.iter().enumerate() {
+                    let want = parse_hex(corners[k]).unwrap();
+                    let got = nearest(*p);
+                    let dominant = |c: Color32| [c.r(), c.g(), c.b()];
+                    let (g, w) = (dominant(got), dominant(want));
+                    let leans = (0..3).all(|ch| (w[ch] > 128) == (g[ch] > 100) || w[ch] == g[ch]);
+                    assert!(leans, "{label}: corner {k} is {got:?}, wanted towards {want:?}");
+                }
+                let mid = nearest(Pos2::new(100.0, 1.5));
+                assert!(
+                    (mid.r() as i32 - mid.g() as i32).abs() < 12 && (mid.g() as i32 - mid.b() as i32).abs() < 12,
+                    "{label}: mid-edge stays the grey edge, got {mid:?}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn every_border_style_survives_every_face_path() {
         use crate::model::GlassStyle as GS;

@@ -1868,7 +1868,9 @@ impl eframe::App for ShellApp {
     }
 
     fn ui(&mut self, root_ui: &mut Ui, frame: &mut eframe::Frame) {
-        let _ = frame;
+        // The shell's window is always created transparent (R43); a
+        // see-through form theme also blurs what is behind it (spec 083).
+        crate::host::sync_os_blur(frame, self.host.root_surface_theme().see_through());
         if self.start_minimized {
             self.start_minimized = false;
             root_ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));

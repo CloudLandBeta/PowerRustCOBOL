@@ -6500,8 +6500,9 @@ impl PropertiesPanel {
                     "BorderStyle",
                     ctrl,
                     action,
-                    &["None", "Single", "Fixed3D"],
+                    &["None", "Single", "Fixed3D", "Glow"],
                 );
+                glow_color_rows(ui, id, ctrl, action);
                 ui.add_space(4.0);
             }
 
@@ -8833,8 +8834,9 @@ impl PropertiesPanel {
                     "BorderStyle",
                     ctrl,
                     action,
-                    &["None", "Single", "Fixed3D"],
+                    &["None", "Single", "Fixed3D", "Glow"],
                 );
+                glow_color_rows(ui, id, ctrl, action);
                 color_row(ui, id, "BorderColor", ctrl, action);
                 int_prop_row(ui, id, "BorderWidth", "Border width", ctrl, action, 0..=40, None, 1);
                 int_prop_row(
@@ -12205,6 +12207,24 @@ fn color_prop_row_inner(
     });
 }
 
+/// Under `BorderStyle = Glow`, its four corner colours (spec 083): ordinary
+/// colour rows, named after their properties like every other colour row,
+/// shown only while the style is Glow so the inspector stays short.
+fn glow_color_rows(ui: &mut Ui, ctrl_id: &str, ctrl: &Control, action: &mut InspectorAction) {
+    let glowing = ctrl
+        .get_prop("BorderStyle")
+        .is_some_and(|v| v.as_str().trim().eq_ignore_ascii_case("glow"));
+    if !glowing {
+        return;
+    }
+    for (prop, default) in cobolt_forms::paint::GLOW_PROPS
+        .iter()
+        .zip(cobolt_forms::paint::GLOW_DEFAULTS)
+    {
+        color_prop_row_default(ui, ctrl_id, prop, prop, ctrl, action, default);
+    }
+}
+
 fn section_header(ui: &mut Ui, title: &str) {
     // The section before this one ends here: its rows go to their A–Z places.
     sort_end(ui);
@@ -13374,8 +13394,9 @@ fn border_rows(
             "BorderStyle",
             ctrl,
             action,
-            &["None", "Single", "Fixed3D", "Raised", "Sunken"],
+            &["None", "Single", "Fixed3D", "Raised", "Sunken", "Glow"],
         );
+        glow_color_rows(ui, ctrl_id, ctrl, action);
     }
     if ctrl.get_prop("BorderWidth").is_some() {
         int_row_inline(

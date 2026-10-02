@@ -1520,6 +1520,7 @@ dependencies = [
  "cobolt-forms",
  "cobolt-lexer",
  "cobolt-media",
+ "cobolt-os-blur",
  "cobolt-parser",
  "cobolt-runtime",
  "eframe",
@@ -1583,6 +1584,7 @@ dependencies = [
  "cobolt-lexer",
  "cobolt-mcp",
  "cobolt-media",
+ "cobolt-os-blur",
  "cobolt-parser",
  "cobolt-project-tools",
  "cobolt-runtime",
@@ -1683,6 +1685,10 @@ dependencies = [
  "egui",
  "image 0.25.10",
 ]
+
+[[package]]
+name = "cobolt-os-blur"
+version = "0.2.0"
 
 [[package]]
 name = "cobolt-parser"

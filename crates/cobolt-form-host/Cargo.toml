@@ -31,6 +31,7 @@ office = ["cobolt-runtime/office"]
 [dependencies]
 cobolt-ast     = { path = "../cobolt-ast" }
 cobolt-forms   = { path = "../cobolt-forms", features = ["render"] }
+cobolt-os-blur = { path = "../cobolt-os-blur" }
 cobolt-runtime = { path = "../cobolt-runtime", default-features = false }
 cobolt-media   = { path = "../cobolt-media" }
 
