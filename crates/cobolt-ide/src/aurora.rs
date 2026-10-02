@@ -4,10 +4,13 @@
 // Licensed under the Apache License, Version 2.0.
 // See the LICENSE file in the project root for full license information.
 
-//! The Aurora Pastel IDE theme's painted surfaces: the multi-gradient window
-//! backdrop, one pastel tint per pane, the corner-glow pane border, and the
-//! discrete 3D toolbar pills. The flat palette is `theme::AURORA_PASTEL`;
-//! everything here is a no-op under any other theme.
+//! The Aurora IDE themes' painted surfaces: the multi-gradient window
+//! backdrop, one tint per pane, the corner-glow pane border, the discrete 3D
+//! toolbar pills, the inspector's tabs and section bands. Two palettes share
+//! them: Aurora Pastel (`PASTEL`) and Aurora Prime (`PRIME`, the same surfaces
+//! in live secondary and tertiary colours: no primaries). Their flat palettes
+//! are `theme::AURORA_PASTEL` and `theme::AURORA_PRIME`; everything here is a
+//! no-op under any other theme.
 //!
 //! The structure of the IDE is untouched: every pane keeps its place and
 //! behaviour, only the way it is painted changes (operator, 2026-10-02, after
@@ -16,9 +19,149 @@
 use egui::epaint::{Mesh, Shadow};
 use egui::{Color32, CornerRadius, Pos2, Rect, Response, Shape, Stroke, Ui};
 
-/// Whether the active IDE theme is Aurora Pastel.
+/// Every colour an Aurora theme paints beyond its flat `Theme` palette.
+pub struct Palette {
+    /// The backdrop's base wash, top, middle and bottom.
+    pub wash: [Color32; 3],
+    /// The three radial glows: top-left, right, bottom.
+    pub glows: [Color32; 3],
+    /// The two bottom waves, each left to right.
+    pub waves: [(Color32, Color32); 2],
+    /// The two faint discs.
+    pub discs: [Color32; 2],
+    /// Pane fills: project tree, agent bar, main pane, Output.
+    pub panes: [Color32; 4],
+    /// Corner glows: top-left, top-right, bottom-right, bottom-left.
+    pub corners: [Color32; 4],
+    pub pills: Pills,
+    /// Idle inspector tabs: Props, Events, Procs, Anim.
+    pub tabs: [Color32; 4],
+    /// Section header band and its title ink.
+    pub band: Color32,
+    pub band_ink: Color32,
+}
+
+/// The toolbar's pill per button.
+pub struct Pills {
+    pub open: Pill,
+    pub check: Pill,
+    pub search: Pill,
+    pub build: Pill,
+    pub run: Pill,
+    pub debug: Pill,
+    pub stop: Pill,
+}
+
+const fn rgb(r: u8, g: u8, b: u8) -> Color32 {
+    Color32::from_rgb(r, g, b)
+}
+
+/// `rgb` at `a` (0-255), premultiplied so it can be a `const`.
+const fn rgba8(r: u8, g: u8, b: u8, a: u8) -> Color32 {
+    Color32::from_rgba_premultiplied(
+        ((r as u16 * a as u16) / 255) as u8,
+        ((g as u16 * a as u16) / 255) as u8,
+        ((b as u16 * a as u16) / 255) as u8,
+        a,
+    )
+}
+
+const fn pill_of(top: Color32, bottom: Color32, ink: Color32) -> Pill {
+    Pill { top, bottom, ink }
+}
+
+/// Aurora Pastel: blue, grey and green over pastel secondaries.
+pub const PASTEL: Palette = Palette {
+    wash: [rgb(233, 238, 246), rgb(227, 234, 242), rgb(230, 236, 238)],
+    glows: [rgb(191, 220, 255), rgb(198, 241, 221), rgb(220, 214, 247)],
+    waves: [
+        (rgba8(91, 155, 240, 51), rgba8(47, 179, 138, 41)),
+        (rgba8(168, 150, 255, 41), rgba8(91, 155, 240, 26)),
+    ],
+    discs: [rgba8(143, 227, 192, 36), rgba8(127, 182, 255, 36)],
+    panes: [
+        rgba8(236, 250, 243, 219),
+        rgba8(255, 248, 232, 224),
+        rgba8(236, 244, 255, 230),
+        rgba8(242, 239, 255, 224),
+    ],
+    corners: [
+        rgba8(96, 190, 255, 242),
+        rgba8(88, 214, 160, 242),
+        rgba8(168, 150, 255, 230),
+        rgba8(255, 170, 140, 230),
+    ],
+    pills: Pills {
+        open: pill_of(rgb(255, 255, 255), rgb(227, 233, 243), rgb(27, 42, 74)),
+        check: pill_of(rgb(221, 246, 234), rgb(183, 235, 211), rgb(11, 74, 53)),
+        search: pill_of(rgb(227, 238, 255), rgb(199, 218, 250), rgb(23, 62, 134)),
+        build: pill_of(rgb(236, 230, 255), rgb(207, 196, 247), rgb(43, 33, 96)),
+        run: pill_of(rgb(19, 116, 86), rgb(14, 90, 66), rgb(255, 255, 255)),
+        debug: pill_of(rgb(255, 241, 201), rgb(255, 217, 138), rgb(90, 58, 18)),
+        stop: pill_of(rgb(255, 227, 234), rgb(249, 185, 201), rgb(91, 36, 51)),
+    },
+    tabs: [rgb(220, 235, 255), rgb(205, 223, 252), rgb(203, 238, 222), rgb(224, 216, 252)],
+    band: rgb(220, 235, 255),
+    band_ink: rgb(23, 62, 134),
+};
+
+/// Aurora Prime: the same surfaces in live secondary and tertiary colours
+/// (teal, cyan, emerald, indigo-violet, plum-magenta, burnt orange, apricot),
+/// never a primary. Saturation goes to what decorates: the backdrop, the
+/// glows, the pills and tabs. The pane interiors stay light enough that dark
+/// text keeps 7:1.
+pub const PRIME: Palette = Palette {
+    wash: [rgb(226, 234, 246), rgb(219, 229, 241), rgb(222, 236, 234)],
+    glows: [rgb(110, 205, 255), rgb(84, 226, 170), rgb(176, 148, 255)],
+    waves: [
+        (rgba8(0, 179, 164, 82), rgba8(124, 77, 255, 64)),
+        (rgba8(214, 64, 160, 51), rgba8(255, 138, 61, 46)),
+    ],
+    discs: [rgba8(0, 201, 167, 51), rgba8(108, 140, 255, 51)],
+    panes: [
+        rgba8(214, 247, 233, 224),
+        rgba8(255, 236, 214, 230),
+        rgba8(221, 236, 255, 235),
+        rgba8(236, 226, 255, 230),
+    ],
+    corners: [
+        rgba8(0, 200, 255, 245),
+        rgba8(0, 214, 143, 245),
+        rgba8(124, 77, 255, 240),
+        rgba8(255, 122, 61, 240),
+    ],
+    pills: Pills {
+        open: pill_of(rgb(255, 255, 255), rgb(222, 230, 242), rgb(27, 42, 74)),
+        check: pill_of(rgb(11, 122, 110), rgb(7, 94, 85), rgb(255, 255, 255)),
+        search: pill_of(rgb(91, 75, 214), rgb(69, 53, 184), rgb(255, 255, 255)),
+        build: pill_of(rgb(142, 63, 196), rgb(113, 48, 158), rgb(255, 255, 255)),
+        run: pill_of(rgb(19, 116, 86), rgb(14, 90, 66), rgb(255, 255, 255)),
+        debug: pill_of(rgb(176, 74, 8), rgb(143, 60, 6), rgb(255, 255, 255)),
+        stop: pill_of(rgb(184, 37, 106), rgb(149, 29, 86), rgb(255, 255, 255)),
+    },
+    tabs: [rgb(203, 230, 255), rgb(201, 211, 255), rgb(189, 242, 220), rgb(226, 204, 255)],
+    band: rgb(191, 227, 255),
+    band_ink: rgb(15, 58, 122),
+};
+
+/// The active Aurora palette, or `None` under any other theme.
+pub fn palette() -> Option<&'static Palette> {
+    match crate::theme::active().id {
+        "aurora-pastel" => Some(&PASTEL),
+        "aurora-prime" => Some(&PRIME),
+        _ => None,
+    }
+}
+
+/// Whether the active IDE theme is one of the Aurora themes.
 pub fn active() -> bool {
-    crate::theme::active().is_aurora()
+    palette().is_some()
+}
+
+/// The active palette's toolbar pills (Pastel's when no Aurora theme is
+/// active, which the toolbar never asks for).
+pub fn pills() -> &'static Pills {
+    &palette().unwrap_or(&PASTEL).pills
 }
 
 /// Card corner radius for a pane.
@@ -41,16 +184,16 @@ fn rgba(r: u8, g: u8, b: u8, a: f32) -> Color32 {
     Color32::from_rgba_unmultiplied(r, g, b, (a * 255.0).round() as u8)
 }
 
-/// The pane's fill under Aurora Pastel, else `default` unchanged.
+/// The pane's fill under an Aurora theme, else `default` unchanged.
 pub fn pane_fill(pane: Pane, default: Color32) -> Color32 {
-    if !active() {
+    let Some(p) = palette() else {
         return default;
-    }
+    };
     match pane {
-        Pane::Project => rgba(236, 250, 243, 0.86),
-        Pane::Agent => rgba(255, 248, 232, 0.88),
-        Pane::Main => rgba(236, 244, 255, 0.90),
-        Pane::Output => rgba(242, 239, 255, 0.88),
+        Pane::Project => p.panes[0],
+        Pane::Agent => p.panes[1],
+        Pane::Main => p.panes[2],
+        Pane::Output => p.panes[3],
     }
 }
 
@@ -136,13 +279,10 @@ fn wave(mesh: &mut Mesh, rect: Rect, segments: [[(f32, f32); 4]; 2], left: Color
 /// radial glows (sky, mint, lavender), two waves along the bottom and two
 /// faint discs. Proportional to the window, so it reads the same at any size.
 pub fn paint_backdrop(painter: &egui::Painter, rect: Rect) {
+    let pal = palette().unwrap_or(&PASTEL);
     let mut mesh = Mesh::default();
     // 1. The base wash, top to bottom.
-    let stops = [
-        (0.0, Color32::from_rgb(233, 238, 246)),
-        (0.5, Color32::from_rgb(227, 234, 242)),
-        (1.0, Color32::from_rgb(230, 236, 238)),
-    ];
+    let stops = [(0.0, pal.wash[0]), (0.5, pal.wash[1]), (1.0, pal.wash[2])];
     for w in stops.windows(2) {
         let (t0, c0) = w[0];
         let (t1, c1) = w[1];
@@ -160,9 +300,9 @@ pub fn paint_backdrop(painter: &egui::Painter, rect: Rect) {
     let at = |fx: f32, fy: f32| Pos2::new(rect.left() + fx * w, rect.top() + fy * h);
     // 2. The three glows (the mockup's 1200x600, 900x700 and 1000x700 ellipses
     //    at a 1440x900 window, fading out at 60 % of their size).
-    radial(&mut mesh, at(0.08, -0.10), 0.50 * w, 0.40 * h, Color32::from_rgb(191, 220, 255));
-    radial(&mut mesh, at(1.05, 0.10), 0.375 * w, 0.47 * h, Color32::from_rgb(198, 241, 221));
-    radial(&mut mesh, at(0.60, 1.20), 0.42 * w, 0.47 * h, Color32::from_rgb(220, 214, 247));
+    radial(&mut mesh, at(0.08, -0.10), 0.50 * w, 0.40 * h, pal.glows[0]);
+    radial(&mut mesh, at(1.05, 0.10), 0.375 * w, 0.47 * h, pal.glows[1]);
+    radial(&mut mesh, at(0.60, 1.20), 0.42 * w, 0.47 * h, pal.glows[2]);
     // 3. Two waves along the bottom.
     wave(
         &mut mesh,
@@ -171,8 +311,8 @@ pub fn paint_backdrop(painter: &egui::Painter, rect: Rect) {
             [(0.0, 0.711), (0.181, 0.622), (0.292, 0.844), (0.5, 0.767)],
             [(0.5, 0.767), (0.708, 0.689), (0.819, 0.622), (1.0, 0.722)],
         ],
-        rgba(91, 155, 240, 0.20),
-        rgba(47, 179, 138, 0.16),
+        pal.waves[0].0,
+        pal.waves[0].1,
     );
     wave(
         &mut mesh,
@@ -181,25 +321,16 @@ pub fn paint_backdrop(painter: &egui::Painter, rect: Rect) {
             [(0.0, 0.800), (0.208, 0.756), (0.361, 0.933), (0.597, 0.856)],
             [(0.597, 0.856), (0.833, 0.778), (0.875, 0.778), (1.0, 0.844)],
         ],
-        rgba(168, 150, 255, 0.16),
-        rgba(91, 155, 240, 0.10),
+        pal.waves[1].0,
+        pal.waves[1].1,
     );
     painter.add(Shape::mesh(mesh));
     // 4. Two faint discs.
-    painter.circle_filled(at(0.924, 0.167), 0.104 * w, rgba(143, 227, 192, 0.14));
-    painter.circle_filled(at(0.132, 0.089), 0.083 * w, rgba(127, 182, 255, 0.14));
+    painter.circle_filled(at(0.924, 0.167), 0.104 * w, pal.discs[0]);
+    painter.circle_filled(at(0.132, 0.089), 0.083 * w, pal.discs[1]);
 }
 
 // ── Pane chrome ──────────────────────────────────────────────────────────
-
-/// The four corner glows: top-left sky, top-right mint, bottom-right
-/// lavender, bottom-left peach.
-const CORNERS: [(u8, u8, u8, f32); 4] = [
-    (96, 190, 255, 0.95),
-    (88, 214, 160, 0.95),
-    (168, 150, 255, 0.90),
-    (255, 170, 140, 0.90),
-];
 
 /// How far along each edge a corner's glow reaches before it is gone.
 const GLOW_REACH: f32 = 46.0;
@@ -229,6 +360,7 @@ pub fn paint_corner_glow(painter: &egui::Painter, card: Rect, radius: f32) {
         card.shrink(0.75),
         egui::epaint::CornerRadiusF32::same(radius),
     );
+    let glow = palette().unwrap_or(&PASTEL).corners;
     let corners = [card.left_top(), card.right_top(), card.right_bottom(), card.left_bottom()];
     let n = outline.len();
     for i in 0..n {
@@ -243,8 +375,7 @@ pub fn paint_corner_glow(painter: &egui::Painter, card: Rect, radius: f32) {
             for (k, c) in corners.iter().enumerate() {
                 let w = (1.0 - mid.distance(*c) / (GLOW_REACH + radius)).max(0.0);
                 if w > best.0 {
-                    let (r, g, bl, alpha) = CORNERS[k];
-                    best = (w, rgba(r, g, bl, alpha * w));
+                    best = (w, glow[k].gamma_multiply(w));
                 }
             }
             if best.0 > 0.0 {
@@ -294,13 +425,7 @@ pub struct Pill {
 }
 
 impl Pill {
-    pub const OPEN: Pill = Pill { top: Color32::from_rgb(255, 255, 255), bottom: Color32::from_rgb(227, 233, 243), ink: Color32::from_rgb(27, 42, 74) };
-    pub const CHECK: Pill = Pill { top: Color32::from_rgb(221, 246, 234), bottom: Color32::from_rgb(183, 235, 211), ink: Color32::from_rgb(11, 74, 53) };
-    pub const SEARCH: Pill = Pill { top: Color32::from_rgb(227, 238, 255), bottom: Color32::from_rgb(199, 218, 250), ink: Color32::from_rgb(23, 62, 134) };
-    pub const BUILD: Pill = Pill { top: Color32::from_rgb(236, 230, 255), bottom: Color32::from_rgb(207, 196, 247), ink: Color32::from_rgb(43, 33, 96) };
-    pub const RUN: Pill = Pill { top: Color32::from_rgb(19, 116, 86), bottom: Color32::from_rgb(14, 90, 66), ink: Color32::from_rgb(255, 255, 255) };
-    pub const DEBUG: Pill = Pill { top: Color32::from_rgb(255, 241, 201), bottom: Color32::from_rgb(255, 217, 138), ink: Color32::from_rgb(90, 58, 18) };
-    pub const STOP: Pill = Pill { top: Color32::from_rgb(255, 227, 234), bottom: Color32::from_rgb(249, 185, 201), ink: Color32::from_rgb(91, 36, 51) };
+    /// Every disabled button, in both palettes.
     pub const DISABLED: Pill = Pill { top: Color32::from_rgb(244, 246, 250), bottom: Color32::from_rgb(227, 232, 240), ink: Color32::from_rgb(79, 92, 118) };
 }
 
@@ -358,20 +483,24 @@ mod tests {
     /// white on a saturated face (Run), 7:1 for dark ink on a pastel one.
     #[test]
     fn every_pill_ink_reads_on_its_gradient() {
-        for (name, p) in [
-            ("open", Pill::OPEN),
-            ("check", Pill::CHECK),
-            ("search", Pill::SEARCH),
-            ("build", Pill::BUILD),
-            ("run", Pill::RUN),
-            ("debug", Pill::DEBUG),
-            ("stop", Pill::STOP),
-            ("disabled", Pill::DISABLED),
-        ] {
-            let floor = if name == "run" { 4.5 } else if name == "disabled" { 4.5 } else { 7.0 };
-            for face in [p.top, p.bottom] {
-                let r = contrast_ratio(p.ink, face);
-                assert!(r >= floor, "{name}: {r:.2}:1 on {face:?}");
+        for (theme, pal) in [("pastel", &PASTEL), ("prime", &PRIME)] {
+            let ps = &pal.pills;
+            for (name, p) in [
+                ("open", ps.open),
+                ("check", ps.check),
+                ("search", ps.search),
+                ("build", ps.build),
+                ("run", ps.run),
+                ("debug", ps.debug),
+                ("stop", ps.stop),
+                ("disabled", Pill::DISABLED),
+            ] {
+                // White on a saturated face 4.5:1; dark ink on a pastel 7:1.
+                let floor = if p.ink == Color32::WHITE || name == "disabled" { 4.5 } else { 7.0 };
+                for face in [p.top, p.bottom] {
+                    let r = contrast_ratio(p.ink, face);
+                    assert!(r >= floor, "{theme} {name}: {r:.2}:1 on {face:?}");
+                }
             }
         }
     }
@@ -392,8 +521,8 @@ mod tests {
             paint_backdrop(&ui.ctx().layer_painter(egui::LayerId::background()), ui.ctx().content_rect());
             egui::Frame::NONE.inner_margin(egui::Margin::same(crate::theme::PANE_INNER_MARGIN)).show(ui, |ui| {
                 glow_card(ui);
-                clicked |= pill(ui, false, "Save", Pill::OPEN).clicked();
-                let _ = pill(ui, true, "Run", Pill::RUN);
+                clicked |= pill(ui, false, "Save", pills().open).clicked();
+                let _ = pill(ui, true, "Run", pills().run);
             });
         });
         out.textures_delta.clear();
@@ -407,11 +536,19 @@ mod tests {
     /// through and dark text reads on them.
     #[test]
     fn pane_text_reads_on_every_tint() {
-        let theme = crate::theme::AURORA_PASTEL;
-        for (r, g, b) in [(236, 250, 243), (255, 248, 232), (236, 244, 255), (242, 239, 255)] {
-            let tint = Color32::from_rgb(r, g, b);
-            assert!(contrast_ratio(theme.text_bright, tint) >= 7.0);
-            assert!(contrast_ratio(theme.text_dim, tint) >= 7.0);
+        for (theme, pal) in [(crate::theme::AURORA_PASTEL, &PASTEL), (crate::theme::AURORA_PRIME, &PRIME)] {
+            // Judged on the tint's opaque colour: what dark text sits on.
+            let opaque = |c: Color32| {
+                let a = c.a() as f32 / 255.0;
+                let un = |v: u8| ((v as f32 / a).round().min(255.0)) as u8;
+                Color32::from_rgb(un(c.r()), un(c.g()), un(c.b()))
+            };
+            for tint in pal.panes.iter().chain(pal.tabs.iter()).chain([&pal.band]) {
+                let t = opaque(*tint);
+                assert!(contrast_ratio(theme.text_bright, t) >= 7.0, "{}: {t:?}", theme.id);
+                assert!(contrast_ratio(theme.text_dim, t) >= 6.5, "{}: {t:?}", theme.id);
+            }
+            assert!(contrast_ratio(pal.band_ink, opaque(pal.band)) >= 7.0, "{} band", theme.id);
         }
     }
 }

@@ -83,10 +83,10 @@ impl Theme {
         }
     }
 
-    /// Whether this is Aurora Pastel, whose surfaces are painted by
-    /// `crate::aurora` (backdrop, pane tints, corner glows, toolbar pills).
+    /// Whether this is an Aurora theme (Pastel or Prime), whose surfaces are
+    /// painted by `crate::aurora` (backdrop, pane tints, corner glows, pills).
     pub fn is_aurora(&self) -> bool {
-        self.id == "aurora-pastel"
+        matches!(self.id, "aurora-pastel" | "aurora-prime")
     }
 
     /// Whether this is one of the discrete "soft UI" neumorphic themes
@@ -1264,6 +1264,38 @@ pub const AURORA_PASTEL: Theme = Theme {
     ed_generated: rgb(23, 67, 154),
 };
 
+/// Aurora Prime — Aurora Pastel's surfaces in live secondary and tertiary
+/// colours (teal, emerald, indigo-violet, plum, burnt orange), never a
+/// primary. Its painted palette is `aurora::PRIME`.
+pub const AURORA_PRIME: Theme = Theme {
+    id: "aurora-prime",
+    name: "Aurora Prime",
+    dark: false,
+    bg_panel: rgba(221, 236, 255, 235),
+    bg_control: rgb(244, 247, 252),
+    bg_hover: rgb(255, 255, 255),
+    bg_active: rgb(212, 204, 255),
+    bg_extreme: rgb(255, 255, 255),
+    faint_bg: rgb(219, 229, 241),
+    code_bg: rgb(251, 252, 254),
+    accent: rgb(69, 53, 184),
+    border_dim: rgba(110, 120, 175, 80),
+    border_hi: rgb(69, 53, 184),
+    text_dim: rgb(51, 65, 95),
+    text_bright: rgb(27, 42, 74),
+    selection: rgba(91, 75, 214, 60),
+    hyperlink: rgb(59, 45, 166),
+    warn: rgb(138, 61, 0),
+    error: rgb(180, 35, 24),
+    ed_plain: rgb(27, 42, 74),
+    ed_keyword: rgb(59, 45, 166),
+    ed_data: rgb(10, 110, 99),
+    ed_paragraph: rgb(160, 31, 94),
+    ed_string: rgb(138, 61, 0),
+    ed_comment: rgb(93, 107, 134),
+    ed_generated: rgb(59, 45, 166),
+};
+
 /// Neumorphic Dark — the dark counterpart of Neumorphic Light, built the same
 /// way: a flat neutral canvas (Panel/Control/Code share one fill; depth comes
 /// from `paint_neumorphic_relief`, not a differently-coloured surface), with
@@ -1428,6 +1460,7 @@ pub const THEMES: &[Theme] = &[
     NEUMORPHIC_COBALT,
     SILVER_GLASS,
     AURORA_PASTEL,
+    AURORA_PRIME,
 ];
 
 /// The default theme (preserves the original look).
@@ -1598,8 +1631,8 @@ mod tests {
     fn the_theme_registry_size_is_pinned() {
         assert_eq!(
             THEMES.len(),
-            34,
-            "17 original + 12 light + Classic + Neumorphic Light/Dark/Cobalt + Silver Glass + Aurora Pastel"
+            35,
+            "17 original + 12 light + Classic + Neumorphic Light/Dark/Cobalt + Silver Glass + Aurora Pastel/Prime"
         );
     }
 

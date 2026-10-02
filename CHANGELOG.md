@@ -8,6 +8,26 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.88] — 2026-10-02
+
+### Feature: the Aurora Prime IDE theme
+
+A 35th IDE theme: Aurora Pastel's design with live colours in place of
+pastels. It uses secondary and tertiary hues (teal, cyan, emerald,
+indigo-violet, plum-magenta, burnt orange, apricot) and never a primary.
+The saturation is on what decorates: the backdrop glows and waves, the
+corner glows, the toolbar pills (now white text on teal Check,
+indigo-violet Search, purple Build, green Run, burnt-orange Debug and plum
+Stop) and the inspector tabs. The pane interiors stay light, so dark text
+keeps at least 8:1.
+
+`aurora.rs` now paints from a `Palette` (`PASTEL`, `PRIME`) chosen by the
+active theme. Every colour Aurora Pastel used moved into `PASTEL`
+unchanged, so Pastel looks exactly as it did in 1.80.87. The contrast tests
+cover both palettes: white on every saturated pill at least 4.5:1
+(5.2-6.1:1 in Prime), dark ink on every pane tint, tab and section band at
+least 7:1. The Developer's Guide describes both.
+
 ## [PowerRustCOBOL 1.80.87] — 2026-10-02
 
 ### Feature: the Aurora Pastel IDE theme

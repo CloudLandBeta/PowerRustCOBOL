@@ -4415,16 +4415,11 @@ impl PropertiesPanel {
             let selected = self.active_tab == tab;
             // Aurora Pastel gives each idle tab its own pastel (Props sky,
             // Events blue, Procs mint, Anim lavender) under dark ink.
-            let aurora_tab = [
-                Color32::from_rgb(220, 235, 255),
-                Color32::from_rgb(205, 223, 252),
-                Color32::from_rgb(203, 238, 222),
-                Color32::from_rgb(224, 216, 252),
-            ];
+            let aurora_tabs = crate::aurora::palette().map(|p| p.tabs);
             let (fill, text) = if selected {
                 (sel_fill, sel_text)
-            } else if theme.is_aurora() {
-                let base = aurora_tab[i];
+            } else if let Some(tabs) = aurora_tabs {
+                let base = tabs[i];
                 let fill = if resp.hovered() { base.lerp_to_gamma(Color32::WHITE, 0.35) } else { base };
                 (fill, theme.text_bright)
             } else if resp.hovered() {
@@ -12217,9 +12212,9 @@ fn section_header(ui: &mut Ui, title: &str) {
     let width = ui.available_width().max(1.0);
     let height = ui.text_style_height(&egui::TextStyle::Button) + 10.0;
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
-    if theme.is_aurora() {
-        // A sky band fading out to the right, the title in dark-blue capitals.
-        let band = Color32::from_rgb(220, 235, 255);
+    if let Some(pal) = crate::aurora::palette() {
+        // A band fading out to the right, the title in dark capitals.
+        let band = pal.band;
         let mut mesh = egui::epaint::Mesh::default();
         mesh.colored_vertex(rect.left_top(), band);
         mesh.colored_vertex(rect.right_top(), Color32::TRANSPARENT);
@@ -12233,7 +12228,7 @@ fn section_header(ui: &mut Ui, title: &str) {
             egui::Align2::LEFT_CENTER,
             title.to_uppercase(),
             egui::FontId::proportional(13.0),
-            Color32::from_rgb(23, 62, 134),
+            pal.band_ink,
         );
         sort_begin(ui, title);
         return;

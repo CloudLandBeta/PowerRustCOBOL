@@ -45,7 +45,7 @@ pub fn show(
     // Aurora Pastel draws each button as its own raised gradient pill
     // (`crate::aurora::pill`); every other theme keeps egui's buttons.
     let aurora = crate::aurora::active();
-    use crate::aurora::Pill;
+    let pills = crate::aurora::pills();
 
     Panel::top("toolbar").show(panel_ui, |ui| {
         ui.horizontal(|ui| {
@@ -58,7 +58,7 @@ pub fn show(
 
             // ── Open file ─────────────────────────────────────────────────────
             let open_resp = if aurora {
-                crate::aurora::pill(ui, true, tr.tb_open, Pill::OPEN)
+                crate::aurora::pill(ui, true, tr.tb_open, pills.open)
             } else {
                 ui.button(tr.tb_open)
             };
@@ -73,7 +73,7 @@ pub fn show(
             // shows a greyed Save, so the button itself is the dirty indicator.
             let save_enabled = has_active && has_unsaved;
             let save_resp = if aurora {
-                crate::aurora::pill(ui, save_enabled, tr.tb_save, Pill::OPEN)
+                crate::aurora::pill(ui, save_enabled, tr.tb_save, pills.open)
             } else {
                 ui.add_enabled(save_enabled, Button::new(tr.tb_save))
             };
@@ -89,7 +89,7 @@ pub fn show(
 
             // ── Check (parse/analyse only) ────────────────────────────────────
             let check_resp = if aurora {
-                crate::aurora::pill(ui, has_active, tr.tb_check, Pill::CHECK)
+                crate::aurora::pill(ui, has_active, tr.tb_check, pills.check)
             } else {
                 ui.add_enabled(has_active, Button::new(tr.tb_check))
             };
@@ -100,7 +100,7 @@ pub fn show(
 
             // ── Project-wide code search (spec 053) ───────────────────────────
             let search_resp = if aurora {
-                crate::aurora::pill(ui, has_active, tr.tb_search, Pill::SEARCH)
+                crate::aurora::pill(ui, has_active, tr.tb_search, pills.search)
             } else {
                 ui.add_enabled(has_active, Button::new(tr.tb_search))
             }
@@ -112,7 +112,7 @@ pub fn show(
 
             // ── Build binary ──────────────────────────────────────────────────
             let build_resp = if aurora {
-                crate::aurora::pill(ui, compilable && !building, tr.tb_build, Pill::BUILD)
+                crate::aurora::pill(ui, compilable && !building, tr.tb_build, pills.build)
             } else {
                 ui.add_enabled(compilable && !building, Button::new(tr.tb_build))
             };
@@ -140,7 +140,7 @@ pub fn show(
                 Color32::from_rgb(80, 200, 80)
             }));
             let run_resp = if aurora {
-                crate::aurora::pill(ui, !busy && compilable, tr.tb_run, Pill::RUN)
+                crate::aurora::pill(ui, !busy && compilable, tr.tb_run, pills.run)
             } else {
                 ui.add_enabled(!busy && compilable, run_btn)
             };
@@ -154,7 +154,7 @@ pub fn show(
 
             // ── Debug (right of Run; in a project, enabled once it has been built) ─
             let dbg_resp = if aurora {
-                crate::aurora::pill(ui, !busy && debuggable, tr.tb_debug, Pill::DEBUG)
+                crate::aurora::pill(ui, !busy && debuggable, tr.tb_debug, pills.debug)
             } else {
                 ui.add_enabled(
                 !busy && debuggable,
@@ -180,7 +180,7 @@ pub fn show(
                 Color32::GRAY
             }));
             let stop_resp = if aurora {
-                crate::aurora::pill(ui, busy, tr.tb_stop, Pill::STOP)
+                crate::aurora::pill(ui, busy, tr.tb_stop, pills.stop)
             } else {
                 ui.add_enabled(busy, stop_btn)
             };
