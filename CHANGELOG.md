@@ -8,6 +8,15 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.99] — 2026-10-02
+
+### Fix: the Maps example masks its OpenRouteService key
+
+`TXT-ORS-KEY` in `examples/PowerDemo3/forms/Common/maps-demo.cfrm` never had a
+`PasswordCharacter`, so a key pasted into it showed in plain text.
+`test_maps_demo_form` caught it once it read the repository's own example
+(1.80.5) and had been red since. The field now masks with `*`.
+
 ## [PowerRustCOBOL 1.80.98] — 2026-10-02
 
 ### Fix: Spatial's gaps between the panes are blurred, and never keep stale content

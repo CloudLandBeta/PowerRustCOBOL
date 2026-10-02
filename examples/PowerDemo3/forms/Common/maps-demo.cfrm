@@ -846,5 +846,6 @@
     <Property name="BorderColor">#AAAAAA</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="HintText">Your ORS Key</Property>
+    <Property name="PasswordCharacter">*</Property>
   </Control>
 </Form>
