@@ -198,7 +198,7 @@ pub fn model_list_url(provider: &str, endpoint: &str) -> String {
             .trim_end_matches('/');
         return format!("{root}/api/tags");
     }
-    if matches!(provider, "openai" | "huggingface" | "groq" | "alibaba") {
+    if matches!(provider, "openai" | "huggingface" | "groq" | "alibaba" | "openrouter") {
         for suffix in ["/chat/completions", "/responses"] {
             if let Some(root) = ep.strip_suffix(suffix) {
                 return format!("{}/models", root.trim_end_matches('/'));
@@ -463,6 +463,7 @@ mod tests {
         assert_eq!(model_list_url("ollama", "http://localhost:11434/api"), "http://localhost:11434/api/tags");
         assert_eq!(model_list_url("ollama_cloud", "https://api.ollama.com/api/chat"), "https://ollama.com/api/tags");
         assert_eq!(model_list_url("mistral", "https://api.mistral.ai/v1"), "https://api.mistral.ai/v1");
+        assert_eq!(model_list_url("openrouter", "https://openrouter.ai/api/v1"), "https://openrouter.ai/api/v1/models");
         assert_eq!(
             model_list_headers("anthropic", "k"),
             vec![("x-api-key".to_string(), "k".to_string()), ("anthropic-version".to_string(), ANTHROPIC_API_VERSION.to_string())]

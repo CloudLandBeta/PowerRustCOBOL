@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.96] — 2026-10-02
+
+### Fixed
+- **OpenRouter's model list loads.** The Model Providers Manager asked
+  OpenRouter's API root (`https://openrouter.ai/api/v1`) for the model list,
+  and that URL answers a GET with `404 Not Found`. OpenRouter speaks the OpenAI
+  wire and lists its models at `…/api/v1/models`, so it now joins OpenAI,
+  HuggingFace, Groq and Alibaba under the "`/models` under the API root" rule —
+  in the IDE and in the runtime copy a built application uses. A stored
+  `…/chat/completions` endpoint is brought back to the root first.
+
 ## [PowerRustCOBOL 1.80.95] — 2026-10-02
 
 ### Feature: the Spatial form theme, window blur for applications, and `BorderStyle` Glow (spec 083)

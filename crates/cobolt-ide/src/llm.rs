@@ -7238,12 +7238,14 @@ fn model_list_headers(provider_id: &str, api_key: &str) -> Vec<(&'static str, St
 
 fn model_list_url(provider_id: &str, endpoint: &str) -> String {
     let ep = endpoint.trim().trim_end_matches('/').to_string();
-    // HuggingFace's router, Groq and Alibaba's compatible mode all speak the
-    // OpenAI wire, so they share the "/models under the API root" rule.
+    // HuggingFace's router, Groq, Alibaba's compatible mode and OpenRouter all
+    // speak the OpenAI wire, so they share the "/models under the API root"
+    // rule. OpenRouter's root (`…/api/v1`) answers a GET with a 404.
     if provider_id == "openai"
         || provider_id == "huggingface"
         || provider_id == "groq"
         || provider_id == "alibaba"
+        || provider_id == "openrouter"
     {
         for suffix in ["/chat/completions", "/responses"] {
             if let Some(root) = ep.strip_suffix(suffix) {
@@ -8772,6 +8774,25 @@ mod tests {
         assert_eq!(
             model_list_url("openai", "https://api.openai.com/v1/models"),
             "https://api.openai.com/v1/models"
+        );
+    }
+
+    /// OpenRouter lists its models at `…/api/v1/models`; its API root answers
+    /// a GET with a 404, which the Models Manager reported as a failed fetch
+    /// (operator, 2026-10-02).
+    #[test]
+    fn openrouter_model_refresh_uses_models_endpoint() {
+        assert_eq!(
+            model_list_url("openrouter", "https://openrouter.ai/api/v1"),
+            "https://openrouter.ai/api/v1/models"
+        );
+        assert_eq!(
+            model_list_url("openrouter", "https://openrouter.ai/api/v1/chat/completions"),
+            "https://openrouter.ai/api/v1/models"
+        );
+        assert_eq!(
+            model_list_url("openrouter", "https://openrouter.ai/api/v1/models"),
+            "https://openrouter.ai/api/v1/models"
         );
     }
 
