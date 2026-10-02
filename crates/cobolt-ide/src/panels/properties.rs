@@ -2676,7 +2676,7 @@ fn show_rest_source_fields_section(ui: &mut Ui, editor: &mut BindingEditorState)
                                 "Extra notes",
                             ] {
                                 ui.label(
-                                    RichText::new(header).small().color(Color32::from_gray(170)),
+                                    RichText::new(header).small().color(crate::contrast::ink(Color32::from_gray(170))),
                                 );
                             }
                             ui.end_row();
@@ -2908,7 +2908,7 @@ fn show_source_fields_section(ui: &mut Ui, editor: &mut BindingEditorState) {
                         "Edit control",
                         "Extra configuration",
                     ] {
-                        ui.label(RichText::new(header).small().color(Color32::from_gray(170)));
+                        ui.label(RichText::new(header).small().color(crate::contrast::ink(Color32::from_gray(170))));
                     }
                     ui.end_row();
 
@@ -3050,7 +3050,7 @@ fn show_control_array_mapping_section(ui: &mut Ui, editor: &mut BindingEditorSta
             "Each mapped source field fills a control's property in every repeated item.",
         )
         .small()
-        .color(Color32::GRAY),
+        .color(crate::contrast::ink(Color32::GRAY)),
     );
     ui.add_space(8.0);
     egui::Grid::new("data_binding_member_map")
@@ -3059,7 +3059,7 @@ fn show_control_array_mapping_section(ui: &mut Ui, editor: &mut BindingEditorSta
         .striped(true)
         .show(ui, |ui| {
             for header in ["Source field", "Target control", "Property"] {
-                ui.label(RichText::new(header).small().color(Color32::from_gray(170)));
+                ui.label(RichText::new(header).small().color(crate::contrast::ink(Color32::from_gray(170))));
             }
             ui.end_row();
 
@@ -4376,7 +4376,26 @@ impl PropertiesPanel {
         let width = ui.available_width().max(1.0);
         let (strip, _) = ui.allocate_exact_size(egui::vec2(width, height), Sense::hover());
         let painter = ui.painter_at(strip);
-        painter.rect_filled(strip, 0.0, crate::theme::darken(theme.bg_panel, 0.5));
+        // A light theme keeps a light strip: darkened to half and washed with
+        // the accent, Neumorphic Light's idle tabs were slate under 5:1 with
+        // either black or white text (operator, 2026-10-02).
+        let (strip_fill, idle_alpha, hover_alpha) = if theme.dark {
+            (crate::theme::darken(theme.bg_panel, 0.5), 0.35, 0.55)
+        } else {
+            (crate::theme::darken(theme.bg_panel, 0.9), 0.18, 0.30)
+        };
+        painter.rect_filled(strip, 0.0, strip_fill);
+        // The ink for a tab: the better of near-black and near-white on what
+        // the tab actually paints, the accent laid over the strip.
+        let tab_ink = |alpha: f32| {
+            let over = strip_fill.lerp_to_gamma(Color32::from_rgb(theme.accent.r(), theme.accent.g(), theme.accent.b()), alpha);
+            let (dark_ink, light_ink) = (Color32::from_rgb(18, 22, 27), Color32::from_rgb(245, 247, 250));
+            if crate::contrast::contrast_ratio(dark_ink, over) >= crate::contrast::contrast_ratio(light_ink, over) {
+                dark_ink
+            } else {
+                light_ink
+            }
+        };
         let each = width / tabs.len() as f32;
         // High contrast: the selected tab is the opposite of the pane — light
         // on a dark theme, dark on a light one — with the other tone's text.
@@ -4397,9 +4416,9 @@ impl PropertiesPanel {
             let (fill, text) = if selected {
                 (sel_fill, sel_text)
             } else if resp.hovered() {
-                (theme.accent.gamma_multiply(0.55), Color32::WHITE)
+                (theme.accent.gamma_multiply(hover_alpha), tab_ink(hover_alpha))
             } else {
-                (theme.accent.gamma_multiply(0.35), ui.visuals().text_color())
+                (theme.accent.gamma_multiply(idle_alpha), tab_ink(idle_alpha))
             };
             painter.rect_filled(
                 rect,
@@ -5876,7 +5895,7 @@ impl PropertiesPanel {
         ui.label(
             RichText::new(tr.hint_click_event)
                 .small()
-                .color(Color32::GRAY)
+                .color(crate::contrast::ink(Color32::GRAY))
                 .italics(),
         );
         ui.add_space(4.0);
@@ -5891,15 +5910,15 @@ impl PropertiesPanel {
             let mut double_clicked = false;
             property_row(ui, &ev_str, |ui| {
                 let dot_color = if has_code {
-                    Color32::from_rgb(100, 220, 100)
+                    crate::contrast::ink(Color32::from_rgb(100, 220, 100))
                 } else {
-                    Color32::from_rgb(120, 120, 120)
+                    crate::contrast::ink(Color32::from_rgb(120, 120, 120))
                 };
                 ui.label(RichText::new(if has_code { "●" } else { "○" }).color(dot_color));
                 let lbl = ui
                     .add(
                         egui::Label::new(
-                            RichText::new("Edit").color(Color32::from_rgb(200, 200, 100)),
+                            RichText::new("Edit").color(crate::contrast::ink(Color32::from_rgb(200, 200, 100))),
                         )
                         .sense(egui::Sense::click()),
                     )
@@ -5909,7 +5928,7 @@ impl PropertiesPanel {
                     ui.label(
                         RichText::new(format!("({lines} {})", tr.hint_lines))
                             .small()
-                            .color(Color32::GRAY),
+                            .color(crate::contrast::ink(Color32::GRAY)),
                     );
                 } else {
                     ui.label(
@@ -11339,7 +11358,7 @@ impl PropertiesPanel {
                 ui.label(
                     RichText::new(tr.hint_click_event)
                         .small()
-                        .color(Color32::GRAY)
+                        .color(crate::contrast::ink(Color32::GRAY))
                         .italics(),
                 );
                 ui.add_space(4.0);
@@ -11353,7 +11372,7 @@ impl PropertiesPanel {
                             .any(|e| e.event == *ev && e.has_code())
                     });
                     egui::CollapsingHeader::new(
-                        RichText::new(group).strong().color(Color32::from_gray(170)),
+                        RichText::new(group).strong().color(crate::contrast::ink(Color32::from_gray(170))),
                     )
                     .id_salt(format!("form-evgrp-{group}"))
                     .default_open(any_code)
@@ -11365,9 +11384,9 @@ impl PropertiesPanel {
 
                             property_row(ui, ev_name, |ui| {
                                 let dot_color = if has_code {
-                                    Color32::from_rgb(100, 220, 100)
+                                    crate::contrast::ink(Color32::from_rgb(100, 220, 100))
                                 } else {
-                                    Color32::from_rgb(120, 120, 120)
+                                    crate::contrast::ink(Color32::from_rgb(120, 120, 120))
                                 };
                                 ui.label(
                                     RichText::new(if has_code { "●" } else { "○" })
@@ -11377,7 +11396,7 @@ impl PropertiesPanel {
                                     .add(
                                         egui::Label::new(
                                             RichText::new("Edit")
-                                                .color(Color32::from_rgb(200, 200, 100)),
+                                                .color(crate::contrast::ink(Color32::from_rgb(200, 200, 100))),
                                         )
                                         .sense(egui::Sense::click()),
                                     )
@@ -11387,7 +11406,7 @@ impl PropertiesPanel {
                                     ui.label(
                                         RichText::new(format!("({lines} {})", tr.hint_lines))
                                             .small()
-                                            .color(Color32::GRAY),
+                                            .color(crate::contrast::ink(Color32::GRAY)),
                                     );
                                 }
 
@@ -11429,7 +11448,7 @@ impl PropertiesPanel {
                     egui::CollapsingHeader::new(
                         RichText::new("Retired (no longer fired)")
                             .strong()
-                            .color(Color32::from_rgb(210, 170, 100)),
+                            .color(crate::contrast::ink(Color32::from_rgb(210, 170, 100))),
                     )
                     .id_salt("form-evgrp-retired")
                     .default_open(true)
@@ -11441,20 +11460,20 @@ impl PropertiesPanel {
                                  delete it here.",
                             )
                             .small()
-                            .color(Color32::GRAY),
+                            .color(crate::contrast::ink(Color32::GRAY)),
                         );
                         for binding in retired {
                             let ev_name = binding.event.clone();
                             let lines = binding.code_line_count();
                             property_row(ui, &ev_name, |ui| {
                                 ui.label(
-                                    RichText::new("●").color(Color32::from_rgb(210, 170, 100)),
+                                    RichText::new("●").color(crate::contrast::ink(Color32::from_rgb(210, 170, 100))),
                                 );
                                 let lbl = ui
                                     .add(
                                         egui::Label::new(
                                             RichText::new("Edit")
-                                                .color(Color32::from_rgb(200, 200, 100)),
+                                                .color(crate::contrast::ink(Color32::from_rgb(200, 200, 100))),
                                         )
                                         .sense(egui::Sense::click()),
                                     )
@@ -11462,7 +11481,7 @@ impl PropertiesPanel {
                                 ui.label(
                                     RichText::new(format!("({lines} {})", tr.hint_lines))
                                         .small()
-                                        .color(Color32::GRAY),
+                                        .color(crate::contrast::ink(Color32::GRAY)),
                                 );
                                 if lbl.double_clicked() {
                                     action.open_event_in_code =
@@ -11483,7 +11502,7 @@ impl PropertiesPanel {
                 section_header(ui, tr.sec_animations);
                 property_row(ui, "Form animations", |ui| {
                     ui.label(
-                        RichText::new("No form-level animation properties").color(Color32::GRAY),
+                        RichText::new("No form-level animation properties").color(crate::contrast::ink(Color32::GRAY)),
                     );
                 });
             }
@@ -11493,7 +11512,7 @@ impl PropertiesPanel {
         ui.label(
             RichText::new(tr.hint_click_control)
                 .italics()
-                .color(Color32::GRAY),
+                .color(crate::contrast::ink(Color32::GRAY)),
         );
     }
 }

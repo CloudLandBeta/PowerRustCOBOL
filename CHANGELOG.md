@@ -8,6 +8,32 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.84] — 2026-10-02
+
+### Fix: the inspector is readable on Neumorphic Light
+
+The operator found Neumorphic Light hard to read. The inspector's
+Events and Procs tabs hard-coded colours tuned for the dark themes: the
+olive **Edit** link, the pale group headers, the grey hints and the green or
+grey handler dot. On Neumorphic Light's grey panel they measured 1.49:1 to
+2.21:1. The tab strip darkened the panel to mid-grey and washed it with the
+accent, which left the idle tabs under 5:1 with black or white text.
+
+- `contrast::legible` / `contrast::ink` keep a colour's hue but move it
+  toward black on a light theme (white on a dark one), only as far as WCAG
+  AAA (7:1) against the panel and the alternating row requires. A colour
+  that already passes is returned unchanged, so the dark themes look as
+  before. On Neumorphic Light the Edit link reaches 8.23:1, the headers
+  8.24:1, the hints 7.74:1 and the dot 8.24:1.
+- These are applied to the Events and Procs rows, the section headers and the
+  "Click a control" hint (22 sites).
+- On a light theme the tab strip stays light (the panel darkened to 90 %,
+  the accent at 18 %), and each idle or hovered tab picks whichever of
+  near-black or near-white contrasts more with the colour it actually
+  paints.
+
+Test: `ink_reaches_high_contrast_on_a_light_theme_and_leaves_dark_ones_alone`.
+
 ## [PowerRustCOBOL 1.80.83] — 2026-10-02
 
 ### Fix: Grace and the specialists can see a menu's items
