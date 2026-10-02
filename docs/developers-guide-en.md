@@ -52,6 +52,7 @@ See the LICENSE file in the project root for full license information.
 14. [Indexed files — a first-class resource](#14-indexed-files--a-first-class-resource)
 15. [SQL databases](#15-sql-databases)
 16. [HTTP / REST and AI agents](#16-http--rest-and-ai-agents)
+    - [Working with a coding agent (Claude Code)](#working-with-a-coding-agent-claude-code)
 17. [The command line (rcrun)](#17-the-command-line-rcrun)
 18. [Building a distributable binary](#18-building-a-distributable-binary)
 19. [Debugging](#19-debugging)
@@ -10532,6 +10533,111 @@ controls, resize the window, and capture screenshots.
 > reachable from the network. It also exists **only in the IDE**: applications
 > you build and ship, and `rcrun`, contain no inspection endpoint at all.
 
+### Working with a coding agent (Claude Code)
+
+A coding agent such as **Claude Code** can write your forms, programs and
+indexed files — but on its own it does not know RustCOBOL. It cannot see the
+compiler, guesses at controls and properties, and does not know that generated
+COBOL is never edited. **File ▸ Export coding-agent kit ▸ Claude Code** gives
+it what it is missing: the rules, a reference that matches *this* version of
+PowerRustCOBOL, a way to check its work against the real compiler, and a fixed
+way to report what the product cannot do yet.
+
+The command is enabled while a project is open. It writes into the project
+folder, and the Output panel lists every file.
+
+| File | What it is for |
+| --- | --- |
+| `CLAUDE.md` | The agent's brief: the project layout, the standing rules, the tools, the skills. If you already have a `CLAUDE.md`, the kit adds its own section between two `powerrustcobol-kit` markers and leaves your text untouched. |
+| `.claude/settings.json` | Permissions: edit and read inside the project, use the project tools, and no shell commands. |
+| `.claude/skills/powerrustcobol-*/SKILL.md` | Seven task skills: create a form, add a control and bind its event, define an indexed file, add assets, write a common procedure, check and fix, write a gap report. |
+| `.claude/agents/powerrustcobol-reviewer.md` | A reviewer the agent runs before it calls a change done. |
+| `.mcp.json` | The connection to the project tools (below). |
+| `docs/powerrustcobol/` | The reference: this Guide, the supported-syntax document, every control with its properties, methods and events, every built-in, and the `.cfrm` and `.cidx` formats. A name that is not there does not exist for the agent. |
+| `.claude/powerrustcobol-kit.json` | The kit's own record: the version that wrote each file and a fingerprint of it. |
+
+Every file records the PowerRustCOBOL version that wrote it. Open the project
+with a newer IDE and you are offered a refresh of the kit; **Not now** changes
+nothing and the offer returns on the next open.
+
+**Your edits are safe.** Export again whenever you like. A kit file you changed
+yourself is kept, and the Output panel names it — delete it if you want this
+version's. Your own servers in `.mcp.json` and your own rules in
+`.claude/settings.json` are merged with the kit's, never replaced.
+
+**Nothing secret or personal goes in.** The kit carries no API key: if a key
+stored on this machine would appear in any kit file, the export is refused and
+nothing is written. Your home folder, login name and git name and e-mail are
+replaced in everything the export fills in — the project name and the path to
+`rcrun`, which is written as `${HOME}/…` when it lives in your home folder.
+
+#### The project tools
+
+The agent checks its own work through seven tools, served over MCP by two
+servers that `.mcp.json` names:
+
+| Server | When the agent uses it |
+| --- | --- |
+| `powerrustcobol-ide` | While PowerRustCOBOL AI runs with **this** project open. The IDE serves it over HTTP on `127.0.0.1`, port **5720** by default. With another project open it answers that a different project is open; with none, "no project open". |
+| `powerrustcobol` | When the IDE is closed. The agent starts `rcrun mcp` itself, so `rcrun` must be beside the IDE or on your `PATH`. |
+
+- **`list_files`** — the files the project tracks, and the gap reports.
+- **`check`** — the IDE's own Check: every form's code, every source, every
+  `.cfrm` and `.cidx`, the main-form designation and data-binding problems. A
+  form error names the form, the control ▸ event and the line in that handler.
+- **`regenerate`** — rewrites a form's (or an indexed file's) generated COBOL
+  with the IDE's generator.
+- **`add_to_project`** — puts a new form, indexed file, source or asset in the
+  project.
+- **`build`** — regenerates, refuses while `check` reports an error, then builds
+  the binary. A long build answers "running"; the agent asks again.
+- **`validate`** — checks that one `.cfrm` or `.cidx` loads.
+- **`kb_lookup`** — finds a control, property, method, event or built-in in the
+  reference.
+
+The agent never edits the project file by hand. It carries a seal over the
+main-form designation, and a hand edit makes your application report itself
+corrupted — so new files go through `add_to_project`, which seals as the IDE
+does. While the IDE is open it stays the only writer of the project file: a
+tool that would overwrite a form with unsaved edits in the IDE refuses and
+names the form, and a form the agent changed on disk is reloaded if you have
+no unsaved edits in it.
+
+The first time you start Claude Code in the folder it asks you to approve the
+project's two servers. The port is a setting — ⚙ *Settings* → AI →
+**Coding-agent tools port**. A change takes effect on restart, and you export
+the kit again so `.mcp.json` points at the new port.
+
+> ⚠️ **Caveat — no authentication.** The tools listen on `127.0.0.1` only, so
+> nothing on the network can reach them. But anything running **on this
+> machine** that can reach the port can call them, and so check, regenerate
+> and build the open project. They act only inside the open project, and only
+> when it has a kit: they never read or write your settings, your API keys or
+> anything outside the project folder.
+
+> ⚠️ **Caveat — the permissions narrow, they do not wall off.** The kit allows
+> edits inside the project and denies the shell, and the brief and the
+> reviewer forbid touching anything else, PowerRustCOBOL included. Claude Code
+> may still ask to work outside the folder; say no.
+
+#### When the product cannot do it: gap reports
+
+When you ask for something PowerRustCOBOL does not support — a verb, a
+property, an event, an IDE capability — the agent does not invent it. It does
+the part that works, writes a **gap report** in `docs/compiler-requests/`
+(`<date>-<topic>.md`), and tells you. A report names the request, the missing
+capability, why it is needed, a minimal example, the workaround used, the
+version, and whether it is standard COBOL-85 behaviour (a fix) or something
+beyond it (a feature) — ready to send to the PowerRustCOBOL team.
+
+The reports appear in the project tree under **Compiler requests**, newest
+first, as soon as the agent writes one. Click a report to open it. The node is
+absent while there is none.
+
+> 📷 **Screenshot needed — `agent-kit-export.png`.** The File menu open on
+> *Export coding-agent kit ▸ Claude Code*, with the Output panel below listing
+> the files written, and the **Compiler requests** node in the project tree.
+
 ### Letting a model query your data (MCP)
 
 The inspection endpoint above lets an agent drive *the IDE*. This is the other
@@ -11160,6 +11266,7 @@ rcrun check    <file.cbl>               # parse + semantic analysis only (no run
 rcrun build    <file.cbl>               # compile a single console program → bin/<name>
 rcrun build    [cobolt.toml]            # compile a project → one native binary in bin/
 rcrun package  [cobolt.toml]            # package the project into a .zip
+rcrun mcp      [--project <path>]       # serve the coding-agent tools over stdio
 rcrun version                           # print version
 rcrun help                              # print usage
 ```
@@ -11183,6 +11290,7 @@ is.
 | `build`        | `--full`, `--clean`                | Discard every cached artefact and rebuild from scratch                                                                                                                                                                          |
 | `build`        | `--quiet`, `-q`                    | Report only the outcome, not the progress                                                                                                                                                                                       |
 | `package`      | `--output <path.zip>`              | Override the output archive path                                                                                                                                                                                                |
+| `mcp`          | `--project <file\|folder>`         | The project the coding-agent tools act on — its project file, or the folder holding it. Without it, the current folder. See **Working with a coding agent** |
 
 > **Exit codes.** `rcrun run-form` returns **3** when the application is
 > corrupted — its main-form records disagree — and **4** when the form asked

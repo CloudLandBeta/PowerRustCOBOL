@@ -46,6 +46,7 @@ are candidates for update. Sections use the doc's GitHub anchor.
 | `…#14-indexed-files--a-first-class-resource` | `crates/cobolt-runtime/**` (indexed engines) | indexed-files |
 | `…#15-sql-databases` | `crates/cobolt-runtime/**` (sql), `crates/cobolt-stdlib/**` | sql |
 | `…#16-http--rest-and-ai-agents` | `crates/cobolt-runtime/**` (rest), `crates/cobolt-ide/src/llm.rs` | rest-ai |
+| `…#working-with-a-coding-agent-claude-code` | `crates/cobolt-project-tools/**`, `crates/cobolt-ide/src/agent_kit/**`, `crates/cobolt-ide/src/panels/project.rs` (Compiler requests node), `crates/cobolt-ide/src/llm.rs` (`mcp_port`), `crates/cobolt-cli/src/main.rs` (`rcrun mcp`) | coding-agent-kit, project-tools |
 | `…#17-the-command-line-rcrun` | `crates/cobolt-cli/**` | cli-flags |
 | `…#18-building-a-distributable-binary` | `crates/cobolt-compiler/**`, `crates/cobolt-cli/**` | build |
 | `…#19-debugging` | `crates/cobolt-ide/src/panels/debugger.rs`, `crates/cobolt-runtime/**` | debug |

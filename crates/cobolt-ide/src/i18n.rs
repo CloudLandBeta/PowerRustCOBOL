@@ -11865,4 +11865,54 @@ mod viewer_tooltip_tests {
         }
         println!("i18n: {checked} spec-080 strings checked (5 keys × {} languages)", Language::ALL.len());
     }
+
+    /// AC11 (spec 080 T6.2): every new key of the coding-agent kit — plan
+    /// §3.4's twenty — is non-empty in all six tables with English's `{}`
+    /// count, and translated (the product name "Claude Code" excepted).
+    #[test]
+    fn agent_kit_strings_in_every_language() {
+        let pick = |tr: &Tr| {
+            [
+                ("menu_export_agent_kit", tr.menu_export_agent_kit),
+                ("menu_export_agent_kit_hint", tr.menu_export_agent_kit_hint),
+                ("agent_kit_target_claude_code", tr.agent_kit_target_claude_code),
+                ("agent_kit_wrote", tr.agent_kit_wrote),
+                ("agent_kit_kept_edited", tr.agent_kit_kept_edited),
+                ("agent_kit_merged", tr.agent_kit_merged),
+                ("agent_kit_done", tr.agent_kit_done),
+                ("agent_kit_refused", tr.agent_kit_refused),
+                ("agent_kit_refused_key", tr.agent_kit_refused_key),
+                ("agent_kit_refused_personal", tr.agent_kit_refused_personal),
+                ("agent_kit_refresh_title", tr.agent_kit_refresh_title),
+                ("agent_kit_refresh_detail", tr.agent_kit_refresh_detail),
+                ("agent_kit_refresh_apply", tr.agent_kit_refresh_apply),
+                ("agent_kit_refresh_later", tr.agent_kit_refresh_later),
+                ("cat_compiler_requests", tr.cat_compiler_requests),
+                ("ai_mcp_port", tr.ai_mcp_port),
+                ("ai_mcp_port_hint", tr.ai_mcp_port_hint),
+                ("ai_mcp_listening", tr.ai_mcp_listening),
+                ("ai_mcp_failed", tr.ai_mcp_failed),
+                ("mcp_activity", tr.mcp_activity),
+            ]
+        };
+        let en = pick(&Language::English.tr());
+        let mut checked = 0;
+        for &lang in Language::ALL {
+            for ((name, text), (_, english)) in pick(&lang.tr()).into_iter().zip(en) {
+                assert!(!text.trim().is_empty(), "{lang:?}/{name} is empty");
+                assert_eq!(
+                    text.matches("{}").count(),
+                    english.matches("{}").count(),
+                    "{lang:?}/{name}: placeholders differ from English in {text:?}"
+                );
+                if name == "agent_kit_target_claude_code" {
+                    assert_eq!(text, "Claude Code", "{lang:?}: a product name is not translated");
+                } else if lang != Language::English {
+                    assert_ne!(text, english, "{lang:?}/{name} is untranslated");
+                }
+                checked += 1;
+            }
+        }
+        println!("i18n: {checked} coding-agent kit strings checked ({} keys × {} languages)", en.len(), Language::ALL.len());
+    }
 }

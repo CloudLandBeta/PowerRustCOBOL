@@ -798,7 +798,25 @@ surfaces work (operator glance).
 
 ## Phase 6 — Documentation, KB, i18n
 
-- [ ] **T6.1 — Guide, dependency table, capability row, registry** (R1–R19a user-facing; spec §6 Docs/Security)
+- [x] **T6.1 — Guide, dependency table, capability row, registry** (R1–R19a user-facing; spec §6 Docs/Security)
+  - **Result (1.80.72):** Guide §16 `### Working with a coding agent (Claude
+    Code)` (+108 lines, a ToC entry, two `####` parts: the project tools, gap
+    reports; the no-authentication caveat and a "permissions narrow, they do
+    not wall off" caveat for F7; a screenshot placeholder
+    `agent-kit-export.png`); §17 `rcrun mcp` in the command list and the
+    flag table. `DEPENDENCIES-en.md`: 17 → 21 crates (`cobolt-mcp`,
+    `cobolt-project-tools`, `cobolt-docs`, `cobolt-kb`; `cargo metadata
+    --no-deps` = 21), `toml_edit` 0.22.27 row, `rcrun … mcp`; its 944/59
+    totals are left as dated at 1.65.128 (measured now: 1 002 packages, 67
+    direct normal external) — not reconciled here. Matrix §10.1: one row.
+    Registry row in `specs/steering/docs.md`. **Deleted:**
+    `docs/DEPENDENCIES-{es,pt,fr,jp,cn}.md`,
+    `docs/cobol-support-matrix-{es,pt,fr,jp,cn}.md` (10 files). No Guide
+    translation exists. `docs_embed`: 6 passed, 1 failed —
+    `every_document_ships_in_every_language`, which now also names
+    `DEPENDENCIES-en.md` and `cobol-support-matrix-en.md` (intended);
+    `every_translation_is_complete_and_current` stays green (it checks the
+    translations that exist). No COBOL sample uses `CALL "COBOL-…"`.
   - Read first: `docs/developers-guide-en.md` ToC (30-66), §16 (9468), §17
     (11055); `docs/DEPENDENCIES-en.md:40-58`; `docs/cobol-support-matrix-en.md`;
     `specs/steering/docs.md` registry; `specs/steering/doc-style.md`.
@@ -822,20 +840,36 @@ surfaces work (operator glance).
     `#[ignore]`); every other docs test green. No COBOL sample uses `CALL
     "COBOL-…"`.
 
-- [ ] **T6.2 — i18n completeness** (R21; AC11)
+- [x] **T6.2 — i18n completeness** (R21; AC11)
+  - **Result (1.80.72):** `i18n::…::agent_kit_strings_in_every_language`: 20
+    keys × 6 languages = 120 strings, non-empty, `{}` counts equal to
+    English, translated except `agent_kit_target_claude_code` (the product
+    name, asserted identical). i18n filter: all green.
   - Files: `crates/cobolt-ide/src/i18n.rs` (test module).
   - Do: `agent_kit_strings_in_every_language` over the 20 keys of plan §3.4.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide i18n` — **AC11**: each
     key non-empty in six tables, `{}` counts equal to English; prints keys ×
     languages checked.
 
-- [ ] **T6.3 — KB gate confirmation** (steering: System KB)
+- [x] **T6.3 — KB gate confirmation** (steering: System KB)
+  - **Result (1.80.72):** `git diff $(git merge-base main HEAD) HEAD --
+    crates/cobolt-forms crates/cobolt-runtime crates/cobolt-codegen
+    crates/cobolt-compiler assets/knowledge` is empty (T0.2/T0.3 are
+    already on `main`, a0be845). `prebuilt_chunked_kb_matches_the_published_documentation`
+    green ("current for all 8 published documents"); `chunked.data`
+    unchanged.
   - Files: none unless a gap appears.
   - Do: confirm no control/property/method/event or runtime behaviour changed
     in this branch (`git diff main -- crates/cobolt-forms crates/cobolt-runtime
     crates/cobolt-codegen` empty; the compiler diff is T0.2/T0.3 only).
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide prebuilt_chunked_kb_matches_the_published_documentation`
     green and `assets/knowledge/chunked.data` unchanged.
+
+**Gate 6 (1.80.72):** `cargo build --workspace` finished. `cobolt-ide --bin`
+1296 passed, 1 failed (the known `every_document_ships_in_every_language`,
+now also naming the two documents T6.1 changed), 3 ignored (1295 + 1 new);
+`cobolt-project-tools` 36 + 1 + 7 (build 1 ignored); `cobolt-mcp` 19;
+`test_mcp_tool_parity` 3; `cobolt-compiler --lib` 149; `cobolt-cli` 5 + 4 + 2.
 
 ---
 

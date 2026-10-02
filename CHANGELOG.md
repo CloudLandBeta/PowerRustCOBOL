@@ -8,6 +8,38 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.72] — 2026-10-01
+
+### Spec 080 Phase 6 — documentation for the coding-agent kit
+
+- **Developer's Guide**, §16: a new subsection, *Working with a coding agent
+  (Claude Code)*. It covers what the export writes and why, the refresh
+  offer, how your own edits are kept, and what never goes in (keys,
+  personal details). It also covers the two servers and when each is used,
+  the seven tools, why files are added with `add_to_project` (the main-form
+  seal), gap reports and the **Compiler requests** node, and the
+  coding-agent tools port. Two caveats are spelled out: **there is no
+  authentication** (anything on this machine that can reach the port can
+  call the tools), and the permissions narrow the agent rather than wall it
+  off. §17 lists `rcrun mcp [--project <path>]` and its flag.
+- **Crate inventory** (`DEPENDENCIES-en.md`): 21 workspace crates, adding
+  `cobolt-project-tools` and the already-missing `cobolt-mcp`, `cobolt-docs`
+  and `cobolt-kb`; a `toml_edit` row; `rcrun`'s `mcp` command. Its graph and
+  direct-dependency totals are still those of its last reconciliation
+  (1.65.128) and are not re-measured here.
+- **Support matrix** (`cobol-support-matrix-en.md`): a *Coding-agent
+  companion kit* row in §10.1.
+- **Translations deleted** (GOLDEN RULE #8; regenerated at the next minor):
+  `DEPENDENCIES-{es,pt,fr,jp,cn}.md` and
+  `cobol-support-matrix-{es,pt,fr,jp,cn}.md`. The Guide has no translation
+  to delete. `every_document_ships_in_every_language` now also names these
+  two documents, which is intended until the next minor.
+- `specs/steering/docs.md`: a registry row tying the new Guide subsection to
+  `cobolt-project-tools`, `agent_kit` and `rcrun mcp`.
+
+Test: `i18n::agent_kit_strings_in_every_language` checks 120 strings (20
+keys × 6 languages). No System KB change, and `chunked.data` is unchanged.
+
 ## [PowerRustCOBOL 1.80.71] — 2026-10-01
 
 ### Spec 080 Phase 5 — the coding-agent kit in the IDE

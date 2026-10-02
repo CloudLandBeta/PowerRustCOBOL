@@ -33,7 +33,7 @@ the workspace names itself; everything else arrives transitively through them.
 
 ## Workspace crates
 
-The 17 crates that *are* PowerRustCOBOL — `cargo metadata --no-deps` is the
+The 21 crates that *are* PowerRustCOBOL — `cargo metadata --no-deps` is the
 authority here, not a grep of `Cargo.toml`, where two members share a line and a
 naive count reports 16. All share the workspace crate version `0.2.0` (see the
 note above — the product version is its own sequence).
@@ -53,8 +53,12 @@ note above — the product version is its own sequence).
 | `cobolt-codegen` | 0.2.0 | tooling | Form → COBOL source generator |
 | `cobolt-compiler` | 0.2.0 | tooling | Embed+bundle compiler: project → one native executable |
 | `cobolt-dap` | 0.2.0 | tooling | Wire-compatible Debug Adapter Protocol — framing, types, client and adapter server |
+| `cobolt-mcp` | 0.2.0 | tooling | Wire-compatible Model Context Protocol — JSON-RPC framing, types and server (spec 065) |
+| `cobolt-project-tools` | 0.2.0 | tooling | The coding-agent tools (spec 080) — one MCP tool set over a project, served by `rcrun mcp` (stdio) and the IDE (HTTP on `127.0.0.1`) |
 | `cobolt-agents` | 0.2.0 | AI | Agent mesh, Knowledge Base index, embeddings, retrieval |
-| `cobolt-cli` | 0.2.0 | binary | `rcrun` — run, check, build, run-form |
+| `cobolt-docs` | 0.2.0 | execution | Document import — Office, OpenDocument, PDF, HTML, tables and archives to Markdown (spec 074) |
+| `cobolt-kb` | 0.2.0 | execution | The application Knowledge Base — chunking, embedding, a shared index, search (spec 068) |
+| `cobolt-cli` | 0.2.0 | binary | `rcrun` — run, check, build, run-form, mcp |
 | `cobolt-ide` | 0.2.0 | binary | The IDE itself |
 | `cobolt-bench` | 0.2.0 | binary | Performance and allocation baseline harness (see [BENCHMARKS-en.md](BENCHMARKS-en.md)) |
 
@@ -108,6 +112,7 @@ note above — the product version is its own sequence).
 | `serde_json` | 1.0.150 | agents, cli, forms, ide, runtime | JSON |
 | `serde_yaml` | 0.9.34 | forms | YAML (deprecated upstream; pinned) |
 | `toml` | 0.8.23 | cli, compiler, forms, ide | `cobolt.toml`, theme manifests |
+| `toml_edit` | 0.22.27 | project-tools | Project-file edits that keep every byte the coding-agent tools do not own |
 | `bincode` | 1.3.3 | agents, cli, compiler, ide | Compact binary encoding of the compiled AST |
 | `flate2` | 1.1.9 | compiler | Deflate — compresses the embedded AST |
 | `zip` | 2.4.2 | cli, ide | Project archive import/export |
