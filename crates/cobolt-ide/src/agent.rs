@@ -2052,7 +2052,13 @@ pub fn build_context(form: &Form) -> String {
         let evs = ControlType::from_str(t).supported_events().join(", ");
         out.push_str(&format!("  {}: {}\n", t, evs));
     }
+    // One line per distinct API, listing every control id that has it. The
+    // API depends on the type (plus RefreshBinding on a bound GroupBox array),
+    // so one line per control repeated the same ~1 KB for every Label and
+    // Button: 67 KB of a 124 KB planning context on PowerDemo3's sidebar-form,
+    // re-sent on every tool round of Grace's planning call (1.80.77).
     out.push_str("CONTROL API BY ID:\n");
+    let mut apis: Vec<(Vec<&str>, String)> = Vec::new();
     for c in &form.controls {
         let ty = c.control_type.as_str();
         let mut methods = crate::panels::editor::method_names_for_type(ty);
@@ -2073,13 +2079,19 @@ pub fn build_context(form: &Form) -> String {
         }
         methods.sort();
         methods.dedup();
-        out.push_str(&format!(
-            "  {} ({}): properties [{}]; methods [{}]\n",
-            c.id,
+        let api = format!(
+            "({}): properties [{}]; methods [{}]",
             ty,
             property_names_for(ty).join(", "),
             methods.join(", ")
-        ));
+        );
+        match apis.iter_mut().find(|(_, a)| *a == api) {
+            Some((ids, _)) => ids.push(&c.id),
+            None => apis.push((vec![&c.id], api)),
+        }
+    }
+    for (ids, api) in &apis {
+        out.push_str(&format!("  {} {api}\n", ids.join(", ")));
     }
     out.push_str(
         "PROPERTY INTENT MAP: drop shadow/dropshadow/shadow on/sombra => \
@@ -3694,11 +3706,27 @@ mod tests {
         assert!(ctx.contains("Label:"));
         assert!(ctx.contains("EVENTS BY TYPE (for all available controls):"));
         assert!(ctx.contains("CONTROL API BY ID:"));
-        assert!(ctx.contains("L1 (Label): properties ["));
+        assert!(ctx.contains("  L1 (Label): properties ["));
         assert!(ctx.contains("PROPERTY INTENT MAP:"));
         assert!(ctx.contains("dropshadow"));
         assert!(ctx.contains("ShadowEnabled"));
         assert!(ctx.contains("PROCEDURES:"));
+    }
+
+    /// Controls that share an API share one line, and every id is still
+    /// named on it: one line per control repeated the same list for each
+    /// Label, and on a real form that was half of Grace's planning prompt.
+    #[test]
+    fn controls_with_the_same_api_share_one_line() {
+        use cobolt_forms::Control;
+        let mut f = form_with_label();
+        f.controls.push(Control::new("B1", ControlType::Button, 0, 40));
+        f.controls.push(Control::new("L2", ControlType::Label, 0, 80));
+        let ctx = build_context(&f);
+        let api = &ctx[ctx.find("CONTROL API BY ID:").unwrap()..ctx.find("PROPERTY INTENT MAP:").unwrap()];
+        assert!(api.contains("\n  L1, L2 (Label): properties ["), "{api}");
+        assert!(api.contains("\n  B1 (Button): properties ["), "{api}");
+        assert_eq!(api.lines().count(), 3, "a header and one line per distinct API: {api}");
     }
 
     /// A property listed by bare name only told the model it EXISTS, never

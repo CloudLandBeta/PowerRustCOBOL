@@ -8,6 +8,24 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.77] — 2026-10-02
+
+### Fix: Grace's context lists each control API once
+
+A Grace request on PowerDemo3's `sidebar-form` took 17 minutes 52 seconds;
+her planning call alone took 911 s and six model rounds, and each round
+re-sent the whole prompt (382k input tokens in all). The largest part of
+that prompt was `CONTROL API BY ID`: one line per control, listing the same
+properties and methods again for every Label, Button and Panel, so 67k of
+the planning context's 124k characters.
+
+Controls that share an API now share one line that names every id on it
+(`L1, L2 (Label): properties […]; methods […]`). Nothing is lost, since the
+API depends only on the type (and `RefreshBinding` on a bound GroupBox
+array). On `sidebar-form` the full context drops from 172k to 125k
+characters, and Grace's planning view from 124k to 76k. Specialists get
+the same smaller block. Test: `controls_with_the_same_api_share_one_line`.
+
 ## [PowerRustCOBOL 1.80.76] — 2026-10-02
 
 ### Examples: PowerDemo3's responsive demos get their own folder
