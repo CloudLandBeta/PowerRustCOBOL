@@ -8,6 +8,25 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.73] — 2026-10-01
+
+### Spec 080 Phase 7 — finalizing the coding-agent kit
+
+No change to what the IDE or `rcrun` does; this closes the spec's task list.
+
+- **Coverage:** every acceptance criterion except the end-to-end run (AC10)
+  has a green, measured test, listed with its numbers in the spec's task
+  list.
+- **The end-to-end run with Claude Code (AC10) is the operator's.** The
+  steps are written down, with the seven assumptions about Claude Code to
+  confirm while doing them. A seventh assumption is added: whether `${HOME}`
+  expands on Windows, where the stdio server's `rcrun` path relies on it.
+- **Tests at this version:** `cobolt-mcp` 19 passed; `cobolt-project-tools`
+  36 + 1 + 7 passed (the real build test ignored); `cobolt-cli` 5 + 4 + 2
+  passed; `test_mcp_tool_parity` 3 passed. The full workspace sweep and the
+  real build test were **not run here for lack of disk space**; they are
+  run when the branch lands.
+
 ## [PowerRustCOBOL 1.80.72] — 2026-10-01
 
 ### Spec 080 Phase 6 — documentation for the coding-agent kit

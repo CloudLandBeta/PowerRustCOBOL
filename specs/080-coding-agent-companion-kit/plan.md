@@ -710,6 +710,13 @@ confirms all of them during AC10. A wrong one changes only `claude_code.rs`
   model at auto-injection. The kit's begin/end markers are therefore
   invisible to the agent, which is what we want; the **version the agent must
   quote in a gap report (R18) is repeated as visible text** in the section.
+- **A7 — `${HOME}` on Windows** *(added at 1.80.73, operator ruling at the
+  Phase 4 review)*. The stdio server's `command` is written as
+  `${HOME}/…` when `rcrun` lives under the home folder (§9 F3). Whether
+  Claude Code expands `${HOME}` on Windows, where `HOME` is often unset and
+  the home folder is `USERPROFILE`, is *unverified*. If it does not, the
+  `powerrustcobol` (stdio) server fails to start there; the fix is confined to
+  `claude_code.rs::rcrun_command`.
 
 ## 9. Findings — where the spec needs the operator
 

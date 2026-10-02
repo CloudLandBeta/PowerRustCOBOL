@@ -875,13 +875,35 @@ now also naming the two documents T6.1 changed), 3 ignored (1295 + 1 new);
 
 ## Phase 7 — Finalize
 
-- [ ] **T7.1 — Full sweep and coverage** (all)
+- [x] **T7.1 — Full sweep and coverage** (all)
   - Do: `cargo test --workspace --no-fail-fast` (`cobolt-forms` with
     `--features render`, `cobolt-ide` with `--bin`), every `test result:` line
     read; the `--ignored` build test once; confirm each AC below has a green,
     measured verification and say which do not.
   - Verify: the coverage table below filled with the test names and their
     printed numbers.
+  - **Result (1.80.73) — narrowed (operator decision, option 2):** the full
+    `cargo test --workspace` sweep was **not run here because of disk** — it
+    was started, grew this worktree's target dir from 27 to 35 GB and took
+    the machine to 11 GB free (another agent building in parallel), and was
+    stopped before any `test result:` line. **The parent runs the full
+    workspace sweep at landing.** The `--ignored` real build was skipped
+    (it last passed at Gate 1: 51.3 s, 128 845 832-byte binary).
+    Narrowed run at 1.80.73 (the only code change since Gate 6 is the
+    `VERSION` constant): `cobolt-mcp` 19 passed; `cobolt-project-tools` lib
+    36, http 1, tools 7 passed, build 1 ignored; `cobolt-cli` 5 + 4
+    (`main_form_gate`) + 2 (`mcp_stdio`) passed; `cobolt-runtime --test
+    test_mcp_tool_parity` 3 passed. `cobolt-compiler --lib` was started and
+    stopped by the disk watchdog at 11 GB (its tests spawn nested cargo
+    builds); `cobolt-ide --bin` (a full rebuild after the version bump) and
+    `cobolt-forms --features render` were not started. Their last measured
+    results stand from Gate 6 at 1.80.72, on identical code apart from the
+    version string: `cobolt-compiler --lib` 149 passed; `cobolt-ide --bin`
+    1296 passed, 1 failed (known `every_document_ships_in_every_language`),
+    3 ignored. `cobolt-forms` is untouched by this branch (T6.3: empty diff
+    since the branch point) and was not run. Coverage: the table below —
+    every AC except AC10 has a green, measured test.
+
 
 - [ ] **T7.2 — AC10, end to end — MANUAL, operator-run** (AC10; R1–R19a)
   - Not automatable: it needs Claude Code, a model, and judgement.
@@ -902,18 +924,39 @@ now also naming the two documents T6.1 changed), 3 ignored (1295 + 1 new);
        PowerRustCOBOL checkout clean; Claude Code transcript shows no edit
        outside the project) and that §8 A3/A4/A6 held.
   - Record: pass/fail per step, and every assumption of plan §8 found false.
+  - **Status (1.80.73): not run — manual, operator-run by design.** An agent
+    neither drives the GUI nor runs Claude Code against itself; the box stays
+    open until the operator records the steps above. The assumptions to
+    confirm or refute while doing so (plan §8), none verified by running
+    Claude Code:
+
+    | # | Assumption | Checked at step | What breaks if false |
+    |---|---|---|---|
+    | A1 | `.mcp.json` shape (`type` http/stdio, `url`, `command`, `args`), `${VAR}` expansion in `command`/`args`, `${CLAUDE_PROJECT_DIR}` for stdio servers, one-time approval of project servers | 2 | the servers do not load → `claude_code.rs::mcp_json` |
+    | A2 | the `http` client accepts a JSON reply (no SSE), no `Mcp-Session-Id`, `405` on GET, sends `Content-Length`, copes with `Connection: close`; ~60 s tool-call timeout | 2, 3 | `powerrustcobol-ide` does not connect → `cobolt-project-tools/src/http.rs`; a `build` longer than the timeout → `DEFAULT_BUILD_WAIT` |
+    | A3 | `permissions.allow/deny`, `Tool(pattern)` rules, `Edit(./**)`/`Read(./**)` relative to the project, `mcp__<server>__<tool>`, deny before allow | 3, 6 | the agent is asked for every edit, or can edit outside → `claude_code.rs::settings` |
+    | A4 | `SKILL.md` and agent files must open with `---` frontmatter; `name` + `description`; agent `tools:` comma list | 3, 4 | skills or the reviewer not found → `claude_code.rs::{skill_file, reviewer_file}` |
+    | A5 | the stdio server's working directory is unspecified (hence `--project ${CLAUDE_PROJECT_DIR}`) | 5 | `powerrustcobol` answers "no project open" |
+    | A6 | HTML comments in `CLAUDE.md` are hidden from the model; the visible "Written by PowerRustCOBOL AI <version>" line is what a gap report quotes | 4 | the version field of a gap report is missing or wrong |
+    | A7 | `${HOME}` expands on **Windows** (where `HOME` is often unset) | 2 (on Windows) | `powerrustcobol` (stdio) does not start on Windows when `rcrun` is under the home folder → `claude_code.rs::rcrun_command` |
 
 ## Acceptance-criteria coverage
 
-| AC | Task(s) | AC | Task(s) |
-|---|---|---|---|
-| AC1 | T4.4, T4.6, T5.1 | AC6a | T2.1 |
-| AC2 | T4.4 | AC6b | T5.3 |
-| AC3 | T0.5, T4.5 | AC7 | T4.3 |
-| AC4 | T0.2, T0.4, T4.2 | AC8 | T4.1 |
-| AC5 | T1.1, T1.2, T1.6, T1.10, T1.11, T3.2 | AC9 | T4.3 |
-| AC6 | T1.3, T1.7, T1.8 | AC10 | T7.2 (manual) |
-| | | AC11 | T3.1, T3.2, T4.5, T5.1–T5.3, T6.2 |
+| AC | Task(s) | Test(s) — and what they measured |
+|---|---|---|
+| AC1 | T4.4, T4.6, T5.1 | `agent_kit::tests::export_into_powerchat_copy` — 23 files written (8 frontmatter, 12 Markdown, 2 JSON, 1 section) + the kit manifest, each stamped; re-export 23 Replace, kit id kept. Output listing: manual (T5.1). |
+| AC2 | T4.4 | `agent_kit::stamp::tests::developer_text_and_edited_skill_survive` — 42 + 27 developer bytes byte-equal; edited skill kept; deleted file rewritten; developer's server and rule survive; removed kit rule → kept. |
+| AC3 | T0.5, T4.5 | `redact::tests::planted_details_are_replaced_and_appear_nowhere` (4 needles, 5 replacements, 24 files, 0 leaks); `a_planted_key_refuses_and_nothing_is_written` (2 refusals, project unchanged); `only_inserted_values_are_checked_for_personal_details` (3 template-word logins export; an unscrubbed inserted value refuses). |
+| AC4 | T0.2, T0.4, T4.2 | `reference::tests::pack_names_every_kb_entry_and_builtin` — 45 controls, 2 915 properties, 75 runtime properties, 1 059 events, 265 methods, 43 built-ins, 0 missing; `format_docs_name_every_serialised_name` — cfrm 7 + 21, cidx 12 + 16 names, all named. |
+| AC5 | T1.1, T1.2, T1.6, T1.10, T1.11, T3.2 | `cobolt-project-tools` `tests/tools.rs` (7: 7 tools, check file + line 4, `../` and absolute refused, 7/7 "no project open"); `tests/http.rs` (17 requests, every row of plan §1.4); `ide_host_answers_no_project_and_different_project`. |
+| AC6 | T1.3, T1.7, T1.8 | `regenerate_writes_what_the_ide_generator_writes` (6 192 bytes byte-equal); `tests/build.rs` `--ignored` (Gate 1: built in 51.3 s, 128 845 832 bytes; not re-run at T7.1). |
+| AC6a | T2.1 | `cobolt-cli` `tests/mcp_stdio.rs` (2) — same tool list and `check` as in-process, all stdout lines JSON-RPC, no `TcpListener`, `lsof` shows no inet socket. |
+| AC6b | T5.3 | `panels::project::compiler_requests_tests::compiler_requests_newest_first_and_absent_when_empty` — 2 reports newest first, `.txt` ignored, empty → no node. |
+| AC7 | T4.3 | `claude_code::tests::settings_permissions` — 16 allow (14 tool rules), deny `Bash`, nothing outside the project. |
+| AC8 | T4.1 | `content::tests::gap_template_has_every_r18_field` — 7 R18 fields, 14 rules (7 R8), 7 skills. |
+| AC9 | T4.3 | `claude_code::tests::a_second_writer_needs_no_content_change` — content JSON identical, 13 vs 9 files, no shared path. |
+| AC10 | T7.2 (manual) | **Not run** — operator-run end to end with Claude Code; open. |
+| AC11 | T3.1, T3.2, T4.5, T5.1–T5.3, T6.2 | `i18n::…::agent_kit_strings_in_every_language` — 20 keys × 6 = 120 strings. |
 
 Requirement traceability: R1 T5.1 · R2 T4.3, T4.6 · R3 T4.4 · R4 T4.5 ·
 R5 T4.4 · R6 T5.2 · R7 T0.2, T0.4, T4.2 · R8–R10 T4.1 · R11 T1.1–T1.10, T2.1,
