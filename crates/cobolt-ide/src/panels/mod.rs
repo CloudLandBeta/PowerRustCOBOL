@@ -32,6 +32,7 @@ pub mod indexed_new_dialog;
 pub mod indexed_properties;
 pub mod leaderboard_modal;
 pub mod md_render;
+pub mod model_search;
 pub mod models_modal;
 pub mod objects_list;
 pub mod output;

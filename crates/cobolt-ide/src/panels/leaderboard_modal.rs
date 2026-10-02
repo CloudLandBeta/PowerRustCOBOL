@@ -61,6 +61,10 @@ pub struct LeaderboardModal {
     add_provider: String,
     /// Model chosen in that row.
     add_model: String,
+    /// What is typed into the search box at the top of the model list. A
+    /// provider like OpenRouter offers hundreds of models; scrolling through
+    /// them one by one is not a way to find one.
+    add_model_filter: String,
     /// The row whose Remove is awaiting a yes. One at a time — this is a
     /// destructive, deliberately unhurried action.
     confirm_retire: Option<(String, String)>,
@@ -109,6 +113,7 @@ impl LeaderboardModal {
             pending_run: None,
             add_provider: String::new(),
             add_model: String::new(),
+            add_model_filter: String::new(),
             confirm_retire: None,
             size: egui::vec2(DEFAULT_W, DEFAULT_H),
         }
@@ -269,18 +274,52 @@ impl LeaderboardModal {
                         }
                     });
                 let offered = llm.models_for(&self.add_provider);
-                egui::ComboBox::from_id_salt("lb_add_model")
+                let combo = egui::ComboBox::from_id_salt("lb_add_model")
                     .selected_text(if self.add_model.is_empty() {
                         tr.agents_tbl_model
                     } else {
                         &self.add_model
                     })
                     .width(240.0)
+                    // A click in the search box must not close the list, so
+                    // only a click outside does; picking a model closes it by
+                    // hand below.
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                     .show_ui(ui, |ui| {
-                        for model in offered {
-                            ui.selectable_value(&mut self.add_model, model.clone(), model);
+                        let matches =
+                            super::model_search::filter_models(offered, &self.add_model_filter);
+                        let enter = super::model_search::search_field(
+                            ui,
+                            &mut self.add_model_filter,
+                            tr.agents_tbl_model_search,
+                            matches.len(),
+                            offered.len(),
+                        );
+                        if enter {
+                            if let Some(first) = matches.first() {
+                                self.add_model = (*first).clone();
+                                ui.close();
+                            }
                         }
+                        egui::ScrollArea::vertical()
+                            .id_salt("lb_add_model_list")
+                            .max_height(super::model_search::LIST_MAX_H)
+                            .show(ui, |ui| {
+                                for model in matches {
+                                    if ui
+                                        .selectable_label(self.add_model == *model, model)
+                                        .clicked()
+                                    {
+                                        self.add_model = model.clone();
+                                        ui.close();
+                                    }
+                                }
+                            });
                     });
+                // Each opening starts from the whole list again.
+                if combo.inner.is_none() && !self.add_model_filter.is_empty() {
+                    self.add_model_filter.clear();
+                }
                 let ready = !self.add_provider.trim().is_empty()
                     && !self.add_model.trim().is_empty()
                     && !board.contains(&self.add_provider, &self.add_model);
