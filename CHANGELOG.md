@@ -90,6 +90,17 @@ caption and an added control kept). The Developer's Guide says so under
 
 (1.80.85 is the spec 082 draft on the `features-menu-items` branch.)
 
+## [PowerRustCOBOL 1.80.85] — 2026-10-02
+
+### Spec 082 drafted: agents edit a menu's designed items
+
+`specs/082-agent-menu-items/spec.md` proposes a `set_menu_items` change-set
+operation that replaces a SideMenu's or MenuBar's designed tree. The IDE
+would validate the tree (depth, unique ids, `open-form` targets), write it
+through the hash-protected `save_menu`, and apply it as one undoable step.
+Ten requirements, nine acceptance criteria and three open questions for the
+operator. No code changes yet.
+
 ## [PowerRustCOBOL 1.80.84] — 2026-10-02
 
 ### Fix: the inspector is readable on Neumorphic Light
