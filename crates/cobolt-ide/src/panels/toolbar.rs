@@ -42,6 +42,10 @@ pub fn show(
 ) -> ToolbarAction {
     let mut action = ToolbarAction::None;
     let busy = runner.is_running();
+    // Aurora Pastel draws each button as its own raised gradient pill
+    // (`crate::aurora::pill`); every other theme keeps egui's buttons.
+    let aurora = crate::aurora::active();
+    use crate::aurora::Pill;
 
     Panel::top("toolbar").show(panel_ui, |ui| {
         ui.horizontal(|ui| {
@@ -53,7 +57,11 @@ pub fn show(
             // so a press is always visibly acknowledged.
 
             // ── Open file ─────────────────────────────────────────────────────
-            let open_resp = ui.button(tr.tb_open);
+            let open_resp = if aurora {
+                crate::aurora::pill(ui, true, tr.tb_open, Pill::OPEN)
+            } else {
+                ui.button(tr.tb_open)
+            };
             if open_resp.clicked() {
                 action = ToolbarAction::Open;
             }
@@ -64,7 +72,11 @@ pub fn show(
             // dirty editor tab, or unsaved project Settings). A clean project
             // shows a greyed Save, so the button itself is the dirty indicator.
             let save_enabled = has_active && has_unsaved;
-            let save_resp = ui.add_enabled(save_enabled, Button::new(tr.tb_save));
+            let save_resp = if aurora {
+                crate::aurora::pill(ui, save_enabled, tr.tb_save, Pill::OPEN)
+            } else {
+                ui.add_enabled(save_enabled, Button::new(tr.tb_save))
+            };
             if save_resp.clicked() {
                 action = ToolbarAction::Save;
             }
@@ -76,23 +88,34 @@ pub fn show(
             ui.separator();
 
             // ── Check (parse/analyse only) ────────────────────────────────────
-            let check_resp = ui.add_enabled(has_active, Button::new(tr.tb_check));
+            let check_resp = if aurora {
+                crate::aurora::pill(ui, has_active, tr.tb_check, Pill::CHECK)
+            } else {
+                ui.add_enabled(has_active, Button::new(tr.tb_check))
+            };
             if check_resp.clicked() {
                 action = ToolbarAction::Check;
             }
             crate::theme::flash_on_click(ui, &check_resp);
 
             // ── Project-wide code search (spec 053) ───────────────────────────
-            let search_resp = ui
-                .add_enabled(has_active, Button::new(tr.tb_search))
-                .on_hover_text(tr.tb_search_hint);
+            let search_resp = if aurora {
+                crate::aurora::pill(ui, has_active, tr.tb_search, Pill::SEARCH)
+            } else {
+                ui.add_enabled(has_active, Button::new(tr.tb_search))
+            }
+            .on_hover_text(tr.tb_search_hint);
             if search_resp.clicked() {
                 action = ToolbarAction::Search;
             }
             crate::theme::flash_on_click(ui, &search_resp);
 
             // ── Build binary ──────────────────────────────────────────────────
-            let build_resp = ui.add_enabled(compilable && !building, Button::new(tr.tb_build));
+            let build_resp = if aurora {
+                crate::aurora::pill(ui, compilable && !building, tr.tb_build, Pill::BUILD)
+            } else {
+                ui.add_enabled(compilable && !building, Button::new(tr.tb_build))
+            };
             if build_resp.clicked() {
                 action = ToolbarAction::Build;
             }
@@ -116,7 +139,11 @@ pub fn show(
             } else {
                 Color32::from_rgb(80, 200, 80)
             }));
-            let run_resp = ui.add_enabled(!busy && compilable, run_btn);
+            let run_resp = if aurora {
+                crate::aurora::pill(ui, !busy && compilable, tr.tb_run, Pill::RUN)
+            } else {
+                ui.add_enabled(!busy && compilable, run_btn)
+            };
             if run_resp.clicked() {
                 action = ToolbarAction::Run;
             }
@@ -126,14 +153,18 @@ pub fn show(
             }
 
             // ── Debug (right of Run; in a project, enabled once it has been built) ─
-            let dbg_resp = ui.add_enabled(
+            let dbg_resp = if aurora {
+                crate::aurora::pill(ui, !busy && debuggable, tr.tb_debug, Pill::DEBUG)
+            } else {
+                ui.add_enabled(
                 !busy && debuggable,
                 Button::new(RichText::new(tr.tb_debug).color(if busy || !debuggable {
                     Color32::GRAY
                 } else {
                     Color32::from_rgb(200, 150, 80)
                 })),
-            );
+            )
+            };
             if dbg_resp.clicked() {
                 action = ToolbarAction::Debug;
             }
@@ -148,7 +179,11 @@ pub fn show(
             } else {
                 Color32::GRAY
             }));
-            let stop_resp = ui.add_enabled(busy, stop_btn);
+            let stop_resp = if aurora {
+                crate::aurora::pill(ui, busy, tr.tb_stop, Pill::STOP)
+            } else {
+                ui.add_enabled(busy, stop_btn)
+            };
             if stop_resp.clicked() {
                 action = ToolbarAction::Stop;
             }

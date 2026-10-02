@@ -11686,7 +11686,7 @@ writes a per-control diagnostics dump named after the project.
 ---
 ## 20. Appearance and internationalisation
 
-- **Themes.** ⚙ ▸ *Settings* offers 33 colour themes — dark (Dark Glass
+- **Themes.** ⚙ ▸ *Settings* offers 34 colour themes — dark (Dark Glass
   [default], Deep Blue, Dark+, Monokai, Solarized Dark, Nord, Dracula, and
   more), light (Light+, GitHub Light, One Light, Gruvbox Light, Ayu Light,
   Quiet Light, Tomorrow, Material Lighter, Nord Light, Rosé Pine Dawn,
@@ -11696,7 +11696,15 @@ writes a per-control diagnostics dump named after the project.
   relief matches the Neumorphic form styles, and **Silver Glass**, the same
   soft-UI construction in frosted silver: slightly translucent panels that let
   a background image frost through, crisp white edges and dark text.
+  **Aurora Pastel** keeps the same panes in the same places and paints them
+  differently: a backdrop of soft blue, mint and lavender gradients with two
+  waves along the bottom, each pane a translucent pastel card (mint for the
+  project tree, butter for the agent bar, sky for the main pane, lavender for
+  Output) whose border glows at its corners, raised toolbar buttons in their
+  own colours, and pastel inspector tabs. All its text reaches a 7:1 contrast
+  on the pane it sits on.
   There is also an optional **background image** with an opacity control.
+  Under Aurora Pastel the image replaces the gradient backdrop.
   Settings are saved **per project** in `cobolt.toml`. The project tree and
   panel text automatically adapt their contrast to the theme — light text on
   dark themes, dark text on light ones.

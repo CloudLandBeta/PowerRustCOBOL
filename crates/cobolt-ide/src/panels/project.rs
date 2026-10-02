@@ -396,7 +396,7 @@ impl ProjectPanel {
         self.anchors.clear();
 
         let frame = crate::theme::glass_panel_frame(
-            ctx.global_style().visuals.panel_fill,
+            crate::aurora::pane_fill(crate::aurora::Pane::Project, ctx.global_style().visuals.panel_fill),
             &crate::theme::active(),
         );
         let panel_resp = Panel::left("project_panel")
@@ -421,6 +421,7 @@ impl ProjectPanel {
                 }
                 None => self.show_tree_mode(ui, &mut events, tr),
             });
+        crate::aurora::glow_panel(&panel_resp.response);
 
         // Arrow-key navigation, scoped to when the pointer is over the tree so we
         // never hijack arrows from the editor or other panels (spec 033, R15–R18).

@@ -2795,11 +2795,14 @@ impl EditorPanel {
             Some(ui) => render(ui),
             None => {
                 let frame = crate::theme::glass_panel_frame(
-                    ctx.global_style().visuals.panel_fill,
+                    crate::aurora::pane_fill(crate::aurora::Pane::Agent, ctx.global_style().visuals.panel_fill),
                     &crate::theme::active(),
                 );
                 let host = panel_ui.expect("ai_bar panel variant requires a host Ui");
-                Panel::top(panel).frame(frame).show(host, |ui| render(ui));
+                Panel::top(panel).frame(frame).show(host, |ui| {
+                    crate::aurora::glow_card(ui);
+                    render(ui)
+                });
             }
         }
 
@@ -3204,12 +3207,13 @@ impl EditorPanel {
 
         // ─── Editor body ──────────────────────────────────────────────────────
         let body_frame = crate::theme::glass_panel_frame(
-            ctx.global_style().visuals.panel_fill,
+            crate::aurora::pane_fill(crate::aurora::Pane::Main, ctx.global_style().visuals.panel_fill),
             &crate::theme::active(),
         );
         CentralPanel::default()
             .frame(body_frame)
             .show(panel_ui, |ui| {
+                crate::aurora::glow_card(ui);
                 self.render_code_area(ctx, ui);
             });
     }

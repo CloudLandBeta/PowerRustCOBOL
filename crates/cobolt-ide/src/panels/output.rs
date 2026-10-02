@@ -246,7 +246,7 @@ impl OutputPanel {
         let ctx = &ctx;
 
         let frame = crate::theme::glass_panel_frame(
-            ctx.global_style().visuals.panel_fill,
+            crate::aurora::pane_fill(crate::aurora::Pane::Output, ctx.global_style().visuals.panel_fill),
             &crate::theme::active(),
         );
         Panel::bottom("output_panel")
@@ -255,6 +255,7 @@ impl OutputPanel {
             .min_size(60.0)
             .frame(frame)
             .show(panel_ui, |ui| {
+                crate::aurora::glow_card(ui);
                 // Header bar
                 ui.horizontal(|ui| {
                     ui.strong(tr.panel_output);

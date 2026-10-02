@@ -8,6 +8,42 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.87] — 2026-10-02
+
+### Feature: the Aurora Pastel IDE theme
+
+A 34th IDE colour theme, built from the operator-approved mockup
+("Aurora Pastel IDE Theme", second version: same pane structure, new
+surfaces). The panes keep their places, sizes and behaviour; only their
+painting changes. Its painted surfaces live in the new
+`crates/cobolt-ide/src/aurora.rs`:
+
+- **Backdrop.** A three-stop wash, three large radial glows (sky, mint,
+  lavender), two waves along the bottom and two faint discs, proportional to
+  the window. It replaces the opaque floor and the full-window pane wash, so
+  it shows through the translucent panes. A project background image still
+  wins.
+- **Panes.** `glass_panel_frame` gives Aurora cards radius 16, a discreet
+  edge and a soft blue shadow. Each pane takes its own pastel (project tree
+  mint, agent bars butter, main panes sky, Output lavender), and
+  `aurora::glow_card` / `glow_panel` paint the corner glow on its border
+  (sky, mint, lavender and peach, fading out within 46 px of each corner)
+  plus a lit top edge. Wired into 11 pane frames.
+- **Toolbar.** Each button is a raised gradient pill in its own colour
+  (`aurora::pill`): Open/Save white, Check mint, Search blue, Build lavender,
+  Run green with white text, Debug butter, Stop rose. Disabled buttons are
+  grey. The labels, enabled rules, tooltips and click flash are unchanged.
+- **Inspector.** Idle tabs are pastel (Props sky, Events blue, Procs mint,
+  Anim lavender); section headers are a fading sky band with dark-blue
+  capitals.
+
+Every ink is tested: dark ink at 7:1 on each pastel pill and on every pane
+tint, white at 4.5:1 on Run. The mockup's disabled grey (#5D6B86) measured
+4.36:1 and is #4F5C76 here. Not done: the window title bar is the operating
+system's, so its gradient is not painted, and the mockup's fonts (Plus
+Jakarta Sans, JetBrains Mono) are not bundled; the IDE's own fonts stay.
+The Developer's Guide lists the theme under "Appearance".
+
 ## [PowerRustCOBOL 1.80.86] — 2026-10-02
 
 ### Fix: switching back to a theme restores the form it had

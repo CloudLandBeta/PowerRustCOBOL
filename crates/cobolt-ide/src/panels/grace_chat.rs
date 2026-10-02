@@ -482,10 +482,11 @@ impl GraceChatPanel {
         let fallback_model = crate::grace_host::grace_model_display_cached(root, llm);
 
         let frame = crate::theme::glass_panel_frame(
-            ctx.global_style().visuals.panel_fill,
+            crate::aurora::pane_fill(crate::aurora::Pane::Main, ctx.global_style().visuals.panel_fill),
             &crate::theme::active(),
         );
         CentralPanel::default().frame(frame).show(panel_ui, |ui| {
+                crate::aurora::glow_card(ui);
             ui.horizontal_wrapped(|ui| {
                 ui.heading(GRACE_TITLE);
                 if busy {

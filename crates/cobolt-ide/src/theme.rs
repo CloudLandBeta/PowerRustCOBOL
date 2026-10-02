@@ -83,6 +83,12 @@ impl Theme {
         }
     }
 
+    /// Whether this is Aurora Pastel, whose surfaces are painted by
+    /// `crate::aurora` (backdrop, pane tints, corner glows, toolbar pills).
+    pub fn is_aurora(&self) -> bool {
+        self.id == "aurora-pastel"
+    }
+
     /// Whether this is one of the discrete "soft UI" neumorphic themes
     /// (Light, Dark, Cobalt or Silver Glass). All share the flat-surface-plus-relief-halo
     /// chrome (`paint_neumorphic_relief`, `glass_panel_frame`'s discrete
@@ -174,13 +180,29 @@ pub fn brand_layout_job(
     job
 }
 
+/// The inner margin of every pane card: `crate::aurora::glow_card` finds the
+/// card's border by growing the content rect by exactly this much.
+pub const PANE_INNER_MARGIN: i8 = 10;
+
 pub fn glass_panel_frame(fill: Color32, theme: &Theme) -> egui::Frame {
     use egui::{CornerRadius, Margin, Shadow, Stroke, Vec2};
+    if theme.is_aurora() {
+        // A floating pastel card: larger corners, a discreet edge (its
+        // corners glow, painted by `aurora::glow_card`) and a soft blue
+        // shadow underneath.
+        return egui::Frame::NONE
+            .fill(fill)
+            .stroke(Stroke::new(1.5, crate::aurora::pane_edge()))
+            .corner_radius(CornerRadius::same(crate::aurora::PANE_RADIUS))
+            .inner_margin(Margin::same(PANE_INNER_MARGIN))
+            .outer_margin(Margin::same(6))
+            .shadow(crate::aurora::pane_shadow());
+    }
     egui::Frame::NONE
         .fill(fill)
         .stroke(Stroke::new(1.0, theme.panel_border()))
         .corner_radius(CornerRadius::same(10))
-        .inner_margin(Margin::same(10))
+        .inner_margin(Margin::same(PANE_INNER_MARGIN))
         .outer_margin(Margin::same(6))
         .shadow(if theme.id == "silver-glass" {
             // Frosted glass floats: a soft, deep shadow below the card
@@ -1209,6 +1231,39 @@ pub const NEUMORPHIC_LIGHT: Theme = Theme {
     ed_generated: rgb(30, 100, 220),
 };
 
+/// Aurora Pastel — blue, grey and green over pastel secondaries, on a
+/// multi-gradient backdrop; its painted surfaces live in `crate::aurora`.
+/// Every text colour reaches 7:1 on the pane tints (tested in `aurora`).
+pub const AURORA_PASTEL: Theme = Theme {
+    id: "aurora-pastel",
+    name: "Aurora Pastel",
+    dark: false,
+    // Translucent, so the backdrop's gradients show through every pane.
+    bg_panel: rgba(236, 244, 255, 230),
+    bg_control: rgb(244, 247, 252),
+    bg_hover: rgb(255, 255, 255),
+    bg_active: rgb(199, 218, 250),
+    bg_extreme: rgb(255, 255, 255),
+    faint_bg: rgb(227, 234, 242),
+    code_bg: rgb(251, 252, 254),
+    accent: rgb(37, 99, 207),
+    border_dim: rgba(120, 140, 175, 72),
+    border_hi: rgb(37, 99, 207),
+    text_dim: rgb(51, 65, 95),
+    text_bright: rgb(27, 42, 74),
+    selection: rgba(47, 111, 222, 56),
+    hyperlink: rgb(23, 67, 154),
+    warn: rgb(116, 64, 0),
+    error: rgb(180, 35, 24),
+    ed_plain: rgb(27, 42, 74),
+    ed_keyword: rgb(23, 62, 134),
+    ed_data: rgb(11, 90, 61),
+    ed_paragraph: rgb(107, 47, 160),
+    ed_string: rgb(116, 64, 0),
+    ed_comment: rgb(93, 107, 134),
+    ed_generated: rgb(23, 67, 154),
+};
+
 /// Neumorphic Dark — the dark counterpart of Neumorphic Light, built the same
 /// way: a flat neutral canvas (Panel/Control/Code share one fill; depth comes
 /// from `paint_neumorphic_relief`, not a differently-coloured surface), with
@@ -1372,6 +1427,7 @@ pub const THEMES: &[Theme] = &[
     NEUMORPHIC_DARK,
     NEUMORPHIC_COBALT,
     SILVER_GLASS,
+    AURORA_PASTEL,
 ];
 
 /// The default theme (preserves the original look).
@@ -1542,8 +1598,8 @@ mod tests {
     fn the_theme_registry_size_is_pinned() {
         assert_eq!(
             THEMES.len(),
-            33,
-            "17 original + 12 light + Classic + Neumorphic Light/Dark/Cobalt + Silver Glass"
+            34,
+            "17 original + 12 light + Classic + Neumorphic Light/Dark/Cobalt + Silver Glass + Aurora Pastel"
         );
     }
 

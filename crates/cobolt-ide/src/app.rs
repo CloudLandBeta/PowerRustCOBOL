@@ -5240,12 +5240,13 @@ impl CoboltApp {
         let mut do_grace_dismiss = false;
 
         let frame = crate::theme::glass_panel_frame(
-            ctx.global_style().visuals.panel_fill,
+            crate::aurora::pane_fill(crate::aurora::Pane::Agent, ctx.global_style().visuals.panel_fill),
             &crate::theme::active(),
         );
         egui::Panel::top("inspector_agent")
             .frame(frame)
             .show(panel_ui, |ui| {
+                crate::aurora::glow_card(ui);
                 ui.horizontal_wrapped(|ui| {
                     ui.label(egui::RichText::new("🤖").size(15.0));
                     ui.label(egui::RichText::new(tr.agent_mode).small().strong());
@@ -7112,12 +7113,13 @@ impl CoboltApp {
         }
 
         let card = crate::theme::glass_panel_frame(
-            ctx.global_style().visuals.panel_fill,
+            crate::aurora::pane_fill(crate::aurora::Pane::Main, ctx.global_style().visuals.panel_fill),
             self.current_theme(),
         );
         egui::CentralPanel::default()
             .frame(card)
             .show(panel_ui, |ui| {
+                crate::aurora::glow_card(ui);
                 let Some(st) = &mut self.inspect else {
                     return;
                 };
@@ -7883,11 +7885,12 @@ impl CoboltApp {
         let mut did_add_remove = false;
 
         let card = crate::theme::glass_panel_frame(
-            ctx.global_style().visuals.panel_fill,
+            crate::aurora::pane_fill(crate::aurora::Pane::Main, ctx.global_style().visuals.panel_fill),
             self.current_theme(),
         );
 
         egui::CentralPanel::default().frame(card).show(panel_ui, |ui| {
+                crate::aurora::glow_card(ui);
             let Some(st) = &mut self.indexed_inspect else { return; };
 
             if st.prefer_raw_editor {
@@ -10550,7 +10553,7 @@ impl CoboltApp {
         // 100% of the available central height above the output (grows/shrinks
         // naturally on window or output splitter resize).
         let mut card = crate::theme::glass_panel_frame(
-            ctx.global_style().visuals.panel_fill,
+            crate::aurora::pane_fill(crate::aurora::Pane::Main, ctx.global_style().visuals.panel_fill),
             self.current_theme(),
         );
         // Moderate bottom outer margin on the frame raises the stroked glass
@@ -10569,6 +10572,7 @@ impl CoboltApp {
         egui::CentralPanel::default()
             .frame(card)
             .show(panel_ui, |ui| {
+                crate::aurora::glow_card(ui);
                 if let Some(form) = &mut self.settings_form {
                     let avail = ui.available_rect_before_wrap();
                     let bottom_res = 80.0; // dedicated inner lift for full button visibility
@@ -10751,12 +10755,13 @@ impl CoboltApp {
         let ctx = &ctx;
 
         let card = crate::theme::glass_panel_frame(
-            ctx.global_style().visuals.panel_fill,
+            crate::aurora::pane_fill(crate::aurora::Pane::Main, ctx.global_style().visuals.panel_fill),
             self.current_theme(),
         );
         egui::CentralPanel::default()
             .frame(card)
             .show(panel_ui, |ui| {
+                crate::aurora::glow_card(ui);
                 ui.vertical_centered(|ui| {
                     ui.add_space(ui.available_height() * 0.18);
                     let tex = self.mascot_texture(ctx);
@@ -11248,7 +11253,7 @@ impl CoboltApp {
         self.advance_asset_animation(ctx);
 
         let theme = crate::theme::active();
-        let frame = crate::theme::glass_panel_frame(ctx.global_style().visuals.panel_fill, &theme);
+        let frame = crate::theme::glass_panel_frame(crate::aurora::pane_fill(crate::aurora::Pane::Main, ctx.global_style().visuals.panel_fill), &theme);
         let mut close = false;
         let mut zoom_delta = 0.0;
         let mut zoom_exact: Option<f32> = None;
@@ -11256,6 +11261,7 @@ impl CoboltApp {
         egui::CentralPanel::default()
             .frame(frame)
             .show(panel_ui, |ui| {
+                crate::aurora::glow_card(ui);
                 ui.horizontal(|ui| {
                     ui.heading("Asset preview");
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -14888,17 +14894,22 @@ impl eframe::App for CoboltApp {
         // image as a subtle texture, 3) the SAME semi-opaque pane fill over the
         // whole window, so the area around/between the panes looks exactly like a
         // pane (not a brighter "transparent" wallpaper showing through the gaps).
+        // Aurora Pastel paints its own floor: the multi-gradient backdrop, seen
+        // through the translucent panes, so it skips the matching pane wash
+        // unless a project background image is set (the image still wins).
+        let aurora = self.current_theme().is_aurora();
         {
             let p = ctx.global_style().visuals.panel_fill;
             let floor = egui::Color32::from_rgb(p.r(), p.g(), p.b());
-            ctx.layer_painter(egui::LayerId::background()).rect_filled(
-                ctx.content_rect(),
-                0.0,
-                floor,
-            );
+            let painter = ctx.layer_painter(egui::LayerId::background());
+            if aurora {
+                crate::aurora::paint_backdrop(&painter, ctx.content_rect());
+            } else {
+                painter.rect_filled(ctx.content_rect(), 0.0, floor);
+            }
         }
         self.paint_ide_background(ctx);
-        {
+        if !aurora || self.bg_image_abs_path().is_some() {
             let p = ctx.global_style().visuals.panel_fill;
             ctx.layer_painter(egui::LayerId::background())
                 .rect_filled(ctx.content_rect(), 0.0, p);
