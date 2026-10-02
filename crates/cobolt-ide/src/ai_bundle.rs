@@ -264,24 +264,48 @@ fn replace_word_ci(text: &str, needle: &str, with: &str) -> (String, usize) {
     (out, n)
 }
 
+/// Why [`export`] wrote nothing. The IDE words it in the developer's language
+/// with [`ExportError::message`] (spec 080 F10).
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExportError {
+    /// A key the configuration holds is still in the text: where it was
+    /// found (a key slot, never the key).
+    KeyFound(String),
+    /// A personal detail could not be replaced: its placeholder.
+    PersonalDetail(&'static str),
+    /// The scrubbed text no longer reads back as a bundle: why.
+    Invalid(String),
+    /// Serialising or writing the file failed: the system's reason.
+    Write(String),
+}
+
+impl ExportError {
+    /// The message the IDE shows, in the language of `tr`.
+    pub fn message(&self, tr: &crate::i18n::Tr) -> String {
+        let (template, detail) = match self {
+            ExportError::KeyFound(w) => (tr.ai_export_refused_key, w.as_str()),
+            ExportError::PersonalDetail(p) => (tr.ai_export_refused_personal, *p),
+            ExportError::Invalid(e) => (tr.ai_export_refused_invalid, e.as_str()),
+            ExportError::Write(e) => (tr.ai_export_failed, e.as_str()),
+        };
+        template.replacen("{}", detail, 1)
+    }
+}
+
 /// Serialise `bundle`, replace every personal detail, and write it to `path` —
 /// unless a key `llm` holds, or a personal detail, is still in the text, in
 /// which case nothing is written. Returns how many details were replaced.
-pub fn export(bundle: &AiBundle, llm: &LlmConfig, personal: &Personal, path: &Path) -> Result<usize, String> {
-    let json = serde_json::to_string_pretty(bundle).map_err(|e| e.to_string())?;
+pub fn export(bundle: &AiBundle, llm: &LlmConfig, personal: &Personal, path: &Path) -> Result<usize, ExportError> {
+    let json = serde_json::to_string_pretty(bundle).map_err(|e| ExportError::Write(e.to_string()))?;
     let (json, removed) = personal.scrub(&json);
     if let Some(where_) = find_key(&json, llm) {
-        return Err(format!(
-            "Export refused: an API key was found in the configuration ({where_}). Nothing was written."
-        ));
+        return Err(ExportError::KeyFound(where_));
     }
     if let Some(kind) = personal.find(&json) {
-        return Err(format!(
-            "Export refused: a personal detail ({kind}) could not be removed. Nothing was written."
-        ));
+        return Err(ExportError::PersonalDetail(kind));
     }
-    serde_json::from_str::<AiBundle>(&json).map_err(|e| format!("Export refused: {e}. Nothing was written."))?;
-    std::fs::write(path, json).map_err(|e| e.to_string())?;
+    serde_json::from_str::<AiBundle>(&json).map_err(|e| ExportError::Invalid(e.to_string()))?;
+    std::fs::write(path, json).map_err(|e| ExportError::Write(e.to_string()))?;
     Ok(removed)
 }
 
@@ -635,8 +659,39 @@ mod tests {
         bundle.provider_models.insert("x".into(), vec!["sk-ant-SECRET-0123456789".into()]);
         let out = dir.path().join("ai.json");
         let err = export(&bundle, &llm, &Personal::default(), &out).unwrap_err();
-        assert!(err.contains("providerkey::anthropic") && !err.contains("SECRET"), "{err}");
+        assert!(matches!(&err, ExportError::KeyFound(w) if w.contains("providerkey::anthropic")), "{err:?}");
+        let msg = err.message(&crate::i18n::Language::English.tr());
+        assert!(msg.contains("providerkey::anthropic") && !msg.contains("SECRET"), "{msg}");
         assert!(!out.exists());
+    }
+
+    /// Spec 080 F10 — the refusal is worded in the IDE's language: in each of
+    /// the six it names where the key was found, keeps no placeholder, never
+    /// shows the key, and every language but English says it in its own words.
+    #[test]
+    fn an_export_refusal_is_worded_in_every_language() {
+        use crate::i18n::Language;
+        let errors = [
+            ExportError::KeyFound("providerkey::anthropic".into()),
+            ExportError::PersonalDetail("<e-mail removed>"),
+            ExportError::Invalid("expected value at line 1".into()),
+            ExportError::Write("permission denied".into()),
+        ];
+        let english: Vec<String> = errors.iter().map(|e| e.message(&Language::English.tr())).collect();
+        for &lang in Language::ALL {
+            for (e, en) in errors.iter().zip(&english) {
+                let msg = e.message(&lang.tr());
+                let detail = match e {
+                    ExportError::KeyFound(w) | ExportError::Invalid(w) | ExportError::Write(w) => w.as_str(),
+                    ExportError::PersonalDetail(p) => p,
+                };
+                assert!(msg.contains(detail) && !msg.contains("{}"), "{lang:?}: {msg}");
+                if lang != Language::English {
+                    assert_ne!(&msg, en, "{lang:?} shows the English text");
+                }
+            }
+        }
+        println!("{}", Language::ALL.iter().map(|l| errors[0].message(&l.tr())).collect::<Vec<_>>().join("\n"));
     }
 
     #[test]

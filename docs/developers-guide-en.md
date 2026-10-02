@@ -514,7 +514,8 @@ AI…** sets everything up in one step instead of an afternoon of clicking.
 `headers` value, and every field named like a key, token, secret or password,
 is emptied, while the servers themselves are kept. And if any key stored on
 your machine were still to turn up in the file, the export is refused and
-nothing is written.
+nothing is written. The IDE says so in an error dialog, in the language you
+chose for it, and names where the key was found but never the key itself.
 
 **Nor does it carry anything about you.** Wherever they appear (an agent's
 prompt, a path in `mcp.json`, anywhere else), these are replaced by neutral

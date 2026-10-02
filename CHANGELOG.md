@@ -8,6 +8,64 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.61] — 2026-10-01
+
+### Fix: the AI-export refusal is shown in the developer's language
+
+**Defect.** Spec 080 finding F10. When **Export AI configuration** refused to
+write the file (introduced in 1.80.30), the message was printed raw, in
+English only, as a plain line in Output. The cases were:
+- an API key still in the text;
+- a personal detail that could not be removed;
+- text that no longer read back.
+
+Every other IDE failure is worded in the selected language and shown in the
+error dialog.
+
+**Root cause.** `ai_bundle::export` (`crates/cobolt-ide/src/ai_bundle.rs`)
+returned `Result<usize, String>` with English sentences built by `format!`.
+`export_ai_config` (`crates/cobolt-ide/src/app.rs`) pushed that string to
+Output (`Err(e) => self.output.push_status(e)`).
+
+**Fix.**
+- `export` returns a typed `ai_bundle::ExportError`:
+  - `KeyFound(slot)`;
+  - `PersonalDetail(placeholder)`;
+  - `Invalid(reason)`;
+  - `Write(reason)`.
+- `ExportError::message(&Tr)` words it through four new `Tr` keys, each in
+  all six tables (EN, ES, PT, JA, ZH, FR): `ai_export_refused_key`,
+  `ai_export_refused_personal`, `ai_export_refused_invalid` and
+  `ai_export_failed`.
+- The IDE shows the message with `set_alert_error`, the error dialog, which
+  also records it in Output, as other failures do.
+- The key itself is never part of any message; only its slot is.
+
+**Tests.**
+- New `ai_bundle::tests::an_export_refusal_is_worded_in_every_language`. For
+  every refusal in each of the six languages, the message names its detail,
+  keeps no `{}`, and in every language but English differs from the English
+  text. With the English text forced, it fails with "Portuguese shows the
+  English text".
+- `an_export_holding_a_key_is_refused_and_writes_nothing` now checks the
+  typed error and its English message.
+- `ai_bundle` tests: 6 passed.
+- Final gate for the branch, run with `--no-fail-fast`:
+
+  | Crate | Result |
+  |---|---|
+  | `cobolt-forms --features render` | Every suite green except `test_maps_demo_form` (known, unrelated) and `layout_has_no_static_values` (see below; fixed separately) |
+  | `cobolt-form-host` | 154, 21 and 0 passed |
+  | `cobolt-codegen` | 62 lib tests; all suites green |
+  | `cobolt-compiler --lib` | 147 passed |
+  | `cobolt-cli` | 5 and 4 passed |
+  | `cobolt-ide --bin cobolt-ide` | 1300 passed; 1 failed, `docs_embed::every_document_ships_in_every_language` (known, unrelated) |
+  | `cobolt-ide --test props_demo_runs --test viewer_demo_compiles` | 2 and 1 passed |
+
+**Guide.** The AI-configuration export section now says a refusal appears
+in an error dialog in the IDE's language, naming where the key was found but
+never the key.
+
 ## [PowerRustCOBOL 1.80.60] — 2026-10-01
 
 ### Fix: `rcrun build` regenerates the forms' COBOL before compiling

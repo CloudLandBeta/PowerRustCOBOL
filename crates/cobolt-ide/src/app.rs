@@ -14049,7 +14049,9 @@ impl CoboltApp {
                     );
                 }
             }
-            Err(e) => self.output.push_status(e),
+            // In the developer's language, in the error dialog every other
+            // failure uses (it is also recorded in Output).
+            Err(e) => self.set_alert_error(e.message(&tr)),
         }
     }
 
