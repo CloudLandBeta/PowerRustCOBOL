@@ -1152,6 +1152,15 @@ File UI's structural lock; the developer must explicitly unfinalize it in the
 UI before an agent can change its schema. Every result must pass **Data (Indexed
 File) Agent Pedantic Reviewer** before Grace reports completion.
 
+**What Grace sees of a menu.** A SideMenu's or MenuBar's items are not
+properties of the control: they are the tree you build in its menu editor,
+stored in `<control id>.menu.yaml` beside the form. Grace and the specialists
+are shown that tree, item by item, with each item's id and action, so a request
+such as "which form does *Samples → Responsive Layout → Responsive: grid*
+open?" is answered from your real menu. Agents cannot yet rearrange those
+items. A request to reorder, move or rename them gets an explanation that the
+menu editor does it, not a change.
+
 **Specialists execute their tools.** Under Grace, agents don't just describe
 work — they carry it out, but only through governed, evidenced channels. An
 agent may call only the tools it has been granted (its `mcp.json` / capabilities);

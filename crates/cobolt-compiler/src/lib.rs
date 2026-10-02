@@ -6346,6 +6346,24 @@ fn event_reference(name: &str) -> &'static str {
 }
 
 /// One-line purpose for each control type, leading its reference section.
+/// Where a control's CONTENT lives, as opposed to its look: the items, pages,
+/// columns or buttons, how they are shaped, where an agent reads them in its
+/// CONTEXT, and what can change them. One short section per structured
+/// control, so a request such as "sort the Responsive Layout items A-Z"
+/// retrieves the record that answers it; the purpose text above was one long
+/// paragraph that never did (operator, 2026-10-02).
+fn control_structure(name: &str) -> &'static str {
+    match name {
+        "SideMenu" | "MenuBar" => "The menu items are NOT properties of the control. They are a tree stored in `<control id>.menu.yaml` beside the form, written by the menu editor (inspector button 'Edit Menu...') and protected by a hash, so a hand-edited file is refused. Each item has an `id` (four lowercase letters, fixed once given), a `label`, a `type` (`action`, or `separator` for a divider), an optional `icon`, an optional `action` and `enabled`; a group is an item with child `items`, at most 3 levels deep. Order in the file is display order. Actions: `open-form:<form>` loads that form into the ContentPane (it must be FormFormat Embedded or Both), `open-standalone-sync:<form>` and `open-standalone-async:<form>` open it in its own window (Standalone or Both), and `home` (SideMenu only) shows the shell form's own content. AN AGENT READS THE TREE from the `MENU ITEMS` block of its CONTEXT: one line per item, indentation is nesting, `(id ...)` is the item id and `-> ...` its action. No change-set operation edits it, and `set_property` cannot: moving, reordering, renaming or regrouping designed items is done in the menu editor, so say so to the developer and quote the items from `MENU ITEMS` rather than inventing an operation. At run time a program can add its own rows (`AddItem` and the other row methods) and relabel or disable designed ones, but never move a designed row.",
+        "ToolBar" => "The buttons are in the `ToolbarLayout` property: JSON written by the Toolbar Editor, holding the groups in order, each group's frame and button defaults, and each button's label or icon, tooltip, enabled state and action. An agent reads it in the control's `CONTROLS` line. Change it in the Toolbar Editor; a `set_property` on `ToolbarLayout` replaces the whole definition, so it must carry every group and button, not only the changed one.",
+        "TreeView" => "The tree is the `Items` property: one node per line, in display order, each child indented two spaces (or one tab) more than its parent, optionally followed by TAB-separated icon, colour and background fields. An agent reads it in the control's `CONTROLS` line and changes it with `set_property` on `Items`, sending the whole tree. From COBOL, `AddNode(level, text)` builds it at run time.",
+        "ListBox" | "ComboBox" => "The entries are the `Items` property: one entry per line, in display order. An agent reads it in the control's `CONTROLS` line and changes it with `set_property` on `Items`, sending the whole list (sorting, adding or removing an entry means sending every line). When `ItemsFile` names a text file, the list reads its entries from that file each time the form opens instead.",
+        "TabControl" => "The pages are the `Tabs` property: one tab title per line, in order. A control sits on a page through its own `Tab` property (the 0-based page index) with this TabControl as its `Parent`, so reordering titles in `Tabs` does not move the controls with them: a page move also needs each child's `Tab` changed.",
+        "DataGrid" => "The columns are the `Columns` property, one `Name:Type` per line in display order (`string`, `number` or `datetime`); the cells are `Rows`, one row per line with cells separated by TAB, usually filled at run time. An agent changes the columns with `set_property` on `Columns`, sending every column.",
+        _ => "",
+    }
+}
+
 fn control_purpose(name: &str) -> &'static str {
     match name {
         "Button" => "Clickable push button.",
@@ -7372,6 +7390,14 @@ fn controls_reference_doc() -> String {
         let purpose = control_purpose(&name);
         if !purpose.is_empty() {
             doc.push_str(&format!("{purpose} Default size {dw}×{dh} px.\n\n"));
+        }
+        let structure = control_structure(&name);
+        if !structure.is_empty() {
+            // Part of the control's own record, not a `###` section: the
+            // chunker files a `###` section as a separate prose record, and
+            // that one ranked 62nd for "sort the Responsive Layout items A-Z"
+            // while the control's own record ranked first.
+            doc.push_str(&format!("**Content structure.** {structure}\n\n"));
         }
 
         // Properties — type-specific ones in full, universals by reference.

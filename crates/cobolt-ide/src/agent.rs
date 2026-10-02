@@ -2173,9 +2173,82 @@ pub fn build_context_with_project(
     project_root: Option<&Path>,
 ) -> String {
     let mut out = build_context(form);
+    // The menus go inside the form's own inventory, before the per-type
+    // legends, so the specialists' slice of it (`control_inventory_excerpt`)
+    // carries them too.
+    let menus = project_root
+        .and_then(|root| form_dir(form, root))
+        .map(|dir| menu_items_context(form, &dir))
+        .unwrap_or_default();
+    if !menus.is_empty() {
+        let at = out.find("PROPERTY KEYS BY TYPE").unwrap_or(out.len());
+        out.insert_str(at, &menus);
+    }
     out.push('\n');
     out.push_str(&build_project_tree_context(project, project_root));
     out
+}
+
+/// The folder holding `form`'s `.cfrm`: a form is saved under its own name
+/// (`SIDEBAR-FORM` → `sidebar-form.cfrm`), anywhere under the Forms category.
+fn form_dir(form: &Form, project_root: &Path) -> Option<std::path::PathBuf> {
+    crate::project_model::recursive_category_files(project_root, crate::project_model::Category::Forms)
+        .into_iter()
+        .find(|rel| {
+            Path::new(rel)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .is_some_and(|s| s.eq_ignore_ascii_case(&form.name))
+        })
+        .and_then(|rel| project_root.join(rel).parent().map(Path::to_path_buf))
+}
+
+/// `MENU ITEMS`: the designed tree of every SideMenu and MenuBar on the form.
+/// A menu's items are not properties of its control: they live in
+/// `<control id>.menu.yaml` beside the form, so `CONTROLS` never showed them
+/// and an agent asked to reorder "Samples > Responsive Layout" could not see
+/// either (operator, 2026-10-02). Empty when the form has no menu.
+pub(crate) fn menu_items_context(form: &Form, form_dir: &Path) -> String {
+    fn walk(items: &[cobolt_forms::menu::MenuItem], depth: usize, out: &mut String) {
+        for item in items {
+            out.push_str(&format!("{}- \"{}\" (id {})", "  ".repeat(depth + 2), item.label, item.id));
+            if let Some(action) = item.action.as_deref().filter(|a| !a.is_empty()) {
+                out.push_str(&format!(" -> {action}"));
+            }
+            if matches!(item.item_type, cobolt_forms::menu::MenuItemType::Separator) {
+                out.push_str(" [separator]");
+            }
+            if !item.enabled {
+                out.push_str(" [disabled]");
+            }
+            out.push('\n');
+            walk(&item.items, depth + 1, out);
+        }
+    }
+    let mut out = String::new();
+    for ctrl in form
+        .controls
+        .iter()
+        .filter(|c| matches!(c.control_type, ControlType::SideMenu | ControlType::MenuBar))
+    {
+        let path = cobolt_forms::menu::menu_yaml_path(form_dir, &ctrl.id);
+        let Ok(def) = cobolt_forms::menu::load_menu(&path) else {
+            continue;
+        };
+        out.push_str(&format!("  {} ({}), {} item(s), in order:\n", ctrl.id, ctrl.control_type.as_str(), count(&def.menu)));
+        walk(&def.menu, 0, &mut out);
+    }
+    fn count(items: &[cobolt_forms::menu::MenuItem]) -> usize {
+        items.iter().map(|i| 1 + count(&i.items)).sum()
+    }
+    if out.is_empty() {
+        return out;
+    }
+    format!(
+        "MENU ITEMS (each menu's designed tree, nested by indentation. It is stored in \
+         `<control id>.menu.yaml` beside the form, not in the control's properties, so \
+         `set_property` cannot change it. `open-form:<name>` loads that form):\n{out}"
+    )
 }
 
 /// The project-tree half of the request context on its own — used by the

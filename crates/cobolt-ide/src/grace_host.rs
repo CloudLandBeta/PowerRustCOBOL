@@ -5422,6 +5422,59 @@ mod tests {
     /// Her copy is trimmed to the types in play — but the FULL context must
     /// survive for `inject_task_context`, or a specialist loses the very type
     /// its objective names.
+    /// The shipped System KB answers a menu-reordering request with the
+    /// SideMenu's own record, which carries its content structure: where the
+    /// items live, that `MENU ITEMS` shows them, and that no change-set edits
+    /// them. Written as a `###` section it ranked 62nd; inside the control's
+    /// record it ranks first.
+    #[test]
+    fn a_menu_reorder_request_retrieves_the_sidemenu_structure() {
+        let store = std::env::temp_dir().join(format!("prc-kb-structure-{}.data", std::process::id()));
+        std::fs::write(&store, PREBUILT_CHUNKED_KB).unwrap();
+        let hits = cobolt_agents::chunked_knowledge::search(
+            &store,
+            "reorder Samples > Responsive Layout sub-items of SideMenu-1 in alphabetic order (A-Z)",
+            8,
+        )
+        .unwrap();
+        let _ = std::fs::remove_file(&store);
+        let found = hits.iter().find(|h| h.content.contains("MENU ITEMS") && h.content.contains(".menu.yaml"));
+        assert!(
+            found.is_some(),
+            "no hit explains the menu tree; got: {:?}",
+            hits.iter().map(|h| (&h.subject, h.score)).collect::<Vec<_>>()
+        );
+        println!("retrieved: {} ({:.3})", found.unwrap().subject, found.unwrap().score);
+    }
+
+    /// A menu's items live in `<id>.menu.yaml`, not in its control's
+    /// properties, and no agent could see them: asked to reorder
+    /// "Samples > Responsive Layout", the Form Designer answered that the menu's
+    /// groups were not in its context (operator, 2026-10-02). The tree now
+    /// reaches Grace's planning view AND the slice a specialist is given.
+    #[test]
+    fn the_menu_tree_reaches_grace_and_the_specialists() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/PowerDemo3");
+        let form = cobolt_forms::load_form(&root.join("forms/sidebar-form.cfrm")).unwrap();
+        let ctx = crate::agent::build_context_with_project(&form, None, Some(&root));
+        let menus = ctx.find("MENU ITEMS").expect("the menu tree is in the context");
+        assert!(menus < ctx.find("PROPERTY KEYS BY TYPE").unwrap(), "inside the form's inventory");
+        let line = |label: &str| {
+            ctx.lines()
+                .find(|l| l.contains(&format!("\"{label}\"")))
+                .unwrap_or_else(|| panic!("{label} is listed"))
+                .to_string()
+        };
+        let indent = |l: &str| l.len() - l.trim_start().len();
+        let (samples, layout, dash) = (line("Samples"), line("Responsive Layout"), line("Responsive: dashboard"));
+        assert!(indent(&samples) < indent(&layout) && indent(&layout) < indent(&dash), "nesting shows:\n{samples}\n{layout}\n{dash}");
+        assert!(dash.contains("-> open-form:responsive-dashboard-form"), "{dash}");
+        let planning = planning_surface_context(&ctx, "reorder the Responsive Layout items A-Z");
+        assert!(planning.contains("\"Responsive: dashboard\""), "Grace plans with it");
+        assert!(control_inventory_excerpt(&ctx).contains("\"Responsive: dashboard\""), "a specialist is given it");
+        println!("menu tree: {} chars in a {}-char context", ctx[menus..].find("PROPERTY KEYS").unwrap(), ctx.len());
+    }
+
     #[test]
     fn graces_planning_context_is_trimmed_but_the_full_one_survives_for_tasks() {
         let context = "CONTEXT\nFORM: MAIN-FORM (800x600)\n\

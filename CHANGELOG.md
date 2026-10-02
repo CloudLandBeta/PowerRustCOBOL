@@ -8,6 +8,37 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.83] — 2026-10-02
+
+### Fix: Grace and the specialists can see a menu's items
+
+Asked to move the twelve responsive demos inside PowerDemo3's side menu,
+the Form Designer answered that the menu's groups and items were not in its
+context, and they were not. A SideMenu's or MenuBar's items live in
+`<control id>.menu.yaml` beside the form, not in the control's properties, so
+`CONTROLS` never listed them. The System KB mentioned the sidecar only once,
+inside the SideMenu's long purpose paragraph.
+
+- **Context.** `build_context_with_project` adds a `MENU ITEMS` block inside
+  the form's inventory: one line per item, indented by level, with its id,
+  its action and any `[separator]` or `[disabled]` mark. It is placed before
+  the per-type legends, so Grace's planning view and the slice each
+  specialist receives both carry it (4.2k characters for PowerDemo3's
+  94-item menu).
+- **System KB.** A "Content structure" passage for each control whose content
+  is not plain properties: SideMenu and MenuBar (the menu file, its shape,
+  `MENU ITEMS`, no change-set edits it), ToolBar (`ToolbarLayout`),
+  TreeView, ListBox and ComboBox (`Items`), TabControl (`Tabs` and each
+  child's `Tab`), and DataGrid (`Columns`, `Rows`). It sits inside the
+  control's own record: as a `###` section it was filed as a separate record
+  that ranked 62nd for "reorder Samples > Responsive Layout sub-items A-Z",
+  while the SideMenu record now ranks first (0.890). `chunked.data` was
+  regenerated.
+
+Tests: `the_menu_tree_reaches_grace_and_the_specialists`,
+`a_menu_reorder_request_retrieves_the_sidemenu_structure`. Agents still
+cannot rearrange designed menu items; that operation is spec 082.
+
 ## [PowerRustCOBOL 1.80.82] — 2026-10-02
 
 ### Fix: a responsive form in a content pane stops before its controls touch
