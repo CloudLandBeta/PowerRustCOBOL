@@ -939,6 +939,11 @@ pub struct CoboltApp {
     /// Track whether glass visuals have been applied (applied once on first frame).
     glass_visuals_applied: bool,
 
+    /// Whether the main window's system background blur is on, as last set
+    /// (`None` before the first frame). A see-through theme (Spatial) turns it
+    /// on; every other theme off. Set only when it changes.
+    window_blur: Option<bool>,
+
     /// Currently selected UI language.
     lang: Language,
     /// The language last written to the machine-local preferences. The selector
@@ -2146,6 +2151,7 @@ impl CoboltApp {
             code_search: crate::panels::code_search::CodeSearchPanel::new(),
             form_error_links: Vec::new(),
             glass_visuals_applied: false,
+            window_blur: None,
             lang: crate::ui_prefs::load_language(),
             lang_persisted: crate::ui_prefs::load_language(),
             welcome_quote_index: 0,
@@ -14730,7 +14736,19 @@ impl eframe::App for CoboltApp {
         [0.0, 0.0, 0.0, 0.0]
     }
 
-    fn ui(&mut self, root_ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, root_ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        // A see-through theme (Spatial) asks the operating system to blur the
+        // desktop under the window; the window is created transparent, so the
+        // blur is all that is missing. macOS honours it; elsewhere winit
+        // ignores the request and the tint alone shows.
+        let want_blur = crate::aurora::palette_for(self.current_theme().id)
+            .is_some_and(|p| p.see_through.is_some());
+        if self.window_blur != Some(want_blur) {
+            if let Some(window) = frame.winit_window() {
+                window.set_blur(want_blur);
+                self.window_blur = Some(want_blur);
+            }
+        }
         // The whole IDE is laid out with Context-level panels (top bar, side
         // panels, central canvas), so the per-frame entry point only needs the
         // Context; the root `Ui` itself hosts nothing directly.
@@ -14902,7 +14920,12 @@ impl eframe::App for CoboltApp {
             let p = ctx.global_style().visuals.panel_fill;
             let floor = egui::Color32::from_rgb(p.r(), p.g(), p.b());
             let painter = ctx.layer_painter(egui::LayerId::background());
-            if aurora {
+            let see_through = crate::aurora::palette_for(self.current_theme().id)
+                .and_then(|p| p.see_through);
+            if let Some(tint) = see_through {
+                // Nothing opaque: the blurred desktop, under a smoky tint.
+                painter.rect_filled(ctx.content_rect(), 0.0, tint);
+            } else if aurora {
                 crate::aurora::paint_backdrop(&painter, ctx.content_rect());
             } else {
                 painter.rect_filled(ctx.content_rect(), 0.0, floor);

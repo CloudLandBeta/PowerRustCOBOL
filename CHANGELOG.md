@@ -8,6 +8,29 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.91] — 2026-10-02
+
+### Feature: Spatial is see-through, over a blurred desktop
+
+The operator's reference shows a spatial-computing panel with the room
+behind it, blurred. Spatial now does the same with the desktop:
+- **Blur:** the IDE window was already created transparent; each frame, the
+  app turns the window's system background blur on under a see-through
+  theme and off otherwise, through winit's `Window::set_blur` (macOS uses a
+  private Core Graphics call, the same one Terminal.app uses). It only
+  calls when the state changes. Where winit cannot blur, the request is
+  ignored.
+- **Painting:** nothing opaque is painted behind the panes. A smoky tint
+  (`#1C1B19` at 50 %) is laid over the blurred desktop, and the glass panes
+  drop to 74 % so the blur shows through them.
+- **Readability:** a new test composites the worst case, a pure-white
+  wallpaper under the tint and each glass pane, and checks white text at
+  7:1.
+
+A project background image still replaces the see-through view. The other
+Aurora-family themes keep their painted backdrop (`see_through: None`).
+The Developer's Guide describes it.
+
 ## [PowerRustCOBOL 1.80.90] — 2026-10-02
 
 ### Feature: the Spatial IDE theme

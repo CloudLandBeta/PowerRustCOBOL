@@ -11718,6 +11718,10 @@ writes a per-control diagnostics dump named after the project.
   rounded corners, capsule-shaped buttons and no saturated colour. Light
   catches the top corners of each pane, and the selected tab is bright
   glass. Run is the one white button, so it stands out from the grey ones.
+  The IDE window is see-through under Spatial: on macOS the desktop behind
+  it shows, blurred, under a smoky tint, the way the room shows through a
+  floating panel. On systems that cannot blur a window, the tint alone shows.
+  A project background image replaces the see-through view.
   There is also an optional **background image** with an opacity control.
   Under either Aurora theme the image replaces the gradient backdrop.
   Settings are saved **per project** in `cobolt.toml`. The project tree and

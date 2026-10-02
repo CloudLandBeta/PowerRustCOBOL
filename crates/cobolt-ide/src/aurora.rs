@@ -50,6 +50,12 @@ pub struct Palette {
     /// 18 or more draws a full capsule).
     pub radius: u8,
     pub pill_radius: u8,
+    /// `Some(tint)`: the window is see-through. Nothing opaque is painted
+    /// behind the panes; the operating system blurs the desktop under the
+    /// window and this tint is laid over it, dark enough that the panes'
+    /// text stays readable over a bright wallpaper. `None`: the painted
+    /// backdrop.
+    pub see_through: Option<Color32>,
 }
 
 /// The toolbar's pill per button.
@@ -123,6 +129,7 @@ pub const PASTEL: Palette = Palette {
     edge: rgba8(120, 140, 175, 71),
     radius: 16,
     pill_radius: 10,
+    see_through: None,
 };
 
 /// Aurora Prime: the same surfaces in live secondary and tertiary colours
@@ -169,6 +176,7 @@ pub const PRIME: Palette = Palette {
     edge: rgba8(120, 140, 175, 71),
     radius: 16,
     pill_radius: 10,
+    see_through: None,
 };
 
 /// A slick two-colour palette: white and its variants, plus `dark` (text,
@@ -232,6 +240,7 @@ const fn slick(
         edge: rgba8(120, 128, 140, 70),
         radius: 16,
         pill_radius: 10,
+        see_through: None,
     }
 }
 
@@ -244,11 +253,14 @@ pub const SPATIAL: Palette = Palette {
     glows: [rgb(96, 92, 84), rgb(84, 86, 88), rgb(90, 86, 80)],
     waves: [(Color32::TRANSPARENT, Color32::TRANSPARENT), (Color32::TRANSPARENT, Color32::TRANSPARENT)],
     discs: [Color32::TRANSPARENT, Color32::TRANSPARENT],
+    // Glass at 74 %: the blurred desktop shows through. Over the worst case,
+    // a white wallpaper under the see-through tint, white text still reads
+    // about 7:1.
     panes: [
-        rgba8(66, 65, 62, 225),
-        rgba8(70, 69, 66, 225),
-        rgba8(66, 65, 62, 225),
-        rgba8(60, 59, 56, 230),
+        rgba8(66, 65, 62, 189),
+        rgba8(70, 69, 66, 189),
+        rgba8(66, 65, 62, 189),
+        rgba8(60, 59, 56, 196),
     ],
     corners: [
         rgba8(255, 255, 255, 140),
@@ -275,6 +287,7 @@ pub const SPATIAL: Palette = Palette {
     edge: rgba8(255, 255, 255, 36),
     radius: 26,
     pill_radius: 18,
+    see_through: Some(rgba8(28, 27, 25, 128)),
 };
 
 /// Slick: deep navy and teal.
@@ -511,6 +524,12 @@ pub fn pane_edge() -> Color32 {
     palette().unwrap_or(&PASTEL).edge
 }
 
+/// The see-through tint when the active theme wants the desktop to show,
+/// blurred, behind the window (Spatial); `None` for a painted backdrop.
+pub fn see_through() -> Option<Color32> {
+    palette().and_then(|p| p.see_through)
+}
+
 /// The active palette's pane corner radius.
 pub fn pane_radius() -> u8 {
     palette().unwrap_or(&PASTEL).radius
@@ -708,6 +727,26 @@ mod tests {
         assert!(shapes >= 6, "backdrop, glow and pills painted: {shapes} shapes");
         assert!(!clicked);
         crate::theme::set_active(crate::theme::default_theme());
+    }
+
+    /// Spatial is see-through: over the worst desktop, pure white, the
+    /// blur tint and then each glass pane composite to a grey that white
+    /// text still reads on at 7:1.
+    #[test]
+    fn spatial_text_reads_over_a_white_desktop() {
+        let over = |top: Color32, under: Color32| {
+            let a = top.a() as f32 / 255.0;
+            let ch = |t: u8, u: u8| (t as f32 + u as f32 * (1.0 - a)).round().min(255.0) as u8;
+            Color32::from_rgb(ch(top.r(), under.r()), ch(top.g(), under.g()), ch(top.b(), under.b()))
+        };
+        let tint = SPATIAL.see_through.expect("Spatial is see-through");
+        let room = over(tint, Color32::WHITE);
+        for pane in SPATIAL.panes {
+            let seen = over(pane, room);
+            let r = contrast_ratio(Color32::WHITE, seen);
+            assert!(r >= 7.0, "white on {seen:?}: {r:.2}:1");
+        }
+        assert!(PASTEL.see_through.is_none() && SLICK_NAVY_TEAL.see_through.is_none());
     }
 
     /// The pane tints are pastel and translucent, so the backdrop shows
