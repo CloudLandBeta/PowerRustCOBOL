@@ -4418,7 +4418,7 @@ impl PropertiesPanel {
             let aurora_tabs = crate::aurora::palette().map(|p| p.tabs);
             let (fill, text) = if selected {
                 match crate::aurora::palette() {
-                    Some(p) => (p.tab_selected, Color32::WHITE),
+                    Some(p) => (p.tab_selected, p.tab_selected_ink),
                     None => (sel_fill, sel_text),
                 }
             } else if let Some(tabs) = aurora_tabs {

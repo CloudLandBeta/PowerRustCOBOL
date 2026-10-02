@@ -193,7 +193,7 @@ pub fn glass_panel_frame(fill: Color32, theme: &Theme) -> egui::Frame {
         return egui::Frame::NONE
             .fill(fill)
             .stroke(Stroke::new(1.5, crate::aurora::pane_edge()))
-            .corner_radius(CornerRadius::same(crate::aurora::PANE_RADIUS))
+            .corner_radius(CornerRadius::same(crate::aurora::pane_radius()))
             .inner_margin(Margin::same(PANE_INNER_MARGIN))
             .outer_margin(Margin::same(6))
             .shadow(crate::aurora::pane_shadow());
@@ -1363,6 +1363,38 @@ pub const SLICK_PIANO_CORAL: Theme = slick_theme(
     rgb(11, 11, 13), rgb(79, 79, 81), rgb(139, 56, 38), rgb(195, 79, 54),
 );
 
+/// Spatial — dark frosted glass after spatial-computing UIs: warm grey
+/// translucent panes, white text, large radii, capsule buttons. Its painted
+/// palette is `aurora::SPATIAL`.
+pub const SPATIAL: Theme = Theme {
+    id: "spatial",
+    name: "Spatial",
+    dark: true,
+    bg_panel: rgba(66, 65, 62, 225),
+    bg_control: rgb(82, 81, 78),
+    bg_hover: rgb(98, 97, 94),
+    bg_active: rgb(120, 119, 115),
+    bg_extreme: rgb(40, 40, 38),
+    faint_bg: rgb(72, 71, 68),
+    code_bg: rgb(44, 43, 41),
+    accent: rgb(230, 229, 225),
+    border_dim: rgba(255, 255, 255, 40),
+    border_hi: rgb(210, 209, 205),
+    text_dim: rgb(226, 224, 218),
+    text_bright: rgb(255, 255, 255),
+    selection: rgba(255, 255, 255, 46),
+    hyperlink: rgb(175, 210, 255),
+    warn: rgb(255, 196, 120),
+    error: rgb(255, 160, 150),
+    ed_plain: rgb(240, 239, 235),
+    ed_keyword: rgb(175, 210, 255),
+    ed_data: rgb(190, 235, 205),
+    ed_paragraph: rgb(255, 196, 160),
+    ed_string: rgb(255, 214, 150),
+    ed_comment: rgb(165, 163, 158),
+    ed_generated: rgb(175, 210, 255),
+};
+
 /// Neumorphic Dark — the dark counterpart of Neumorphic Light, built the same
 /// way: a flat neutral canvas (Panel/Control/Code share one fill; depth comes
 /// from `paint_neumorphic_relief`, not a differently-coloured surface), with
@@ -1533,6 +1565,7 @@ pub const THEMES: &[Theme] = &[
     SLICK_SLATE_CORAL,
     SLICK_CHARCOAL_EMERALD,
     SLICK_PIANO_CORAL,
+    SPATIAL,
 ];
 
 /// The default theme (preserves the original look).
@@ -1703,8 +1736,8 @@ mod tests {
     fn the_theme_registry_size_is_pinned() {
         assert_eq!(
             THEMES.len(),
-            40,
-            "17 original + 12 light + Classic + Neumorphic Light/Dark/Cobalt + Silver Glass + Aurora Pastel/Prime + 5 Slick"
+            41,
+            "17 original + 12 light + Classic + Neumorphic Light/Dark/Cobalt + Silver Glass + Aurora Pastel/Prime + 5 Slick + Spatial"
         );
     }
 

@@ -39,10 +39,17 @@ pub struct Palette {
     /// Section header band and its title ink.
     pub band: Color32,
     pub band_ink: Color32,
-    /// The selected inspector tab's fill (its text is white).
+    /// The selected inspector tab's fill and text.
     pub tab_selected: Color32,
+    pub tab_selected_ink: Color32,
     /// The colour of the shadow under every pane card.
     pub shadow: Color32,
+    /// The discreet border along a pane's edges, where no corner glows.
+    pub edge: Color32,
+    /// Pane card corner radius, and toolbar pill radius (a pill radius of
+    /// 18 or more draws a full capsule).
+    pub radius: u8,
+    pub pill_radius: u8,
 }
 
 /// The toolbar's pill per button.
@@ -54,6 +61,8 @@ pub struct Pills {
     pub run: Pill,
     pub debug: Pill,
     pub stop: Pill,
+    /// Every disabled button.
+    pub disabled: Pill,
 }
 
 const fn rgb(r: u8, g: u8, b: u8) -> Color32 {
@@ -103,12 +112,17 @@ pub const PASTEL: Palette = Palette {
         run: pill_of(rgb(19, 116, 86), rgb(14, 90, 66), rgb(255, 255, 255)),
         debug: pill_of(rgb(255, 241, 201), rgb(255, 217, 138), rgb(90, 58, 18)),
         stop: pill_of(rgb(255, 227, 234), rgb(249, 185, 201), rgb(91, 36, 51)),
+        disabled: Pill::DISABLED,
     },
     tabs: [rgb(220, 235, 255), rgb(205, 223, 252), rgb(203, 238, 222), rgb(224, 216, 252)],
     band: rgb(220, 235, 255),
     band_ink: rgb(23, 62, 134),
     tab_selected: rgb(18, 22, 27),
+    tab_selected_ink: rgb(255, 255, 255),
     shadow: rgba8(28, 56, 110, 64),
+    edge: rgba8(120, 140, 175, 71),
+    radius: 16,
+    pill_radius: 10,
 };
 
 /// Aurora Prime: the same surfaces in live secondary and tertiary colours
@@ -144,12 +158,17 @@ pub const PRIME: Palette = Palette {
         run: pill_of(rgb(19, 116, 86), rgb(14, 90, 66), rgb(255, 255, 255)),
         debug: pill_of(rgb(176, 74, 8), rgb(143, 60, 6), rgb(255, 255, 255)),
         stop: pill_of(rgb(184, 37, 106), rgb(149, 29, 86), rgb(255, 255, 255)),
+        disabled: Pill::DISABLED,
     },
     tabs: [rgb(203, 230, 255), rgb(201, 211, 255), rgb(189, 242, 220), rgb(226, 204, 255)],
     band: rgb(191, 227, 255),
     band_ink: rgb(15, 58, 122),
     tab_selected: rgb(18, 22, 27),
+    tab_selected_ink: rgb(255, 255, 255),
     shadow: rgba8(28, 56, 110, 64),
+    edge: rgba8(120, 140, 175, 71),
+    radius: 16,
+    pill_radius: 10,
 };
 
 /// A slick two-colour palette: white and its variants, plus `dark` (text,
@@ -202,14 +221,61 @@ const fn slick(
             run: pill_of(accent_top, accent_bottom, white),
             debug: pill_of(white, off, dark),
             stop: pill_of(white, off, accent_ink),
+            disabled: Pill::DISABLED,
         },
         tabs: [off, rgb(236, 239, 243), off, rgb(236, 239, 243)],
         band: rgb(236, 239, 243),
         band_ink: dark,
         tab_selected: dark,
+        tab_selected_ink: white,
         shadow: rgba8(15, 20, 30, 46),
+        edge: rgba8(120, 128, 140, 70),
+        radius: 16,
+        pill_radius: 10,
     }
 }
+
+/// Spatial: dark frosted glass in the manner of a spatial-computing UI.
+/// Warm grey translucent panes over a dim room, white text, large corner
+/// radii, capsule buttons, no saturated colour; the light catches the
+/// panes' top corners as a white specular glow. Selection is brighter glass.
+pub const SPATIAL: Palette = Palette {
+    wash: [rgb(62, 60, 56), rgb(48, 46, 43), rgb(38, 37, 35)],
+    glows: [rgb(96, 92, 84), rgb(84, 86, 88), rgb(90, 86, 80)],
+    waves: [(Color32::TRANSPARENT, Color32::TRANSPARENT), (Color32::TRANSPARENT, Color32::TRANSPARENT)],
+    discs: [Color32::TRANSPARENT, Color32::TRANSPARENT],
+    panes: [
+        rgba8(66, 65, 62, 225),
+        rgba8(70, 69, 66, 225),
+        rgba8(66, 65, 62, 225),
+        rgba8(60, 59, 56, 230),
+    ],
+    corners: [
+        rgba8(255, 255, 255, 140),
+        rgba8(255, 255, 255, 115),
+        rgba8(255, 255, 255, 31),
+        rgba8(255, 255, 255, 46),
+    ],
+    pills: Pills {
+        open: pill_of(rgb(110, 109, 105), rgb(92, 91, 88), rgb(255, 255, 255)),
+        check: pill_of(rgb(110, 109, 105), rgb(92, 91, 88), rgb(255, 255, 255)),
+        search: pill_of(rgb(110, 109, 105), rgb(92, 91, 88), rgb(255, 255, 255)),
+        build: pill_of(rgb(110, 109, 105), rgb(92, 91, 88), rgb(255, 255, 255)),
+        run: pill_of(rgb(245, 244, 240), rgb(218, 216, 210), rgb(28, 28, 30)),
+        debug: pill_of(rgb(110, 109, 105), rgb(92, 91, 88), rgb(255, 255, 255)),
+        stop: pill_of(rgb(110, 109, 105), rgb(92, 91, 88), rgb(255, 255, 255)),
+        disabled: pill_of(rgb(64, 63, 60), rgb(56, 55, 52), rgb(186, 184, 179)),
+    },
+    tabs: [rgb(72, 71, 68), rgb(72, 71, 68), rgb(72, 71, 68), rgb(72, 71, 68)],
+    band: rgb(62, 61, 58),
+    band_ink: rgb(255, 255, 255),
+    tab_selected: rgb(232, 231, 226),
+    tab_selected_ink: rgb(28, 28, 30),
+    shadow: rgba8(0, 0, 0, 110),
+    edge: rgba8(255, 255, 255, 36),
+    radius: 26,
+    pill_radius: 18,
+};
 
 /// Slick: deep navy and teal.
 pub const SLICK_NAVY_TEAL: Palette =
@@ -243,6 +309,7 @@ pub fn palette_for(id: &str) -> Option<&'static Palette> {
         "slick-slate-coral" => Some(&SLICK_SLATE_CORAL),
         "slick-charcoal-emerald" => Some(&SLICK_CHARCOAL_EMERALD),
         "slick-piano-coral" => Some(&SLICK_PIANO_CORAL),
+        "spatial" => Some(&SPATIAL),
         _ => None,
     }
 }
@@ -441,7 +508,12 @@ pub fn pane_shadow() -> Shadow {
 
 /// The border colour along a pane's edges, where no corner glows.
 pub fn pane_edge() -> Color32 {
-    rgba(120, 140, 175, 0.28)
+    palette().unwrap_or(&PASTEL).edge
+}
+
+/// The active palette's pane corner radius.
+pub fn pane_radius() -> u8 {
+    palette().unwrap_or(&PASTEL).radius
 }
 
 /// Paint `card`'s corner glow and its inner top highlight. The edges keep the
@@ -495,7 +567,7 @@ pub fn glow_card(ui: &Ui) {
     }
     let card = ui.max_rect().expand(crate::theme::PANE_INNER_MARGIN as f32);
     let painter = ui.ctx().layer_painter(ui.layer_id());
-    paint_corner_glow(&painter, card, PANE_RADIUS as f32);
+    paint_corner_glow(&painter, card, pane_radius() as f32);
 }
 
 /// [`glow_card`] from outside: `panel` is the response of a panel whose frame
@@ -505,7 +577,7 @@ pub fn glow_panel(panel: &Response) {
         return;
     }
     let painter = panel.ctx.layer_painter(panel.layer_id);
-    paint_corner_glow(&painter, panel.rect.shrink(6.0), PANE_RADIUS as f32);
+    paint_corner_glow(&painter, panel.rect.shrink(6.0), pane_radius() as f32);
 }
 
 // ── Toolbar pills ─────────────────────────────────────────────────────────
@@ -527,17 +599,20 @@ impl Pill {
 /// the gradient, a lit top edge and a shaded bottom edge. The label keeps the
 /// widget's own text and behaviour; only the face is painted.
 pub fn pill(ui: &mut Ui, enabled: bool, label: &str, look: Pill) -> Response {
-    let look = if enabled { look } else { Pill::DISABLED };
+    let pal = palette().unwrap_or(&PASTEL);
+    let look = if enabled { look } else { pal.pills.disabled };
+    let pill_r = pal.pill_radius;
     let slot = ui.painter().add(Shape::Noop);
     let resp = ui.add_enabled(
         enabled,
         egui::Button::new(egui::RichText::new(label).color(look.ink))
             .fill(Color32::TRANSPARENT)
             .stroke(Stroke::NONE)
-            .corner_radius(CornerRadius::same(10)),
+            .corner_radius(CornerRadius::same(pill_r)),
     );
     let r = resp.rect;
-    let radius = 10.0;
+    // A radius of 18 or more means a capsule: round ends whatever the height.
+    let radius = if pill_r >= 18 { r.height() / 2.0 } else { pill_r as f32 };
     let (top, bottom) = if enabled && resp.hovered() {
         (look.top.lerp_to_gamma(Color32::WHITE, 0.25), look.bottom.lerp_to_gamma(Color32::WHITE, 0.15))
     } else {
@@ -552,7 +627,7 @@ pub fn pill(ui: &mut Ui, enabled: bool, label: &str, look: Pill) -> Response {
                 spread: 0,
                 color: Color32::from_rgba_unmultiplied(28, 56, 110, 70),
             }
-            .as_shape(r, CornerRadius::same(10)),
+            .as_shape(r, CornerRadius::same(radius.round().min(255.0) as u8)),
         ));
     }
     shapes.push(Shape::mesh(gradient_rounded_rect(r, radius, top, bottom)));
@@ -585,6 +660,7 @@ mod tests {
             ("slate-coral", &SLICK_SLATE_CORAL),
             ("charcoal-emerald", &SLICK_CHARCOAL_EMERALD),
             ("piano-coral", &SLICK_PIANO_CORAL),
+            ("spatial", &SPATIAL),
         ] {
             let ps = &pal.pills;
             for (name, p) in [
@@ -595,7 +671,7 @@ mod tests {
                 ("run", ps.run),
                 ("debug", ps.debug),
                 ("stop", ps.stop),
-                ("disabled", Pill::DISABLED),
+                ("disabled", ps.disabled),
             ] {
                 // White on a saturated face 4.5:1; dark ink on a pastel 7:1.
                 let floor = if p.ink == Color32::WHITE || name == "disabled" { 4.5 } else { 7.0 };
@@ -646,6 +722,7 @@ mod tests {
             (crate::theme::SLICK_SLATE_CORAL, &SLICK_SLATE_CORAL),
             (crate::theme::SLICK_CHARCOAL_EMERALD, &SLICK_CHARCOAL_EMERALD),
             (crate::theme::SLICK_PIANO_CORAL, &SLICK_PIANO_CORAL),
+            (crate::theme::SPATIAL, &SPATIAL),
         ] {
             // Judged on the tint's opaque colour: what dark text sits on.
             let opaque = |c: Color32| {
@@ -659,7 +736,7 @@ mod tests {
                 assert!(contrast_ratio(theme.text_dim, t) >= 6.5, "{}: {t:?}", theme.id);
             }
             assert!(contrast_ratio(pal.band_ink, opaque(pal.band)) >= 7.0, "{} band", theme.id);
-            assert!(contrast_ratio(Color32::WHITE, pal.tab_selected) >= 7.0, "{} selected tab", theme.id);
+            assert!(contrast_ratio(pal.tab_selected_ink, pal.tab_selected) >= 7.0, "{} selected tab", theme.id);
             assert!(crate::aurora::palette_for(theme.id).is_some(), "{} has a palette", theme.id);
         }
     }

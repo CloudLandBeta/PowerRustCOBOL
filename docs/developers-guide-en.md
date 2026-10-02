@@ -11686,7 +11686,7 @@ writes a per-control diagnostics dump named after the project.
 ---
 ## 20. Appearance and internationalisation
 
-- **Themes.** ⚙ ▸ *Settings* offers 40 colour themes — dark (Dark Glass
+- **Themes.** ⚙ ▸ *Settings* offers 41 colour themes — dark (Dark Glass
   [default], Deep Blue, Dark+, Monokai, Solarized Dark, Nord, Dracula, and
   more), light (Light+, GitHub Light, One Light, Gruvbox Light, Ayu Light,
   Quiet Light, Tomorrow, Material Lighter, Nord Light, Rosé Pine Dawn,
@@ -11713,6 +11713,11 @@ writes a per-control diagnostics dump named after the project.
   the corner glows. They are **Navy & Teal**, **Graphite & Indigo**,
   **Slate & Coral**, **Charcoal & Emerald** and **Piano & Coral** (glossy
   black with a deep coral).
+  **Spatial** is a dark theme in the manner of spatial-computing interfaces:
+  warm grey frosted-glass panes floating over a dim room, white text, large
+  rounded corners, capsule-shaped buttons and no saturated colour. Light
+  catches the top corners of each pane, and the selected tab is bright
+  glass. Run is the one white button, so it stands out from the grey ones.
   There is also an optional **background image** with an opacity control.
   Under either Aurora theme the image replaces the gradient backdrop.
   Settings are saved **per project** in `cobolt.toml`. The project tree and

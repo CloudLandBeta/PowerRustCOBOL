@@ -8,6 +8,31 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.90] — 2026-10-02
+
+### Feature: the Spatial IDE theme
+
+A dark theme in the manner of spatial-computing interfaces, from the
+operator's reference screenshot:
+- **Panes:** warm grey translucent "glass" (`#42413E` at 88 %) over a dim
+  room backdrop, with large 26 px corners and a faint white edge.
+- **Light:** it catches each pane's top corners as a white specular glow,
+  fading toward the bottom.
+- **Text:** white, at about 10:1 on the glass; secondary text is warm
+  off-white at 7:1.
+- **Buttons:** capsule-shaped, grey glass with white text (5.2:1). Run is the
+  one bright white button, with dark text. Disabled buttons are a darker
+  glass.
+- **Inspector:** the selected tab is bright glass with dark text, and idle
+  tabs and section bands are a darker glass.
+
+To serve a dark theme, the Aurora palette gained five properties: pane
+radius, pill radius (18 or more draws a capsule), a pane edge colour, a
+selected-tab ink, and a disabled pill per palette. The seven existing
+palettes keep their values, so they look as before. Contrast tests cover
+all eight palettes; the test caught Spatial's first disabled ink at 4.43:1,
+which was lightened. The Developer's Guide describes the theme.
+
 ## [PowerRustCOBOL 1.80.89] — 2026-10-02
 
 ### Feature: five Slick IDE themes
