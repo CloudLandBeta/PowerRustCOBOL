@@ -8,6 +8,26 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.97] — 2026-10-02
+
+### Feature: search inside the model dropdowns
+
+A provider like OpenRouter lists hundreds of models (465 on the operator's
+account), and the Model Leaderboard's "add a model" dropdown and the Agents
+table's Model column offered them as one flat, unsearchable list.
+
+- **A search box at the top of both lists** (`panels/model_search.rs`, shared).
+  It takes focus as soon as the list opens and keeps a model whose id holds
+  every typed word, in any order and ignoring case — `mini gpt` finds
+  `openai/gpt-5-mini`. A `shown / total` count sits under it.
+- **Enter takes the first match**, so a precise search needs no mouse.
+- **The list scrolls at 320 px** instead of running off the screen, and the
+  search clears each time the dropdown closes.
+- Clicking into the search box no longer closes the list: both dropdowns close
+  only on a click outside, or when a model is picked.
+
+1.80.96 is the OpenRouter model-list fix on `fixes-openrouter-models`.
+
 ## [PowerRustCOBOL 1.80.95] — 2026-10-02
 
 ### Feature: the Spatial form theme, window blur for applications, and `BorderStyle` Glow (spec 083)

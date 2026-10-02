@@ -157,6 +157,9 @@ pub struct AgentsModal {
     /// Free-text filter for the Model column. One provider can offer several
     /// hundred models, and a flat dropdown that long hides the one you came for.
     model_filter: String,
+    /// The search box inside whichever Model dropdown is open. Only one list
+    /// is ever open at a time, so one buffer serves every row.
+    combo_filter: String,
 }
 
 /// What the caller (app.rs) must do after a frame of the modal.
@@ -242,6 +245,7 @@ impl AgentsModal {
             seeded,
             provider_scope,
             model_filter: String::new(),
+            combo_filter: String::new(),
         };
         m.load_selected(llm);
         m
@@ -791,6 +795,7 @@ impl AgentsModal {
                         ui.label(egui::RichText::new(tr.agents_tbl_timeout).strong());
                         ui.end_row();
 
+                        let mut any_list_open = false;
                         for i in 0..self.db.agents.len() {
                             let name = self.db.agents[i].name.clone();
                             let clash = separation
@@ -821,25 +826,55 @@ impl AgentsModal {
                             } else {
                                 agent.model.clone()
                             };
-                            egui::ComboBox::from_id_salt(("agent_model", i))
+                            let combo_filter = &mut self.combo_filter;
+                            let combo = egui::ComboBox::from_id_salt(("agent_model", i))
                                 .selected_text(shown)
                                 .width(240.0)
+                                // A click in the search box must not close the
+                                // list; picking an entry closes it by hand.
+                                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                                 .show_ui(ui, |ui| {
-                                    if ui
-                                        .selectable_label(agent.no_model, tr.agents_tbl_no_model)
-                                        .clicked()
-                                    {
-                                        agent.no_model = true;
-                                        agent.model.clear();
-                                        agent.model_profile = None;
-                                        changed = true;
-                                    }
-                                    for model in &offered {
-                                        let selected =
-                                            !agent.no_model && &agent.model == model;
-                                        if ui.selectable_label(selected, model).clicked()
-                                            && !selected
-                                        {
+                                    let matches =
+                                        super::model_search::filter_models(&offered, combo_filter);
+                                    let enter = super::model_search::search_field(
+                                        ui,
+                                        combo_filter,
+                                        tr.agents_tbl_model_search,
+                                        matches.len(),
+                                        offered.len(),
+                                    );
+                                    let mut picked = if enter {
+                                        matches.first().map(|m| (*m).clone())
+                                    } else {
+                                        None
+                                    };
+                                    egui::ScrollArea::vertical()
+                                        .id_salt(("agent_model_list", i))
+                                        .max_height(super::model_search::LIST_MAX_H)
+                                        .show(ui, |ui| {
+                                            if ui
+                                                .selectable_label(
+                                                    agent.no_model,
+                                                    tr.agents_tbl_no_model,
+                                                )
+                                                .clicked()
+                                            {
+                                                agent.no_model = true;
+                                                agent.model.clear();
+                                                agent.model_profile = None;
+                                                changed = true;
+                                                ui.close();
+                                            }
+                                            for model in matches {
+                                                let selected =
+                                                    !agent.no_model && &agent.model == model;
+                                                if ui.selectable_label(selected, model).clicked() {
+                                                    picked = Some(model.clone());
+                                                }
+                                            }
+                                        });
+                                    if let Some(model) = picked {
+                                        if agent.no_model || agent.model != model {
                                             // The agent takes the model AND the
                                             // provider it was picked from (R12);
                                             // other rows keep theirs (R11).
@@ -847,11 +882,13 @@ impl AgentsModal {
                                             agent.model_profile = None;
                                             agent.provider = scope.clone();
                                             agent.endpoint = llm.provider_endpoint(&scope);
-                                            agent.model = model.clone();
+                                            agent.model = model;
                                             changed = true;
                                         }
+                                        ui.close();
                                     }
                                 });
+                            any_list_open |= combo.inner.is_some();
 
                             // Rating — what the Leaderboard knows about this
                             // model. An untested model says so plainly rather
@@ -915,6 +952,10 @@ impl AgentsModal {
                                 changed = true;
                             }
                             ui.end_row();
+                        }
+                        // Each opening starts from the whole list again.
+                        if !any_list_open && !self.combo_filter.is_empty() {
+                            self.combo_filter.clear();
                         }
                     });
             });
