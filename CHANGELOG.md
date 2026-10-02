@@ -8,6 +8,26 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.78] — 2026-10-02
+
+### Fix: Grace plans in one model round
+
+The same PowerDemo3 request ("move all forms whose names start with
+responsive from General to Responsive Layout") spent 911 s in Grace's
+planning call, on Ollama Cloud `nemotron-3-ultra` at about 150 s a round. One
+round was the plan; the other five were `knowledge.search` lookups that
+found nothing, and each re-sent her whole prompt.
+
+Grace now works like PowerChat's orchestrator (063 R66): her calls carry no
+tools. She plans from the Knowledge Base excerpts retrieved before she runs,
+and when a question needs an entry those excerpts missed, the routing
+contract has her plan a Documentation Agent task that searches for it. Every
+specialist keeps `knowledge.search`. Her stored agent definition still
+declares the tool; the workflow host withholds it, through one helper
+(`granted_tools`), from the native tools, the text tool protocol and a task
+assigned to Grace. On that request it removes five rounds, about 760 s.
+The Developer's Guide says so in its Knowledge Base section.
+
 ## [PowerRustCOBOL 1.80.77] — 2026-10-02
 
 ### Fix: Grace's context lists each control API once

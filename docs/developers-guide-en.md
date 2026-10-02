@@ -1103,7 +1103,11 @@ Knowledge Base holds relevant evidence Grace says so, labels any general
 guidance, and asks for missing project facts rather than inventing them. Every
 specialist receives governed, read-only `knowledge.search` access over the same
 two stores, so a platform fact and a prior project decision are both retrievable
-in later work.
+in later work. Grace herself does not search: she plans in a single call to her
+model, from the excerpts retrieved before she starts, and when a question needs
+an entry those excerpts missed she gives the lookup to a specialist as a task.
+Every search she made on her own cost another full pass of her prompt through
+the model, which is minutes on a slow reasoning model.
 
 Indexed-file work uses a mandatory two-specialist handoff coordinated by Grace.
 Documentation Agent first obtains a missing file name, derives the file purpose
