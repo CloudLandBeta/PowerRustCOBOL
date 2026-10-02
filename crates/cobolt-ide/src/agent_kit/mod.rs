@@ -8,10 +8,32 @@
 //!
 //! What the IDE does for an external coding agent such as Claude Code: serve
 //! the project tools of `cobolt-project-tools` over HTTP on `127.0.0.1`
-//! ([`ide_host`]), and — in later phases of the spec — export the kit that
-//! tells the agent how to use them.
+//! ([`ide_host`]), and export the kit that tells the agent how to use them
+//! ([`export`]):
+//!
+//! ```text
+//! content::build (target-neutral) ─▶ KitWriter::files ─▶ stamp::plan
+//!     ─▶ redact::check (refuse: nothing written) ─▶ stamp::write (manifest last)
+//! ```
 
+// The export is wired to the IDE in the next phase of spec 080; until then
+// only its tests reach it.
+#![cfg_attr(not(test), allow(dead_code))]
+
+pub mod claude_code;
+pub mod content;
 pub mod ide_host;
+pub mod redact;
+pub mod reference;
+pub mod stamp;
+
+use std::path::{Path, PathBuf};
+
+use crate::ai_bundle::Personal;
+use crate::llm::LlmConfig;
+
+use content::{KitWriter, RcrunLocation, ToolInfo};
+use stamp::Decision;
 
 /// The kit manifest, relative to the project folder (spec 080 R5, plan §3.2).
 /// The IDE reads its `kit_id` to know which project an MCP request is for.
@@ -26,4 +48,223 @@ pub fn kit_id_of(project_dir: &std::path::Path) -> Option<String> {
         .map(str::trim)
         .filter(|k| !k.is_empty())
         .map(str::to_owned)
+}
+
+/// The coding agents a kit can be written for (R1, R20). One today.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Target {
+    ClaudeCode,
+}
+
+impl Target {
+    fn writer(self) -> Box<dyn KitWriter> {
+        match self {
+            Target::ClaudeCode => Box::new(claude_code::ClaudeCodeWriter),
+        }
+    }
+}
+
+/// What an export needs from the machine it runs on.
+pub struct ExportContext<'a> {
+    /// The IDE version that writes the kit (R5).
+    pub ide_version: &'a str,
+    /// The port the IDE serves the tools on (R11a) — baked into `.mcp.json`.
+    pub mcp_port: u16,
+    /// `rcrun` beside the IDE, if it is there.
+    pub rcrun: Option<PathBuf>,
+    /// The home folder, so a path under it is written without it (R4).
+    pub home: Option<PathBuf>,
+    pub personal: &'a Personal,
+    /// The stored keys an export must never carry (R4).
+    pub llm: &'a LlmConfig,
+}
+
+/// What an export did, file by file (R1: the Output panel lists it).
+#[derive(Debug, Clone)]
+pub struct ExportReport {
+    pub files: Vec<(String, Decision)>,
+    pub kit_id: String,
+    /// Personal details replaced in the inserted values.
+    pub replaced: usize,
+    /// Files the refusal scan read.
+    pub scanned: usize,
+}
+
+/// Why nothing was written.
+#[derive(Debug, Clone)]
+pub enum ExportError {
+    /// The folder is not a project this export can read.
+    NoProject(String),
+    /// A stored key or a personal detail would have been written (R4).
+    Refused(redact::Refusal),
+    /// The disk refused a write.
+    Failed(String),
+}
+
+impl ExportError {
+    /// The Output line, in the IDE's language.
+    pub fn message(&self, tr: &crate::i18n::Tr) -> String {
+        match self {
+            ExportError::Refused(r) => r.message(tr),
+            ExportError::NoProject(e) | ExportError::Failed(e) => tr.agent_kit_refused.replacen("{}", e, 1),
+        }
+    }
+}
+
+/// Write the kit for `target` into the project at `project` (its folder or
+/// its manifest). Everything is planned and scanned in memory first; a refusal
+/// writes nothing, and the kit manifest is written last.
+pub fn export(project: &Path, target: Target, ctx: &ExportContext) -> Result<ExportReport, ExportError> {
+    let root = cobolt_project_tools::ProjectRoot::open(project).map_err(ExportError::NoProject)?;
+    let dir = root.dir().to_path_buf();
+    let view = cobolt_compiler::project_manifest_view(root.manifest()).map_err(ExportError::NoProject)?;
+
+    // The values the export inserts, scrubbed before anything is rendered.
+    let (project_name, mut replaced) = redact::scrub_value(ctx.personal, &view.name);
+    let rcrun = match content::locate_rcrun(ctx.rcrun.as_deref(), ctx.home.as_deref()) {
+        RcrunLocation::UnderHome(p) => {
+            let (p, n) = redact::scrub_value(ctx.personal, &p);
+            replaced += n;
+            RcrunLocation::UnderHome(p)
+        }
+        RcrunLocation::Absolute(p) => {
+            let (p, n) = redact::scrub_value(ctx.personal, &p);
+            replaced += n;
+            RcrunLocation::Absolute(p)
+        }
+        RcrunLocation::OnPath => RcrunLocation::OnPath,
+    };
+
+    let old = stamp::read_manifest(&dir);
+    let kit_id = old.as_ref().map(|m| m.kit_id.clone()).unwrap_or_else(stamp::new_kit_id);
+    let tools = cobolt_project_tools::ProjectTools::<cobolt_project_tools::HeadlessHost>::tool_list()
+        .into_iter()
+        .map(|t| ToolInfo { name: t.name, description: t.description.unwrap_or_default() })
+        .collect();
+    let content = content::build(content::BuildInput {
+        ide_version: ctx.ide_version.to_owned(),
+        project_name,
+        ide_url: format!("http://127.0.0.1:{}/mcp/{kit_id}", ctx.mcp_port),
+        rcrun,
+        tools,
+        reference: reference::pack(ctx.ide_version),
+    });
+
+    let writer = target.writer();
+    let files = writer.files(&content);
+    let planned = stamp::plan(&dir, &files, old.as_ref(), ctx.ide_version);
+    let manifest = stamp::manifest_for(writer.target(), ctx.ide_version, &kit_id, ctx.mcp_port, &planned);
+    let manifest_text = stamp::manifest_text(&manifest);
+    let scan = redact::check(&planned, (KIT_MANIFEST, &manifest_text), ctx.llm, ctx.personal)
+        .map_err(ExportError::Refused)?;
+    stamp::write(&dir, &planned, &manifest).map_err(|e| ExportError::Failed(e.to_string()))?;
+    Ok(ExportReport {
+        files: planned.into_iter().map(|p| (p.rel, p.decision)).collect(),
+        kit_id,
+        replaced,
+        scanned: scan.files,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn copy_dir(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for e in std::fs::read_dir(from).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                copy_dir(&p, &to.join(e.file_name()));
+            } else {
+                std::fs::copy(&p, to.join(e.file_name())).unwrap();
+            }
+        }
+    }
+
+    /// AC1 (R1, R2, R5): an export into a copy of PowerChat writes every R2
+    /// file, each carrying the version; every JSON file is in the manifest
+    /// with its version and hash; a second export keeps nothing it should
+    /// replace and keeps the kit id.
+    #[test]
+    fn export_into_powerchat_copy() {
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/PowerChat");
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        std::fs::copy(src.join("PowerChat.project.toml"), dir.join("PowerChat.project.toml")).unwrap();
+        copy_dir(&src.join("forms"), &dir.join("forms"));
+        copy_dir(&src.join("src"), &dir.join("src"));
+
+        let llm = LlmConfig::load_defaults_for_test();
+        let personal = Personal::new(None, None, None, None);
+        let ctx = ExportContext {
+            ide_version: "1.80.70",
+            mcp_port: 5720,
+            rcrun: None,
+            home: None,
+            personal: &personal,
+            llm: &llm,
+        };
+        let first = export(dir, Target::ClaudeCode, &ctx).expect("export");
+
+        // R2: every kind of file.
+        let rels: Vec<&str> = first.files.iter().map(|(r, _)| r.as_str()).collect();
+        for want in ["CLAUDE.md", ".claude/settings.json", ".mcp.json", ".claude/agents/powerrustcobol-reviewer.md",
+                     "docs/powerrustcobol/README.md", "docs/powerrustcobol/developers-guide.md",
+                     "docs/powerrustcobol/controls.md", "docs/powerrustcobol/builtins.md"] {
+            assert!(rels.contains(&want), "{want} not in the report");
+            assert!(dir.join(want).is_file(), "{want} not written");
+        }
+        assert_eq!(rels.iter().filter(|r| r.starts_with(".claude/skills/") && r.ends_with("/SKILL.md")).count(), 7);
+        assert!(dir.join(KIT_MANIFEST).is_file(), "no kit manifest");
+
+        // R5: the version in every file — a stamp, or the manifest for JSON.
+        let manifest = stamp::read_manifest(dir).expect("manifest reads");
+        assert_eq!(manifest.ide_version, "1.80.70");
+        assert_eq!(kit_id_of(dir).as_deref(), Some(first.kit_id.as_str()));
+        let mut by_kind: BTreeMap<&str, usize> = BTreeMap::new();
+        for (rel, decision) in &first.files {
+            assert_eq!(*decision, Decision::Write, "{rel}: a fresh project writes everything");
+            let text = std::fs::read_to_string(dir.join(rel)).unwrap();
+            let entry = manifest.files.iter().find(|e| &e.path == rel).unwrap_or_else(|| panic!("{rel} not in the manifest"));
+            assert_eq!(entry.written_by, "1.80.70");
+            let kind = if rel.ends_with(".json") {
+                assert!(entry.owned.is_some() && entry.sha256.len() == 64, "{rel}: JSON without its stamp");
+                serde_json::from_str::<serde_json::Value>(&text).expect("JSON parses");
+                "json"
+            } else if rel == "CLAUDE.md" {
+                assert!(text.starts_with("<!-- powerrustcobol-kit:begin 1.80.70 -->\n"), "CLAUDE.md marker");
+                assert!(text.contains("Written by PowerRustCOBOL AI 1.80.70"), "CLAUDE.md visible version");
+                "section"
+            } else if text.starts_with("---\n") {
+                assert!(text.contains("\n---\n<!-- powerrustcobol-kit: 1.80.70 -->\n"), "{rel}: stamp after frontmatter");
+                "frontmatter"
+            } else {
+                assert!(text.starts_with("<!-- powerrustcobol-kit: 1.80.70 -->\n"), "{rel}: stamp on line 1");
+                "markdown"
+            };
+            *by_kind.entry(kind).or_default() += 1;
+        }
+        let mcp: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join(".mcp.json")).unwrap()).unwrap();
+        assert_eq!(mcp["mcpServers"]["powerrustcobol-ide"]["url"], format!("http://127.0.0.1:5720/mcp/{}", first.kit_id));
+
+        // A second export: nothing kept as edited, the same kit id.
+        let second = export(dir, Target::ClaudeCode, &ExportContext { ide_version: "1.80.71", ..ctx }).expect("re-export");
+        let mut decisions: BTreeMap<String, usize> = BTreeMap::new();
+        for (rel, d) in &second.files {
+            assert_eq!(*d, Decision::Replace, "{rel}: a re-export replaces its own unchanged files");
+            *decisions.entry(format!("{d:?}")).or_default() += 1;
+        }
+        assert_eq!(second.kit_id, first.kit_id, "the kit id must survive a re-export");
+        let claude = std::fs::read_to_string(dir.join("CLAUDE.md")).unwrap();
+        assert_eq!(claude.matches(stamp::SECTION_BEGIN).count(), 1);
+        assert!(claude.contains("begin 1.80.71"));
+        println!(
+            "export into a PowerChat copy: {} files written by kind {by_kind:?} + the kit manifest; \
+             re-export {decisions:?}, kit id kept ({})",
+            first.files.len(),
+            first.kit_id
+        );
+    }
 }

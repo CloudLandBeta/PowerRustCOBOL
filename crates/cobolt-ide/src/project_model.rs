@@ -1678,7 +1678,7 @@ pub fn package_project(
 /// Try to locate the `cobolt` CLI binary.
 /// First looks in the same directory as the running IDE executable;
 /// falls back to PATH.
-fn find_cobolt_binary() -> Option<PathBuf> {
+pub(crate) fn find_cobolt_binary() -> Option<PathBuf> {
     // Look next to this executable.
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {

@@ -543,7 +543,16 @@ output in the commit message).
 
 ## Phase 4 — The kit generator
 
-- [ ] **T4.1 — Target-neutral content model** (R8, R9, R10, R16, R17, R18, R19, R20, R22; AC8)
+- [x] **T4.1 — Target-neutral content model** (R8, R9, R10, R16, R17, R18, R19, R20, R22; AC8)
+  - **Result (1.80.70):** `agent_kit/content.rs` — `KitContent` (Serialize) and
+    `build(BuildInput)`; 14 rules (the 7 R8 rules by stable id, R16, R19, the
+    manifest / server / unsaved-file rules, COBOL words, `GLOBAL` for
+    handlers), 7 skills (named `powerrustcobol-…` so they cannot collide with
+    the developer's own), the reviewer (8 checks), the gap template (7 R18
+    fields + path rule). **Placement:** `KitWriter`, `KitFile`, `KitFileKind`
+    and `locate_rcrun` (target-neutral) live here too. Test
+    `gap_template_has_every_r18_field`: 7 R18 fields, 14 rules (7 R8), 7
+    skills for the 7 R9 subjects, every tool a skill names exists.
   - Read first: plan §1.7; spec R8–R10, R16–R19.
   - Files: `crates/cobolt-ide/src/agent_kit/content.rs`.
   - Do: `KitContent` (Serialize) and `content::build(ctx)`; the brief's rules
@@ -558,7 +567,20 @@ output in the commit message).
     **AC8**: every R18 field in the template; every R8 rule in the brief;
     seven skills with the R9 subjects. Prints the field/rule/skill tally.
 
-- [ ] **T4.2 — Reference pack** (R7, R22; AC4)
+- [x] **T4.2 — Reference pack** (R7, R22; AC4)
+  - **Result (1.80.70):** `agent_kit/reference.rs` — 12 files: README (index),
+    developers-guide, cobol85-supported-syntax, the 6 KB documents renamed
+    (`controls.md`, `control-methods.md`, `rustcobol-extensions.md`,
+    `form-layout-and-events.md`, `form-themes.md`,
+    `project-model-and-settings.md`), `builtins.md`, `cfrm-format.md`,
+    `cidx-format.md` (live examples: a form serialised by `form_to_string`,
+    a definition read and re-serialised by `cobolt_indexed`). 1 344 503 bytes.
+    `pack_names_every_kb_entry_and_builtin`: 45 controls, 2 915 seeded
+    properties (in the control's section or the universal section), 75
+    runtime properties, 1 059 events, 265 methods, 43 built-ins — 0 missing.
+    `format_docs_name_every_serialised_name`: cfrm 7 elements + 21 attributes,
+    cidx 12 + 16, all named; both examples load, the `.cidx` validates with
+    no warning.
   - Read first: T0.2/T0.4 APIs; `cobolt-forms/src/xml.rs:7-51` (format prose
     source); `cobolt-forms/src/model.rs:1395, 3063`;
     `cobolt-compiler/src/lib.rs:4990-5076, 6252`.
@@ -573,7 +595,18 @@ output in the commit message).
     in `builtins.md`; every serialised `.cfrm`/`.cidx` element and attribute
     is named in the format docs. Prints the five counts and any miss.
 
-- [ ] **T4.3 — Claude Code writer + a test-only second writer** (R2, R15, R20; AC7, AC9)
+- [x] **T4.3 — Claude Code writer + a test-only second writer** (R2, R15, R20; AC7, AC9)
+  - **Result (1.80.70):** `agent_kit/claude_code.rs` (`ClaudeCodeWriter`,
+    `rcrun_command`); `find_cobolt_binary` → `pub(crate)`. Skill/agent
+    descriptions are YAML double-quoted (a `:` in a summary would break a
+    plain scalar); the reviewer's `tools:` is Read, Grep, Glob + its MCP
+    tools. `settings_permissions` (AC7): 16 allow rules (Edit/Read `./**` +
+    14 = 7 tools × 2 servers), deny `Bash`, nothing with `//`, `~`, `..`, an
+    absolute path, a bare tool, `additionalDirectories` or `defaultMode`.
+    `a_second_writer_needs_no_content_change` (AC9): claude-code 13 files /
+    flat-test 9, no shared path, content JSON identical before and after; 8
+    frontmatter files open with `---`; `.mcp.json` under a fake home →
+    `${HOME}/Apps/PowerRustCOBOL/rcrun`, no home path.
   - Read first: plan §1.7, §3.3, §4 D10, §8 A1/A3/A4;
     `project_model.rs:1675-1688` (`find_cobolt_binary`).
   - Files: `crates/cobolt-ide/src/agent_kit/claude_code.rs`,
@@ -591,7 +624,19 @@ output in the commit message).
     `SKILL.md`/agent file; no home path in `.mcp.json` when the rcrun path is
     under a fake home.
 
-- [ ] **T4.4 — Stamps, kit manifest and ownership** (R3, R5; AC1, AC2)
+- [x] **T4.4 — Stamps, kit manifest and ownership** (R3, R5; AC1, AC2)
+  - **Result (1.80.70):** `agent_kit/stamp.rs` — `plan` (in memory) →
+    `Write | Replace | KeepEdited | Merge`, `manifest_for`, `write` (manifest
+    last), `new_kit_id` (`k-` + 10 random `tiny_id` chars). **Beyond plan
+    §3.2:** a JSON entry also stores the kit-`owned` value, so an edit of the
+    kit's own rules is told from the developer's additions (projection onto
+    the owned shape) and a rule the kit no longer owns is removed on merge. A
+    file with no manifest entry is kept unless its bytes equal the kit's (the
+    half-written case). `developer_text_and_edited_skill_survive` (AC2): 42 +
+    27 developer bytes byte-equal around the section after re-export; edited
+    skill KeepEdited (old entry kept), deleted README re-written, the
+    developer's own `.mcp.json` server and a `WebFetch` rule survive (Merge);
+    a removed kit `deny` rule → KeepEdited; kit id kept.
   - Read first: plan §3.2–§3.3, §4 D9.
   - Files: `crates/cobolt-ide/src/agent_kit/stamp.rs`.
   - Do: version stamps per file kind; `CLAUDE.md` section merge (append /
@@ -604,7 +649,21 @@ output in the commit message).
     developer's own `.mcp.json` server survives a merge. Prints bytes compared
     and the decision per file.
 
-- [ ] **T4.5 — Redaction and refusal** (R4; AC3)
+- [x] **T4.5 — Redaction and refusal** (R4; AC3)
+  - **Result (1.80.70):** `agent_kit/redact.rs` (`scrub_value`, `check`,
+    `Refusal::message`); `Tr` `agent_kit_refused`, `agent_kit_refused_key`,
+    `agent_kit_refused_personal` ×6. Scan = the kit's own part of every file
+    to be written + the kit manifest for keys; personal details in generated
+    files only. **Classification:** verbatim (keys only) = the Guide, the
+    syntax doc and the 6 KB documents; generated = brief, skills, agent,
+    JSON, manifest, README, builtins/cfrm/cidx docs. `export()` landed here
+    (mod.rs) because AC3 needs the whole path. `planted_details_are_replaced_and_appear_nowhere`:
+    4 needles in the project name and rcrun path, 5 replacements, 24 files
+    scanned, none leaked. `a_planted_key_refuses_and_nothing_is_written`: 3
+    refusals (key in the name, key in the rcrun path, a login — `reviewer` —
+    that is a word of the kit's own text), directory snapshot unchanged each
+    time. **Note for the operator:** per the F1 ruling a login that is an
+    ordinary word of the generated text refuses the export.
   - Read first: `ai_bundle.rs:167-286, 535-544`; plan §4 D8, §9 F1.
   - Files: `crates/cobolt-ide/src/agent_kit/redact.rs`,
     `crates/cobolt-ide/src/i18n.rs` (`agent_kit_refused`,
@@ -618,7 +677,14 @@ output in the commit message).
     directory hash is unchanged. Prints needles planted, files scanned,
     replacements, refusals.
 
-- [ ] **T4.6 — `export()` end to end** (R1, R2, R5; AC1)
+- [x] **T4.6 — `export()` end to end** (R1, R2, R5; AC1)
+  - **Result (1.80.70):** `export(project, Target, &ExportContext) ->
+    Result<ExportReport, ExportError>` (`NoProject | Refused | Failed`) in
+    `agent_kit/mod.rs`, with a temporary `#![cfg_attr(not(test),
+    allow(dead_code))]` until T5.1 wires it. `export_into_powerchat_copy`
+    (AC1): 23 files written (8 frontmatter, 12 markdown, 2 json, 1 section) +
+    the kit manifest, each stamped / in the manifest with 1.80.70 and a hash;
+    re-export: 23 Replace, 0 kept, kit id kept.
   - Files: `crates/cobolt-ide/src/agent_kit/mod.rs`.
   - Do: `export(project_dir, target, ctx) -> Result<ExportReport, Refusal>`
     composing T4.1–T4.5; the report lists every file with its decision.
@@ -629,6 +695,12 @@ output in the commit message).
     kind and decision.
 
 **Gate 4:** the phase gate.
+  - **Result (1.80.70):** `cargo build --workspace` finished (no new
+    warning in `agent_kit`). `cobolt-ide --bin` 1292 passed, 1 failed (known
+    `every_document_ships_in_every_language`), 3 ignored (1283 + 9 new);
+    `cobolt-project-tools` lib 36, http 1, tools 7, build 1 ignored;
+    `cobolt-mcp` 19; `test_mcp_tool_parity` 3; `cobolt-compiler --lib` 149;
+    `cobolt-cli` 5 + 4 + 2.
 
 ---
 

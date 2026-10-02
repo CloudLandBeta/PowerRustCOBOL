@@ -8,6 +8,43 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.70] — 2026-10-01
+
+### Spec 080 Phase 4 — the coding-agent kit generator
+
+The code that writes a coding-agent kit into a project (it is wired to a
+menu in the next phase, so nothing in the IDE changes yet):
+
+- **One content, any agent.** The kit's rules, seven task skills (create a
+  form, add a control and bind its event, define an indexed file and its
+  generated facade, add assets, write a common procedure, check and fix,
+  write a gap report), the reviewer, the gap-report template and the
+  reference pack are built once, without naming an agent; a writer turns
+  them into one agent's files. Claude Code's writer produces `CLAUDE.md`
+  (the kit's own section), `.claude/settings.json`, the skills, the
+  reviewer agent, `.mcp.json` and `docs/powerrustcobol/`.
+- **The reference pack comes from this binary**: the whole Developer's
+  Guide, the supported-syntax document, the System KB control, method,
+  extension, layout, theme and project documents, every built-in, and
+  descriptions of the `.cfrm` and `.cidx` formats with a live example each,
+  serialised by the code the IDE saves those files with.
+- **The developer's files are kept.** Every kit file records the version
+  that wrote it (a comment, or the kit manifest
+  `.claude/powerrustcobol-kit.json` for JSON); a kit file the developer
+  edited is not overwritten; in an existing `CLAUDE.md` the kit owns only
+  its delimited section; the developer's own `.mcp.json` servers and
+  permission rules survive a re-export. The kit id in the IDE's URL is
+  kept across exports.
+- **No secret, nothing personal.** The project name and the `rcrun` path
+  have the home folder, login, git name and e-mail replaced (`rcrun` under
+  the home folder is written as `${HOME}/…`); an export that would still
+  write a stored API key, or a personal detail in a file it generates, is
+  refused and writes nothing.
+
+New IDE strings in all six languages: `agent_kit_refused`,
+`agent_kit_refused_key`, `agent_kit_refused_personal`. Tests: 9 new in
+`cobolt-ide` (1292 passed; the one known red).
+
 ## [PowerRustCOBOL 1.80.61] — 2026-10-01
 
 ### Fix: the AI-export refusal is shown in the developer's language
