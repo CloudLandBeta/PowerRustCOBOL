@@ -8,6 +8,22 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.98] — 2026-10-02
+
+### Fix: Spatial's gaps between the panes are blurred, and never keep stale content
+
+Under the Spatial theme (1.80.95) the IDE painted nothing at all behind its
+panes (`see_through` was fully transparent). To the macOS window server an
+alpha-0 pixel is a hole in the window: nothing is blurred under it, and it
+is not refreshed with the window. So the gaps between the panes showed the
+desktop sharp, unblurred, and after a minimize or an overlapping window they
+kept whatever had been there, such as a white block from another window.
+
+Spatial now lays a faint smoke over the whole window (5 % of its darkest
+wash), so every pixel belongs to the window and the window server blurs and
+refreshes it. The panes and their contrast are unchanged; the test that
+pinned the tint to zero now pins it between 1 and 26 alpha.
+
 ## [PowerRustCOBOL 1.80.97] — 2026-10-02
 
 ### Feature: search inside the model dropdowns

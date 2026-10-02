@@ -288,8 +288,12 @@ pub const SPATIAL: Palette = Palette {
     edge: rgba8(255, 255, 255, 36),
     radius: 26,
     pill_radius: 18,
-    // No tint: the window's own glass is the only thing over the desktop.
-    see_through: Some(Color32::TRANSPARENT),
+    // A faint smoke over the desktop, never none. To the macOS window server
+    // an alpha-0 pixel is a hole in the window: nothing blurs under it, and
+    // it is not refreshed with the window either, so the gaps between the
+    // panes showed the desktop sharp, or kept whatever had covered them
+    // after a minimize or an overlapping window (operator, 2026-10-02).
+    see_through: Some(rgba8(38, 37, 35, 13)),
 };
 
 /// Slick: deep navy and teal.
@@ -750,7 +754,9 @@ mod tests {
             assert!((0.45..=0.56).contains(&stacked), "pane over panel is {stacked:.2} opaque");
         }
         let tint = SPATIAL.see_through.expect("Spatial is see-through");
-        assert_eq!(tint.a(), 0, "no tint over the desktop");
+        // Never 0 (an alpha-0 pixel is a hole the window server neither
+        // blurs nor refreshes), and no more than a faint smoke.
+        assert!((1..=26).contains(&tint.a()), "tint alpha {}", tint.a());
         for wall in [Color32::from_rgb(42, 36, 64), Color32::from_rgb(106, 106, 128)] {
             let bar = over(crate::theme::SPATIAL.bg_panel, wall);
             assert!(contrast_ratio(Color32::WHITE, bar) >= 4.5, "menu text on {wall:?}");
