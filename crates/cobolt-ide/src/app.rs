@@ -943,6 +943,9 @@ pub struct CoboltApp {
     /// (`None` before the first frame). A see-through theme (Spatial) turns it
     /// on; every other theme off. Set only when it changes.
     window_blur: Option<bool>,
+    /// When every IDE window was last re-blurred under a see-through theme:
+    /// a Form Designer opened since then has no blur until the next sync.
+    blur_synced_at: Option<std::time::Instant>,
 
     /// Currently selected UI language.
     lang: Language,
@@ -2152,6 +2155,7 @@ impl CoboltApp {
             form_error_links: Vec::new(),
             glass_visuals_applied: false,
             window_blur: None,
+            blur_synced_at: None,
             lang: crate::ui_prefs::load_language(),
             lang_persisted: crate::ui_prefs::load_language(),
             welcome_quote_index: 0,
@@ -3357,7 +3361,8 @@ impl CoboltApp {
         let mut builder = ViewportBuilder::default()
             .with_title(self.debugger.window_title())
             .with_resizable(true)
-            .with_window_level(level);
+            .with_window_level(level)
+            .with_transparent(crate::aurora::see_through().is_some());
         // Apply the default size ONLY on the first frame after the session
         // starts; afterwards the OS window size is the user's alone.
         if !self.debugger_vp_sized {
@@ -14425,6 +14430,12 @@ pub(crate) fn apply_glass_visuals(ctx: &Context, theme: &crate::theme::Theme) {
 /// gaps between panels never show the OS clear colour.
 fn apply_opaque_viewport_theme(ctx: &Context, theme: &crate::theme::Theme) {
     apply_glass_visuals(ctx, theme);
+    // A see-through theme (Spatial) wants these windows see-through too:
+    // they are created transparent under it and blurred by `os_blur`, so the
+    // glass stays glass instead of being composited over white.
+    if crate::aurora::palette_for(theme.id).is_some_and(|p| p.see_through.is_some()) {
+        return;
+    }
 
     let solid_panel = {
         let pf = ctx.global_style().visuals.panel_fill;
@@ -14756,6 +14767,16 @@ impl eframe::App for CoboltApp {
                 window.set_blur(want_blur);
                 self.window_blur = Some(want_blur);
             }
+            // Every other IDE window (designer, grid, debugger, inspector)
+            // too: eframe gives the app no handle on them, so ask the OS.
+            crate::os_blur::set_all_windows(want_blur);
+            self.blur_synced_at = Some(std::time::Instant::now());
+        } else if want_blur
+            && self.blur_synced_at.is_none_or(|t| t.elapsed() >= std::time::Duration::from_secs(1))
+        {
+            // A window opened since the last sync starts unblurred.
+            crate::os_blur::set_all_windows(true);
+            self.blur_synced_at = Some(std::time::Instant::now());
         }
         // The whole IDE is laid out with Context-level panels (top bar, side
         // panels, central canvas), so the per-frame entry point only needs the
@@ -15904,7 +15925,8 @@ impl eframe::App for CoboltApp {
                 vp_id,
                 ViewportBuilder::default()
                     .with_title(&title)
-                    .with_inner_size([1200.0, 800.0]),
+                    .with_inner_size([1200.0, 800.0])
+                    .with_transparent(crate::aurora::see_through().is_some()),
                 |vp_ctx, _class| {
                     // The window that took the shot draws the placement popup, so
                     // the operator stays in the window they were working in.
@@ -17050,7 +17072,8 @@ impl CoboltApp {
         let mut builder = ViewportBuilder::default()
             .with_title("📊 Run-Form Inspector")
             .with_resizable(true)
-            .with_window_level(level);
+            .with_window_level(level)
+            .with_transparent(crate::aurora::see_through().is_some());
         if !self.inspector_sized {
             let sh = ctx.content_rect();
             builder = builder.with_inner_size([
@@ -17365,7 +17388,8 @@ impl CoboltApp {
                 vp_id,
                 ViewportBuilder::default()
                     .with_title(&title)
-                    .with_inner_size([1000.0, 600.0]),
+                    .with_inner_size([1000.0, 600.0])
+                    .with_transparent(crate::aurora::see_through().is_some()),
                 |vp_ctx, _class| {
                     // The window that took the shot draws the placement popup, so
                     // the operator stays in the window they were working in.

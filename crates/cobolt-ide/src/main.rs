@@ -25,6 +25,7 @@ pub mod agents_db;
 mod app;
 pub mod aurora;
 pub mod contrast;
+pub mod os_blur;
 pub mod crash;
 pub mod data_binding_guardian;
 pub mod debug_settings;

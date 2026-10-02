@@ -11722,8 +11722,10 @@ writes a per-control diagnostics dump named after the project.
   desktop behind it shows through, blurred, the way the room shows through a
   floating panel. On systems that cannot blur a window it shows unblurred.
   White text reads clearly over a dark or colourful wallpaper; over a very
-  bright one it fades, so choose Spatial with a darker desktop. A project
-  background image replaces the see-through view.
+  bright one it fades, so choose Spatial with a darker desktop. The Form
+  Designer, the debugger and the other windows the IDE opens are
+  see-through and blurred in the same way. A project background image
+  replaces the see-through view in the main window.
   There is also an optional **background image** with an opacity control.
   Under either Aurora theme the image replaces the gradient backdrop.
   Settings are saved **per project** in `cobolt.toml`. The project tree and

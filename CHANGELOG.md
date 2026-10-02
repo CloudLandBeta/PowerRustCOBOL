@@ -8,6 +8,26 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.94] — 2026-10-02
+
+### Fix: the Form Designer and the other IDE windows are see-through too
+
+Under Spatial the main window was see-through, but the RAD Form Designer
+stayed completely opaque, which the operator spotted. The separate
+windows were made opaque on purpose: created opaque, their glass
+composited over white (`apply_opaque_viewport_theme`). They also had no
+blur, because eframe gives the app a handle only on the main window.
+- **Transparency:** under a see-through theme, the Form Designer, the
+  indexed-file grid browser, the debugger and the Run-Form Inspector are
+  created transparent, and `apply_opaque_viewport_theme` leaves their glass
+  translucent. Under every other theme they are exactly as before; egui
+  switches a window's transparency when the setting changes.
+- **Blur:** the new `os_blur` asks macOS to blur the desktop under every
+  window the application owns, through the same private Core Graphics call
+  winit and Terminal.app use. It re-applies once a second while the theme
+  is active, so a designer opened later is blurred too, and clears the blur
+  when the theme changes. It does nothing on other systems.
+
 ## [PowerRustCOBOL 1.80.93] — 2026-10-02
 
 ### Fix: Spatial is 50 % transparent
