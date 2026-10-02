@@ -1175,6 +1175,58 @@ struct StyleSnapshot {
     controls: Vec<Control>,
 }
 
+/// A look a theme switch left: the form's background fields and every
+/// control's properties as they were (`full`), and which properties that
+/// switch rewrote (`touched`). Coming back restores only properties a switch
+/// rewrites, so positions, captions and handlers edited meanwhile, and
+/// controls added meanwhile, are never in play.
+#[derive(Clone, Default)]
+struct ThemeMemory {
+    background: (String, bool, String, String, String),
+    full: HashMap<String, indexmap::IndexMap<String, PropValue>>,
+    touched: HashMap<String, HashSet<String>>,
+}
+
+/// Which look a form is wearing: its glass style and its theme together,
+/// since both switches restyle every control.
+fn theme_key(glass: cobolt_forms::GlassStyle, theme: &Option<String>) -> String {
+    format!("{glass:?}|{}", theme.as_deref().unwrap_or(""))
+}
+
+/// Every control, nested ones included, by upper-case id.
+fn controls_by_id(controls: &[Control]) -> HashMap<String, &Control> {
+    fn walk<'a>(cs: &'a [Control], out: &mut HashMap<String, &'a Control>) {
+        for c in cs {
+            out.insert(c.id.to_ascii_uppercase(), c);
+            walk(&c.children, out);
+        }
+    }
+    let mut out = HashMap::new();
+    walk(controls, &mut out);
+    out
+}
+
+/// Per control id, the property keys that differ between two control sets
+/// (present in both, changed, added or removed).
+fn touched_keys(before: &[Control], after: &[Control]) -> HashMap<String, HashSet<String>> {
+    let now = controls_by_id(after);
+    let mut out: HashMap<String, HashSet<String>> = HashMap::new();
+    for (id, was) in controls_by_id(before) {
+        let Some(is) = now.get(&id) else { continue };
+        let keys: HashSet<String> = was
+            .properties
+            .keys()
+            .chain(is.properties.keys())
+            .filter(|k| was.properties.get(*k) != is.properties.get(*k))
+            .cloned()
+            .collect();
+        if !keys.is_empty() {
+            out.insert(id, keys);
+        }
+    }
+    out
+}
+
 // ── Resize handle ─────────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -2777,6 +2829,10 @@ pub struct DesignerPanel {
     review_modal: Option<crate::panels::prompt_review::PromptReview>,
     /// Set by the modal's Submit: the text the workflow actually receives.
     review_accepted: Option<String>,
+    /// What each theme switch overwrote, keyed by the look it left
+    /// ([`theme_key`]). Picking that look again puts it back
+    /// ([`Self::remember_and_restore_theme`]).
+    theme_memory: HashMap<String, ThemeMemory>,
     /// Grace's last clarifying questions, still unanswered.
     ///
     /// A question the developer answers is only half a request; the other half
@@ -2901,6 +2957,7 @@ impl DesignerPanel {
             review_original: None,
             review_modal: None,
             review_accepted: None,
+            theme_memory: HashMap::new(),
             ai_open_questions: Vec::new(),
             ai_send_display: None,
             show_preview: false,
@@ -4029,11 +4086,13 @@ impl DesignerPanel {
                     *slot = new.clone();
                 }
             }
-            Cmd::SetGlassStyle { style, .. } => {
+            Cmd::SetGlassStyle { style, before } => {
                 self.set_form_prop_direct("GlassStyle", style.clone());
+                self.remember_and_restore_theme(before);
             }
-            Cmd::SetFormTheme { theme, .. } => {
+            Cmd::SetFormTheme { theme, before } => {
                 self.set_form_prop_direct("Theme", theme.clone());
+                self.remember_and_restore_theme(before);
             }
             Cmd::SetAnimations { id, new, .. } => {
                 if let Some(c) = self.form.find_control_mut(id) {
@@ -4227,6 +4286,69 @@ impl DesignerPanel {
                 self.restore_style_snapshot(before);
             }
         }
+    }
+
+    /// A theme switch rewrites every control with the target's DEFAULTS, so
+    /// switching away and back gave a form the theme's stock look, not the one
+    /// the developer had (operator, 2026-10-02: PowerDemo3's anchors demo came
+    /// back dark, flat and square). Remember what this switch overwrote under
+    /// the look it left, and when the look it arrives at was left before, put
+    /// back what that earlier switch overwrote: only those properties, only on
+    /// controls that still exist. Undo still restores the full snapshot.
+    fn remember_and_restore_theme(&mut self, before: &StyleSnapshot) {
+        let left = theme_key(before.glass_style, &before.theme);
+        let arrived = theme_key(self.form.glass_style, &self.form.theme);
+        if left == arrived {
+            return;
+        }
+        let touched_now = touched_keys(&before.controls, &self.form.controls);
+        let leaving = ThemeMemory {
+            background: (
+                before.background_color.clone(),
+                before.background_gradient_enabled,
+                before.background_gradient_start_color.clone(),
+                before.background_gradient_end_color.clone(),
+                before.background_gradient_direction.clone(),
+            ),
+            full: controls_by_id(&before.controls)
+                .into_iter()
+                .map(|(id, c)| (id, c.properties.clone()))
+                .collect(),
+            touched: touched_now.clone(),
+        };
+        if let Some(m) = self.theme_memory.get(&arrived).cloned() {
+            // Written back verbatim: the property setter normalises a colour
+            // (drops its `#`), which would not be the value the form had.
+            let f = &mut self.form;
+            f.background_color = m.background.0;
+            f.background_gradient_enabled = m.background.1;
+            f.background_gradient_start_color = m.background.2;
+            f.background_gradient_end_color = m.background.3;
+            f.background_gradient_direction = m.background.4;
+            // Every property either switch rewrote: the one that left this
+            // look, and the one coming back to it.
+            let mut keys = m.touched.clone();
+            for (id, ks) in touched_now {
+                keys.entry(id).or_default().extend(ks);
+            }
+            for (id, ks) in keys {
+                let (Some(was), Some(c)) = (m.full.get(&id), self.form.find_control_mut(&id)) else {
+                    continue;
+                };
+                for k in ks {
+                    match was.get(&k) {
+                        Some(v) => {
+                            c.properties.insert(k, v.clone());
+                        }
+                        None => {
+                            c.properties.shift_remove(&k);
+                        }
+                    }
+                }
+            }
+        }
+        self.theme_memory.insert(left, leaving);
+        self.dirty = true;
     }
 
     /// Put the form's whole appearance back as a theme switch found it.
@@ -19114,6 +19236,53 @@ mod text_align_tests {
     /// target's defaults to every control (operator rule, 2026-08-21), which
     /// makes it as destructive as a GlassStyle switch — and it now carries the
     /// same snapshot, so one undo puts the whole form back.
+    /// Switching theme away and BACK restores the form it had, not the
+    /// theme's stock defaults: PowerDemo3's anchors demo came back dark, flat
+    /// and square after Liquid Glass -> another theme -> Liquid Glass
+    /// (operator, 2026-10-02). Work done in between survives: a caption
+    /// edited and a control added on the other theme stay as they are.
+    #[test]
+    fn switching_theme_back_restores_the_form_it_had() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples/PowerDemo3/forms/Responsive Layout/responsive-anchors-form.cfrm");
+        let original = cobolt_forms::load_form(&path).unwrap();
+        let mut d = DesignerPanel::new(original.clone());
+        let theme = d.form.theme.clone().unwrap_or_default();
+        let other = if theme == "elegance" { "cobalt-steel" } else { "elegance" };
+        d.set_form_prop("Theme", other.into());
+        let restyled = controls_by_id(&d.form.controls)
+            .iter()
+            .filter(|(id, c)| controls_by_id(&original.controls)[*id].properties != c.properties)
+            .count();
+        assert!(restyled > 0, "the switch restyles the controls");
+        let first = d.form.controls[0].id.clone();
+        d.set_property(&first, "Caption", PropValue::String("Edited meanwhile".into()));
+        d.form.controls.push(Control::new("ADDED-1", ControlType::Label, 5, 5));
+
+        d.set_form_prop("Theme", theme.clone());
+
+        assert_eq!(d.form.background_color, original.background_color, "the form background");
+        let back = controls_by_id(&d.form.controls);
+        let mut compared = 0;
+        for (id, was) in controls_by_id(&original.controls) {
+            let is = back[&id];
+            for (k, v) in &was.properties {
+                if id == first.to_ascii_uppercase() && k == "Caption" {
+                    continue;
+                }
+                assert_eq!(is.properties.get(k), Some(v), "{id}.{k} is restored");
+                compared += 1;
+            }
+        }
+        assert_eq!(
+            back[&first.to_ascii_uppercase()].properties.get("Caption"),
+            Some(&PropValue::String("Edited meanwhile".into())),
+            "an edit made on the other theme stays"
+        );
+        assert!(back.contains_key("ADDED-1"), "a control added on the other theme stays");
+        println!("theme {other} and back to {theme:?}: {compared} control properties restored");
+    }
+
     #[test]
     fn a_theme_switch_is_undoable_including_what_it_rewrote() {
         use cobolt_forms::GlassStyle;

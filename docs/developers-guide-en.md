@@ -2047,6 +2047,15 @@ stand out from its new background — below the 4.5:1 contrast that
 accessibility guidelines ask of text — takes black or white, whichever reads.
 It is part of the same change, so **Undo** puts the old colours back.
 
+**Switching back to a theme brings back the form you had.** A theme switch
+dresses every control in the new theme's defaults. Choosing the previous
+theme again, instead of using Undo, gives back the colours, shadows, corners
+and background the form had before you left it, not that theme's stock look.
+Only what a theme switch changes is put back. A caption you edited, a control
+you moved or added, and your event code stay as they are now. The IDE
+remembers this while the form is open; after you close and reopen it, a switch
+back gives the theme's defaults again.
+
 A **PictureBox** you place starts with **ShowFrame** off: only the image shows,
 and a transparent PNG lets the form show through. Tick it for the card behind
 the image. Forms saved before keep the frame they had.

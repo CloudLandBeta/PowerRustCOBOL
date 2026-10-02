@@ -8,6 +8,32 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.86] — 2026-10-02
+
+### Fix: switching back to a theme restores the form it had
+
+The operator switched PowerDemo3's anchors demo to another theme and back,
+and the form came back dark, flat and square, not as it was. A Theme or
+GlassStyle switch re-applies the target's defaults to every control, so
+returning to the first theme gave its stock look. Only Undo restored the
+form.
+
+The designer now remembers, per look (glass style plus theme), the form's
+background and every control's properties as they were when it left that
+look, and which properties the switch rewrote. When a later switch returns
+to that look, every property that either switch rewrote is put back:
+the one that left the look and the one coming back. Nothing else is. A
+caption edited, a control moved or added, and handler code written
+meanwhile stay as they are. Undo is unchanged. The memory lasts while the
+form is open in the designer.
+
+Test: `switching_theme_back_restores_the_form_it_had`, on the real
+`responsive-anchors-form` (1,910 control properties restored; an edited
+caption and an added control kept). The Developer's Guide says so under
+"Changing a form's theme".
+
+(1.80.85 is the spec 082 draft on the `features-menu-items` branch.)
+
 ## [PowerRustCOBOL 1.80.84] — 2026-10-02
 
 ### Fix: the inspector is readable on Neumorphic Light
