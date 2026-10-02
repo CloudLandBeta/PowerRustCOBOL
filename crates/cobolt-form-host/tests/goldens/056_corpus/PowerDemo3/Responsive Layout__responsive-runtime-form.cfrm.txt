@@ -1,4 +1,4 @@
-# PowerDemo3/General/responsive-runtime-form.cfrm
+# PowerDemo3/Responsive Layout/responsive-runtime-form.cfrm
 ## Window 0.75x 825x540
 LBL-INTRO rect=[24 50 801 90] font=13
 LBL-TITLE rect=[24 14 801 46] font=20

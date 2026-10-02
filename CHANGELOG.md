@@ -8,6 +8,30 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.76] — 2026-10-02
+
+### Examples: PowerDemo3's responsive demos get their own folder
+
+The operator's IDE session, committed as the IDE saved it:
+
+- **PowerDemo3.** The twelve responsive demos moved, unchanged byte for byte,
+  from `forms/General/` to `forms/Responsive Layout/`, and a new
+  `forms/General/modern-form.cfrm` was added. The side menu gained a
+  "Responsive Layout" entry and a placeholder "Sub Item", neither with an
+  action yet (the demos' items still sit under General), the
+  project file records the new paths and the regenerated main-form seal, and
+  `sidebar-form` dropped its `Anchor=false` properties and narrowed four
+  labels. The two agent skills gained a line on inline `COBOL::"…"` calls.
+- **PowerChat.** `chat-form`'s hand-written onResize handler is replaced by
+  control anchors (and the `Txt-Input` box gains a `ZZ9,99` Picture), and the
+  example data (`convs.idx`, `settings.idx`) is as the IDE last saved it.
+
+The path-keyed goldens (engine, form host and codegen) follow the move, the
+round-trip test counts follow (75 forms; 14 responsive by design, now
+including `modern-form` and PowerChat's `chat-form`, which the IDE saved
+as `responsive="true"`), and the Developer's Guide's PowerDemo3 folder list now shows
+`Responsive Layout/` (61 forms).
+
 ## [PowerRustCOBOL 1.80.75] — 2026-10-01
 
 ### Fix: PowerDemo3's responsive demos open from the side menu

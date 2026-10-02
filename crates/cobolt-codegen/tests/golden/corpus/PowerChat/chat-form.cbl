@@ -796,10 +796,10 @@
           05 WS-Vwr-Chat-ENABLED    PIC 9      VALUE 1.
 
        01 WS-Txt-Input.
-          05 WS-Txt-Input-TEXT       PIC X(2048) VALUE SPACES.
+          05 WS-Txt-Input-TEXT       PIC ZZ9,99 VALUE SPACES.
           05 WS-Txt-Input-VISIBLE    PIC 9      VALUE 1.
           05 WS-Txt-Input-ENABLED    PIC 9      VALUE 1.
-          05 WS-Txt-Input-VALUE      PIC X(2048) VALUE SPACES.
+          05 WS-Txt-Input-VALUE      PIC ZZ9,99 VALUE SPACES.
 
        01 WS-Btn-Send.
           05 WS-Btn-Send-TEXT       PIC X(256) VALUE 'Send'.
@@ -1107,57 +1107,7 @@
 
        ENVIRONMENT DIVISION.
        DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01  WS-RESIZE-DATA.
-           05  WS-DELTA                PIC S9(5) COMP-5 VALUE 0.
-           05  WS-NEW-CHAT-HEIGHT      PIC S9(5) COMP-5 VALUE 0.
-           05  WS-NEW-CHAT-WIDTH       PIC S9(5) COMP-5 VALUE 0.
-           05  WS-NEW-INPUT-Y          PIC S9(5) COMP-5 VALUE 0.
-           05  WS-INPUT-HEIGHT         PIC S9(5) COMP-5 VALUE 0.
-           05  WS-FORM-HEIGHT          PIC S9(5) COMP-5 VALUE 0.
-           05  WS-SUM                  PIC S9(5) COMP-5 VALUE 0.
-           05  WS-THRESH               PIC S9(5) COMP-5 VALUE 0.
-
        PROCEDURE DIVISION.
-       MAIN SECTION.
-           *> Compute delta from design‑time height (792)
-           COMPUTE WS-DELTA = CHAT-FORM::Height - 792.
-
-           *> Adjust Vwr-Chat height
-           COMPUTE WS-NEW-CHAT-HEIGHT = 544 + WS-DELTA.
-           SET Vwr-Chat::Height TO WS-NEW-CHAT-HEIGHT.
-
-           *> Adjust Txt-Input Y position
-           COMPUTE WS-NEW-INPUT-Y = 660 + WS-DELTA.
-           SET Txt-Input::Y TO WS-NEW-INPUT-Y.
-
-           *> Align Btn‑Send Y with Txt‑Input
-           SET Btn-Send::Y TO WS-NEW-INPUT-Y.
-
-           *> Prepare values for conditional correction
-           MOVE Txt-Input::Height TO WS-INPUT-HEIGHT.
-           MOVE CHAT-FORM::Height TO WS-FORM-HEIGHT.
-           COMPUTE WS-SUM = WS-NEW-INPUT-Y + WS-INPUT-HEIGHT.
-           COMPUTE WS-THRESH = WS-FORM-HEIGHT - 32.
-
-           IF WS-SUM > WS-THRESH
-               *> Re‑position Txt‑Input to stay within bottom margin
-               COMPUTE WS-NEW-INPUT-Y = WS-FORM-HEIGHT - (WS-INPUT-HEIGHT + 32)
-               SET Txt-Input::Y TO WS-NEW-INPUT-Y
-
-               *> Re‑size Vwr‑Chat based on new Txt‑Input Y
-               COMPUTE WS-NEW-CHAT-HEIGHT = WS-NEW-INPUT-Y - 20 - 96
-               SET Vwr-Chat::Height TO WS-NEW-CHAT-HEIGHT
-
-               *> Keep Btn‑Send aligned with Txt‑Input
-               SET Btn-Send::Y TO WS-NEW-INPUT-Y
-           END-IF.
-
-           *> Horizontal: keep Vwr-Chat 25 px from right border
-           COMPUTE WS-NEW-CHAT-WIDTH = CHAT-FORM::Width - Vwr-Chat::X - 25.
-           SET Vwr-Chat::Width TO WS-NEW-CHAT-WIDTH.
-
-           EXIT PROGRAM.
 
            GOBACK.
 

@@ -2120,8 +2120,8 @@ then reads.
 
 ### Responsive examples in PowerDemo3
 
-PowerDemo3 has twelve forms that show the responsive layout. Open them from
-**General** in its side menu; each one shows the window size, the active
+PowerDemo3 has twelve forms that show the responsive layout, filed in
+`forms/Responsive Layout/`. Open them from **General** in its side menu; each one shows the window size, the active
 breakpoint and the font scale along its bottom edge as you resize it.
 
 | Menu entry | Form | What it shows |
@@ -4376,10 +4376,11 @@ remove a definition from the project, right-click in the designer and choose
 ### Per-control examples
 
 The repository ships **one** application that demonstrates every control:
-`examples/PowerDemo3`, **60 forms** under `forms/`. The `sidebar-form` that
-opens the project sits at the root; the other 59 are filed in the same
+`examples/PowerDemo3`, **61 forms** under `forms/`. The `sidebar-form` that
+opens the project sits at the root; the twelve responsive demos have a folder
+of their own, `Responsive Layout/`; the other 48 are filed in the same
 categories the toolbox uses:
-- `General/` (18, twelve of them the responsive demos)
+- `General/` (7)
 - `Common/` (16)
 - `Non-Visual/` (7)
 - `Graphics/` (6)

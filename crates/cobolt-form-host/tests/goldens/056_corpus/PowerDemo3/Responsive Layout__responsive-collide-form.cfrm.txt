@@ -1,4 +1,4 @@
-# PowerDemo3/General/responsive-collide-form.cfrm
+# PowerDemo3/Responsive Layout/responsive-collide-form.cfrm
 ## Window 0.75x 675x420
 CL-A rect=[24 96 624 116] font=13
 CL-B rect=[24 166 624 186] font=13

@@ -1,4 +1,4 @@
-# PowerDemo3/General/responsive-anchors-form.cfrm
+# PowerDemo3/Responsive Layout/responsive-anchors-form.cfrm
 ## Canvas 0.75x 750x525
 A-B rect=[184 352 304 388] font=13
 A-BL rect=[40 352 160 388] font=13

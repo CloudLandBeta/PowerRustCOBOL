@@ -1,4 +1,4 @@
-# PowerDemo3/General/responsive-flow-form.cfrm
+# PowerDemo3/Responsive Layout/responsive-flow-form.cfrm
 ## Canvas 0.75x 825x540
 FB-BRK rect=[697 88 817 120] font=13
 FB-BU rect=[308 88 389 120] font=13

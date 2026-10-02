@@ -30,7 +30,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 destination_folder = "PowerChat"
 debug_compilation = true
-built_with_version = "1.80.23"
+built_with_version = "1.80.28"
 
 [files]
 sources = ["src/main.cbl"]
@@ -108,6 +108,8 @@ entrance-on-restore = false
 focus-ring = true
 focus-ring-color = ""
 focus-ring-pulse = false
+responsive = false
+breakpoints = ""
 main-form = "CHAT-FORM"
 main-form-seal = "d95f013ec516e4d009e626b8b9a403e14f821d6be6da4201e8567c5e68b32983"
 

@@ -1,4 +1,4 @@
-# PowerDemo3/General/responsive-breakpoints-form.cfrm
+# PowerDemo3/Responsive Layout/responsive-breakpoints-form.cfrm
 ## Canvas 0.75x 960x600
 BP-HELP rect=[869 16 946 48] font=12.25
 BP-MENU rect=[22 16 81 48] font=12.25

@@ -1,4 +1,4 @@
-# PowerDemo3/General/responsive-nested-form.cfrm
+# PowerDemo3/Responsive Layout/responsive-nested-form.cfrm
 ## Canvas 0.75x 900x585
 NS-F1 rect=[50 476 130 510] font=13
 NS-F2 rect=[326 476 586 510] font=13

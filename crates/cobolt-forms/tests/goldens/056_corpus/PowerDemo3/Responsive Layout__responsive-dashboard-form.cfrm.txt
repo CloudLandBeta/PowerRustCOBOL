@@ -1,4 +1,4 @@
-# PowerDemo3/General/responsive-dashboard-form.cfrm
+# PowerDemo3/Responsive Layout/responsive-dashboard-form.cfrm
 ## Canvas 0.75x 1020x645
 DB-BAR rect=[188 318 1002 498] font=11
 DB-CUSTOMERS rect=- font=13

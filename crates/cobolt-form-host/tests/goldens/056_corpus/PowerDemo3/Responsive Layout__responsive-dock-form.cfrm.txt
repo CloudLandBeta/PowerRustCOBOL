@@ -1,4 +1,4 @@
-# PowerDemo3/General/responsive-dock-form.cfrm
+# PowerDemo3/Responsive Layout/responsive-dock-form.cfrm
 ## Window 0.75x 825x525
 BTN-FLOAT rect=[393 417 593 451] font=13
 BTN-HDR rect=[389 16 525 48] font=13

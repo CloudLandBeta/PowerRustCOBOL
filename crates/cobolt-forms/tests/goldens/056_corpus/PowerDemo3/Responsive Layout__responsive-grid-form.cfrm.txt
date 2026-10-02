@@ -1,5 +1,5 @@
-# PowerDemo3/General/responsive-grid-form.cfrm
-## Window 0.75x 900x585
+# PowerDemo3/Responsive Layout/responsive-grid-form.cfrm
+## Canvas 0.75x 900x585
 AL-1 rect=- font=13
 AL-1-C-1 rect=- font=13
 AL-1-C-2 rect=- font=13
@@ -108,7 +108,8 @@ TR-4-C-6 rect=[588 488 852 512] font=13
 TR-4-C-7 rect=[48 518 312 538] font=13
 TR-4-C-8 rect=[318 518 582 538] font=13
 TR-4-C-9 rect=[588 518 852 538] font=13
-## Occupant 0.75x 900x585
+shapes=359 digest=b842441864700942
+## Run 0.75x 900x585
 AL-1 rect=- font=13
 AL-1-C-1 rect=- font=13
 AL-1-C-2 rect=- font=13
@@ -175,13 +176,13 @@ DE-NAME rect=- font=13
 DE-NOTES rect=- font=13
 DE-PHONE rect=- font=13
 DE-SAVE rect=- font=13
-G0-HOST rect=[246 141 882 579] font=13
+G0-HOST rect=[26 113 874 551] font=13
 G1-HOST rect=- font=13
 G2-HOST rect=- font=13
 G3-HOST rect=- font=13
-LBL-INTRO rect=[244 78 884 102] font=13
-LBL-TITLE rect=[244 42 884 74] font=20
-SB-INFO rect=[220 587 908 613] font=13
+LBL-INTRO rect=[24 50 876 74] font=13
+LBL-TITLE rect=[24 14 876 46] font=20
+SB-INFO rect=[0 559 900 585] font=13
 SP-A rect=- font=13
 SP-B rect=- font=13
 SP-C rect=- font=13
@@ -189,35 +190,146 @@ SP-EXTRA rect=- font=13
 SP-HEAD rect=- font=13
 SP-MAIN rect=- font=13
 SP-SIDE rect=- font=13
-TAB-GRID rect=[244 112 884 581] font=13
-TR-1 rect=[258 153 870 251] font=13
-TR-1-C-1 rect=[268 163 388 241] font=13
-TR-1-C-2 rect=[394 163 542 241] font=13
-TR-1-C-3 rect=[548 163 604 241] font=13
-TR-1-C-4 rect=[610 163 714 241] font=13
-TR-1-C-5 rect=[720 163 860 241] font=13
-TR-2 rect=[258 259 870 357] font=13
-TR-2-C-1 rect=[268 269 418 347] font=13
-TR-2-C-2 rect=[424 269 724 347] font=13
-TR-2-C-3 rect=[730 269 860 347] font=13
-TR-3 rect=[258 364 870 462] font=13
-TR-3-C-1 rect=[268 374 395 452] font=13
-TR-3-C-2 rect=[401 374 461 452] font=13
-TR-3-C-3 rect=[467 374 594 452] font=13
-TR-3-C-4 rect=[601 374 661 452] font=13
-TR-3-C-5 rect=[667 374 794 452] font=13
-TR-3-C-6 rect=[800 374 860 452] font=13
-TR-4 rect=[258 470 870 568] font=13
-TR-4-C-1 rect=[268 480 461 510] font=13
-TR-4-C-2 rect=[467 480 660 510] font=13
-TR-4-C-3 rect=[667 480 860 510] font=13
-TR-4-C-4 rect=[268 516 461 540] font=13
-TR-4-C-5 rect=[467 516 660 540] font=13
-TR-4-C-6 rect=[667 516 860 540] font=13
-TR-4-C-7 rect=[268 546 461 566] font=13
-TR-4-C-8 rect=[467 546 660 566] font=13
-TR-4-C-9 rect=[667 546 860 566] font=13
-## Window 1x 1200x780
+TAB-GRID rect=[24 84 876 553] font=13
+TR-1 rect=[38 125 862 223] font=13
+TR-1-C-1 rect=[48 135 168 213] font=13
+TR-1-C-2 rect=[174 135 375 213] font=13
+TR-1-C-3 rect=[381 135 487 213] font=13
+TR-1-C-4 rect=[493 135 706 213] font=13
+TR-1-C-5 rect=[712 135 852 213] font=13
+TR-2 rect=[38 231 862 329] font=13
+TR-2-C-1 rect=[48 241 294 319] font=13
+TR-2-C-2 rect=[300 241 600 319] font=13
+TR-2-C-3 rect=[606 241 852 319] font=13
+TR-3 rect=[38 336 862 434] font=13
+TR-3-C-1 rect=[48 346 246 424] font=13
+TR-3-C-2 rect=[252 346 312 424] font=13
+TR-3-C-3 rect=[318 346 516 424] font=13
+TR-3-C-4 rect=[522 346 582 424] font=13
+TR-3-C-5 rect=[588 346 786 424] font=13
+TR-3-C-6 rect=[792 346 852 424] font=13
+TR-4 rect=[38 442 862 540] font=13
+TR-4-C-1 rect=[48 452 312 482] font=13
+TR-4-C-2 rect=[318 452 582 482] font=13
+TR-4-C-3 rect=[588 452 852 482] font=13
+TR-4-C-4 rect=[48 488 312 512] font=13
+TR-4-C-5 rect=[318 488 582 512] font=13
+TR-4-C-6 rect=[588 488 852 512] font=13
+TR-4-C-7 rect=[48 518 312 538] font=13
+TR-4-C-8 rect=[318 518 582 538] font=13
+TR-4-C-9 rect=[588 518 852 538] font=13
+shapes=360 digest=725faaf11230c6b4
+## Preview 0.75x 900x585
+AL-1 rect=- font=13
+AL-1-C-1 rect=- font=13
+AL-1-C-2 rect=- font=13
+AL-1-C-3 rect=- font=13
+AL-1-C-4 rect=- font=13
+AL-2 rect=- font=13
+AL-2-C-1 rect=- font=13
+AL-2-C-2 rect=- font=13
+AL-2-C-3 rect=- font=13
+AL-2-C-4 rect=- font=13
+AL-3 rect=- font=13
+AL-3-C-1 rect=- font=13
+AL-3-C-2 rect=- font=13
+AL-3-C-3 rect=- font=13
+AL-3-C-4 rect=- font=13
+AL-4 rect=- font=13
+AL-4-C-1 rect=- font=13
+AL-4-C-2 rect=- font=13
+AL-4-C-3 rect=- font=13
+AL-4-C-4 rect=- font=13
+AL-5 rect=- font=13
+AL-5-C-1 rect=- font=13
+AL-5-C-2 rect=- font=13
+AL-5-C-3 rect=- font=13
+AL-5-C-4 rect=- font=13
+AL-6 rect=- font=13
+AL-6-C-1 rect=- font=13
+AL-6-C-2 rect=- font=13
+AL-6-C-3 rect=- font=13
+AL-6-C-4 rect=- font=13
+CARD-1 rect=- font=13
+CARD-1-N rect=- font=13
+CARD-1-T rect=- font=13
+CARD-2 rect=- font=13
+CARD-2-N rect=- font=13
+CARD-2-T rect=- font=13
+CARD-3 rect=- font=13
+CARD-3-N rect=- font=13
+CARD-3-T rect=- font=13
+CARD-4 rect=- font=13
+CARD-4-N rect=- font=13
+CARD-4-T rect=- font=13
+CARD-5 rect=- font=13
+CARD-5-N rect=- font=13
+CARD-5-T rect=- font=13
+CARD-6 rect=- font=13
+CARD-6-N rect=- font=13
+CARD-6-T rect=- font=13
+DE-BUTTONS rect=- font=13
+DE-CANCEL rect=- font=13
+DE-CITY rect=- font=13
+DE-CODE rect=- font=13
+DE-COUNTRY rect=- font=13
+DE-EMAIL rect=- font=13
+DE-HOST rect=- font=13
+DE-L-CITY rect=- font=13
+DE-L-CODE rect=- font=13
+DE-L-COUNTRY rect=- font=13
+DE-L-EMAIL rect=- font=13
+DE-L-NAME rect=- font=13
+DE-L-NOTES rect=- font=13
+DE-L-PHONE rect=- font=13
+DE-NAME rect=- font=13
+DE-NOTES rect=- font=13
+DE-PHONE rect=- font=13
+DE-SAVE rect=- font=13
+G0-HOST rect=[26 113 874 551] font=13
+G1-HOST rect=- font=13
+G2-HOST rect=- font=13
+G3-HOST rect=- font=13
+LBL-INTRO rect=[24 50 876 74] font=13
+LBL-TITLE rect=[24 14 876 46] font=20
+SB-INFO rect=[0 559 900 585] font=13
+SP-A rect=- font=13
+SP-B rect=- font=13
+SP-C rect=- font=13
+SP-EXTRA rect=- font=13
+SP-HEAD rect=- font=13
+SP-MAIN rect=- font=13
+SP-SIDE rect=- font=13
+TAB-GRID rect=[24 84 876 553] font=13
+TR-1 rect=[38 125 862 223] font=13
+TR-1-C-1 rect=[48 135 168 213] font=13
+TR-1-C-2 rect=[174 135 375 213] font=13
+TR-1-C-3 rect=[381 135 487 213] font=13
+TR-1-C-4 rect=[493 135 706 213] font=13
+TR-1-C-5 rect=[712 135 852 213] font=13
+TR-2 rect=[38 231 862 329] font=13
+TR-2-C-1 rect=[48 241 294 319] font=13
+TR-2-C-2 rect=[300 241 600 319] font=13
+TR-2-C-3 rect=[606 241 852 319] font=13
+TR-3 rect=[38 336 862 434] font=13
+TR-3-C-1 rect=[48 346 246 424] font=13
+TR-3-C-2 rect=[252 346 312 424] font=13
+TR-3-C-3 rect=[318 346 516 424] font=13
+TR-3-C-4 rect=[522 346 582 424] font=13
+TR-3-C-5 rect=[588 346 786 424] font=13
+TR-3-C-6 rect=[792 346 852 424] font=13
+TR-4 rect=[38 442 862 540] font=13
+TR-4-C-1 rect=[48 452 312 482] font=13
+TR-4-C-2 rect=[318 452 582 482] font=13
+TR-4-C-3 rect=[588 452 852 482] font=13
+TR-4-C-4 rect=[48 488 312 512] font=13
+TR-4-C-5 rect=[318 488 582 512] font=13
+TR-4-C-6 rect=[588 488 852 512] font=13
+TR-4-C-7 rect=[48 518 312 538] font=13
+TR-4-C-8 rect=[318 518 582 538] font=13
+TR-4-C-9 rect=[588 518 852 538] font=13
+shapes=360 digest=725faaf11230c6b4
+## Canvas 1x 1200x780
 AL-1 rect=- font=13
 AL-1-C-1 rect=- font=13
 AL-1-C-2 rect=- font=13
@@ -326,7 +438,8 @@ TR-4-C-6 rect=[788 634 1152 698] font=13
 TR-4-C-7 rect=[48 704 412 724] font=13
 TR-4-C-8 rect=[418 704 782 724] font=13
 TR-4-C-9 rect=[788 704 1152 724] font=13
-## Occupant 1x 1200x780
+shapes=359 digest=cb1d282fdbe4aee4
+## Run 1x 1200x780
 AL-1 rect=- font=13
 AL-1-C-1 rect=- font=13
 AL-1-C-2 rect=- font=13
@@ -393,13 +506,13 @@ DE-NAME rect=- font=13
 DE-NOTES rect=- font=13
 DE-PHONE rect=- font=13
 DE-SAVE rect=- font=13
-G0-HOST rect=[246 141 1174 746] font=13
+G0-HOST rect=[26 113 1174 746] font=13
 G1-HOST rect=- font=13
 G2-HOST rect=- font=13
 G3-HOST rect=- font=13
-LBL-INTRO rect=[244 78 1176 102] font=13
-LBL-TITLE rect=[244 42 1176 74] font=20
-SB-INFO rect=[220 754 1200 780] font=13
+LBL-INTRO rect=[24 50 1176 74] font=13
+LBL-TITLE rect=[24 14 1176 46] font=20
+SB-INFO rect=[0 754 1200 780] font=13
 SP-A rect=- font=13
 SP-B rect=- font=13
 SP-C rect=- font=13
@@ -407,35 +520,146 @@ SP-EXTRA rect=- font=13
 SP-HEAD rect=- font=13
 SP-MAIN rect=- font=13
 SP-SIDE rect=- font=13
-TAB-GRID rect=[244 112 1176 748] font=13
-TR-1 rect=[258 153 1162 292] font=13
-TR-1-C-1 rect=[268 163 388 282] font=13
-TR-1-C-2 rect=[394 163 615 282] font=13
-TR-1-C-3 rect=[621 163 747 282] font=13
-TR-1-C-4 rect=[753 163 1006 282] font=13
-TR-1-C-5 rect=[1012 163 1152 282] font=13
-TR-2 rect=[258 300 1162 439] font=13
-TR-2-C-1 rect=[268 310 554 429] font=13
-TR-2-C-2 rect=[560 310 860 429] font=13
-TR-2-C-3 rect=[866 310 1152 429] font=13
-TR-3 rect=[258 448 1162 587] font=13
-TR-3-C-1 rect=[268 458 493 577] font=13
-TR-3-C-2 rect=[499 458 559 577] font=13
-TR-3-C-3 rect=[565 458 790 577] font=13
-TR-3-C-4 rect=[795 458 855 577] font=13
-TR-3-C-5 rect=[861 458 1086 577] font=13
-TR-3-C-6 rect=[1092 458 1152 577] font=13
-TR-4 rect=[258 595 1162 734] font=13
-TR-4-C-1 rect=[268 605 559 635] font=13
-TR-4-C-2 rect=[565 605 856 635] font=13
-TR-4-C-3 rect=[861 605 1152 635] font=13
-TR-4-C-4 rect=[268 641 559 698] font=13
-TR-4-C-5 rect=[565 641 856 698] font=13
-TR-4-C-6 rect=[861 641 1152 698] font=13
-TR-4-C-7 rect=[268 704 559 724] font=13
-TR-4-C-8 rect=[565 704 856 724] font=13
-TR-4-C-9 rect=[861 704 1152 724] font=13
-## Window 1.5x 1800x1170
+TAB-GRID rect=[24 84 1176 748] font=13
+TR-1 rect=[38 125 1162 271] font=13
+TR-1-C-1 rect=[48 135 168 261] font=13
+TR-1-C-2 rect=[174 135 450 261] font=13
+TR-1-C-3 rect=[456 135 637 261] font=13
+TR-1-C-4 rect=[643 135 1006 261] font=13
+TR-1-C-5 rect=[1012 135 1152 261] font=13
+TR-2 rect=[38 279 1162 425] font=13
+TR-2-C-1 rect=[48 289 444 415] font=13
+TR-2-C-2 rect=[450 289 750 415] font=13
+TR-2-C-3 rect=[756 289 1152 415] font=13
+TR-3 rect=[38 434 1162 580] font=13
+TR-3-C-1 rect=[48 444 346 570] font=13
+TR-3-C-2 rect=[352 444 412 570] font=13
+TR-3-C-3 rect=[418 444 716 570] font=13
+TR-3-C-4 rect=[722 444 782 570] font=13
+TR-3-C-5 rect=[788 444 1086 570] font=13
+TR-3-C-6 rect=[1092 444 1152 570] font=13
+TR-4 rect=[38 588 1162 734] font=13
+TR-4-C-1 rect=[48 598 412 628] font=13
+TR-4-C-2 rect=[418 598 782 628] font=13
+TR-4-C-3 rect=[788 598 1152 628] font=13
+TR-4-C-4 rect=[48 634 412 698] font=13
+TR-4-C-5 rect=[418 634 782 698] font=13
+TR-4-C-6 rect=[788 634 1152 698] font=13
+TR-4-C-7 rect=[48 704 412 724] font=13
+TR-4-C-8 rect=[418 704 782 724] font=13
+TR-4-C-9 rect=[788 704 1152 724] font=13
+shapes=360 digest=8a44a743d0912f6b
+## Preview 1x 1200x780
+AL-1 rect=- font=13
+AL-1-C-1 rect=- font=13
+AL-1-C-2 rect=- font=13
+AL-1-C-3 rect=- font=13
+AL-1-C-4 rect=- font=13
+AL-2 rect=- font=13
+AL-2-C-1 rect=- font=13
+AL-2-C-2 rect=- font=13
+AL-2-C-3 rect=- font=13
+AL-2-C-4 rect=- font=13
+AL-3 rect=- font=13
+AL-3-C-1 rect=- font=13
+AL-3-C-2 rect=- font=13
+AL-3-C-3 rect=- font=13
+AL-3-C-4 rect=- font=13
+AL-4 rect=- font=13
+AL-4-C-1 rect=- font=13
+AL-4-C-2 rect=- font=13
+AL-4-C-3 rect=- font=13
+AL-4-C-4 rect=- font=13
+AL-5 rect=- font=13
+AL-5-C-1 rect=- font=13
+AL-5-C-2 rect=- font=13
+AL-5-C-3 rect=- font=13
+AL-5-C-4 rect=- font=13
+AL-6 rect=- font=13
+AL-6-C-1 rect=- font=13
+AL-6-C-2 rect=- font=13
+AL-6-C-3 rect=- font=13
+AL-6-C-4 rect=- font=13
+CARD-1 rect=- font=13
+CARD-1-N rect=- font=13
+CARD-1-T rect=- font=13
+CARD-2 rect=- font=13
+CARD-2-N rect=- font=13
+CARD-2-T rect=- font=13
+CARD-3 rect=- font=13
+CARD-3-N rect=- font=13
+CARD-3-T rect=- font=13
+CARD-4 rect=- font=13
+CARD-4-N rect=- font=13
+CARD-4-T rect=- font=13
+CARD-5 rect=- font=13
+CARD-5-N rect=- font=13
+CARD-5-T rect=- font=13
+CARD-6 rect=- font=13
+CARD-6-N rect=- font=13
+CARD-6-T rect=- font=13
+DE-BUTTONS rect=- font=13
+DE-CANCEL rect=- font=13
+DE-CITY rect=- font=13
+DE-CODE rect=- font=13
+DE-COUNTRY rect=- font=13
+DE-EMAIL rect=- font=13
+DE-HOST rect=- font=13
+DE-L-CITY rect=- font=13
+DE-L-CODE rect=- font=13
+DE-L-COUNTRY rect=- font=13
+DE-L-EMAIL rect=- font=13
+DE-L-NAME rect=- font=13
+DE-L-NOTES rect=- font=13
+DE-L-PHONE rect=- font=13
+DE-NAME rect=- font=13
+DE-NOTES rect=- font=13
+DE-PHONE rect=- font=13
+DE-SAVE rect=- font=13
+G0-HOST rect=[26 113 1174 746] font=13
+G1-HOST rect=- font=13
+G2-HOST rect=- font=13
+G3-HOST rect=- font=13
+LBL-INTRO rect=[24 50 1176 74] font=13
+LBL-TITLE rect=[24 14 1176 46] font=20
+SB-INFO rect=[0 754 1200 780] font=13
+SP-A rect=- font=13
+SP-B rect=- font=13
+SP-C rect=- font=13
+SP-EXTRA rect=- font=13
+SP-HEAD rect=- font=13
+SP-MAIN rect=- font=13
+SP-SIDE rect=- font=13
+TAB-GRID rect=[24 84 1176 748] font=13
+TR-1 rect=[38 125 1162 271] font=13
+TR-1-C-1 rect=[48 135 168 261] font=13
+TR-1-C-2 rect=[174 135 450 261] font=13
+TR-1-C-3 rect=[456 135 637 261] font=13
+TR-1-C-4 rect=[643 135 1006 261] font=13
+TR-1-C-5 rect=[1012 135 1152 261] font=13
+TR-2 rect=[38 279 1162 425] font=13
+TR-2-C-1 rect=[48 289 444 415] font=13
+TR-2-C-2 rect=[450 289 750 415] font=13
+TR-2-C-3 rect=[756 289 1152 415] font=13
+TR-3 rect=[38 434 1162 580] font=13
+TR-3-C-1 rect=[48 444 346 570] font=13
+TR-3-C-2 rect=[352 444 412 570] font=13
+TR-3-C-3 rect=[418 444 716 570] font=13
+TR-3-C-4 rect=[722 444 782 570] font=13
+TR-3-C-5 rect=[788 444 1086 570] font=13
+TR-3-C-6 rect=[1092 444 1152 570] font=13
+TR-4 rect=[38 588 1162 734] font=13
+TR-4-C-1 rect=[48 598 412 628] font=13
+TR-4-C-2 rect=[418 598 782 628] font=13
+TR-4-C-3 rect=[788 598 1152 628] font=13
+TR-4-C-4 rect=[48 634 412 698] font=13
+TR-4-C-5 rect=[418 634 782 698] font=13
+TR-4-C-6 rect=[788 634 1152 698] font=13
+TR-4-C-7 rect=[48 704 412 724] font=13
+TR-4-C-8 rect=[418 704 782 724] font=13
+TR-4-C-9 rect=[788 704 1152 724] font=13
+shapes=360 digest=8a44a743d0912f6b
+## Canvas 1.5x 1800x1170
 AL-1 rect=- font=13
 AL-1-C-1 rect=- font=13
 AL-1-C-2 rect=- font=13
@@ -544,7 +768,8 @@ TR-4-C-6 rect=[1188 926 1752 1088] font=13
 TR-4-C-7 rect=[48 1094 612 1114] font=13
 TR-4-C-8 rect=[618 1094 1182 1114] font=13
 TR-4-C-9 rect=[1188 1094 1752 1114] font=13
-## Occupant 1.5x 1800x1170
+shapes=359 digest=f89061178ce059b2
+## Run 1.5x 1800x1170
 AL-1 rect=- font=13
 AL-1-C-1 rect=- font=13
 AL-1-C-2 rect=- font=13
@@ -611,13 +836,13 @@ DE-NAME rect=- font=13
 DE-NOTES rect=- font=13
 DE-PHONE rect=- font=13
 DE-SAVE rect=- font=13
-G0-HOST rect=[246 141 1774 1136] font=13
+G0-HOST rect=[26 113 1774 1136] font=13
 G1-HOST rect=- font=13
 G2-HOST rect=- font=13
 G3-HOST rect=- font=13
-LBL-INTRO rect=[244 78 1776 102] font=13
-LBL-TITLE rect=[244 42 1776 74] font=20
-SB-INFO rect=[220 1144 1800 1170] font=13
+LBL-INTRO rect=[24 50 1776 74] font=13
+LBL-TITLE rect=[24 14 1776 46] font=20
+SB-INFO rect=[0 1144 1800 1170] font=13
 SP-A rect=- font=13
 SP-B rect=- font=13
 SP-C rect=- font=13
@@ -625,31 +850,142 @@ SP-EXTRA rect=- font=13
 SP-HEAD rect=- font=13
 SP-MAIN rect=- font=13
 SP-SIDE rect=- font=13
-TAB-GRID rect=[244 112 1776 1138] font=13
-TR-1 rect=[258 153 1762 390] font=13
-TR-1-C-1 rect=[268 163 388 380] font=13
-TR-1-C-2 rect=[394 163 765 380] font=13
-TR-1-C-3 rect=[771 163 1047 380] font=13
-TR-1-C-4 rect=[1053 163 1606 380] font=13
-TR-1-C-5 rect=[1612 163 1752 380] font=13
-TR-2 rect=[258 398 1762 635] font=13
-TR-2-C-1 rect=[268 408 854 625] font=13
-TR-2-C-2 rect=[860 408 1160 625] font=13
-TR-2-C-3 rect=[1166 408 1752 625] font=13
-TR-3 rect=[258 643 1762 880] font=13
-TR-3-C-1 rect=[268 653 693 870] font=13
-TR-3-C-2 rect=[699 653 759 870] font=13
-TR-3-C-3 rect=[765 653 1190 870] font=13
-TR-3-C-4 rect=[1195 653 1255 870] font=13
-TR-3-C-5 rect=[1261 653 1686 870] font=13
-TR-3-C-6 rect=[1692 653 1752 870] font=13
-TR-4 rect=[258 887 1762 1124] font=13
-TR-4-C-1 rect=[268 897 759 927] font=13
-TR-4-C-2 rect=[765 897 1256 927] font=13
-TR-4-C-3 rect=[1261 897 1752 927] font=13
-TR-4-C-4 rect=[268 933 759 1088] font=13
-TR-4-C-5 rect=[765 933 1256 1088] font=13
-TR-4-C-6 rect=[1261 933 1752 1088] font=13
-TR-4-C-7 rect=[268 1094 759 1114] font=13
-TR-4-C-8 rect=[765 1094 1256 1114] font=13
-TR-4-C-9 rect=[1261 1094 1752 1114] font=13
+TAB-GRID rect=[24 84 1776 1138] font=13
+TR-1 rect=[38 125 1762 369] font=13
+TR-1-C-1 rect=[48 135 168 359] font=13
+TR-1-C-2 rect=[174 135 600 359] font=13
+TR-1-C-3 rect=[606 135 937 359] font=13
+TR-1-C-4 rect=[943 135 1606 359] font=13
+TR-1-C-5 rect=[1612 135 1752 359] font=13
+TR-2 rect=[38 377 1762 621] font=13
+TR-2-C-1 rect=[48 387 744 611] font=13
+TR-2-C-2 rect=[750 387 1050 611] font=13
+TR-2-C-3 rect=[1056 387 1752 611] font=13
+TR-3 rect=[38 629 1762 873] font=13
+TR-3-C-1 rect=[48 639 546 863] font=13
+TR-3-C-2 rect=[552 639 612 863] font=13
+TR-3-C-3 rect=[618 639 1116 863] font=13
+TR-3-C-4 rect=[1122 639 1182 863] font=13
+TR-3-C-5 rect=[1188 639 1686 863] font=13
+TR-3-C-6 rect=[1692 639 1752 863] font=13
+TR-4 rect=[38 880 1762 1124] font=13
+TR-4-C-1 rect=[48 890 612 920] font=13
+TR-4-C-2 rect=[618 890 1182 920] font=13
+TR-4-C-3 rect=[1188 890 1752 920] font=13
+TR-4-C-4 rect=[48 926 612 1088] font=13
+TR-4-C-5 rect=[618 926 1182 1088] font=13
+TR-4-C-6 rect=[1188 926 1752 1088] font=13
+TR-4-C-7 rect=[48 1094 612 1114] font=13
+TR-4-C-8 rect=[618 1094 1182 1114] font=13
+TR-4-C-9 rect=[1188 1094 1752 1114] font=13
+shapes=360 digest=19590ae9b3a337ab
+## Preview 1.5x 1800x1170
+AL-1 rect=- font=13
+AL-1-C-1 rect=- font=13
+AL-1-C-2 rect=- font=13
+AL-1-C-3 rect=- font=13
+AL-1-C-4 rect=- font=13
+AL-2 rect=- font=13
+AL-2-C-1 rect=- font=13
+AL-2-C-2 rect=- font=13
+AL-2-C-3 rect=- font=13
+AL-2-C-4 rect=- font=13
+AL-3 rect=- font=13
+AL-3-C-1 rect=- font=13
+AL-3-C-2 rect=- font=13
+AL-3-C-3 rect=- font=13
+AL-3-C-4 rect=- font=13
+AL-4 rect=- font=13
+AL-4-C-1 rect=- font=13
+AL-4-C-2 rect=- font=13
+AL-4-C-3 rect=- font=13
+AL-4-C-4 rect=- font=13
+AL-5 rect=- font=13
+AL-5-C-1 rect=- font=13
+AL-5-C-2 rect=- font=13
+AL-5-C-3 rect=- font=13
+AL-5-C-4 rect=- font=13
+AL-6 rect=- font=13
+AL-6-C-1 rect=- font=13
+AL-6-C-2 rect=- font=13
+AL-6-C-3 rect=- font=13
+AL-6-C-4 rect=- font=13
+CARD-1 rect=- font=13
+CARD-1-N rect=- font=13
+CARD-1-T rect=- font=13
+CARD-2 rect=- font=13
+CARD-2-N rect=- font=13
+CARD-2-T rect=- font=13
+CARD-3 rect=- font=13
+CARD-3-N rect=- font=13
+CARD-3-T rect=- font=13
+CARD-4 rect=- font=13
+CARD-4-N rect=- font=13
+CARD-4-T rect=- font=13
+CARD-5 rect=- font=13
+CARD-5-N rect=- font=13
+CARD-5-T rect=- font=13
+CARD-6 rect=- font=13
+CARD-6-N rect=- font=13
+CARD-6-T rect=- font=13
+DE-BUTTONS rect=- font=13
+DE-CANCEL rect=- font=13
+DE-CITY rect=- font=13
+DE-CODE rect=- font=13
+DE-COUNTRY rect=- font=13
+DE-EMAIL rect=- font=13
+DE-HOST rect=- font=13
+DE-L-CITY rect=- font=13
+DE-L-CODE rect=- font=13
+DE-L-COUNTRY rect=- font=13
+DE-L-EMAIL rect=- font=13
+DE-L-NAME rect=- font=13
+DE-L-NOTES rect=- font=13
+DE-L-PHONE rect=- font=13
+DE-NAME rect=- font=13
+DE-NOTES rect=- font=13
+DE-PHONE rect=- font=13
+DE-SAVE rect=- font=13
+G0-HOST rect=[26 113 1774 1136] font=13
+G1-HOST rect=- font=13
+G2-HOST rect=- font=13
+G3-HOST rect=- font=13
+LBL-INTRO rect=[24 50 1776 74] font=13
+LBL-TITLE rect=[24 14 1776 46] font=20
+SB-INFO rect=[0 1144 1800 1170] font=13
+SP-A rect=- font=13
+SP-B rect=- font=13
+SP-C rect=- font=13
+SP-EXTRA rect=- font=13
+SP-HEAD rect=- font=13
+SP-MAIN rect=- font=13
+SP-SIDE rect=- font=13
+TAB-GRID rect=[24 84 1776 1138] font=13
+TR-1 rect=[38 125 1762 369] font=13
+TR-1-C-1 rect=[48 135 168 359] font=13
+TR-1-C-2 rect=[174 135 600 359] font=13
+TR-1-C-3 rect=[606 135 937 359] font=13
+TR-1-C-4 rect=[943 135 1606 359] font=13
+TR-1-C-5 rect=[1612 135 1752 359] font=13
+TR-2 rect=[38 377 1762 621] font=13
+TR-2-C-1 rect=[48 387 744 611] font=13
+TR-2-C-2 rect=[750 387 1050 611] font=13
+TR-2-C-3 rect=[1056 387 1752 611] font=13
+TR-3 rect=[38 629 1762 873] font=13
+TR-3-C-1 rect=[48 639 546 863] font=13
+TR-3-C-2 rect=[552 639 612 863] font=13
+TR-3-C-3 rect=[618 639 1116 863] font=13
+TR-3-C-4 rect=[1122 639 1182 863] font=13
+TR-3-C-5 rect=[1188 639 1686 863] font=13
+TR-3-C-6 rect=[1692 639 1752 863] font=13
+TR-4 rect=[38 880 1762 1124] font=13
+TR-4-C-1 rect=[48 890 612 920] font=13
+TR-4-C-2 rect=[618 890 1182 920] font=13
+TR-4-C-3 rect=[1188 890 1752 920] font=13
+TR-4-C-4 rect=[48 926 612 1088] font=13
+TR-4-C-5 rect=[618 926 1182 1088] font=13
+TR-4-C-6 rect=[1188 926 1752 1088] font=13
+TR-4-C-7 rect=[48 1094 612 1114] font=13
+TR-4-C-8 rect=[618 1094 1182 1114] font=13
+TR-4-C-9 rect=[1188 1094 1752 1114] font=13
+shapes=360 digest=19590ae9b3a337ab

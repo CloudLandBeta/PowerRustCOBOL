@@ -1,4 +1,4 @@
-# PowerDemo3/General/responsive-obsolete-form.cfrm
+# PowerDemo3/Responsive Layout/responsive-obsolete-form.cfrm
 ## Canvas 0.75x 600x420
 OB-ADDRESS rect=[98 117 368 140] font=11
 OB-CANCEL rect=[414 339 495 366] font=11

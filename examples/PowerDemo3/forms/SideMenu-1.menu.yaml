@@ -108,6 +108,11 @@ menu:
       icon: control-viewer
       action: open-form:viewer-form
       enabled: true
+  - id: ocwm
+    label: Responsive Layout
+    type: action
+    icon: flex-layout
+    enabled: true
   - id: gizd
     label: Containers
     type: action
@@ -397,4 +402,8 @@ menu:
       icon: form
       action: open-form:responsive-dashboard-form
       enabled: true
-hash: 5ef49ae5bc9c7f33021e818f727f44328a132c5d0a03e93cd3d36ecb63ef7208
+  - id: qois
+    label: Sub Item
+    type: action
+    enabled: true
+hash: 769d40dfca9e626cd6cee9e45f6ee854a7eb1c862b958b536ee3e0366ee5d7e0

@@ -29,7 +29,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 destination_folder = "PowerDemo3"
 debug_compilation = true
-built_with_version = "1.80.10"
+built_with_version = "1.80.75"
 
 [files]
 sources = ["src/main.cbl"]
@@ -82,18 +82,19 @@ forms = [
     "forms/Non-Visual/sqldatabase-form.cfrm",
     "forms/Non-Visual/indexedfile-form.cfrm",
     "forms/Non-Visual/websearch-form.cfrm",
-    "forms/General/responsive-anchors-form.cfrm",
-    "forms/General/responsive-dock-form.cfrm",
-    "forms/General/responsive-flex-form.cfrm",
-    "forms/General/responsive-grid-form.cfrm",
-    "forms/General/responsive-flow-form.cfrm",
-    "forms/General/responsive-breakpoints-form.cfrm",
-    "forms/General/responsive-fonts-form.cfrm",
-    "forms/General/responsive-nested-form.cfrm",
-    "forms/General/responsive-runtime-form.cfrm",
-    "forms/General/responsive-collide-form.cfrm",
-    "forms/General/responsive-obsolete-form.cfrm",
-    "forms/General/responsive-dashboard-form.cfrm",
+    "forms/Responsive Layout/responsive-anchors-form.cfrm",
+    "forms/Responsive Layout/responsive-dock-form.cfrm",
+    "forms/Responsive Layout/responsive-flex-form.cfrm",
+    "forms/Responsive Layout/responsive-grid-form.cfrm",
+    "forms/Responsive Layout/responsive-flow-form.cfrm",
+    "forms/Responsive Layout/responsive-breakpoints-form.cfrm",
+    "forms/Responsive Layout/responsive-fonts-form.cfrm",
+    "forms/Responsive Layout/responsive-nested-form.cfrm",
+    "forms/Responsive Layout/responsive-runtime-form.cfrm",
+    "forms/Responsive Layout/responsive-collide-form.cfrm",
+    "forms/Responsive Layout/responsive-obsolete-form.cfrm",
+    "forms/Responsive Layout/responsive-dashboard-form.cfrm",
+    "forms/General/modern-form.cfrm",
 ]
 assets = []
 documentation = [
@@ -155,6 +156,19 @@ generated = [
     "generated/actors-indexed.cbl",
     "generated/main-form.cbl",
     "generated/viewer-form.cbl",
+    "generated/modern-form.cbl",
+    "generated/responsive-anchors-form.cbl",
+    "generated/responsive-dock-form.cbl",
+    "generated/responsive-flex-form.cbl",
+    "generated/responsive-grid-form.cbl",
+    "generated/responsive-flow-form.cbl",
+    "generated/responsive-breakpoints-form.cbl",
+    "generated/responsive-fonts-form.cbl",
+    "generated/responsive-nested-form.cbl",
+    "generated/responsive-runtime-form.cbl",
+    "generated/responsive-collide-form.cbl",
+    "generated/responsive-obsolete-form.cbl",
+    "generated/responsive-dashboard-form.cbl",
 ]
 indexed = ["indexed/actors.cidx"]
 
@@ -186,8 +200,10 @@ entrance-on-restore = true
 focus-ring = true
 focus-ring-color = ""
 focus-ring-pulse = true
+responsive = false
+breakpoints = ""
 main-form = "SIDEBAR-FORM"
-main-form-seal = "c8bd69332064ddce5bdc28b3a9e05c7ff98be8ccfcd1014ce5a84c79ab7736a8"
+main-form-seal = "87bb27b8f684764bc9aa9f4e4c5554c798570949daa830e19ed8a377d2ea0d8e"
 
 [ai]
 schema_version = 1

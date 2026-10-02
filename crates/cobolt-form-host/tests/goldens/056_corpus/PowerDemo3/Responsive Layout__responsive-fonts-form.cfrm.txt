@@ -1,4 +1,4 @@
-# PowerDemo3/General/responsive-fonts-form.cfrm
+# PowerDemo3/Responsive Layout/responsive-fonts-form.cfrm
 ## Window 0.75x 750x525
 F-AUTO rect=[42 326 260 344] font=15
 F-BODY rect=[42 118 376 146] font=13

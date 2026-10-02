@@ -1,4 +1,4 @@
-# PowerDemo3/General/responsive-flex-form.cfrm
+# PowerDemo3/Responsive Layout/responsive-flex-form.cfrm
 ## Canvas 0.75x 900x585
 AI-1 rect=- font=13
 AI-1-C-1 rect=- font=13

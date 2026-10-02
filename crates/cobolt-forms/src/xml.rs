@@ -2809,7 +2809,7 @@ Actor Caption:string</Property>
                 }
             }
         }
-        assert_eq!(checked, 74);
+        assert_eq!(checked, 75);
         println!("056 T2.3: {checked} example forms load → save → load byte-identical");
     }
 
@@ -2845,8 +2845,8 @@ Actor Caption:string</Property>
                 }
             }
         }
-        assert_eq!(checked, 62);
-        assert_eq!(designed_responsive, 12, "PowerDemo3's responsive demos");
+        assert_eq!(checked, 61);
+        assert_eq!(designed_responsive, 14, "PowerDemo3's twelve responsive demos, its modern-form and PowerChat's chat-form");
         println!("056 T2.1: {checked} example forms load non-responsive and save without responsive markup; {designed_responsive} responsive by design skipped");
     }
 
