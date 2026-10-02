@@ -40,8 +40,8 @@ Vwr-Chat rect=[288 96 876 442] font=14
 AGENT-1 rect=[1420 44 1468 92] font=14
 AGENT-2 rect=[1420 108 1468 156] font=14
 AGENT-3 rect=[1420 172 1468 220] font=14
-Btn-Pdf rect=[704 48 876 84] font=14
-Btn-Send rect=[764 458 872 562] font=14
+Btn-Pdf rect=[1213 48 1385 84] font=14
+Btn-Send rect=[1273 684 1381 788] font=14
 Flag-cn rect=[436 776 476 808] font=14
 Flag-en rect=[226 776 266 808] font=14
 Flag-es rect=[310 776 350 808] font=14
@@ -53,8 +53,8 @@ Lbl-Status rect=[508 92 1396 116] font=14
 Lbl-Topic rect=[508 52 1212 84] font=20
 SideMenu-1 rect=[220 28 484 820] font=14
 SideMenu-1-Footer rect=[220 748 484 820] font=14
-Txt-Input rect=[508 458 748 562] font=14
-Vwr-Chat rect=[508 124 876 442] font=14
+Txt-Input rect=[508 684 1257 788] font=14
+Vwr-Chat rect=[508 124 1385 668] font=14
 ## Window 1x 1200x792
 AGENT-1 rect=[1200 16 1248 64] font=14
 AGENT-2 rect=[1200 80 1248 128] font=14
@@ -96,8 +96,8 @@ Vwr-Chat rect=[288 96 1176 640] font=14
 AGENT-1 rect=[1420 44 1468 92] font=14
 AGENT-2 rect=[1420 108 1468 156] font=14
 AGENT-3 rect=[1420 172 1468 220] font=14
-Btn-Pdf rect=[1004 48 1176 84] font=14
-Btn-Send rect=[1064 656 1172 760] font=14
+Btn-Pdf rect=[1213 48 1385 84] font=14
+Btn-Send rect=[1273 684 1381 788] font=14
 Flag-cn rect=[436 776 476 808] font=14
 Flag-en rect=[226 776 266 808] font=14
 Flag-es rect=[310 776 350 808] font=14
@@ -109,8 +109,8 @@ Lbl-Status rect=[508 92 1396 116] font=14
 Lbl-Topic rect=[508 52 1212 84] font=20
 SideMenu-1 rect=[220 28 484 820] font=14
 SideMenu-1-Footer rect=[220 748 484 820] font=14
-Txt-Input rect=[508 656 1048 760] font=14
-Vwr-Chat rect=[508 124 1176 640] font=14
+Txt-Input rect=[508 684 1257 788] font=14
+Vwr-Chat rect=[508 124 1385 668] font=14
 ## Window 1.5x 1800x1188
 AGENT-1 rect=[1200 16 1248 64] font=14
 AGENT-2 rect=[1200 80 1248 128] font=14

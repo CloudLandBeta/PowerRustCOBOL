@@ -8,6 +8,31 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.82] — 2026-10-02
+
+### Fix: a responsive form in a content pane stops before its controls touch
+
+The operator opened PowerDemo3's collision demo from the side menu and
+widened the window. The stretching field ran over the red chip beside it,
+and the notes box grew over the line it should stop 1 px above. The size
+limits (056 R18) reached only an OS window, as its minimum and maximum
+inner size. A form loaded into a SideMenu's ContentPane has no window to
+stop, so it was laid out for the whole pane.
+
+`FormBody::child_frame` now holds the surface a responsive form lays out
+for inside the form's limits. Past the maximum, the rest of the pane stays
+empty; below the minimum, the form keeps its minimum and the pane scrolls.
+In a child window this changes nothing, because the OS already held it
+there. The shell's own root form, laid out beside its rail, is not
+affected.
+
+Test: `a_form_in_a_pane_stops_before_its_controls_touch_056` (in a 680×672
+pane the field stops at 519 before the chip at 520; without the fix it ran
+to 770). The host golden corpus changes in 29 places across seven forms, all
+in pane-occupant renders at 0.75×, where the pane is smaller than the
+form's minimum. No window render changed. The Developer's Guide describes
+the pane behaviour.
+
 ## [PowerRustCOBOL 1.80.81] — 2026-10-02
 
 ### Fix: Grace answers without hidden reasoning and skips the prompt review

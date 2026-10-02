@@ -2968,8 +2968,22 @@ impl FormBody {
                         ui.set_opacity(1.0);
                     }
                     ui.style_mut().spacing.scroll = form_scroll_style();
-                    // 056 R23 — the surface a responsive form lays out for.
-                    let surface_size = ui.available_size();
+                    // 056 R23 — the surface a responsive form lays out for,
+                    // held inside the form's size limits (R18). A window gets
+                    // those limits from the OS; a form loaded into a
+                    // ContentPane has no window to stop, so the pane grew it
+                    // until its controls ran into each other (operator,
+                    // 2026-10-02). Past the maximum the pane's extra space
+                    // stays empty; below the minimum the scroll area scrolls.
+                    // In a child window this changes nothing: the OS already
+                    // held it there.
+                    let surface_size = match responsive.as_ref() {
+                        Some(spec) => {
+                            let (min, max) = spec.size_limits(&designed_controls, form_size);
+                            ui.available_size().max(min).min(max)
+                        }
+                        None => ui.available_size(),
+                    };
                     egui::ScrollArea::both()
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
@@ -11045,6 +11059,53 @@ mod parity {
         println!(
             "056 host: window 600×400 → BTN right {:.0}, StatusBar y {:.0} w {:.0}; designed size unchanged; pane {:.0}×{:.0} → BTN right {:.0}",
             r["BTN"].max.x, r["SB"].min.y, r["SB"].width(), pane.width(), pane.height(), o["BTN"].max.x
+        );
+    }
+
+    /// R18 in a ContentPane: a pane cannot refuse to grow the way a window's
+    /// grip stops, so the form is laid out no larger than its limits and the
+    /// rest of the pane stays empty. Before 1.80.82 the occupant took the whole
+    /// pane and a stretching field ran into the chip beside it (operator,
+    /// 2026-10-02, PowerDemo3's collision demo).
+    #[test]
+    fn a_form_in_a_pane_stops_before_its_controls_touch_056() {
+        let mut f = cobolt_forms::Form::new("COLLIDE-FORM", "Collide", 400, 300);
+        f.responsive = true;
+        let mut add = |id: &str, ty, r: (i32, i32, i32, i32), anchor: &str| {
+            let mut c = cobolt_forms::Control::new(id, ty, 0, 0);
+            c.rect = cobolt_forms::model::Rect::new(r.0, r.1, r.2, r.3);
+            c.set_prop("Anchor", cobolt_forms::PropValue::String(anchor.into()));
+            f.controls.push(c);
+        };
+        // The field stretches right toward the chip: they meet 30 px wider.
+        add("FIELD", cobolt_forms::ControlType::TextBox, (20, 20, 250, 30), "Top,Left,Right");
+        add("CHIP", cobolt_forms::ControlType::Button, (300, 20, 80, 30), "Top,Left");
+        // The notes grow down toward the line: they meet 40 px taller.
+        add("NOTES", cobolt_forms::ControlType::TextBox, (20, 70, 200, 90), "Top,Bottom,Left");
+        add("LINE", cobolt_forms::ControlType::Label, (20, 200, 200, 20), "Top,Left");
+        let occupant = f.clone();
+        let source: FormSource = Box::new(move |_id: &str| Ok((occupant.clone(), corpus_program())));
+        let shell_form = cobolt_forms::Form::new("SHELL", "Shell", 900, 700);
+        let (mut app, _f, _p) = corpus_host(shell_form, Surface::Pane, None, Some(source));
+        app.ensure_occupant("COLLIDE-FORM").expect("builds");
+        app.show_occupant(Some("COLLIDE-FORM"));
+        let mut shell = crate::shell::Shell::default();
+        let ctx = egui::Context::default();
+        for _ in 0..3 {
+            let mut full = ctx.run_ui(corpus_input(egui::vec2(900.0, 700.0)), |ui| {
+                shell.show_with_host(ui, |_ui| {}, &mut app);
+            });
+            full.textures_delta.clear();
+        }
+        let pane = app.last_occupant_rect().expect("an occupant owns the pane");
+        assert!(pane.width() > 500.0 && pane.height() > 400.0, "the pane is larger than the limits: {pane:?}");
+        let o = app.last_control_rects().clone();
+        assert!(o["FIELD"].max.x < o["CHIP"].min.x, "the field stops before the chip: {:?} {:?}", o["FIELD"], o["CHIP"]);
+        assert!(o["NOTES"].max.y < o["LINE"].min.y, "the notes stop above the line: {:?} {:?}", o["NOTES"], o["LINE"]);
+        assert!(o["FIELD"].width() > 250.0, "it still grew up to the limit: {:?}", o["FIELD"]);
+        println!(
+            "056 R18 pane {:.0}×{:.0}: field right {:.0} < chip left {:.0}; notes bottom {:.0} < line top {:.0}",
+            pane.width(), pane.height(), o["FIELD"].max.x, o["CHIP"].min.x, o["NOTES"].max.y, o["LINE"].min.y
         );
     }
 }

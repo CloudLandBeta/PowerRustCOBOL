@@ -2011,6 +2011,12 @@ shrinking and growing, on the width and on the height. The same limits apply
 to the running form in the IDE, to the compiled application, and to the
 designer's view-size grip.
 
+A form opened inside a SideMenu's content pane has no window of its own to
+stop, so the pane cannot refuse to grow. The form is laid out no larger than
+its limits instead: past them, the rest of the pane stays empty. In a pane
+smaller than the form's minimum, the form keeps its minimum size and the pane
+scrolls, the same layout the window would have stopped at.
+
 Controls you placed touching or overlapping on purpose, such as a label on
 its card or two flush toolbar buttons, are left alone. A control you placed
 partly outside its container, or outside the form, is left alone too. So are
