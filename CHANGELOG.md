@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.79] — 2026-10-02
+
+### Fix: Grace's prompt review gets her planning view
+
+Before a designer request runs, Grace rewrites it in a prompt review. That
+call was sent the FULL surface context: the property keys and events of all
+44 control types plus the form, about 125k characters on PowerDemo3's
+`sidebar-form`, to rewrite a one-sentence request. Her planning call already
+had a trimmed view (`planning_surface_context`), with the legends cut to the
+types on the form and those the request names. The review now gets that same
+view (76k characters on that form). The live UI tree it also reads is
+unchanged.
+
 ## [PowerRustCOBOL 1.80.78] — 2026-10-02
 
 ### Fix: Grace plans in one model round

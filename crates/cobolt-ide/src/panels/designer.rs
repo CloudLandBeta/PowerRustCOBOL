@@ -7593,10 +7593,18 @@ impl DesignerPanel {
                         && !self.global_ai_prompt.trim().is_empty()
                     {
                         let original = self.global_ai_prompt.clone();
-                        let mut ctx_for_review = crate::agent::build_context_with_project(
-                            &self.form,
-                            project,
-                            project_root,
+                        // The view Grace plans from, not the full context: the
+                        // legends cut to the types on the form and the ones the
+                        // request names. The full one carried all 44 types'
+                        // property keys and events, ~125k characters to rewrite
+                        // one sentence (1.80.79).
+                        let mut ctx_for_review = crate::grace_host::planning_surface_context(
+                            &crate::agent::build_context_with_project(
+                                &self.form,
+                                project,
+                                project_root,
+                            ),
+                            &original,
                         );
                         if let Some(tree) = crate::agent_inspection::latest_summary() {
                             ctx_for_review.push_str("\n\n");

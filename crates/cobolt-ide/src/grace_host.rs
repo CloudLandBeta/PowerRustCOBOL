@@ -2909,7 +2909,7 @@ fn resolve_task_form_context(project_dir: Option<&Path>, objective: &str) -> Opt
 /// from the one agent that needs it. Trim Grace's copy, keep the original.
 ///
 /// Returns the context unchanged when the legend markers are absent.
-fn planning_surface_context(context: &str, request: &str) -> String {
+pub(crate) fn planning_surface_context(context: &str, request: &str) -> String {
     const FIRST: &str = "PROPERTY KEYS BY TYPE";
     const AFTER: &str = "CONTROL API BY ID";
     let (Some(start), Some(end)) = (context.find(FIRST), context.find(AFTER)) else {
