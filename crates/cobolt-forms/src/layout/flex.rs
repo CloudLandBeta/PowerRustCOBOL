@@ -282,26 +282,7 @@ pub fn solve(c: &Container, items: &[Item], client: LRect) -> Solved {
     let hyp: Vec<f32> = items.iter().zip(&base).map(|(it, b)| clamp(*b, main_lim(it))).collect();
     let hyp_cross: Vec<f32> = items.iter().map(|it| clamp(cross_of(it), cross_lim(it))).collect();
 
-    // Lines, broken greedily when wrapping; a `FlowBreak` always ends one.
-    let mut lines: Vec<Vec<usize>> = Vec::new();
-    let mut line: Vec<usize> = Vec::new();
-    let mut used = 0.0f32;
-    for &i in &order {
-        let add = hyp[i] + if line.is_empty() { 0.0 } else { c.main_gap };
-        if c.wrap != Wrap::NoWrap && !line.is_empty() && used + add > main_size + defaults::EPSILON {
-            lines.push(std::mem::take(&mut line));
-            used = 0.0;
-        }
-        used += hyp[i] + if line.is_empty() { 0.0 } else { c.main_gap };
-        line.push(i);
-        if items[i].line_break {
-            lines.push(std::mem::take(&mut line));
-            used = 0.0;
-        }
-    }
-    if !line.is_empty() {
-        lines.push(line);
-    }
+    let lines = break_lines(c, items, &order, &hyp, main_size);
 
     // What the items need, before any growth or stretch.
     let line_need = |l: &[usize]| l.iter().map(|&i| hyp[i]).sum::<f32>() + gaps_between(l.len(), c.main_gap);
@@ -401,6 +382,49 @@ pub fn solve(c: &Container, items: &[Item], client: LRect) -> Solved {
     }
 }
 
+/// The items' main sizes before growth or shrink: the basis, clamped to the
+/// item's limits on the main axis.
+fn hypothetical_main(c: &Container, items: &[Item], main_size: f32) -> Vec<f32> {
+    let h = c.direction.horizontal();
+    items
+        .iter()
+        .map(|it| {
+            let (own, lim) = if h { (it.size.0, it.width) } else { (it.size.1, it.height) };
+            let b = match it.basis {
+                Basis::Auto => own,
+                Basis::Px(v) => v,
+                Basis::Percent(p) => p / defaults::PERCENT * main_size,
+            };
+            clamp(b, lim)
+        })
+        .collect()
+}
+
+/// Lines, broken greedily when wrapping, of the items in `order` (indices
+/// into `items`) with main sizes `hyp`; a `FlowBreak` always ends one.
+fn break_lines(c: &Container, items: &[Item], order: &[usize], hyp: &[f32], main_size: f32) -> Vec<Vec<usize>> {
+    let mut lines: Vec<Vec<usize>> = Vec::new();
+    let mut line: Vec<usize> = Vec::new();
+    let mut used = 0.0f32;
+    for &i in order {
+        let add = hyp[i] + if line.is_empty() { 0.0 } else { c.main_gap };
+        if c.wrap != Wrap::NoWrap && !line.is_empty() && used + add > main_size + defaults::EPSILON {
+            lines.push(std::mem::take(&mut line));
+            used = 0.0;
+        }
+        used += hyp[i] + if line.is_empty() { 0.0 } else { c.main_gap };
+        line.push(i);
+        if items[i].line_break {
+            lines.push(std::mem::take(&mut line));
+            used = 0.0;
+        }
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
+}
+
 /// The smallest client a flex or flow container can lay `items` out in
 /// (R18), width and height. `mins` is each item's own minimum (its
 /// `MinWidth`/`MinHeight`, or what a nested container needs). On the main
@@ -408,6 +432,15 @@ pub fn solve(c: &Container, items: &[Item], client: LRect) -> Solved {
 /// size; across, a stretched item needs its minimum, any other its size. At
 /// the smallest width a wrapping container has one item per line.
 pub fn min_size(c: &Container, items: &[Item], mins: &[(f32, f32)]) -> (f32, f32) {
+    min_size_at(c, items, mins, None)
+}
+
+/// [`min_size`], and when `main` is the main size a wrapping container is
+/// laid out at, its cross size is what the lines it forms THERE need — the
+/// lines [`solve`] breaks, in `items`' order — rather than one item per line
+/// (spec 056 R18: the minimum is computed at the window's minimum on the
+/// other axis). `items` must be in reading order, as [`solve`] is given them.
+pub fn min_size_at(c: &Container, items: &[Item], mins: &[(f32, f32)], main: Option<f32>) -> (f32, f32) {
     let h = c.direction.horizontal();
     let pick = |v: (f32, f32)| if h { v } else { (v.1, v.0) };
     let per: Vec<(f32, f32)> = items
@@ -421,10 +454,20 @@ pub fn min_size(c: &Container, items: &[Item], mins: &[(f32, f32)]) -> (f32, f32
             (main, cross)
         })
         .collect();
+    let laid_main = main;
     let (main, cross) = if c.wrap == Wrap::NoWrap {
         (
             per.iter().map(|p| p.0).sum::<f32>() + gaps_between(per.len(), c.main_gap),
             per.iter().map(|p| p.1).fold(0.0f32, f32::max),
+        )
+    } else if let Some(at) = laid_main {
+        let mut order: Vec<usize> = (0..items.len()).collect();
+        order.sort_by_key(|&i| items[i].order);
+        let lines = break_lines(c, items, &order, &hypothetical_main(c, items, at), at);
+        (
+            per.iter().map(|p| p.0).fold(0.0f32, f32::max),
+            lines.iter().map(|l| l.iter().map(|&i| per[i].1).fold(0.0f32, f32::max)).sum::<f32>()
+                + gaps_between(lines.len(), c.cross_gap),
         )
     } else {
         (

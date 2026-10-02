@@ -2153,10 +2153,22 @@ meet too:
   window. Draw the item that should fill the space at its *smallest* useful
   height and give it `FlexGrow 1`: it then grows to fill a tall window, and a
   short one still fits.
-- **A wrapping Flex or Flow container asks for room to stack every item in
-  one line when it is at its narrowest.** Its minimum height is therefore the
-  sum of its items' heights. Keep long wrapping lists inside a Grid cell with
-  a `MinMax(…)` row, which bounds the height.
+- **A wrapping container's minimum is measured at the window's minimum
+  width.** This covers a Flex or Flow that wraps and a Grid whose columns
+  `Repeat(AutoFill, …)`. The window's minimum width is found first. The form
+  is then laid out at that width, and the container asks for the height of
+  the lines (or rows) its items actually form there. For example, a gallery
+  of 12 cards that holds four a row at the minimum width asks for three rows,
+  not twelve. At the window's minimum size nothing overflows.
+  A wrapping Flex *column* is measured the other way round: it asks for the
+  width of the columns its items form at the window's minimum height. If
+  nothing else sets a minimum width (or height), that minimum is one item, so
+  the items still stack. Give the form a `MinFormWidth` (or `MinFormHeight`)
+  to allow several items a line.
+- **A Splitter counts what its panes hold.** If a control inside a pane has
+  a minimum, for example a field anchored `Left,Right` with a `MinWidth`, the
+  window keeps the splitter wide enough for that pane to honour it at the
+  splitter's `SplitPosition`.
 
 > **Note.** Each page of a TabControl is laid out on its own, in the whole
 > page area: a `Dock = Fill` on one page fills that page and takes nothing

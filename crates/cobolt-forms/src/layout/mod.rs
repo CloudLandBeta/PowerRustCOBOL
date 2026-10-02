@@ -408,8 +408,21 @@ pub fn solve(input: &LayoutInput<'_>) -> LayoutOutput {
 }
 
 fn solve_at_breakpoint(input: &LayoutInput<'_>, bp: Option<&Breakpoint>) -> LayoutOutput {
-    let form = FormBag(input.form_props);
     let tree = Tree::new(input.controls);
+    let min_size = minsize::form_min(input, &tree, bp);
+    lay_out(input, &tree, bp, min_size)
+}
+
+/// Lay the form out for its surface, given the form's minimum size: the
+/// surface is never laid out smaller. [`minsize::form_min`] also asks this
+/// for the layout AT a candidate minimum.
+pub(crate) fn lay_out(
+    input: &LayoutInput<'_>,
+    tree: &Tree,
+    bp: Option<&Breakpoint>,
+    min_size: (f32, f32),
+) -> LayoutOutput {
+    let form = FormBag(input.form_props);
     // Spec 081 — a form with an obsolete scaling style takes its font from
     // the window ratio instead of `FontScaling`.
     let scaling = scale::style(&form);
@@ -432,7 +445,6 @@ fn solve_at_breakpoint(input: &LayoutInput<'_>, bp: Option<&Breakpoint>) -> Layo
         )
     };
 
-    let min_size = minsize::form_min(input, &tree);
     let laid_out_size = (
         input.available.0.max(min_size.0),
         input.available.1.max(min_size.1),
@@ -454,7 +466,7 @@ fn solve_at_breakpoint(input: &LayoutInput<'_>, bp: Option<&Breakpoint>) -> Layo
             .insert(c.id.clone(), fonts::effective_size(c, font_factor));
     }
     let mode = props::layout_mode(&form);
-    let content = place_children(input, &tree, None, &form, mode, designed_client, client, &mut out);
+    let content = place_children(input, tree, None, &form, mode, designed_client, client, &mut out);
     // A flex, grid or flow form is as tall as its content when that is
     // taller than the window, as a document is (R53): it lays out again at
     // that height and the surface scrolls. Its width stays the window's.
@@ -463,7 +475,7 @@ fn solve_at_breakpoint(input: &LayoutInput<'_>, bp: Option<&Breakpoint>) -> Layo
         if need > out.laid_out_size.1 + defaults::EPSILON {
             out.laid_out_size.1 = need;
             let client = LRect::new(0.0, 0.0, out.laid_out_size.0, need).deflate(pad);
-            place_children(input, &tree, None, &form, mode, designed_client, client, &mut out);
+            place_children(input, tree, None, &form, mode, designed_client, client, &mut out);
         }
     }
     out
@@ -631,6 +643,18 @@ fn place_set(
     content
 }
 
+/// `kids` in reading order (R54): top to bottom, then left to right — right
+/// to left for a right-to-left container — by their designed rectangles.
+pub(crate) fn reading_order(input: &LayoutInput<'_>, kids: &[usize], rtl: bool) -> Vec<usize> {
+    let mut order: Vec<usize> = kids.to_vec();
+    order.sort_by(|&a, &b| {
+        let (ra, rb) = (designed_rect(input, &input.controls[a]), designed_rect(input, &input.controls[b]));
+        let x = if rtl { rb.x.total_cmp(&ra.x) } else { ra.x.total_cmp(&rb.x) };
+        ra.y.total_cmp(&rb.y).then(x)
+    });
+    order
+}
+
 /// Place the children of a `Flex`, `Flow` or `Grid` container (R50): each at
 /// its designed (or measured) size as its intrinsic size, in reading order —
 /// top to bottom, then left to right, or right to left for a right-to-left
@@ -652,12 +676,7 @@ fn place_items(
         _ => None,
     };
     let rtl = flex_c.is_some_and(|f| f.direction == flex::Direction::RowReverse);
-    let mut order: Vec<usize> = kids.to_vec();
-    order.sort_by(|&a, &b| {
-        let (ra, rb) = (designed_rect(input, &input.controls[a]), designed_rect(input, &input.controls[b]));
-        let x = if rtl { rb.x.total_cmp(&ra.x) } else { ra.x.total_cmp(&rb.x) };
-        ra.y.total_cmp(&rb.y).then(x)
-    });
+    let order = reading_order(input, kids, rtl);
     let size = |i: usize| {
         let r = designed_rect(input, &input.controls[i]);
         (r.w, r.h)

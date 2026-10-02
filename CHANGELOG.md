@@ -8,6 +8,101 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.59] — 2026-10-01
+
+### Fix: a wrapping container no longer demands room to stack every item; Splitter panes count toward the window minimum
+
+**Defect.**
+- A responsive form's minimum size (R18) treated a wrapping Flex or Flow
+  container as if every item sat on its own line. Its minimum cross size was
+  the sum of all its items'.
+- A Grid whose columns `Repeat(AutoFill, …)` assumed a single column.
+- So a gallery of 12 cards forced a minimum window height of about 1400 px,
+  even where the window's minimum width shows four cards a row.
+- Separately, a control's minimum inside a Splitter pane, such as a
+  `MinWidth` on a stretched field, never reached the window minimum.
+
+**Root cause.**
+- `flex::min_size` (`crates/cobolt-forms/src/layout/flex.rs`) summed the
+  cross sizes of every item for any wrapping container.
+- `grid::min_size` (`grid.rs`) expanded `AutoFill` with no width, so it
+  placed one column.
+- `minsize.rs` never knew the main size a container is laid out at.
+- `minsize::own_min` returned only a Splitter's own limits, because a
+  Splitter is not a container that lays out children, so its panes were
+  never asked.
+
+**Fix (operator ruling 2026-10-01: the two-pass definition).**
+`minsize::form_min` now works in passes:
+1. It computes the minimum as before.
+2. It lays the form out at that minimum (the new `layout::lay_out`, the body
+   of `solve` after its minimum).
+3. It measures each wrapping container again at the client it received
+   there:
+   - a wrapping Flex or Flow needs the lines it forms at that main size
+     (`flex::min_size_at`, breaking lines exactly as `flex::solve` does, in
+     the layout's reading order);
+   - an AutoFill grid needs the rows it forms at that width
+     (`grid::min_size_at`).
+   - A column-wrapping Flex is the same with the axes swapped.
+4. If a column-wrap narrowed the form, row-wraps are measured once more at
+   the narrower width, keeping the larger height.
+
+A form with no wrapping container skips the extra passes and gets exactly
+the result it got before.
+
+A Splitter's minimum (`minsize::splitter_min`) is now what its panes' own
+children need, taken through the splitter's geometry. Pane 1 needs a span of
+its minimum over `SplitPosition`, and pane 2 over the remainder, line
+included. The result is checked against `splitter::geometry`, which places
+the panes.
+
+**Tests.**
+- `minsize::tests::a_wrapping_container_needs_the_lines_it_forms_at_the_minimum_width`:
+
+  | Case | Window minimum | Minimum needed now | Before |
+  |---|---|---|---|
+  | 12-card AutoFill gallery | 700 wide | 3 rows, 320 + frame | 1310 + frame |
+  | 10-item wrapping Flow | 560 wide | 3 lines, 140 + frame | 490 + frame |
+  | 9-item column-wrap Flex | 300 high | 3 columns, 466 + frame wide | 1414 + frame wide |
+
+- `minsize::tests::nothing_overflows_at_the_window_minimum`: five wrapping
+  forms laid out at their own minimum keep every item inside its container.
+- `minsize::tests::a_splitter_panes_children_count_toward_the_minimum`: a
+  `Fill` splitter at 50 % whose pane-1 field has `MinWidth` 300 gives a
+  minimum of 646 wide, and the field is 300 wide there.
+- With the two passes disabled, the gallery asked for 1314 instead of 324.
+  With the Splitter branch disabled, the minimum was 64 × 64.
+- Layout lib tests: 91 passed.
+- `responsive_precedence_056`: 3 passed.
+- The resize-limits harness passes on 78 forms.
+  `responsive-grid-form`'s declared minimum height drops from 655 to 585.
+  Its collision floor is 619.
+
+**Goldens re-captured.** Only
+`General__responsive-grid-form.cfrm.txt` changed, in
+`crates/cobolt-forms/tests/goldens/056_corpus/PowerDemo3/` (engine) and
+`crates/cobolt-form-host/tests/goldens/056_corpus/PowerDemo3/` (host). At
+its minimum size the form is now laid out 70 px shorter (585 instead of
+655). Every other golden and the codegen snapshots are byte-identical. All
+three suites pass in compare mode.
+
+Only wrapping containers are measured again; every other container of the
+same form is measured exactly as before.
+
+**Cost.** A form with a wrapping container now lays out two or three times
+inside each `solve`. In the debug-build harness the slowest window-limit
+search (`responsive-flex-form`) went from about 0.46 s to 0.75 s. Timings
+were taken on a shared machine. The run window caches that search
+(`LimitsCache`).
+
+**Guide.** The bullet "A wrapping Flex or Flow container asks for room to
+stack every item" is replaced. It now explains that the minimum is measured
+at the window's minimum width, with the column-wrap case. A new bullet says
+a Splitter counts what its panes hold.
+
+## [PowerRustCOBOL 1.80.52] — 2026-10-01
+
 ## [PowerRustCOBOL 1.80.58] — 2026-10-01
 
 ### Spec 080 Phase 3 — the IDE serves the coding-agent tools

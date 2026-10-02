@@ -287,10 +287,27 @@ fn size_tracks(tracks: &[Track], avail: Option<f32>, gap: f32, spans: &[(usize, 
 /// nothing, `Auto` and `fr` tracks the largest item that sits only in them —
 /// plus the gaps. `AutoFill` repeats once.
 pub fn min_size(c: &Container, items: &[Item]) -> (f32, f32) {
+    min_size_at(c, items, None)
+}
+
+/// [`min_size`], and when `width` is the client width a grid is laid out at,
+/// its height is what the rows it forms THERE need: a `Repeat(AutoFill, …)`
+/// column list holds as many columns as fit that width, as [`solve`] gives
+/// it, instead of one (spec 056 R18). The width stays the one-column minimum.
+/// `items` must be in reading order, as [`solve`] is given them.
+pub fn min_size_at(c: &Container, items: &[Item], width: Option<f32>) -> (f32, f32) {
     let mut columns_t = c.columns.expand(None, c.column_gap);
     let (cells, row_count, column_count) = place(items, columns_t.len());
     let implicit = Track { min: Breadth::Auto, max: Breadth::Auto };
     columns_t.resize(column_count.max(columns_t.len()), implicit);
+    // The rows the items form at the laid-out width.
+    let (row_cells, row_count) = match width {
+        Some(w) if c.columns.auto_fills() => {
+            let (cells, rows, _) = place(items, c.columns.expand(Some(w), c.column_gap).len());
+            (cells, rows)
+        }
+        _ => (cells.clone(), row_count),
+    };
     let mut rows_t = c.rows.expand(None, c.row_gap);
     rows_t.resize(row_count.max(rows_t.len()), implicit);
     let axis = |tracks: &[Track], gap: f32, spans: Vec<(usize, usize, f32)>| {
@@ -319,7 +336,7 @@ pub fn min_size(c: &Container, items: &[Item]) -> (f32, f32) {
     let h = axis(
         &rows_t,
         c.row_gap,
-        items.iter().zip(&cells).map(|(it, (row, _))| (*row, it.row_span, clamp(it.size.1, it.height))).collect(),
+        items.iter().zip(&row_cells).map(|(it, (row, _))| (*row, it.row_span, clamp(it.size.1, it.height))).collect(),
     );
     (w, h)
 }

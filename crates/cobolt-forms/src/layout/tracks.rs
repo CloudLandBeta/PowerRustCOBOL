@@ -63,6 +63,12 @@ impl TrackList {
         self.entries.is_empty()
     }
 
+    /// Whether the list holds a `Repeat(AutoFill, …)`, whose track count
+    /// depends on the container's size.
+    pub fn auto_fills(&self) -> bool {
+        self.entries.iter().any(|e| matches!(e, Entry::AutoFill(_)))
+    }
+
     /// The tracks for a container `avail` long on this axis (`None` when it
     /// sizes to its content), with `gap` between tracks: an `AutoFill`
     /// repetition becomes as many copies as fit, at least one.

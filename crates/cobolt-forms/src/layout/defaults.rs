@@ -103,6 +103,10 @@ pub const COLLIDE_GROW_CAP: f32 = 8192.0;
 pub const COLLIDE_REFINE_ROUNDS: u32 = 8;
 /// Two rectangles closer than this on both axes touch.
 pub const COLLIDE_TOUCH_EPS: f32 = 0.01;
+/// A Splitter's minimum (`minsize::splitter_min`) is raised a point at a
+/// time, at most this many times, until the splitter's own rounding gives
+/// each pane its minimum.
+pub const SPLITTER_FIT_ROUNDS: u32 = 4;
 /// An OS window cannot take an infinite maximum: an unbounded axis is this.
 pub const WINDOW_UNBOUNDED: f32 = 100_000.0;
 /// A breakpoint's font factor when it states none (R67).
