@@ -43,6 +43,25 @@ use cobolt_form_host::flatten_controls;
 /// run-form sibling of the designer's `forms_under` scan, so an `open-form:`
 /// or OpenStandAloneForm* target resolves against the same tree the picker
 /// showed.
+/// Spec 085 — register the MenuBar and SideMenu sidecars of `form` (saved at
+/// `cfrm`, opened as `id`) under that form's own name.
+fn register_form_menus(cfrm: &std::path::Path, id: &str, form: &cobolt_forms::Form) {
+    let dir = cfrm.parent().map(|d| d.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+    let mut flat: Vec<cobolt_forms::Control> = Vec::new();
+    flatten_controls(&form.controls, &mut flat);
+    let menus: Vec<(String, cobolt_forms::menu::MenuDefinition)> = flat
+        .iter()
+        .filter(|c| {
+            matches!(c.control_type, cobolt_forms::ControlType::MenuBar | cobolt_forms::ControlType::SideMenu)
+        })
+        .filter_map(|c| {
+            let def = cobolt_forms::menu::load_menu(&cobolt_forms::menu::menu_yaml_path(&dir, &c.id)).ok()?;
+            Some((cobolt_forms::paint::menu_key(id, &c.id), def))
+        })
+        .collect();
+    cobolt_forms::paint::register_more_menus(menus);
+}
+
 fn find_cfrm_by_stem(dir: &std::path::Path, want: &str, depth: usize) -> Option<PathBuf> {
     if depth > 8 {
         return None;
@@ -431,7 +450,12 @@ pub fn cmd_run_form(args: &[String]) {
             })
             .cloned()
             .collect();
-        cobolt_forms::paint::register_menus(menus);
+        // Spec 085 — registered under this form's own name as well as the
+        // bare control id, so another form's `SideMenu-1` keeps its own menu.
+        let root_stem = cfrm_path.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_owned();
+        cobolt_forms::paint::register_menus(
+            menus.into_iter().map(|(id, def)| (cobolt_forms::paint::menu_key(&root_stem, &id), def)),
+        );
     }
 
     let seed = build_object_seed(
@@ -606,6 +630,10 @@ pub fn cmd_run_form(args: &[String]) {
         let mut child_form = cobolt_forms::load_form_from_str(&xml)
             .map_err(|e| format!("{}: {e}", cfrm.display()))?;
         cobolt_forms::items_file::apply(&mut child_form.controls);
+        // Spec 085 — the form's own menus (its sidecars, beside it), under
+        // its own name: a child window that runs as a shell mounts its rail
+        // from them, and its interpreter learns its designed rows.
+        register_form_menus(&cfrm, id, &child_form);
         // Where the form's program actually is — the project's `generated/`
         // folder, a relocated entry, or beside the `.cfrm` for a loose form.
         // Resolved by the SAME function the compiled application uses, so Run

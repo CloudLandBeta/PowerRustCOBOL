@@ -13,17 +13,17 @@ One commit per task, each bumping `z` with a CHANGELOG entry.
 - [x] **T2 — One click processor.** `ShellApp`'s menu-click, breadcrumb,
   reset and fold logic over a `WindowShell` + the host, so a child can use it.
   *Verify:* the shell tests unchanged.
-- [ ] **T3 — A child window runs its SideMenu as a shell.** `spawn_child`
+- [x] **T3 — A child window runs its SideMenu as a shell.** `spawn_child`
   gives a SideMenu form a `WindowShell` (pane transform, mounted menu); the
   child viewport draws the shell; menu clicks load forms into that window's
   ContentPane with the window as caller; Home, breadcrumb, close.
   *Verify:* AC1 (headless).
-- [ ] **T4 — Menu sidecars for every form.** rcrun registers all forms'
+- [x] **T4 — Menu sidecars for every form.** rcrun registers all forms'
   menus; the registry is keyed by form + control id. *Verify:* two forms
   with `SideMenu-1` keep their own menus.
-- [ ] **T5 — All three hosts.** rcrun, embedded children and the built
+- [x] **T5 — All three hosts.** rcrun, embedded children and the built
   binary; `run_form` drives a child shell. *Verify:* AC2.
-- [ ] **T6 — Docs.** Guide chapter 22: a side-menu form opened as a window is
+- [x] **T6 — Docs.** Guide chapter 22: a side-menu form opened as a window is
   a shell of its own.
 
 ## Phase B — `add_powerchat` (R6–R13)

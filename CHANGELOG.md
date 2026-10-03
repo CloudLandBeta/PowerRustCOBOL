@@ -8,6 +8,32 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.136] — 2026-10-03
+
+### A window with its own side menu is a shell of its own (spec 085 T3–T6)
+
+A form that carries its own SideMenu, opened as a window — `OpenFormSync`,
+`OpenFormAsync`, a standalone menu item, or an Open form item — used to be a
+plain window: its rail was drawn, but its menu's Open form items had nowhere
+to load anything, and Home did nothing. It now runs as a shell in that
+window, exactly as the main window's: rail, breadcrumb and ContentPane, the
+window widening with the rail; its menu loads forms into **its own**
+ContentPane (never the main window's), with the window's form as their
+`super`; Home brings the window's own form back; closing the window closes
+the forms loaded into it.
+
+Each form's menus are its own: a menu is registered under its form and
+control (`FORM/CTRL`), so two forms can each have a `SideMenu-1` with its own
+menu file — in `rcrun run-form`, which now registers every form's menus as
+the form opens, and in a built application, which used to keep only the
+first `SideMenu-1` it found and now embeds one file per form.
+
+`run_form`'s report lists the open windows and the form on each one's pane.
+Tests: a headless child shell (menu, pane, `super`, breadcrumb, Home, close);
+the same through the real `rcrun`; two forms' `SideMenu-1` in the registry;
+the built-application template. The Developer's Guide's chapter 22 explains
+it.
+
 ## [PowerRustCOBOL 1.80.135] — 2026-10-03
 
 ### Fix: the forms engine's example goldens follow the examples again

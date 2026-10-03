@@ -57,6 +57,21 @@
   host's key store, and its provider / model / agent screens are the host's
   AI settings screens (a Settings ▸ AI group in the host's menu). Any other
   AgentObject in the host can then ask by `ModelEntry` with the same entries.
+- **D4a — what D4 needs from the runtime (refined during Phase A).** A
+  running application has no persisted AI settings of its own today: the
+  in-process model list (`MODEL-SET`) lives only in memory, and PowerChat
+  rebuilds it from its own `models.idx` at start-up, so a host form's
+  AgentObject only finds those entries after PowerChat has run. "The host's
+  AI settings" therefore needs the runtime to **own** an application-wide,
+  persisted model list — `settings/models.dat` beside the existing key store
+  (`settings/model-keys.dat`), loaded by every host (rcrun, embedded forms,
+  the built application) before the first form runs, written by
+  `MODEL-SET` / `MODEL-REMOVE`. PowerChat then stops keeping `models.idx`;
+  its provider and model screens edit the application's list; its
+  `AGENT-n-ENTRY` choices stay PowerChat's own (which entry each of its
+  agents asks). This is a new runtime capability with a file format of its
+  own, so it is specified here and **held for the operator's review** before
+  Phase C is implemented.
 - **D5 — host branding.** `add_powerchat` rewrites the copied forms' titles,
   the SideMenu header image/icon and the welcome picture to the host's (main
   form title, project icon), and the brand-bearing text rows use the

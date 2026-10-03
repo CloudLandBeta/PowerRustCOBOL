@@ -54,7 +54,7 @@ fn call(tools: &mut ProjectTools<HeadlessHost>, name: &str, args: Value) -> (Opt
     for c in &r.content {
         let v = serde_json::to_value(c).unwrap();
         if v["type"] == "image" {
-            png = Some(v["data"].as_str().unwrap().len().to_le_bytes().to_vec());
+            png = Some(unbase64(v["data"].as_str().unwrap()));
         } else if let Some(t) = c.as_text() {
             meta = serde_json::from_str(t).unwrap_or(Value::String(t.to_owned()));
         }
@@ -175,4 +175,95 @@ fn render_form_in_shell_pictures_a_contentpane_form_beside_the_side_menu() {
     assert_eq!(r.is_error, Some(true));
     let _ = std::fs::remove_dir_all(&project);
     println!("render_form in_shell: buttons-form in sidebar-form's ContentPane, {}x{} (form {}x{})", img.width(), img.height(), form.width, form.height);
+}
+
+const HOST_MAIN: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="HOST-MAIN" title="Host" width="480" height="300">
+  <Control id="BTN-OPEN" type="Button" x="20" y="20" w="160" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Assistant</Property>
+    <Event name="onClick" paragraph="BTN-OPEN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE ME::"OpenFormAsync"("APP-SHELL").
+]]></Event>
+  </Control>
+</Form>
+"#;
+
+const APP_SHELL: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="APP-SHELL" title="Assistant" width="640" height="420" form-format="Both">
+  <form-events>
+    <Event name="onShow" paragraph="APP-SHELL--ONSHOW"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-ITEM PIC X(10).
+       PROCEDURE DIVISION.
+           MOVE SideMenu-1::ActivateItem("pg1") TO WS-ITEM.
+           DISPLAY "SHELL-SHOWN".
+]]></Event>
+  </form-events>
+  <Control id="SideMenu-1" type="SideMenu" x="0" y="0" w="200" h="420" tab-order="0" z-order="0" visible="true" enabled="true">
+  </Control>
+  <Control id="LBL-HOME" type="Label" x="240" y="40" w="200" h="28" tab-order="1" z-order="1" visible="true" enabled="true">
+    <Property name="Caption">Home</Property>
+  </Control>
+</Form>
+"#;
+
+const PAGE_ONE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="PAGE-ONE" title="Topics" width="440" height="420" background="1E2430FF" form-format="Embedded">
+  <Control id="LBL-TOPICS" type="Label" x="20" y="20" w="200" h="28" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Topics</Property>
+  </Control>
+</Form>
+"#;
+
+/// Spec 085 AC2 (R1, R2, R4) — through the real `rcrun`: a main form opens a
+/// form that carries its own SideMenu as a window; that window runs as a shell
+/// of its own, and its menu — read from its own sidecar — loads a form into
+/// ITS ContentPane, not the main window's.
+#[test]
+fn a_side_menu_form_opened_as_a_window_loads_its_menu_forms_into_its_own_pane() {
+    let base = std::env::temp_dir().join(format!("prc-085-child-shell-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let start = base.join("start");
+    std::fs::create_dir_all(&start).unwrap();
+    let runner = run::rcrun_runner(Path::new(env!("CARGO_BIN_EXE_rcrun")).to_path_buf());
+    let shared = Arc::new(Shared::new().with_runner(runner));
+    let mut tools = ProjectTools::with_shared(HeadlessHost::new(start.join("none.project.toml"), "test"), shared);
+    let project = base.join("Host");
+    let (_, made, err) = call(&mut tools, "create_project", json!({"folder": project.to_string_lossy(), "name": "Host"}));
+    assert!(!err, "{made}");
+    for (file, xml) in [("host-main", HOST_MAIN), ("app-shell", APP_SHELL), ("page-one", PAGE_ONE)] {
+        std::fs::write(project.join(format!("forms/{file}.cfrm")), xml).unwrap();
+        let (_, out, err) = call(&mut tools, "add_to_project", json!({"path": format!("forms/{file}.cfrm")}));
+        assert!(!err, "{file}: {out}");
+        let (_, out, err) = call(&mut tools, "regenerate", json!({"path": format!("forms/{file}.cfrm")}));
+        assert!(!err, "{file}: {out}");
+    }
+    let mut item = cobolt_forms::menu::MenuItem::new_action("pg1", "Topics");
+    item.action = Some("open-form:page-one".into());
+    let def = cobolt_forms::menu::MenuDefinition { menu: vec![item], hash: String::new() };
+    cobolt_forms::menu::save_menu(&cobolt_forms::menu::menu_yaml_path(&project.join("forms"), "SideMenu-1"), &def).unwrap();
+
+    let (png, out, err) = call(
+        &mut tools,
+        "run_form",
+        json!({"path": "forms/host-main.cfrm", "time_limit_s": 20, "steps": [
+            {"event": {"control": "BTN-OPEN", "name": "onClick"}},
+            {"wait_ms": 1500}
+        ]}),
+    );
+    assert!(!err, "{out}");
+    let windows = out["windows"].as_array().cloned().unwrap_or_default();
+    assert_eq!(windows.len(), 1, "the Assistant window is open: {out}");
+    assert_eq!(windows[0]["form"], "APP-SHELL");
+    assert_eq!(windows[0]["shell"], true, "it runs as a shell of its own: {out}");
+    assert_eq!(windows[0]["on_pane"], "PAGE-ONE", "its menu loaded Topics into its own pane: {out}");
+    assert!(out["on_pane"].is_null(), "nothing loaded into the main window: {out}");
+    assert!(out["display"].as_array().unwrap().iter().any(|l| l.as_str().unwrap_or("").contains("SHELL-SHOWN")), "{out}");
+    let png = png.expect("a picture");
+    std::fs::write(std::env::temp_dir().join("prc-085-child-shell.png"), &png).unwrap();
+    let _ = std::fs::remove_dir_all(&base);
+    println!("child shell via rcrun: APP-SHELL opened as a shell window, its menu loaded PAGE-ONE into its own pane");
 }

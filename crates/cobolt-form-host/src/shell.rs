@@ -491,6 +491,10 @@ pub struct Shell {
     pub breadcrumb_bg: Option<egui::Color32>,
     /// Parent item ids whose children are expanded in place.
     pub expanded: Vec<String>,
+    /// Spec 085 — keeps this shell's panels and scroll areas apart from
+    /// another window's: empty for the main window, the window's handle for a
+    /// child window that runs as a shell.
+    pub id_scope: String,
     /// How far the MenuPane's rows are scrolled (see `draw_mounted_menus`).
     menu_scroll: f32,
     /// A breadcrumb segment clicked this frame, drained with
@@ -540,6 +544,7 @@ impl Default for Shell {
             breadcrumb_height: BREADCRUMB_HEIGHT,
             breadcrumb_bg: None,
             expanded: Vec::new(),
+            id_scope: String::new(),
             menu_scroll: 0.0,
             pending_crumb: None,
             pending_reset: false,
@@ -553,6 +558,16 @@ impl Default for Shell {
 }
 
 impl Shell {
+    /// An egui id for one of this shell's panels or scroll areas: the plain
+    /// name in the main window, scoped by the window's handle in a child.
+    fn scoped(&self, name: &'static str) -> egui::Id {
+        if self.id_scope.is_empty() {
+            egui::Id::new(name)
+        } else {
+            egui::Id::new((name, self.id_scope.as_str()))
+        }
+    }
+
     /// The MenuPane's current width — fixed per state, never derived from the
     /// window or content size (R38).
     pub fn menu_pane_width(&self) -> f32 {
@@ -692,6 +707,12 @@ impl Shell {
         });
     }
 
+    /// Queue a menu activation as if its item had been clicked — what a
+    /// headless run (`run_form`'s `open_form`) and the tests use.
+    pub(crate) fn queue_click(&mut self, click: MenuClick) {
+        self.pending_clicks.push(click);
+    }
+
     pub fn take_menu_clicks(&mut self) -> Vec<MenuClick> {
         std::mem::take(&mut self.pending_clicks)
     }
@@ -824,7 +845,7 @@ impl Shell {
 
     fn show_breadcrumb(&mut self, root_ui: &mut Ui) -> Rect {
         let height = self.breadcrumb_height;
-        let panel = egui::Panel::top("shell-breadcrumb")
+        let panel = egui::Panel::top(self.scoped("shell-breadcrumb"))
             .resizable(false)
             .exact_size(height)
             // R43 — the chrome supplies its OWN frame. egui's default panel
@@ -1080,7 +1101,7 @@ impl Shell {
             breadcrumb_rect = self.show_breadcrumb(root_ui);
             crumb_done = true;
         }
-        let panel = egui::Panel::left("shell-menu-pane")
+        let panel = egui::Panel::left(self.scoped("shell-menu-pane"))
             .resizable(false)
             .exact_size(self.menu_pane_width())
             // No default frame: its OS-theme fill and its margin would both
@@ -1097,7 +1118,7 @@ impl Shell {
                 // R37 — the MenuPane's own scroll area, id distinct from the
                 // ContentPane's by construction.
                 let out = egui::ScrollArea::vertical()
-                    .id_salt("shell-menu-scroll")
+                    .id_salt(self.scoped("shell-menu-scroll"))
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         // R6/R7 — the mounted slots draw next; the caller's
@@ -1123,7 +1144,7 @@ impl Shell {
                 // the pane scrolls inside it (both axes — the form keeps its
                 // designed pixel size, R11).
                 let out = egui::ScrollArea::both()
-                    .id_salt("shell-content-scroll")
+                    .id_salt(self.scoped("shell-content-scroll"))
                     .auto_shrink([false, false])
                     .show(ui, |ui| content(ui));
                 content_scroll = out.state.offset;
@@ -1145,11 +1166,11 @@ impl Shell {
     /// over the wheel), so the host's scroll IS the ContentPane scroll (R40).
     /// The form anchors at the pane's top-left and travels with the pane edge
     /// when the MenuPane changes state, keeping its designed size.
-    pub fn show_with_host(
+    pub fn show_with_host<H: PaneHost + ?Sized>(
         &mut self,
         root_ui: &mut Ui,
         menu: impl FnOnce(&mut Ui),
-        host: &mut crate::FormHost,
+        host: &mut H,
     ) -> ShellLayout {
         // The chrome below is the MAIN form's, so the main form's theme is
         // what paints it. Published FIRST, before a single panel: the rail,
@@ -1186,7 +1207,7 @@ impl Shell {
             breadcrumb_rect = self.show_breadcrumb(root_ui);
             crumb_done = true;
         }
-        let panel = egui::Panel::left("shell-menu-pane")
+        let panel = egui::Panel::left(self.scoped("shell-menu-pane"))
             .resizable(false)
             .exact_size(self.menu_pane_width())
             // No default frame: its OS-theme fill and its margin would both
@@ -1201,7 +1222,7 @@ impl Shell {
                 // R39 — the shell's own chrome paint, before any content.
                 self.paint_menu_background(ui);
                 let out = egui::ScrollArea::vertical()
-                    .id_salt("shell-menu-scroll")
+                    .id_salt(self.scoped("shell-menu-scroll"))
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         // R6/R7 — the mounted slots draw next.
@@ -1321,77 +1342,11 @@ impl ShellApp {
         let icon_path = config.icon_path.clone();
         let (host, form) = crate::FormHost::new(config);
 
-        let mut shell = Shell::default();
-        shell.menu_background = form.menu_pane_background.clone();
         let side_menu_ctrl = root_menu.as_ref().map(|(id, _)| id.clone());
-        let side_menu = side_menu_ctrl
-            .as_deref()
-            .and_then(|id| form.find_control(id));
-        // 049 — the designed `Collapsed` is where the application OPENS; once the
-        // operator has worked the ☰ themselves, their remembered choice wins (R9).
-        shell.collapsed = side_menu.map(|c| c.side_menu_collapsed()).unwrap_or(false);
-        let state_path = shell_state_path(&form.name);
-        if let Some(p) = &state_path {
-            if let Some(c) = load_collapsed_from(p) {
-                shell.collapsed = c;
-            }
-        }
-        // 049 — the sidebar's own FullHeight property decides the layout order.
-        // Absent (a form written before the property existed) means on.
-        shell.full_height = side_menu.map(|c| c.side_menu_full_height()).unwrap_or(true);
-        // How the pane paints menu-item icons (None | Shadow | Neumorphic).
-        shell.icon_effect = side_menu
-            .and_then(|c| c.get_prop("IconEffect"))
-            .map(|v| v.as_str().to_owned())
-            .unwrap_or_else(|| "None".to_owned());
-        // The designed control travels with the shell so the MenuPane paints in
-        // the application's own colours, title and profile card.
-        shell.side_ctrl = side_menu.cloned();
-        // The breadcrumb frame is the rail's chrome, so the rail sizes and colours
-        // it: `BreadcrumbHeight` (default 28) and `BreadcrumbBackgroundColor`
-        // (empty = follow the ContentPane's backdrop, as it always has).
-        if let Some(side) = side_menu {
-            shell.breadcrumb_height = cobolt_forms::breadcrumb::height_of(side);
-            shell.breadcrumb_bg = side
-                .breadcrumb_background()
-                .map(|hex| cobolt_forms::paint::parse_color(&hex));
-        }
-        // 049 R38 — the Open pane is as wide as the developer DREW the rail. The
-        // shell used a fixed 220 regardless, so the ContentPane started 20px past
-        // where the form was laid out for and every control in it sat that much
-        // off. Collapsed is the rail's own `CollapsedWidth` (operator, 2026-08-23)
-        // — the same value the designer canvas and the preview narrow to, so the
-        // running pane and the design surfaces cannot disagree.
-        if let Some(w) = side_menu.map(|c| c.rect.w).filter(|w| *w > 0) {
-            shell.menu_open_width = w as f32;
-        }
-        if let Some(side) = side_menu {
-            shell.menu_collapsed_width = side.side_menu_collapsed_width();
-        }
-        // What a translucent rail colour composites over — the SAME backdrop the
-        // ContentPane paints, so the rail and the form agree on the application's
-        // background the way they do on the designer canvas.
-        shell.form_backdrop = Some(cobolt_forms::render::backdrop_color(
-            &form.background_color,
-            form.transparency,
-        ));
-        if let Some((_, def)) = root_menu {
-            shell.mount_root_menu(&form.name, def);
-        }
+        let (shell, state_path) =
+            shell_for_form(&form, side_menu_ctrl.as_deref(), root_menu.map(|(_, def)| def));
         let mut chain = NavChain::default();
-        chain.push(NavEntry {
-            form_object: form.name.trim().to_ascii_uppercase(),
-            label: if form.title.trim().is_empty() {
-                form.name.clone()
-            } else {
-                form.title.clone()
-            },
-            preserve_on_replace: false,
-            resident: Box::new(ChannelResident {
-                form_object: form.name.trim().to_ascii_uppercase(),
-                ev_tx: ev_tx.clone(),
-            }),
-        });
+        chain.push(first_entry(&form, ev_tx.clone()));
 
         let title = {
             let designed = form.title.trim();
@@ -1490,6 +1445,175 @@ pub(crate) struct ShellApp {
     /// menu actions submit OpenForm requests here (drained by the host's
     /// frame like any interpreter's), with the shell as caller.
     form_req_tx: std::sync::mpsc::Sender<cobolt_runtime::form_host::FormRequest>,
+}
+
+/// Spec 085 — what a shell needs from the window it frames: the main
+/// window's [`crate::FormHost`], or a child window that runs as a shell of its
+/// own.
+pub trait PaneHost {
+    /// Publish the window's own form theme, which paints the chrome.
+    fn publish_root_theme(&self, ctx: &egui::Context);
+    /// A live property of a control on the window's own form.
+    fn control_prop(&self, ctrl_id: &str, prop: &str) -> Option<String>;
+    /// The SideMenu's footer Panel, into the rail's footer band.
+    fn draw_side_menu_footer(&mut self, ui: &mut Ui, band: Rect, behind: egui::Color32);
+    /// The breadcrumb chrome for this frame, and how tall its band is.
+    fn set_pane_chrome(&mut self, chrome: Option<Box<dyn Fn(&egui::Painter, Rect)>>, band: f32);
+    /// Draw the ContentPane: the form on it.
+    fn pane_frame(&mut self, pane_ui: &mut Ui);
+    /// While the window waits on a modal child: the overlay to paint.
+    fn blocked_overlay_style(&self) -> Option<cobolt_forms::model::ModalOverlayStyle>;
+}
+
+impl PaneHost for crate::FormHost {
+    fn publish_root_theme(&self, ctx: &egui::Context) {
+        crate::FormHost::publish_root_theme(self, ctx)
+    }
+    fn control_prop(&self, ctrl_id: &str, prop: &str) -> Option<String> {
+        crate::FormHost::control_prop(self, ctrl_id, prop)
+    }
+    fn draw_side_menu_footer(&mut self, ui: &mut Ui, band: Rect, behind: egui::Color32) {
+        crate::FormHost::draw_side_menu_footer(self, ui, band, behind)
+    }
+    fn set_pane_chrome(&mut self, chrome: Option<Box<dyn Fn(&egui::Painter, Rect)>>, band: f32) {
+        crate::FormHost::set_pane_chrome(self, chrome, band)
+    }
+    fn pane_frame(&mut self, pane_ui: &mut Ui) {
+        crate::FormHost::pane_frame(self, pane_ui)
+    }
+    fn blocked_overlay_style(&self) -> Option<cobolt_forms::model::ModalOverlayStyle> {
+        crate::FormHost::blocked_overlay_style(self)
+    }
+}
+
+/// Spec 085 — the navigation a child window owns when its form carries a
+/// SideMenu: the same parts the main window's [`ShellApp`] keeps.
+pub(crate) struct ChildNav {
+    pub(crate) shell: Shell,
+    pub(crate) chain: NavChain,
+    pub(crate) side_menu_ctrl: Option<String>,
+    pub(crate) state_path: Option<std::path::PathBuf>,
+}
+
+impl ChildNav {
+    /// The child window's shell, for `form` (its own form) whose program
+    /// listens on `ev_tx`; `menu` is its SideMenu's designed menu, when the
+    /// process registered one.
+    pub(crate) fn for_form(
+        handle: &str,
+        form: &cobolt_forms::Form,
+        side_menu_ctrl: Option<String>,
+        menu: Option<cobolt_forms::menu::MenuDefinition>,
+        ev_tx: std::sync::mpsc::Sender<cobolt_runtime::channels::FormEvent>,
+    ) -> Self {
+        let (mut shell, state_path) = shell_for_form(form, side_menu_ctrl.as_deref(), menu);
+        shell.id_scope = handle.to_owned();
+        let mut chain = NavChain::default();
+        chain.push(first_entry(form, ev_tx));
+        Self { shell, chain, side_menu_ctrl, state_path }
+    }
+
+    /// The size the window opens at, as the main window's shell computes it.
+    pub(crate) fn window_size(&self, form: &cobolt_forms::Form) -> egui::Vec2 {
+        shell_window_size(
+            form.width as f32,
+            form.height as f32,
+            self.shell.menu_open_width,
+            self.shell.menu_pane_width(),
+            if self.shell.full_height { 0.0 } else { self.shell.breadcrumb_height },
+        )
+    }
+
+    pub(crate) fn persist_collapsed(&self) {
+        if let Some(p) = &self.state_path {
+            let _ = save_collapsed_to(p, self.shell.collapsed);
+        }
+    }
+}
+
+/// The shell chrome for `form`, a form carrying the SideMenu `side_menu_ctrl`
+/// whose designed menu is `menu`, and where its fold state is remembered.
+/// One construction for the main window and for child windows.
+pub(crate) fn shell_for_form(
+    form: &cobolt_forms::Form,
+    side_menu_ctrl: Option<&str>,
+    menu: Option<cobolt_forms::menu::MenuDefinition>,
+) -> (Shell, Option<std::path::PathBuf>) {
+    let mut shell = Shell::default();
+    shell.menu_background = form.menu_pane_background.clone();
+    let side_menu = side_menu_ctrl.and_then(|id| form.find_control(id));
+    // 049 — the designed `Collapsed` is where the application OPENS; once the
+    // operator has worked the ☰ themselves, their remembered choice wins (R9).
+    shell.collapsed = side_menu.map(|c| c.side_menu_collapsed()).unwrap_or(false);
+    let state_path = shell_state_path(&form.name);
+    if let Some(p) = &state_path {
+        if let Some(c) = load_collapsed_from(p) {
+            shell.collapsed = c;
+        }
+    }
+    // 049 — the sidebar's own FullHeight property decides the layout order.
+    // Absent (a form written before the property existed) means on.
+    shell.full_height = side_menu.map(|c| c.side_menu_full_height()).unwrap_or(true);
+    // How the pane paints menu-item icons (None | Shadow | Neumorphic).
+    shell.icon_effect = side_menu
+        .and_then(|c| c.get_prop("IconEffect"))
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_else(|| "None".to_owned());
+    // The designed control travels with the shell so the MenuPane paints in
+    // the application's own colours, title and profile card.
+    shell.side_ctrl = side_menu.cloned();
+    // The breadcrumb frame is the rail's chrome, so the rail sizes and colours
+    // it: `BreadcrumbHeight` (default 28) and `BreadcrumbBackgroundColor`
+    // (empty = follow the ContentPane's backdrop, as it always has).
+    if let Some(side) = side_menu {
+        shell.breadcrumb_height = cobolt_forms::breadcrumb::height_of(side);
+        shell.breadcrumb_bg = side
+            .breadcrumb_background()
+            .map(|hex| cobolt_forms::paint::parse_color(&hex));
+    }
+    // 049 R38 — the Open pane is as wide as the developer DREW the rail. The
+    // shell used a fixed 220 regardless, so the ContentPane started 20px past
+    // where the form was laid out for and every control in it sat that much
+    // off. Collapsed is the rail's own `CollapsedWidth` (operator, 2026-08-23)
+    // — the same value the designer canvas and the preview narrow to, so the
+    // running pane and the design surfaces cannot disagree.
+    if let Some(w) = side_menu.map(|c| c.rect.w).filter(|w| *w > 0) {
+        shell.menu_open_width = w as f32;
+    }
+    if let Some(side) = side_menu {
+        shell.menu_collapsed_width = side.side_menu_collapsed_width();
+    }
+    // What a translucent rail colour composites over — the SAME backdrop the
+    // ContentPane paints, so the rail and the form agree on the application's
+    // background the way they do on the designer canvas.
+    shell.form_backdrop = Some(cobolt_forms::render::backdrop_color(
+        &form.background_color,
+        form.transparency,
+    ));
+    if let Some(def) = menu {
+        shell.mount_root_menu(&form.name, def);
+    }
+    (shell, state_path)
+}
+
+/// The chain's first segment: the window's own form, named by its Title.
+pub(crate) fn first_entry(
+    form: &cobolt_forms::Form,
+    ev_tx: std::sync::mpsc::Sender<cobolt_runtime::channels::FormEvent>,
+) -> NavEntry {
+    NavEntry {
+        form_object: form.name.trim().to_ascii_uppercase(),
+        label: if form.title.trim().is_empty() {
+            form.name.clone()
+        } else {
+            form.title.clone()
+        },
+        preserve_on_replace: false,
+        resident: Box::new(ChannelResident {
+            form_object: form.name.trim().to_ascii_uppercase(),
+            ev_tx,
+        }),
+    }
 }
 
 /// Spec 085 — one window's navigation, borrowed: its shell chrome, its

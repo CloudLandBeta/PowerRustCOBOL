@@ -459,57 +459,10 @@ impl FormHost {
         // time. The designed width is the one that matters, not the live pane
         // width: Open/Collapsed moves the pane edge, and the form travels with
         // it because it is anchored to the pane, not to the window.
-        let side_dx: i32 = if surface == Surface::Pane {
-            flat.iter()
-                .find(|c| c.control_type == cobolt_forms::ControlType::SideMenu)
-                .map(|c| c.rect.w.max(0))
-                .unwrap_or(0)
+        let (flat, footer_ids, side_dx) = if surface == Surface::Pane {
+            pane_layout(flat)
         } else {
-            0
-        };
-
-        // 049 — in a pane, the SideMenu IS the MenuPane: the shell paints it as
-        // chrome outside this host. Rendering the control again inside the
-        // ContentPane would put the same sidebar on screen twice, side by side,
-        // and `FullHeight` makes that second copy as tall as the whole form.
-        // Only its PAINT is dropped — the control keeps its state entry below,
-        // so `SelectedItemId` and its event handlers still work.
-        // 049 — the SideMenu's FOOTER PANEL and whatever the developer dropped
-        // into it are part of the RAIL, not of the form's content. They were
-        // slid over with everything else and clamped at the pane's left edge,
-        // so a clock designed into the footer surfaced BESIDE the rail at the
-        // bottom of the content (operator, 2026-08-22). They keep their
-        // designed rects here and are drawn by `draw_side_menu_footer` into the
-        // rail's own footer band.
-        let footer_ids: std::collections::HashSet<String> = if surface == Surface::Pane {
-            cobolt_forms::model::side_menu_footer_subtree(&flat)
-                .into_iter()
-                .collect()
-        } else {
-            std::collections::HashSet::new()
-        };
-
-        let flat: Vec<cobolt_forms::Control> = if surface == Surface::Pane {
-            flat.into_iter()
-                .filter(|c| c.control_type != cobolt_forms::ControlType::SideMenu)
-                .map(|mut c| {
-                    // Slide the form's content area over the rail's column so
-                    // its left edge lands ON the pane's left edge — juxtaposed
-                    // to the rail rather than offset from it twice. A control
-                    // the developer parked UNDER the rail clamps to the edge
-                    // instead of disappearing off the left of the pane.
-                    //
-                    // The footer subtree is exempt: it is not content, it is
-                    // rail, and its designed rect is what the footer band is
-                    // laid out from.
-                    if !footer_ids.contains(&c.id) {
-                        c.rect.x = (c.rect.x - side_dx).max(0);
-                    }
-                    c
-                })
-                .collect()
-        } else {
-            flat
+            (flat, std::collections::HashSet::new(), 0)
         };
 
         let glass_style = form.glass_style;
@@ -3231,6 +3184,99 @@ impl FormBody {
     }
 }
 
+/// Spec 085 — a child window that runs as a shell, as its shell sees it: the
+/// window's own form and its ContentPane.
+struct ChildPaneView<'a> {
+    body: &'a mut FormBody,
+    pane: &'a mut Pane,
+    blocked: bool,
+    overlay: Option<cobolt_forms::model::ModalOverlayStyle>,
+}
+
+impl crate::shell::PaneHost for ChildPaneView<'_> {
+    fn publish_root_theme(&self, ctx: &egui::Context) {
+        cobolt_forms::paint::set_active_theme(ctx, self.body.theme_pack.clone());
+        cobolt_forms::paint::set_glass_style(ctx, self.body.glass_style);
+        cobolt_forms::paint::set_surface_theme(ctx, self.body.surface_theme.clone());
+    }
+
+    fn control_prop(&self, ctrl_id: &str, prop: &str) -> Option<String> {
+        let key = self.body.resolve_ctrl_key(ctrl_id);
+        self.body.state.get(&key).and_then(|s| {
+            s.props.iter().find(|(k, _)| k.eq_ignore_ascii_case(prop)).map(|(_, v)| v.clone())
+        })
+    }
+
+    fn draw_side_menu_footer(&mut self, ui: &mut egui::Ui, band: egui::Rect, behind: egui::Color32) {
+        self.body.draw_side_menu_footer(ui, band, behind, self.blocked);
+    }
+
+    fn set_pane_chrome(&mut self, chrome: Option<Box<dyn Fn(&egui::Painter, egui::Rect)>>, band: f32) {
+        self.pane.pane_chrome = chrome;
+        self.pane.pane_band = band;
+    }
+
+    fn pane_frame(&mut self, pane_ui: &mut egui::Ui) {
+        let rect = pane_ui.available_rect_before_wrap();
+        let chrome = self.pane.pane_chrome.take();
+        let band = self.pane.pane_band;
+        // A form loaded into the pane starts BELOW the breadcrumb band (it has
+        // its own coordinate space); the window's own form may design
+        // controls over the band — the same rule as the main window.
+        if let Some(occ) = self.pane.active_occupant.as_ref().and_then(|k| self.pane.occupants.get_mut(k)) {
+            if let Some(chrome) = chrome.as_deref() {
+                chrome(pane_ui.painter(), rect);
+            }
+            let mut inner = rect;
+            inner.min.y += band;
+            self.pane.last_occupant_rect = Some(inner);
+            let mut ui = pane_ui.new_child(egui::UiBuilder::new().max_rect(inner));
+            occ.body.child_frame(&mut ui, self.blocked, None);
+        } else {
+            self.pane.last_occupant_rect = None;
+            let mut ui = pane_ui.new_child(egui::UiBuilder::new().max_rect(rect));
+            self.body.child_frame(&mut ui, self.blocked, chrome.as_deref());
+        }
+    }
+
+    fn blocked_overlay_style(&self) -> Option<cobolt_forms::model::ModalOverlayStyle> {
+        self.overlay
+    }
+}
+
+/// 049 — a form shown in a shell's ContentPane: the SideMenu IS the shell's
+/// MenuPane, painted as chrome outside the form, so its control is dropped
+/// from the paint; the content slides over the rail's DESIGNED column so its
+/// left edge lands on the pane's (a control parked under the rail clamps to
+/// the edge); and the SideMenu's footer Panel subtree keeps its designed
+/// rects — it is rail, drawn into the rail's footer band. Returns the
+/// controls, the footer subtree's ids and the rail's designed width.
+///
+/// The main window's form (`FormHost::new` on the Pane surface) and a child
+/// window that runs as a shell (spec 085) take exactly this transform.
+pub(crate) fn pane_layout(
+    flat: Vec<cobolt_forms::Control>,
+) -> (Vec<cobolt_forms::Control>, std::collections::HashSet<String>, i32) {
+    let side_dx = flat
+        .iter()
+        .find(|c| c.control_type == cobolt_forms::ControlType::SideMenu)
+        .map(|c| c.rect.w.max(0))
+        .unwrap_or(0);
+    let footer_ids: std::collections::HashSet<String> =
+        cobolt_forms::model::side_menu_footer_subtree(&flat).into_iter().collect();
+    let flat = flat
+        .into_iter()
+        .filter(|c| c.control_type != cobolt_forms::ControlType::SideMenu)
+        .map(|mut c| {
+            if !footer_ids.contains(&c.id) {
+                c.rect.x = (c.rect.x - side_dx).max(0);
+            }
+            c
+        })
+        .collect();
+    (flat, footer_ids, side_dx)
+}
+
 /// 051 — one spawned child window: its form body plus the window dressing
 /// the viewport is re-declared with every frame.
 pub(crate) struct ChildWindow {
@@ -3258,6 +3304,9 @@ pub(crate) struct ChildWindow {
     /// Spec 085 — a window whose form carries a SideMenu runs as a shell of
     /// its own: this is its ContentPane. `None` for a plain child window.
     pub(crate) pane: Option<Pane>,
+    /// …and its navigation: the rail, the breadcrumb, the chain. Taken out
+    /// while the host acts on it after a frame, so it is an `Option`.
+    pub(crate) nav: Option<Box<crate::shell::ChildNav>>,
 }
 
 /// 051 — a ContentPane occupant: a full form instance shown in the shell's
@@ -3883,6 +3932,20 @@ impl FormHost {
     /// `build_form_instance` flattens for rendering, so this can never
     /// disagree with what actually paints. `&self` — a plain `Fn` lookup,
     /// safe to call again right before `ensure_occupant` resolves the same id.
+    /// The id of the SideMenu `form_id` carries, if it carries one.
+    pub(crate) fn form_side_menu_id(&self, form_id: &str) -> Result<Option<String>, String> {
+        let Some(source) = &self.form_source else {
+            return Err("this host has no form source (single-form runtime)".into());
+        };
+        let (form, _program) = source(form_id)?;
+        let mut flat: Vec<cobolt_forms::Control> = Vec::new();
+        crate::flatten_controls(&form.controls, &mut flat);
+        Ok(flat
+            .iter()
+            .find(|c| c.control_type == cobolt_forms::ControlType::SideMenu)
+            .map(|c| c.id.clone()))
+    }
+
     pub fn form_has_side_menu(&self, form_id: &str) -> Result<bool, String> {
         let Some(source) = &self.form_source else {
             return Err("this host has no form source (single-form runtime)".into());
@@ -4310,8 +4373,19 @@ impl FormHost {
         width: Option<i64>,
         height: Option<i64>,
     ) -> Result<(), String> {
-        let (body, form) = self.build_form_instance(handle, form_id)?;
-        let (fw, fh) = (form.width as f32, form.height as f32);
+        // Spec 085 — a form that carries a SideMenu runs as a shell of its
+        // own in its window: rail, breadcrumb, ContentPane, chain.
+        let side_menu = self.form_side_menu_id(form_id)?;
+        let (body, form) = self.build_form_instance_as(handle, form_id, side_menu.is_some())?;
+        let nav = side_menu.map(|id| {
+            let menu = cobolt_forms::paint::registered_menu_for(form_id, &id).map(|d| (*d).clone());
+            Box::new(crate::shell::ChildNav::for_form(handle, &form, Some(id), menu, body.ev_tx.clone()))
+        });
+        let designed = nav
+            .as_ref()
+            .map(|n| n.window_size(&form))
+            .unwrap_or(egui::vec2(form.width as f32, form.height as f32));
+        let (fw, fh) = (designed.x, designed.y);
         let size = egui::vec2(
             width.map(|w| w as f32).unwrap_or(fw).max(1.0),
             height.map(|h| h as f32).unwrap_or(fh).max(1.0),
@@ -4348,7 +4422,8 @@ impl FormHost {
             initial_state,
             init_sent: false,
             finish_reported: false,
-            pane: None,
+            pane: nav.as_ref().map(|_| Pane::default()),
+            nav,
         });
         Ok(())
     }
@@ -4361,6 +4436,17 @@ impl FormHost {
         &mut self,
         handle: &str,
         form_id: &str,
+    ) -> Result<(FormBody, cobolt_forms::Form), String> {
+        self.build_form_instance_as(handle, form_id, false)
+    }
+
+    /// [`Self::build_form_instance`]; `as_shell` lays the form out as a
+    /// shell's own form — its SideMenu taken out as the rail (spec 085).
+    fn build_form_instance_as(
+        &mut self,
+        handle: &str,
+        form_id: &str,
+        as_shell: bool,
     ) -> Result<(FormBody, cobolt_forms::Form), String> {
         let Some(source) = &self.form_source else {
             return Err("this host has no form source (single-form runtime)".into());
@@ -4414,7 +4500,7 @@ impl FormHost {
             .iter()
             .filter(|c| c.control_type == cobolt_forms::ControlType::SideMenu)
             .filter_map(|c| {
-                cobolt_forms::paint::registered_menu(&c.id).map(|d| (c.id.clone(), (*d).clone()))
+                cobolt_forms::paint::registered_menu_for(form_id, &c.id).map(|d| (c.id.clone(), (*d).clone()))
             })
             .collect();
         // 049 R28/R29 — the caller of THIS handle, resolved now while `self`
@@ -4493,6 +4579,14 @@ impl FormHost {
             });
         }
 
+        // Spec 085 — a window that runs as a shell lays its own form out the
+        // way the main window's shell does: the rail is chrome.
+        let (flat, footer_ids, side_dx) = if as_shell {
+            pane_layout(flat)
+        } else {
+            (flat, std::collections::HashSet::new(), 0)
+        };
+
         // The child's theme: the glue resolves it (embedded vs on-disk art);
         // without a resolver it paints procedural Liquid Glass.
         let (theme_pack, surface_theme) = match &self.child_theme {
@@ -4500,15 +4594,16 @@ impl FormHost {
             None => (None, cobolt_forms::surface_theme::liquid_glass()),
         };
 
-        let (fw, fh) = (form.width as f32, form.height as f32);
+        let (fw, fh) = ((form.width as f32 - side_dx as f32).max(1.0), form.height as f32);
         let body = FormBody {
             drawn_reported: false,
             form_name: form.name.clone(),
             last_window_crumb: None,
             // An occupant is a form INSIDE the pane; the rail belongs to the
             // shell's main form, so an occupant has no footer band of its own
-            // and nothing is withheld from its content pass.
-            footer_ids: std::collections::HashSet::new(),
+            // and nothing is withheld from its content pass. A window that
+            // runs as a shell owns its rail, footer band included.
+            footer_ids,
             theme_pack,
             surface_theme,
             glass_style: form.glass_style,
@@ -4586,8 +4681,16 @@ impl FormHost {
             // while the program is stopped in the debugger, which stops every
             // window of the application, not just the root one.
             let blocked = crate::debug_link::is_paused() || {
-                let h = &self.children[i].handle;
-                !self.supervisor.modal_children_of(h).is_empty()
+                let c = &self.children[i];
+                !self.supervisor.modal_children_of(&c.handle).is_empty()
+                    // Spec 085 — a modal child of the form on this window's
+                    // own ContentPane blocks the whole window, as on the root.
+                    || c.pane.as_ref().is_some_and(|p| {
+                        p.active_occupant
+                            .as_ref()
+                            .and_then(|k| p.occupants.get(k))
+                            .is_some_and(|o| !self.supervisor.modal_children_of(&o.handle).is_empty())
+                    })
             };
             // 051 R19/R28 — the OS-level half of "modal". egui/eframe/winit
             // at this version expose no owner/parent-window relationship
@@ -4622,7 +4725,15 @@ impl FormHost {
             // form that is not responsive keeps no minimum, as before.
             if let Some(spec) = child.body.responsive.as_ref() {
                 let (min, max) = spec.size_limits(&child.body.controls, child.body.form_size);
-                builder = builder.with_min_inner_size(min).with_max_inner_size(max);
+                // A window that runs as a shell holds the rail and the
+                // breadcrumb beside and above the form.
+                let extra = child.nav.as_ref().map_or(egui::Vec2::ZERO, |n| {
+                    egui::vec2(
+                        n.shell.menu_pane_width(),
+                        if n.shell.full_height { 0.0 } else { n.shell.breadcrumb_height },
+                    )
+                });
+                builder = builder.with_min_inner_size(min + extra).with_max_inner_size(max + extra);
             }
             if let Some(p) = child.pos {
                 builder = builder.with_position(p);
@@ -4635,6 +4746,15 @@ impl FormHost {
                 }
             }
             let mut close_requested = false;
+            let mut nav_work: Option<(Option<usize>, bool, bool)> = None;
+            let overlay = blocked.then(|| {
+                child
+                    .pane
+                    .as_ref()
+                    .and_then(|p| p.active_occupant.as_ref().and_then(|k| p.occupants.get(k)))
+                    .map(|o| o.body.modal_overlay_style)
+                    .unwrap_or(child.body.modal_overlay_style)
+            });
             ctx.show_viewport_immediate(vp, builder, |vp_ui, _class| {
                 if let Some(start) = child.pending_start {
                     let ready = vp_ui.input(|i| {
@@ -4676,6 +4796,25 @@ impl FormHost {
                 // its own breadcrumb strip, so the rail keeps the Open/Collapsed
                 // control it has on every other surface. A form with no
                 // SideMenu produces no strip and nothing changes for it.
+                // Spec 085 — a window whose form carries a SideMenu is a
+                // shell of its own: the rail, the breadcrumb, and the form on
+                // its ContentPane, exactly as in the main window.
+                if let (Some(nav), Some(pane)) = (child.nav.as_mut(), child.pane.as_mut()) {
+                    if blocked {
+                        vp_ui.disable();
+                        vp_ui.set_opacity(1.0);
+                    }
+                    nav.shell.breadcrumb =
+                        nav.chain.segments().into_iter().map(|(_, label)| label).collect();
+                    let mut view = ChildPaneView { body: &mut child.body, pane, blocked, overlay };
+                    nav.shell.show_with_host(vp_ui, |_ui| {}, &mut view);
+                    nav_work = Some((
+                        nav.shell.take_breadcrumb_click(),
+                        nav.shell.take_reset_request(),
+                        nav.shell.take_toggle_request(),
+                    ));
+                    return;
+                }
                 let window = vp_ui.max_rect();
                 let label = child.title.clone();
                 let chrome = child.body.window_crumb_chrome(vp_ui, window, &label);
@@ -4684,6 +4823,9 @@ impl FormHost {
                 }
                 child.body.child_frame(vp_ui, blocked, chrome.as_deref());
             });
+            if let Some((crumb, reset, toggle)) = nav_work {
+                self.after_child_shell_frame(ctx, &handle, crumb, reset, toggle);
+            }
             if close_requested {
                 close_requests.push(handle);
             }
@@ -4691,6 +4833,63 @@ impl FormHost {
         for handle in close_requests {
             let acts = self.supervisor.try_close(&handle);
             self.apply_host_actions(ctx, acts);
+        }
+    }
+
+    /// Spec 085 — the end of a child shell's frame: its menu activations,
+    /// breadcrumb click, reset and fold, performed for THAT window — forms
+    /// load into its ContentPane with it as their caller.
+    fn after_child_shell_frame(
+        &mut self,
+        ctx: &egui::Context,
+        handle: &str,
+        crumb_click: Option<usize>,
+        reset_click: bool,
+        toggle: bool,
+    ) {
+        let Some(at) = self.children.iter().position(|c| c.handle == handle) else {
+            return;
+        };
+        let Some(mut nav) = self.children[at].nav.take() else {
+            return;
+        };
+        let ev_tx = self.children[at].body.ev_tx.clone();
+        let input_tx = self.children[at].body.input_tx.clone();
+        let vp = self.children[at].viewport_id;
+        let form_req_tx = self.form_req_tx.clone();
+        if toggle {
+            nav.shell.collapsed = !nav.shell.collapsed;
+            nav.persist_collapsed();
+            // The window absorbs the rail's change, so the ContentPane keeps
+            // the width its form was designed for — as the main window does.
+            if let Some(size) = ctx.input_for(vp, |i| i.viewport().inner_rect.map(|r| r.size())) {
+                let width = crate::shell::shell_width_for_pane(
+                    size.x,
+                    nav.shell.menu_open_width,
+                    nav.shell.menu_collapsed_width,
+                    !nav.shell.collapsed,
+                );
+                if (width - size.x).abs() >= 0.5 {
+                    ctx.send_viewport_cmd_to(vp, egui::ViewportCommand::InnerSize(egui::vec2(width, size.y)));
+                }
+            }
+        }
+        {
+            let crate::shell::ChildNav { shell, chain, side_menu_ctrl, .. } = &mut *nav;
+            let mut cx = crate::shell::NavCtx {
+                shell,
+                chain,
+                side_menu_ctrl,
+                owner: handle,
+                ev_tx: &ev_tx,
+                input_tx: &input_tx,
+                form_req_tx: &form_req_tx,
+            };
+            cx.after_frame(self, crumb_click, reset_click);
+        }
+        // The window may have closed while its menu acted.
+        if let Some(c) = self.children.iter_mut().find(|c| c.handle == handle) {
+            c.nav = Some(nav);
         }
     }
 
@@ -4952,6 +5151,21 @@ impl FormHost {
     /// The program has ended (STOP RUN, or the form closed).
     pub(crate) fn script_finished(&self) -> bool {
         self.root.finished.load(Ordering::Relaxed)
+    }
+
+    /// `run_form` (spec 085): the open child windows — each one's form, and
+    /// for a window that runs as a shell, the form on its ContentPane.
+    pub(crate) fn script_windows(&self) -> Vec<(String, bool, Option<String>)> {
+        self.children
+            .iter()
+            .map(|c| {
+                (
+                    c.body.form_object.clone(),
+                    c.nav.is_some(),
+                    c.pane.as_ref().and_then(|p| p.active_occupant.clone()),
+                )
+            })
+            .collect()
     }
 
     /// The root form's designed size.
@@ -6577,6 +6791,162 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         .clear();
         assert!(!chrome_some, "no SideMenu, no strip");
         assert!(host.root.last_window_crumb.is_none());
+    }
+
+    /// A program that stays open: one event loop, forever.
+    fn waiting_program(id: &str) -> cobolt_ast::program::Program {
+        program_from(&format!(
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. {id}.\n\
+             DATA DIVISION.\nWORKING-STORAGE SECTION.\n\
+             01 EVT PIC X(30).\n01 CTL PIC X(30).\n\
+             PROCEDURE DIVISION.\n    \
+             PERFORM UNTIL 1 = 2\n        \
+             CALL \"COBOL-WAIT-EVENT\" USING EVT CTL\n    \
+             END-PERFORM.\n"
+        ))
+    }
+
+    /// A main window whose form source knows `APP-SHELL` (a form with its own
+    /// SideMenu, 200 wide) and `PAGE-ONE` (an Embedded screen); both stay open.
+    fn host_with_a_shell_form() -> FormHost {
+        let form = cobolt_forms::Form::new("MAIN-FORM", "Main", 320, 200);
+        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let source: Option<FormSource> = Some(Box::new(|id: &str| {
+            if id.eq_ignore_ascii_case("APP-SHELL") {
+                let mut form = cobolt_forms::Form::new("APP-SHELL", "Assistant", 640, 420);
+                let mut side =
+                    cobolt_forms::Control::new("SideMenu-1", cobolt_forms::ControlType::SideMenu, 0, 0);
+                side.rect = cobolt_forms::model::Rect::new(0, 0, 200, 420);
+                form.add_control(side);
+                let mut label = cobolt_forms::Control::new("LBL-HOME", cobolt_forms::ControlType::Label, 240, 60);
+                label.rect = cobolt_forms::model::Rect::new(240, 60, 120, 24);
+                form.add_control(label);
+                Ok((form, waiting_program("APP-SHELL")))
+            } else if id.eq_ignore_ascii_case("PAGE-ONE") {
+                Ok((cobolt_forms::Form::new("PAGE-ONE", "Topics", 440, 420), waiting_program("PAGE-ONE")))
+            } else {
+                Err(format!("no form named '{id}'"))
+            }
+        }));
+        let (host, _form) = FormHost::new(FormHostConfig {
+            form,
+            flat: Vec::new(),
+            state: HashMap::new(),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx,
+            form_source: source,
+            child_theme: None,
+            child_interpreter_setup: None,
+            indexed_engine: Default::default(),
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Window,
+        });
+        host
+    }
+
+    /// Spec 085 AC1 (R1–R3, R5) — a form with its own SideMenu, opened as a
+    /// window, runs as a shell of its own: the rail is chrome, not a control
+    /// on its form; a menu item loads a form into THAT window's ContentPane
+    /// (never the main window's), with the window's form as its caller, and
+    /// the breadcrumb follows; Home brings the window's own form back; closing
+    /// the window releases the form loaded into it.
+    #[test]
+    fn a_side_menu_form_opened_as_a_window_runs_as_a_shell_of_its_own() {
+        let mut host = host_with_a_shell_form();
+        let ctx = egui::Context::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0)));
+        let frame = |host: &mut FormHost| {
+            let mut f = ctx.run_ui(input.clone(), |ui| {
+                let c = ui.ctx().clone();
+                host.update_children(&c);
+            });
+            f.textures_delta.clear();
+        };
+        let w = host.supervisor_open_for_test("APP-SHELL");
+        let mut f = ctx.run_ui(input.clone(), |ui| {
+            host.apply_host_actions(ui.ctx(), vec![spawn_action(&w, "APP-SHELL")]);
+        });
+        f.textures_delta.clear();
+        assert_eq!(host.children.len(), 1);
+        let child = &host.children[0];
+        assert!(child.nav.is_some() && child.pane.is_some(), "the window runs as a shell");
+        assert!(
+            !child.body.controls.iter().any(|c| c.control_type == cobolt_forms::ControlType::SideMenu),
+            "the rail is the shell's chrome, not a control on the form"
+        );
+        let label = child.body.controls.iter().find(|c| c.id == "LBL-HOME").unwrap();
+        assert_eq!(label.rect.x, 40, "the content slid over the rail's 200-point column");
+        assert_eq!(child.size, egui::vec2(640.0, 420.0), "the window opens at the designed size");
+        frame(&mut host);
+
+        // A menu item of THAT window loads a form into ITS pane.
+        host.children[0].nav.as_mut().unwrap().shell.queue_click(crate::shell::MenuClick {
+            slot: crate::shell::MenuSlot::Root,
+            item_id: "tpcs".into(),
+            action: Some("open-form:page-one".into()),
+            preserve_previous_form: false,
+        });
+        frame(&mut host);
+        frame(&mut host);
+        let child = &host.children[0];
+        let pane = child.pane.as_ref().unwrap();
+        assert_eq!(pane.active_occupant.as_deref(), Some("PAGE-ONE"), "loaded into the window's own pane");
+        assert!(host.pane.occupants.is_empty(), "nothing loaded into the main window's pane");
+        let occupant_handle = pane.occupants["PAGE-ONE"].handle.clone();
+        assert_eq!(host.supervisor.caller_of(&occupant_handle), Some(w.as_str()), "super:: is the window's form");
+        let crumbs: Vec<String> =
+            child.nav.as_ref().unwrap().chain.segments().into_iter().map(|(_, l)| l).collect();
+        assert_eq!(crumbs, ["Assistant", "Topics"], "the window's breadcrumb follows its chain");
+
+        // Home: the window's own form is back on its pane; the loaded form is
+        // parked, still resident.
+        host.children[0].nav.as_mut().unwrap().shell.queue_click(crate::shell::MenuClick {
+            slot: crate::shell::MenuSlot::Root,
+            item_id: "home".into(),
+            action: Some("home".into()),
+            preserve_previous_form: false,
+        });
+        frame(&mut host);
+        let pane = host.children[0].pane.as_ref().unwrap();
+        assert_eq!(pane.active_occupant, None, "Home shows the window's own form");
+        assert!(pane.occupants.contains_key("PAGE-ONE"), "parked, not destroyed");
+
+        // Closing the window releases the form loaded into it.
+        let mut f = ctx.run_ui(input.clone(), |ui| {
+            host.apply_host_actions(
+                ui.ctx(),
+                vec![cobolt_runtime::form_host::HostAction::CloseWindow { handle: w.clone() }],
+            );
+        });
+        f.textures_delta.clear();
+        assert!(host.children.is_empty());
+        assert!(host.supervisor.caller_of(&occupant_handle).is_none(), "the loaded form's handle is released");
+        println!(
+            "child shell: {w} opened as a shell (rail out of the form, content slid 200 pt), \
+             PAGE-ONE loaded into its own pane with super = {w}, breadcrumb Assistant > Topics, \
+             Home parked it, closing released it"
+        );
     }
 
     fn spawn_action(handle: &str, form: &str) -> cobolt_runtime::form_host::HostAction {

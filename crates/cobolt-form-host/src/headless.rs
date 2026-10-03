@@ -203,6 +203,9 @@ pub fn run_headless(
         "reads": reads,
         "program_ended": host.host().script_finished(),
         "on_pane": host.host().active_occupant_form(),
+        "windows": host.host().script_windows().into_iter().map(|(form, shell, on_pane)| {
+            json!({"form": form, "shell": shell, "on_pane": on_pane})
+        }).collect::<Vec<_>>(),
         "timed_out": timed_out,
         "elapsed_ms": started.elapsed().as_millis() as u64,
         "picture": picture,

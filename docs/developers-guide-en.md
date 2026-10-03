@@ -12642,7 +12642,8 @@ The shell window has three fixed regions:
 > **open-standalone** item instead: its own top-level window, closable on
 > its own, the shell's ContentPane untouched. A target with an ordinary
 > `MenuBar` (a horizontal strip, not a rail) still loads into the
-> ContentPane as always — only a `SideMenu` triggers this.
+> ContentPane as always — only a `SideMenu` triggers this. That window is a
+> **shell of its own** — see *A window with its own side menu* below.
 
 ### Rows your program adds
 
@@ -13050,12 +13051,34 @@ Windows opened this way are parented to the **shell**, whichever form ran
 the INVOKE — closing the application closes them. The target needs
 `Standalone` or `Both`.
 
-> **A target that has its own SideMenu keeps its Open/Collapsed control.**
-> Run such a form on its own and it opens as a shell, whose breadcrumb carries
-> that control at its head. Opened as a child window it is a plain window with
-> no shell over it, so it draws the strip itself: the same live toggle, and one
-> static segment naming the form. There is no navigation chain to show — a
-> chain is a fact of the shell, and a child window is not in one.
+#### A window with its own side menu
+
+A form that carries its own **SideMenu**, opened as a window — from COBOL
+with `OpenFormSync` / `OpenFormAsync`, from a standalone menu item, or from an
+**Open form** item (see above) — runs as a **shell of its own** in that
+window, exactly as it would as the main form:
+
+- its rail, breadcrumb and **ContentPane**, with the fold control and the
+  window widening and narrowing with the rail;
+- its menu's **Open form** items load forms into **that window's**
+  ContentPane, never the main window's, and the breadcrumb follows them;
+  **Home** brings the window's own form back;
+- a form loaded there has the window's form as its `super`;
+- closing the window closes every form loaded into it.
+
+So a complete sub-application — a chat with its own topics, documents and
+settings screens, say — can be opened from any application as one window
+and works there as it does on its own.
+
+```cobol
+      *> open the assistant beside the application, modeless
+           INVOKE ME::"OpenFormAsync"("CHAT-FORM").
+```
+
+> **Note.** Each form's menu is its own: two forms can both have a
+> `SideMenu-1`, each with its own `SideMenu-1.menu.yaml` in its own folder,
+> and each window shows its own menu — under Run Form and in a built
+> application alike.
 
 **Sync is implicitly modal.** From a menu click or from COBOL: while a
 Sync-opened window lives, its parent's whole face — the shell's chrome

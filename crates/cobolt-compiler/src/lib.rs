@@ -1427,6 +1427,12 @@ fn sanitize_package_name(project_name: &str) -> String {
 /// cargo's fingerprint is mtime-based — so an unchanged program recompiled its
 /// own crate on every single build, for nothing. Comparing first is what makes
 /// "build twice, compile nothing the second time" true rather than aspirational.
+/// Spec 085 — the file a menu keyed `FORM/CTRL` is embedded from:
+/// `FORM__CTRL` (a `/` cannot be in a file name).
+fn menu_asset_stem(key: &str) -> String {
+    key.replace('/', "__")
+}
+
 fn write_if_changed(path: &Path, bytes: &[u8]) -> Result<(), CompilerError> {
     if let Ok(existing) = std::fs::read(path) {
         if existing == bytes {
@@ -1818,7 +1824,10 @@ fn build_core(
     // produced an application whose menus were empty: the compiled shell had
     // a rail with nothing on it. They ride into the binary exactly as the
     // forms do.
-    let mut menus: Vec<(String, Vec<u8>)> = Vec::new(); // (control id, yaml bytes)
+    // Spec 085 — keyed by FORM and control (`menu_key`): two forms may each
+    // have a `SideMenu-1` with its own menu, and the first one found used to
+    // win for both.
+    let mut menus: Vec<(String, Vec<u8>)> = Vec::new(); // (FORM/CTRL key, yaml bytes)
 
     for rel in &proj.files.forms {
         let abs = project_dir.join(rel);
@@ -1845,11 +1854,12 @@ fn build_core(
                     let Some(ctrl_id) = name.strip_suffix(".menu.yaml") else {
                         continue;
                     };
-                    if menus.iter().any(|(k, _)| k == ctrl_id) {
+                    let key = cobolt_forms::menu::menu_key(&id, ctrl_id);
+                    if menus.iter().any(|(k, _)| *k == key) {
                         continue;
                     }
                     if let Ok(bytes) = std::fs::read(&p) {
-                        menus.push((ctrl_id.to_owned(), bytes));
+                        menus.push((key, bytes));
                     }
                 }
             }
@@ -2028,12 +2038,13 @@ fn build_core(
         write_if_changed(&forms_dir.join(format!("{id}.cfrm")), raw)?;
     }
 
-    // 049 — the menu sidecars, beside the forms they belong to.
+    // 049 — the menu sidecars, beside the forms they belong to (one file per
+    // FORM/CTRL key — spec 085).
     if !menus.is_empty() {
         let menus_dir = assets_dir.join("menus");
         create_dir(&menus_dir)?;
-        for (ctrl_id, yaml) in &menus {
-            write_if_changed(&menus_dir.join(format!("{ctrl_id}.menu.yaml")), yaml)?;
+        for (key, yaml) in &menus {
+            write_if_changed(&menus_dir.join(format!("{}.menu.yaml", menu_asset_stem(key))), yaml)?;
         }
     }
 
@@ -3294,7 +3305,8 @@ fn generate_main_rs(
     let menus_entries: String = menu_ids
         .iter()
         .map(|id| {
-            format!("    (\"{id}\", include_str!(\"../assets/menus/{id}.menu.yaml\")),\n")
+            let file = menu_asset_stem(id);
+            format!("    (\"{id}\", include_str!(\"../assets/menus/{file}.menu.yaml\")),\n")
         })
         .collect();
     let menus_const = if menu_ids.is_empty() {
@@ -3623,13 +3635,13 @@ fn run_form_app(program: cobolt_ast::program::Program) {
             .ok()
             .map(|def| ((*id).to_owned(), def))
     }));
+    // Spec 085 — the menus are keyed by FORM and control; the form this
+    // launch starts at is the designer's choice or the main form.
+    let root_form_id = cobolt_runtime::form_host::designer_form().unwrap_or_else(|| MAIN_FORM.to_owned());
     let root_menu = if shell_mode {
         first_form.side_menu_control_id().and_then(|ctrl_id| {
-            MENUS
-                .iter()
-                .find(|(id, _)| id.eq_ignore_ascii_case(&ctrl_id))
-                .and_then(|(_, yaml)| cobolt_forms::menu::parse_menu(yaml).ok())
-                .map(|def| (ctrl_id, def))
+            cobolt_forms::paint::registered_menu_for(&root_form_id, &ctrl_id)
+                .map(|def| (ctrl_id, (*def).clone()))
         })
     } else {
         None
@@ -3663,6 +3675,7 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         let pending = Arc::clone(&pending);
         let form_object = form_object.clone();
         let form_req_tx = form_req_tx.clone();
+        let root_form_id = root_form_id.clone();
         std::thread::spawn(move || {
             let mut interp = Interpreter::new_with_channels(program, ev_rx, state_tx, display_tx);
             interp.set_control_ids(control_ids);
@@ -3689,9 +3702,14 @@ fn run_form_app(program: cobolt_ast::program::Program) {
             // edits to them can be refused. A MenuBar's are handed over too;
             // nothing reads them, and filtering by type here would need the
             // form, which the rows do not.
-            for (id, yaml) in MENUS {
+            for (key, yaml) in MENUS {
+                // Spec 085 — the starting form's own menus only.
+                let Some((form, ctrl)) = key.split_once('/') else { continue };
+                if !form.eq_ignore_ascii_case(&root_form_id) {
+                    continue;
+                }
                 if let Ok(def) = cobolt_forms::menu::parse_menu(yaml) {
-                    interp.set_designed_menu(id, &def);
+                    interp.set_designed_menu(ctrl, &def);
                 }
             }
             // The same `@DBG` stdio protocol `rcrun run-form --debug` speaks,
@@ -9129,14 +9147,21 @@ mod resolve_main_tests {
     #[test]
     fn generated_glue_hands_designed_menus_to_the_interpreter() {
         let src = generate_main_rs(
-            "Demo", "1.2.3", true, &["MAIN"], "MAIN", &[], &["SIDEMENU-1"], &[], "",
+            "Demo", "1.2.3", true, &["MAIN"], "MAIN", &[], &["MAIN/SIDEMENU-1", "ASSISTANT/SIDEMENU-1"], &[], "",
             "none:600:ease-out", "none:600:ease-out", false,
         "[]", 64,
         );
         let seed = src.find("interp.seed_objects(seed);").expect("seed site");
-        let hand = src.find("interp.set_designed_menu(id, &def);").expect("designed menus");
+        let hand = src.find("interp.set_designed_menu(ctrl, &def);").expect("designed menus");
         let run = src[seed..].find("interp.run()").map(|i| i + seed).expect("run");
         assert!(seed < hand && hand < run, "handed over after seeding, before running");
+        // Spec 085 — two forms' `SideMenu-1` each keep their own menu: keyed
+        // by form, embedded from one file each, and the starting form's own
+        // menu is the one mounted and handed over.
+        assert!(src.contains(r#"("MAIN/SIDEMENU-1", include_str!("../assets/menus/MAIN__SIDEMENU-1.menu.yaml"))"#));
+        assert!(src.contains(r#"("ASSISTANT/SIDEMENU-1", include_str!("../assets/menus/ASSISTANT__SIDEMENU-1.menu.yaml"))"#));
+        assert!(src.contains("cobolt_forms::paint::registered_menu_for(&root_form_id, &ctrl_id)"));
+        assert!(src.contains("if !form.eq_ignore_ascii_case(&root_form_id)"));
     }
 
     /// The project's focus ring is baked into the generated glue and handed to

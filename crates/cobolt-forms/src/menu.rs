@@ -982,3 +982,10 @@ mod depth_tests {
         assert!(validate_depth(&def).is_ok());
     }
 }
+
+/// Spec 085 — the key of the menu owned by control `ctrl` of the form `form`
+/// (its file stem, as the form is opened by): two forms may both have a
+/// `SideMenu-1`, each with its own menu.
+pub fn menu_key(form: &str, ctrl: &str) -> String {
+    format!("{}/{}", form.trim().to_ascii_uppercase(), ctrl.trim().to_ascii_uppercase())
+}

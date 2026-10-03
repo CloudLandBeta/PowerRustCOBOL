@@ -17858,13 +17858,51 @@ pub(crate) fn menu_registry_test_lock() -> std::sync::MutexGuard<'static, ()> {
 pub fn register_menus(
     defs: impl IntoIterator<Item = (String, crate::menu::MenuDefinition)>,
 ) {
-    let map = defs
-        .into_iter()
-        .map(|(id, def)| (id.to_ascii_uppercase(), std::sync::Arc::new(def)))
-        .collect();
     if let Ok(mut registry) = menu_registry().write() {
-        *registry = map;
+        registry.clear();
+        insert_menus(&mut registry, defs);
     }
+}
+
+/// Spec 085 — register more menus without dropping the ones already there:
+/// a host that loads forms as they open registers each one's menus then.
+pub fn register_more_menus(
+    defs: impl IntoIterator<Item = (String, crate::menu::MenuDefinition)>,
+) {
+    if let Ok(mut registry) = menu_registry().write() {
+        insert_menus(&mut registry, defs);
+    }
+}
+
+pub use crate::menu::menu_key;
+
+/// A key is `CTRL` or [`menu_key`]'s `FORM/CTRL`. A form-qualified menu is
+/// ALSO registered under its bare control id when no menu holds that id yet,
+/// so a painter that knows only the control (a MenuBar drawn on a form)
+/// still finds one; a qualified lookup never confuses two forms.
+fn insert_menus(
+    registry: &mut std::collections::HashMap<String, std::sync::Arc<crate::menu::MenuDefinition>>,
+    defs: impl IntoIterator<Item = (String, crate::menu::MenuDefinition)>,
+) {
+    for (id, def) in defs {
+        let key = id.to_ascii_uppercase();
+        let def = std::sync::Arc::new(def);
+        if let Some((_, ctrl)) = key.split_once('/') {
+            registry.entry(ctrl.to_owned()).or_insert_with(|| std::sync::Arc::clone(&def));
+        }
+        registry.insert(key, def);
+    }
+}
+
+/// Spec 085 — the menu of control `ctrl` on the form `form`: the form's own
+/// when one was registered for it, else the menu registered under the bare
+/// control id.
+pub fn registered_menu_for(form: &str, ctrl: &str) -> Option<std::sync::Arc<crate::menu::MenuDefinition>> {
+    let registry = menu_registry().read().ok()?;
+    registry
+        .get(&menu_key(form, ctrl))
+        .or_else(|| registry.get(&ctrl.trim().to_ascii_uppercase()))
+        .cloned()
 }
 
 /// The menu a host registered for `ctrl_id`, without an egui context — for the
@@ -26864,6 +26902,31 @@ mod menu_registry_tests {
             menu: vec![MenuItem::new_action("id", label)],
             hash: String::new(),
         }
+    }
+
+    /// Spec 085 — **two forms' `SideMenu-1` keep their own menus.** An
+    /// application with PowerChat added has its own `SideMenu-1` and
+    /// PowerChat's; registered per form, each form's lookup finds its own, the
+    /// bare id still answers a painter that knows only the control, and a
+    /// form registered later is added without dropping the others.
+    #[test]
+    fn two_forms_with_the_same_menu_control_keep_their_own_menus() {
+        let _turn = menu_registry_test_lock();
+        register_menus([
+            (menu_key("main-form", "SideMenu-1"), menu("Customers")),
+        ]);
+        register_more_menus([(menu_key("chat-form", "SideMenu-1"), menu("Chat"))]);
+        let label = |m: Option<std::sync::Arc<MenuDefinition>>| m.map(|d| d.menu[0].label.clone());
+        assert_eq!(label(registered_menu_for("MAIN-FORM", "sidemenu-1")).as_deref(), Some("Customers"));
+        assert_eq!(label(registered_menu_for("chat-form", "SideMenu-1")).as_deref(), Some("Chat"));
+        assert_eq!(label(registered_menu("SideMenu-1")).as_deref(), Some("Customers"), "the first form's for the bare id");
+        assert_eq!(
+            label(registered_menu_for("other-form", "SideMenu-1")).as_deref(),
+            Some("Customers"),
+            "a form with none of its own falls back to the bare id"
+        );
+        register_menus(std::iter::empty());
+        println!("menu registry: main-form/SideMenu-1 = Customers, chat-form/SideMenu-1 = Chat, bare id = first registered");
     }
 
     /// **A host that registers its menus makes them findable — and a Designer
