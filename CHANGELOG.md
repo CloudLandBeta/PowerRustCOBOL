@@ -8,6 +8,52 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.143] — 2026-10-03
+
+### Fix: Grace answers the question asked, lists files from the manifest, and a model that thinks past its budget gets a larger one
+
+The operator's log: in the project chat, "list existing forms" on
+`ollama_cloud/nemotron-3-nano:30b` took a 183 s clarity check and a 219 s
+planning call, then answered the **previous** question (the responsive forms,
+with one missing, citing a document that says nothing of the kind). In the
+same session the COBOL proficiency check failed on `qwen/qwen3.8-27b:free`:
+8192 tokens of hidden reasoning, and a message telling the developer to
+hand-edit `model_policies.json`.
+
+- **Grace answers the request she read.** The clarity check had understood
+  "a complete list of all forms", but the planning call never saw that reading
+  and re-read the conversation on its own. Its restatement now reaches the
+  planning prompt as the request to answer, and the continuity rule merges a
+  request with an earlier one only when it answers a *clarifying* question
+  Grace asked ("Shall we create something together?" is not one); any other
+  request is new and replaces the earlier ones.
+- **Inventory questions are answered from the manifest.** The clarity check
+  reports, in a new `inventory` field, when a request asks for nothing but a
+  listing of the project's forms, indexed files, sources, generated programs,
+  assets or documentation. The IDE then lists them from the project's own
+  manifest under Grace's restatement: complete, exact, and with no Knowledge
+  Base retrieval or planning round. The model decides what was asked; nothing
+  matches words. A listing narrowed by content ("the responsive forms") still
+  goes through the workflow.
+- **Budget-exhausted chats retry.** `rig_transport::run_chat` (the
+  proficiency check, the chats) retries a reply that spent its whole budget on
+  hidden reasoning with the budget doubled, up to 32768 tokens, before
+  reporting it; the message no longer sends the developer to a JSON file.
+  Grace's agent calls already retried this case.
+- **Tests:** `chat_budget_retry` (a scripted provider: answers on the first
+  retry 8192 -> 16384; never answers, stops at 8192/16384/32768 with the new
+  message; already at the ceiling, no retry) and
+  `an_inventory_request_is_listed_from_the_manifest` (parses `inventory`
+  case-blind and deduplicated, finds PowerDemo3's manifest by its
+  `*.project.toml` name, lists every tracked form including the one the model
+  left out). Not covered: no harness drives the whole Grace workflow against a
+  scripted model, so the planning-prompt change is verified by reading.
+- **Guide:** "Listing the project's files", "Grace answers the question you
+  just asked", and the budget retry in the reasoning-models note.
+- **Noticed, not changed:** `tool_exec.rs` edits look for `cobolt.toml` only,
+  so a project whose manifest is `<Name>.project.toml` finds no edit
+  candidates there.
+
 ## [PowerRustCOBOL 1.80.142] — 2026-10-03
 
 ### Fix: a control name that does not exist is a compile-time error

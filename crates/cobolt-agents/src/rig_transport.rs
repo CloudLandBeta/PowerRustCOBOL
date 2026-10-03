@@ -437,11 +437,70 @@ pub fn run_chat_blocking(
     rt.block_on(run_chat(call, on_chunk))
 }
 
+/// The largest output budget a budget-exhausted chat is retried with — the
+/// same ceiling Grace's retry ladder uses (`grace_host`).
+const MAX_RETRY_BUDGET: u32 = 32_768;
+
+/// Why one streamed chat failed. Budget exhaustion is kept apart from every
+/// other failure because it alone has a remedy the transport can apply on its
+/// own: a larger budget.
+enum ChatFailure {
+    /// The model spent the whole output budget on hidden reasoning and never
+    /// began the answer.
+    BudgetExhausted { reasoning_chars: usize, spent: u64 },
+    Other(String),
+}
+
+impl From<String> for ChatFailure {
+    fn from(message: String) -> Self {
+        ChatFailure::Other(message)
+    }
+}
+
 /// Invoke one streamed chat asynchronously.
+///
+/// A reasoning model that spends its whole budget thinking produced no
+/// visible text, so nothing reached `on_chunk`: the chat is retried with the
+/// budget doubled, up to [`MAX_RETRY_BUDGET`], before the failure is
+/// reported. Observed live: the COBOL proficiency check failed on
+/// `qwen/qwen3.8-27b:free` after 8192 tokens of reasoning, and the message
+/// asked the developer to hand-edit `model_policies.json`.
 pub async fn run_chat(
     call: &ChatCall,
     on_chunk: &(dyn Fn(&str) + Send + Sync),
 ) -> Result<AgentReply, String> {
+    let mut attempt = call.clone();
+    loop {
+        match run_chat_once(&attempt, on_chunk).await {
+            Ok(reply) => return Ok(reply),
+            Err(ChatFailure::Other(message)) => return Err(message),
+            Err(ChatFailure::BudgetExhausted { reasoning_chars, spent }) => {
+                if attempt.max_tokens < MAX_RETRY_BUDGET {
+                    attempt.max_tokens = attempt.max_tokens.saturating_mul(2).min(MAX_RETRY_BUDGET);
+                    continue;
+                }
+                let raised = if call.max_tokens < attempt.max_tokens {
+                    format!(", even after its budget was raised from {} tokens", call.max_tokens)
+                } else {
+                    String::new()
+                };
+                return Err(format!(
+                    "The model spent its whole {}-token output budget on hidden reasoning \
+                     ({reasoning_chars} characters, {spent} tokens) and never began the \
+                     answer{raised}. Pick a model that answers without reasoning first. \
+                     PowerRustCOBOL cannot apply hidden reasoning as form operations.",
+                    attempt.max_tokens
+                ));
+            }
+        }
+    }
+}
+
+/// One streamed chat, without the budget retry.
+async fn run_chat_once(
+    call: &ChatCall,
+    on_chunk: &(dyn Fn(&str) + Send + Sync),
+) -> Result<AgentReply, ChatFailure> {
     let base = normalize_base(&call.provider, &call.endpoint);
     if call.provider.eq_ignore_ascii_case("anthropic") {
         let client = anthropic::Client::builder()
@@ -473,7 +532,7 @@ async fn chat_with<C>(
     client: C,
     call: &ChatCall,
     on_chunk: &(dyn Fn(&str) + Send + Sync),
-) -> Result<AgentReply, String>
+) -> Result<AgentReply, ChatFailure>
 where
     C: CompletionClient,
 {
@@ -558,28 +617,21 @@ where
         let budget = call.max_tokens as u64;
         let spent = usage.output_tokens;
         let exhausted = budget > 0 && spent + spent / 20 >= budget;
+        // Exhaustion is reported to `run_chat`, which retries with a larger
+        // budget and words the final message.
         return Err(if exhausted {
-            format!(
-                "The model spent its whole {budget}-token output budget on hidden reasoning \
-                 ({reasoning_chars} characters, {spent} tokens) and never began the answer. \
-                 Raise the budget for \"{}\": add a rule to model_policies.json in the Cobolt \
-                 data directory — [{{\"provider\": \"\", \"model\": \"{}\", \"policy\": \
-                 {{\"min_max_tokens\": 32768}}}}] — or pick a model that answers without \
-                 reasoning first. PowerRustCOBOL cannot apply hidden reasoning as form \
-                 operations.",
-                call.model, call.model
-            )
+            ChatFailure::BudgetExhausted { reasoning_chars, spent }
         } else {
-            format!(
+            ChatFailure::Other(format!(
                 "The model returned {reasoning_chars} character(s) of hidden reasoning and no \
                  answer, without exhausting its {budget}-token budget ({spent} tokens used), so \
                  a larger budget will not help. PowerRustCOBOL cannot apply hidden reasoning as \
                  form operations: use a model that answers in assistant text."
-            )
+            ))
         });
     }
     if text.trim().is_empty() {
-        return Err("the model returned no assistant text".to_string());
+        return Err("the model returned no assistant text".to_string().into());
     }
     // Streamed chat feeds the IDE chatbot, where the developer sees the reply
     // arrive and can simply ask for more; continuation paging is reserved for

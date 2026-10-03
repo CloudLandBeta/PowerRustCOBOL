@@ -585,6 +585,13 @@ a reply into form operations, and reasoning they never see cannot be applied —
 so a model that answers agents with hidden reasoning alone is still reported as
 unusable *there*, with the same advice to turn thinking off for it.
 
+**A model that thinks past its budget gets a larger one.** When a reasoning
+model spends its whole output budget thinking and never starts the answer — in
+the COBOL proficiency check, a chat or an agent — the request is sent again with
+twice the budget, up to 32,768 tokens. Only if it still has not begun to answer
+at that size is it reported, and the advice then is to choose a model that
+answers without reasoning first. There is no file to edit.
+
 The provider panel on the right **scrolls** — endpoint, key, models and *Where
 keys are kept* are all reachable however short you make the window, and the
 provider list on the left scrolls independently of it.
@@ -1080,6 +1087,22 @@ CodeGenerator, FormsDesigner, or EventBinder preamble. If an actionable request
 returns malformed workflow JSON, Grace receives one explicit correction
 request. A second malformed result opens the error modal and records both
 parser failures plus the complete corrected payload in the IDE log.
+
+**Listing the project's files.** Ask Grace for nothing but a list of the
+project's files — *list the forms*, *which indexed files are there?* — and the
+IDE answers from the project's own manifest: every form, indexed file, source,
+generated program, asset or document it tracks, with its full path, under
+Grace's one-line reading of your question. There is no Knowledge Base search and
+no planning round, so the answer is complete and comes as soon as Grace has read
+the request. A list narrowed by what the files contain (*the responsive forms*,
+*the forms with a DataGrid*) still goes through the normal workflow, because
+the forms have to be opened to answer it.
+
+**Grace answers the question you just asked.** The reading Grace makes of your
+request before anything else — the one she would show you if it were unclear —
+is what the rest of the run works from. A new question in the same chat is a new
+request: only a reply to a question *Grace asked you* is merged with what you
+asked before.
 
 <!-- 📷 project-grace-chat.png — Show the width-responsive 👑 Grace button above the project tree and the project-wide Grace conversation open in the Main Pane, including transcript, prompt, and conversation controls. -->
 <p align="center"><img src="../assets/images/screenshots/project-grace-chat.png" alt="The Grace button above the project tree, with a project-wide Grace conversation open in the main pane" width="900"></p>

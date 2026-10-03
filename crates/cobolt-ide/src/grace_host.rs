@@ -143,6 +143,100 @@ struct ClarityCheck {
     clarity: u8,
     interpretation: String,
     questions: Vec<String>,
+    /// The project-file categories the request asks to LIST, and nothing
+    /// else — the model's own reading of the request, never a word match.
+    /// Non-empty means the IDE answers from the manifest's file lists
+    /// (1.80.143): "list existing forms" took a 26 KB planning prompt and
+    /// 219 s on a reasoning model, and answered an earlier question.
+    inventory: Vec<InventoryCategory>,
+}
+
+/// One section of the project's manifest file lists, as the clarity check
+/// names it in its `inventory` field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InventoryCategory {
+    Forms,
+    Indexed,
+    Sources,
+    Generated,
+    Assets,
+    Documentation,
+}
+
+impl InventoryCategory {
+    fn parse(word: &str) -> Option<Self> {
+        match word.trim().to_ascii_lowercase().as_str() {
+            "forms" => Some(Self::Forms),
+            "indexed" => Some(Self::Indexed),
+            "sources" => Some(Self::Sources),
+            "generated" => Some(Self::Generated),
+            "assets" => Some(Self::Assets),
+            "documentation" => Some(Self::Documentation),
+            _ => None,
+        }
+    }
+
+    /// The section's folder, as written in the project tree (language-neutral).
+    fn folder(self) -> &'static str {
+        match self {
+            Self::Forms => "forms/",
+            Self::Indexed => "indexed/",
+            Self::Sources => "src/",
+            Self::Generated => "generated/",
+            Self::Assets => "Assets/",
+            Self::Documentation => "Knowledge Base/",
+        }
+    }
+
+    fn entries(self, files: &crate::project_model::ProjectFiles) -> &[String] {
+        match self {
+            Self::Forms => &files.forms,
+            Self::Indexed => &files.indexed,
+            Self::Sources => &files.sources,
+            Self::Generated => &files.generated,
+            Self::Assets => &files.assets,
+            Self::Documentation => &files.documentation,
+        }
+    }
+}
+
+/// The project's tracked file lists, read from its manifest in `project_dir`
+/// (`<Name>.project.toml`, or the older `cobolt.toml`).
+fn project_file_lists(project_dir: &Path) -> Option<crate::project_model::ProjectFiles> {
+    let mut manifests: Vec<PathBuf> = std::fs::read_dir(project_dir)
+        .ok()?
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .filter(|path| {
+            path.file_name().and_then(|n| n.to_str()).is_some_and(|name| {
+                name.ends_with(".project.toml") || name == "cobolt.toml"
+            })
+        })
+        .collect();
+    manifests.sort();
+    let manifest = manifests.into_iter().next()?;
+    crate::project_model::load_project(&manifest).ok().map(|p| p.files)
+}
+
+/// The answer to an inventory request: Grace's own restatement (already in
+/// the developer's language) over the listed paths, exactly as the manifest
+/// tracks them.
+fn inventory_reply(
+    interpretation: &str,
+    categories: &[InventoryCategory],
+    files: &crate::project_model::ProjectFiles,
+) -> String {
+    let mut out = interpretation.trim().to_string();
+    for category in categories {
+        let entries = category.entries(files);
+        out.push_str(&format!("\n\n**`{}`** ({})\n", category.folder(), entries.len()));
+        if entries.is_empty() {
+            out.push_str("\n—\n");
+        }
+        for entry in entries {
+            out.push_str(&format!("\n- `{entry}`"));
+        }
+    }
+    out
 }
 
 /// Below this score the request goes back to the developer with Grace's
@@ -255,7 +349,7 @@ fn evaluate_request_clarity(
     let surface_slice = clarity_surface_slice(&routing.context);
     let conversation_slice = clarity_conversation_slice(&routing.context);
     let user = format!(
-        "CLARITY PRE-CHECK (Grace-internal). This rating is telemetry for the workflow record: the developer is not shown the number and it must NEVER reach any specialist.\n\nBefore any Knowledge Base retrieval or planning happens, rate the developer's request below for clarity and conciseness on a 0-10 scale:\n- 9-10: unambiguous and actionable — also EVERY greeting, capability question, or other conversational/read-only message;\n- 7-8: minor vagueness a specialist could resolve safely without guessing;\n- 0-6: competing readings would produce DIFFERENT artifacts, or an essential fact (identifiers, exact values) is missing AND is not supplied by the surface or the recent conversation below.\n\nJudge ONLY the request text against the surface and the recent conversation shown below. A fact the surface already supplies is NOT missing: the resource open on the surface (for example the form named on the FORM: line) is the implicit target of the request — NEVER ask which form or resource is meant when the surface names one. Do not call tools, do not retrieve knowledge, do not plan tasks, do not answer the request itself.\n\nTHE CONVERSATION IS PART OF THE REQUEST. When the last assistant turn in the recent conversation asked a clarifying question and this request reads as its answer, the true request is the COMBINED one — the developer's earlier request merged with this answer — and that combined request is what you rate and restate in the interpretation. Likewise, when the request refers back to the conversation (\"the initial request\", \"as I said before\"), resolve the reference from the conversation. A fact stated anywhere in the recent conversation is NOT missing — NEVER ask for it again.\n\nREQUEST (verbatim):\n{request}\n\nCHAT SURFACE: {surface}\nOPEN ON THIS SURFACE:\n{surface_slice}\n\nRECENT CONVERSATION ON THIS SURFACE (oldest first; \"(none)\" when this is the first message):\n{conversation_slice}\n\nReply with ONLY one fenced JSON block of this exact shape and nothing else:\n{{\"clarity\": <0-10>, \"interpretation\": \"<one short paragraph restating what you understand the developer wants — the combined request when this message answers the assistant's question — in the developer's language>\", \"questions\": [\"<clarifying question, in the developer's language>\"]}}\nWhen clarity is below {CLARITY_GATE_THRESHOLD}, questions MUST contain at least one question naming exactly what is missing or ambiguous; when clarity is {CLARITY_GATE_THRESHOLD} or above, questions MUST be empty."
+        "CLARITY PRE-CHECK (Grace-internal). This rating is telemetry for the workflow record: the developer is not shown the number and it must NEVER reach any specialist.\n\nBefore any Knowledge Base retrieval or planning happens, rate the developer's request below for clarity and conciseness on a 0-10 scale:\n- 9-10: unambiguous and actionable — also EVERY greeting, capability question, or other conversational/read-only message;\n- 7-8: minor vagueness a specialist could resolve safely without guessing;\n- 0-6: competing readings would produce DIFFERENT artifacts, or an essential fact (identifiers, exact values) is missing AND is not supplied by the surface or the recent conversation below.\n\nJudge ONLY the request text against the surface and the recent conversation shown below. A fact the surface already supplies is NOT missing: the resource open on the surface (for example the form named on the FORM: line) is the implicit target of the request — NEVER ask which form or resource is meant when the surface names one. Do not call tools, do not retrieve knowledge, do not plan tasks, do not answer the request itself.\n\nTHE CONVERSATION IS PART OF THE REQUEST. When the last assistant turn in the recent conversation asked a clarifying question and this request reads as its answer, the true request is the COMBINED one — the developer's earlier request merged with this answer — and that combined request is what you rate and restate in the interpretation. Likewise, when the request refers back to the conversation (\"the initial request\", \"as I said before\"), resolve the reference from the conversation. A fact stated anywhere in the recent conversation is NOT missing — NEVER ask for it again.\n\nREQUEST (verbatim):\n{request}\n\nCHAT SURFACE: {surface}\nOPEN ON THIS SURFACE:\n{surface_slice}\n\nRECENT CONVERSATION ON THIS SURFACE (oldest first; \"(none)\" when this is the first message):\n{conversation_slice}\n\nINVENTORY REQUESTS. When the request asks for NOTHING but a listing of the project's own files in one or more of these categories — forms, indexed, sources, generated, assets, documentation — name them in \"inventory\" (for example [\"forms\"] for \"list the forms\", [\"indexed\"] for \"which indexed files are there\"); the IDE then lists them from the project itself. Leave \"inventory\" empty for anything else, including a listing narrowed by a property or by content (\"the responsive forms\", \"forms that use a DataGrid\"), which needs the files opened.\n\nReply with ONLY one fenced JSON block of this exact shape and nothing else:\n{{\"clarity\": <0-10>, \"interpretation\": \"<one short paragraph restating what you understand the developer wants — the combined request when this message answers the assistant's question — in the developer's language>\", \"questions\": [\"<clarifying question, in the developer's language>\"], \"inventory\": [\"<forms|indexed|sources|generated|assets|documentation>\"]}}\nWhen clarity is below {CLARITY_GATE_THRESHOLD}, questions MUST contain at least one question naming exactly what is missing or ambiguous; when clarity is {CLARITY_GATE_THRESHOLD} or above, questions MUST be empty."
     );
     let reply = match invoker.invoke(GRACE, "", &user) {
         Ok(reply) => reply,
@@ -335,10 +429,24 @@ fn parse_clarity_reply(reply: &str) -> Option<ClarityCheck> {
                 .collect()
         })
         .unwrap_or_default();
+    let mut inventory: Vec<InventoryCategory> = Vec::new();
+    for category in value
+        .get("inventory")
+        .and_then(|i| i.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|c| c.as_str())
+        .filter_map(InventoryCategory::parse)
+    {
+        if !inventory.contains(&category) {
+            inventory.push(category);
+        }
+    }
     Some(ClarityCheck {
         clarity,
         interpretation,
         questions,
+        inventory,
     })
 }
 
@@ -2136,6 +2244,7 @@ pub fn run_grace_workflow_with_control(
         );
     }
     if let Some(check) = clarity_check
+        .as_ref()
         .filter(|check| check.clarity < CLARITY_GATE_THRESHOLD && !check.interpretation.is_empty())
     {
         on_progress(format!(
@@ -2163,6 +2272,46 @@ pub fn run_grace_workflow_with_control(
         let path = save_workflow_record(project_dir, &record, &[])?;
         return Ok((record, path));
     }
+
+    // An inventory request is answered from the manifest's own file lists:
+    // no retrieval, no planning call, and no chance of listing the wrong thing.
+    if let Some((check, files)) = clarity_check
+        .as_ref()
+        .filter(|check| !check.inventory.is_empty())
+        .and_then(|check| project_file_lists(project_dir).map(|files| (check, files)))
+    {
+        on_progress("Grace is listing the project's files from its manifest.".into());
+        emit_action(AgentAction::now(GRACE, ActionKind::Finishing, ""));
+        let mut record = direct_grace_record(
+            inventory_reply(&check.interpretation, &check.inventory, &files),
+            "List the project's files from its manifest",
+        );
+        record.request_clarity = Some(check.clarity);
+        record.action_log = actions.iter().map(AgentAction::to_log_entry).collect();
+        {
+            let (inp, out) = *token_sink.lock().unwrap();
+            record.input_tokens = inp;
+            record.output_tokens = out;
+        }
+        stamp_run_statistics(&mut record, &usage, run_started);
+        let path = save_workflow_record(project_dir, &record, &[])?;
+        return Ok((record, path));
+    }
+    // What the planning call must answer: the clarity check's restatement, made
+    // before retrieval and with the conversation in view. Without it, a
+    // planner reading the conversation again answered the PREVIOUS request
+    // ("list existing forms" got the responsive-forms list, observed live).
+    let understood = clarity_check
+        .as_ref()
+        .map(|check| check.interpretation.trim())
+        .filter(|text| !text.is_empty())
+        .map(|text| {
+            format!(
+                "\n\nTHE REQUEST AS GRACE UNDERSTOOD IT (the clarity check, before retrieval). \
+                 Answer THIS request — never an earlier one from the conversation:\n{text}"
+            )
+        })
+        .unwrap_or_default();
 
     // TWO Knowledge Bases, reported separately because they answer different
     // questions. The System KB is the platform's own reference material
@@ -2321,7 +2470,7 @@ pub fn run_grace_workflow_with_control(
     let planning_context = planning_surface_context(context, request);
     let planning_context = planning_context.as_str();
     let plan_user = format!(
-        "USER REQUEST:\n{request}\n\nCHAT SURFACE:\n{surface}\n\nPREFERRED SPECIALIST:\n{preference}\n\nSURFACE CONTEXT:\n{planning_context}\n\nRELEVANT INDEXED KNOWLEDGE:\n{knowledge_context}\n\nAVAILABLE AGENT REGISTRY:\n{registry}\n\nCONVERSATION CONTINUITY: when the surface context carries a CONVERSATION SO FAR section, the user request continues that conversation. A short request that answers the assistant's most recent question means the real objective is the earlier request combined with this answer; likewise resolve references such as \u{201c}the initial request\u{201d} from that conversation. Never re-ask for a fact the conversation already states.\n\nThe preferred specialist is an initial routing preference only, never an exclusive assignment. Decompose mixed requests and delegate every part to whichever available specialist owns that responsibility. For example, form creation plus onClick behavior normally requires both form-design and event-handler tasks. Grace may call any enabled specialist needed anywhere in the project.\n\nPEDANTIC COMPANION CONTRACT:\n- Companion relationships are one-to-one: one orchestrator or specialist has at most one Pedantic reviewer, and one Pedantic reviewer belongs to at most one reviewed agent.\n- For every task, use exactly the Pedantic companion shown for its responsible agent in the registry. Never substitute or reuse another agent's reviewer.\n- Leave reviewer null only when the responsible agent has no companion.\n\nDOCUMENTATION COORDINATION CONTRACT:\n- Only {DOCUMENTATION_AGENT} may format and write project documentation files.\n- When documentation concerns another domain, first assign one or more source-material tasks to the responsible domain specialists. Those specialists prepare authoritative information and MUST NOT write documentation files.\n- Then assign a {DOCUMENTATION_AGENT} task whose depends_on contains every source-material task. The workflow engine passes their approved outputs into the Documentation Agent task as its authoritative handoff.\n- Example: to document a form interface, Form Designer Agent first inventories the controls, layout, bindings, and events; after approval, {DOCUMENTATION_AGENT} formats that output and saves the document.\n- Never ask {DOCUMENTATION_AGENT} to invent technical facts owned by another specialist, and never ask another specialist to save a documentation file.\n- Every {DOCUMENTATION_AGENT} task must demand CONCISE output: no reasoning narrative, no restated instructions, no meta-commentary — only the content required to execute or hand off the task.\n\nINDEXED FILE COORDINATION CONTRACT:\n- {DATA_INDEXED_FILE_AGENT} is the sole specialist allowed to create or modify PowerRustCOBOL indexed-file definitions through the Indexed File UI model.\n- Start with a {DOCUMENTATION_AGENT} task that explicitly obtains the file name when absent, establishes the purpose from the developer request, searches project knowledge, analyzes 1NF, 2NF, and 3NF, and identifies any helper indexed files required by normalization.\n- For every ID field, {DOCUMENTATION_AGENT} must obtain the developer's explicit choice between UUID and a specific COBOL PIC definition. Never infer this choice.\n- Each {DATA_INDEXED_FILE_AGENT} mutation task must depend on the approved {DOCUMENTATION_AGENT} handoff. Helper relations are separate dependent Data-agent tasks.\n- If the file name, purpose, normalization decisions, or ID choice is missing, plan a Documentation-only clarification task and do not plan mutation yet. Grace relays the resulting question to the developer.\n- Neither Grace nor {DOCUMENTATION_AGENT} may mutate `.cidx` resources; {DOCUMENTATION_AGENT} prepares the approved schema handoff and Grace coordinates it.\n- FINALIZED (LOCKED) FILES: a {DATA_INDEXED_FILE_AGENT} write to a finalized `.cidx` whose schema changes returns a confirmation-required result, NOT a success. When that happens, STOP the workflow and reply to the developer right away: state plainly that the task cannot be done as a normal edit because the file is finalized, and that it can only proceed by DESTROYING and RECREATING the file (its stored data is lost). Ask the developer to confirm. Do not plan or retry the mutation until the developer explicitly confirms. Only after an explicit confirmation, plan the Data-agent write with `confirm_recreate: true`.\n\nSpecialists should use knowledge.search when prior plans, requirements, task lists, or project decisions may matter. Plan the workflow per your tooling contract (END with the plan JSON). Assign each task's reviewer from the responsible agent's pedantic companion; leave reviewer null only where no companion exists."
+        "USER REQUEST:\n{request}{understood}\n\nCHAT SURFACE:\n{surface}\n\nPREFERRED SPECIALIST:\n{preference}\n\nSURFACE CONTEXT:\n{planning_context}\n\nRELEVANT INDEXED KNOWLEDGE:\n{knowledge_context}\n\nAVAILABLE AGENT REGISTRY:\n{registry}\n\nCONVERSATION CONTINUITY: when the surface context carries a CONVERSATION SO FAR section, the user request continues that conversation. A short request that answers a CLARIFYING question the assistant asked about an earlier request means the real objective is that earlier request combined with this answer. Any other request is a NEW request: it replaces the earlier ones, and a request the conversation already answered must never be answered again. Likewise resolve references such as \u{201c}the initial request\u{201d} from that conversation. Never re-ask for a fact the conversation already states.\n\nThe preferred specialist is an initial routing preference only, never an exclusive assignment. Decompose mixed requests and delegate every part to whichever available specialist owns that responsibility. For example, form creation plus onClick behavior normally requires both form-design and event-handler tasks. Grace may call any enabled specialist needed anywhere in the project.\n\nPEDANTIC COMPANION CONTRACT:\n- Companion relationships are one-to-one: one orchestrator or specialist has at most one Pedantic reviewer, and one Pedantic reviewer belongs to at most one reviewed agent.\n- For every task, use exactly the Pedantic companion shown for its responsible agent in the registry. Never substitute or reuse another agent's reviewer.\n- Leave reviewer null only when the responsible agent has no companion.\n\nDOCUMENTATION COORDINATION CONTRACT:\n- Only {DOCUMENTATION_AGENT} may format and write project documentation files.\n- When documentation concerns another domain, first assign one or more source-material tasks to the responsible domain specialists. Those specialists prepare authoritative information and MUST NOT write documentation files.\n- Then assign a {DOCUMENTATION_AGENT} task whose depends_on contains every source-material task. The workflow engine passes their approved outputs into the Documentation Agent task as its authoritative handoff.\n- Example: to document a form interface, Form Designer Agent first inventories the controls, layout, bindings, and events; after approval, {DOCUMENTATION_AGENT} formats that output and saves the document.\n- Never ask {DOCUMENTATION_AGENT} to invent technical facts owned by another specialist, and never ask another specialist to save a documentation file.\n- Every {DOCUMENTATION_AGENT} task must demand CONCISE output: no reasoning narrative, no restated instructions, no meta-commentary — only the content required to execute or hand off the task.\n\nINDEXED FILE COORDINATION CONTRACT:\n- {DATA_INDEXED_FILE_AGENT} is the sole specialist allowed to create or modify PowerRustCOBOL indexed-file definitions through the Indexed File UI model.\n- Start with a {DOCUMENTATION_AGENT} task that explicitly obtains the file name when absent, establishes the purpose from the developer request, searches project knowledge, analyzes 1NF, 2NF, and 3NF, and identifies any helper indexed files required by normalization.\n- For every ID field, {DOCUMENTATION_AGENT} must obtain the developer's explicit choice between UUID and a specific COBOL PIC definition. Never infer this choice.\n- Each {DATA_INDEXED_FILE_AGENT} mutation task must depend on the approved {DOCUMENTATION_AGENT} handoff. Helper relations are separate dependent Data-agent tasks.\n- If the file name, purpose, normalization decisions, or ID choice is missing, plan a Documentation-only clarification task and do not plan mutation yet. Grace relays the resulting question to the developer.\n- Neither Grace nor {DOCUMENTATION_AGENT} may mutate `.cidx` resources; {DOCUMENTATION_AGENT} prepares the approved schema handoff and Grace coordinates it.\n- FINALIZED (LOCKED) FILES: a {DATA_INDEXED_FILE_AGENT} write to a finalized `.cidx` whose schema changes returns a confirmation-required result, NOT a success. When that happens, STOP the workflow and reply to the developer right away: state plainly that the task cannot be done as a normal edit because the file is finalized, and that it can only proceed by DESTROYING and RECREATING the file (its stored data is lost). Ask the developer to confirm. Do not plan or retry the mutation until the developer explicitly confirms. Only after an explicit confirmation, plan the Data-agent write with `confirm_recreate: true`.\n\nSpecialists should use knowledge.search when prior plans, requirements, task lists, or project decisions may matter. Plan the workflow per your tooling contract (END with the plan JSON). Assign each task's reviewer from the responsible agent's pedantic companion; leave reviewer null only where no companion exists."
     );
     // The MODEL routes the request — no keyword pre-classification. Grace
     // reads the request and the contracts and chooses one of three shapes:
@@ -4665,6 +4814,47 @@ mod tests {
         // Fail-open: prose, missing score, or no JSON at all → None.
         assert!(parse_clarity_reply("clear enough, proceeding").is_none());
         assert!(parse_clarity_reply("```json\n{\"interpretation\": \"x\"}\n```").is_none());
+    }
+
+    /// An inventory request is the model's reading, carried in `inventory`
+    /// (1.80.143), and the IDE answers it from the manifest: every tracked
+    /// path, under Grace's own restatement. Observed live: "list existing
+    /// forms" took 183 s + 219 s on a reasoning model and answered the
+    /// previous question (the responsive forms) instead.
+    #[test]
+    fn an_inventory_request_is_listed_from_the_manifest() {
+        let t = std::time::Instant::now();
+        let check = parse_clarity_reply(
+            "```json\n{\"clarity\": 7, \"interpretation\": \"The developer wants a complete list of all forms currently present in the project workspace.\", \"questions\": [], \"inventory\": [\"forms\", \"FORMS\", \"tables\"]}\n```",
+        )
+        .expect("verdict parses");
+        assert_eq!(check.inventory, vec![InventoryCategory::Forms], "case-blind, deduplicated, unknown dropped");
+        let none = parse_clarity_reply("```json\n{\"clarity\": 9, \"interpretation\": \"x\", \"questions\": []}\n```").unwrap();
+        assert!(none.inventory.is_empty(), "no field, no inventory answer");
+
+        let demo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/PowerDemo3");
+        let files = project_file_lists(&demo).expect("PowerDemo3's manifest is found by its *.project.toml name");
+        assert!(files.forms.len() > 50, "the demo tracks its forms: {}", files.forms.len());
+        let reply = inventory_reply(&check.interpretation, &check.inventory, &files);
+        assert!(reply.starts_with("The developer wants a complete list"), "{reply}");
+        assert!(reply.contains(&format!("**`forms/`** ({})", files.forms.len())), "{reply}");
+        for form in &files.forms {
+            assert!(reply.contains(&format!("- `{form}`")), "{form} missing");
+        }
+        assert!(reply.contains("`forms/Responsive Layout/responsive-fonts-form.cfrm`"), "the form the model left out");
+        assert!(!reply.contains("generated/"), "only the categories asked for");
+
+        let several = inventory_reply("x", &[InventoryCategory::Indexed, InventoryCategory::Assets], &files);
+        assert!(several.contains("**`indexed/`** (1)") && several.contains("- `indexed/actors.cidx`"), "{several}");
+        assert!(several.contains("**`Assets/`** (0)\n\n—"), "an empty category says so: {several}");
+
+        assert!(project_file_lists(&demo.join("forms")).is_none(), "no manifest, no answer: planning proceeds");
+        println!(
+            "inventory answer: {} forms listed from {} in {:.1} ms; empty and multi-category cases checked",
+            files.forms.len(),
+            demo.join("PowerDemo3.project.toml").display(),
+            t.elapsed().as_secs_f64() * 1000.0
+        );
     }
 
     /// The pre-check must see the recent conversation — observed live: with
