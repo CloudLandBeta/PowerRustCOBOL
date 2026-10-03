@@ -1127,6 +1127,11 @@ pub struct CoboltApp {
     /// frame (spec 084 R25).
     mcp_bind_failed: Option<u16>,
     /// A Configure Claude Code run in progress (spec 084 R1): its answer.
+    /// Help → Claude Code Settings (spec 084 R22–R27).
+    cc_settings: crate::panels::claude_code_settings::ClaudeCodeSettingsWindow,
+    /// What the IDE last learned about Claude Code and the plugin.
+    cc_status: crate::panels::claude_code_settings::PluginStatus,
+    cc_status_rx: Option<std::sync::mpsc::Receiver<crate::panels::claude_code_settings::PluginStatus>>,
     claude_configure_rx: Option<
         std::sync::mpsc::Receiver<Result<crate::claude_code::configure::Outcome, crate::claude_code::configure::Failure>>,
     >,
@@ -2205,6 +2210,9 @@ impl CoboltApp {
             agent_tools,
             agent_tools_rx,
             mcp_bind_failed: None,
+            cc_settings: Default::default(),
+            cc_status: Default::default(),
+            cc_status_rx: None,
             claude_configure_rx: None,
         };
         // Surface the agent endpoint in the Output console (translated when the
@@ -4756,12 +4764,88 @@ impl CoboltApp {
         self.output.push_status(tr.claude_code_configuring.to_owned());
     }
 
+    /// Ask, off the UI thread, where `claude` is and which plugin version it
+    /// carries (spec 084 R23, R26).
+    fn probe_claude_code(&mut self) {
+        use crate::claude_code::configure::{candidate_dirs, find_claude, installed_version, CommandRunner, SystemRunner};
+        use crate::panels::claude_code_settings::PluginStatus;
+        self.cc_status = PluginStatus::Checking;
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = self.egui_ctx.clone();
+        std::thread::spawn(move || {
+            let home = dirs::home_dir();
+            let status = match find_claude(&candidate_dirs(home.as_deref())) {
+                None => PluginStatus::NoClaude,
+                Some(path) => {
+                    let list = SystemRunner
+                        .run(&path, &["plugin".into(), "list".into(), "--json".into()])
+                        .ok()
+                        .filter(|o| o.ok)
+                        .map(|o| o.stdout)
+                        .unwrap_or_default();
+                    PluginStatus::Claude { plugin: installed_version(&list), path }
+                }
+            };
+            let _ = tx.send(status);
+            ctx.request_repaint();
+        });
+        self.cc_status_rx = Some(rx);
+    }
+
+    /// Spec 084 R22–R27, R37 — draw Claude Code Settings and act on it.
+    fn show_claude_code_settings(&mut self, ctx: &egui::Context) {
+        if let Some(rx) = &self.cc_status_rx {
+            if let Ok(status) = rx.try_recv() {
+                self.cc_status = status;
+                self.cc_status_rx = None;
+            }
+        }
+        if !self.cc_settings.open {
+            return;
+        }
+        let tr = self.lang.tr();
+        let view = crate::panels::claude_code_settings::View {
+            status: self.cc_status.clone(),
+            ide_version: crate::version::VERSION.to_owned(),
+            port: self.llm.mcp_port,
+            listening: self.agent_tools.listening_port(),
+            token_set: crate::claude_code_settings::ClaudeCodeSettings::load().token().is_some(),
+            busy: self.claude_configure_rx.is_some(),
+        };
+        let action = self.cc_settings.show(ctx, &view, &tr);
+        if action.configure {
+            self.do_configure_claude_code();
+        }
+        if action.renew_token {
+            let mut settings = crate::claude_code_settings::ClaudeCodeSettings::load();
+            let token = settings.renew_token();
+            match settings.save() {
+                Ok(()) => {
+                    self.agent_tools.set_token(Some(token));
+                    self.cc_settings.say(tr.cc_renewed.to_owned());
+                }
+                Err(e) => self.cc_settings.say(tr.claude_code_refused.replacen("{}", &e, 1)),
+            }
+        }
+        if let Some(port) = action.apply_port {
+            self.llm.mcp_port = crate::llm::resolve_mcp_port(port, self.llm.inspection_port);
+            if let Err(e) = self.llm.save() {
+                self.output.push_status(e);
+            }
+            // `follow_mcp_port` rebinds on the next frame.
+            self.mcp_bind_failed = None;
+            self.cc_settings.say(tr.cc_port_changed.replacen("{}", &self.llm.mcp_port.to_string(), 1));
+        }
+    }
+
     /// The answer of a Configure Claude Code run, said once in Output.
     fn poll_claude_configure(&mut self) {
         use crate::claude_code::configure::Failure;
         let Some(rx) = &self.claude_configure_rx else { return };
         let Ok(result) = rx.try_recv() else { return };
         self.claude_configure_rx = None;
+        // What Claude Code now carries, for the settings window.
+        self.probe_claude_code();
         let tr = self.lang.tr();
         let line = match result {
             Ok(o) if o.unchanged() => tr.claude_code_unchanged.replacen("{}", &o.after, 1),
@@ -15430,6 +15514,7 @@ impl eframe::App for CoboltApp {
         self.render_llm_benchmark_modals(ctx);
         // Help → Debug Settings. A change re-applies the in-process flags at
         // once, so the canvas reacts on this very frame.
+        self.show_claude_code_settings(ctx);
         if self.debug_modal.show(ctx, &mut self.debug, &tr) {
             self.debug.apply_in_process();
         }
@@ -15631,6 +15716,13 @@ impl eframe::App for CoboltApp {
                     ui.separator();
                     if ui.button(tr.debug_menu_label).clicked() {
                         self.debug_modal.toggle();
+                        ui.close();
+                    }
+                    if ui.button(tr.cc_settings_title).clicked() {
+                        self.cc_settings.toggle();
+                        if self.cc_settings.open {
+                            self.probe_claude_code();
+                        }
                         ui.close();
                     }
                     if ui.button(tr.sdk_menu_label).clicked() {

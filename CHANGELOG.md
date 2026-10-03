@@ -8,6 +8,27 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.116] — 2026-10-03
+
+### Spec 084 T11: Help → Claude Code Settings
+
+An IDE-wide window, beside Debug Settings, for the Claude Code integration:
+
+- **Claude Code** — where it was found, or that it was not;
+- **PowerRustCOBOL plugin** — the version Claude Code carries, against this
+  IDE's (up to date / older — Update / not installed), probed in the
+  background when the window opens and after every Configure;
+- **Tool server** — `http://127.0.0.1:<port>/mcp` and whether it listens;
+- **Port** — the coding-agent tools' port, moved here from the project
+  Settings form; Apply port rebinds at once and asks to configure Claude Code
+  again;
+- **Access token** — set or not, never shown; **Renew token** replaces it (the
+  old one is refused from then on) and asks to configure again;
+- **Configure / Update** — the same run as File → Configure Claude Code.
+
+The window never resizes itself: a fixed size and one grip, like the Model
+Leaderboard. 22 strings in all six languages.
+
 ## [PowerRustCOBOL 1.80.115] — 2026-10-03
 
 ### Spec 084 T10: Configure Claude Code — the plugin and its installation

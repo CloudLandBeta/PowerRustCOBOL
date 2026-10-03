@@ -83,8 +83,6 @@ pub struct SettingsDraft {
     /// Verbose AI activity logging (model info + full context + timings).
     pub llm_verbose: bool,
     pub llm_inspection_port: u16,
-    /// Port of the coding-agent tools (spec 080).
-    pub llm_mcp_port: u16,
     /// Per-model API keys (provider::model -> key), edited alongside the
     /// visible key field and written back on Apply.
     pub llm_api_keys: std::collections::HashMap<String, String>,
@@ -184,7 +182,6 @@ impl SettingsDraft {
             llm_max_tokens: llm.max_tokens,
             llm_verbose: llm.verbose_log,
             llm_inspection_port: llm.inspection_port,
-            llm_mcp_port: llm.mcp_port,
             llm_api_keys: llm.api_keys.clone(),
             llm_reviewer_provider: llm.reviewer_provider.clone(),
             llm_reviewer_endpoint: llm.reviewer_endpoint.clone(),
@@ -322,7 +319,9 @@ impl SettingsDraft {
         } else {
             crate::llm::default_inspection_port()
         };
-        llm.mcp_port = crate::llm::resolve_mcp_port(self.llm_mcp_port, llm.inspection_port);
+        // The tools' port is set in Help → Claude Code Settings (spec 084
+        // R24); a new inspection port may still not collide with it.
+        llm.mcp_port = crate::llm::resolve_mcp_port(llm.mcp_port, llm.inspection_port);
         // Spec 039: same "only overwrite a non-empty edit" rule the LLM key
         // field above uses — leaving the box blank never clears a
         // previously-stored key by accident.
@@ -1498,32 +1497,6 @@ impl SettingsForm {
                                         .range(1024..=65535),
                                 )
                                 .on_hover_text(tr.ai_inspection_hint);
-                            });
-                        });
-
-                        // --- Coding-agent tools (spec 080) port
-                        ui.horizontal_top(|ui| {
-                            let left_rect = ui
-                                .allocate_exact_size(
-                                    egui::vec2(splitter, 0.0),
-                                    egui::Sense::hover(),
-                                )
-                                .0;
-                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
-                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                                ui.set_min_width(splitter);
-                                ui.add_space(property_indent);
-                                ui.add(egui::Label::new(tr.ai_mcp_port).truncate());
-                            });
-                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
-                            ui.add_space(gap_after_resizer);
-                            let right_w = ui.available_width();
-                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
-                                ui.add(
-                                    egui::DragValue::new(&mut self.draft.llm_mcp_port)
-                                        .range(1024..=65535),
-                                )
-                                .on_hover_text(tr.ai_mcp_port_hint);
                             });
                         });
 

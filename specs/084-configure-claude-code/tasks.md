@@ -74,7 +74,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   discovery; marketplace add/update + install with config (per T1); errors shown,
   prior config kept. *Verify:* AC1–AC4 (recorder runner, bundle redaction,
   `claude plugin validate` on the bundle). *Serves:* R1–R10.
-- [ ] **T11 (A6) — Claude Code Settings window.** Help menu item; leaderboard
+- [x] **T11 (A6) — Claude Code Settings window.** Help menu item; leaderboard
   window pattern; status, port row moved from the Settings form, Configure/Update,
   Renew token; IDE-wide TOML. *Verify:* AC12, AC13, window-size test.
   *Serves:* R22–R27, R37.
