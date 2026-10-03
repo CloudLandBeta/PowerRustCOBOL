@@ -10683,6 +10683,10 @@ open. The plugin carries:
 - seven task skills — create a form, add a control and bind its event, define
   an indexed file, add assets, write a common procedure, check and fix, write
   a gap report;
+- three skills for building an application — its structure and the order to
+  build it in; the application shell and moving between forms; layout and
+  themes — which have the agent look at each screen with `render_form` and try
+  it with `run_form` before going on;
 - a reviewer the agent runs before it calls a change done;
 - the connection to the PowerRustCOBOL **tool servers** (below).
 

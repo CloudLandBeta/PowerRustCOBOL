@@ -573,6 +573,141 @@ fn skills(version: &str) -> Vec<Skill> {
             uses_tools: tools(&["regenerate", "check", "build", "list_files"]),
             example: None,
         },
+        // ── Spec 084 R32 — building an application ───────────────────────────
+        Skill {
+            name: "powerrustcobol-build-an-application".into(),
+            summary: "Build a whole multi-form PowerRustCOBOL application, or a large part of one: \
+                      how it is structured and the order to build it in. Use it before creating \
+                      more than one form."
+                .into(),
+            steps: vec![
+                s("Agree the shape with the developer first: the screens, the data each one keeps \
+                   (indexed files, or a web service), and how the operator moves between them. \
+                   Ask, do not guess, when the request leaves it open."),
+                s("Read the patterns index, `powerrustcobol://patterns/README.md`, and the pattern \
+                   closest to each kind of screen. Copy their structure, not their names."),
+                s("Choose the frame. Several screens of one application → an application shell: \
+                   the main form carries a SideMenu and the screens load into its ContentPane \
+                   (skill powerrustcobol-shell-and-navigation). A few independent windows → each \
+                   form opens as its own window. There is exactly one main form; with \
+                   `create_project` the project starts with `src/main.cbl` and no form yet."),
+                s("Build in this order: (1) the data — every `.cidx`, validated, added, regenerated; \
+                   (2) the main form, empty but for its frame; (3) one screen at a time, each \
+                   checked before the next; (4) the menu that opens them; (5) Common Code in \
+                   `src/` for logic two screens share."),
+                s("Each form runs as its own program with its own WORKING-STORAGE. Forms never \
+                   read each other's data: they talk through published properties, `super::` and \
+                   the files they share. Design the data flow with that in mind."),
+                s("After each screen: `regenerate`, `check` until no error, `render_form` to look at \
+                   it (with `in_shell` for a ContentPane screen), then `run_form` with a short \
+                   script that types, clicks and reads back what the screen must do. Fix what the \
+                   picture or the run shows before going on."),
+                s("Finish with `check` on the whole project and a `run_form` of the main path. \
+                   Report what was built, what you verified and how, and anything left undone."),
+            ],
+            uses_tools: tools(&["create_project", "add_to_project", "regenerate", "check", "render_form", "run_form"]),
+            example: None,
+        },
+        Skill {
+            name: "powerrustcobol-shell-and-navigation".into(),
+            summary: "Make an application shell — a main form with a SideMenu, screens loaded into \
+                      its ContentPane, a breadcrumb — and move between forms: menus, child windows, \
+                      `super::`, Home."
+                .into(),
+            steps: vec![
+                s("Read `powerrustcobol://patterns/application-shell` and \
+                   `powerrustcobol://patterns/contentpane-form`, and chapter 22 of \
+                   `powerrustcobol://reference/developers-guide.md` (the application shell and \
+                   the `super` receiver)."),
+                s("Turn the shell on with a SideMenu control on the MAIN form; nothing else does it. \
+                   Its menu is the sidecar `forms/<SideMenu id>.menu.yaml`, beside the form — \
+                   items with `label`, `icon`, `action` and nested `items`. Actions: \
+                   `open-form:<form>` loads a form into the ContentPane, `home` shows the main \
+                   form's own content again, and the standalone actions open a window."),
+                s("A form that loads into the ContentPane has `form-format=\"Embedded\"` (or \
+                   `Both`). Size it to the pane: main form width minus the SideMenu's width, main \
+                   form height minus the SideMenu's BreadcrumbHeight — a larger form scrolls."),
+                s("Navigation keeps forms resident: the breadcrumb is the chain. A menu switch \
+                   destroys the form it replaces unless the item sets \
+                   `preserve_previous_form: true`. Close files and release resources in \
+                   `onDestroy`, never in `onDeactivate` (the form only left the pane)."),
+                s("Between forms: `super::<Property>` reads and writes the form that loaded or \
+                   opened this one; `INVOKE super::\"<procedure>\"()` runs one of its procedures; \
+                   `INVOKE ME::\"OpenFormSync\"(\"<FORM>\")` opens a modal child window (target \
+                   `Standalone` or `Both`), `OpenFormAsync` a modeless one. See \
+                   `powerrustcobol://patterns/modal-dialog` for a dialog that answers its caller."),
+                s("Check the frame: `render_form` on the main form, then `render_form` with \
+                   `in_shell` on each screen; `run_form` on the main form with an \
+                   `{\"open_form\": \"<FORM>\"}` step, then the screen's own steps, proves the \
+                   menu path works."),
+            ],
+            uses_tools: tools(&["kb_lookup", "regenerate", "check", "render_form", "run_form"]),
+            example: Some(
+                "```yaml\n\
+                 menu:\n\
+                 - id: home\n\
+                 \x20 label: Home\n\
+                 \x20 type: action\n\
+                 \x20 icon: home\n\
+                 \x20 action: home\n\
+                 \x20 enabled: true\n\
+                 - id: customers\n\
+                 \x20 label: Customers\n\
+                 \x20 type: action\n\
+                 \x20 icon: users\n\
+                 \x20 action: open-form:customers-form\n\
+                 \x20 enabled: true\n\
+                 \x20 preserve_previous_form: true\n\
+                 ```"
+                    .into(),
+            ),
+        },
+        Skill {
+            name: "powerrustcobol-layout-and-themes".into(),
+            summary: "Lay a form out so it holds together at any window size, and give it a \
+                      consistent look with a theme; then look at it with render_form."
+                .into(),
+            steps: vec![
+                s("Read `powerrustcobol://reference/form-layout-and-events.md` and \
+                   `powerrustcobol://reference/form-themes.md`. Use only the properties they list."),
+                s("Make the form responsive (`responsive=\"true\"` on the `<Form>`). Then give each \
+                   control the behaviour it needs: `Anchor` (`Top,Left` stays put; \
+                   `Top,Left,Right` stretches with the width; `Bottom,Right` follows that corner), \
+                   or `Dock` (`Top`, `Bottom`, `Left`, `Right`, `Fill`) for bars and panes, or a \
+                   container whose `LayoutMode` is `Flex`, `Grid` or `Flow` for rows, columns and \
+                   cards. Inside a container, set `parent`; position alone does not place a \
+                   control in it."),
+                s("Leave room: controls that touch in the design stop the window there. Give \
+                   stretching fields a `MinWidth`, and the form a `MinFormWidth` / \
+                   `MinFormHeight`, so it stops at a size that still works."),
+                s("Theme: a form takes the project's default theme unless its `<Form>` sets \
+                   `theme` (`liquid-glass`, `elegance`, `spatial`, or an installed pack); \
+                   `glass-style` (`Classic`, `Enhanced`, `Neumorphic`, `NeumorphicDark`) refines the \
+                   surface. Keep one theme across an application's forms. The project default is \
+                   set in the IDE's Settings by the developer — never in the project file."),
+                s("Text must stay readable on its background: after a theme change, check every \
+                   label and button colour against the new background."),
+                s("Look at it with `render_form` (scale 1). It shows the designed size: for the \
+                   behaviour at other sizes rely on the anchors, docks and containers you set, and \
+                   ask the developer to try the window under Run Form. Fix overlaps, clipped text \
+                   and controls past the edge in the `.cfrm`, then `regenerate` and `check`."),
+            ],
+            uses_tools: tools(&["kb_lookup", "render_form", "run_form", "regenerate", "check"]),
+            example: Some(
+                "```xml\n\
+                 <Form name=\"CUSTOMERS-FORM\" title=\"Customers\" width=\"1288\" height=\"908\" \
+                 form-format=\"Embedded\" responsive=\"true\" theme=\"elegance\">\n\
+                 \x20 <Control id=\"TXT-SEARCH\" type=\"TextBox\" x=\"24\" y=\"24\" w=\"400\" h=\"32\">\n\
+                 \x20   <Property name=\"Anchor\">Top,Left,Right</Property>\n\
+                 \x20 </Control>\n\
+                 \x20 <Control id=\"BTN-SAVE\" type=\"Button\" x=\"1160\" y=\"852\" w=\"104\" h=\"32\">\n\
+                 \x20   <Property name=\"Anchor\">Bottom,Right</Property>\n\
+                 \x20 </Control>\n\
+                 </Form>\n\
+                 ```"
+                    .into(),
+            ),
+        },
         Skill {
             name: "powerrustcobol-gap-report".into(),
             summary: "Write a gap report when a request needs a verb, control, property, method, \
@@ -686,7 +821,8 @@ pub(crate) mod tests {
     }
 
     /// AC8 + R8 + R9: the template carries every R18 field, the brief every
-    /// R8 rule (plus R16 and R19), and seven skills cover the R9 subjects.
+    /// R8 rule (plus R16 and R19), and ten skills cover the R9 subjects and
+    /// building an application (spec 084 R32).
     #[test]
     fn gap_template_has_every_r18_field() {
         let c = sample();
@@ -715,7 +851,7 @@ pub(crate) mod tests {
             ("the check-and-fix loop", "powerrustcobol-check-and-fix"),
             ("a gap report", "powerrustcobol-gap-report"),
         ];
-        assert_eq!(c.skills.len(), 7);
+        assert_eq!(c.skills.len(), 10);
         let tool_names: Vec<&str> = c.tools.iter().map(|t| t.name.as_str()).collect();
         for (subject, name) in subjects {
             let skill = c.skills.iter().find(|s| s.name == name).unwrap_or_else(|| panic!("no skill for {subject}"));

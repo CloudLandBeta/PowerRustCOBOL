@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.125] — 2026-10-03
+
+### Spec 084 T17: three skills for building an application
+
+The Claude Code plugin gains three skills beside the seven task skills:
+**build an application** (agree the shape, choose the frame, build data first
+and one screen at a time, look at and try each screen before the next),
+**shell and navigation** (the SideMenu and its menu file, ContentPane forms
+and their size, the navigation chain, `super::`, child windows) and **layout
+and themes** (responsive anchoring, docking and containers, size limits, the
+form theme and glass style, readable text). Each sends the agent to the
+reference and the patterns for exact syntax, and has it check its work with
+`render_form` and `run_form`. Configure again (or **Update**) to install them.
+
 ## [PowerRustCOBOL 1.80.124] — 2026-10-03
 
 ### Spec 084 T18: the patterns pack

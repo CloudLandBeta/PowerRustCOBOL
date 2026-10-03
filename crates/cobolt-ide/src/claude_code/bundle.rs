@@ -230,7 +230,7 @@ pub fn check(files: &[BundleFile], personal: &crate::ai_bundle::Personal, llm: &
 mod tests {
     use super::*;
 
-    /// Spec 084 AC4: seven skills, the reviewer, both servers, the
+    /// Spec 084 AC4 / AC19: ten skills, the reviewer, both servers, the
     /// `userConfig` port and token; no `CLAUDE.md`, no settings, no token, no
     /// `docs/powerrustcobol/` path; every file passes the redaction check.
     #[test]
@@ -238,7 +238,12 @@ mod tests {
         let files = files("1.80.test", &RcrunLocation::UnderHome("Apps/PowerRustCOBOL/rcrun".into()));
         let rels: Vec<&str> = files.iter().map(|f| f.rel.as_str()).collect();
         let skills = rels.iter().filter(|r| r.ends_with("/SKILL.md")).count();
-        assert_eq!(skills, 7, "{rels:?}");
+        assert_eq!(skills, 10, "{rels:?}");
+        for skill in ["build-an-application", "shell-and-navigation", "layout-and-themes"] {
+            let rel = format!("{PLUGIN}/skills/powerrustcobol-{skill}/SKILL.md");
+            let text = &files.iter().find(|f| f.rel == rel).unwrap_or_else(|| panic!("{rel}")).text;
+            assert!(text.contains("render_form"), "{rel} names render_form");
+        }
         assert!(rels.contains(&"powerrustcobol/agents/powerrustcobol-reviewer.md"));
         assert!(!rels.iter().any(|r| r.ends_with("CLAUDE.md") || r.ends_with("settings.json")), "{rels:?}");
 
@@ -262,7 +267,7 @@ mod tests {
         let llm = crate::llm::LlmConfig::load_defaults_for_test();
         let personal = crate::ai_bundle::Personal::from_environment();
         check(&files, &personal, &llm).expect("nothing personal, no key");
-        println!("plugin bundle: {} files — 7 skills, the reviewer, 2 servers, userConfig port + sensitive token; no CLAUDE.md, settings or home path", files.len());
+        println!("plugin bundle: {} files — 10 skills (3 for building an application), the reviewer, 2 servers, userConfig port + sensitive token; no CLAUDE.md, settings or home path", files.len());
     }
 
     /// The written bundle passes Claude Code's own `claude plugin validate`
