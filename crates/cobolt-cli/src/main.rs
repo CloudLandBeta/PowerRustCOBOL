@@ -382,7 +382,20 @@ fn cmd_mcp(args: &[String]) {
                 &cobolt_project_tools::ide_launch::IdeEnv::from_machine(beside.as_deref()),
             )
         });
-    let mut tools = cobolt_project_tools::ProjectTools::new(host);
+    // `render_form` pictures forms with the render engine rcrun already links
+    // for run-form (spec 084 R30).
+    let renderer: cobolt_project_tools::tools::render::Renderer =
+        std::sync::Arc::new(|cfrm: &std::path::Path, project: &std::path::Path, theme_default: Option<String>, scale: f32| {
+            let themes_dir = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.join("assets/themes")))
+                .filter(|d| d.is_dir())
+                .unwrap_or_else(|| PathBuf::from("assets/themes"));
+            let opts = cobolt_forms::snapshot::SnapshotOptions { theme_default, themes_dir: Some(themes_dir), scale };
+            cobolt_forms::snapshot::render_form_png(cfrm, project, &opts)
+        });
+    let shared = std::sync::Arc::new(cobolt_project_tools::tools::Shared::new().with_renderer(renderer));
+    let mut tools = cobolt_project_tools::ProjectTools::with_shared(host, shared);
     let stdin = io::stdin();
     let stdout = io::stdout();
     if let Err(e) = cobolt_mcp::serve(&mut stdin.lock(), &mut stdout.lock(), &mut tools) {

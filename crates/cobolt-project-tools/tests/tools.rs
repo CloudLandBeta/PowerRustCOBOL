@@ -293,7 +293,7 @@ fn tools_over_serve_list_check_refuse_paths_and_answer_no_project() {
         .collect();
     assert_eq!(
         names,
-        ["list_files", "check", "regenerate", "add_to_project", "build", "validate", "kb_lookup", "create_project", "open_project", "kb_search"]
+        ["list_files", "check", "regenerate", "add_to_project", "build", "validate", "kb_lookup", "render_form", "create_project", "open_project", "kb_search"]
     );
     let (check_text, is_err) = text_of(&replies[2]);
     assert!(!is_err);
@@ -329,7 +329,7 @@ fn tools_over_serve_list_check_refuse_paths_and_answer_no_project() {
             refused += 1;
         }
     }
-    assert_eq!((refused, knowledge), (6, 2));
+    assert_eq!((refused, knowledge), (7, 2));
     println!("serve: no project → {refused} project tools answered \"no project open\", {knowledge} knowledge tools answered");
 }
 
@@ -446,4 +446,31 @@ fn create_project_makes_a_checkable_project_and_open_project_switches() {
         "create_project: manifest + {} folders + main, check 0 errors, tools switched; non-empty and relative folders refused untouched; open_project switched back",
         cobolt_project_tools::create::PROJECT_FOLDERS.len()
     );
+}
+
+/// Spec 084 R30: `render_form` hands its form to the injected renderer and
+/// answers with image content plus what the picture is; a non-form and a
+/// server without a renderer are refused.
+#[test]
+fn render_form_answers_with_an_image() {
+    use cobolt_mcp::McpHandler;
+    let dir = fixture("render");
+    let stub: cobolt_project_tools::tools::render::Renderer = std::sync::Arc::new(|cfrm: &Path, project: &Path, _theme, scale: f32| {
+        assert!(cfrm.ends_with("forms/MAIN-FORM.cfrm") && cfrm.starts_with(project));
+        Ok((vec![0x89, b'P', b'N', b'G'], [(300.0 * scale) as usize, (200.0 * scale) as usize]))
+    });
+    let shared = std::sync::Arc::new(cobolt_project_tools::tools::Shared::new().with_renderer(stub));
+    let mut tools = ProjectTools::with_shared(HeadlessHost::new(&dir, "test"), shared);
+    let r = tools.call_tool("render_form", &json!({"path": "forms/MAIN-FORM.cfrm", "scale": 2}));
+    assert_eq!(r.is_error, None);
+    assert_eq!(serde_json::to_value(&r.content[0]).unwrap()["type"], "image");
+    let meta: Value = serde_json::from_str(r.content[1].as_text().unwrap()).unwrap();
+    assert_eq!((meta["width"].as_u64(), meta["height"].as_u64()), (Some(600), Some(400)));
+    assert_eq!(meta["project"], "CheckDemo.project.toml");
+    assert_eq!(tools.call_tool("render_form", &json!({"path": "src/main.cbl"})).is_error, Some(true), "not a form");
+    let mut bare = ProjectTools::new(HeadlessHost::new(&dir, "test"));
+    let r = bare.call_tool("render_form", &json!({"path": "forms/MAIN-FORM.cfrm"}));
+    assert!(r.is_error == Some(true) && r.content[0].as_text().unwrap().contains("not available"));
+    let _ = std::fs::remove_dir_all(&dir);
+    println!("render_form: image + meta (600x400 at scale 2, project named); non-form and renderer-less server refused");
 }

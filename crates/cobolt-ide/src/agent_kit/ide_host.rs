@@ -112,7 +112,7 @@ impl IdeShared {
                 snapshot: Mutex::new(Snapshot::default()),
                 tx: Mutex::new(tx),
                 ctx,
-                tools: Arc::new(Shared::new()),
+                tools: Arc::new(Shared::new().with_renderer(form_renderer())),
                 token: Mutex::new(None),
                 listener: Mutex::new(None),
             }),
@@ -164,6 +164,20 @@ impl IdeShared {
     pub fn listening_port(&self) -> Option<u16> {
         self.listener.lock().unwrap_or_else(|p| p.into_inner()).as_ref().map(|(p, _)| *p)
     }
+}
+
+/// `render_form`'s renderer (spec 084 R30): the form pictured by the one
+/// render engine, with theme packs from beside the IDE.
+pub fn form_renderer() -> cobolt_project_tools::tools::render::Renderer {
+    Arc::new(|cfrm: &Path, project: &Path, theme_default: Option<String>, scale: f32| {
+        let themes_dir = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.join("assets/themes")))
+            .filter(|d| d.is_dir())
+            .unwrap_or_else(|| PathBuf::from("assets/themes"));
+        let opts = cobolt_forms::snapshot::SnapshotOptions { theme_default, themes_dir: Some(themes_dir), scale };
+        cobolt_forms::snapshot::render_form_png(cfrm, project, &opts)
+    })
 }
 
 /// The tools' view of the IDE.
@@ -661,7 +675,7 @@ mod tests {
         let out = post_raw(port, "Authorization: Bearer tok-gate\r\n", body);
         let v: Value = serde_json::from_str(out.split_once("\r\n\r\n").unwrap().1).unwrap();
         let names: Vec<&str> = v["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(names.len(), 10, "{out}");
+        assert_eq!(names.len(), 11, "{out}");
         use std::io::{Read, Write};
         let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
         write!(s, "POST /mcp HTTP/1.1\r\nHost: evil.example\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();

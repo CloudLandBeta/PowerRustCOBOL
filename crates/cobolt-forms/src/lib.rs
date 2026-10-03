@@ -104,6 +104,10 @@ pub mod render;
 #[cfg(feature = "render")]
 pub mod raster;
 
+// A picture of a form as Run Form draws it (spec 084 T15).
+#[cfg(feature = "render")]
+pub mod snapshot;
+
 #[cfg(feature = "render")]
 pub mod fonts;
 

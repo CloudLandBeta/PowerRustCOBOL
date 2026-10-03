@@ -27,6 +27,7 @@ pub mod kb;
 pub mod list;
 pub mod regenerate;
 pub mod register;
+pub mod render;
 pub mod validate;
 
 /// What every handler serving one project shares: the lock that serialises
@@ -38,6 +39,8 @@ pub struct Shared {
     pub(crate) build: build::BuildSlot,
     pub(crate) builder: build::Builder,
     pub(crate) build_wait: Duration,
+    /// Pictures a form (`render_form`); `None` in a host that cannot.
+    pub(crate) renderer: Option<render::Renderer>,
 }
 
 impl Shared {
@@ -54,7 +57,14 @@ impl Shared {
             build: build::BuildSlot::default(),
             builder,
             build_wait,
+            renderer: None,
         }
+    }
+
+    /// Give `render_form` its renderer (spec 084 R30).
+    pub fn with_renderer(mut self, renderer: render::Renderer) -> Self {
+        self.renderer = Some(renderer);
+        self
     }
 }
 
@@ -202,6 +212,25 @@ impl<H: ProjectHost> ProjectTools<H> {
                 }),
             },
             Tool {
+                name: "render_form".into(),
+                description: Some(
+                    "A picture (PNG) of a form as Run Form draws it when it opens — its theme, \
+                     backdrop, controls and images — so you can see what you built: layout, \
+                     overlaps, text that does not fit. Before any event handler runs."
+                        .into(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Project-relative .cfrm, e.g. forms/ORDERS.cfrm" },
+                        "scale": { "type": "number", "minimum": 0.25, "maximum": 3,
+                                   "description": "Picture scale, 1 = one pixel per designed point (default 1)." }
+                    },
+                    "required": ["path"],
+                    "additionalProperties": false
+                }),
+            },
+            Tool {
                 name: "create_project".into(),
                 description: Some(
                     "Create a new PowerRustCOBOL project in an empty or new folder — exactly what the \
@@ -327,6 +356,30 @@ impl<H: ProjectHost> ProjectTools<H> {
         })
     }
 
+    /// `render_form` with its picture: the project checks of [`Self::call`],
+    /// then the PNG and what the agent is told about it.
+    pub fn render_form(&mut self, args: &Value) -> Result<(Vec<u8>, Value), String> {
+        let root: ProjectRoot = self.host.project().map_err(|e| e.message().to_owned())?;
+        if let Some(asked) = opt_str(args, "project") {
+            if !names_project(&root, &asked) {
+                return Err(format!(
+                    "this call is for project '{asked}', but the project open is '{}'. \
+                     Open the right one with open_project, or ask the developer.",
+                    root.manifest_name()
+                ));
+            }
+        }
+        let (png, mut meta) = self.render(args, &root)?;
+        meta["project"] = json!(root.manifest_name());
+        Ok((png, meta))
+    }
+
+    fn render(&self, args: &Value, root: &ProjectRoot) -> Result<(Vec<u8>, Value), String> {
+        let path = opt_str(args, "path").ok_or("render_form needs a 'path'")?;
+        let scale = args.get("scale").and_then(Value::as_f64).unwrap_or(1.0).clamp(0.25, 3.0) as f32;
+        render::run(&self.host, root, self.shared.renderer.as_ref(), &path, scale)
+    }
+
     fn run_project_tool(&mut self, name: &str, args: &Value, root: &ProjectRoot, shared: &Arc<Shared>) -> Result<Value, String> {
         let root = root.clone();
         let shared = Arc::clone(shared);
@@ -351,6 +404,12 @@ impl<H: ProjectHost> ProjectTools<H> {
             "validate" => {
                 let path = opt_str(args, "path").ok_or("validate needs a 'path'")?;
                 validate::run(&root, &path)
+            }
+            "render_form" => {
+                // The picture travels as image content: see `call_tool`.
+                let (png, mut meta) = self.render(args, &root)?;
+                meta["png_bytes"] = json!(png.len());
+                Ok(meta)
             }
             _ => unreachable!("listed above"),
         }
@@ -415,6 +474,12 @@ impl<H: ProjectHost> McpHandler for ProjectTools<H> {
     }
 
     fn call_tool(&mut self, name: &str, arguments: &Value) -> ToolResult {
+        if name == "render_form" {
+            return match self.render_form(arguments) {
+                Ok((png, meta)) => ToolResult::ok(vec![Content::png(&png), Content::text(meta.to_string())]),
+                Err(e) => ToolResult::failed(e),
+            };
+        }
         match self.call(name, arguments) {
             Ok(v) => ToolResult::ok(vec![Content::text(v.to_string())]),
             Err(e) => ToolResult::failed(e),

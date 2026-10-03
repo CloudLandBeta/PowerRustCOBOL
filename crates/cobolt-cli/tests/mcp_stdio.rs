@@ -288,3 +288,22 @@ fn rcrun_mcp_finds_its_project_from_the_working_folder() {
     let _ = std::fs::remove_dir_all(&project);
     println!("rcrun mcp without --project: sub-folder -> its project; no project -> check refused, create_project made Shop and the tools switched to it (IDE not launched)");
 }
+
+/// Spec 084 R30 end to end: `rcrun mcp` pictures a real form — a PNG of the
+/// form's designed size comes back as MCP image content.
+#[test]
+fn rcrun_mcp_render_form_returns_a_png() {
+    let project = fixture("render");
+    let requests = [json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"render_form","arguments":{"path":"forms/MAIN-FORM.cfrm","scale":0.5}}})];
+    let (replies, _, _) = session(&project, &requests, |_| ());
+    let content = &replies[0]["result"]["content"];
+    assert_eq!(content[0]["type"], "image", "{}", replies[0]);
+    assert_eq!(content[0]["mimeType"], "image/png");
+    let b64 = content[0]["data"].as_str().unwrap();
+    assert!(b64.starts_with("iVBORw0KGgo"), "a PNG signature");
+    let meta: Value = serde_json::from_str(content[1]["text"].as_str().unwrap()).unwrap();
+    let form = cobolt_forms::load_form(&project.join("forms/MAIN-FORM.cfrm")).unwrap();
+    assert_eq!(meta["width"].as_u64().unwrap(), (form.width as f64 * 0.5).round() as u64);
+    let _ = std::fs::remove_dir_all(&project);
+    println!("rcrun mcp render_form: {} base64 chars of PNG, {}x{} at scale 0.5", b64.len(), meta["width"], meta["height"]);
+}

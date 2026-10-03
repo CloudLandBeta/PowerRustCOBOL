@@ -194,6 +194,17 @@ pub fn render_frame(
     rasterizer.render(&prims, size_px, ppp, background)
 }
 
+/// Run one egui frame at `time` and take its texture uploads, without filling
+/// any pixel: the warm-up frames before the one that is pictured.
+pub fn advance_frame(ctx: &egui::Context, rasterizer: &mut Rasterizer, size: egui::Vec2, time: f64, ui: impl FnMut(&mut egui::Ui)) {
+    let mut input = egui::RawInput::default();
+    input.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size));
+    input.time = Some(time);
+    let mut full = ctx.run_ui(input, ui);
+    rasterizer.apply(&full.textures_delta);
+    full.textures_delta.clear();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

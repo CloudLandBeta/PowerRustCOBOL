@@ -306,9 +306,12 @@ three skills, a patterns pack and an architecture map (R32–R34).
 - [ ] **AC16** (R35–R38) — A call to the IDE server without the token, or with
   an old one after Renew token, is refused. A search of the logs, the Output
   pane text and the project folder after a session finds no token.
-- [ ] **AC17** (R30) — `render_form` on a PowerDemo3 form returns a PNG whose
-  pixels match the Run Form golden render of the same form (spec 056 goldens),
-  and a ContentPane form rendered inside its shell shows the side menu.
+- [ ] **AC17** (R30) — `render_form` on a PowerDemo3 form returns a PNG of the
+  form's designed size, drawn by the same engine path the spec 056 Run goldens
+  pin (theme, backdrop, live properties), byte-identical on a second call; and
+  a ContentPane form rendered inside its shell shows the side menu. *(The
+  goldens hash shapes, not pixels, so a pixel comparison with them is not
+  possible — corrected 2026-10-03.)*
 - [ ] **AC18** (R31) — `run_form` on a test form with a button whose handler
   sets a label returns the label's new Caption, the handler's DISPLAY line and a
   PNG. A handler that loops forever is stopped at the time limit and reported.

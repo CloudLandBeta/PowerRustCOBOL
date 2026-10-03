@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.121] — 2026-10-03
+
+### Spec 084 T15: `render_form` — a coding agent sees the form it built
+
+A new tool on both servers returns a **picture of a form** (PNG, MCP image
+content) as Run Form draws it when it opens: the theme resolved as `rcrun
+run-form` resolves it, the form's backdrop and images, a responsive form laid
+out, every designed property live — drawn by the one render engine and turned
+into pixels by the CPU rasteriser, so it works headless, the same bytes every
+time. An optional `scale` (0.25–3) sizes it. The answer also says the form, its
+size, and when the IDE holds unsaved edits (the picture shows the saved file).
+`cobolt_forms::snapshot` is the library behind it; the IDE and `rcrun` give
+the tool its renderer, as they give `build` its builder.
+
 ## [PowerRustCOBOL 1.80.120] — 2026-10-03
 
 ### Spec 084 T14: pictures without a GPU — the CPU rasteriser
