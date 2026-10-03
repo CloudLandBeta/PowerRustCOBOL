@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.127] — 2026-10-03
+
+### Examples: PowerDemo3 and PowerChat as last saved
+
+The operator's working changes to the two example projects. PowerDemo3 drops
+the unused `forms/Common/main-form.cfrm`, updates the buttons and maps demos,
+and lists its `Knowledge Base/powerrustcobol/` documents; PowerChat's chat form
+puts the caret in the input box when it opens and lets that box take long
+text, and the project gains its topic, turn, folder and template data files.
+Both projects use the Spatial IDE theme.
+
 ## [PowerRustCOBOL 1.80.126] — 2026-10-03
 
 ### Spec 084 T19: the instructions explain the application and map where to look

@@ -29,7 +29,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 destination_folder = "PowerDemo3"
 debug_compilation = true
-built_with_version = "1.80.75"
+built_with_version = "1.80.110"
 
 [files]
 sources = ["src/main.cbl"]
@@ -60,7 +60,6 @@ forms = [
     "forms/Common/filedropzone-form.cfrm",
     "forms/Common/knob-form.cfrm",
     "forms/Common/gauge-form.cfrm",
-    "forms/Common/main-form.cfrm",
     "forms/Common/viewer-form.cfrm",
     "forms/Containers/groupbox-form.cfrm",
     "forms/Containers/panel-form.cfrm",
@@ -100,6 +99,19 @@ assets = []
 documentation = [
     "Knowledge Base/BurguerTime/menu_schema.md",
     "Knowledge Base/textboxes-form-controls-report.md",
+    "Knowledge Base/powerrustcobol/README.md",
+    "Knowledge Base/powerrustcobol/builtins.md",
+    "Knowledge Base/powerrustcobol/cfrm-format.md",
+    "Knowledge Base/powerrustcobol/cidx-format.md",
+    "Knowledge Base/powerrustcobol/cobol85-supported-syntax.md",
+    "Knowledge Base/powerrustcobol/control-methods.md",
+    "Knowledge Base/powerrustcobol/controls.md",
+    "Knowledge Base/powerrustcobol/developers-guide.md",
+    "Knowledge Base/powerrustcobol/form-layout-and-events.md",
+    "Knowledge Base/powerrustcobol/form-themes.md",
+    "Knowledge Base/powerrustcobol/project-model-and-settings.md",
+    "Knowledge Base/powerrustcobol/rustcobol-extensions.md",
+    "Knowledge Base/.DS_Store",
 ]
 generated = [
     "generated/buttons-form.cbl",
@@ -176,7 +188,7 @@ indexed = ["indexed/actors.cidx"]
 fixed_format = false
 
 [ide]
-theme = "neumorphic-cobalt"
+theme = "spatial"
 background_image = ""
 project_icon = ""
 background_opacity = 70
@@ -203,7 +215,7 @@ focus-ring-pulse = true
 responsive = false
 breakpoints = ""
 main-form = "SIDEBAR-FORM"
-main-form-seal = "87bb27b8f684764bc9aa9f4e4c5554c798570949daa830e19ed8a377d2ea0d8e"
+main-form-seal = "a009b05c3f4947f9df3ec2ef83ba78956ebecfe06d6e73e36966231212361874"
 
 [ai]
 schema_version = 1
@@ -281,6 +293,8 @@ timeout_secs = 30
 verbose_log = true
 max_review_revisions = 2
 unreviewed_temperature = 0.10000000149011612
+grace_reasoning = false
+prompt_review = false
 agentic_ai_enabled = true
 reviewer_provider = ""
 reviewer_endpoint = ""

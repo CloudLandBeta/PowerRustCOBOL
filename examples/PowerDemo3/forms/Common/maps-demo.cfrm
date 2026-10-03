@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="MAPS-DEMO" title="Maps — routes, regions and drive times" width="1280" height="860" background="EEEEEEFF" transparency="0" grid-size="16" snap-to-grid="true" target="Custom" theme="neumorphic" glass-style="Neumorphic Light" form-format="Embedded">
+<Form name="MAPS-DEMO" title="Maps — routes, regions and drive times" width="1296" height="860" background="BEBEBEFF" transparency="0" grid-size="16" snap-to-grid="true" target="Custom" theme="neumorphic" glass-style="Neumorphic Light" form-format="Embedded">
   <working-storage><![CDATA[       01 WS-DIST-TEXT GLOBAL  PIC X(40) VALUE SPACES.
        01 WS-TIME-TEXT GLOBAL  PIC X(40) VALUE SPACES.
        01 WS-SUMMARY GLOBAL    PIC X(80) VALUE SPACES.
@@ -732,6 +732,7 @@
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
+    <Property name="WordWrap">true</Property>
   </Control>
   <Control id="LBL-ORS-CAP" type="Label" x="944" y="656" w="320" h="32" tab-order="16" z-order="16" visible="true" enabled="true">
     <Property name="Caption">Your OpenRouteService key (not saved):</Property>
@@ -822,7 +823,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -847,5 +847,7 @@
     <Property name="CornerRadius">10</Property>
     <Property name="HintText">Your ORS Key</Property>
     <Property name="PasswordCharacter">*</Property>
+    <Property name="EnterAsTab">true</Property>
+    <Property name="AutoEnter">false</Property>
   </Control>
 </Form>

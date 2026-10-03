@@ -2980,7 +2980,10 @@
            IF WS-CONFIGURED = "N"
                MOVE SideMenu-1::ActivateItem("welc") TO WS-ITEM
            END-IF
-]]></Event>
+
+           Txt-Input::SetFocus().
+
+           EXIT PROGRAM.]]></Event>
     <Event name="onActivate" paragraph="CHAT-FORM--ONACTIVATE"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -3273,7 +3276,7 @@
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
     <Property name="Text"></Property>
-    <Property name="Picture">ZZ9,99</Property>
+    <Property name="Picture">X(8192)</Property>
     <Property name="PasswordCharacter"></Property>
     <Property name="Anchor">Bottom,Left,Right</Property>
   </Control>
@@ -3377,6 +3380,8 @@
                MOVE T-THINKING TO WS-STATUS-TEXT
            END-IF
            CALL "PC-SAY-STATUS"
+
+           Txt-Input::SetFocus()
 ]]></Event>
   </Control>
   <Control id="Btn-Pdf" type="Button" x="1004" y="20" w="172" h="36" tab-order="4" z-order="0" visible="true" enabled="true">

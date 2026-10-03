@@ -1,0 +1,13134 @@
+<!-- powerrustcobol-kit: 1.80.100 -->
+<!--
+SPDX-License-Identifier: Apache-2.0
+Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+
+Licensed under the Apache License, Version 2.0.
+See the LICENSE file in the project root for full license information.
+-->
+
+<!-- powerrustcobol: 1.65.124 -->
+
+# PowerRustCOBOL AI Developer's Guide 1.70
+
+<p align="center">
+  <img src="../assets/images/powerrustcobol-mascot.png" alt="PowerRustCOBOL mascot" width="300">
+</p>
+
+
+*A practical guide to building graphical COBOL applications with PowerRustCOBOL.*
+
+> **Who this guide is for.** You already write COBOL, and you have built screen
+> or window-based applications with a GUI COBOL toolset — for example Fujitsu
+> **PowerCOBOL for Windows** or **Veryant isCOBOL**. You know `IDENTIFICATION DIVISION`, `PERFORM`, `OPEN`/`READ`/`WRITE`, indexed files, and the idea of a
+> *form* with *controls* that raise *events*. This guide maps those instincts
+> onto PowerRustCOBOL and shows you everything that is new. **No prior knowledge
+> of the host implementation language is assumed or required** — you will never
+> need to read or write anything other than COBOL to build an application.
+
+---
+
+## Table of contents
+
+1. [What PowerRustCOBOL is, and why it exists](#1-what-powerrustcobol-is-and-why-it-exists)
+2. [The three pieces: RustCOBOL, PowerRustCOBOL, rcrun](#2-the-three-pieces)
+3. [Installing and launching](#3-installing-and-launching)
+4. [Your first application: Hello, Form](#4-your-first-application-hello-form)
+5. [The IDE at a glance](#5-the-ide-at-a-glance)
+   - [Window effects](#window-effects)
+6. [Projects and the project model](#6-projects-and-the-project-model)
+7. [The Form Designer (RAD)](#7-the-form-designer-rad)
+8. [The control catalogue](#8-the-control-catalogue)
+9. [Properties](#9-properties)
+10. [Event-driven programming](#10-event-driven-programming)
+11. [Talking to the UI from COBOL](#11-talking-to-the-ui-from-cobol)
+12. [Generated code](#12-generated-code)
+13. [The RustCOBOL language](#13-the-rustcobol-language)
+    - [Writing it the way the standard lets you](#writing-it-the-way-the-standard-lets-you)
+    - [Handing a whole table to a function](#handing-a-whole-table-to-a-function)
+    - [Closing a file for good: `WITH LOCK`](#closing-a-file-for-good-with-lock)
+    - [Debugging lines](#debugging-lines)
+    - [Long and awkward text: the block literal](#long-and-awkward-text-the--block-literal)
+    - [Writing a text file without an `FD`](#writing-a-text-file-without-an-fd)
+14. [Indexed files — a first-class resource](#14-indexed-files--a-first-class-resource)
+15. [SQL databases](#15-sql-databases)
+16. [HTTP / REST and AI agents](#16-http--rest-and-ai-agents)
+    - [Working with a coding agent (Claude Code)](#working-with-a-coding-agent-claude-code)
+17. [The command line (rcrun)](#17-the-command-line-rcrun)
+18. [Building a distributable binary](#18-building-a-distributable-binary)
+19. [Debugging](#19-debugging)
+    - [Diagnostic switches (Help → Debug Settings)](#diagnostic-switches-help--debug-settings)
+20. [Appearance and internationalisation](#20-appearance-and-internationalisation)
+21. [COBOL Structure and shared data](#21-cobol-structure-and-shared-data)
+22. [The application shell and the `super` receiver](#22-the-application-shell-and-the-super-receiver)
+23. [Caveats and current limitations](#23-caveats-and-current-limitations)
+24. [Appendix A — Coming from PowerCOBOL / isCOBOL](#appendix-a--coming-from-powercobol--iscobol)
+25. [Appendix B — Glossary](#appendix-b--glossary)
+
+---
+
+## 1. What PowerRustCOBOL is, and why it exists
+
+<!-- 📷 welcome.png — the welcome screen as it appears on first launch, before any project is open. -->
+
+<p align="center"><img src="../assets/images/screenshots/welcome.png" alt="The PowerRustCOBOL AI welcome screen" width="900"></p>
+
+
+For decades, the only way to write **windowed, event-driven COBOL** was to buy a
+proprietary toolchain tied to one operating system, one vendor, and one
+licensing model. Those tools were excellent in their day, but most are now
+Windows-bound, closed, and increasingly hard to deploy on modern machines. A
+generation of business logic — payroll, inventory, banking back-offices — is
+written in that style and has nowhere modern to go.
+
+**PowerRustCOBOL exists to give that style of development a fresh, open home.**
+It is a Rapid Application Development (RAD) environment where you:
+
+- design windows ("forms") by dragging controls onto a canvas,
+- attach **COBOL** event handlers to those controls,
+- and run, debug, and ship the result as a **single self-contained native
+  executable** — no runtime to install on the target machine.
+
+Its design goals, in plain terms:
+
+
+| Goal                   | What it means for you                                                                                                                    |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **COBOL-first**        | The application *is* COBOL. The designer generates COBOL; your event handlers are COBOL-85 nested programs. You never leave the language. |
+| **Cross-platform**     | The IDE and the produced binaries are not tied to one OS.                                                                                |
+| **Self-contained**     | A built application embeds everything it needs; the end user does not install PowerRustCOBOL.                                            |
+| **Modern data access** | Crash-safe indexed (ISAM) files, SQL (SQLite / PostgreSQL / MySQL), and HTTP/REST are reachable through ordinary `CALL` statements.       |
+| **Open**               | Apache-2.0 licensed.                                                                                                                     |
+
+> **Note.** PowerRustCOBOL is *inspired by* the productivity of classic GUI COBOL
+> RADs, but it is an independent, original implementation. Concepts such as
+> "form", "control", and "event" are industry-standard; the syntax, file
+> formats, generated code, and built-in services described here are specific to
+> PowerRustCOBOL and are not compatible with any other vendor's tools.
+
+---
+
+## 2. The three pieces
+
+PowerRustCOBOL ships as three cooperating tools. Knowing which is which removes a
+lot of confusion early on.
+
+```mermaid
+flowchart LR
+    subgraph Author["You author here"]
+        IDE["PowerRustCOBOL<br/>(the RAD IDE)"]
+    end
+    subgraph Lang["The language"]
+        LANG["RustCOBOL<br/>(COBOL-85 + extensions)"]
+    end
+    subgraph Run["You run / ship here"]
+        CLI["rcrun<br/>(CLI: run · check · build · package)"]
+        BIN["Native binary<br/>(your shipped app)"]
+    end
+
+    IDE -- "designs forms, writes COBOL" --> LANG
+    IDE -- "Run / Debug" --> CLI
+    IDE -- "Build" --> BIN
+    LANG -- "rcrun run/check" --> CLI
+    LANG -- "rcrun build" --> BIN
+```
+
+
+| Name               | Role                                                                                                        | Think of it as…                                 |
+| ------------------ | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| **RustCOBOL**      | The COBOL-85 language dialect plus PowerRustCOBOL's extensions (GUI calls, indexed-file clauses, SQL/HTTP). | The compiler/runtime "language".                 |
+| **PowerRustCOBOL** | The desktop IDE: project explorer, code editor, **Form Designer**, debugger.                                 | The "Workbench" / "Studio".                      |
+| **rcrun**          | The command-line runtime, checker, packager, and binary compiler.                                           | The "runtime + build tool" you can script in CI. |
+
+
+> ⚠️ **Naming caveat.** Internally some build artefacts and folders are named
+> `cobolt-*`. That is an implementation detail; the user-facing names are
+> **RustCOBOL**, **PowerRustCOBOL**, and **rcrun**.
+
+---
+
+## 3. Installing and launching
+
+Every release offers each platform **two downloads**, and either is complete —
+they carry the same application, the same `rcrun`, the same themes, examples and
+platform SDK.
+
+| Your machine | Installer | Archive |
+| --- | --- | --- |
+| Windows 10 / 11, 64-bit | `.msi` — double-click, or `msiexec /i … /quiet` to deploy it silently | `.zip` |
+| Macs with Apple Silicon | `.dmg` — drag PowerRustCOBOL to Applications | `.tar.gz` |
+| Intel Macs | `.dmg` | `.tar.gz` |
+| Debian, Ubuntu, Mint and relatives | `.deb` — `sudo apt install ./PowerRustCOBOL-*.deb` | `.tar.gz` |
+| Fedora, RHEL, CentOS Stream, openSUSE | `.rpm` — `sudo dnf install ./PowerRustCOBOL-*.rpm` | `.tar.gz` |
+| Any other Linux, 64-bit | — | `.tar.gz` |
+
+Take the **installer** if you want the usual things: a Start Menu or
+Applications entry, a desktop launcher, `rcrun` on your `PATH`, and a clean way
+to remove it later. Take the **archive** if you would rather not install
+anything — unpack it anywhere and run it, including from a memory stick or a
+machine where you cannot install software. Both Linux packages put the
+application in `/opt/powerrustcobol` and link `powerrustcobol` and `rcrun` into
+`/usr/bin`; on any other distribution the archive is the download.
+
+> ⚠️ **Neither is signed yet**, so each platform warns once on first run.
+> On **macOS**: right-click the app and choose *Open*, or clear the quarantine
+> flag with `xattr -dr com.apple.quarantine PowerRustCOBOL.app`. On **Windows**:
+> SmartScreen offers *More info* → *Run anyway*. An installer is no more trusted
+> than an archive here — the warning is about the missing certificate, not the
+> format.
+
+Linux needs glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+, Fedora 36+) and the
+OpenGL, X11 or Wayland libraries your desktop already provides.
+
+Launch the IDE; on first run you are greeted with an empty workspace and the
+prompt *"Open a COBOL file to get started."* You can either open a single `.cbl`
+file or create a full **project** (recommended — see §6).
+
+<p align="center"><img src="../assets/images/screenshots/theide.png" alt="The PowerRustCOBOL AI IDE with a project open" width="900"></p>
+
+
+From a terminal you can also drive everything headlessly with `rcrun` (see §17),
+which is what continuous-integration pipelines use.
+
+### The first-run Rust check
+
+
+
+The IDE designs forms and *runs* programs on its own. **Build** is the
+exception: it compiles your project into a native application through the
+**Rust toolchain** (§18), and so does any Run of a program containing an
+`EXEC RUST` block. So on its first run PowerRustCOBOL looks for Rust — and when
+it finds a usable one, says nothing at all.
+
+When it does not, it tells you which case you are in — Rust absent, or a version
+older than the **1.92** PowerRustCOBOL requires — shows the official
+[rustup.rs](https://rustup.rs) command, and offers to run it for you. Decline
+and you are asked once more, because declining has a price worth stating:
+
+
+| Without Rust you lose                                 | You keep                               |
+| ----------------------------------------------------- | -------------------------------------- |
+| **Build** — no native executable, nothing to package | The Form Designer                      |
+| Running any program that contains an `EXEC RUST` block | The code editor and the COBOL tooling  |
+|                                                       | **Run** (interpreted) and the debugger |
+
+Declining a second time settles it and the question is not asked again. Install
+Rust later from [rustup.rs](https://rustup.rs) and **Build** simply starts
+working — nothing in the IDE has to be told.
+
+> **Note** — rustup puts Rust in `~/.cargo/bin`, which your *shell profile* adds
+> to `PATH`. An application started from the Finder or the Windows desktop never
+> reads that profile, so PowerRustCOBOL looks in that location itself and uses
+> what it finds there. You do not have to launch the IDE from a terminal for
+> **Build** to work.
+
+#### Rust is installed and Build still cannot finish
+
+There is a second prerequisite, and rustup neither installs it nor mentions it:
+the **linker**. Compiling produces machine code; the linker is what gathers that
+code into an executable file, and it belongs to the operating system rather than
+to Rust.
+
+| Platform    | What provides the linker                                            |
+| ----------- | ------------------------------------------------------------------- |
+| **Windows** | The Microsoft C++ build tools — *Build Tools for Visual Studio* (or Visual Studio) with the **Desktop development with C++** workload. Visual Studio Code is a different product and does not provide them. |
+| **macOS**   | Apple's command line developer tools — `xcode-select --install`      |
+| **Linux**   | Your distribution's C toolchain — `build-essential` on Debian and Ubuntu, *Development Tools* on Fedora and RHEL |
+
+The first-run check asks this question too, by having Rust link a program that
+does nothing: the one reliable way to know, since on Windows the linker is found
+through the Visual Studio installation and not through `PATH`. If it cannot, the
+IDE says so on the first run, names the linker, and shows the command that
+installs it. There is nothing to accept or decline — it is not a choice, just
+the one thing still missing.
+
+Should you meet it later instead — at the end of a build, which is where this
+used to surface — **Build** reports the same thing in the same words rather than
+the compiler's own output. Everything else keeps working meanwhile: the Form
+Designer, the editor, **Run**, and the debugger never needed a linker.
+
+### A model provider for the AI: Ollama
+
+Without a **model provider** PowerRustCOBOL AI keeps only its basic functions —
+the Form Designer, the editor, **Run** and the debugger. Grace, the agents, the
+COBOL proficiency tests and code generation all need a language model to run
+on. **Ollama** is the simplest way to get one: it runs models on your own
+computer and also reaches larger models in the Ollama cloud. It is a
+recommendation, not a requirement — any other provider will do, set up at any
+time in the **Model Providers Manager**.
+
+So the last first-run question, after the Rust one, is about Ollama. When the
+IDE does not find it on the machine, it explains why a provider is needed,
+shows the recommended setup and the exact command it would run, and offers
+**Install Ollama** — which runs Ollama's own installer — or **Not now**. The
+question is asked once per machine.
+
+| Platform | What **Install Ollama** does |
+|---|---|
+| **Windows** | Downloads `OllamaSetup.exe` from ollama.com and runs it |
+| **macOS** | Downloads `Ollama.dmg` from ollama.com and opens it — drag Ollama to Applications and start it once |
+| **Linux** | Runs the official `install.sh` through `pkexec`, which asks for the administrator's password in a window. Without `pkexec` the dialog shows the command to run in a terminal |
+
+The installers carry the same step: the last screen of the Windows `.msi` has
+an **Install Ollama** button, the macOS `.dmg` holds an **Install Ollama** item
+beside the application, and the `.deb` and `.rpm` print the command when they
+finish.
+
+**Recommended setup:**
+
+| Agents | Model | Where it runs |
+|---|---|---|
+| Grace and the Proficiency Judge | `gemma4:e2b` | Locally — `ollama pull gemma4:e2b` |
+| Every other agent, the pedantic reviewers included | `gemma4:31b` | The Ollama cloud — an ollama.com account and API key, added in the Model Providers Manager as **Ollama Cloud** |
+
+> **Note — a reviewer may share its agent's model.** A pedantic companion is
+> independent through its own prompt and its own separate call, so it may run
+> on the same model as the agent it reviews.
+
+> **Note** — Grace and the Judge on the same model shows an informational note
+> in the Agents Manager; it does not stop anything.
+
+---
+
+## 4. Your first application: Hello, Form
+
+This walkthrough produces a one-button window that shows a message.
+
+1. **Create a project.** `File ▸ New Project…`, give it a name (e.g.
+   `HelloPower`) and a main program. The IDE creates the standard folder layout
+   on disk **and a runnable starter `main` program** (a tiny `DISPLAY`/`GOBACK`
+   you can Run immediately), then opens it in the editor (see §6).
+2. **Create a form.** In the project tree, click the **➕** next to **Forms**.
+   This opens the *New Form* dialog — set a name (`main-form`), a title, and a
+   size, then create. The form is saved under `forms/` and opens in the **Form
+   Designer**. (The dialog can also start you from a template; see *Starting a
+   new form* below.)
+3. **Drop a button.** Drag a **Button** from the toolbox onto the canvas. With
+   it selected, set its `Caption` to `Say hello` in the properties pane.
+4. **Drop a label.** Drag a **Label** from the toolbox onto the canvas.
+5. **Attach a handler.** Still on the button, find its **`onClick`** event and
+   click it to open the COBOL event editor. Type, for example:
+
+   ```cobol
+              SET Label-1::Caption TO "Hello from COBOL!".
+   ```
+
+<!-- 📷 first-form-designer.png — Capture the Form Designer with the single button selected and the `onClick` event highlighted in the properties pane. -->
+<p align="center"><img src="../assets/images/screenshots/first-form-designer.png" alt="The Form Designer with the button selected and its onClick event highlighted in the properties pane" width="900"></p>
+
+
+
+6. **Run.** Press **Run** on the toolbar (or the ▶ in the designer). The form
+   appears; clicking the button executes your handler.
+
+<!-- 📷 firstform.png — Capture the running form after the button has been clicked, with the greeting showing in the label. -->
+<p align="center"><img src="../assets/images/screenshots/firstform.png" alt="The running form after the button has been clicked, showing the greeting in the label" width="900"></p>
+
+
+> **Note.** When you save or run a form, PowerRustCOBOL **generates** a COBOL
+> source file for it (see §12). You never edit that file by hand — it is a build
+> artefact.
+
+
+---
+
+## 5. The IDE at a glance
+
+```mermaid
+flowchart TB
+    MB["Menu bar — File · Run · View · Help"]
+    TB["Toolbar — Open · Save · Check · Build · Run · Debug · Stop · ⚙"]
+    subgraph Body[" "]
+        direction LR
+        TREE["Project Explorer<br/>(tree of categories)"]
+        MAIN["Main Pane<br/>(code editor / property inspector)"]
+    end
+    OUT["Output panel"]
+    MB --> TB --> Body --> OUT
+```
+
+- **Project Explorer (left).** A tree rooted at your project. Seven fixed
+  categories — **Forms**, **Indexed Files**, **Common Code**, **Generated Code**,
+  **Project's Crates (Beta)**, **Assets**, **Knowledge Base** — each with a **➕**
+  button, except **Generated Code**, which the Form Designer fills on its own and
+  which you never add to by hand. To the left of each
+  item is a **status "knob"**: 🟢 green = checked/tested OK, 🟡 yellow = changed
+  since last check, 🔴 red = a problem was reported. Forms expand to show their
+  controls, grouped by toolbox category, and each control expands to its
+  **Events**. Indexed Files expand to show record fields (like form controls).
+  **Click the root node at the very top** (📁 YourProjectName) at any time to
+  bring up the full project settings form in the main work area.
+
+### Organising the project tree with folders
+
+Every category can hold an arbitrary hierarchy of **folders**, so large,
+enterprise-grade projects stay navigable (for example `forms/customers/`,
+`src/billing/`).
+
+- **Create a folder.** Click the **📁+** button on a category header to add a
+  folder at its root, or right-click any folder and choose **New folder…** to
+  nest one inside it.
+- **Rename a folder.** Right-click the folder and choose **Rename folder…**.
+  Every file the project tracks under that folder — and any open editor tab
+  pointing at one — follows the change automatically.
+- **Delete a folder.** Right-click and choose **Delete folder…**. After you
+  confirm, the folder and **everything inside it is permanently removed from
+  disk**, the files are dropped from the project, and any editors showing them
+  are closed. This cannot be undone.
+
+Folder paths are always stored **relative to the project folder**, so a project
+can be moved, zipped, or shared without breaking any references.
+
+### Moving files: drag-and-drop
+
+- **Within the tree.** Drag a file onto another folder (or onto a category
+  header) to move it there; the file is moved on disk and its project entry is
+  updated. A file cannot overwrite an existing one of the same name, and a
+  folder cannot be dropped into itself.
+- **From the operating system.** Drag files from Finder/Explorer onto a folder
+  or category to import them. They are copied into the project and tracked with a
+  relative path. A file whose type does not match the destination category (for
+  example a `.cfrm` dropped on Common Code) is rejected.
+
+### Keyboard navigation
+
+With the pointer over the project tree you can move around without the mouse:
+
+- **↑ / ↓** — move to the previous / next visible row. The element loads
+  immediately (its properties or editor, just like a single click), and the tree
+  scrolls as needed to keep the highlighted row in view, one row clear of the top
+  or bottom edge.
+- **→** — expand a collapsed folder; if it is already open, move into its first
+  child.
+- **←** — move up to the parent folder.
+- **Enter** — open the selected item (the same as a single click).
+
+On first launch (or any time no project is open) the IDE shows a single full
+welcome pane that is a single centered block of information (title + license +
+one blank line + quote + author) in the middle of the available area below the
+menubar/toolbar:
+
+Welcome to PowerRustCOBOL <version>
+License: Apache 2.0
+
+<blank line>
+<quote text in green, randomly selected on each cycle from a built-in list>
+— <author in light blue>
+
+The quote cycles randomly every 7.5 seconds (1 s fade-in, 6 s visible, 0.5 s fade-out). The left tree, editor, output and editor-specific controls are hidden until you use File → New Project or File → Open Project. Once a project is open the normal three-pane workspace appears. The full guide is available in the docs/ folder.
+
+- **Toolbar (top).** `Open · Save · Check · Build · Run · Debug · Stop`, plus
+  language selector on the far right. *Run* interprets the program; *Build*
+  compiles a native binary; *Check* runs parse + semantic analysis only;
+  *Debug* is enabled when a Generated Code item is selected.
+- **Main Pane (centre / right of the tree).** Shows the code editor, the
+  **property inspector** (when you click a form or control in the tree), **or
+  the project settings form** (when you click the project root at the top of
+  the tree, or automatically when the IDE first opens a project — with no
+  editor visible). The **👑 Grace** button above the project tree opens the
+  project-wide Grace chatbot in this pane. It uses the exact same glass pane
+  construction
+  (CentralPanel + glass frame) as the control properties inspector for
+  consistent width (no shortfall at the right border) and full 100% height
+  behaviour (the pane grows/shrinks with the available area above the Output
+  panel on window or splitter resize). The card's rounded bottom border/stroke
+  is kept clearly above the output/console with a visible gap via the frame's
+  bottom outer margin; the Save/Cancel buttons sit at the bottom of the card.
+  Click the top of the project tree (the 📁 ProjectName line) at any time to
+  open it. It has a single continuous vertical resizer line running
+  top-to-bottom through the content. Labels on the left never word-wrap; they
+  are truncated with `…` (e.g. `Standard system p…`) and the developer can
+  drag the resizer freely (the split moves independently of any label length,
+  up to 80 % of the pane width). Controls on the right are elastic and all
+  start at the same x position after a 10 px gap, giving perfect vertical
+  alignment of every property value. Sections, in order: Project, AI assistant,
+  Appearance, License, Integrations, Runtime — the AI settings (Agents Manager,
+  Model Providers Manager, Model Leaderboard) sit directly under Project, where
+  you reach them without scrolling past a licence text you set once and rarely
+  touch again. Explicit **Save** and **Cancel** buttons at the bottom
+  of the card (Cancel enabled only after changes; reverts to last saved). The
+  resizer line follows the current theme (brighter when hovered or dragged).
+  The code editor (when visible) carries a **status bar** along the bottom —
+  caret `Ln, Col`, the **Insert/Overwrite** mode (toggle with the `Insert`
+  key), a **Trim on save** toggle (strips trailing whitespace when you save),
+  and, for non-Markdown documents, a **Beautify** command that reformats the
+  COBOL to the layout rules described in *Beautify — the layout rules* below.
+  Markdown files omit Beautify because COBOL formatting does not apply to
+  them.
+
+<!-- 📷 project-settings-form.png — Show the left tree with the root node highlighted (hand cursor), and the main area with the two-column settings form inside its glass card (single continuous vertical resizer line, labels truncated with … before the line, all value controls aligned on the right, Save/Cancel at the bottom of the card). The card's rounded bottom border must be clearly visible above the Output panel with a gap (no… -->
+
+<p align="center"><img src="../assets/images/screenshots/project-settings-form.png" alt="The project tree with its root node selected and the project settings form open beside it" width="900"></p>
+
+- **Output panel (bottom).** Program `DISPLAY` output, build logs, and status
+  messages.
+
+<!-- 📷 ide-overview.png — A full-window capture with a project open, a form selected (so the property inspector is visible), and some text in the Output panel. Annotate the four regions if you can. -->
+
+<p align="center"><img src="../assets/images/screenshots/ide-overview.png" alt="The IDE with a project open, a form selected, and the property inspector showing" width="900"></p>
+
+### The AI assistant (optional)
+
+PowerRustCOBOL can put a Large Language Model — one you provide, ideally trained
+on this documentation — right above the code editor. The assistant is **entirely
+optional and off by default**: until you fill in the connection details, the
+prompt bar never appears.
+
+**Configure it via the project root settings form.** Click the top node of the
+project tree (the 📁 line with your project name). In the **AI assistant** section
+of the form you can enter the connection details. AI behavior and agents belong
+to the open project and travel in its `cobolt.toml` and `agentic_ai/` directory;
+provider configuration and API keys are machine-local and never travel in a
+repository:
+
+
+| Field                               | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Endpoint URL**                    | The full model URL. Use an OpenAI-compatible chat endpoint such as `https://…/v1/chat/completions`, or the xAI/Grok Responses endpoint `https://api.x.ai/v1/responses`. An untouched provider default receives its conventional request path automatically; after you edit this field, the IDE uses the URL exactly as entered.                                                                                                                                                                                                                                                                   |
+| **API key**                         | Sent as `Authorization: Bearer …`. Leave empty for a key-less local endpoint. A key entered here configures its **provider**, exactly as the Model Providers Manager does, and is stored only on this machine. An empty field means no credential is stored for that provider here.                                                                                                                                                                                                                                                                                                               |
+| **Model**                           | The model identifier passed in each request.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| **Reviewer model (Pedantic Agent)** | Optional second model that reviews the primary agent's answers with uncompromising scrutiny. It may be any model, the primary's own included — the reviewer's independence is its own prompt and its own separate call, not a different model. With a reviewer configured, the **COBOL Proficiency** check runs in tandem: the primary model answers, the Pedantic Agent reviews it against the primary prompt as the authoritative specification, demands a full corrected resubmission when defects are found, re-reviews the revision, and produces the final brutally honest assessment — the dashboard then shows the *reviewer's* scores, not the model's self-scores. |
+| **Temperature**                     | Sampling randomness (0 = deterministic). The connection test uses this exact value because some models accept only their provider-defined default, commonly `1.0`.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| **Standard system prompt**          | The instructions sent on every request. A sensible default is provided; edit it to suit your model.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+
+**Model Providers Manager.** Next to *Manage agents…* in Project settings is
+**Model Providers Manager…**. You configure a **provider** here — its endpoint
+and its API key — and nothing else. From the moment a provider's key works,
+**every model that provider offers becomes available** to any agent; there is
+no per-model setup to do. Pick a provider from the list on the left (a filled
+dot marks one that is configured), adjust its endpoint if you need a different
+host, paste the key, and use **Refresh models** to pull the current catalogue.
+**Test** sends one request so you can confirm the credential before relying on
+it.
+
+Two switches at the bottom of the manager decide how quickly Grace answers.
+Both are off unless you turn them on:
+- **Grace reasons before answering.** Many current models think silently
+  before they reply, and on a large model that thinking is most of the wait.
+  Off, Grace's calls to an Ollama model ask it to answer directly. Other
+  providers ignore the switch.
+- **Review my request before Grace starts.** On, Grace first rewrites your
+  request from the Form Designer, marks what could be read two ways, and lets
+  you edit it before any work starts. It is a useful check on a long or
+  ambiguous request, and it costs one more call to the model. Off, your request
+  runs as you wrote it.
+
+> ⚠️ **Caveat:** a small model planning without reasoning can misread a
+> complicated request. If Grace's plans start missing steps, turn reasoning
+> back on, or give Grace a larger model, before blaming the specialists.
+
+**Sharing the AI setup: Export AI… / Import AI….** On the same row as the
+managers, **Export AI…** writes one JSON file holding:
+- the configured providers and their endpoints, with each provider's model list;
+- this project's agents, each with its prompt, steering, policies, skills,
+  knowledge and `mcp.json`;
+- the Model Leaderboard.
+
+Hand that file to a colleague, or open it on your next machine, and **Import
+AI…** sets everything up in one step instead of an afternoon of clicking.
+
+**The file never carries an API key.** Keys are not part of it. A
+`user:password@` in an endpoint is dropped. In `mcp.json` every `env` and
+`headers` value, and every field named like a key, token, secret or password,
+is emptied, while the servers themselves are kept. And if any key stored on
+your machine were still to turn up in the file, the export is refused and
+nothing is written. The IDE says so in an error dialog, in the language you
+chose for it, and names where the key was found but never the key itself.
+
+**Nor does it carry anything about you.** Wherever they appear (an agent's
+prompt, a path in `mcp.json`, anywhere else), these are replaced by neutral
+placeholders:
+- your home folder, which becomes `~`;
+- your login name;
+- the name and e-mail your global git configuration knows you by.
+
+A leaderboard row's last error message is dropped, because a provider's error
+text can name your account or organisation. The Output panel says how many
+details were replaced. As with keys, if one could not be removed, nothing is
+written.
+
+Because of that, an import ends by asking for keys: a window lists every
+provider the file uses, with one key field each, and says whether you already
+have a key stored for it. Type your own key, or leave the field empty to keep
+the stored one, or press **Later** and add it in the Model Providers Manager.
+
+Importing **merges** — nothing is deleted:
+- each provider's endpoint is replaced by the imported one;
+- an agent with the same name is overwritten, but keeps its local identity, so
+  its companion links stay valid;
+- a leaderboard row is replaced only by a more recent test of the same model.
+
+Agents need an open project; with none open, only the providers and the
+leaderboard are exported or imported. Agent files larger than 1 MB, and files
+that are not text, are left out of an export, and the Output panel names them.
+
+> ⚠️ **Caveat — read before you share.** Only the credentials and personal
+> details listed above are removed. A password, a colleague's address or a
+> customer's name pasted into an agent's prompt or knowledge files travels with
+> them. The file is plain text: read it before you share it.
+
+**When a call fails.** The error window opens with the reason on its own line at
+the top, above a rule, and the full connection log underneath. The headline is
+the provider's own sentence, quoted — *"You exceeded your current quota, please
+check your plan and billing details"*, *"'temperature' is not supported with this
+model"* — with the request field or error code it named shown beneath when the
+sentence does not already say them. The log below is unchanged and complete;
+**Copy** and **Save…** take the whole thing, not the headline. An error whose
+payload carries no such sentence gets no headline: you are never shown a summary
+of something that was not said.
+
+**Note — reasoning models pass the test.** *Test* asks one question: is this
+model reachable and answering? Some models think before they speak and return
+only hidden reasoning on a request this small — the endpoint resolved, the key
+was accepted, tokens came back, but no visible text did. That counts as a pass,
+and the result says so. It is only the agents that need visible text: they parse
+a reply into form operations, and reasoning they never see cannot be applied —
+so a model that answers agents with hidden reasoning alone is still reported as
+unusable *there*, with the same advice to turn thinking off for it.
+
+The provider panel on the right **scrolls** — endpoint, key, models and *Where
+keys are kept* are all reachable however short you make the window, and the
+provider list on the left scrolls independently of it.
+
+Provider configuration is **machine-wide**, stored beside your other
+machine-local settings rather than in the project. Configure Anthropic once and
+every project on this machine can use it. The API key is **never** written into
+a project file, generated COBOL, or a compiled or packaged application. A local
+Ollama needs no key at all — a reachable endpoint is enough.
+
+> **Note.** This replaces the older *Models Manager*, where a connection was
+> defined once per *model* as a named "model profile" and agents referenced it.
+> Using a second model from a provider you had already paid for meant building
+> a whole second profile and pasting the same key again.
+>
+> **Your existing projects migrate themselves.** The first time you open one,
+> each agent takes over the provider, model, temperature, output-token cap and
+> timeout of the profile it referenced, and each provider is configured from
+> what those profiles knew. Nothing is asked of you and nothing needs
+> re-entering. ⚠️ One provider can now hold **one** key, so if you had several
+> profiles on the same provider with *different* keys, the most recently stored
+> one is kept and the others are named in the Output panel — re-enter one in
+> the Model Providers Manager if it was the one you wanted.
+
+#### Where your keys are kept
+
+By default a key lives for **one run**. Nothing is written to disk, and the next
+time you open the IDE it asks again. That is deliberate — a key on disk is a key
+that can be copied, backed up or committed — but it is tedious, so at the foot of
+the Model Providers Manager you decide for yourself:
+
+
+| Choice                      | What happens                                                                                                                                                                                                                              |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Not kept**                | The default. Keys live in this process only, and are asked for again next run.                                                                                                                                                            |
+| **A local file**            | The whole model configuration, keys included, is written to a file you name. Created owner-readable only (mode `0600` on macOS and Linux) and carrying a plain-text warning at the top. Reopening the IDE picks the keys straight back up. |
+| **The OS credential store** | Your platform's own vault — Keychain, Credential Manager, Secret Service. Offered but **not selectable yet: it ships in the official release**, once it has a UI that can inspect, rotate and clear what it holds.                                         |
+
+**A file may never live inside a git repository.** This is not a preference and
+there is no override. If the path you choose sits anywhere under a `.git` — at the
+repository root, buried ten folders down, or in a submodule or `git worktree`
+checkout — it is refused, and the refusal names the repository so you know which
+one you hit. A committed key is published, and a published key cannot be taken
+back.
+
+`/tmp/llm_config.json` is offered first for exactly that reason: nothing in `/tmp`
+can be committed, and it does not survive a reboot — which for a credential is a
+feature. Click a suggested path or type your own, press **Use this file**, and the
+keys are written when the configuration is saved. **Forget the file** deletes it
+and goes back to not keeping keys at all.
+
+The machine-wide configuration file is unchanged: it still carries **no
+credential**, only your choice of where keys go and the path you picked. Deleting a
+key in the manager still deletes it — an explicit deletion always beats a file that
+remembers.
+
+> ⚠️ **Caveat.** A file holds your keys in clear text. It is protected by file
+> permissions and nothing else: anything running as you can read it, and it will be
+> in any backup that copies the folder. If that is not acceptable, leave the choice
+> on **Not kept** until the OS credential store arrives in the official release.
+
+**Agents Manager.** The *AI agents* row opens the project's provisioned agent
+database, in three tabs.
+
+**Tab 1 — Agent × Model.** One row per agent — Grace, every specialist, every
+reviewer and the COBOL Proficiency Judge — with the things that decide how that
+agent runs.
+
+
+| Column            | Meaning                                                                                                                                                                      |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Agents**        | The agent the row configures.                                                                                                                                                |
+| **Models**        | Which model it runs on, chosen from the provider selected in the **Model provider** box above the table. Choose **— no model —** to leave an agent unconfigured on purpose. |
+| **Rating**        | What the Leaderboard knows about that model, or *Not tested* if it has never been benchmarked.                                                                                |
+| **Temp**          | Sampling randomness for this agent alone (0 = deterministic).                                                                                                                |
+| **Output Tokens** | The largest answer this agent may produce.                                                                                                                                   |
+| **Timeout**       | How long to wait for it, in seconds.                                                                                                                                         |
+
+The **Model provider** box is a *picker scope*, not a project-wide switch. It
+decides which provider's models the Models column offers while you are
+configuring, and changes no agent that you do not touch — so Grace can run on a
+cloud provider while your specialists run a local Ollama. Each agent remembers
+the provider its model came from. With hundreds of models on offer from some
+providers, the search box beside the picker narrows the list.
+
+A row whose model is reserved for another role shows a warning beside the agent
+name: a specialist may not run Grace's model, nor the Judge's. (The Judge *may*
+share Grace's model, as long as no specialist is on it.)
+
+**When a provider retires a model.** Models are decommissioned — Anthropic,
+OpenAI, Meta and the rest withdraw them on their own schedule — and a rank for a
+model that no longer exists is worse than no rank: it invites you to choose it.
+So a refresh in the Model Providers Manager that comes back with a catalogue also
+takes off the Leaderboard any of that provider's models the catalogue no longer
+lists, and says which in the Output pane.
+
+Only a refresh that **actually listed models** can do this, and only for the
+provider it listed. A failed request, an expired key and a provider you have not
+refreshed yet all produce an empty list, which says nothing about what exists —
+so an empty result removes nothing at all. You can also retire a model yourself:
+each Leaderboard row has **Remove**, for the case where a provider has shut a
+model down before its catalogue has caught up. It asks first, because a rank
+costs real tokens and real time.
+
+If an agent was running the model that went, the Agents Manager opens on that
+agent so you can give it another one straight away — an agent pointing at a
+withdrawn model is the part that actually breaks a run, and finding out at the
+next workflow, as a connection error, is the expensive way to learn it.
+
+A removal sticks: a retired model is not put back by the next project sync, and
+not by the replay of archived benchmark reports either. Your archive in
+`agentic_ai/model-benchmarks.jsonl` is untouched — those reports are the record
+of what you ran and paid for, and none of this deletes them. **Testing a retired
+model again brings it back**, with its new result, so a retirement you disagree
+with costs one run to undo.
+
+**Tab 2 — Agent Configuration.** The agent list on the left drives the detail
+pane on the right: **Agent Details** (id, name, kind, specialisation, purpose,
+enabled), the prompt editor, capabilities, knowledge and relationships.
+
+**Tab 3 — User Guide.** A written guide to how models and agents fit together,
+in your interface language. Each of its four sections opens with a plain
+explanation, then goes deeper, then states the precise version — read as far as
+is useful and stop. It covers pairing agents with models and the sharing rule,
+what each setting does, why your strongest model belongs on the reviewers and
+the Judge rather than the writer, and the vocabulary (models, agents, Pedantic
+reviewers, the Judge, tokens and what they cost, local models, quantization,
+and why VRAM is the number that decides whether a local model is usable).
+Search highlights matches and steps between them, the text size is adjustable,
+the table of contents jumps, and **Export PDF** writes the whole guide out.
+
+The footer carries **Cancel**, **Apply** (save and keep working) and **Save**. The internal `agentic_ai/` directory is intentionally hidden from
+the project tree; use Agents Manager for agent configuration while Grace keeps
+its workflow records there automatically. The prompt editor is vertically
+resizable from four to twenty text rows; longer prompts scroll inside the
+editor rather than increasing its height. **New Agent** and **Delete Agent**
+are currently hidden because the complete built-in mesh is created and repaired
+with the project. Both workflows remain implemented for future maintenance.
+An agent lives in your project at `agentic_ai/<agent name>/` — the multi-line
+agent prompt in `<agent name>_prompt.md`, plus `steering/`, `policies.md`,
+`skills/`, `mcp.json`, `knowledge/`, and `agent.json` (identity and runtime
+configuration — the API key is **never** stored in the project; keys stay on
+your machine, asked once per model). Agent names are unique and fixed at
+creation, because they name the folder. Every primary agent may name a
+**pedantic companion** that reviews its responses. Any agent may use any
+model — a companion may run on the very model of the agent it reviews, since
+what makes the review independent is its own prompt and its own separate call. The relationship is one-to-one: an orchestrator or specialist can have
+at most one Pedantic companion, and a Pedantic reviewer can belong to at most
+one reviewed agent. Select the relationship from either the primary agent's
+**Companion (Pedantic reviewer)** section or the Pedantic agent's editable
+**Pedantic Companion for** section; both selectors write the same project
+configuration. Grace's planner and the participating agents receive the exact
+relationship at runtime, so a reviewer cannot be substituted or reused for a
+different agent. Project creation provisions the fixed specialists — the
+**Form Designer Agent**, **COBOL Event Handler Script Agent**,
+**Documentation Agent**, **Data (Indexed File) Agent**, and **Version Control
+Agent** — plus **Grace**, the orchestrator. Each is immediately followed by its
+own reviewer, whose canonical name is the primary name suffixed with **Pedantic
+Reviewer**:
+
+- **Grace Pedantic Reviewer**
+- **Form Designer Agent Pedantic Reviewer**
+- **COBOL Event Handler Script Agent Pedantic Reviewer**
+- **Documentation Agent Pedantic Reviewer**
+- **Data (Indexed File) Agent Pedantic Reviewer**
+- **Version Control Agent Pedantic Reviewer**
+
+Every reviewer is created with a purpose-specific prompt, description, routing
+contract, and one-to-one companion link. The developer selects its model
+profile and may tailor its prompt, skills, tools, and knowledge; no reviewer
+must be built or associated manually. Opening an existing project runs the same
+idempotent repair: a missing built-in reviewer is recreated and relinked, while
+non-empty project prompts and other developer configuration remain
+authoritative. Older reviewer names are migrated in place without changing
+their stable IDs or selected profiles.
+
+Grace remains the single coordination
+authority (👑, always named Grace, never deletable) that plans multi-agent
+work, delegates to specialists by kind and specialization, enforces every
+pedantic review gate, and assembles the final validated result. The default
+prompt for **Grace Pedantic Reviewer** reviews request coverage, task
+decomposition, ownership, dependencies, documentation governance, evidence,
+cross-agent integration, failures, and completion claims. The project-local
+reviewer prompts remain editable in Agents Manager and fixed-agent repair
+preserves those edits. Give each reviewer a model in the runtime table before
+enabling its review connection; a primary and its Pedantic companion cannot use
+the same model.
+
+**When Grace asks instead of acting.** A request that admits more than one
+reading gets a question rather than a guess — a red balloon in the same chat,
+naming exactly what is ambiguous. Answer it in the same box, as briefly as you
+like ("the Caption", "UUID", "aas-clientes"): the answer goes back carrying the
+question it answers, so Grace resumes the original request with your decision
+applied. You do not have to restate what you asked for. If you type something
+else instead, that becomes the request and the questions are dropped.
+
+The built-in routing contracts are explicit: Form Designer Agent owns RAD form
+design and delegates event implementation; COBOL Event Handler Script Agent
+implements those exact delegated behaviors; Documentation Agent alone writes
+project documentation and prepares normalized indexed-file schema handoffs;
+Data (Indexed File) Agent alone maintains `.cidx` definitions through the
+Indexed File UI model; Version Control Agent owns evidenced project Git
+operations and confirmation gates; and Grace Pedantic Reviewer reviews only
+Grace's orchestration. Each agent receives a role-specific default prompt.
+Empty or known legacy defaults are repaired,
+while non-empty project-edited prompts remain authoritative. Existing
+`DocumentationAgent`, `Pedantic Grace Reviewer`, `Grace Pedantic Reviewer Agent`, `Pedantic UI Agent`, and `Pedantic COBOL Companion` records are renamed
+on disk without changing their stable IDs or their models. A redundant
+`Orchestrator Pedantic Reviewer Agent` is merged into **Grace Pedantic
+Reviewer** and removed.
+
+The **👑 Grace** button above the project tree fills the current tree-pane width
+(with a 150 px minimum) and follows the pane when you resize it. It opens a
+project-scoped conversation in the Main Pane, with persistent history, workflow
+progress, and approval controls for gated operations.
+Its property-pane header identifies it as
+**👑 Grace - The PowerRustCOBOL Agentic AI Orchestrator**.
+
+**Choosing where things go.** Because the project tree supports folders, a name
+can exist in more than one place. When you ask Grace to **create** an element
+(a form, indexed file, common-code source, documentation file, or asset), it
+opens a small centered window showing the project tree so you pick the
+destination **folder** — you can also create a new folder there on the spot.
+When you ask Grace to **edit** an element by name and more than one element
+shares that name, the same window lets you pick **which one**; if only one
+matches, Grace just edits it. Cancelling the window stops the operation, and
+Grace reports that nothing was created or edited. (This prompt appears in the
+full project Grace chat; the compact editor/designer chat surfaces cannot show
+it, so an ambiguous request there asks you to use the project Grace chat.)
+
+Every IDE chatbot routes through Grace. The surface supplies an advisory
+preference: the RAD Form Designer prefers the Form Designer Agent, its event
+editor prefers the COBOL Event Handler Script Agent, and the code editor asks
+Grace to select by capability. The preference is never exclusive. Grace can
+split a request across any enabled specialists, so a request to create a button
+and wire its `onClick` behavior can coordinate both form-design and event-handler
+tasks. Each workflow runs its configured pedantic reviews, streams progress,
+and saves an auditable record under `agentic_ai/Grace/runs/`.
+
+**Live action status.** While Grace and the specialists work, the conversation
+shows what each agent is *doing* right now as a short status line — for
+example `Form Designer Agent: Drafting response — T1` or
+`Grace: Retrieving context` — updated at most once per second so long runs
+never look stuck. Every step also lands in an **Agent actions (N)** entry that
+stays collapsed in the conversation; expand it to review the ordered,
+per-agent sequence of steps the run took, and it is saved with the chat
+history and the workflow record, so it remains reviewable after you reopen the
+project. Status lines name **actions only** and are shown in your interface
+language. The content an action produced or consumed — retrieved knowledge,
+tool output, model reasoning — never appears in the conversation: the full
+trace lives in the Output panel's AI log, the diagnostics dump (when a debug
+switch is on), and the saved run record under `agentic_ai/Grace/runs/`. With
+the project's **verbose** AI setting enabled, the action stream gains finer
+steps (per tool call, per review round) — more granularity, still never
+content. Verbose mode also appends a **Token savings** line to the
+conversation after each run — the percentage of the indexed Knowledge Base
+corpus that retrieval kept *out* of the context (retrieved records vs. the
+whole corpus, estimated at ≈4 characters per token) — so you can see what the
+retrieval layer is buying you.
+
+**Chunked retrieval.** Knowledge Base documents are indexed twice: whole
+documents (for document management) and as a **chunked store** where every
+control, property, method, event, and prose section is its own record with a
+`PIC X(512)` content field — longer content continues in records linked to
+the previous one, and search reassembles the chain. Each record's text is
+embedded individually, so when you ask Grace about, say, DataGrid events, the
+context receives the DataGrid records — not the whole controls catalogue.
+The IDE's own reference material lives in `~/PowerRustCOBOL/data/chunked.data`;
+each project keeps its documentation in `data/<project-name>-chunked.data`.
+Saving, editing, or deleting a Knowledge Base document keeps the file itself
+untouched and re-chunks and re-embeds only that document's records on the
+next run.
+
+The IDE's chunked store **ships inside the IDE itself**, pre-embedded with
+the semantic model: a fresh clone or install starts with its index ready and
+never re-embeds the reference material unless a Knowledge Base document is
+removed, changed, or replaced. On a machine that has not downloaded the
+semantic model yet, the shipped records are preserved and searched lexically
+until the model arrives — nothing is thrown away. Whenever records do need
+(re)embedding — a changed document, or your own project documentation — the
+conversation shows a **progress bar** (`Indexing Knowledge Base (n of m records)`) so a long index never looks stuck.
+
+### Project-wide code search
+
+If you maintained applications in PowerCOBOL you will remember the routine:
+"where else did I use `CUST-BALANCE`?" meant opening every sheet and every
+event procedure by hand. PowerRustCOBOL answers it in one window: **View ▸
+Code Search…**, the 🔍 **Search** toolbar button, or **Ctrl+Shift+F**
+(**Cmd+Shift+F** on macOS) opens the search window; the plain **Ctrl+F**
+keeps its old meaning, find in the current editor tab.
+
+Type a plain-text query and press **Search**. The scan covers **every place
+you can write COBOL** in the project: every control event handler, every
+form's `onLoad`/`onClose`, every user procedure, the five structure sections
+(`SPECIAL-NAMES`, `REPOSITORY`, `FILE-CONTROL`, `FILE SECTION`,
+`WORKING-STORAGE`) of every form — open forms are read from their **live,
+even unsaved** text — plus every Common Code file.
+
+- Results are grouped by form, then by site, each row showing the line number
+  *within that handler or section* and the matching line with the match
+  highlighted, and the totals line counts occurrences and distinct sites.
+- **Case sensitive** and **Whole word** are both off by default. Whole word
+  understands COBOL words: `BAL` does not match inside `CUST-BAL`.
+- **Double-click** a result and the IDE opens the owning editor — the event
+  modal, the COBOL Structure window, or the code editor for Common Code —
+  with the caret on that line, opening the form's designer first if it was
+  not open.
+- The window is yours until you close it: it stays open while you jump
+  around, edit, and re-Check, resizes only when you drag its corner grip,
+  and closes only on its **✕** or **Cancel**.
+
+What it deliberately does **not** search: generated `.cbl` files (build
+artifacts — every hit in one is a duplicate of a hit at its real site) and
+the deleted-code recycle bin.
+
+<!-- 📷 code-search.png — The search window over a project, showing grouped results with highlighted matches and the totals line. -->
+<p align="center"><img src="../assets/images/screenshots/code-search.png" alt="The search window over a project, showing grouped results with highlighted matches and the totals line" width="900"></p>
+
+### Window effects
+
+Every project can give its windows a signature **entrance and exit effect**,
+configured once in the project settings (Appearance section) and applied to
+**all** the project's forms: pick an effect, a duration (100–3000 ms; the
+Matrix rain uses its own 1500–4000 ms band, and Transporter II is fixed at
+exactly 4000 ms) and an easing for each
+direction. The catalogue ranges from classic transitions — fade, a
+dBASE-style box **zoom**, slides, expand-from-title-bar — through masked
+reveals (**radar wipe**, iris, venetian blinds, checkerboard) to the
+**Matrix falling code** rain (classic katakana and digit glyphs falling in
+from above the top edge over a completely see-through window; each line's
+end of trail — the faint top glyph — walks down its band and progressively
+uncovers what stands behind it, so the form is complete exactly when the
+last character leaves. Lines arrive on a real clock, the first ones 25 ms
+apart and the rest 10–25 ms behind each other at their own speeds; this one
+effect ignores the easing setting and runs on linear time), a
+genie-style squash, and **Transporter II**. New projects start with the
+Matrix entrance and no exit effect; projects created before this feature keep
+instant windows until you choose otherwise.
+
+**Transporter II** is a cinematic materialisation reveal, and the one effect
+with a fixed length: it runs for exactly **4000 ms**, in two phases.
+
+1. Two thin horizontal beams, each about half the form's width and
+   horizontally centred, start **overlapped on the vertical centre line** and
+   separate — one climbing to the top edge, one falling to the bottom. The gap
+   opening between them fills with a dense cloud of white and yellow particles
+   that flicker, drift and glow at varying opacity: an energetic but wholly
+   transparent materialisation field.
+2. As the horizontal beams land on the edges they fade out, and two
+   **full-height vertical beams** fade in at the horizontal centre. Those sweep
+   outward to the left and right edges, and your form is revealed in the band
+   widening between them, the particle cloud dissolving wherever a beam has
+   passed. Through the closing stretch the particles, the glow and the beams
+   themselves ease down to nothing, so the light is gone at the instant the
+   beams reach the borders and the finished form stands alone.
+
+Every beam is a layered translucent gradient — white on its axis, warm yellow
+at its flanks, wrapped in a soft bloom — never a solid bar or a hard-edged
+line. The effect plays over a see-through window, so the form is revealed
+against your desktop rather than against a filled rectangle. As an exit it runs
+the whole sequence backwards and **dematerialises** the form, which makes it
+the one effect worth setting in both directions: the same beams that put a
+window on screen take it away again.
+
+> **Note.** The duration spinner is fixed at 4000 ms for this effect, and the
+> easing setting does not apply — the two phases, the beam hand-over and the
+> final fade are all cut to that one clock, and stretching or easing it would
+> slide them off their beats. This is the same reasoning that makes the Matrix
+> rain run on linear time.
+
+While an entrance or exit effect runs, the window wears **no title bar**, so
+nothing stands still while the animation plays; the bar arrives together with
+the finished form (and only if that form was designed to show one). The
+effects that simply move, scale or fade the form's own face — fade, zoom, the
+slides, expand-from-title-bar and genie — go further and open a **see-through
+window**, so the form animates loose on the desktop, and so do the Matrix
+rain (it paints the form only down to each falling line's tail, so untouched
+ground is never painted at all) and Transporter II (it reveals the form by
+clipping to the band between its beams, so ground the beams have not reached
+is never painted either). On those windows the form's **Transparency**
+property also reaches the desktop for real, and macOS draws no drop shadow
+around the window (it would outline the invisible window, and the platform
+only offers that switch when the window is created). Only the masked reveals
+keep an opaque window: they hide the form by painting covers over it, which
+nothing transparent can undo.
+
+Forms never pick their own effect — one look per project — but any form can
+**opt out** with the `WindowEffects` checkbox in its Form properties (a modal
+alert can appear instantly while the rest of the app animates). The entrance
+plays on a window's first opening; enable **"Play entrance when restored"**
+to also replay it when the user restores a minimized window (a visual replay
+only — no form events fire). Control load-time animations wait for the
+entrance to finish, so the window materialises first and the controls come
+alive immediately after; the COBOL `onLoad` timing is unchanged.
+
+A control that *has* a load-time animation is **held back until the entrance
+finishes** — it is not painted into the entrance at all, and it arrives under
+its own power the instant the effect ends. That is what you want: a button set
+to fly in from the left should not already be sitting in place while the window
+materialises, only to jump back to the left edge and travel in a second time.
+Controls with no load animation appear with the window, as always.
+
+> ⚠️ **Before 1.61.5** every control was painted into the entrance, so an
+> animated one did materialise with the window and then fly in again. If you
+> designed around that by giving a control a delay, remove the delay.
+
+An exit effect plays before the window actually closes — but a form in
+`Waiting` FormState refuses the close *before* any animation, so a vetoed close
+plays nothing, and `onClose` still fires exactly once at the real close.
+
+Effects play in **every host of your form**: Run Form from the IDE and the
+**built application** alike (both run the same window host, so what you see
+under Run Form is what your users see from the executable in `dist/`). The
+settings travel into the binary at build time — a shipped application needs
+no project file beside it. The same is true of the designed **window
+properties and lifecycle**: the built application opens with the form's own
+title (falling back to *"AppName vVersion"* only when the designed title is
+blank), honours `TitleVisible`, the minimize/maximize buttons, full screen,
+the opening WindowState and StartPosition, closes its window when the program
+ends (through the exit effect, when one is set), and fires
+`onShow`/`onActivate`/`onClose` exactly as Run Form does.
+
+Two practical notes. Effects paint inside the window: with the native title
+bar visible, the animation covers the content area; a chromeless form
+(`TitleVisible` off) with transparency gives an effect the whole window
+rectangle. And a machine-wide kill-switch lives in **Help → Debug Settings →
+"Disable window effects"** — instant windows everywhere without touching any
+project, for motion sensitivity, weak GPUs, or automation
+(`PRC_NO_WINDOW_FX=1` does the same for a bare `rcrun run-form` **or a built
+application**, which honours the same variable).
+
+**Embedding device.** One policy covers the System KB and every project KB,
+for indexing and searches alike: when a supported GPU is available the
+embedder uses it at **full speed** — Metal on macOS, CUDA on NVIDIA
+Linux/Windows (a build made with the `embed-cuda` option) — and otherwise it
+falls back to the CPU in **low-power** mode, capping its compute threads at
+two so a long reindex stays quiet instead of pinning every core. Power
+users can override either side: set `RAYON_NUM_THREADS` to choose the CPU
+thread count, or `PRC_EMBED_DEVICE=cpu|metal|cuda` to force a backend (a
+forced GPU that fails still falls back to the CPU rather than crashing).
+The active device is shown in the Models modal next to the semantic model's
+status, and printed by the command-line reindex (`embedding device: …`).
+AMD and Intel GPUs on Linux/Windows are not supported by the inference
+backend and use the CPU path.
+
+When the agent **repositions controls** on a form, the affected controls
+**glide** from their old places to the new ones — all at once, over about a
+second — so you can see the layout change take shape instead of the controls
+jumping. A control the agent **creates** announces itself the same way: it
+plays a one-time **ZoomOut** pulse over a second — full size, dipping to about a
+quarter, back to full size — so you can see at a glance what is new on the form.
+Everything one request creates pulses together, on the same clock as the moves,
+so a single change-set reads as a single gesture. A control the agent merely
+re-sends (agents routinely repeat a whole change-set) does not pulse again.
+
+Both animations are purely visual: the form, its saved `.cfrm` and its generated
+code hold the final positions and the finished controls immediately, and the
+pulse is never written into the control — it does not follow your form into the
+built application.
+
+**What happens the moment you press Send.** In the Form Designer's AI Assistant
+the workflow does not start straight away: Grace first reads your request back
+for clarity, rewriting it into the wording the specialists will be held to and
+marking any passage that still reads two ways. That pass takes as long as a
+model call takes, and while it runs the pane says so — a spinner and *Grace is
+reviewing the request…*, in the IDE's language, both on the row under the prompt
+box and as the last balloon in the transcript. When it finishes you get the
+review to read, edit and approve; only then does the work begin. A review that
+fails or comes back unreadable costs you nothing: your request is sent exactly
+as you wrote it.
+
+Every chatbot composer keeps **Send** immediately to the right of its prompt.
+The prompt consumes the remaining width while the command stays visible as the
+chat pane is resized; multiline composers do not move Send to a row below.
+Completed agent-response balloons include icon-only **Copy** and **Save as
+Markdown** commands with hover tooltips. Save opens in the current project's
+`Knowledge Base/` folder, requires the destination to remain inside that folder,
+writes a `.md` file, indexes it in the project's vector Knowledge Base index, and
+refreshes the Knowledge Base branch of the project tree. Developer messages,
+static welcome text, and in-progress streaming balloons do not show these
+response actions.
+
+Grace distinguishes read-only conversation from project work. Capability and
+help questions such as **What can you do?**, together with requests to describe,
+explain, summarize, compare, suggest, or recommend, receive a direct Markdown
+response without creating a synthetic workflow. Markdown is the expected
+chatbot format for these passive requests and is not rejected for lacking
+workflow JSON. If a request also asks Grace to create, modify, save, delete,
+implement, or otherwise change project resources, it requires executable
+workflow JSON. Named project agents use only their project-defined prompts;
+mesh transport never appends an unrelated
+CodeGenerator, FormsDesigner, or EventBinder preamble. If an actionable request
+returns malformed workflow JSON, Grace receives one explicit correction
+request. A second malformed result opens the error modal and records both
+parser failures plus the complete corrected payload in the IDE log.
+
+<!-- 📷 project-grace-chat.png — Show the width-responsive 👑 Grace button above the project tree and the project-wide Grace conversation open in the Main Pane, including transcript, prompt, and conversation controls. -->
+<p align="center"><img src="../assets/images/screenshots/project-grace-chat.png" alt="The Grace button above the project tree, with a project-wide Grace conversation open in the main pane" width="900"></p>
+
+An empty Grace conversation opens with practical examples for Indexed Files,
+CRUD forms, data-bound DataGrids, and the plan → tasks → implementation workflow.
+For durable project documentation, Grace always delegates to the fixed,
+non-deletable **Documentation Agent**. It is the only specialist allowed to
+format, create, or update project documentation. Domain specialists prepare the
+authoritative source material; Grace expresses that handoff as task
+dependencies, and the workflow supplies each approved source output to the
+Documentation Agent. For example, a request to document a form first asks the
+Form Designer Agent for the controls, layout, bindings, and events, then asks
+the Documentation Agent to format and save that approved material. The
+Documentation Agent must not invent missing domain facts.
+
+The Documentation Agent can create, read, and list text documents only under the
+project's `Knowledge Base/` folder. Successful writes are
+immediately tracked by the project and indexed in the project-local vector
+index at `data/project-knowledge.redb` (pure Rust, embedded). Grace validates this
+coordination structure before execution and requests one corrected plan when a
+documentation workflow assigns writing to another specialist or omits a
+required source dependency.
+
+Two Knowledge Bases are searched, never one. The **System Knowledge Base** is the
+platform's own reference — controls with their properties, events and methods,
+the RustCOBOL extensions, form themes, the layout model, the project model — and
+it lives outside every project, so it is never copied into yours. The **project
+Knowledge Base** is your own material: the documents you and Grace write under
+the project's `Knowledge Base/` folder. Before every Grace request, including a
+read-only question, the IDE synchronizes both indexes and searches both;
+excerpts arrive labelled with the store they came from, and Grace cites a
+project-relative path only for your own documents.
+
+Relevant excerpts take precedence over general model training, and when neither
+Knowledge Base holds relevant evidence Grace says so, labels any general
+guidance, and asks for missing project facts rather than inventing them. Every
+specialist receives governed, read-only `knowledge.search` access over the same
+two stores, so a platform fact and a prior project decision are both retrievable
+in later work. Grace herself does not search: she plans in a single call to her
+model, from the excerpts retrieved before she starts, and when a question needs
+an entry those excerpts missed she gives the lookup to a specialist as a task.
+Every search she made on her own cost another full pass of her prompt through
+the model, which is minutes on a slow reasoning model.
+
+Indexed-file work uses a mandatory two-specialist handoff coordinated by Grace.
+Documentation Agent first obtains a missing file name, derives the file purpose
+from the request, searches project knowledge, and analyzes the structure under
+First (1NF), Second (2NF), and Third (3NF) Normal Forms. It identifies every
+helper indexed file needed to remove repeating groups, partial dependencies, or
+transitive dependencies. For each ID field it asks the developer to choose
+**UUID** or provide an exact COBOL **PIC** definition; the agents never select an
+ID representation by assumption. Missing decisions produce a clarification
+instead of a file mutation.
+
+Preparing, proposing, or normalizing this schema handoff is Documentation
+Agent analysis, not indexed-file mutation. Only an actual `indexed_file.write`
+or explicit `.cidx` save is mutation reserved for Data (Indexed File) Agent.
+
+After that schema handoff passes Documentation Agent's Pedantic review, Grace
+delegates each definition to **Data (Indexed File) Agent**. This specialist can
+list, inspect, and write indexed definitions only through governed
+`indexed_file.*` tools backed by the same model used by the Indexed File UI. A
+successful write validates the record and keys, saves the `.cidx`, regenerates
+the indexed COBOL and copybooks, initializes data only when the assigned data
+file does not already exist, and refreshes the project's Indexed Files tree.
+Existing indexed data is never truncated during schema maintenance. Each helper
+relation is a separate definition. A finalized definition keeps the Indexed
+File UI's structural lock; the developer must explicitly unfinalize it in the
+UI before an agent can change its schema. Every result must pass **Data (Indexed
+File) Agent Pedantic Reviewer** before Grace reports completion.
+
+**What Grace sees of a menu.** A SideMenu's or MenuBar's items are not
+properties of the control: they are the tree you build in its menu editor,
+stored in `<control id>.menu.yaml` beside the form. Grace and the specialists
+are shown that tree, item by item, with each item's id and action, so a request
+such as "which form does *Samples → Responsive Layout → Responsive: grid*
+open?" is answered from your real menu. Agents cannot yet rearrange those
+items. A request to reorder, move or rename them gets an explanation that the
+menu editor does it, not a change.
+
+**Specialists execute their tools.** Under Grace, agents don't just describe
+work — they carry it out, but only through governed, evidenced channels. An
+agent may call only the tools it has been granted (its `mcp.json` / capabilities);
+an undeclared or invented tool is treated as a critical defect that fails the
+task. When the **Form Designer Agent's** work is *approved* by its pedantic
+companion, its result is applied to the open form as **one undoable change**
+through the same reviewed preview/apply path you use by hand — never by silently
+rewriting the form. The Form Designer can also *look* at the live form (a
+read-only view of the rendered widgets) to check its work; it never edits by
+driving the UI. The **Version Control Agent** runs real Git **inside your open
+project's repository only** (never PowerRustCOBOL's own): everyday, local
+operations (status, diff, log, add, commit, branch, checkout, stash) run on their
+own, while anything that reaches the network or rewrites history — push, fetch,
+pull, rebase, `reset --hard` — **pauses for your explicit approval**, showing you
+the exact command before it runs. Every tool call, with its real output and exit
+status, is recorded in the workflow record; a command that fails is reported as a
+failure, never glossed as success.
+
+A **Test connection** button sends a tiny request to your endpoint and reports
+whether the model is reachable and the key/model are accepted — use it to
+confirm the setup before relying on it. The request goes to the model in use
+when this provider offers it, otherwise to the provider's first model, and the
+answer names that model. A provider that answers **402 Payment Required** has
+accepted your key and refused only that model — a paid model outside a free
+plan, typically — so the test reports the connection as good and says the
+model is not in your plan: choose another model, or add credits with the
+provider. The assistant becomes available as soon
+as **Endpoint URL** and **Model** are both set. Clear the endpoint to hide it
+again.
+
+**Using it.** Open a COBOL file, type a request in the prompt bar (for example
+*"add a paragraph that totals WS-LINES and DISPLAYs it"*), and press **Send**.
+The model receives, in this order:
+
+1. your **standard system prompt**;
+2. the **conversation history** for *this file* (it is remembered between
+   sessions, per source file);
+3. your **request** together with the **current source** of the file.
+
+When the reply arrives, PowerRustCOBOL extracts the COBOL from it and **updates
+the editor buffer in place** — so you can immediately review, tweak, run, or
+undo (Ctrl/Cmd-Z) the result like any other edit. The running transcript is
+shown under the prompt bar (💬), and **Clear conversation** (🗑) forgets the
+history for that file. Read-only Generated Code is never modified.
+
+**Also in the inspector.** The same prompt bar appears above the inline
+form/control inspector, with the form's **generated COBOL** as its (read-only)
+context — handy for asking how to wire an event handler. Because generated code
+is never hand-edited, replies there are shown in the transcript for reference
+rather than applied.
+
+**Where the conversation lives.** History is *not* kept in a hidden cache — it is
+stored in the project's `data/` folder in PowerRustCOBOL's **own indexed (ISAM)
+file** (`data/conversations.dat`), the very `ORGANIZATION IS INDEXED` format your
+COBOL programs use, keyed by the source file's relative path. (We dog-food our
+own runtime.) Conversations therefore travel with the project and require an open
+project to persist; without one, the assistant still works but only for the
+current session.
+
+```mermaid
+sequenceDiagram
+    participant Dev as Developer
+    participant Ed as Code editor
+    participant LLM as Your Large Language Model
+    Dev->>Ed: Type a request, press Send
+    Ed->>LLM: system prompt + history + request + current source
+    LLM-->>Ed: reply (COBOL in a code block)
+    Ed->>Ed: Replace buffer with the returned source
+    Dev->>Ed: Review / adjust / run / undo
+```
+
+<!-- 📷 ide-ai-assistant.png — The code editor with the AI prompt bar visible above it and an expanded conversation transcript. -->
+<p align="center"><img src="../assets/images/screenshots/ide-ai-assistant.png" alt="The code editor with the AI prompt bar visible above it and an expanded conversation transcript" width="900"></p>
+
+> **Privacy note.** Your prompt, the conversation history, and the **full source
+> of the open file** are sent to whatever endpoint you configure. Point it only
+> at a model you trust.
+### When a handler fails (`onUnhandledException`)
+
+A COBOL failure inside an event handler does **not** close your form. The
+failing handler is abandoned and the event loop carries on with the next event,
+so one bad path does not cost the operator everything on screen.
+
+Bind **`onUnhandledException`** on the form to take control. The details arrive
+as **`LastException`** on the form itself:
+
+```cobol
+       PROCEDURE DIVISION.
+           SET Lbl-Status::Caption TO me::LastException
+           DISPLAY "handled: " me::LastException.
+```
+
+Bind nothing and the operator sees a **critical notification** instead:
+
+> A critical exception has occurred: &lt;details&gt;. Implement the event handler
+> onUnhandledException to get better control over the exception.
+
+It never expires and carries the ✕ that dismisses it, and it needs no Snackbar
+control on the form.
+
+**An unguarded size error is an exception.** `COMPUTE`, `ADD`, `SUBTRACT`,
+`MULTIPLY` and `DIVIDE` raise the SIZE ERROR condition when a result will not
+fit — division by zero included. Declare `ON SIZE ERROR` and it is yours:
+
+```cobol
+           DIVIDE WS-A BY WS-Z GIVING WS-A
+               ON SIZE ERROR DISPLAY "cannot divide by zero"
+           END-DIVIDE
+```
+
+Declare nothing and nobody is handling it, so the statement raises an exception
+instead of leaving the receiver quietly untouched — which is how a wrong total
+reaches a report with no sign anything went wrong. A `TRY … CATCH` around the
+statement catches it like any other; with no `CATCH`, it reaches
+`onUnhandledException`.
+
+> ⚠️ An exception raised **inside** `onUnhandledException` is not handed back to
+> it — that would loop. It is reported like any other failure.
+>
+> This is forms only, and so is the size-error rule above. A console program
+> that fails still fails to its caller — it has no window to report into — and
+> an unguarded size error there keeps the standard's silence, because COBOL-85
+> leaves the result undefined when the phrase is absent and the CCVS85 suite
+> relies on being allowed to carry on.
+### The example projects (Help → Examples)
+
+**Help → Examples** lists one entry per example project:
+
+- **Help → Examples → PowerChat** opens a chatbot that supports both RAG
+  (Retrieval Augmented Generation) over your documents and real-time analysis
+  of data in indexed files. It is built 100% in RustCOBOL, and it can easily be
+  adapted and sold as a solution for bringing Generative AI to COBOL
+  applications. See *PowerChat — a chatbot to copy* below.
+- **Help → Examples → PowerDemo3** opens the project that carries one demo form
+  per toolbox control — every widget, wired and running, with its COBOL beside
+  it. It is the fastest way to see how a control is actually driven.
+
+The IDE finds each project itself, so you do not need to know where it lives:
+beside the executable in an installed build, or in the tree the IDE was built
+from when you are running it from source. Point `PRC_EXAMPLES_ROOT` at another
+copy if you keep one elsewhere. An entry is greyed out, with the reason on
+hover, when the build does not ship that example. Opening one from a read-only
+installation first copies it to `PowerRustCOBOL Examples` in your Documents
+folder, so that it can be built. A copy you already have is opened as it is and
+never overwritten.
+
+> **Note.** Opening it replaces the project you currently have open, exactly as
+> *File → Open Project* would. Save your work first.
+
+#### PowerChat — a chatbot to copy
+
+`examples/PowerChat` is a second, complete application rather than a gallery:
+a chatbot that answers questions about **one topic at a time**, from that
+topic's own documents, through a model the application's users choose. Copy it
+to start your own. Everything in it is COBOL in its twelve forms:
+
+| Form | What it shows you how to do |
+|---|---|
+| `chat-form` (main) | A SideMenu shell whose menu is designed in the menu editor, relabelled with `SetItemLabel` in the current language and held shut with `SetItemEnabled` until an agent has a model (and **Chat** / **New conversation** until a topic exists); **New conversation** asks which topic to talk about, through `pick-form`, starts a fresh conversation in it and shows the chat (`ActivateItem("chat")`); with no documents and no data files for the topic, the orchestrator's system prompt tells it to say it cannot answer about the user's data until one is added; every instruction the models get is the **main prompt**'s (edited in `prompts-form`): the orchestrator's system prompt is its `SYSTEM` section with the topic's prompt, the no-sources note and the report-template list filled in, and the other agents get its `ASSISTANT` section; a report is built from a **report template** — the orchestrator lists the templates in `data/templates.idx` (filled the first time from `samples/report-templates.txt`: Executive, the sober one, and ten infographic types — Informational, List, Timeline, Comparison, Map, Statistics, Flowchart, Hierarchy, Anatomical, Animated — each a page 80 % of the chat's width up to 1600 px unless the user asks for another; a stored template still exactly as an earlier version shipped it, per `samples/report-templates-previous.txt`, is upgraded when the chat starts, and one the user changed is kept), recommends the two or three that fit, and once the user chooses answers `TEMPLATE: <name>`, which the program answers with that template's HTML page and the `TEMPLATE` section; a template the user changes or describes comes back in a hidden `<!--REPORT-TEMPLATE … -->` block and is saved, with the answer's page as its skeleton, and cut out of the answer (with several agents, the planner answers `ASK:` instead of splitting the question when no template is chosen yet, and `TEMPLATE:` on the first line once one is); a **Getting started** row added at run time (`AddItem`) opens the welcome form, and on a first run the program opens it itself with `ActivateItem`. Every other form opens **embedded** in the ContentPane by its row's `open-form:` action (the RAG settings dialogs excepted — they are modal windows), and `onActivate` refreshes the chat when the operator comes back; a `Viewer` as a chat; three `AgentObject`s that elect an orchestrator and split the work (below) — up to 12 small tasks, queued over the agents that are not orchestrating, each result kept in `data/taskresults.idx`; a plan line `JOIN:` gives the parts as written, in task order, and a task that fails is named at the end of the answer instead of being dropped, grounded in a `KnowledgeBase` with `AllowKnowledgeBase`; conversations as run-time menu rows; token totals from `LastInputTokens` / `LastOutputTokens` |
+| `welcome-form` | The first-run screen — the name at 84 points, a robot, four steps — as a form of its own rather than controls hidden over the chat |
+| `topics-form` | **The CRUD pattern** (below): topics in a DataGrid with open, edit and delete icon buttons per row, each topic with its own Knowledge Base collection (`CreateCollection` on save, `RemoveCollection` on delete); sample topics installed from a plain text list and taken out again |
+| `documents-form` | The collection's documents as a `TreeView` built with `AddNode`, its folders kept in an indexed file so an empty one still shows; `onNodeSelect` points the `FileDropZone` at the chosen folder; `Refresh()`, and a progress strip — always in its own place, empty when idle — driven by `onProgress` / `onIndexed` |
+| `settings-form` | A summary, not an editor: four group buttons — **Knowledge Base folder**, **Model providers**, **Model selection**, **Agents** — each with a one-line account of what it holds beneath it, the model list, Export/Import and the status line. Each button opens its group as a **modal dialog** (`INVOKE ME::"OpenFormSync"("FORM-ID")`), and the summary reads the files again the moment the dialog closes. **Model selection** and **Agents** stay disabled until at least one provider connection exists. The whole setup is exported to and imported from XML — the export never writes a key, and an import stores any `key="…"` added by hand to a `<model>` with `COBOL::"KEY-SET"`. After every change it asks the main form to re-check its menu with `INVOKE super::"PC-REFRESH"()` |
+| `kb-folder-form` | The KB folder, typed or picked with `COBOL::"FOLDER-DIALOG"`; **Save** and **Cancel** at the top and at the bottom of the fields, both pairs calling the same `PC-SAVE` / `PC-CANCEL` |
+| `providers-form` | **The CRUD pattern** in a dialog: the connections in a grid (name, provider, endpoint, model, whether a key is set); Create/Update holds the name, the IDE's providers in a ComboBox (`COBOL::"PROVIDER-COUNT"` / `"PROVIDER-GET"`), the endpoint and the API key — stored with `COBOL::"KEY-SET"` and never shown again — and **Test connection**, which asks the provider for its model list (`COBOL::"MODEL-LIST"`). Deleting a connection also clears the agents that used it |
+| `model-form` | Opening it **connects**: the first connection's provider is asked for its models at once, and picking another connection asks again; the model, whether it calls tools and its rank are saved onto the connection and handed over with `COBOL::"MODEL-SET"`. Save/Cancel at top and bottom |
+| `agents-form` | One ComboBox per agent — **(off)** or a saved connection; Save/Cancel at top and bottom |
+| `prompts-form` | **The CRUD pattern** for the versions of a topic's system prompt, newest first with the active one marked; a promote icon button per row makes a version the active prompt after a confirmation, and the active version cannot be deleted. **Main prompt** switches it to the prompt every topic shares — every instruction the models get, in English, in named sections (`=== SYSTEM ===`, `ASSISTANT`, `NO SOURCES`, `PLAN`, `TASK`, `COMPOSE`, `TEMPLATE`) with `{…}` words the chat fills in — kept in the same version file under the topic id `*MAIN`; **Restore default** saves `samples/main-prompt.md` as a new version. The versions moved from `prompts.idx` to `prompt-versions.idx` (32,000-character texts) and are copied over the first time |
+| `files-form` | **The CRUD pattern** for a topic's own indexed files, registered by path with `RegisterFile`: each one is tried as it is saved, so a missing file or a `.cidx` that does not describe it is refused on the spot with its reason; the chat form registers the topic's files when it opens and names any it cannot use |
+| `confirm-form` | A yes/no question any form can ask: the caller sets `ConfirmText` (and translated `ConfirmYes` / `ConfirmNo`) on itself with `ME::"SetProperty"`, opens it with `OpenFormSync`, and reads `ConfirmAnswer` when it returns. Left unset, the question and both buttons show the dialog's own "Are you sure?", "Yes" and "No", in the user's language |
+| `pick-form` | "Choose one of these", the same way: the caller sets `PickItems` (one per line), `PickSelected` (0 = the first) and translated `PickTitle` / `PickOk` / `PickCancel`, opens it with `OpenFormSync`, and reads `PickAnswer` — the chosen item, 1 = the first, or 0 when cancelled. Left unset, the title and buttons show the dialog's own "Choose one", "OK" and "Cancel", in the user's language |
+
+**The CRUD pattern.** Every form that keeps a list of records — topics, data
+files, prompt versions, provider connections — is built the same way, so an
+operator learns it once:
+
+- a **TabControl** with two pages, **Browse** and **Create/Update**, turned from
+  COBOL with `MOVE 1 TO Tab-Crud::SelectedTab`;
+- on **Browse**, a **New** button above a **DataGrid** of the records; each row ends
+  in two icon buttons, a pencil and a trash can (`icon:pencil`, `icon:trash` in a
+  Button column), and `onCellClick` reads `ClickedRow` / `ClickedColumn` to know
+  which row's button it was; headings follow the language with `SetColumnTitle`;
+- on **Create/Update**, the fields between two identical pairs of **Save** and
+  **Cancel** buttons, at the top and at the bottom; **New** opens it empty, the
+  pencil opens it with the row loaded;
+- **Save** writes the record — `WRITE`, and on `INVALID KEY` a `REWRITE` — and
+  returns to **Browse** refreshed; **Cancel** returns without refreshing;
+- **Delete** asks first, through `confirm-form`.
+
+No control is ever hidden over another to be swapped in by a condition: what
+alternates lives in a form of its own.
+
+Its own data — settings, topics, conversations, their turns, the model list,
+registered files, prompt versions, document folders — is eight
+`STORAGE MODE IS DISK` indexed files, opened `I-O` (`OUTPUT` the first
+time) and committed as each change is made. Set `POWERCHAT_DATA` to keep them
+somewhere other than `data/`. The project's `README.md` walks through a first
+run.
+
+**Three agents, one answer.** Each of the chat form's three agents is given a
+model from the RAG settings, and each model entry says whether it **calls
+tools** and how well it **orchestrates** (a rank from 1 to 9). With one agent
+assigned, it answers alone. With more, they hold an election once per session,
+and again whenever a model changes (`onModelChanged`):
+
+- the highest rank orchestrates. If every agent runs the same model, one is
+  picked at random.
+- tool work goes to the best tool-capable agent that is not orchestrating. When
+  only one model can call tools, it does the tool work and the next-ranked agent
+  orchestrates.
+- the orchestrator alone gets the topic's system prompt. The others keep the
+  role prompt designed on them, and only the tool worker is offered the
+  Knowledge Base — the rest run with `ToolProtocol = None`.
+
+A question then goes through three stages, all in the form's COBOL. The
+orchestrator splits it into `TASK:` lines, the other agents work on them at
+once, and the orchestrator composes the answer from their results. The
+procedures to read are `PC-ELECT`, `PC-DISPATCH`, `PC-COMPOSE` and
+`PC-ON-REPLY`.
+
+**Sample topics.** *Install sample topics* on the Topics form reads
+`samples/samples.txt` — a line per topic, document and data file — and builds
+three example topics from it: Human Resources and Legal answer from their
+policy documents, and Orders also searches a small orders file registered by
+path. The documents are imported one after another, each import started from
+the previous one's `onIndexed`. *Remove sample topics* takes out exactly the
+topics it made (each is flagged in its record), their collections (moved
+aside, never deleted), their registered files and their prompt versions; the
+files in `samples/` are only ever read. Set `POWERCHAT_SAMPLES` to install from
+another folder. Adding a sample is a folder and a few lines of text — no COBOL.
+
+**Six languages, switched at once.** The six flags in the menu's footer are
+`PictureBox`es with an `onClick`; a click stores the choice and relabels the
+form on the spot, and every other form opens in it. The texts live in COBOL,
+not in the IDE: each form carries a translation table in its own
+WORKING-STORAGE — one row per text, one `FILLER` per language — laid over by a
+`REDEFINES` so a language is just a column number. A procedure copies that
+column into named items (`T-SEND`, `T-TOPIC-CREATED` …), which the handlers
+use wherever they used to write a literal, and moves the designed captions and
+hints back onto their controls:
+
+```cobol
+       01 PC-TEXT-DATA.
+      *>   SEND
+          05 FILLER PIC X(80) VALUE "Send".
+          05 FILLER PIC X(80) VALUE "Enviar".
+          ...
+       01 PC-TEXT-TABLE REDEFINES PC-TEXT-DATA.
+          05 PC-TEXT-ROW OCCURS 23.
+             10 PC-TEXT PIC X(80) OCCURS 6.
+      ...
+           PERFORM VARYING WS-TX-I FROM 1 BY 1 UNTIL WS-TX-I > 23
+               MOVE PC-TEXT(WS-TX-I, WS-LANG-IX) TO PC-TEXT-NOW(WS-TX-I)
+           END-PERFORM
+           MOVE FUNCTION TRIM(T-SEND) TO Btn-Send::Caption
+```
+
+A message with numbers in it is a pattern — `"Removed &1 sample topic(s)."`,
+`"サンプルトピックを &1 件削除しました。"` — and `PC-FMT` puts the values where each
+language wants them, because word order is not the same in all six.
+
+> ⚠️ **Caveats.**
+> - A menu row designed in the menu file keeps its label: `SetItemLabel`
+>   changes only rows added at run time. PowerChat therefore adds all its menu
+>   rows with `AddItem`, so they follow the language.
+> - A window's title is set when the window opens. PowerChat's windows are all
+>   titled *PowerChat*, and each form's heading label carries its name.
+> - `LENGTH OF item` is not COBOL-85 — use `FUNCTION LENGTH(item)`.
+> - Only the interface is translated. The instructions PowerChat sends to the
+>   models stay in English, and the models answer in the language they are
+>   asked in.
+
+> **Note.** Still to come: documents as a folder tree.
+>
+> ⚠️ **Caveat.** A method call written as a statement straight after a `MOVE`
+> is read as one more receiving field of that `MOVE` — `MOVE A TO B` followed
+> by `LIST-1::AddItem(X)` becomes `MOVE A TO B LIST-1::AddItem(X)`, which stops
+> the program. End the `MOVE` with a period where you can, or write the call
+> as `MOVE LIST-1::AddItem(X) TO WS-IGNORED`, as PowerChat does throughout.
+
+📷 Screenshot needed — `powerchat-chat.png`: PowerChat's chat form with a topic
+open, a question and its answer in the conversation, and past conversations
+listed in the menu.
+### Reading the docs in the IDE (Help → Documentation)
+
+**Help → Documentation** opens a dedicated window that renders this guide and the
+other PowerRustCOBOL manuals — including their **Mermaid diagrams** and
+**screenshots**, drawn inline (rendered in pure Rust, no browser required). The
+docs are bundled with the IDE, so it works offline; `Cmd+O` opens any local
+Markdown file too, and its images are found beside it.
+
+The window has a searchable **document list** on the left and the rendered
+document on the right, plus an **icon toolbar** and **File / View / Help** menus.
+In-document **search** highlights matches (blue on yellow); press **Go** or
+**Enter** to jump to the first match and **◀ / ▶** (or `,` / `.`) to step through
+them with a live `n/total` counter. The **table of contents** is clickable — both
+the side **outline** and the in-document `[…](#…)` links jump to their section.
+**Moving through a document** works the way a document should. The **arrow keys**
+scroll it: a tap moves one line, and holding one starts at that same reading pace
+and winds up to four times it, so a long manual can be crossed without letting
+go. `PageUp` / `PageDown` move a screen at a time, `Home` and `End` go to the
+ends. You can also **grab the page with the mouse and throw it** — press, drag,
+release, and it glides to a stop. The grab has to start over the document, but
+from there the gesture is yours: the drag follows the pointer wherever it goes,
+and **you can let go anywhere on screen** — over the toolbar, over the document
+list, or outside the window — and the page still flies. Let go while your hand
+is already still and it simply stays where you put it; catch a moving page with
+a press and it stops dead. (The arrows belong to the search box while the
+caret is in it, so they type there rather than scrolling.)
+
+Long manuals stay responsive because the window only lays out the part you are
+looking at, keeping a couple of screens either side ready in advance, and because
+the diagrams and screenshots are decoded on a **background thread** the moment
+you select a document — long before you scroll to them. An image still being
+prepared shows a placeholder in its place.
+
+You also get an adjustable **font size** that is *remembered between sessions*,
+zoom, full screen, keep-on-top (`⌘T`), open a local Markdown file (`⌘O`), and a
+view-source modal (`⌥⌘U`). **Print** (`⌘P`) exports the document — Mermaid
+diagrams included — to a PDF and opens it in your OS viewer, where the system
+print dialog is one click away. The window is a translucent **frosted-glass**
+panel and follows the IDE's theme and language.
+
+Each manual is shipped in all six interface languages as its own file, and the
+list shows **one row per manual** — the copy in the language you selected. Where
+a translation has not been written yet, that row falls back to the English text
+rather than vanishing, so the list is the same length whichever language you
+read in.
+
+### The Walkthrough
+
+The first time you open a project on a new machine, the IDE dims itself and
+introduces its six main parts, one at a time: **Project settings**, **Forms**,
+**Indexed Files**, **Assets**, the **Knowledge Base**, and the **Output pane**.
+Each step lights the component it is describing and points a speech balloon at
+it, so there is never any doubt which part of the window is meant.
+
+Use **Next** and **Back** to move through it, **Skip** or `Esc` to leave at any
+point. Nothing else in the IDE responds while it is up — that is deliberate, so
+a stray click cannot half-dismiss it.
+
+It runs **once per machine**, not once per project: it describes the IDE, and
+you only need to learn the IDE once. However you leave it — finishing, Skip or
+`Esc` — it does not come back on its own.
+
+> **Replaying it.** **Help → IDE Walkthrough seen** is a tick box showing
+> whether you have been through it. Clear the tick and the tour starts again
+> immediately. With no project open the entry explains that one is needed
+> first — five of the six parts it points at are nodes in the project tree, and
+> they do not exist until a project is loaded.
+
+The tour never rearranges anything. It will scroll the project tree so the part
+it is describing is visible, but it does not expand categories, open forms, or
+change what you had on screen. When it ends you are exactly where you left off.
+
+📷 Screenshot needed — `walkthrough-step.png`. Open a project on a machine
+where the tour has not run (or clear **Help → IDE Walkthrough seen**), and
+capture step 2 — the one pointing at **Forms** — so the dimmed IDE, the lit
+tree row and the balloon's tail are all visible in one frame.
+
+---
+
+## 6. Projects and the project model
+
+A **project** is a folder containing a manifest file, `cobolt.toml`, plus your
+sources, forms, and assets. The manifest records the project name, version, main
+program, and the files in each category.
+
+### Folder layout
+
+When you create a project, PowerRustCOBOL scaffolds this structure on disk:
+
+```text
+HelloPower/
+├── cobolt.toml         ← project manifest
+├── src/                ← Common Code  (hand-written COBOL programs/copybooks)
+├── forms/              ← Forms        (.cfrm designer files)
+├── indexed/            ← Indexed Files (.cidx definitions)
+├── generated/          ← Generated Code (RAD-produced .cbl — read-only)
+├── COPYBOOKS/          ← per indexed file: its SELECT, its FD, and the
+│                         editable COBOL descriptor the raw editor uses
+├── crates/             ← Project's Crates (appears once you register one)
+├── Assets/             ← Assets       (images, audio, fonts, data files)
+├── Knowledge Base/     ← project-specific documents and indexed knowledge
+├── bin/                ← built binaries
+├── debug/              ← debugging working files
+├── temp/               ← temporary files
+├── dist/               ← (reserved) self-contained distribution bundle
+└── data/               ← project data files (e.g. the AI conversation store)
+```
+
+> **`data/` is shared with the AI assistant.** Your program's data files live
+> there, and so do Grace's per-project files: `project-knowledge.redb`,
+> `<project>-chunked.data`, and `grace-conversation.json` — your own chat
+> history with her. A build copies `data/` into the hand-over folder for your
+> application, but **leaves those assistant files behind**, and removes any
+> that an earlier build had already copied there. Your application never reads
+> them, and the conversation is yours alone.
+
+A new project also gets a **runnable starter `main` program** (by default
+`src/main.cbl`) — a minimal `IDENTIFICATION DIVISION` / `DISPLAY` / `GOBACK` that
+you can **Run** straight away and then grow.
+
+> **Form-first projects.** If you delete the starter `main` and build a project
+> made of nothing but forms, **Build** and **Run** still work — and it is worth
+> knowing exactly which program starts, because a form outranks the manifest.
+>
+> A project that has forms always starts at its **main form's** generated
+> program (§11), and that beats `[project].main` even when the manifest names a
+> file that exists. That is deliberate: a form project created by the IDE also
+> carries the seven-line starter `main`, and while the starter won, you got a
+> binary that drew the form and then ran the stub — every button dead, because
+> no handler was in the compiled program at all. If no form carries the
+> designation, the first form is used.
+>
+> `[project].main` decides only when the project has **no form**. Failing that,
+> the first generated program is used, then the first ordinary source that
+> exists on disk.
+
+> **Note.** Opening an older project that predates this layout **back-fills any
+> missing standard folders** automatically. Content under the legacy
+> `Documentation/` and `docs/` project folders is moved into `Knowledge Base/`
+> without overwriting conflicting files.
+
+### The seven tree categories
+
+
+| Category           | Holds                                                        | Editable?                       |
+| ------------------ | ------------------------------------------------------------ | ------------------------------- |
+| **Forms**          | `.cfrm` form-designer files                                  | via the Designer                |
+| **Indexed Files**  | `.cidx` indexed-file definitions                             | via the Indexed File Editor     |
+| **Common Code**    | hand-written COBOL you `CALL` from forms or run directly      | yes                             |
+| **Generated Code** | the `.cbl` PowerRustCOBOL generates from each form or `.cidx` | **read-only** (blue, lock icon) |
+| **Project's Crates (Beta)** | third-party libraries you register for `EXEC RUST` blocks | via the External Crates dialog |
+| **Assets**         | images, audio, fonts, data files bundled with the app        | imported                        |
+| **Knowledge Base** | project-specific Markdown / text / PDF material              | yes                             |
+
+### Creating vs. importing
+
+The **➕** on a category **creates a new item**:
+
+- **Forms ➕** → *New Form* dialog.
+- **Indexed Files ➕** → *New Indexed File* wizard (name, assign path, record layout, keys, storage).
+- **Common Code ➕** → a new `.cbl` from a starter template, opened in the editor.
+- **Knowledge Base ➕** → a new Markdown file.
+- **Assets ➕** → file picker (assets are authored externally, so "create" = import).
+
+Use the folder-plus command beside **Knowledge Base** to create a top-level
+subfolder. Right-click any Knowledge Base subfolder to create a child folder or
+delete that folder. Folder deletion requires confirmation and recursively
+removes its documents, nested folders, project-manifest entries, and stale
+vector-index entries. The `Knowledge Base/` root itself cannot be deleted.
+
+To **import an existing file** into a category, **right-click the ➕** and choose
+*Import existing…*. For **Indexed Files**, this picks an on-disk `.idx` (or similar)
+data file and builds a starting `.cidx` from it when the file carries a
+self-describing schema.
+
+That starting point is only as rich as the data file. The `.cidx` is the
+definition: it holds every field's name and PICTURE. The data file holds only
+its **key schema**:
+- each key's position, length and encoding;
+- whether the key allows duplicates;
+- optionally, the key's name.
+
+So the imported `.cidx` has the keys at their real positions, as
+alphanumeric fields (`PIC X(n)`), named after the key when the file recorded
+a name. Every other byte of the record comes in as `FILLER-n`.
+
+> ⚠️ **Caveat.** After an import, open the `.cidx` in the Indexed File Editor
+> and give the fields their real names and PICTUREs: numeric, packed and
+> binary fields cannot be recovered from the data file. The record layout your
+> program uses always comes from its FD, never from the data file.
+
+> **Note.** Generated `.cbl` files live in `generated/`, are tracked
+> automatically, and open read-only. Editing belongs in the form (the Designer),
+> the `.cidx` (Indexed File Editor), or in Common Code — never in generated output.
+
+### Copying a form between projects
+
+Right-click any form in the **Forms** tree and choose **Copy Form**. This
+copies *everything* about it — every control's properties, every bound
+event's complete COBOL handler body, animations, and data bindings — to your
+operating system's clipboard, not just an in-app scratch space. Switch to (or
+open) a different project — in the same running PowerRustCOBOL window, or in
+a second one entirely — right-click the **Forms** category, and choose
+**Paste Form**. The form is created there exactly as it was: no control ID or
+event paragraph needs renaming, because each form already compiles to its own
+self-contained COBOL program — a `BUTTON1` in the pasted form cannot collide
+with a `BUTTON1` some other, unrelated form in that project happens to use
+internally. Its Generated Code is produced immediately, so the pasted form is
+ready to Run without a separate Build step first.
+
+If the target project already has a form with the same name, PowerRustCOBOL
+asks what to do rather than guessing: **rename** the incoming form (typing a
+new name, re-checked live against what's already there) or **replace** the
+existing one — replacing asks for its own separate confirmation before
+anything is deleted, exactly like deleting a form from the tree directly.
+
+> **Note.** Copy Form reads whatever is currently on screen if the form is
+> open in a Designer with unsaved changes — "copy" always means "copy what
+> I'm looking at," not a stale save from earlier. Pasting a form whose blocks
+> reference something the target project doesn't have yet (a Project's
+> Crates pin, an asset, an indexed file a data binding names) carries the
+> *reference* faithfully, but not the referenced resource itself — add a
+> matching one in the target project, the same as if you'd typed the
+> reference there by hand.
+
+### Indexed File Editor & Grid Browser
+
+> 📷 **Screenshot needed — `indexed-file-editor.png`** — Indexed File Editor
+> viewport with field list, properties pane, and toolbar (Save / Save & Generate /
+> Finalize / Open Grid Browser).
+
+Double-click an **Indexed Files** entry to open the **Indexed File Editor** in its
+own window (same multi-window pattern as the Form Designer). The centre pane lists
+record fields; the lower pane shows file- or field-level properties. **Finalize**
+creates the on-disk data file and locks structural fields (PIC, offsets, keys,
+storage). Comments and per-field **grid controls** stay editable afterward.
+
+**Open Grid Browser** (after finalize) opens a second viewport: a virtualized table
+over the live indexed data file with add / edit / delete, **Commit** / **Rollback**,
+and schema-drift protection when the on-disk file no longer matches the `.cidx`.
+
+Each `.cidx` produces `generated/<stem>-indexed.cbl` (`SELECT` / `FD` fragment),
+regenerated on **Build / Run / Debug / Check** like form output.
+
+**Your descriptions travel with it.** The comment you write on the file becomes
+a comment line above its `FD`, and each field's comment trails that field — the
+same form the editor's raw-text view shows you:
+
+```cobol
+      *> Customer master — one row per account
+       FD  CUSTOMER-FILE.
+           RECORD CONTAINS 80 CHARACTERS.
+           01 CUSTOMER-RECORD. *> The record
+               05 CUST-ID PIC 9(8). *> Primary key
+```
+
+A field you have said nothing about generates exactly as before. These are
+ordinary COBOL comments: the compiler strips them, so they cost nothing at run
+time and exist for whoever reads the layout next.
+
+Those same descriptions have a second reader. See **Letting a model query your
+data (MCP)** under *HTTP / REST and AI agents*, where the file's comment becomes
+a tool description and each field's comment describes a search parameter.
+
+---
+
+## 7. The Form Designer (RAD)
+
+The Form Designer is where you lay out windows. Each open form is its **own OS
+window**, so you can have several designers and running forms side by side.
+Double-clicking a form in either the IDE project tree or a designer's **Forms**
+list opens it; if it is already open, its window is restored and brought to the
+front.
+
+```mermaid
+flowchart LR
+    TBX["Toolbox<br/>(controls, grouped)"]
+    CANVAS["Design canvas<br/>(drag · drop · resize · align)"]
+    PROP["Properties pane<br/>(per selection)"]
+    TBX -- "drag onto" --> CANVAS
+    CANVAS -- "select" --> PROP
+    PROP -- "edit" --> CANVAS
+```
+
+- **Toolbox (left).** Widgets in seven groups, in this order: **Common**,
+  **Containers**, **Data**, **Graphics**, **Menus & Bars**, **Non-Visual** and
+  **Charts**. Drag any control onto the canvas. Use the **◀** chevron to collapse the sidebar
+  to a narrow **icon rail** (drag from the rail still works) and **▶** to expand
+  it; drag its edge to resize it, and the width you set is restored when you
+  re-expand.
+- **Canvas (centre).** Move, resize (drag the border grips), align, and
+  distribute controls. A snap-to-grid keeps things tidy. You can resize the
+  **form itself** by dragging its edges.
+- **Properties pane (right).** Edits the selected control — or, with nothing
+  selected, the **form** itself. The pane is organised into collapsible
+  **section cards**; for the form these are **Form Properties**, **COBOL
+  Structure**, **Target Device**, **Window**, **Appearance**, **Form Events**
+  and **Animations**, in that order. Drag its **left border** to widen it — the border
+  brightens as you hover it. It is a **drawer**: the
+  vertically-centered **◀** tab hides it (leaving a thin **▶** tab to slide it
+  back), and it reopens at the width you last set.
+  **Hover a property's name** to read what it does, in the interface
+  language. Each explanation was written from the code that gives the
+  property its effect, so it tells you what the control really does with the
+  value. Where a property is stored but not yet acted on, the explanation says
+  so.
+
+Designer toolbar essentials: **Save & Generate**, **Generate only**, **Preview**
+(a non-interactive render), **Run Form** (live, interactive), grid toggle, **Theme**
+( procedural style: Classic / Enhanced / Neumorphic Light / Neumorphic Dark ), alignment tools, undo/redo.
+
+> **WYSIWYG — one renderer for every surface.** The Form Designer canvas, the
+> live Preview, the Run Form, and the compiled binary all draw through a **single
+> rendering engine** in `cobolt-forms` (`render::render_form` for the interactive
+> surfaces, `render::render_faces` for the designer canvas), which wraps the
+> shared `draw_control` face painter with the form-level concerns that used to
+> diverge across four separate draw loops: background, render order, container
+> clipping, ancestor opacity, and tab visibility. Each surface plugs in its own
+> live values through the `FormState` trait (designer = the designed form,
+> preview = a value map, run = `CtrlState`, binary = compiled state). The result:
+> the same form + state always produces the same pixels — what you style on the
+> canvas is exactly what runs.
+
+> **A resized window keeps the form, stretches the background.** When the user
+> maximizes a running form or drags its border out, the controls stay exactly
+> where and how big you designed them — only the **background** follows the
+> window, so the gradient (or the background image) covers the whole thing
+> instead of stopping at the form's edge. Dragging the window *smaller* than
+> the form does not crop the background: it stays at the form's size, and the
+> form scrolls inside it. Window entrance effects animate this same picture,
+> background included.
+>
+> **In the Preview the colour follows the window, the picture does not.** The
+> Preview is a real window you can drag wider than the form, and its background
+> **colour** (or gradient) covers all of it — so a form larger than its picture
+> looks larger, not sliced off. The background **image** stays pinned to the
+> size you designed and keeps obeying its Mode *there*: Fit still letterboxes
+> inside the form, Fill still crops to it, Tile still stops at its edge. What
+> lies past the picture is simply background colour — which is also how you can
+> still see where the designed extent ends while you edit. Before 1.62.135 that
+> area was not painted at all: the title bar kept growing while the form below
+> it stopped dead, and the IDE showed through the gap.
+>
+> **The background follows the SURFACE, which is not always the window.** A
+> form loaded into a shell's ContentPane occupies part of the window, not all
+> of it — narrower by the sidebar rail, shorter by the breadcrumb band. Its
+> background is laid out against **that pane**, so *Fit* letterboxes inside the
+> pane and *Center* centres on the pane's middle. Before 1.62.132 the pane's
+> occupant was laid out against the whole window instead: the letterbox bars
+> fell outside the visible area and every mode looked like *Stretch*.
+
+### Background image modes
+
+A form's **Image path** takes a picture; **Mode** decides how it meets the
+surface. All five keep the picture's own pixels — they differ only in how it
+is scaled and placed.
+
+
+| Mode        | What it does                                    | Distorts? | Crops?    | Leaves margins? |
+| ----------- | ----------------------------------------------- | --------- | --------- | --------------- |
+| **Stretch** | Pulls the image to the surface exactly          | **Yes**   | No        | No              |
+| **Fill**    | Scales it up until it covers, keeping the shape | No        | Yes       | No              |
+| **Fit**     | Scales it until it all fits, keeping the shape  | No        | No        | **Yes**         |
+| **Center**  | Draws it at its own size, in the middle         | No        | If bigger | If smaller      |
+| **Tile**    | Repeats it at its own size, like wallpaper      | No        | Edge only | No              |
+
+> **Note — Fit, Fill and Stretch coincide when the shapes match.** If the
+> image's proportions are already the surface's proportions, all three produce
+> exactly the same picture, and nothing is wrong. A 1600×1000 image on a
+> 1600×1000 form has nothing to letterbox and nothing to crop. Try a
+> deliberately tall or wide image if you want to *see* the three behave
+> differently.
+
+> ⚠️ **Caveat — Center does not scale.** A picture much larger than the form
+> shows only its middle, and a small one floats in the background colour. That
+> is the mode working: pick *Fit* or *Fill* if you want it sized to the form.
+
+> **Tile really tiles.** Before 1.62.130 *Tile* drew one stretched copy — it
+> shared a code path with *Stretch* and the mode did nothing. It now repeats
+> the image at its native size from the surface's top-left corner. A DataGrid's
+> own **Grid background image mode** gained the same fix in 1.62.132.
+
+> **Room past the form's edge — controls that arrive when the window grows.**
+> The size you design is a *floor*, not a ceiling. Drop a control beyond the
+> right or bottom edge on the canvas and it is kept exactly as you placed it; it
+> simply has nowhere to land while the window is only as wide as the form.
+> Maximize that window — or drag it out — and the control appears in the room
+> that opened up. Nothing is stretched and nothing is re-laid-out, in keeping
+> with the rule above: the control is drawn at the position and size you gave
+> it, and the window's own edge is the only thing that ever cuts it. It is a
+> deliberate way to hold back an optional side panel, a decorative graphic or a
+> wide chart for the operators who have the screen for it.
+>
+> **Notes.** Nesting is unchanged — a control inside a Panel or GroupBox is
+> still clipped to its container, however large the window becomes; only the
+> *form's* own edge stopped being a wall. The designer canvas already drew these
+> controls, so what you see while editing is now what runs.
+>
+> ⚠️ **Caveat.** A window *smaller* than the form scrolls the form, but it will
+> not scroll out to a control placed past the designed edge: the scrollable area
+> is the form's designed rectangle. Anything the operator must always be able to
+> reach belongs inside it — treat the space beyond the edge as a bonus, never as
+> the only way to get at a control.
+
+> **Run Form isolation (performance).** To keep the IDE responsive and avoid CPU
+> spikes while a form is running (especially with timers, loops, or heavy
+> rendering), `Run Form` spawns an isolated child `rcrun` process. The IDE and
+> child communicate over a framed bincode IPC channel on stdio (`FormIpcMessage`
+> for events, input, state snapshots, display, errors, done). The IDE pumps
+> stdout to local channels and forwards UI events back via stdin. This also
+> enables the **Run-Form Inspector** (CPU %, RSS, children, system mem, process
+> tree, anomaly detection). The same binary path resolution is used for "rcrun"
+> next to the IDE executable.
+
+The runtime surfaces only add live behaviour (press feedback, focus, text input,
+slider drag), and the designer adds its editor overlay (selection handles,
+badges, drop hints) on top.
+
+#### Selecting more than one control
+
+Two ways, and they combine:
+
+- **Drag a lasso** on empty canvas — every control the rectangle touches is
+  selected.
+- **Hold Command (macOS) or Control (Windows/Linux) and click** — adds a control
+  to the selection, or removes it if it was already in. Modifier-dragging a
+  control that is not yet selected adds it and moves the whole selection in one
+  gesture.
+
+Selecting a **container** selects its children with it for the purposes of
+moving, so a GroupBox drags its whole subtree and keeps its layout rigid. The
+first control selected is the **primary** one: alignment and sizing commands
+measure against it, and the properties pane reads its values.
+
+**Dragging a selection is rigid.** The whole group moves by one offset, taken
+from the control under the pointer, so the spacing you arranged survives the
+move — including when the controls do not sit on grid lines.
+
+**The properties pane edits the whole selection.** With more than one control
+selected it shows what they have in common and applies each change to all of
+them:
+
+- **Same type** — the full pane. Every property a Button has, five selected
+  Buttons have.
+- **Different types** — only the properties their types genuinely share, because
+  a row only some of them carry would appear to work and change nothing on the
+  rest.
+
+One edit is **one undo step**, however many controls it touched. Controls
+without the property are left alone rather than given it, and identity — the
+control ID, tab order and parent — is never shared, since two controls cannot
+have the same one.
+
+### Tab order and the Enter key
+
+The **tab order** is the path the keyboard takes through a running form: Tab
+moves to the next control, Shift+Tab to the previous one, and both wrap around.
+Each control's place is its `TabOrder` property. A control you drop on the form
+takes the next number, so until you say otherwise Tab follows the order you
+placed things in — the same default PowerCOBOL and isCOBOL give you.
+
+Two toolbar buttons at the right end of the designer toolbar set it:
+
+- **Visual Tab Order** — toggle it on, then click the controls in the order Tab
+  should visit them. Every control that takes part shows its number beside it;
+  the ones you have clicked in this session show it in the accent colour, and
+  the rest keep their previous order after them. Clicked the wrong one? Click on
+  in the right order — a control clicked again moves to the latest number.
+  Nothing moves or resizes while the mode is on. **Toggle the button off to
+  finish**: the new order is written to the form as one undo step.
+- **Tab Order list** — a window listing the same controls, first to last. Drag a
+  row, or select it and use **▲ / ▼**, to move it. Selecting a row selects that
+  control on the form, and the numbers are shown beside the controls while the
+  window is open. **Apply** writes the order (one undo step); **Cancel** leaves
+  the form as it was.
+
+> 📷 Screenshot needed — `designer-visual-tab-order.png`. Capture a form with
+> four or five labelled fields while Visual Tab Order is on and two controls
+> have been clicked, so both badge colours show.
+
+> 📷 Screenshot needed — `designer-tab-order-list.png`. Capture the Tab Order
+> list over the same form with one row selected and being dragged, showing the
+> insertion line.
+
+**Tab stays in the form you are in.** In an application shell, the form in
+the ContentPane and the controls in the SideMenu's footer are two separate tab
+orders. Tab and Shift+Tab walk the one that holds the focus and never jump
+into the other. Before 1.70.223 the footer took every Tab, so a form in the pane
+could be walked with Enter but not with Tab.
+
+**Who takes part.** Controls that can take the keyboard — Button, TextBox,
+CheckBox, RadioButton, ListBox, ComboBox, DataGrid, DateTimePicker,
+NumericUpDown, TreeView, Slider, TabControl — and **Label**. At run time only
+the visible, enabled ones are visited.
+
+**A TabControl on the keyboard.** Tab lands on its selected tab, marked by a
+thin dashed border inside the tab, in the tab's own text colour. From there
+**Tab moves to the next tab and Shift+Tab to the previous one**, each becoming
+the active tab exactly as a click would make it; Tab on the last tab (Shift+Tab
+on the first) leaves the TabControl for the next (previous) control. The
+arrows along the strip — ← / →, or ↑ / ↓ when the strip is on the left or
+right — and Home / End do the same without ever leaving. Every one of these
+raises `onTabClick` and, when the selection moved, `onTabChanged`. Clicking a
+tab also gives the TabControl the focus.
+
+**Labels never keep the focus.** A Label is numbered so the order reads the way
+the form does, but when Tab, Enter or a click reaches it, it raises
+`onGotFocus` and the focus walks straight on to the next control. That is your
+hook for accessibility — announcing the field about to be filled, for example:
+
+```cobol
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CUSTOMER-LABEL--ONGOTFOCUS.
+       PROCEDURE DIVISION.
+      *> Hand the caption to whatever reads the screen aloud.
+           DISPLAY "Customer name"
+           GOBACK.
+```
+
+**Enter can move on, like Tab.** On a TextBox, ComboBox, NumericUpDown,
+DateTimePicker, CheckBox or RadioButton, the property **`EnterAsTab`** (on by
+default) makes Enter move to the next control in the tab order. `onEnterPressed`
+still fires first, so a handler that validates on Enter keeps working. Switch it
+off on a control where Enter should stay put. It has no effect on a multi-line
+TextBox, where Enter is the new line, and an open ComboBox list keeps Enter to
+pick its item.
+
+**`AutoEnter` fills and moves on.** On a TextBox, `AutoEnter` makes the
+keystroke that fills the box count as Enter: `onEnterPressed` fires and, with
+`EnterAsTab` on, the focus moves on. "Full" means the length the box already
+enforces — an explicit `Picture`'s width, or `MaximumLength`. A box with neither
+is never full, so the property does nothing there. This is the classic
+data-entry rhythm: type a six-digit date into `9(6)` and the cursor is already
+in the next field.
+
+### Starting a new form
+
+The *New Form* dialog has two choices that decide how a form looks from its
+first minute:
+
+- **Start from** — a **Blank form**, or a template laid out and ready to fill:
+  **Record entry** (a title, a card of labelled fields, and New / Delete /
+  Save buttons at the bottom right), **List and details** (a search box and a
+  grid on the left, the selected record's fields on the right) or
+  **Dashboard** (three indicator cards sharing the width, two charts below).
+  A template brings its own size, writes its captions in the IDE's language,
+  and is responsive: its fields stretch and its buttons follow the window's
+  edges from the first run. It writes no code — the handlers are yours.
+- **Modern style** — on by default. Fields are flat with a thin border and
+  rounded corners, cards are white on a light background, text is dark and
+  one size, the main button is the accent colour. **Every control you drop on
+  the form later takes the same look**, so the form stays consistent as it
+  grows. Untick it for the classic look; a template is always modern.
+
+A project created with this version makes **responsive** forms
+(**Settings → New forms are responsive**, ticked). A project created earlier
+keeps making forms as before until you tick it; no existing form is ever
+changed for you.
+
+**A responsive window stops before its controls collide.** When the user
+shrinks or enlarges a responsive form's window, controls move and stretch with
+their anchors. That can bring two of them together. For example, a button
+anchored to the right edge slides left onto a field anchored to the left, or
+a field stretched between both edges grows into a neighbour that stays put.
+Shrinking can also push a control out of view. A button anchored `Top,Left`
+near the right edge of the form is cut off once the window is narrower than
+the button's right edge. A label near the bottom of a panel that shrinks with
+the window ends up below the panel's edge.
+The window refuses to go that far: it stops at the last size at which every
+pair of controls that are apart in your design is still apart, and every
+control that sits inside its panel, group box, tab page or splitter pane (or
+inside the form) in your design is still inside it. Both directions count,
+shrinking and growing, on the width and on the height. The same limits apply
+to the running form in the IDE, to the compiled application, and to the
+designer's view-size grip.
+
+A form opened inside a SideMenu's content pane has no window of its own to
+stop, so the pane cannot refuse to grow. The form is laid out no larger than
+its limits instead: past them, the rest of the pane stays empty. In a pane
+smaller than the form's minimum, the form keeps its minimum size and the pane
+scrolls, the same layout the window would have stopped at.
+
+Controls you placed touching or overlapping on purpose, such as a label on
+its card or two flush toolbar buttons, are left alone. A control you placed
+partly outside its container, or outside the form, is left alone too. So are
+the items of a Flow container whose `WrapContents` is off: that layout is one
+line, clipped at the container's edge, so items past the edge are expected.
+A wrapping Flow, or a Flex row, keeps its items inside and does stop the
+window. Hidden controls are left alone, and so are controls on different
+pages of a TabControl, which are never on screen together. A form whose controls never meet and never reach
+an edge has no limit beyond its `MinFormWidth` × `MinFormHeight` floor.
+
+> 💡 If the window stops sooner than you would like, give the controls room
+> to move. Anchor the field to both edges so it shrinks instead of being run
+> over, or give the button a `MinWidth` and the field a `MinWidth` that fit
+> together.
+
+**Changing a form's theme keeps its text readable.** When you switch a form's
+theme or glass style, any label, button or field whose text would no longer
+stand out from its new background — below the 4.5:1 contrast that
+accessibility guidelines ask of text — takes black or white, whichever reads.
+It is part of the same change, so **Undo** puts the old colours back.
+
+**Switching back to a theme brings back the form you had.** A theme switch
+dresses every control in the new theme's defaults. Choosing the previous
+theme again, instead of using Undo, gives back the colours, shadows, corners
+and background the form had before you left it, not that theme's stock look.
+Only what a theme switch changes is put back. A caption you edited, a control
+you moved or added, and your event code stay as they are now. The IDE
+remembers this while the form is open; after you close and reopen it, a switch
+back gives the theme's defaults again.
+
+A **PictureBox** you place starts with **ShowFrame** off: only the image shows,
+and a transparent PNG lets the form show through. Tick it for the card behind
+the image. Forms saved before keep the frame they had.
+
+**Seeing where the focus is.** The control that has the focus in a running
+form wears a border — the *focus ring* — so a data-entry operator never loses
+their place, whether they got there with Tab, Shift+Tab, Enter or a click. It
+is a project setting, the same for every form: **Settings → Appearance →
+Keyboard focus ring** has a checkbox that turns it on or off (on by default),
+picks the colour (a blue by default) and, optionally, **Pulse**, which makes the
+border breathe slowly — one full breath every 6.4 seconds. The ring goes the
+moment the focus leaves the control. Run Form and your built application show
+it the same way.
+
+> 📷 Screenshot needed — `running-form-focus-ring.png`. Capture a running form
+> after pressing Tab twice, so the second field shows the focus ring.
+
+> ⚠️ **Enter and the default button.** An Enter that moved the focus is spent:
+> it does not also press the form's `IsDefault` button. With the focus on a
+> control whose `EnterAsTab` is off (or on a Button), Enter reaches the default
+> button exactly as before.
+
+### Migrating a PowerCOBOL form: *Obsolete scaling style*
+
+A PowerCOBOL form could follow its window in proportion: grow the window by
+half, and every control grew and moved by half, its text along with it.
+PowerRustCOBOL forms do better for new work. Anchors keep a field's margins,
+containers share out space, and text follows a breakpoint or the width. But a
+form you bring across was drawn for proportional scaling, and laying it out
+again is work you may not want to do on day one.
+
+**Obsolete scaling style** on the form (`ObsoleteScalingStyle` in the file and
+in COBOL) gives you the old behaviour with one setting. The name says what it
+is: a bridge for migrated forms, not the way to design a new one.
+
+| Value | What follows the window |
+|---|---|
+| 0 – None | Nothing: anchors, docking and containers as usual (default) |
+| 1 – Resize only | Every control's width and height |
+| 2 – Reposition only | Every control's position |
+| 3 – Resize and reposition | Size and position: the whole form in proportion |
+| 4 – Resize the font only | Text size |
+| 5 – Resize and resize the font | Size and text |
+| 6 – Reposition and resize the font | Position and text |
+| 7 – Resize, reposition and resize the font | Everything |
+
+The values add up: 1 is size, 2 is position, 4 is text, so 7 = 1 + 2 + 4.
+
+**The arithmetic.** If the form was drawn 400 × 300 and its window is now
+800 × 450, the width ratio is 2 and the height ratio is 1.5. A button drawn at
+(100, 50), 80 × 30:
+- with **1**, keeps its place and becomes 160 × 45;
+- with **2**, moves to (200, 75) and stays 80 × 30;
+- with **3**, does both;
+- with a font flag (4, 5, 6 or 7), has its text scaled by the **smaller**
+  ratio, 1.5, so it always fits its control.
+
+Positions are measured inside the parent. A control inside a Panel or
+GroupBox scales with that container, which scales with the form.
+Everything is computed from your design every time, so shrinking the window
+back returns every control exactly to where you drew it.
+
+**Any value other than 0 lays the form out**, even with *Responsive* off. You
+do not have to turn anything else on.
+
+What still applies:
+- `MinWidth`, `MaxWidth`, `MinHeight` and `MaxHeight` still bound a control's
+  size, and the window will not shrink below what they need.
+- `MinFontScale` and `MaxFontScale` (0.85 and 1.5 unless you change them)
+  bound the text, and a control with `ScaleFont` off keeps its text size.
+- Breakpoint overrides still apply, before the scaling.
+- The window still stops before two controls that are apart in your design
+  would touch. With *Resize only*, growing can bring neighbours together;
+  with 3 or 7 everything grows together and they never meet.
+
+**Keeping one control out of it.** Give a control an anchor of its own, or
+dock it, and it keeps doing that while the rest of the form scales. Typical
+cases are a toolbar docked to the top, or a status line anchored to the
+bottom edge. A control left with its type's default anchor, as every control
+of a migrated form is, scales.
+
+**From COBOL**, a form can change its own style while it runs, for example to
+offer the user a "zoom with the window" option:
+
+```cobol
+           IF WS-ZOOM-WITH-WINDOW = "Y"
+               MOVE 7 TO me::ObsoleteScalingStyle
+           ELSE
+               MOVE 0 TO me::ObsoleteScalingStyle
+           END-IF.
+```
+
+The form lays itself out again on the next frame. A value outside 0–7 is
+refused: the style stays as it was, and that is what `me::ObsoleteScalingStyle`
+then reads.
+
+> 💡 **When you have time, move the form to anchors.** Proportional scaling
+> stretches everything alike: a text field gets taller as the window gets
+> taller, and a button's text grows past what anyone needs. Anchoring the
+> fields left and right, and the buttons to a corner, gives a form that uses
+> a large window instead of magnifying itself. Start with *Responsive* on and
+> the style at 0, and anchor what should stretch.
+
+> ⚠️ **Caveat.** Unequal ratios distort. A square button in a wide, short
+> window becomes a wide, short button, exactly as it did in PowerCOBOL.
+
+### Responsive examples in PowerDemo3
+
+PowerDemo3 has twelve forms that show the responsive layout, filed in
+`forms/Responsive Layout/`. Open them from **Samples → Responsive Layout** in
+its side menu; each one shows the window size, the active breakpoint and the
+font scale along its bottom edge as you resize it.
+
+| Menu entry | Form | What it shows |
+|---|---|---|
+| Responsive: anchors and limits | `responsive-anchors-form` | Every anchor choice. Includes a block whose anchors you pick with check boxes from COBOL, plus `MinWidth` and `MaxWidth`. |
+| Responsive: docking | `responsive-dock-form` | `Dock` Top, Bottom, Left, Right and Fill, in render order and nested, next to a control that is anchored instead of docked. Buttons re-dock and hide panels from COBOL. |
+| Responsive: flex | `responsive-flex-form` | One tab per Flex topic: direction, `JustifyContent`, `AlignItems`/`AlignSelf`, wrapping and `AlignContent`, grow/shrink/basis with limits, and `Order`. A last tab rewires a container from COBOL. |
+| Responsive: grid | `responsive-grid-form` | Track sizes (`px`, `%`, `fr`, `Auto`, `MinMax`, `Repeat`), a `Repeat(AutoFill, …)` gallery, explicit cells and spans, the implicit grid, every alignment, and a data-entry form that changes to two columns below 1024 px. |
+| Responsive: flow | `responsive-flow-form` | Every `FlowDirection`, `WrapContents` off, `FlowBreak`. The form itself is a Flex column. |
+| Responsive: breakpoints | `responsive-breakpoints-form` | Five named breakpoints with Stepped fonts and overrides of every kind. Buttons pin a breakpoint (`me::Breakpoint`) or replace the table (`me::Breakpoints`). |
+| Responsive: font scaling | `responsive-fonts-form` | `FontScaling` None, Fluid and Stepped; `MinFontScale`/`MaxFontScale`; `ScaleFont`, `MinFontSize`, `MaxFontSize`; an `AutoSize` label; `me::FontScale` pinned. |
+| Responsive: nested containers | `responsive-nested-form` | A form whose `LayoutMode` is Grid, holding Flow, Flex, a TabControl, another Grid and Flex groups. Includes per-side padding and a cell hidden by a breakpoint or by COBOL. |
+| Responsive: from COBOL | `responsive-runtime-form` | Every layout property written while the form runs. Includes moving a control and reading back its laid-out rectangle, and `me::Responsive` off and on. |
+| Responsive: collision limits | `responsive-collide-form` | Where the window stops shrinking and growing because two controls would touch, beside a declared `MinFormWidth`/`MinFormHeight`. |
+| Responsive: obsolete scaling | `responsive-obsolete-form` | A PowerCOBOL-style form with `ObsoleteScalingStyle` 0–7 switched at run time. A docked toolbar and an anchored status line opt out, and one label keeps its font with `ScaleFont` off. |
+| Responsive: dashboard | `responsive-dashboard-form` | All of it together: a docked header (a Flex row) and navigation, a Grid of indicator cards, charts and a data grid, Fluid fonts, and two breakpoints that rearrange it. |
+
+> 📷 Screenshot needed — `responsive-dashboard.png`: run PowerDemo3, open
+> **Samples → Responsive Layout → Responsive: dashboard**, and capture the
+> window twice: once wide (about 1400 px) and once narrow (about 550 px). Place
+> the two side by side.
+
+Three things these forms had to be built around, which your own forms will
+meet too:
+
+- **An `fr` track is never narrower than its widest item as you drew it.** A
+  `1fr` column holding a card you drew 600 px wide does not go below 600 px,
+  and the window then cannot shrink. Write `MinMax(160px, 1fr)` to say how
+  narrow the column may get.
+- **A form or container whose `LayoutMode` is a Flex column takes the height
+  of its content.** Items keep their drawn height instead of shrinking to the
+  window. Draw the item that should fill the space at its *smallest* useful
+  height and give it `FlexGrow 1`: it then grows to fill a tall window, and a
+  short one still fits.
+- **A wrapping container's minimum is measured at the window's minimum
+  width.** This covers a Flex or Flow that wraps and a Grid whose columns
+  `Repeat(AutoFill, …)`. The window's minimum width is found first. The form
+  is then laid out at that width, and the container asks for the height of
+  the lines (or rows) its items actually form there. For example, a gallery
+  of 12 cards that holds four a row at the minimum width asks for three rows,
+  not twelve. At the window's minimum size nothing overflows.
+  A wrapping Flex *column* is measured the other way round: it asks for the
+  width of the columns its items form at the window's minimum height. If
+  nothing else sets a minimum width (or height), that minimum is one item, so
+  the items still stack. Give the form a `MinFormWidth` (or `MinFormHeight`)
+  to allow several items a line.
+- **A Splitter counts what its panes hold.** If a control inside a pane has
+  a minimum, for example a field anchored `Left,Right` with a `MinWidth`, the
+  window keeps the splitter wide enough for that pane to honour it at the
+  splitter's `SplitPosition`.
+
+> **Note.** Each page of a TabControl is laid out on its own, in the whole
+> page area: a `Dock = Fill` on one page fills that page and takes nothing
+> from the others, and a TabControl whose `LayoutMode` is Flex, Grid or Flow
+> arranges each page's controls separately. Its minimum size is that of its
+> largest page.
+
+### Target devices
+
+The **Target Device** section lets you size the form for a real device profile
+(various iPhone, iPad, Apple Watch, Android phone/tablet/watch presets) or a
+custom size, with a portrait/landscape switch. This is a design aid — it sets the
+form's width/height to the chosen profile.
+
+> 📷 **Screenshot needed — `form-designer-full.png`.** The Designer with the
+> toolbox, a canvas containing several controls (a label, a text box, a button,
+> and a chart), and the properties pane showing the section cards. Ideally use
+> a project with a background image so the Neumorphic or glass styling is visible.
+
+> **Note (non-visual controls).** Timer, AI Agent, REST Client, SQL Database,
+> Indexed File, WebSearch and Snackbar are **non-visual**: they appear on the
+> canvas as labelled glass "chips" at design time but render nothing at run
+> time. They exist to be configured and to raise events / be `CALL`ed from your
+> COBOL.
+>
+> Every chip carries its own glyph and a caption reporting the one setting you
+> most need to see at a glance: the Timer's interval, the AI Agent's model, the
+> REST Client's default method, the SQL Database's driver, the Indexed File's
+> open mode, the Snackbar's category, and the WebSearch control's search engine
+> id — which reads `no engine` until you set `SearchEngineId`, since without one
+> that control answers through `onError` instead of searching. The glyph and the
+> caption are inked against the card they sit on, so they stay legible on a
+> light form theme as readily as on a dark one.
+
+### Control animations
+
+A control can carry any number of **animations**, edited in the **Animations**
+card of the Properties pane. Each one has:
+
+| Field | What it does |
+|-------|--------------|
+| **Name** | How your COBOL starts it. New animations are named `anim1`, `anim2`, … |
+| **Trigger** | When it plays: `OnFormLoad` / `OnShow` (when the window comes up), `OnClick`, `OnHover`, `OnFocus`, `OnTimer` (each tick of a chosen Timer), or `Programmatic` (only when your code asks). |
+| **Kind** | The movement: fly in from a side or corner, fade in/out, zoom in/out, bounce, shake, pulse, spin, flip, or slide by **Slide DX / Slide DY** pixels. |
+| **Duration (ms)** | How long one pass takes. |
+| **Delay (ms)** | How long to wait before the **first** pass. |
+| **Easing** | The speed curve of a pass. |
+| **Repeat** | `Once`, `Loop` (start over), `PingPong` (play forward, then back) or `Count`. |
+| **Passes** | Shown when Repeat is `Count`: how many passes it plays (default 3), then it rests at the end. |
+| **Repeat delay (ms)** | Shown when Repeat is not `Once`: how long the control **rests between one pass and the next**, where the pass ended. `0` starts the next pass at once. |
+
+A pulsing "new message" badge that beats once a second, with a pause between
+beats, is a `Pulse` animation with Duration 400, Repeat `Loop` and Repeat
+delay 600. Start a `Programmatic` one from a handler:
+
+```cobol
+           INVOKE Lbl-Badge::PlayAnimation("anim1")
+      *> ...and later
+           INVOKE Lbl-Badge::StopAnimation()
+```
+
+The designer canvas, the form preview, **Run Form** and the built application
+all step animations through the same clock, so a loop and its pauses look the
+same everywhere.
+
+---
+
+## 8. The control catalogue
+
+PowerRustCOBOL ships the following controls. Visual controls render at run time;
+non-visual ones are services.
+
+**Common / input**
+: Label, Button, TextBox, CheckBox, RadioButton, ComboBox, ListBox,
+NumericUpDown, DateTimePicker, Slider, ProgressBar, PictureBox, **Switch**,
+**Knob**, **Gauge**, **FileDropZone**.
+A **TextBox** honours five input properties a PowerCOBOL developer will reach
+for straight away:
+
+
+| Property            | What it does                                                                                                                                                                                                                                                            |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Picture`           | The **COBOL `PICTURE` the box's contents obey** — see below.                                                                                                                                                                                                            |
+| `ReadOnly`          | Shows its value, and lets you select and copy it, but takes no edit — and fires no `onChange`, because nothing changed. This is *read-only*, not *disabled*: a disabled field cannot even be selected, and your COBOL can still write to `Text`.                        |
+| `PasswordCharacter` | Paints the value as **the character you chose**, one per character of the value. The value itself is untouched: `Text` still holds what was typed, so your program reads the password normally.                                                                          |
+| `MaximumLength`     | Typing stops at that many characters. `0` — the default — means no limit. Ignored when `Picture` is set: the picture's own width is the limit.                                                                                                                         |
+| `ScrollBars`        | `None` / `Vertical` / `Horizontal` / `Both`, on a **Multiline** box. `None` still scrolls; it simply draws no bars, so text the box cannot show never becomes unreachable. `Horizontal` and `Both` stop the text wrapping, so there is something to scroll sideways to. |
+
+**`Picture` — the box holds what the item holds.** Set it to a COBOL picture
+(`9(6)`, `ZZ9.99`, `A(20)`, `X(30)`, `$$,$$9.99CR`) and two things follow.
+
+It **validates**, per character position, as you type: `PIC A(3)` takes
+letters and spaces, `PIC 9(3)` takes digits, `PIC X(3)` takes any character.
+That is COBOL-85's reading of `A`, `9` and `X`, not a permissive one. Entry
+stays ordinary text — the box does **not** pre-seed the grouping characters
+and make you walk the caret over them. You type `1234.56`; the box decides
+whether each keystroke is allowed.
+
+It also **masks**: a numeric-edited picture shows its edited form when the box
+is not focused and the plain stored value when it is. `PIC ZZ9.99` holding
+`12.34` reads `" 12.34"` at rest — one leading space, because the picture is
+six character positions wide — and `12.34` under the caret.
+
+The decimal separator and currency character come from the **form's
+`SPECIAL-NAMES`**, not from the picture, so under `DECIMAL-POINT IS COMMA` the
+comma is the decimal point and the period groups. The running form and the
+COBOL it generates cannot disagree about that.
+
+Most importantly, **the generated data item carries the same picture**. A box
+with `PIC 9(6)V99` generates a `PIC 9(6)V99` item, so arithmetic and
+comparisons against it obey COBOL's own rules — nothing is converted behind
+your back at run time.
+
+> **Note.** Leaving `Picture` empty means "not set", and the box behaves
+> exactly as it always has: the effective picture is `X(n)` sized from
+> `MaximumLength`. Forms built before this property existed are unaffected.
+
+**Containers / layout**
+: GroupBox, Panel, TabControl, Splitter, MenuBar, ToolBar, StatusBar,
+**SideMenu**.
+**GroupBox, Panel and TabControl are true containers** — see *Containers and
+nesting* below.
+A **Splitter is a panel divided in two** — a container, like the three above
+it. Drop one and you get **three** controls in the tree: the splitter itself,
+and the two panes it owns, `<id>-Pane1` and `<id>-Pane2`. The panes are
+ordinary Panels — borderless and transparent to start with — so you drop
+controls into them, style them and bind them exactly as you would any Panel.
+What you do **not** set is where they sit: the division line decides that.
+
+- **Orientation** names how the **panes** are arranged, not how the line
+  runs. `Horizontal` puts **pane 1 on the left and pane 2 on the right**,
+  divided by a vertical line; `Vertical` puts **pane 1 on top and pane 2
+  below**, divided by a horizontal one.
+- **SplitPosition** is a **percentage, 0–100**, of the splitter's inner
+  width (Horizontal) or height (Vertical). Because it is a proportion and not
+  a pixel offset, the division stays where you put it when the form or the
+  splitter is resized. Your COBOL can read it —
+  `MOVE Splitter-1::GetProperty("SplitPosition") TO WS-N` — or set it:
+  `SET Splitter-1::SplitPosition TO 30`.
+- **The frame** is the splitter's own `BorderStyle`, `BorderWidth` and
+  `BorderColor`, and the panes sit inside it: they are inset by
+  `BorderWidth` (2 points at least), so a wide frame is never covered by the
+  panes or what you put in them.
+- **Drag the line** — anywhere along it, not only on the grip — and the two
+  panes redistribute under the pointer. The cursor becomes a **grab hand**
+  over the line, and **double-clicking it puts the division back at 50 %**.
+  The same gesture works on the designer canvas and in the running form.
+- **0 % and 100 % are legal.** One pane closes completely and the other
+  holds everything; the grip is clipped by the splitter's own edge, so half
+  of it stays visible to drag back with.
+- **Styling the line**: `LineColor` and `LineSize` for the rule, `GripStyle`
+  (`FilledPill`, `HollowPill`, `FilledCircle`, `HollowCircle`), `GripSize`
+  and `GripColor` for the handle. Leave a colour empty and it follows the
+  form theme. The panel itself follows the theme too, until you set
+  `BackgroundColor`, `BorderStyle` or `BorderColor`.
+- **What the contents do when the line moves** is each pane's own choice,
+  set on the pane (not the splitter) as **Pane Left/Right Resize Behavior**:
+
+
+  | Behaviour                            | What the controls inside that pane do                                                                                                                                                                                                                        |
+  | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+  | **Translate with divider** (default) | Every control keeps its distance from the division line, in both panes: drag the line 40pt right and everything in both halves moves 40pt right. A control can be carried past its pane's far edge, where it is clipped.                                     |
+  | **Scale within the pane**            | Every control keeps its position as a *fraction* of the pane, so growing the pane spreads its contents out and shrinking packs them together. Sizes are never scaled — only positions — so nothing is distorted and nothing leaves the pane.                |
+  | **Anchor to the outer edge**         | Every control keeps its distance from its pane's own leading edge. Pane 1's leading edge is the splitter's and never moves, so its contents stay put; pane 2's *is* the division line, so its contents travel with it. This is how a plain container behaves. |
+
+  The two panes are independent — a fixed control strip down one side and a
+  scaling canvas on the other is just one pane set to *Anchor* and the other
+  to *Scale*.
+
+  A **container inside a pane carries its contents**: a Panel, GroupBox or
+  TabControl you dropped into a pane moves as one piece, its controls
+  travelling with it — under *Scale* too, where the container takes its
+  fraction position and everything inside follows it rigidly rather than
+  being spread out of it. This holds however deeply things nest, **a
+  splitter inside a pane included**: the inner splitter travels with the
+  outer division, and its own panes and their contents travel with it.
+
+  **On a responsive form**, the window's layout places the splitter and the
+  splitter places its two panes. Each pane then lays out its own controls
+  inside the space it actually received, the same way any Panel does. So
+  `Anchor`, `Dock` (`Fill` included) and the pane's own `LayoutMode` (Flex,
+  Grid, Flow) apply inside a pane. A control docked `Fill` in a pane fills
+  it, and one anchored `Top,Left` keeps its distance from the pane's corner
+  on both axes. The Resize Behavior above applies only when the line moves
+  while the form runs.
+
+
+  > **A pane never resizes what is in it.** Moving the division changes the
+  > pane's own rectangle and the *positions* of its contents — never their
+  > `Width` or `Height` (only a responsive window resize does, through the
+  > controls' own anchors and docks). The pane is a **viewport**: a control too big for it
+  > is clipped by the pane's edge, not shrunk to fit.
+  >
+
+  Dragging the division **in the designer really moves the controls**: their
+  X/Y are rewritten and saved, and the whole drag — the line and everything
+  it carried — is a single undo step.
+
+> **Note** — a pane's own rectangle is derived from the division, so moving
+> or resizing a pane by hand does nothing: it snaps straight back. Move the
+> **splitter** to move both panes, and drag the **line** to change their
+> share.
+
+> ⚠️ **Changed in 1.61.164.** Before this the Splitter was a *bar between two
+> neighbouring controls*, and `Orientation` named the bar's own direction —
+> `Horizontal` meant a wide bar splitting top from bottom, the opposite of
+> what it means now. A form saved earlier opens with its panes the other way
+> round, and its `SplitPosition` (which used to be a pixel offset) is reset
+> to 50 %. Set the orientation you want and drag the line back into place —
+> it is a one-time correction, and nothing you put on the form is lost.
+A **StatusBar** is the width of its window, always. You do not set its `X` or
+its `Width` — they are the form's, they follow a form resize on their own (and,
+at run time, the running window as the operator widens it), and
+the designer shows them greyed and offers only the top and bottom resize knobs.
+Its `Y` and `Height` are still yours: where along the bottom edge it sits, and
+how tall it is, are your decision. It is also **the one control that cannot go
+inside a container** — drop or drag it over a Panel, a GroupBox, a Splitter pane
+or a tab page and it belongs to the *form* just the same, with no container
+lighting up as a target. A status bar reports on the window, so a strip that is
+narrower than the window, or clipped inside a panel, is not one. (This is not
+the MenuBar's `MenuBarStyle`, which is a choice and defaults to the width you
+drew; a status bar has no such choice.)
+
+Its **`Items`** — one text per line — are lettered left to right in the bar's
+own `ForegroundColor`, font and font styles, on the face its `BackgroundColor`
+gives it. The designer canvas shows exactly what the running form shows.
+
+> ⚠️ **Caveat.** Until 1.70.233 the running bar ignored its design: it drew a
+> fixed navy strip with fixed light text, while the canvas showed only a
+> "▬ StatusBar" stand-in. A bar you never coloured now wears the same default
+> face as other controls; give it a `BackgroundColor` if you want a strip.
+
+> A **SideMenu** is the one control that changes how the whole application
+> starts: put it on the main form and the application opens as a *shell* with a
+> navigation sidebar instead of one window per form — see
+> [The application shell](#22-the-application-shell-and-the-super-receiver).
+
+**Data**
+: DataGrid, TreeView.
+
+**Graphics / media**
+: Line, Shape, Animator, **Maps**.
+A **Shape** draws a Rectangle, a Circle or a Triangle. It has its own
+**FillColor**, **FillStyle**, **LineColor**, **LineStyle** and
+**LineThickness** in *Basic properties*, and it also honours the **Background
+gradient** in *Appearance*: tick it and the gradient leads over the fill, on
+all three silhouettes. A circle and a triangle are shaded along the shape
+itself, not through a box drawn around them, so a Radial gradient reads
+correctly on each. Leave it unticked and the shape wears **FillColor** (or the
+Appearance **Background color** when you have not set a FillColor).
+
+**Charts**
+: BarChart, LineChart, PieChart, AreaChart, ScatterChart, DonutChart.
+Every chart has a **Hide background** property: when checked, the chart's panel
+fill and border frame are not drawn, so only the chart content (grid, axes,
+labels, data) shows — letting the chart sit transparently on the form.
+Short of hiding it, a chart's **Transparency** fades its background *only* —
+the data marks, axes, legend and frame stay solid, so a see-through chart is
+still readable. That background is the form theme's card until you pick a
+**BackgroundColor**, and it takes the same **Background gradient** every
+control offers (tick it, then start colour, end colour and a compass
+direction) — the gradient fades with the chart's Transparency exactly as a
+flat colour does. Its frame is a real border like any other control's
+(**BorderStyle**, **BorderWidth**, **BorderColor**, following **CornerRadius**),
+with two chart-only extras in the Properties pane: tick **Border gradient**
+to run the frame from a start colour to an end colour along a compass
+direction, and set **Border blur** (pixels) for a soft glow outward in the
+border's colour. **Border transparency** (0 = opaque, 100 = invisible) fades
+the line, the gradient and the blur together — on its own, independently of
+the chart's Transparency, which reaches only the background. `BorderStyle`
+`None` removes all of it.
+Charts also have a **Monochrome** mode: tick it and pick a **base colour** from
+the 256-swatch selector, and the chart renders its data in distinguishable
+tonal variations of that one colour instead of the multi-colour palette. Grid
+and axis lines become soft pastel variants and slice/bar borders a
+lighter/darker variant; labels, legends and titles keep the foreground colour,
+and area/stacked transparency is unchanged. Grid visibility stays on the
+existing **Show grid lines** toggle. A **Gradient** option gives each data
+element its own ±20% tonal gradient (bars shade vertically; scatter bubbles and
+pie/donut slices radially), while line and area charts get a vertical fill that
+is bright at the line and fades toward the baseline. The base-colour selector
+includes a column of greys. Line and area charts honour the **Smooth** property
+(Catmull-Rom curve).
+A chart also honours its own **captions, labels and legend**:
+
+
+| Property                    | What it does                                                                                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Title`                     | The caption printed above the plot. Empty draws none, and takes no room.                                                                                |
+| `TitleFontSize`             | The title's own point size. **0** — the default — leaves it following the chart's `FontSize`. The band above the plot grows with it, so a large title takes room rather than printing over the data. |
+| `TitleColor`                | The title's own colour. **Empty** — the default — keeps the automatic choice, which reads dark on a face that can carry it and switches to the readable pole when it cannot. |
+| `XAxisLabel` / `YAxisLabel` | Free-text axis captions. Room is reserved for them in the margins, so a caption never runs across the data. Empty means no caption and no space taken. |
+| `ShowLegend`                | Slice names beside a pie or donut; series names under a bar, line, area or scatter chart. **Ticked by default.**                                        |
+| `ShowLabels`                | A label on every pie/donut slice. **Ticked by default.**                                                                                                |
+| `LabelFormat`               | What that label says: `percent` (the slice's share), `value` (the number), or `label` (its name).                                                       |
+| `SeriesColors`              | The series' colours (a pie's slices), comma-separated, in order. The seeded list means "not chosen" — the theme's palette paints the chart until you change it. |
+| `SeriesLabels`              | The names the legend gives the series, comma-separated; an unnamed series shows as `Series n`.                                                          |
+| `ShowPoints`                | A marker on every point of a line **or area** chart.                                                                                                    |
+| `PointRadius`               | Line and area marker radius, and a scatter point's radius when it has no bubble sizes, in pixels.                                                        |
+| `BubbleScale`               | A scatter chart's largest bubble radius; the others are sized in proportion to their sizes (see below).                                                  |
+| `ShowTooltips`              | In the running form, the bar, point or slice under the pointer shows `label: value`. **Ticked by default.**                                              |
+| `AnimateOnLoad`             | The first time the running chart has data, its marks grow into place over `AnimationDuration`. **Ticked by default.**                                   |
+| `FillAlpha`                 | The opacity an area chart fills at, 0–100 %.                                                                                                          |
+| `AnimateValues`             | Animate a **change of data**: the chart travels from the values it is showing to the new ones instead of cutting to them. Off by default.               |
+| `AnimationDuration`         | How long that move — and the `AnimateOnLoad` growth — takes, in milliseconds. Default 2000; anything under 250 is raised to 250.                     |
+
+> **The rest of a chart's type follows `FontSize`.** The legend, the axis
+> captions and the value labels are all sized from the chart's own `FontSize`,
+> like the text of any other control — so one property enlarges the whole chart's
+> lettering, and `TitleFontSize` is there for when the title alone should differ.
+> Each reserved band grows with the type, so larger text takes room instead of
+> overlapping the plot.
+
+**Animating a change of data.** Tick `AnimateValues` and every later push —
+`AddPoint`, `Clear`, a `DataSource` refresh — is *travelled to* rather than
+jumped to. The **whole series moves together** over `AnimationDuration`, so a
+chart settles in the same time with four points or forty; a point the new set
+added rises from zero while the others move, and one it dropped simply stops
+being drawn. The labels are the new set's from the first frame, so a
+half-played move never shows a point under the name it used to have. Change
+the data again mid-move and it re-aims **from the frame on screen**, not from
+the set it was heading for, so the chart never jumps backwards to set off
+again.
+
+> **The first fill is `AnimateOnLoad`'s, not `AnimateValues`'.** A plot
+> auto-scales to its own largest value, so *values* rising uniformly from zero
+> would paint the same bars the whole way up. `AnimateOnLoad` grows the
+> **marks** instead — after the scale is applied — so the bars, the line and a
+> pie's sweep visibly rise into place the first time the chart has data.
+> Untick it for a chart that should simply appear.
+
+> ⚠️ `ShowLegend` and `ShowLabels` have been ticked since charts existed and
+> did nothing until 1.61.97, so charts you built before then gain a legend and
+> slice labels. Untick them for the old look.
+
+**Plotting a table by its field names.** Set `DataSource` and `DataCount` and
+the generated `<id>-SET-TABLE` paragraph plots your table. By default each
+occurrence must be a `PIC X(64)` label followed by a `PIC 9(18)V9(6)` value.
+Name the sub-fields instead and it reads your own layout:
+
+```cobol
+       01  WS-SALES.
+           05  WS-SALE OCCURS 12 TIMES.
+               10  SALES-MONTH    PIC X(3).
+               10  SALES-AMOUNT   PIC 9(7)V99.
+               10  SALES-VOLUME   PIC 9(5).
+       01  WS-SALES-COUNT         PIC 99 VALUE 12.
+```
+
+with `LabelField` = `SALES-MONTH` and `ValueFields` = `SALES-AMOUNT`.
+
+**More than one series.** Name more fields in `ValueFields` —
+`SALES-AMOUNT, SALES-VOLUME` — and a bar, line or area chart draws one series
+per field, coloured from `SeriesColors` and named in the legend by
+`SeriesLabels`. One point at a time, `AddPoint` takes a value per series:
+
+```cobol
+           INVOKE CH-SALES 'AddPoint' USING "APR" 7 9 4
+```
+
+A point given fewer values than the others is 0 in the series it leaves out.
+**`Stacked`** (bar and area charts) piles the series up instead of standing
+them side by side: each label becomes one bar made of coloured segments — or
+one band per series on an area chart — so it reads as the label's total, and
+the plot scales to the largest total.
+
+On a **scatter chart** there is one series, and the third `AddPoint` argument
+is the bubble's size instead; `BubbleField` = `SALES-VOLUME` sizes every bubble
+from the table (the largest is `BubbleScale` across its radius). A pie or donut
+draws the first series.
+
+> ⚠️ **Caveat.** A tooltip (`ShowTooltips`) reports the **first** series' value
+> for the label under the pointer, also on a stacked bar.
+>
+> A pie or donut no longer carries `ShowXAxis` / `ShowYAxis` — it has no axes.
+> `BarCornerRadius` rounds **every** corner of a bar — on a stacked bar, only
+> the top segment's, so the joints stay flat.
+
+**Non-visual services**
+: Timer, AgentObject (AI agent), RestClient, SqlDatabase, **IndexedFile**,
+**WebSearch** (Google, Brave, Serper, Tavily or a SearXNG instance you host),
+**Snackbar** (transient notifications).
+An **IndexedFile** control is the designer-side face of an indexed file. The
+record and its keys are described once in the project's indexed-file
+definition (a `.cidx`), which is what the `SELECT` and `FD` are generated
+from; the control then points at that definition and gives the form the
+plumbing to drive it — `OpenMode`, `AutoOpen` and a status data item — see
+[Indexed files](#14-indexed-files--a-first-class-resource).
+
+> **Note.** A `Custom` control type exists as an extension point for
+> bespoke/vendor controls; treat it as advanced.
+
+### Containers and nesting
+
+**GroupBox**, **Panel**, and **TabControl** are real **containers**: a control
+placed inside one becomes its **child** and moves, clips, and hides with it.
+Containers nest freely in any combination (a Panel inside a GroupBox inside a
+TabControl page, and so on).
+
+- **Put a control in a container** — drag it (from the toolbox or an existing
+  spot) so it lands over the container's **content area**; it becomes that
+  container's child. Moving the container then moves its whole contents.
+- **Take a control out** — drag it onto the bare form to re-parent it back to the
+  form; drag it over a different container to move it there. Dropping a control
+  over a **non-container** control makes it a sibling (same parent) of that
+  control.
+- **Clipping & corners** — children are clipped to the container's content area.
+  Every control has a **Corner radius** property (see *Corner radius* below) that
+  rounds the container's frame.
+- **Opacity** — a container's **Opacity** (0–100) fades the container *and its
+  children together*, so you can dim a whole group at once.
+- **Enabled** — disabling a container disables everything inside it, so
+  `SET MY-GROUP::Enabled TO 0` switches off a whole page of fields at once and
+  `SET MY-GROUP::Enabled TO 1` switches them back on. As with visibility, the
+  children's own `Enabled` is never written: a control you disabled in its own
+  right — a Save button held off until the form validates, say — stays disabled
+  when the group returns.
+- **Visibility** — hiding a container hides everything inside it. A container
+  that is not drawn has no inside to draw into, so `SET MY-GROUP::Visible TO 0`
+  takes its children with it and `SET MY-GROUP::Visible TO 1` brings them back.
+  The children's own `Visible` is never touched, so a control you had hidden
+  individually stays hidden when the group returns — showing a group restores
+  exactly what was showing before, not everything in it.
+- **Auto-scroll** — turn **Auto-scroll** on for a container whose children may
+  overflow its bounds. (When off, overflowing content is simply clipped.)
+- **TabControl pages** — each tab owns its own set of children. Click a tab in
+  the designer to edit that page; only the selected tab's controls are shown and
+  interactive, at design time and at run time.
+
+  **How the tabs look.** The tabs sit edge to edge in a strip on the side
+  `TabPosition` names, and the strip joins the page with no gap: a tab's outer
+  corners are rounded, the side it shares with the page is straight, and the
+  selected tab flows into the page with no line between them. The page's
+  corner where the first tab joins is square, so tab and page read as one
+  outline; its other three corners follow `CornerRadius`. On the left or right
+  the tabs are stacked, all as wide as the widest, and their titles stay
+  horizontal.
+
+  Changing `TabPosition` in the designer takes the page's contents along: the
+  controls keep their place relative to the page's corner, so turning the
+  strip to the left moves them right, out from under the tabs. Anything that
+  would still sit under the strip is brought in, and if the contents then
+  reach past the far side the TabControl grows just enough to hold them, with
+  the same margin on both sides. One **Undo** puts the strip, the controls and
+  the size back.
+
+  | Property | What it sets |
+  |---|---|
+  | `ActiveTabColor` | Fill of the selected tab (blue to start with) |
+  | `ActiveTabForegroundColor` | Its title's colour |
+  | `InactiveTabColor` | Fill of the other tabs |
+  | `InactiveTabForegroundColor` | Their titles' colour |
+  | `TabPadding` | Space between a title and its tab's left and right edges; each tab is as wide as its title plus this |
+
+  Leave a colour empty and it is chosen for you: the other tabs take a tone a
+  step off the page, and each title takes whichever colour reads on its tab
+  (white on the default blue). Every colour can be changed from COBOL, e.g.
+  `MOVE "#FFFFFFFF" TO TAB-1::ActiveTabForegroundColor`.
+
+  > ⚠️ **Caveat — `TabPadding` changed meaning at 1.70.272.** It used to be
+  > the gap between tabs; it is now the room inside each one. A form that set
+  > it to `0` to close the gap now gets tabs with no room around their titles —
+  > set it back to about 16.
+
+Deleting a container deletes the controls inside it. A control keeps its unique
+id wherever it lives, so `control::property` access and event bindings are
+unaffected by nesting.
+
+#### Clipboard
+
+The Form Designer has a control clipboard for fast layout work:
+
+- **Copy** — select one or more controls and press `Cmd/Ctrl+C`.
+- **Cut** — press `Cmd/Ctrl+X`; controls and their children are removed from the
+  canvas and placed on the clipboard.
+- **Paste** — press `Cmd/Ctrl+V`; pasted controls get fresh IDs, keep their relative
+  layout, and are placed near the current pointer/canvas focus.
+- **Duplicate** — press `Cmd/Ctrl+D`; this is copy + paste in one step.
+
+The same actions are also available from the RAD toolbar and from the canvas
+right-click menu, so mouse-driven layout work does not require keyboard
+shortcuts.
+
+Container membership is preserved inside the copied selection. If you copy a
+GroupBox with child controls, the pasted copy has a new GroupBox ID and the
+children are re-parented to that new container. Event handler code is preserved
+on copied controls, but pasted controls receive regenerated handler names based
+on their new IDs.
+
+#### Nudging with the arrow keys
+
+A selected control does not have to be dragged. The **arrow keys** move
+everything that is selected, one step per press:
+
+- With **Snap to grid** on, a step is one grid cell — the same place a drag
+  would have put the control, so the keyboard and the mouse agree with each
+  other.
+- With snapping off, a step is one pixel.
+- Hold **Shift** for a single pixel whatever the grid says, for the times you
+  want a control deliberately off it.
+
+A selected container takes its children with it, and each press is one undo
+(`Cmd/Ctrl+Z`). A control nudged until its body sits over a container becomes
+that container's child, exactly as if you had dragged it there.
+
+Controls whose **Anchor** is set stay where they are: an anchor locks a control
+against being moved by hand, and an arrow key is moving it by hand. Type into
+**X** and **Y** in the properties pane to reposition an anchored control.
+
+> **Note** — the arrow keys belong to whatever you are typing in. While the
+> caret is in a property field, the arrows move the caret and nothing on the
+> canvas moves.
+
+#### Corner radius (all bordered controls)
+
+Every control that draws a border — buttons, text boxes, combo/list boxes,
+picture boxes, data grids, numeric/date pickers, progress bars, sliders, shapes,
+charts, and the containers — has a **Corner radius** property:
+
+- The control's **background and border are rounded** to the radius.
+- **Content is clipped to the rounded shape.** A **PictureBox** image is trimmed
+  to the rounded corners (over any background, including a form background
+  image), and chart frames round too.
+- **Corner radius = 0** means square corners and **no clipping** — the default,
+  so existing forms look exactly as before. The value is clamped so it never
+  exceeds half the control's smaller side (a fully rounded "pill"/circle).
+- **The control's own drop shadow shows through the rounded corner.** The area a
+  radius carves away is not part of the control any more, so what is behind it
+  there — the form's surface *and* the shadow the control casts on it — is what
+  you see. That continuity is what makes a rounded control look like it is
+  sitting on the form rather than cut out of it, and it is most visible with a
+  generous **Shadow distance** and **Shadow blur**.
+
+The same radius and clipping apply identically on the design canvas, the live
+preview, and the running form. *Limitation:* the editable text/scroll layer of
+run-time inputs (e.g. a TextBox while typing) stays square inside its rounded
+frame, and container **children** are clipped to the rectangular content area
+(the rounded corners are cosmetic on the frame).
+
+**Every border style follows that radius**, on every control that has one.
+`BorderStyle` takes six values in the properties pane:
+
+
+| Style               | What it draws                                                                                                                                                           |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `None`              | No border at all.                                                                                                                                                       |
+| `Single`            | One line of `BorderWidth` in `BorderColor`, following the corner radius.                                                                                                 |
+| `Fixed3D`, `Raised` | A relief lit from the top-left: the top and left edges in a lighter shade of `BorderColor`, the bottom and right in a darker one, meeting halfway round the corner arcs. |
+| `Sunken`            | The same relief inverted, so the control reads as pressed into the form.                                                                                                |
+| `Glow`              | A discreet edge in `BorderColor` whose four corners glow, each in its own colour, fading out along both edges, like light catching the corners of a glass panel.          |
+
+**`Glow` and its four colours.** Choose `Glow` and four colour rows appear under
+*BorderStyle*: `BorderGlowTopLeft`, `BorderGlowTopRight`,
+`BorderGlowBottomRight` and `BorderGlowBottomLeft`. Leave them unset for a
+white highlight, brightest at the top-left, or give each corner its own colour.
+They are ordinary colour properties, so a program can change them while it
+runs, for example to light a card when it is selected:
+
+```cobol
+           IF WS-SELECTED = "Y"
+               SET CARD-1::BorderGlowTopLeft     TO "#60BEFF"
+               SET CARD-1::BorderGlowBottomRight TO "#A896FF"
+           END-IF
+```
+
+The glow follows `CornerRadius` and `BorderWidth` like every other style; a
+`BorderWidth` of 2 or 3 shows it best. The edge between the corners is your
+`BorderColor` at 40 %, so a darker `BorderColor` makes the glow stand out more.
+
+> 📷 Screenshot needed — `border-glow.png`: a Spatial form with three panels
+> using `BorderStyle` `Glow`: one with the default white glow, one with
+> sky/mint/lavender/peach corners, one with a single bright top-left corner.
+
+The relief follows the corner radius exactly as `Single` does — before
+1.61.170 it drew four straight lines on the bounding box and ran out past the
+arc at every corner. It also draws identically whatever paints the control's
+face: the glass styles, a background gradient, a form theme or an asset pack.
+
+> **Note — Neumorphic.** That style paints its own soft relief, lit from the
+> top-left, from the same shadow stack that gives the whole form its look, so
+> `Fixed3D` and `Raised` read as raised there. **`Sunken` turns that relief
+> over** — shadow on the top and left, highlight on the bottom and right — so a
+> control set to it reads as pressed *into* the form. **`Single` stays your own
+> line**, in `BorderColor` and `BorderWidth`, as on every other style.
+>
+> ⚠️ Before 1.70.263 `Single` was relief too under Neumorphic, so `BorderColor`
+> and `BorderWidth` seemed to do nothing on a Neumorphic form.
+
+> Older forms that used a container **Border radius** still load and round
+> correctly — it is read as an alias for **Corner radius**.
+
+#### GroupBox appearance
+
+Beyond the shared container properties, a **GroupBox** adds visual options in the
+**Appearance** section of the properties pane:
+
+- **Hide caption** — keep the box as a container but draw no title text.
+- **Hide background** — make the box transparent (no fill or border) while its
+  children stay visible.
+- **Background color** — the solid fill colour.
+- **Background gradient** — turn on a two-colour gradient fill with a **start**
+  and **end** colour and a **direction**. The direction is given as a compass
+  point — *North*, *NorthEast*, *East*, *SouthEast*, *South*, *SouthWest*,
+  *West* or *NorthWest* — and a fresh gradient starts at *South*, running top to
+  bottom. (The renderer also understands *Radial*, and the linear aliases
+  *Vertical*, *Horizontal*, *DiagonalUp* and *DiagonalDown*, for a value set
+  from COBOL or supplied by a theme; the picker itself lists the eight compass
+  points.)
+
+#### GroupBox caption styles
+
+By default a GroupBox caption is the classic legend of a PowerCOBOL or isCOBOL
+frame: plain text sitting on the top border, just past the rounded corner. Give
+it a **Caption background** and it becomes a styled caption box instead:
+
+| Property | Values | What it does |
+|---|---|---|
+| `CaptionBackgroundStyle` | `None` (default), `Flat`, `Gradient` | `None` keeps the classic legend. `Flat` fills the box with `CaptionBackColor`; `Gradient` fills it from `CaptionGradientStart` to `CaptionGradientEnd` along `CaptionGradientDirection`. |
+| `CaptionShape` | `Rectangle` (default), `Pill`, `AngledLeft`, `AngledRight` | The box's outline — see the sketches below. |
+| `CaptionSize` | `Text` (default), `Full`, `Inner` | `Text` hugs the text; `Full` spans the whole straight top edge between the rounded corners; `Inner` does the same but stops 10 px short of each corner, leaving a short stub of border. |
+| `CaptionPadding` | 0–64 pixels (default 4) | Shorthand for the space around the text inside its box: this much to the left and right, half of it above and below. |
+| `CaptionPaddingHorizontal` | 0–64 pixels, or empty (default) | The space left and right of the text; empty follows `CaptionPadding`. |
+| `CaptionPaddingVertical` | 0–64 pixels, or empty (default) | The space above and below the text; empty follows half of `CaptionPadding`. |
+| `CaptionAlignment` | `Auto` (default), `Left`, `Center`, `Right` | Where the text sits. `Auto` is left for a `Text` caption and centred for `Full` and `Inner`. |
+
+```text
+Rectangle      [ Customer ]
+Pill           ( Customer )
+AngledLeft     \ Customer \
+AngledRight    / Customer /
+
+Full           [               Customer               ]
+               |                                      |
+Inner        +--[             Customer             ]--+
+             |                                        |
+```
+
+The box is outlined in the GroupBox's own **Border color** at its **Border
+width**, and the caption text picks an ink that reads on the fill — so a dark
+gradient gets light text without you choosing it. Every property can be set
+from COBOL like any other:
+
+```cobol
+           MOVE "Gradient" TO GRP-CUSTOMER::CaptionBackgroundStyle
+           MOVE "Pill"     TO GRP-CUSTOMER::CaptionShape
+           MOVE "Inner"    TO GRP-CUSTOMER::CaptionSize
+```
+
+The GroupBox's top border is **open behind the caption** — across the whole
+caption area, padding included, not just behind the letters — so the border
+never runs through the title. The caption never reaches into a rounded corner:
+however large its padding, it starts after the top-left corner's radius and
+ends before the top-right one's, so the corners keep their shape. A `Full`
+caption opens the whole straight part of the top edge.
+
+> **Note:** with `CaptionBackgroundStyle` left at `None`, `CaptionShape` draws
+> nothing — only `CaptionSize`, `CaptionAlignment` and the padding still decide
+> where the text sits and how wide the opening in the border is.
+
+📷 Screenshot needed — groupbox-caption-styles.png: four GroupBoxes on one
+form showing a Flat Rectangle `Text` caption, a Gradient Pill `Inner` caption,
+an AngledLeft `Full` caption and an AngledRight caption with `Right`
+alignment.
+
+#### Repeating groups (GroupBox arrays)
+
+A **GroupBox** can be turned into a **repeating group** — a visual template that
+is repeated at run time, one instance per array element. Design the group once
+(its child controls are the template) and right-click it → **Set as Repeating
+Group** (right-click again for **Unset Repeating Group**). A small **▦ ARRAY**
+badge marks a repeating group in the designer.
+
+A **Repeating Group** section then appears in the properties pane:
+
+- **Array name** — logical name of the array (defaults to the GroupBox id).
+- **Item count** — number of instances at run time.
+- **Data source** — optional source used to populate instances.
+- **Layout direction** — *Vertical*, *Horizontal*, or *Grid*.
+- **Item spacing** — gap between instances.
+- **Items per row** — columns when the layout is *Grid*.
+- **Placement effect** — optional card placement animation: *None*, *Deal*,
+  *FadeIn*, *ZoomIn*, or *ZoomOut*. Zoom effects keep each card anchored at its
+  final layout position and scale the whole card group with elastic easing.
+- **Auto-scroll parent** — let the parent container scroll when instances
+  overflow (place the group inside a **Panel**, **GroupBox** or **TabControl**
+  with **HScroll**/**VScroll** on — all three scroll their children).
+- **Clone events** — on (the default), all instances of a child control share
+  one event handler, told which card fired by `CONTROL-ARRAY-INDEX`. Off, only
+  the designed card (1) runs its handlers; the clones are display only.
+- **Preview items** — how many instances the **designer** previews (these are
+  render-only ghosts; they are *not* added to your form, so selection and undo
+  are unaffected). At run time an unbound group shows this many only while its
+  `ItemCount` is 0.
+
+At run time each instance and its children are addressed by index using the
+member-access syntax, e.g. `CustomerCard(3)::CustomerName::Caption` — the index
+is **1-based**. A child's event handler is shared across every instance and is
+told which card fired through the `CONTROL-ARRAY-INDEX` linkage item the
+designer seeds for it (§10):
+
+```cobol
+       LINKAGE SECTION.
+       01 CONTROL-ARRAY-INDEX     PIC S9(4) COMP-5.
+
+       PROCEDURE DIVISION USING CONTROL-ARRAY-INDEX.
+           DISPLAY "card " CONTROL-ARRAY-INDEX " was clicked".
+```
+
+Set `ItemCount` (in the designer, or `SET grp::ItemCount` from COBOL) for a
+fixed number of cards, or bind `DataSource` and let the
+data decide; `RefreshBinding()` on the group repopulates the cards from
+working-storage after you change it.
+
+#### Data binding and the Guardian
+
+Data binding is configured as a **form-level binding**, not as a standalone
+property on every scalar control. Select an approved target in the Form Designer
+and use the **Data Binding** section in the properties pane to create a binding
+from one of these source families:
+
+- **Indexed** — a project `.cidx` definition and its record fields.
+- **SQL** — a `SqlDatabase` control, query, and result set.
+- **COBOL table** — an in-memory COBOL table: any item with `OCCURS`, at
+  **any level from 01 to 49**, inside a `GLOBAL` 01. Each table is listed under
+  the name of its `OCCURS` item. The exception is a table on the 01 itself or on
+  its direct child, which keeps the 01's name. A table nested inside another
+  table's occurrence is part of that table, not a table of its own. An
+  elementary `OCCURS` item (`05 UF PIC XX OCCURS 27 TIMES.`) is a one-column
+  table whose column is the item itself. The table may `REDEFINES` storage
+  filled by `VALUE` clauses:
+
+  ```cobol
+         01 ITEMS GLOBAL.
+            03 ITEM-1       PIC XX VALUE "01".
+            03 ITEM-2       PIC XX VALUE "02".
+            03 ITEM-3       PIC XX VALUE "03".
+         01 ITEMS-TABLE REDEFINES ITEMS GLOBAL PIC XX OCCURS 3.
+  ```
+- **REST** — a `RestClient` response data item, saved schema, or sample payload.
+- **Agent AI** — a structured `AgentObject` output.
+
+Approved binding targets are deliberately limited to controls that can display
+or edit structured rows:
+
+- **DataGrid** — maps fields to stable grid columns.
+- **Charts** — maps one field to categories and one or more numeric fields to
+  value series.
+- **ComboBox** and **ListBox** — maps display text and an optional selected
+  value.
+- **Knob**, **Gauge** and **Switch** — a *scalar* target: one source field
+  drives `Value` (Knob, Gauge) or `Checked` (Switch), with no repeating group
+  needed. These are the exception to the rule below.
+- **Maps** — a marker collection: each row becomes a marker.
+- **Explicit control arrays** — maps fields to child control properties inside a
+  repeating GroupBox or equivalent array contract.
+
+**Removing a binding.** Open the control's binding editor, press **Clear
+selection**, confirm, then press **Apply**. With no source chosen, Apply on a
+control that has a saved binding removes that binding, and **Undo** brings it
+back. Before 1.70.227 this Apply was refused with "A binding source must be
+selected.", so a saved binding could not be removed.
+
+Apart from the three scalar targets above, a standalone scalar control such as
+a single TextBox or Label does **not** expose data-binding information. If a scalar control belongs to an explicit control
+array, it can show only the array-owned mapping context; it cannot choose its own
+source. This keeps one field from silently drifting away from the row contract.
+
+> **Which combinations actually populate at run time (1.70.224).** The
+> Designer lets you pair any source family with any approved target. The
+> binding editor validates the mapping, not whether that pairing does anything
+> once the form runs. What populates today:
+>
+> - **A COBOL table** populates every approved target. A **DataGrid** gets
+>   one row per occurrence, one column per field. A **ComboBox** or
+>   **ListBox** gets one item per occurrence of the field mapped to its display
+>   text. A **chart** gets one point per occurrence: the category field is the
+>   label, and the first field mapped to a value series is the value. **Knob /
+>   Gauge / Switch**, **Maps** and **control arrays** populate too. All of these
+>   load as the form opens, after `onLoad`, so a table filled by `VALUE` clauses
+>   or by your `onLoad` is already on screen. Call `RefreshBinding()` on any
+>   bound control after you change its table. (Until 1.70.226 a DataGrid bound
+>   to a COBOL table waited for that call even at start-up, so a grid bound to
+>   a table of `VALUE`s opened empty.)
+> - **An Indexed source** populates a **DataGrid**, reading the `.cidx`'s file
+>   directly, in primary-key order, with no `SELECT`/FD needed in your program.
+>   It refreshes itself the moment the binding loads, because there is no fill
+>   step to wait for.
+>
+> Every other pairing is configurable and validated, but nothing populates it
+> yet: SQL, REST and Agent AI against any target, and Indexed against a chart,
+> ComboBox, ListBox or control array. Build against what is documented here as
+> working, not against what the Designer merely lets you configure.
+
+> **Before 1.70.224,** a COBOL table bound to a ComboBox, ListBox or chart was
+> saved and generated but never loaded, so the control stayed empty at run
+> time. The Designer also offered only tables on a 01 or its direct child.
+
+**Where an Indexed binding looks for its files.** Two paths are involved, and
+both are stored **relative to your project**: the `.cidx` recorded in the
+binding, and the data file recorded in that `.cidx`'s own assign path. Both are
+resolved against the **project folder** — not against whatever directory the
+program was launched from — so the same binding reads the same records in the
+Designer's Indexed File Browser, under **Run Form**, and in a built
+application. Point a path outside the project and it is stored absolute, which
+also keeps working; a relative path simply travels with the project, so a
+form committed to a repository and cloned onto another machine still finds its
+data.
+
+> ⚠️ **A built application carries its own idea of "the project".** It anchors
+> on the folder holding `assets/` — `bin/` inside the project during
+> development, and the hand-over folder in `dist/`.
+>
+> **The build carries the pieces a binding needs.** Your `assets/` and `data/`
+> folders are copied into the delivery, and so is every `.cidx` the project
+> declares, each keeping the relative path your forms already store — so
+> `indexed/BurguerTime/menu.cidx` lands exactly where its form looks for it.
+> You do not copy them by hand.
+>
+> Only **declared** definitions travel. A `.cidx` sitting in `indexed/` that
+> the project does not list is not part of the application and is not
+> delivered. A program that builds an indexed path at run time, rather than
+> binding to a declared definition, is still yours to ship.
+
+Each binding stores its source descriptor, target descriptor, ordered field
+mappings, read-only/writable mode, saved source metadata, and validation
+snapshot in the `.cfrm` file. Existing forms without binding metadata load and
+save normally; old scalar `DataItem`/`DataFormat` values still round-trip, but
+new binding behavior comes from the top-level binding list.
+
+The **Data Binding Guardian** validates bindings before a form is saved, a form
+is run, debugging starts, Check runs, Build starts, or a package is created.
+Findings have three severities:
+
+- **Blocker** — the action is stopped. Examples: deleted target controls,
+  missing source fields, unsupported targets, ambiguous case-only identifiers,
+  missing row identity for writable bindings, or unsafe Agent AI target scope.
+- **Warning** — the action may continue, but review the mapping. Examples:
+  coercible type conversions, nullable-to-required mappings, or partial
+  REST/Agent schema information.
+- **Info** — advisory information that does not affect the action.
+
+REST and Agent AI validation is local and offline. The Guardian uses saved
+schemas, saved samples, response data-item names, and explicit mappings; it does
+not need a live network call. REST and Agent AI bindings are read-only unless
+you provide explicit update metadata: request schema, key/row identity fields,
+and an approved target list.
+
+Writable bindings must preserve source identity. A writable Indexed, SQL, COBOL
+table, REST, or Agent binding needs a key or row identity field so updates can
+target the correct record. Initial loads populate the target without marking it
+dirty. User edits are kept as pending binding state until an explicit update
+helper or your form's own event contract commits them; if an update fails, the
+pending edit and row identity remain recoverable.
+
+Repair actions are metadata-only and preserve visual layout and event handlers:
+
+- remap a missing field;
+- remove a stale mapping;
+- mark the binding read-only;
+- refresh fields from saved schema or sample metadata;
+- refresh fields from an available project source;
+- reselect the target control.
+
+#### Advanced DataGrid
+
+The **DataGrid** is the row-oriented binding target for tabular data and the
+highest-density visual control in the designer. It keeps the legacy `Columns`
+and `Rows` properties for compatibility, while newer layout and formatting
+settings are stored as advanced metadata on the grid (including per-column
+background/foreground).
+
+**Appearance & border rules (unified across all surfaces)**
+
+- Background defined in appearance now correctly applies to the **last
+  data-bound column** and all **non-data-bound columns** that follow it.
+- **Grid line backgrounds** (the fills separating columns/rows) obey the
+  background set in the grid's appearance settings.
+- The **outer border** uses the `GridLineStyle` (Solid/Dash/Dots/DashDot/None)
+  from the DataGrid settings and is rendered as an inset rounded stroke when
+  radius > 0 — always solid then, since a dash cannot follow a corner arc.
+- All appearance, line style, and border behaviour is identical in the designer
+  canvas, Preview, Run Form, and compiled binary (unified render engine).
+
+**Sorting, row numbers and selection**
+
+- **AllowSorting** (on by default): a click on a column title sorts the rows by
+  that column — ascending, then descending on the next click — and a ▲/▼ marks
+  the column. A numeric column (declared `number`, or one whose every value is
+  a number) sorts by value, so `9` comes before `100`; any other sorts as text,
+  ignoring case. Only the **display** order changes: `Rows` keeps its order, and
+  `onCellClick` still reports each row's own index, so your COBOL table lines up.
+  `onColumnClick` fires either way. (The `Sort` method, by contrast, reorders
+  `Rows` itself.)
+- **ShowRowNumbers**: a gutter left of the columns numbers the rows as shown,
+  from 1, in the header's colours. It takes its width from the columns and stays
+  put when the grid scrolls sideways.
+- **SelectionMode**: what a click highlights — the whole row (`Row`, the
+  default), the cell alone (`Cell`) or the whole column (`Column`). Ctrl+C copies
+  what is highlighted: the cell, the row (cells joined by `CSVDelimiter`), or the
+  column's values in the rows shown, one per line.
+- **ExportCSV** is the master switch for the built-in CSV button: off, the
+  button is hidden even with `ShowCSVExportButton` on. The `ExportCSV` method
+  and the generated `<id>-EXPORT-CSV` paragraph work either way.
+- `RowHeight` is the height of every row, 14–120 points; dragging a row edge
+  writes it. **A row can have a height of its own** — a note row, a row that
+  holds two lines — through **`RowHeightOverrides`**: `row=height` pairs, rows
+  numbered from 1 as everywhere else in COBOL (`1=40;8=64`, 14–400 points),
+  set in the grid's settings or with `SetRowHeight(row, pixels)`. The height
+  belongs to the data row, so it stays with its row when the grid is sorted or
+  filtered, and `Sort`, `DeleteRow` and `ClearRows` carry it along; dragging
+  the edge of such a row resizes that row alone.
+- **Editing a cell in place — `AllowCellEditing`** (off by default). The
+  operator double-clicks a cell, or presses F2 on the selected one, and it
+  opens as a text box; Enter or clicking away keeps the change, Escape drops
+  it. A kept change is written into `Rows` and raises **`onCellEdited`**, whose
+  handler reads `EditedRow` and `EditedColumn` (the data row and column,
+  numbered from 1 like `GetCellValue`), `EditedValue` and `PreviousValue`. The
+  grid only *shows* the new text — storing it is your handler's job, and so is
+  refusing it: put `PreviousValue` back with `SetCellValue`. A column with no
+  data behind it, or one that shows its value as an image, is not editable.
+  (The old `ReadOnly` is retired and does not control this — it was switched
+  off on every grid before editing existed.)
+
+```cobol
+      *> Freeze the key column and filter to one city, from COBOL.
+           MOVE 1        TO DG-CUSTOMERS::FrozenColumns
+           MOVE "City=Rio" TO DG-CUSTOMERS::ColumnFilters
+      *> Give the third row room for a two-line note; 0 hands it back.
+           INVOKE DG-CUSTOMERS::SetRowHeight(3, 44)
+```
+
+```cobol
+       DG-CUSTOMERS--ONCELLEDITED.
+      *> Column 3 is the credit limit: it must be numeric.
+           IF DG-CUSTOMERS::EditedColumn = 3
+              AND FUNCTION TEST-NUMVAL(DG-CUSTOMERS::EditedValue) NOT = 0
+               INVOKE DG-CUSTOMERS::SetCellValue(DG-CUSTOMERS::EditedRow,
+                   3, DG-CUSTOMERS::PreviousValue)
+           ELSE
+               PERFORM SAVE-CUSTOMER-ROW
+           END-IF.
+```
+
+**Which cell was clicked, and Edit/Delete buttons per row.** Every click on a
+cell writes **`ClickedRow`** and **`ClickedColumn`** — the data row and data
+column, numbered from 1 like `GetCellValue` — just before `onCellClick` (and
+`onCellDoubleClick`) fires. A column whose kind is **Button** (set in **Edit
+DataGrid settings…**) draws each cell as a button; a cell value of
+`icon:<name>` draws that icon from the catalogue instead, flat, in the grid's
+text colour — `icon:pencil` and `icon:trash` give each row its Edit and Delete
+buttons:
+
+```cobol
+      *> Rows: name, then the two action columns
+           STRING WS-NAME X"09" "icon:pencil" X"09" "icon:trash"
+               DELIMITED BY SIZE INTO WS-ROW
+           MOVE DG-TOPICS::AddRow(WS-ROW) TO WS-IGNORED.
+
+       DG-TOPICS--ONCELLCLICK.
+           EVALUATE DG-TOPICS::ClickedColumn
+               WHEN 2 PERFORM EDIT-TOPIC      *> the pencil
+               WHEN 3 PERFORM DELETE-TOPIC    *> the trash can
+           END-EVALUATE.
+```
+
+> ⚠️ **Caveat.** Before 1.70.258 a click told the handler nothing: the cell
+> travelled with the event, which a COBOL handler never receives.
+
+**Headings in the running language.** A title designed in **Edit DataGrid
+settings…** is one language only. `SetColumnTitle(column, title)` replaces it
+while the program runs — call it wherever you translate your other captions.
+Name the column by the **id** you gave it in the settings:
+
+```cobol
+           INVOKE DG-TOPICS::SetColumnTitle("Name", T-COL-NAME)
+```
+
+> **Note.** A write of `FrozenColumns`, `FrozenRows`, `ColumnFilters`,
+> `GridLineStyle` or `RowHeight` from COBOL takes effect at once — exactly like
+> `FreezeColumns`, `FreezeRows`, `SetFilter` and `SetRowHeight` — also on a grid
+> you configured in **Edit DataGrid settings…**, whose saved settings used to
+> win over the property. `ColumnFilters` set in the designer starts the grid
+> filtered.
+
+**Other features**
+
+- Virtual scrolling, resizable columns/rows, reorder (display order only; source
+  field identity preserved), AND-chained filters, freeze panes, gauges, style
+  rules, selectable text + `CopySelection`, `ExportCSV`, `RefreshBinding()`,
+  etc.
+- **Grid fonts** and **Grid line styles**.
+- Honours the control/container `CornerRadius` (content + borders clipped).
+- For table bindings, the grid loads as the form opens (after `onLoad`), and
+  `RefreshBinding()` repopulates it from working-storage after your code
+  changes the table.
+
+When binding, advanced metadata (widths, styles, order, filters…) is preserved
+for matching fields; the Data Binding Guardian prevents drift. See the
+properties pane for the complete set.
+
+#### Colouring the DataGrid's filter row
+
+Switch `ShowColumnFilters` on and every column gains a small entry field under
+its heading; what the operator types there filters the grid. That field sits
+*inside* the header band, so it needs colours of its own — the header's text
+colour belongs to the heading, not to an input.
+
+Two properties carry them:
+
+
+| Property                | What it colours                     |
+| ----------------------- | ----------------------------------- |
+| `FilterBackgroundColor` | The fill of the filter entry field  |
+| `FilterForegroundColor` | The text the operator types into it |
+
+Both are in the DataGrid styling panel beside `HeaderBackgroundColor` and
+`HeaderForegroundColor`, and both are **empty by default**. Empty does not mean
+black — it means *let the form theme decide*. An untouched grid therefore draws
+its filter row from the same palette entries a TextBox uses (the input well and
+the body text), so it stays readable whichever theme the form is wearing, and
+it changes with the theme instead of pinning one theme's colours onto all of
+them.
+
+Set either one and yours is used exactly as given:
+
+```cobol
+           MOVE "#0B1F2A" TO GRID-ACTORS::FilterBackgroundColor.
+           MOVE "#E8F4F8" TO GRID-ACTORS::FilterForegroundColor.
+```
+
+They can equally be set once in the designer and never mentioned in code.
+
+> **Note — a deliberately quiet filter row is respected.** When you choose the
+> colours, they are used as written, even if the pair is very low contrast.
+> Only the *theme-derived* default is checked for legibility, so a palette can
+> never hand you an unreadable filter field; your own choice is never
+> second-guessed.
+
+> ⚠️ **Caveat — the placeholder is not the text.** The greyed `Filter...` prompt
+> shown in an empty field is drawn as a dimmed form of `FilterForegroundColor`,
+> not as a separate colour. If you pick a foreground very close to the
+> background, the prompt fades before the typed text does — pick the pair by
+> looking at an empty column, not a filled one.
+
+Coming from PowerCOBOL, the instinct is to look for a nested "filter control"
+with its own property sheet. There is none: the filter row is part of the
+DataGrid, and these two properties are the whole of its styling.
+
+#### Colouring a Slider
+
+A Slider's rail is three separately coloured parts, and it has one property for
+each:
+
+
+| Property     | Paints                                           |
+| ------------ | ------------------------------------------------ |
+| `FillColor`  | the **travelled** part — `Minimum` up to `Value` |
+| `TrackColor` | the **remaining** part — `Value` up to `Maximum` |
+| `ThumbColor` | the knob itself                                  |
+
+Left at their defaults, the active theme paints all three, and the travelled
+part is the highlighted one. These three outrank the Appearance section's
+`BackgroundColor` (the rail) and `ForegroundColor` (the knob), which still work
+for forms that set them.
+
+> **Note.** If you are coming from PowerCOBOL, this is the split you expect
+> from a track bar: the "done" side carries the colour, and the side still to
+> travel stays neutral.
+
+#### Slider and NumericUpDown from the keyboard
+
+Click either control (or Tab to it) and it takes the keyboard:
+
+
+| Key                  | Slider                        | NumericUpDown        |
+| -------------------- | ----------------------------- | -------------------- |
+| ↑ / →                | up by `Step`                  | ↑ up by `Step`       |
+| ↓ / ←                | down by `Step`                | ↓ down by `Step`     |
+| Page Up / Page Down  | up / down by `LargeChange`    | —                    |
+| Home / End           | to `Minimum` / `Maximum`      | —                    |
+
+Every move stays within `Minimum..Maximum` and lands on the `Step` grid, as a
+drag does — so with the Slider's seeded `Step` of 10, a `LargeChange` of 25
+lands on the nearest multiple of 10. A key is a finished change: the Slider
+raises `onValueChanged` at once, not only when a drag ends. The
+`Increment()` / `Decrement()` methods stop at `Minimum` and `Maximum` too, and
+step in fractions when `Step` is fractional.
+
+A **NumericUpDown** shows its value with `DecimalPlaces` digits (never fewer
+than `Step` carries, so a `Step` of 0.25 is always visible) and, with
+`ThousandsSeparator` on, grouped in thousands — `12,345.50`. `Value` itself stays
+a plain number. With `ReadOnly` on, the operator cannot change it by drag, wheel
+or key; it is still shown and focusable, and your program still sets it.
+
+On a **vertical** Slider, `TickStyle` `Top` puts the ticks on the left and
+`Bottom` on the right.
+
+#### Styling a ProgressBar
+
+A progress bar reports where `Value` sits between `Minimum` and `Maximum`.
+These properties decide how that reading looks:
+
+
+| Property                 | Paints                                                                                                                                                                                                                                                                                    |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Orientation`            | `Horizontal` fills left to right; `Vertical` fills **bottom to top**, like a column rising.                                                                                                                                                                                               |
+| `Style`                  | `Continuous` paints one unbroken run of colour; `Blocks` paints a row of segments.                                                                                                                                                                                                        |
+| `BlockSize`              | How long one block is, in pixels, along the axis the bar travels. Only `Blocks` uses it, so the row appears in the properties pane once you choose that style. **0** — the default — sizes each block from the bar's own thickness, so a tall bar gets long blocks and a thin one short. |
+| `BarColor`               | The filled part — how far it has travelled. Left at its default, the bar takes the active theme's green, so it belongs to the palette around it the way every other control does; any colour you pick wins.                                                                              |
+| `BackgroundColor`        | The **trough** — the part not yet travelled; this is the Appearance pane's *Back colour* row. Left at its default it follows the active theme, as it always did; any colour you pick wins. Both halves of the bar are now yours: this row used to do nothing here, because the trough only ever asked the theme.                           |
+| `ShowValue`              | Draws the percentage across the middle of the bar.                                                                                                                                                                                                                                        |
+| `ForegroundColor`        | The percentage's colour. Left at its default, the bar picks a colour that reads on the trough the theme painted.                                                                                                                                                                          |
+
+`CornerRadius` rounds a progress bar the way it rounds every other bordered
+control (see *Corner radius* above) — trough, filled part and border together,
+square at `0`. A progress bar is the one control that does **not** start at `0`:
+it is born rounded, at `10`. The frame itself answers to the same `BorderStyle`,
+`BorderColor` and `BorderWidth` as any other bordered control, and
+`BorderStyle = None` leaves the bar with no frame at all.
+
+> **Note.** A `Blocks` bar never hides small progress: the last block is trimmed
+> to wherever `Value` reached, so a bar 3 % along shows a sliver rather than
+> nothing at all.
+
+> **Coming from PowerCOBOL?** These are the two styles you already know from a
+> Windows progress control — smooth and segmented — with the block length in
+> your hands rather than fixed by the control's height.
+
+#### Knob, Gauge, and Switch
+
+**Knob** is a rotary dial the user drags to set a numeric `Value` within
+`Minimum..Maximum` (default 0-100). Properties: `Step` (increment for
+`Increment()`/`Decrement()`, which stop at `Minimum` and `Maximum`),
+`DefaultValue` (what a **double-click** on the knob, or `Reset()` from COBOL,
+returns it to), `Accent` (the colour of the arc and the indicator — any colour,
+from the properties pane's picker), `Bipolar` (the arc fills from the top of the
+dial — the middle of the range — toward the value, either way: a pan or
+balance control), `ShowValue` (draws the numeric readout), and `Label` (a
+caption centred under the dial, below the readout; the dial shrinks to make
+room).
+
+Three more properties paint the dial itself, which the theme used to own
+outright: `FaceColor` (the round face the indicator turns over), `RimColor`
+(the rim and the thin inner ring around that face), and `TrackColor` (the
+part of the arc still to travel, from `Value` round to `Maximum`). Each is
+empty by default, and empty means the active theme paints that part exactly
+as before, so a knob you never coloured looks unchanged. `Accent` still
+covers the travelled arc and the indicator together. The rim's fill is the
+face colour lightened, so setting `FaceColor` alone carries the whole dial.
+
+Its primary event is `onChange`
+(also `onValueChanged`), fired as the user drags. Methods: `SetValue()` /
+`GetValue()` / `Increment()` / `Decrement()` / `Reset()` — the same
+value-control contract as `Slider`/`NumericUpDown`.
+
+**Gauge** is a **read-only** KPI display — it never changes from user
+interaction, only from your own COBOL (`SetValue()` or `SET Gauge1::Value TO …`). `GaugeStyle` picks the underlying look: `Radial` (needle + scale, plus
+`ShowNeedle`/`ShowScale`), `Linear` (a horizontal bar, plus `BarHeight`/
+`ShowThumb`), or `Donut` (a full ring, plus `StrokeWidth` — and it draws the
+same `ShowNeedle` needle as the Radial, sweeping the full circle from the
+top, in the gauge's own colour). `Color` overrides the
+fill (empty = theme accent); `NeedleColor` gives the needle and its hub a
+colour of their own, independent of the meter's (empty = the meter's colour,
+which is the only ink the needle used to have); `Unit` appends a suffix to
+the numeric readout in every style; `Text` overrides the whole readout
+string.
+
+`Unit` is spaced off the number the way a reader would write it: a unit that
+begins with a letter or a digit gets one space — `"Parts"` reads `23 Parts`,
+`"rpm"` reads `1450 rpm` — while a symbol stays welded to it: `"%"` reads
+`23%`, `"°C"` reads `19°C`, `"$"` reads `40$`. Leading spaces you type are
+kept exactly as typed, so `" rpm"` still reads `1450 rpm`.
+
+`ReadoutPosition` chooses where a **Radial** prints that reading: `Up` (the
+default) inside the dial above the needle's pivot, or `Down` 5 px below the
+pivot, where a speedometer prints its number. On `Down` the dial gives up
+that much height, so the reading always lands inside the control. The
+property is Radial-only — a `Donut` reads out in the middle of its ring and
+a `Linear` beside its bar, and neither has a second place to put it.
+
+Set **both** `WarningThreshold` and `CriticalThreshold` — fractions of the
+`Minimum..Maximum` span, between `0.0` and `1.0` — to turn on automatic zone
+colouring. The fill then **keeps each zone's colour along its own stretch**:
+green up to the warning mark, amber from there to the critical one, and red
+beyond it. A gauge reading 88 against marks at 70 and 90 is green to 70 and
+amber from 70 to 88 — with no red at all, because the reading never reached it.
+The needle (and a `Linear`'s thumb) takes the colour of the zone the reading is
+*in*, so it still says at a glance which zone you are in. While zones are on
+they own the fill colour, so `Color` is ignored; leave either threshold empty
+to keep zones off and `Color` in charge.
+
+**Those three colours are yours** — **Normal zone**, **Warning zone** and
+**Critical zone** in the inspector (`NormalColor`, `WarningColor`,
+`CriticalColor`), each from the same colour picker, with the same colour memory,
+as every other colour row in the IDE. Each starts empty, meaning the built-in
+green `#2E7D32`, amber `#F57C00` and red `#C62828` the meter has always painted,
+so a gauge you never restyled looks exactly as it did. Before 1.61.154 those
+three were fixed in the platform, on a control whose every other colour was a
+property.
+
+> ⚠️ **Caveat.** The thresholds are fractions of the span, not readings on
+> it. On a `0..250` gauge, `0.8` is the warning mark at 200 — not `200`.
+
+**Switch** is a boolean on/off toggle: `Checked` (Boolean) and the colour of
+its ON track, which the inspector calls **Checked color** — any colour, from
+the same picker (and the same colour memory) every other colour row uses. The
+stored property is still `Accent`, and the six names `Blue` / `Green` / `Red` /
+`Purple` / `Amber` / `Sky` still resolve, so a form saved with one keeps it;
+before 1.61.152 those six were all a Switch would take, under a caption
+borrowed from one theme's palette. Its primary
+event is `onClick`; methods are
+`IsChecked()` / `SetChecked()` / `Toggle()` — the same check-control
+contract as `CheckBox`, minus `Select()` (there is no radio-group concept
+for a Switch).
+
+All three are **data-bindable as standalone scalar targets** — unlike the
+DataGrid/Chart/ComboBox/array targets above, a lone Knob, Gauge, or Switch
+can bind directly to one source field with no repeating group needed. The
+bound field drives `Value` (Knob/Gauge) or `Checked` (Switch) automatically
+whenever the binding refreshes.
+
+#### ListBox — the active row, the selection, and the ticked set
+
+A ListBox carries three separate things, and a form reads whichever it needs:
+
+
+| Property                  | What it holds                                                                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `Value` / `SelectedIndex` | The **active** row — the one the cursor is on, drawn in a full highlight.                                                             |
+| `SelectedItems`           | The **selection** the user built with Ctrl-click (Cmd on a Mac), drawn in a dimmed version of the same highlight. Needs `MultiSelect`. |
+| `CheckedItems`            | The **ticked** rows, when `ShowCheckBoxes` is on.                                                                                      |
+
+They are separate on purpose. Clicking a row makes it active *and* starts a
+one-row selection; Ctrl-clicking adds a row to the selection or takes it back
+out, and moves the cursor there either way. Ticking a box changes only
+`CheckedItems` — the active row does not move — and fires `onItemChecked`, so a
+list can be a set of choices and a cursor at the same time. `CheckedItems` keeps
+the order the user ticked in, gaps and all; it is not a contiguous range.
+
+```cobol
+      *>   every ticked row, one per line:
+           MOVE LIST-1::CheckedItems TO WS-TICKED
+      *>   …and the row the cursor is on:
+           MOVE LIST-1::Value        TO WS-ACTIVE
+```
+
+**How the operator moves through a list.** Three gestures, and all of them stop
+at the ends rather than wrapping or running off:
+
+
+| Gesture            | What it does                                                                                                                                                                                                      |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Click**          | Makes the row active and starts a one-row selection.                                                                                                                                                              |
+| **Press and drag** | Anchors on the row pressed and extends to the row under the pointer —*up or down*. Reversing direction **shrinks** the range back. Dragging above the first row holds at the first; below the last, at the last. |
+| **↑ / ↓**        | Moves the active row one line, once the list has been clicked (or Tabbed to).                                                                                                                                     |
+
+Whatever moves the active row, the list **scrolls to keep it in view**, landing
+it on the first or last visible line — so a drag that runs past the bottom of
+the frame carries the view with it, and the operator never selects a row they
+cannot see. The wheel and the scrollbar still scroll the list on their own; a
+drag is a selection, not a swipe.
+
+**The face is yours.** A ListBox (and a TreeView) wears the background you
+designed — **Background color**, or **Background gradient** with its start, end
+and direction — along with its border and corner radius, on every surface: the
+designer canvas, the preview, Run Form and the compiled binary.
+
+> **The TreeView, since 1.61.153.** `Items` **is** the tree: one node per line,
+> **two spaces** (or one tab) of indent per level. It is drawn by one renderer
+> on the canvas and in the running form, so what you lay out is what runs —
+> before this the canvas showed a `[TreeView]` placeholder with no nodes at all,
+> and the running form a flat bulleted list in a fixed 12pt font.
+>
+> The tree writes its nodes in the control's own **FontName / FontSize /
+> Foreground color**, draws its connector lines per **Show lines** / **Root
+> lines** in **LineColor**, gives every node a tick box under **Checkboxes**,
+> and lifts the row under the pointer under **Hot tracking**. A click selects
+> (`SelectedNode`, `onNodeClick` / `onNodeSelect`); a click **on a tick box**
+> checks instead, and the ticked nodes are in `CheckedNodes`, one per line, with
+> `onNodeCheck` naming the node. It also gained **Border style** and **Border
+> width**: it had `BorderColor` and no way to choose the border being coloured.
+>
+> **It folds, since 1.61.157.** A node with anything under it draws a
+> disclosure arrow — right when shut, down when open. Clicking it writes
+> **`CollapsedNodes`** (a list of what is *shut*, so empty means the whole tree
+> is open) and fires `onNodeCollapse` / `onNodeExpand` naming that node, which
+> is how a handler loads children on first open without tracking the state
+> itself. Writing `CollapsedNodes` from COBOL folds a tree to any shape without
+> touching `Items`.
+>
+> **And it has icons** — from the platform's own catalogue, the same 1100+ icons
+> menus and toolbars draw from. A node names its own after a **TAB** in its
+> `Items` line, the way Markers and Routes name theirs:
+>
+> ```text
+> Warehouse	box
+>   Bolts	wrench
+> ```
+>
+> Since 1.61.161 you **pick** those three rather than spelling them: each row
+> in the inspector carries a **…** button that opens the icon catalogue — the
+> same one the toolbar editor uses — and a **✕** that clears the row back to
+> the platform's own default. Clearing writes *empty*, not today's default
+> name, so the row keeps following the platform rather than freezing an answer
+> into the `.cfrm`. The preview, both buttons and the name all sit in the one
+> labelled cell, the way a Button's image row does.
+>
+> The **Nodes** box itself is capped at twelve lines and scrolls past that, so
+> a tree with sixty nodes no longer pushes every property below it off the
+> bottom of the pane.
+>
+> Nodes that name none take **Folder icon (shut)** / **(open)** / **Leaf icon**
+> — `folder`, `folder-open` and `doc-text` by default, so a tree looks like a
+> tree untouched. **Show icons** turns the column off and the labels reclaim the
+> room.
+>
+> **Nothing about a row is fixed any more:** **Row height**, **Indent per
+> level**, **Icon size** and **Checkbox size** are properties, as are **Icon
+> color**, **Selected row** and **Hot-track row**. The arrow's slot is reserved
+> on *every* row whether or not a node folds, so labels line up in a column —
+> reserving it only for parents let a leaf's label slide left of its own
+> parent's.
+>
+> **High-contrast text is on by default.** Node ink is picked by contrast ratio
+> against the face the tree is actually painted on, so it stays readable on a
+> white face, a dark card or a glass surface without being told. Turn
+> **High-contrast text** off for the theme's own text colour; an explicit
+> **Foreground color** outranks both.
+>
+> **Which node fired?** Every node event hands its handler the node, in a
+> LINKAGE group the designer generates for you:
+>
+> ```cobol
+>        LINKAGE SECTION.
+>        01 CONTROL-NODE-DATA.
+>           05 CONTROL-NODE                 PIC X(256).
+>           05 CONTROL-NODE-INDEX           PIC S9(4) COMP-5.
+>           05 CONTROL-NODE-LEVEL           PIC S9(4) COMP-5.
+>           05 CONTROL-NODE-CHECKED         PIC 9.
+>
+>        PROCEDURE DIVISION USING CONTROL-NODE-DATA.
+> ```
+>
+> `CONTROL-NODE` is the label — the key `SelectedNode`, `CheckedNodes` and
+> `CollapsedNodes` all use. `CONTROL-NODE-INDEX` is its 1-based line in `Items`
+> **as you wrote it**, so `Sorted` can reorder the display without renumbering
+> your handler; `CONTROL-NODE-LEVEL` is its 1-based depth; `CONTROL-NODE-CHECKED`
+> is `1` when its box is ticked and `0` when it is not (or the tree has no
+> boxes). This is the platform's second event payload, alongside
+> `CONTROL-ARRAY-INDEX` — before 1.61.158 a handler for `onNodeCheck`,
+> `onNodeCollapse` or `onNodeExpand` had no way to tell which node had moved.
+>
+> **Walking the tree, since 1.61.159.** Knowing which node fired is half of it;
+> the other half is finding your way from there. `CONTROL-NODE-INDEX` **is the
+> node's handle** — every call below takes it, and the traversal calls *return*
+> one, so they chain:
+>
+> ```cobol
+>       *> Climb from the node that fired to the one it hangs under.
+>            MOVE TREE-1::NodeParent(CONTROL-NODE-INDEX) TO WS-IDX
+>            IF WS-IDX >= 0
+>                MOVE TREE-1::NodeText(WS-IDX) TO WS-PARENT-NAME
+>            END-IF
+>
+>       *> Run along everything under it — and no further.
+>            MOVE TREE-1::NodeFirstChild(CONTROL-NODE-INDEX) TO WS-IDX
+>            PERFORM UNTIL WS-IDX < 0
+>                MOVE TREE-1::NodeText(WS-IDX) TO WS-NAME
+>                DISPLAY "child: " WS-NAME
+>                MOVE TREE-1::NodeNextSibling(WS-IDX) TO WS-IDX
+>            END-PERFORM
+> ```
+>
+> **`-1` means there is no such node** — no parent above a root, no sibling past
+> the last one — which is what ends the loop. A sibling walk never descends into
+> children and never escapes into the next parent.
+>
+>
+> | Call                                                | Answers                                                       |
+> | --------------------------------------------------- | ------------------------------------------------------------- |
+> | `NodeParent(i)`                                     | the node it hangs under,`-1` on a root                        |
+> | `NodeFirstChild(i)` / `NodeLastChild(i)`            | its first / last direct child                                 |
+> | `NodeNextSibling(i)` / `NodePrevSibling(i)`         | the next / previous node at the same level, same parent       |
+> | `NodeChildCount(i)` / `NodeHasChildren(i)`          | direct children only — grandchildren are not children        |
+> | `NodeText(i)` / `NodePath(i)` / `NodeLevel(i)`      | its label, its `Root/Child/Leaf` path, its depth               |
+> | `NodeIcon(i)` / `NodeColor(i)` / `NodeBackColor(i)` | what the node itself carries                                  |
+> | `NodeChecked(i)` / `NodeCollapsed(i)`               | `1`/`0`, read from the live `CheckedNodes` / `CollapsedNodes` |
+> | `NodeCount()` / `NodeIndexOf(text)`                 | how many nodes; the handle for a label you already know       |
+> | `RemoveNode(i)`                                     | removes the node and everything under it; `1`, or `0` if none |
+> | `ExpandAll()` / `CollapseAll()`                     | open every node / fold every node that has children           |
+> | `GetSelectedNode()` / `SetSelectedNode(label)`      | read / set the selected node, by label                        |
+>
+> Handles count from **1** — the first line of `Items` is node 1 — so the
+> number in `CONTROL-NODE-INDEX` goes straight into any call above. (Before
+> 1.70.156 the calls counted from 0 and quietly read the node *after* the one
+> the event named.)
+>
+> There is deliberately **no node object to hold**. A handle you kept would go
+> stale the moment `Items` changed under it; an index is simply re-read against
+> whatever the tree holds now. For the same reason, asking about a node that is
+> not there answers *empty* rather than raising — a walk runs off the end of a
+> tree by design, and the `-1` is the guard, not an error every loop would have
+> to trap.
+>
+> **Building a tree from COBOL:** use `AddNode`, **not** `AddItem`.
+>
+> ```cobol
+>            TREE-1::AddNode(0, "Warehouse")
+>            TREE-1::AddNode(1, "Inbound")
+>            TREE-1::AddNode(2, "Dock A")
+> ```
+>
+> ⚠️ `AddItem` **trims its argument** — it has to, because a `PIC X` field
+> arrives padded with spaces — and a node's level *is* leading spaces, so an
+> indented literal could never have built a child. `AddNode` takes the level as
+> a number, which says what a pair of spaces only implies.
+>
+> **A node can dress itself, since 1.61.159.** An `Items` line is `label`, then
+> up to three TAB-separated fields of its own:
+>
+> ```text
+> label ⇥ icon ⇥ colour ⇥ background
+> ```
+>
+> So `Overdue⇥⇥#C81E1E` is a node written in red with its icon left to the tree
+> — every field is optional, and an empty one means "as the tree draws it". The
+> row colour paints **under** the selection band, so a coloured row still shows
+> when it is the selected one. `AddNode` writes these too:
+> `TREE-1::AddNode(1, "Overdue", "alert", "#C81E1E", " ")`.
+>
+> **The tick box is dressed like a CheckBox, since 1.61.159.** It wears the same
+> five properties, meaning the same things: **Box colour**, **Box border** (with
+> its colour and width), **Tick colour** and **Tick size %** — and it draws the
+> same tick mark. Before this it was a black well, a 1px rim and a tick at 28 %
+> of the box: three numbers in the painter, none of them reachable.
+>
+>> **Note.** **Checkbox size** is the box, in points; **Tick size %** is how
+>> much of that box the tick fills. That is the same split a CheckBox makes,
+>> where the box comes from the font and only the tick has a percentage.
+>>
+>
+> **It scrolls, since 1.61.160.** A tree taller than the control you drew used
+> to drop the overflow on the floor — the nodes were there, and nothing could
+> reach them. Three ways to move it, and you need no property for any of them:
+>
+> - the **wheel**, while the pointer is over the tree;
+> - a **drag** anywhere on it (a click still selects — the two are told apart
+>   by whether the pointer moved);
+> - **Up / Down / Home / End** once it has focus, which a click gives it. The
+>   selection steps through every row the tree shows, including the ones
+>   scrolled out of sight, and the view follows **only as far as it must** to
+>   bring the new row on screen.
+>
+> A row that straddles an edge is drawn and clipped rather than dropped, so the
+> tree slides instead of jumping a row at a time — and that half-row is how the
+> operator knows there is more below.
+>
+>> **Note.** How far a tree can scroll is measured against the rows it *shows*,
+>> so folding a branch shortens it. And there is deliberately **no scroll
+>> property**: where an operator has scrolled to is view state, not design, and
+>> it is not written to the `.cfrm`.
+>>
+>
+> **A row never shrinks below what it holds.** `RowHeight` is a floor, so
+> growing **Icon size** or **Checkbox size** grows the row with it instead of
+> letting a big icon paint over its neighbours; **Gap between nodes**
+> (`NodeSpacing`) adds space on top of that.
+>
+> **Renaming a node in place — Allow rename (`AllowEdit`).** Off by default.
+> Turn it on and the operator double-clicks a node's label, or presses F2 on
+> the selected node, and the label opens as a text box: Enter or clicking away
+> keeps the new name, Escape drops it, and an empty name is refused. The kept
+> name is written into `Items` — the node's indentation, icon and colours stay
+> as they were — `SelectedNode`, `CheckedNodes` and `CollapsedNodes` follow it,
+> and **`onNodeRenamed`** fires with the node (the new label in `CONTROL-NODE`)
+> and the old label in `PreviousNodeText`. Storing the new name is your
+> handler's job; to refuse it, write `Items` back.
+>
+> ```cobol
+>        TRV-1--ONNODERENAMED.
+>            MOVE TRV-1::PreviousNodeText TO WS-OLD-NAME
+>            MOVE CONTROL-NODE            TO WS-NEW-NAME
+>            PERFORM RENAME-DEPARTMENT.
+> ```
+>
+> **Dragging a node onto another — Allow drag (`AllowDrag`).** Off by
+> default, where a drag scrolls the tree. Turn it on and the operator presses
+> a node and carries it: the node under the pointer is ringed, the label
+> follows the pointer, and the tree scrolls when the pointer nears its top or
+> bottom edge (the wheel still scrolls). Letting go over another node fires
+> **`onNodeDrop`**. Its handler receives the dragged node in the usual four
+> names, plus two more: `CONTROL-TARGET-INDEX` (the node it was dropped on)
+> and `CONTROL-TARGET-NODE` (that node's label). Letting go over the tree's
+> empty space gives a target index of **0** and a blank label, which you may
+> read as "the top level". Letting go outside the tree, or back on the same
+> node, fires nothing. The tree moves nothing itself: your handler decides
+> what the drop means, does it, and rebuilds `Items`.
+>
+> ```cobol
+>        TRV-1--ONNODEDROP.
+>            IF CONTROL-TARGET-INDEX = 0
+>                MOVE SPACES TO WS-NEW-PARENT
+>            ELSE
+>                MOVE CONTROL-TARGET-NODE TO WS-NEW-PARENT
+>            END-IF
+>            MOVE CONTROL-NODE TO WS-MOVED
+>            PERFORM MOVE-ITEM.
+> ```
+
+**So are the highlights.** The colour behind a highlighted row is a property
+like any other, and there are two of them because a list highlights two
+different things:
+
+
+| Property             | Inspector row     | The highlight behind                                                              |
+| -------------------- | ----------------- | --------------------------------------------------------------------------------- |
+| `ActiveItemColor`    | **Active row**    | The active row — the one `Value` / `SelectedIndex` reports.                       |
+| `SelectedItemsColor` | **Selected rows** | The *other* rows of a `MultiSelect` selection — the ones `SelectedItems` reports. |
+
+Leave either **empty** and it means *you have not chosen*: the active row takes
+the theme's own selection colour, and the selection takes that colour dimmed to
+45 % — which is what a list drew before these properties existed, so nothing you
+have already designed changes. The dimmed colour follows whatever the active
+colour turns out to be, so setting **Active row** on its own restyles the whole
+list and keeps the two related. Once you set a colour it is pinned; the row's
+**↺** hands it back to the theme.
+
+Pinning matters more than it looks. The theme colour is not one colour: the
+preview inside the IDE carries the IDE theme's, and a compiled binary carries
+its own. A list that names its highlight is the one that looks the same in the
+designer, under Run Form and in the application you ship.
+
+Both accept a runtime write, so a highlight can answer the data:
+
+```cobol
+      *>   an overdrawn account highlights in red while it is being reviewed
+           IF WS-BALANCE < 0
+              MOVE "#B00020" TO ACCOUNTS-LIST::ActiveItemColor
+           ELSE
+              MOVE "#1B7F3B" TO ACCOUNTS-LIST::ActiveItemColor
+           END-IF
+```
+
+> **Note.** A ListBox cannot be drawn shorter than one line of its own text —
+> the designer's resize stops there, and the floor rises with `FontSize`.
+
+> **Designing the items.** The inspector's **Items (one per line)** box shows
+> five lines and scrolls past that, so a fifty-item list no longer pushes the
+> rest of the inspector off the pane.
+
+#### ComboBox and ListBox — items from a text file
+
+A list whose entries live in a plain text file, such as the states of a
+country or a set of product codes, does not have to be typed into `Items` or
+built with `AddItem` in a loop. Name the file and the list reads it.
+
+**In the Designer.** Under the list's `Items`, the **Items file** row has a
+📂 button: pick a `.txt` and its path is stored in the `ItemsFile` property
+(relative to the project when the file is inside it). ✕ clears the path **and**
+the items. The Preview shows the file's items straight away.
+
+**At run time.** The file is read **each time the form opens**, one item per
+line, with blank lines left out. It is read under Run Form, in an embedded
+form and in a built application alike, so editing the text file changes the
+list without touching the form. If the file cannot be read, the designed
+`Items` are shown instead.
+
+> ⚠️ **Keep the file where the application can find it.** A built
+> application resolves the path next to its executable, and a build copies the
+> project's `assets/` folder into `dist/`. A text file kept in `assets/`
+> therefore travels with the application; one kept elsewhere does not.
+
+**From COBOL.** Two methods do the same at any moment:
+
+```cobol
+      *>   Replace the items with the file's lines; the selection is cleared.
+      *>   Returns how many items were loaded, or -1 if the file could not
+      *>   be read (the items are then left as they were).
+           MOVE ComboBox-1::LoadFromFile("assets/states.txt") TO WS-COUNT
+           IF WS-COUNT < 0
+               MOVE "The list of states is missing." TO Lbl-Status::Caption
+           END-IF
+
+      *>   Empty the list and its selection.
+           INVOKE ComboBox-1 "Clear"
+```
+
+A relative path in `LoadFromFile` is resolved the same way as `ItemsFile`.
+`WS-COUNT` should be signed (`PIC S9(4)`) so it can hold the `-1`.
+
+#### ComboBox — the three styles
+
+A ComboBox is one of three things, chosen by **DropDownStyle** — the same three
+a Windows combo has always offered:
+
+| DropDownStyle              | What the operator gets                                                                                                   |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **DropDown** (the default) | A text field they can **type** in, with a ▼ button on the right. A press on the text places the caret; only the button opens the list. |
+| **DropDownList**           | Pick-only. A press anywhere on the combo opens the list, and typing is refused.                                           |
+| **Simple**                 | The text field with the list **always shown beneath it**, inside the control. There is no dropdown, so no `onDropDown`.  |
+
+**Editable** switches the typing off without changing the look: a `DropDown`
+combo with `Editable` off behaves exactly like a `DropDownList`.
+
+What is typed becomes `Value` — **even when it is not one of the items**, which
+is the point of a combo that takes text (a city that is not in the list yet).
+`SelectedIndex` follows: the item the text names exactly, or `-1`. Each
+keystroke raises `onChange` and `onTextChanged`, and while the list is open the
+highlight jumps to the first item that begins with what has been typed, so
+Enter picks it.
+
+```cobol
+       CBO-CITY-ONCHANGE.
+           MOVE CBO-CITY::Value         TO WS-CITY
+           MOVE CBO-CITY::SelectedIndex TO WS-CITY-IX
+           IF WS-CITY-IX < 0
+               DISPLAY "New city typed: " WS-CITY
+           END-IF.
+```
+
+> **Note.** A new ComboBox is a `DropDown` — typeable. For a list the operator
+> must choose from, set **DropDownStyle** to `DropDownList`, as you would in
+> PowerCOBOL or isCOBOL.
+
+> ⚠️ **Caveat.** Until 1.70.232 neither property was read: every combo behaved as
+> a pick-only list whatever it declared. A form built then with the default
+> `DropDown` now lets the operator type. Set `DropDownList` where that is not
+> what you want.
+
+#### ComboBox — the gestures, the face, and the colours of an open dropdown
+
+**How the operator moves through a dropdown.** The same three gestures a
+ListBox answers, and all of them stop at the ends rather than wrapping or
+running off:
+
+
+| Gesture              | What it does                                                                                                                                                                                                                                                                                                                                        |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Click the header** | Opens the list (on a typeable `DropDown` combo, click the ▼ button — a click on the text places the caret). It does *not* also pick whatever is under the pointer.                                                                                                                                                                                 |
+| **Press and drag**   | Press the header, drag into the list, release on an item to pick it — the classic combo gesture. The highlight follows the pointer *up or down*; reversing direction walks it back. Dragging above the first item holds at the first; below the last, at the last, so a drag that leaves the control stops on an item rather than choosing nothing. |
+| **↑ / ↓**          | Walk the items, once the combo has been clicked (or Tabbed to).                                                                                                                                                                                                                                                                                     |
+
+What the arrows *mean* depends on whether the list is open:
+
+
+| The list is | ↑ / ↓                                                                                             | Enter                        | Escape                                 |
+| ----------- | --------------------------------------------------------------------------------------------------- | ---------------------------- | -------------------------------------- |
+| **shut**    | change the value outright, reporting `onChange` and `onSelectedIndexChanged` exactly as a click does | —                           | —                                     |
+| **open**    | move the highlight, committing nothing                                                              | commits the highlighted item | closes, leaving the value where it was |
+
+> **Note.** `Editable` makes no difference to the arrows. They belong to the
+> list, even in a combo you can type in; the caret moves with ← and →.
+
+The list **scrolls to keep the highlighted item in view**, landing it on the
+first or last visible line, and opening the list scrolls straight to the value
+it already holds — so a combo of two hundred countries opens showing the one you
+chose, not the letter A. The wheel and the scrollbar still scroll the list on
+their own; a drag is a selection, not a swipe.
+
+**Sorting the items.** Tick **Sorted** and the list shows its items in
+alphabetical order. Three things worth knowing:
+
+- It sorts **by text, ignoring case** — which is what every RAD means by
+  "sorted", and what a list's items are. Numbers therefore sort as the strings
+  they are: `1`, `10`, `11`, `2`, … `9`. For numeric order, pad to a fixed
+  width — `01`, `02`, … `11` — and they sort as you expect.
+- It changes only what is **shown**. The `Items` you typed are kept exactly as
+  you typed them, so clearing the box gives your own order straight back.
+- `SelectedIndex` is the index of the item **as displayed**, so it matches what
+  the operator picked. `Value` is the item's text and is the same either way.
+  Setting `SelectedIndex` — in the designer, or from COBOL with
+  `MOVE 2 TO CBO-CITY::SelectedIndex` or `SetSelectedIndex` — selects that item
+  and moves `Value` with it; `-1` clears the selection. The same holds for a
+  ListBox.
+
+> A **TreeView** carries `Sorted` too, and since 1.61.153 it acts on it — by
+> ordering **siblings**, leaving every child under the parent you wrote it
+> under. (A flat sort would put the nodes in order and the tree in ruins.) The
+> node an event names is still the line you wrote, whatever the sort did with
+> it.
+
+**How tall the list is.** As tall as its items need — plus the small margin it
+keeps off its own border — up to `DropDownHeight` (the **DropDownHeight** row in
+the inspector, 200 px by default), and it scrolls past that. Every item is
+reachable however many there are, and a list short enough to fit does not
+scroll. The scrollbar rides against the inside of the border, as a ListBox's
+does.
+
+**The face is yours.** A ComboBox wears the background you designed —
+**Background color**, or **Background gradient** with its start, end and
+direction — along with its border and corner radius, on the closed header *and*
+on the open list, on every surface: the designer canvas, the preview, Run Form
+and the compiled binary.
+
+> ⚠️ **A combo you never designed is now square-cornered.** The header used to
+> be rounded at a fixed 6 px whatever `CornerRadius` said, while the designer
+> canvas drew it square. The header now follows the property — which is seeded
+> **0** — so the canvas and the running form agree. Set **Corner radius** to 6
+> to have the old rounding back, on all four surfaces this time.
+
+**And so is the type.** The items are lettered in the control's own `FontName`,
+`FontSize` and `ForegroundColor`, and each one is a line of that text plus air —
+where all of it used to be hardcoded, so a 20 pt combo drew a 20 pt value over a
+list of 12 pt items.
+
+The highlight itself is cut by the panel's own rounded corner and stops short
+of the border on every side, leaving a hairline of panel between the two —
+exactly as a ListBox row does, through the same code, so the two cannot drift
+apart.
+
+**So are the highlights.** An open dropdown highlights two things, and both are
+yours:
+
+
+| Property          | Inspector row     | The highlight behind                                     |
+| ----------------- | ----------------- | -------------------------------------------------------- |
+| `ActiveItemColor` | **Selected item** | The item `Value` / `SelectedIndex` reports.               |
+| `HoverItemColor`  | **Hovered item**  | The item the pointer, the drag or the arrow keys are on. |
+
+`ActiveItemColor` is deliberately the **same property a ListBox carries**: on
+both controls it colours the item `Value` / `SelectedIndex` reports, so what you
+learn on one you already know on the other.
+
+Two differences from the list are worth knowing:
+
+- **There is no `SelectedItemsColor`.** A ComboBox selects one item or none, so
+  the list's second *selection* has nothing to colour here. What a ComboBox has
+  instead is the *hover*, which is a different thing and has its own property.
+- **The two are independent.** On a ListBox the dimmed colour follows the active
+  one; here, setting **Selected item** leaves **Hovered item** exactly where it
+  was. Set both when you restyle, or the pointer will still flash the old blue
+  across your new colour.
+
+Left empty each falls back to the highlight the dropdown has always painted —
+not to the theme, which is what a ListBox falls back to. These two were never
+drawn from the palette, so *empty* means *what it drew before*, and a ComboBox
+you designed earlier is untouched. The hover default is deliberately the fainter
+of the two, so hovering an item never looks like selecting it; if you set your
+own, keep that difference or the dropdown becomes hard to read.
+
+Both accept a runtime write, the same as the list's.
+
+#### ToolBar
+
+A **ToolBar** is **groups of buttons**. Each group is a frame with its own
+border and corner radius; an invisible separator sets one group apart from the
+next; and every element inside a group is a button you control completely.
+
+> **Coming from PowerCOBOL or isCOBOL?** Their toolbars are a flat strip of
+> command buttons. This one is closer to a ribbon group: the grouping is part of
+> the model, not something you fake with spacing.
+
+**Everything is set in the Toolbar Editor.** The properties pane offers one
+button — **Edit Toolbar…** — because a toolbar has far more knobs than a pane
+can hold, and it is a thing you arrange while looking at it. The editor shows
+the tree of groups and their buttons on the left, the properties of whatever is
+selected on the right, and a live preview of the bar along the top, drawn by the
+same renderer the running form uses. Nothing is written to the control until you
+press **Save**, so Cancel really cancels.
+
+**A group** has: a border style (`Single` / `None` / `Fixed3D`), border colour
+and width, corner radius, its own padding between frame and buttons, a
+background, and *Separator after this group* with a width. `None` still groups —
+the padding and the separator still apply — it simply draws no frame.
+
+**A button** has: a label **or** an icon, a tooltip, an enabled flag, an
+**action**, and an appearance — icon size and colour, a width and height, a
+corner radius, a background (solid, or a gradient with start/end colours and a
+direction), a foreground colour and a drop shadow (colour, opacity, distance,
+blur).
+
+**A label and an icon are mutually exclusive.** A toolbar button shows one
+thing, so setting a label clears the icon and choosing an icon clears the
+label. Use the tooltip for the words when you want an icon.
+
+**Corner radius defaults to 10** on both groups and buttons.
+
+##### Three levels of appearance
+
+A button's own value wins. Where the button says nothing, its **group**
+decides. Where the group says nothing either, the **form's theme** does.
+
+That is what makes a group worth having: set the icon size, or the background,
+or the shadow once on the group and every button in it follows — and one button
+can still disagree, field by field. In the editor an inherited row is marked
+`group` (or `theme` on a group), and the ✕ beside a value you have set puts it
+back to inheriting.
+
+> **The theme fallback reads your form's own background.** A button or group
+> that inherits all the way down to the theme gets a face and ink chosen for
+> contrast against the form it is actually sitting on — not a fixed look
+> tuned for one kind of form. A toolbar left at its defaults stays legible
+> whether the form behind it is dark or light.
+
+**Adding a button copies the previous one's appearance** — its size, colours,
+gradient and shadow, but never its icon, tooltip or action. Building a toolbar
+is usually six buttons that differ only in icon and action, so you set the look
+once.
+
+##### The bar's own frame
+
+Separately from the groups, the ToolBar control itself has `BorderStyle`,
+`BorderColor`, `BorderWidth`, `CornerRadius`, `Transparency` and
+`BackgroundColor` in the properties pane.
+
+A new toolbar is **rounded at 10, has no border, and is 100 % transparent** — so
+it reads as buttons sitting on your form rather than as a panel laid over it.
+Turn the border on when you want the strip to be visible in its own right.
+
+> **Giving the bar a `BackgroundColor` turns its frame on.** You do not also
+> have to find `Transparency` and lower it: that 100 is what every toolbar ships
+> with, not something you chose, so choosing a colour is taken as the decision.
+> A `Transparency` you *do* move still fades the face as it does on any other
+> control, and a toolbar whose colour you never touched stays invisible.
+>
+> The colour you name is the colour painted — the active theme does not get to
+> substitute its own card fill for it. (Before 1.61.150 a chosen background did
+> nothing at all: the seeded transparency skipped the face entirely, and on the
+> way past that, the theme answered with its own fill and never reached yours.)
+
+A new toolbar also arrives holding **one group with one folder-open button**, so
+a ToolBar you have just dropped shows what a toolbar is instead of an empty
+strip. Delete it, rename it, or build around it.
+
+##### What a button does
+
+
+| Action                   | Effect                                                                                                                                                |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `event`                  | Fires the toolbar's `onClick`, carrying the button's id. The default.                                                                                  |
+| `procedure`              | Runs one of the form's procedures, by name.                                                                                                           |
+| `open-modal`             | Opens a **standalone** form as a modal window — the press waits until that window closes. Standalone only: an embedded form belongs in a ContentPane. |
+| `print`                  | Opens the named document in the platform's viewer, where its print dialog is.                                                                         |
+| `share`                  | Captures this form's window and hands the image to the OS for sharing.                                                                                |
+| `screenshot`             | Puts an image of this form's window on the clipboard.                                                                                                 |
+| `copy` / `cut` / `paste` | The OS clipboard, acting on the field you were in — see below.                                                                                       |
+| `run-app`                | Launches another application.                                                                                                                         |
+| `open-terminal`          | Opens a terminal, optionally in a given folder.                                                                                                       |
+
+Every platform press reports its outcome — what it did, or why it could not —
+as a brief notice at the bottom of the running form's window, so a press never
+appears to do nothing. A toolbar in a SideMenu's footer panel carries out
+platform actions like any other.
+
+##### The clipboard buttons
+
+`copy`, `cut` and `paste` act on the text field that **had** keyboard focus when
+the button was pressed — pressing a toolbar button is a click elsewhere, which
+takes the field's focus away, so it is the field you were in that counts. Each
+one hands the focus **back** afterwards, with the caret where the edit ended, so
+typing carries on where it left off.
+
+
+| Verb    | With text selected                                                         | With nothing selected                                                  |
+| ------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `copy`  | Copies **only the selection**; caret right after the last character copied. | Copies the whole field; caret at its end.                              |
+| `cut`   | Copies and removes the selection; caret where the removed text began.      | Takes the whole field and empties it.                                  |
+| `paste` | **Replaces the selection**; caret right after the last character pasted.   | **Inserts at the caret**; caret right after the last character pasted. |
+
+With no field focused at all, `paste` changes nothing and says so. A field you
+have not typed into yields the text you designed it with. The rules count
+**characters**, not bytes, so accented and CJK text is never cut through the
+middle of a character.
+
+The form **always** hears the press as an `onClick` on the toolbar, whatever else
+the action does — so one handler can serve a whole toolbar by reading which
+button it was (a button can also carry its **own** handler; see below):
+
+```cobol
+      *>   in the TOOLBAR-1 onClick handler:
+           EVALUATE TOOLBAR-1::LastButton
+               WHEN "bnsq"  PERFORM SAVE-RECORD
+               WHEN "dlrx"  PERFORM DELETE-RECORD
+               WHEN OTHER   CONTINUE
+           END-EVALUATE
+```
+
+Every group and button has a fixed id of four lowercase letters, given when you
+add it and shown in the Toolbar Editor beside its name with a **Copy** button —
+the same ids, under the same rules, as menu items (see *Which item was chosen*
+under the MenuBar).
+
+##### Giving a button its own handler
+
+A button can carry its **own COBOL**, instead of one `onClick` on the toolbar
+working out which button was pressed. In the Toolbar Editor, select a button and
+look under **Events**: `onClick` with a dot — hollow when there is no code, filled
+when there is — and **Edit code**.
+
+Clicking it keeps the toolbar exactly as **Save** would and hands over to the
+COBOL editor, so you are never looking at two modals with two Saves. Write the
+handler, save it, and it goes back into the toolbar.
+
+`onClick` is the only event a button offers, because it is the only one the
+platform can raise for a button: the toolbar knows which button was pressed and
+nothing else about it. An event you could bind but that never fired would be
+worse than no event.
+
+Both routes work at once, and in a fixed order:
+
+1. the toolbar's `onClick` (with `LastButton` naming the button),
+2. the button's own `onClick`,
+3. and finally the button's **action**, if it has one.
+
+So a `procedure` or `open-modal` button whose handler prepares what the procedure
+or the form needs works the way you would write it — the handler runs first.
+
+##### Changing a button while the form runs
+
+A button lets your COBOL change its **colours** and its **tooltip**:
+
+```cobol
+           MOVE "#204080FF" TO TOOLBAR-1-FMTG-BNSQ::BackgroundColor.
+           MOVE "Record saved" TO TOOLBAR-1-FMTG-BNSQ::Tooltip.
+```
+
+
+| Writable                                          |                                           |
+| ------------------------------------------------- | ----------------------------------------- |
+| `Tooltip`                                         | The hover text.                           |
+| `BackgroundColor`, `ForegroundColor`, `IconColor` | The button's face, its text and its icon. |
+| `GradientStartColor`, `GradientEndColor`          | Its gradient, when it has one.            |
+| `ShadowColor`                                     | Its drop shadow.                          |
+
+Setting a colour to **spaces** puts it back to inheriting — from its group, then
+from the form's theme — exactly what the ✕ beside it does in the editor.
+
+**Everything else is refused, and refused out loud.** A write to a button's width,
+height, corner radius, label, icon, enabled flag or action is a **runtime error**
+naming the property and what is allowed instead:
+
+```cobol
+      *>   this stops the form with an error, on purpose:
+           MOVE "200" TO TOOLBAR-1-FMTG-BNSQ::Width.
+```
+
+That is deliberate. The toolbar owns the layout — it is what keeps the buttons
+arranged the way you built them, and a button that could move itself would leave
+nothing to put it back. A write that silently did nothing is how an afternoon goes
+missing, so the form says so instead. The COBOL editor also knows: a refused
+property is flagged as you type, before you ever run the form.
+
+##### How a button reaches your code
+
+A toolbar button is **not** a control. The toolbar owns the layout — that is what
+keeps the buttons lined up and out of the designer's drag handles — so a button
+has no entry of its own among the form's controls.
+
+It still needs a name, because two things have to agree on one: the press, and
+the generated event loop that dispatches it. That name is derived, and it is
+`<toolbar>-<group>-<button>` in upper case:
+
+```text
+   ToolBar  TOOLBAR-1
+     group  fmtg
+    button  dlrx          ⇒   TOOLBAR-1-FMTG-DLRX
+```
+
+You do not type it anywhere — `procedure` and `open-modal` are wired through it
+for you — but it is what you will see in the generated code, it is the id the press
+arrives under, and it is how your COBOL addresses the button:
+
+> **The buttons belong to their own form.** A ToolBar works the same in a
+> **Standalone** form and in an **Embedded** one loaded into a ContentPane, and in
+> both cases its buttons exist in **that form's** program — the one holding the
+> toolbar. Read them, recolour them and handle them from that form's COBOL, exactly
+> as you would a control. Two forms carrying identically-named toolbars never see
+> each other's buttons.
+
+```cobol
+      *>   generated, in COBOL-EVENT-LOOP:
+           EVALUATE COBOL-CONTROL-ID
+               WHEN "TOOLBAR-1-FMTG-BNSQ"
+                   EVALUATE COBOL-EVENT-ID
+                       WHEN "onClick"
+                           CALL "UPDATE-TOTAL"
+                   END-EVALUATE
+               WHEN "TOOLBAR-1-FMTG-DLRX"
+                   EVALUATE COBOL-EVENT-ID
+                       WHEN "onClick"
+                           INVOKE ME::"OpenFormSync"("CUST-LOOKUP")
+                   END-EVALUATE
+           END-EVALUATE
+```
+
+> ⚠️ **Caveat.** `COBOL-CONTROL-ID` holds **64 characters**, so the three names
+> together must fit in 64. A button whose derived id is longer cannot be
+> dispatched; rather than generate a branch that could never fire, PowerRustCOBOL
+> writes a comment into the generated source telling you which button it was and
+> what to shorten. The same happens to a `procedure` or `open-modal` button that
+> names nothing at all.
+
+> **Note.** `run-app` and `open-terminal` start a process. The target is split on
+> whitespace and handed to the OS **directly — never to a shell**, so a path
+> built out of a data item cannot turn into a shell command. It is still your
+> form launching a real program: treat the target as code, not as data.
+
+##### Trying a toolbar in Preview
+
+You do not have to run the form to press a button. **Preview carries out the six
+platform actions itself** — `print`, `run-app`, `open-terminal`, `copy`, `cut`
+and `paste` — and writes what happened, or why it could not, into the **Output**
+pane. That is where a toolbar gets built, so that is where its buttons have to
+work.
+
+The other five do **not** run in Preview — and each says so in the Output pane
+rather than leaving you to guess:
+
+
+| Action                             | Why not                                                                                                                                                                                                                           |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `screenshot`, `share`              | They capture the form's **own window**. In Preview the form is a pane inside the IDE, so a capture would hand you a picture of the IDE instead. Preview says so rather than quietly returning the wrong image — use **Run Form**. |
+| `event`, `procedure`, `open-modal` | These are your form's COBOL. Preview draws the form but runs no interpreter, so it names the action and leaves it to **Run Form**.                                                                                                 |
+
+> ⚠️ **Caveat.** A toolbar wider than the control it sits on loses whole groups
+> off the right-hand end rather than drawing half of one. The properties pane
+> shows the width it needs and warns when the control is too narrow.
+
+> **Existing toolbars keep working.** A ToolBar built before groups existed —
+> one with a plain `Items` list — is read as a single **unframed** group of
+> labelled buttons, in order. It looks exactly as it did; opening the editor is
+> what promotes it to a real toolbar.
+
+📷 Screenshot needed — `toolbar-editor.png`
+: Open a form with a ToolBar, press **Edit Toolbar…**, and build two groups —
+one with three icon buttons, one with a single button — with a separator
+between them. Capture the whole modal so the tree, the properties pane and the
+live preview strip are all visible.
+
+#### FileDropZone
+
+**FileDropZone** is a non-visual-in-spirit but visibly-rendered drop target:
+the user drags files onto it, or clicks it to open the platform's native
+file picker. Either way, the zone applies its intake rules, the files it
+accepts land in `DroppedFiles` — one absolute path per line — and
+`onFilesDropped` fires.
+
+There is **no COBOL method** to open the picker or read a drop
+programmatically — getting files in is purely a UI gesture. Read the result
+the normal way once the event fires:
+
+```cobol
+      *>   in the FDZ-1 onFilesDropped handler:
+           MOVE FDZ-1::DroppedFiles TO WS-PATHS
+      *>   WS-PATHS is newline-separated; UNSTRING or SEARCH it as usual.
+```
+
+The zone has exactly one method, `CommitFiles()`, and it belongs to the
+confirm-before-copying flow described further down.
+
+**What the zone accepts, and where it puts it.** Three design-time
+properties decide, and both routes in — a drop and the file picker — obey
+them, so a file is judged the same way however it arrived:
+
+
+| Property            | Meaning                                                                                                                                                   |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AllowedExtensions` | `csv, xlsx` — what the zone takes. Case-blind, dots optional, separated by commas, semicolons or spaces. Blank accepts any file.                         |
+| `MaximumFileSizeKB` | The largest file the zone takes, in KB. `0` means no limit.                                                                                                |
+| `DestinationFolder` | A local folder that accepted files are **copied** into. Blank leaves files where they are.                                                                 |
+| `StageOnly`         | Off (default): a drop copies immediately. On: a drop only *holds* the files for the operator to review, and your COBOL calls `CommitFiles()` to copy them. |
+| `FileListControl`   | The id of the ListBox that reviews a staged intake. Seeded with the companion the designer creates next to a new zone; blank means no list.               |
+
+The **Destination** row in the designer carries a **📂** button that opens your
+system's folder chooser, and an **✕** that clears the choice again. The chooser
+writes the folder back as an **absolute** path. You can type a relative path by
+hand instead — or set one from your COBOL at run time — and it starts at the
+**application's folder**, the same place a `KnowledgeBase` control's relative
+`Location` starts, never at the directory the program was launched from. So a
+zone pointed at `assets/KB/<collection>/documents` puts its files exactly where
+that collection's Knowledge Base looks for them. Clearing the
+row leaves the property **blank** rather than removing it — and blank is what
+"leave the files where they are" means.
+
+With a destination set, the folder is created if it does not exist, and an
+existing file is **never** overwritten: a second `report.csv` lands as
+`report (2).csv`, a third as `report (3).csv`. `DroppedFiles` then reports
+each file at its new path — the copy your program owns, not the original the
+user dragged.
+
+Files the zone turns away are not lost in silence. They land in
+`RejectedFiles`, one per line as the path, a TAB, and the reason —
+`extension` or `too-big` — and `onFilesRejected` fires. A drop of ten files
+where three are refused fires **both** events, so a form can accept the
+seven and still say what happened to the rest:
+
+```cobol
+      *>   in the FDZ-1 onFilesRejected handler:
+           MOVE FDZ-1::RejectedFiles TO WS-REFUSED
+           UNSTRING WS-REFUSED DELIMITED BY X"09"
+               INTO WS-PATH WS-REASON
+           STRING "Not accepted: " WS-PATH " (" WS-REASON ")"
+               DELIMITED BY SIZE INTO WS-MESSAGE
+           MOVE WS-MESSAGE TO LABEL-STATUS::Caption
+```
+
+> **Note.** A file the platform cannot measure (an unreadable path, a
+> filesystem that will not report a size) is **accepted** rather than
+> refused — a zone must not swallow a file it merely failed to stat.
+
+> ⚠️ **Caveat.** The copy happens wherever the form runs, including in the
+> IDE's **Preview** — that is what makes the preview faithful. Point
+> `DestinationFolder` at a scratch folder while you are designing.
+
+##### Letting the operator confirm before anything is copied
+
+By default the copy happens the moment the file lands, which leaves the
+operator no room to change their mind — a mis-drag is already in the folder.
+Tick **Confirm before copying** (`StageOnly`) and a drop copies *nothing*:
+
+1. The drop is judged exactly as above — refused files still fire
+   `onFilesRejected` — and the accepted ones are **held** at their original
+   paths in `StagedFiles`. `onFilesDropped` fires, and `DroppedFiles` holds
+   what *that* drop brought, at its original path since nothing was copied,
+   while `StagedFiles` is everything held so far. `DestinationFolder` is not
+   even created.
+
+   > **Note** — read `DroppedFiles` when your handler wants the file that was
+   > just dropped, such as opening one document into a Viewer; read
+   > `StagedFiles` when you want the basket. They are the same on the first
+   > drop and differ on every drop after it.
+2. They appear in the ListBox named by `FileListControl`, one tick-boxed row
+   each, reading the path and the size: `/Users/ana/report.csv (12.345 MB)`.
+   `CommitSummary` reads `3 files staged, 24.310 MB`.
+3. The operator unticks anything they did not mean to send. An unticked row
+   **stays** in the list, marked `(excluded)`, so the exclusion is visible
+   and they can put it back.
+4. Your form decides what confirmation means — a Submit button, a validated
+   field, a supervisor's password — and calls `CommitFiles()`. Ticked files
+   are copied by the rules above; unticked ones are skipped.
+5. Each row becomes `✓ <new path> (12.345 MB)` or `✗ <path> (12.345 MB) — <reason>`. `CommitSummary` becomes `7 of 8 copied, 24.310 MB`, which is
+   also what the method returns, and the zone paints it along its own bottom
+   edge. `DroppedFiles` becomes the included files at their new paths.
+
+```cobol
+      *>   in the SUBMIT-BUTTON onClick handler:
+           MOVE FDZ-1::CommitFiles() TO WS-SUMMARY
+           MOVE WS-SUMMARY TO LABEL-STATUS::Caption
+      *>   Now the files are in the folder — hand them to the application.
+           MOVE FDZ-1::DroppedFiles TO WS-PATHS
+           PERFORM SEND-TO-APPLICATION
+```
+
+**The review list is an ordinary ListBox.** Dropping a FileDropZone in the
+designer creates one directly beneath it, at the zone's own size, with tick
+boxes switched on, and names it in the zone's `FileListControl`. From that
+moment it is a ListBox like any other: move it, resize it, restyle it, put it
+on another tab — or delete it, and the zone simply works without a list.
+`FileListControl` naming a control that no longer exists means the same thing
+as naming nothing.
+
+A second drop **adds** to what is already staged rather than replacing it,
+and the same file dropped twice is held once. Calling `CommitFiles()` on a
+zone holding nothing is not an error: it reports `0 of 0 copied, 0.000 MB`.
+
+> **Note.** Sizes count a megabyte as 1,000,000 bytes, the way the operator's
+> own file browser does, so a number in the list matches the number they see
+> in Finder or Explorer.
+
+> ⚠️ **Caveat.** A file whose copy fails at commit time — an unwritable
+> folder, a full disk, a source that has since been moved — is reported `✗`
+> with the reason, and its entry in `DroppedFiles` is the **original** path.
+> Your program still receives the file it was handed; check `CommitSummary`
+> (or count the lines) before treating a batch as complete.
+
+> ⚠️ **Caveat.** `CommitFiles()` copies whatever is ticked, whenever you call
+> it. It is not tied to a form closing or to any built-in notion of "submit"
+> — PowerRustCOBOL has none. If two buttons can both submit, both must call
+> it, and calling it twice copies the ticked files twice (landing as
+> `report (2).csv`).
+
+`FileDropZone` is deliberately **not** a Data Binding Guardian target — its
+output is event-shaped (populated by user action), not a value a bound
+source drives.
+
+#### User Controls
+
+A **User Control** is a reusable GroupBox-based component stored in the project.
+Design a GroupBox with its child controls, select the GroupBox, then right-click
+and choose **Create User Control**. Give it a name made from letters, digits, and
+hyphens; it must start with a letter. The designer refuses duplicate names and
+circular definitions, including indirect nesting.
+
+User Controls appear in the toolbox under **User Controls**. Drag one onto the
+form, or click it to place it near the canvas centre. Deployment creates a real
+GroupBox instance plus real child controls. IDs are qualified from the instance
+ID, for example `CustomerCard-1-Button1`, so every deployed instance is
+independent and still uses ordinary control rendering, selection, properties,
+and event dispatch.
+
+To customise one deployed instance, select the User Control root. Its properties
+include a collapsible **Child Controls** section that groups editable child
+properties as `ChildId.PropertyName = value`. These edits affect only that
+deployed instance; the project-level User Control definition remains the
+template for future deployments.
+
+COBOL can reach child properties through the User Control root:
+
+```cobol
+INVOKE CustomerCard-1 "SetProperty"
+    USING "Button1.Caption" "Save"
+INVOKE CustomerCard-1 "GetProperty"
+    USING "Button1.Caption"
+    RETURNING WS-CAPTION.
+```
+
+At run time `Button1.Caption` resolves to the deployed child control
+`CustomerCard-1-Button1` and its `Caption` property. If no matching child exists,
+the dotted name is treated as a normal property on the root, preserving older
+forms that used dotted property names directly.
+
+Child events use the deployed qualified child ID. A child button inside
+`CustomerCard-1` named `Button1` dispatches under
+`WHEN "CustomerCard-1-Button1"`, and its handler name is derived from that full
+ID, for example `CUSTOMERCARD-1-BUTTON1--ONCLICK`.
+
+User Controls can contain other User Controls. When deployed, nested controls are
+expanded recursively and receive qualified IDs under the outer instance. To
+remove a definition from the project, right-click in the designer and choose
+**Remove User Control**; existing form instances remain as ordinary controls.
+
+> 📷 **Screenshot needed — `control-gallery.png`.** A single form (or the preview
+> window) showing one of each major control so newcomers can recognise them. The
+> charts especially benefit from a visual.
+
+### Per-control examples
+
+The repository ships **one** application that demonstrates every control:
+`examples/PowerDemo3`, **61 forms** under `forms/`. The `sidebar-form` that
+opens the project sits at the root; the twelve responsive demos have a folder
+of their own, `Responsive Layout/`; the other 48 are filed in the same
+categories the toolbox uses:
+- `General/` (7)
+- `Common/` (16)
+- `Non-Visual/` (7)
+- `Graphics/` (6)
+- `Containers/` (4)
+- `Menus & Bars/` (4)
+- `Data/` (2)
+- one apiece in `Charts/` and `Rust/`
+
+A form is named after its control, so the demo
+for whatever you are reading about is where you would expect it:
+`forms/Common/knob-form.cfrm`, `forms/Containers/splitter-form.cfrm`,
+`forms/Non-Visual/websearch-form.cfrm`.
+
+Each one places the control, wires the events it supports, and gives you a
+button per property that changes it from COBOL — so it doubles as a reference
+for wiring events and setting properties from code. The handlers are written in
+the **extended dialect** rather than the long form (an inline call on a control,
+a direct write to a property, `::` chaining, block literals), and 30 of the
+forms carry a comment above every line that uses an extension, in all six
+interface languages: 462 of them apiece in English, Portuguese, Spanish, French,
+Japanese and Chinese.
+
+Open the project with **File ▸ Open Project** and run it — it starts on a
+sidebar form that reaches every demo. Any single form also runs on its own from
+the designer, which is the quick way to try one control. From the command line:
+
+```sh
+rcrun build examples/PowerDemo3/PowerDemo3.project.toml
+```
+
+It is a real project rather than a gallery: it carries its own `src/`,
+`COPYBOOKS/`, an indexed definition (`indexed/actors.cidx`) with its data under
+`data/`, assets, a Knowledge Base, and a vendored Project's Crates library that
+`forms/Rust/ferris-says-form.cfrm` calls from an `EXEC RUST` block.
+
+Three of the Non-Visual demos reach outside the machine — `agent-form`,
+`restapi-form` and `websearch-form`. They open and build offline, but need
+their service reachable, or their credential configured, to do anything.
+`sqldatabase-form` is not one of them: it connects to `sqlite::memory:`, and
+SQLite is bundled, so it runs with nothing installed.
+
+> **What did not work is written down too.** `forms/DEMOS-TO-FIX.md` is the
+> catalogue kept while the demos were built — each entry verified against the
+> source rather than assumed, and some of them are live in a shipped demo. Read
+> it before concluding that a demo is showing you a control's real behaviour.
+
+### Default Theme Settings (what a theme means in *your* project)
+
+A theme decides how every control on a form looks. **Project settings → Default
+Theme Settings** is where you say what that look is.
+
+PowerCOBOL has nothing quite like this: there, a control's appearance is a
+property you set on each control, one at a time, and a "theme" is a convention
+you keep by hand. Here a theme is a *table*, the table belongs to the project,
+and switching a form to a theme stamps it.
+
+```
+[Theme]  [Glass style]        [form ▼] [📥 Import from a form…]
+Every control          <property, value>
+Exceptions by type     [control type ▼]  <property, value>
+```
+
+**Base plus exceptions.** Most themes are uniform: one corner radius, one border
+style, one shadow, everywhere. Some are not — a raised Button, a flat Label and
+a *sunken* TextBox are three different answers within one look. So the table has
+a base every control takes, and per-control-type exceptions over it. An
+exception wins **property by property**: saying "Labels have no shadow" does not
+also say they have no corner radius.
+
+**Authoring by importing.** You do not have to type a theme in. Style a form
+until it looks the way you want the theme to look — that is what the designer is
+for — then pick it in the form list and press **Import from a form**. The value
+the most control *types* agree on becomes the base, and every type that
+disagrees becomes an exception. Types vote, not controls: a form holding eleven
+Labels and one Button is not a theme made of Labels.
+
+**What it governs, and what it never touches.** Only appearance:
+`BackgroundColor`, `ForegroundColor`, `CornerRadius`, `BorderStyle`, the whole
+`Shadow*` family and the background gradient. Captions and `Text`, `Items` and
+`Value`, geometry, tab order, `Enabled`/`Visible`, event bindings and data
+bindings are **yours**, and a theme switch never rewrites them.
+
+> **Note.** A value *you* set on a particular control survives a theme switch. A
+> switch only clears the marks a theme could have written, so a form that needs
+> one control to be different from its theme just sets it and keeps it.
+>
+> **Note.** The table lives in `cobolt.toml` under `theme_defaults`, keyed by
+> theme and glass style, as plain values you can read and edit by hand:
+>
+> ```toml
+> [ide.theme_defaults."elegance/Classic".base]
+> CornerRadius = 10
+> BorderStyle = "None"
+> ShadowEnabled = false
+>
+> [ide.theme_defaults."elegance/Classic".overrides.Label]
+> BackgroundColor = "#00000000"
+> ```
+>
+> ⚠️ **Caveat.** The table is the project's, not the form's. Two projects that
+> share a `.cfrm` do not share what its theme means — copy the `theme_defaults`
+> block across if you want the same look.
+
+📷 Screenshot needed — `default-theme-settings.png`
+*Open project settings, press the Default Theme Settings button under the theme
+row, and capture the whole modal with a few base properties ticked and one
+control type selected under Exceptions.*
+
+### DateTimePicker (dates *and* times)
+
+The **DateTimePicker** is a field that drops open a picker. What it drops open —
+a calendar, a clock, or both — is decided by its **`Format`** property, and the
+same property decides what the field displays.
+
+
+| `Format`   | The popup offers                 | The field shows                               |
+| ---------- | -------------------------------- | --------------------------------------------- |
+| `Short`    | a month calendar                 | the date, `2026-09-03`                        |
+| `Long`     | a month calendar                 | a long date, `Thursday, 3 September 2026`     |
+| `Time`     | an hour/minute clock             | the time, `09:30`                             |
+| `Custom`   | whatever `CustomFormat` asks for | the value laid out through `CustomFormat`     |
+
+Under `Custom`, the pattern does two jobs. Its letters decide the popup: `y`,
+`M` or `d` ask for a calendar, `H`, `h` or `m` for a clock, and a pattern with
+both — the usual `dd/MM/yyyy HH:mm` — gets both. And the field **shows** the
+value through it: `yyyy`/`yy`, `MMMM`/`MMM`/`MM`/`M` (month name, short name,
+number), `dddd`/`ddd`/`dd`/`d` (weekday name, short name, day), `HH`/`H`
+(24-hour), `hh`/`h` (12-hour), `mm`/`m` and `tt` (AM/PM); anything else is
+printed as written. An empty field shows the pattern itself as its hint.
+**Case matters here and nowhere else on this control**: `M` is the month, `m`
+is the minute. Month and weekday names are English.
+
+**`Value` is always ISO**, whatever `Format` displays:
+
+
+| The picker edits | `Value` holds      |
+| ---------------- | ------------------ |
+| a date           | `YYYY-MM-DD`       |
+| a time           | `HH:MM`            |
+| both             | `YYYY-MM-DD HH:MM` |
+
+That separation is deliberate. A PowerCOBOL developer is used to a display
+format and a stored value being the same thing, and it is what makes date
+handling in a form fragile: change the format for a report and every `MOVE` that
+read the field starts seeing something else. Here the display is presentation
+and `Value` is data, so your program can rely on one shape:
+
+```cobol
+       01  WS-BOOKING.
+           05  WS-BOOKING-DATE     PIC X(10).
+           05  FILLER              PIC X.
+           05  WS-BOOKING-TIME     PIC X(5).
+
+       GET-BOOKING.
+           MOVE DateTimePicker-1::Value TO WS-BOOKING
+           DISPLAY "Booked for " WS-BOOKING-DATE
+                   " at "        WS-BOOKING-TIME.
+```
+
+**Setting it from COBOL** is the same shape in reverse — write ISO and the field
+displays it the way `Format` says:
+
+```cobol
+       SET-DEFAULT-SLOT.
+           MOVE "2026-09-03 09:30" TO DateTimePicker-1::Value.
+```
+
+**The clock.** Two steppers, hours and minutes. Both **wrap** — `23 ▶` is `00`,
+`59 ▶` is `00` — and the minute stepper deliberately does **not** carry into the
+hour: a stepper that changed a field you were not pointing at is how you set the
+wrong time without noticing. Each press writes `Value` and fires `onChange`
+immediately, and the popup stays open so you can set the hour and the minute in
+one visit. On a picker that edits both halves, clicking a day keeps the time
+already set and leaves the popup open for the clock; on a date-only picker the
+day click closes it, as it always has.
+
+> **Note.** A `Value` the control cannot read as a date or a time is displayed
+> exactly as you set it, not blanked. It is your data, and hiding it would look
+> like the control had lost it.
+>
+**Limits.** `MinimumDate` and `MaximumDate` (`YYYY-MM-DD`, empty = no limit)
+bound what the operator can pick: days outside them are dimmed in the calendar
+and refuse a click, and a stepped or committed date never leaves them. A
+`Value` your program writes is kept exactly as written.
+
+**Steppers instead of a popup.** Turn `ShowUpDown` on and the field carries ▲▼
+at its right edge and opens no popup: ▲ / ▼, the ↑ / ↓ keys while the picker
+has the keyboard, or the mouse wheel over it move the **day** — the **minute**
+on a time-only picker — one at a time, across months and years, within the
+limits. Each step writes `Value` and fires `onChange`.
+
+> ⚠️ **Caveat.** `MinimumDate` / `MaximumDate` bound the date only. There is no
+> minimum or maximum *time*. Before 1.70.234 neither limit, `ShowUpDown` nor
+> the display side of `Long` and `CustomFormat` did anything.
+
+📷 Screenshot needed — `datetimepicker-clock.png`
+*Place a DateTimePicker on a form, set `Format` to `Custom` and `CustomFormat`
+to `dd/MM/yyyy HH:mm`, run the form and click the field so the popup opens.
+Capture the whole popup — the month grid with the hour/minute strip beneath it —
+with the pointer resting on the hour `▶` arrow.*
+
+### MenuBar (pulldown menus)
+
+The **MenuBar** control provides a 3-level pulldown menu system for your
+application. Menus are authored in a **tree editor** inside the IDE and stored
+as a YAML file alongside the `.cfrm`.
+
+**How wide the bar is — `MenuBarStyle`.** `Free` (the default) keeps the bar
+exactly as wide as you drew it. `Responsive` makes it a real window menu bar: it
+starts at the left edge and runs the form's full width in the designer, follows
+the form when you resize it there, and **at run time spans the running window** —
+when the operator widens the window, the bar widens with it to the right edge
+(it never gets narrower than the form). Its `Y` and `Height` stay yours, and no
+other control moves: a running form keeps its designed layout.
+
+**Editing menus.** Select the MenuBar control in the designer, then click
+"Edit Menu..." in its properties. The tree editor lets you add, remove, and
+reorder items up to 3 levels deep. Each item has:
+
+- **Label** — the text shown in the menu.
+- **Icon** — an optional icon from the built-in catalogue: **1112 pure-vector
+  icons in 37 categories** — documents, editing, navigation, communication,
+  media, commerce, payroll, receivables, payments, stock control,
+  transportation, logistics, financial, company **departments**, transaction
+  kinds (buy, sell, return, chargeback, …), civilian **vehicles**,
+  **military** vehicles & equipment, **devices** (computers, retro-computers,
+  tablets, smartphones, wearables), **SaaS** applications (CRM, ERP, BI, LMS,
+  CMS, ITSM, POS, chatbot, …), **PaaS** services (aPaaS through AIaaS),
+  **ERP modules** (FI, CO, SD, MM, PP, QM, PM, SCM), **selection** tools
+  (marquee, select all/none/invert, lasso, move), **design** tools (paint
+  bucket, fill, palette, rotate, flip, fit to window, thumbnails) and
+  **application** objects (window, form, application, bundle, component, find
+  and replace, spelling, speech, sleep, quit, globe, local), the three sets
+  added in 1.62.132 — **PowerRustCOBOL controls**, **computer science** and
+  **user interface**, described just below — and **national
+  flags** (`flag-br`, `flag-jp`, `flag-gb`, … — every UN member state, plus the
+  Holy See, Palestine and Kosovo). Icons are drawn as
+  resolution-independent line work — the same icon is crisp in a 16 px menu
+  row or a 128 px tile — and take the menu item's colour. The engine can also
+  render any icon with a second accent colour, a drop shadow, or a neumorphic
+  emboss.
+
+  > ⚠️ **Caveat — national flags are line drawings.** Every icon in the
+  > catalogue is monochrome: it takes one colour from you, and a flag is mostly
+  > defined by its colours. So the flags carry their **geometry** — bands,
+  > crosses, cantons, crescents, stars, Nepal's pennant, Brazil's lozenge — and
+  > flags that differ only in colour look the same here. `flag-it` and `flag-ie`
+  > are both three vertical bands. Use them where the country is already named in
+  > the row beside them, not as the only way to tell one country from another.
+  >
+
+  > **An icon for every control (1.62.132).** Building a demo, a palette or a
+  > help page *about* the controls used to mean having no picture of them: the
+  > toolbox's own drawings live in the IDE and were never available to your
+  > application. There is now one catalogue icon per control, named
+  > `control-` followed by the control's type in lower case with dashes —
+  > `control-button`, `control-data-grid`, `control-date-time-picker`,
+  > `control-side-menu`, `control-file-drop-zone`. Every control has one,
+  > including `control-custom` for a plugin-provided control. Type `control`
+  > into the picker's **Find** box to see the whole set.
+  >
+  > **And the words you argue in.** Two more sets landed with them, for the
+  > diagrams and admin screens every real application grows:
+  >
+  > - **Computer Science (79)** — `array`, `stack-structure`,
+  >   `queue-structure`, `linked-list`, `hash-table`, `binary-tree`,
+  >   `graph-nodes`, `compiler`, `parser`, `recursion`, `thread`, `mutex`,
+  >   `deadlock`, `breakpoint`, `async`, `callback`, `event-loop`, `socket`,
+  >   `packet`, `firewall`, `load-balancer`, `microservice`, `webhook`,
+  >   `encryption`, `key-pair`, `two-factor`, `schema`, `primary-key`,
+  >   `foreign-key`, `join-tables`, `replication`, `sharding`, `query`,
+  >   `git-branch`, `git-merge`, `pull-request`, `diff`, `ci-cd`, `sorting`,
+  >   `binary-search`, `state-machine`, `neural-network`, and more.
+  > - **User Interface (49)** — `modal`, `dialog`, `tooltip`, `popover`,
+  >   `dropdown`, `accordion`, `breadcrumb`, `pagination`, `stepper`,
+  >   `wizard`, `carousel`, `drawer`, `toast`, `chip`, `skeleton`,
+  >   `scrollbar`, `search-field`, `empty-state`, `wireframe`, `responsive`,
+  >   `dark-mode`, `light-mode`, `accessibility`, `keyboard-shortcut`,
+  >   `cursor-pointer`, `drag-drop`, `click`, `swipe`, `z-index`,
+  >   `flex-layout`, `grid-layout`, `padding`, `margin`, `border-radius`,
+  >   `drop-shadow`, `opacity`, `gradient`, `ruler`, `viewport`, `snap-grid`,
+  >   and more.
+  >
+  > No existing icon was removed or renamed to make room: **names are a stable
+  > API**, and a name you already wrote in a `.menu.yaml` still resolves.
+  >
+- **Moving items.** Besides *Move Up*/*Move Down*, the **Indent** button makes
+  the selected item a child of the item above it, and **Outdent** promotes it
+  back beside its parent — together they move an item between any sections and
+  levels (three levels maximum).
+- **Accelerator** — a keyboard shortcut (e.g. `Cmd+N`, `Shift+Ctrl+S`).
+  Rendered with platform-native symbols.
+- **Action** — what happens when the item is clicked:
+
+  - *Event* — fires `onMenuClick` (your event handler decides what to do).
+  - *Open form* — opens/switches to a named form.
+  - *Set property* — sets a control property (e.g. `BUTTON-1.Enabled=false`).
+  - *Close application* — terminates the running application.
+- **Enabled** — whether the item is clickable (dimmed when disabled).
+
+**YAML file.** The menu structure is saved as `<control-id>.menu.yaml` in the
+same directory as the `.cfrm`. The file includes an HMAC-SHA256 integrity hash;
+at runtime the hash is validated and a tampered file is rejected.
+
+**Colour properties.** The MenuBar exposes four colour properties:
+`HighlightBgColor`, `HighlightFgColor` (hover colours — the title under the
+pointer, and the dropdown item under the pointer or flashing after a click),
+`SelectedBgColor`, `SelectedFgColor` (the open title's colours). `BackgroundColor` and `ForegroundColor`
+are also there for when you want to pick the bar's own face and caption ink
+yourself; left alone, the bar reads its surroundings instead — it takes a
+soft surface under a Neumorphic form style and picks caption ink that
+contrasts with whatever it ends up sitting on, so a menu bar you have not
+recoloured stays visible and legible on both a dark and a light form.
+
+**Events.** `onMenuClick` fires when any action item is clicked or its
+accelerator key is pressed. `onMenuOpen` / `onMenuClose` fire when dropdowns
+open/close.
+
+**Which item was chosen.** Read the MenuBar's **`SelectedItemId`** property in
+the `onMenuClick` handler. It holds the item's **id**, and it is written just
+before the event fires — so it is always the item this event is about, whether
+it was clicked or reached by its accelerator.
+
+Every item gets its id when you add it in the menu editor: four lowercase
+letters, such as `kqpv`, never shared with another item of any menu — or any
+toolbar group or button — in the same window. The id is fixed — renaming or moving the item does not change it, and
+the editor offers no way to type one. It is shown beside the item's label, with
+a **Copy** button that puts it on the clipboard, ready to paste into your
+handler:
+
+```cobol
+       MENUBAR-1--ONMENUCLICK.
+           MOVE MenuBar-1::SelectedItemId TO WS-ITEM
+           EVALUATE WS-ITEM
+               WHEN "kqpv" PERFORM SAVE-DOCUMENT
+               WHEN "zmae" PERFORM OPEN-DOCUMENT
+               WHEN "txbo" PERFORM SHOW-ABOUT
+           END-EVALUATE.
+```
+
+> ⚠️ **`COBOL-CONTROL-ID` is the MenuBar, not the item.** One handler serves the
+> whole menu, so the control id it receives is the bar's own (`MenuBar-1`).
+> Branch on `SelectedItemId`.
+>
+> ⚠️ **Opening an older menu or toolbar in its editor renumbers it.** This
+> applies to a MenuBar, a SideMenu and a ToolBar alike. An id that is not four
+> lowercase letters — an `item-3`, a `button-2`, a hand-written `file-save` —
+> or that another item in the window already uses is replaced by a generated
+> one the moment the editor opens; **OK**/**Save** keeps the change and
+> **Cancel** discards it. Update any COBOL that names an old id: a `WHEN` on
+> `SelectedItemId` or `LastButton`, the `parent-id` of a SideMenu `AddItem`,
+> or a button's derived name (`TOOLBAR-1-GROUP-1-BUTTON-1::Tooltip` becomes
+> `TOOLBAR-1-FMTG-BNSQ::Tooltip`). A button's own handler needs nothing — it
+> moves with the button.
+
+**Enabling and disabling items.** Every item carries an **enabled** flag you
+set in the menu editor, and a disabled item is drawn greyed and raises no
+`onMenuClick`.
+
+> ⚠️ **The flag is a design-time setting.** There is no COBOL call that turns a
+> menu item on or off while the application is running. If an action must be
+> unavailable in some states, check for that state at the top of the item's
+> handler and return, rather than trying to grey the item out.
+
+### Snackbar (transient notifications)
+
+A **Snackbar** tells the operator something without stopping them. It is a short
+message that appears over the form, waits a few seconds, and leaves by itself —
+no OK button to dismiss, no modal loop, no answer expected.
+
+If you have reached for a message box to say *"Record saved"* or *"Could not
+reach the server"*, this is what you wanted. A message box demands a click
+before the operator can carry on; a Snackbar does not interrupt them at all.
+Keep the message box for a question you genuinely need answered.
+
+**The control you drop is a template, not a message.** This is the one idea to
+get right, and it is different from most controls. A Snackbar lives in the
+designer's non-visual tray, beside `Timer` and `IndexedFile` — it has no size
+and no position on the canvas, and it paints nothing there. What it holds are
+the *defaults*. Every `Show()` mints a **new** notification from whatever those
+values are at that moment:
+
+```cobol
+       MOVE "Record saved" TO SNACK-1::Text
+       INVOKE SNACK-1::Show()
+       MOVE "Index rebuilt" TO SNACK-1::Text
+       INVOKE SNACK-1::Show()
+```
+
+That puts **two** messages on screen, stacked one above the other. The first one
+still says `Record saved` — a notification is a snapshot, so changing `Text`
+afterwards never rewrites a message already showing.
+
+> **Note.** On every other control `Show()` means "make this control visible".
+> A Snackbar is non-visual and has nothing to make visible, so `Show()` there
+> means "raise a notification". Nothing changes for your existing forms:
+> `BTN-OK::Show()` still shows the button.
+
+**Categories do the styling for you.** Set `Category` and the colours, the icon
+and the timeout follow:
+
+
+| `Category` | Background | Ink | Icon | Timeout | Use it for |
+| ---------- | ---------- | --- | ---- | ------- | ---------- |
+| `Info` | `#1E4E8C` deep blue | `#F2F7FF` | `info-circle` | 4000 ms | Confirmation, progress, anything neutral |
+| `Question` | `#4B3A8C` indigo | `#F5F2FF` | `help-circle` | 6000 ms | Inviting a decision |
+| `Warning` | `#8A5A0B` dark amber | `#FFF7E8` | `warning-triangle` | 6000 ms | Something looks wrong but the work continued |
+| `Error` | `#8C2323` red | `#FFF0F0` | `error-circle` | 8000 ms | An operation failed |
+| `Critical` | `#5A0F0F` deep red | `#FFEAEA` | `critical-octagon` | stays until dismissed | Severe; must be acknowledged |
+
+Every ink is a pale tint of its own background, so a category always reads.
+`Critical` is deliberately darker than `Error`, and carries the octagon rather
+than a circle.
+
+These are defaults, not a fixed look. Set any property yourself and yours wins —
+and it wins *alone*, so choosing a `BackgroundColor` leaves the category's icon
+and ink in place. Leave a colour **empty** to mean "the category decides", which
+is what lets one `MOVE` to `Category` restyle the whole message:
+
+```cobol
+       MOVE "Cannot reach the server" TO SNACK-1::Text
+       MOVE "Error" TO SNACK-1::Category
+       INVOKE SNACK-1::Show()
+```
+
+> ⚠️ **An override hides the category, and it is easy to set one by accident.**
+> A Snackbar's `BackgroundColor`, `ForegroundColor` and `CategoryIconColor`
+> start empty on purpose. In the inspector each row shows the colour the
+> notification will actually paint and reads **"default"** while it is unset;
+> once you pick one, the row shows your hex and offers a **↺** that puts it back
+> to "the category decides". If a `Critical` message is not red, look there
+> first — an explicit `BackgroundColor` is the usual reason.
+
+**Timeout** is in milliseconds. `-1` — the default — means "use the category's".
+`0` means it stays until something dismisses it. Anything above 0 is that many
+milliseconds:
+
+```cobol
+       MOVE 2500 TO SNACK-1::Timeout      *> two and a half seconds
+       MOVE 0    TO SNACK-1::Timeout      *> stays until dismissed
+       MOVE -1   TO SNACK-1::Timeout      *> back to the category default
+```
+
+While the pointer rests on a notification its timeout is **held**, and resumes
+with exactly what was left when the pointer moves away — an operator reading a
+message never has it vanish under the cursor. Turn that off with
+`PauseTimeoutOnHover`.
+
+**Every notification has a built-in close, top-right** (1.63.30) — regardless
+of `Category` or whatever buttons you declared. This is the operator's own
+way to dismiss ONE message, including a `Critical` one that never times out
+on its own. It fires its own dismissal reason, `User` — distinct from
+`Timeout` (expired on its own), `Action` (a button's `dismiss=true`) and
+`Programmatic` (`DismissAll()`) — so a handler reading the dismissal reason
+can always tell the four apart. It is a UI affordance only: there is no
+COBOL-callable equivalent for dismissing a single notification by CALL;
+`DismissAll()` remains the only programmatic dismissal, and it clears every
+live notification this control raised, not just one.
+
+**Buttons.** Up to three, one per line in the `Buttons` property, fields
+separated by `|`. Trailing fields may be left off:
+
+```
+retry|Retry|refresh|Left|true
+later|Later|||false
+```
+
+The fields are `id|text|icon|position|dismiss`. The **id** is what your handler
+reads — it is your own name for the button and stays in English, like every
+other COBOL identifier. **icon** is any catalogue icon name (`refresh`,
+`x-mark`, `undo`, `check`), **position** is `None`, `Left` or `Right`, and
+**dismiss** decides whether clicking closes the notification (default `true`).
+
+A button answers the pointer the way the toolbar's do: its well brightens under
+the pointer and deepens while the mouse button is held, so a press is
+acknowledged on screen before the handler runs.
+
+**Declaring buttons from COBOL — `Clear()` and `AddButton()`.** The property
+above is the *designer's* way of writing a row. From a handler, do not write
+`Buttons` directly: the separator is a newline and a COBOL literal cannot
+contain one, so a `MOVE` into `Buttons` can only ever declare a **single**
+button however many `|` it carries. Declare them one call at a time instead:
+
+```cobol
+           INVOKE SNACK-1::Clear()
+           INVOKE SNACK-1::AddButton("id=undo,caption=Undo,icon=undo,position=1")
+           INVOKE SNACK-1::AddButton("id=later,caption=Later,position=2,dismiss=false")
+
+           MOVE "Saved. Undo?" TO SNACK-1::Text
+           MOVE "Warning"      TO SNACK-1::Category
+           INVOKE SNACK-1::Show()
+```
+
+`AddButton` takes `key=value` pairs separated by commas. Every key is optional
+except **`id`** — it is what `onButtonClick` reports, so a spec without one
+declares no button and says so in the diagnostics trace rather than showing a
+blank:
+
+
+| Key                   | Means                                                                              |
+| --------------------- | ---------------------------------------------------------------------------------- |
+| `id`                  | **Required.** Your own English name; comes back as `LastButtonId`.                 |
+| `caption` (or `text`) | The wording on the button. Omit for icon-only.                                     |
+| `icon`                | A catalogue icon name (`undo`, `refresh`, `x-mark`, `check`, …).                  |
+| `position`            | The button's ordinal, **1-based, left to right**. Omitted = the end, in call order. |
+| `dismiss`             | `true` (default) closes the notification on click; `false` leaves it up.           |
+| `iconposition`        | `None`, `Left` or `Right`. Omitted = `Left` when an icon is given.                 |
+
+`Clear()` on a Snackbar empties the **button row and nothing else** — the text,
+the category and the colours keep whatever they hold. That is deliberately
+unlike `Clear()` on a TextBox or a list, which wipes the content: here, clearing
+the message the handler is about to show would be a trap. It affects only the
+template, so a notification already on screen is untouched.
+
+Without `Clear()`, `AddButton` **adds to** the row the designer set, which is
+how you append one situational button to a fixed pair. `position` is an
+insertion point rather than a fixed slot, so two buttons can never both claim
+the same place. A comma inside a caption is kept (`caption=Saved, undo?` is one
+caption); a `|` is stripped, because it is the row's own separator. Declaring a
+fourth button is reported, never silently dropped: the designer flags it, and at
+run time it goes to the diagnostics trace.
+
+Bind `onButtonClick` and read which one was pressed:
+
+```cobol
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SNACK-1--ONBUTTONCLICK.
+       PROCEDURE DIVISION.
+           EVALUATE SNACK-1::LastButtonId
+               WHEN "retry"
+                   PERFORM SEND-THE-RECORD-AGAIN
+               WHEN "later"
+                   CONTINUE
+           END-EVALUATE.
+```
+
+**Where they appear.** `StackAnchor` picks one of nine positions —
+`TopLeft`, `TopCenter`, `TopRight`, `CenterLeft`, `Center`, `CenterRight`,
+`BottomLeft`, `BottomCenter`, `BottomRight` — and `Margin` sets the gap from
+the edge. The stack is **vertical only**: a Top anchor grows downward, a Bottom
+anchor grows upward, and in both cases the newest message is the one nearest the
+anchor. Dismiss one from the middle and the rest close the gap immediately.
+
+The anchor is measured against **your form's own surface**, not the screen. In
+an application shell an `Embedded` form's messages appear inside its ContentPane
+— never over the shell's rail or breadcrumb — so they land where the operator is
+already looking.
+
+> ⚠️ **`StackAnchor`, not `Anchor`.** Every control already has an `Anchor`
+> property, and it is a different thing entirely: a tick box that locks the
+> control against being dragged on the design canvas. The Snackbar's placement
+> is `StackAnchor`, which sits with `StackSpacing` and `StackOrder`.
+
+**When several arrive at once.** `MaximumVisible` (default 5) caps how many of
+one Snackbar's messages are up together, and `OverflowBehavior` decides what a
+further `Show()` does:
+
+- `Queue` — hold it back and raise it when a slot frees. Its timeout then starts
+  when it *becomes visible*, so a queued message is still seen in full.
+- `DiscardOldest` — close the oldest to make room.
+- `DiscardNewest` — drop the arrival.
+
+**How they move.** Notifications are animated, and the effects run to fixed
+durations:
+
+- The one arriving **zooms up and fades in** over **600 ms** at the place it
+  will occupy — it does not fly in from off-screen. A `Critical` message takes
+  **200 ms** instead: the most urgent category is the one that should already be
+  there when the operator looks up. Nothing else about an effect depends on the
+  category.
+- Existing notifications **glide** up or down (whichever way the anchor stacks)
+  over **300 ms** to make room, and glide back to close the gap when one leaves.
+  They never jump.
+- A notification that leaves — expired, dismissed, or pushed out by
+  `OverflowBehavior` — **fades out** where it stood over **300 ms**. It does not
+  zoom out, and the survivors close the gap around it while it goes.
+
+**They arrive one at a time.** Two `Show()` calls in the same handler put up two
+messages, but they do not come in together: the second waits until the first has
+finished arriving, then the ones already up glide clear, and only into that room
+does it start to appear. So three raised at once take about two and a half
+seconds to all be on screen, entering in the order they were raised. Messages
+anchored to *different* corners are separate stacks and never wait for each
+other — the queue is per anchor.
+
+A message's `Timeout` counts from the moment it **becomes visible**, not from the
+`Show()` that raised it, so one third in the queue is still read for its full
+duration.
+
+Nothing about this is yours to drive: the effects are automatic, and a
+notification's events do **not** wait for them. `onClosing` and `onClosed` fire
+the moment it closes, and the slot it held is free for the next `Show()`
+immediately — what lingers for 300 ms is the picture, not the notification.
+
+**Clearing them.** `DismissAll()` closes every notification **this** control
+raised, and discards anything it had queued. Other Snackbar controls on the form
+are untouched:
+
+```cobol
+       INVOKE SNACK-1::DismissAll()
+```
+
+There is no COBOL-callable `Hide()` for one notification. With `Show()` minting
+a new notification each time, `Hide()` could not say *which* one it meant —
+that is what the operator's own close button is for (above); it is UI, not a
+CALL your handler can reach for.
+
+**Events.** `onShown` when a message joins the stack, `onTimeout` when its time
+runs out, then `onClosing` and `onClosed` as it leaves — both carrying the reason
+(`Timeout`, `User`, `Action`, `Programmatic`, `Overflow`) — and `onButtonClick`
+when a button is pressed. A button whose `dismiss` is `true` fires
+`onButtonClick` **first** and closes afterwards, so your handler can still read
+the notification it was clicked on.
+
+> ⚠️ **`onShown` is the `Show()`, not the picture.** It fires when the message
+> is accepted onto the stack, which is before it has waited its turn in the
+> arrival queue and before it has finished zooming in. That is deliberate: no
+> event ever waits on an animation. If you need to act when a message is
+> genuinely on screen, `onShown` plus the arrival time above is what you have —
+> there is no separate "finished arriving" event.
+
+> **Note.** `Text` is data, not a format string — nothing is substituted into it.
+> Build the message in COBOL first, the way you would any other caption:
+>
+> ```cobol
+>        STRING "Saved " DELIMITED BY SIZE
+>               FUNCTION TRIM(WS-CUSTOMER-NAME) DELIMITED BY SIZE
+>               INTO WS-MESSAGE
+>        MOVE FUNCTION TRIM(WS-MESSAGE) TO SNACK-1::Text
+>        INVOKE SNACK-1::Show()
+> ```
+
+> ⚠️ **Caveat — a notification is not a dialogue.** It never blocks, never takes
+> focus and never waits. If your program must not continue until the operator
+> answers, a Snackbar is the wrong control: the next statement after `Show()`
+> runs immediately, while the message is still on screen.
+
+> ⚠️ **Caveat — `Size` caps the text.** `Small`, `Medium` and `Large` allow one,
+> two and three lines respectively; anything longer is ellipsized rather than
+> growing the notification. A window never resizes itself to fit a message.
+
+📷 Screenshot needed — `snackbar-stack.png`. Run a form with a Snackbar anchored
+`BottomRight`, raise three notifications of different categories (Info, Warning,
+Error) from one button handler, and capture the window while all three are
+stacked, so the vertical stacking, the category colours and the icons are all
+visible.
+
+### Viewer (documents inside your form)
+
+A **Viewer** shows a document — plain text, Markdown, an image, a PDF or an
+HTML page — inside the form you built, with a toolbar, page navigation, zoom, a
+rail of page thumbnails, Find, Print and Save As.
+
+It exists because a COBOL program that *produces* documents has, until now, had
+nowhere to *show* them. You write a PDF statement or a report and then hand it
+to some other program, and your operator leaves your application to read what
+your application just made. A Viewer keeps it where the work is.
+
+If you have used PowerCOBOL or isCOBOL, the closest thing you know is probably
+an OLE container or an embedded preview pane — and the most important
+difference is this one: a Viewer is a **plain control**. You drop it on a form,
+you set its properties, you bind its events. There is no container to register,
+no external application to be installed, and no second process to fail.
+
+#### Opening a document
+
+Three ways in. A path:
+
+```cobol
+       MOVE "reports/september.pdf" TO VWR-1::Source
+```
+
+a web address:
+
+```cobol
+       MOVE "https://example.com/handbook.md" TO VWR-1::Source
+```
+
+or bytes your program already holds:
+
+```cobol
+       INVOKE VWR-1::LoadBytes(WS-DOCUMENT-BUFFER)
+```
+
+In the designer, `Source` is not a field you have to type into blind. It comes
+with a **📂** button that opens your operating system's own file chooser, and
+an **✕** that clears the selection — and it accepts a `http://` or `https://`
+address typed straight into it.
+
+> **Note — a web address is a document, not a web page.** The Viewer downloads
+> what the address returns, once, and then opens it exactly as though it were a
+> file on disk: every format, every layout and every page-at-a-time read work
+> unchanged. Nothing is executed. No script runs, no stylesheet or image the
+> page references is followed, and an HTML address opens as the HTML **subset**
+> the table below describes, not as a browser would render it. Use it to put a
+> published manual, a release note or a generated report in front of the
+> operator — not to embed a web application.
+>
+> The download happens on the same background thread the reading does, so a
+> slow server behaves like a slow disk and your form keeps repainting. The
+> document is cached, so reopening the form does not fetch it again. A server
+> that refuses, a name that does not resolve, or a document larger than 256 MB
+> raises `onError` with the reason in `LastError`, exactly as an unreadable
+> file does.
+
+Either way the Viewer works out **what** the document is from its content
+first and its file name second, and reports what it decided in `Format`. A PNG
+that someone named `.txt` still opens as a picture. A file it cannot make sense
+of raises `onError` with `LastError` set, and — this is the part worth
+remembering — **leaves the document you were already showing on screen**. A bad
+file name does not blank your form.
+
+Loading reports itself as it goes, so a large document can drive a progress
+bar:
+
+```cobol
+       PROGRAM-ID. VWR-1--ONLOADPROGRESS.
+       PROCEDURE DIVISION.
+           MOVE VWR-1::Progress TO PROG-1::Value
+           .
+
+       PROGRAM-ID. VWR-1--ONLOADED.
+       PROCEDURE DIVISION.
+           MOVE 0 TO PROG-1::Value
+           MOVE VWR-1::Format TO LBL-FORMAT::Caption
+           .
+```
+
+> **Note — the reading happens off the drawing.** Indexing a two-gigabyte log
+> does not stop your form repainting or answering the mouse, and the Viewer
+> never holds a whole document in memory: it keeps a bounded window of pages
+> and reads the rest on demand. Jumping to the last page of such a file costs
+> one page's reading, not a walk through everything before it.
+
+#### What each format actually gives you
+
+This is the single most important table in the section, and it is a contract
+rather than an aspiration. Everything the Viewer does is pure COBOL-runtime
+code with no external decoder to install, and that decision sets the ceiling
+for some formats.
+
+| Format | You get | You do **not** get |
+|---|---|---|
+| Plain text | All of it, at any size | — |
+| Markdown, with tables, task lists, footnotes and strikethrough | All of it, at any size | — |
+| Mermaid diagrams — a Markdown fence, or an HTML page's `<div class="mermaid">` / `<pre class="mermaid">` | Flowcharts and sequence diagrams, drawn by the Viewer itself (a page's `mermaid.js` is never run, and is not needed). A flowchart's connectors are orthogonal — every segment horizontal or vertical — and meet each shape at the middle of a side, a decision diamond at a vertex; a connector that has to pass other shapes goes round them in a lane of its own | Class, state, gantt, ER and journey diagrams — **refused by name**, not half-drawn. A block that is not Mermaid at all — a drawing made of brackets and arrows — is shown as the text it is |
+| Images: PNG, JPEG, GIF, WebP, APNG, BMP, TIFF, SVG | All of them, animation included | — |
+| PDF | Its text, its basic line and rectangle drawing, its page sizes, its page breaks, and Find over all of it | A faithful picture of a complex page; unusual embedded font encodings; forms; annotations; a scanned page beyond the image it embeds |
+| HTML | A **subset**: block and inline layout, common typography, colours, borders, tables, images — **styled by the page's own CSS**, flex rows and grids included (see *HTML and its CSS* below) | Floats and positioning; animation and transforms; `@media`; anything fetched; JavaScript. **It is not a browser** |
+| Video | Nothing — out of scope. Animated GIF, WebP and APNG are covered above as images | Any format needing an external codec |
+| Word, PowerPoint, Excel, OpenDocument | Their **text**, as Markdown: headings, lists and tables kept; page layout, fonts and pictures not | The Knowledge Base's own converter — a document reads the same here as the chat reads it |
+
+> **Note — where the boundary shows.** A format's limits are visible rather
+> than silent. A Mermaid diagram the Viewer does not draw says so, by name,
+> where the diagram would have been. An HTML page laid out in ways this
+> renderer cannot follow **loses its layout and keeps every word of its
+> content**, because losing the words would be the worse failure. A scanned PDF
+> with no text layer reports no text, rather than inventing some.
+
+#### HTML and its CSS
+
+An HTML document is drawn with **its own CSS applied** — the `<style>` blocks
+anywhere in it (its `<head>` included) and the `style="…"` on any element. The
+rules cascade the way you expect from a browser: the more specific selector
+wins, a later rule beats an earlier one, `!important` beats both, an element's
+own `style` beats every sheet rule, and colour and type pass down to what an
+element contains. Custom properties work too — `--primary: #667eea` on `:root`,
+`var(--primary)` wherever it is used, with a fallback if you give one.
+
+What the CSS can say, and be obeyed:
+
+| Area | Properties |
+|---|---|
+| Text | `color`, `font-size` (px, em, rem, %, pt, keywords), `font-weight`, `font-style`, `font-family` (a monospaced family is honoured; any other maps to the Viewer's own face), `font`, `text-decoration`, `text-transform`, `letter-spacing`, `line-height` |
+| Box | `background`/`background-color` — a colour or a `linear-gradient(…)`; `border` and each side's own (`border-left: 4px solid …`); `border-radius`; `padding`; `margin`, `margin: 0 auto` centring and negative margins included; `width` and `max-width`, each in px or % (`width: 80%; max-width: 1600px; margin: 0 auto` is a page that takes 80 % of the Viewer up to 1600 CSS px); `box-shadow` |
+| Box size | `height` and `min-height` (the box is at least that tall); `border-radius: 50%` — a square box becomes a circle |
+| Alignment | `text-align` — left, center, right |
+| Flex | `display: flex`, `flex-direction: column`, `flex-wrap`, `flex-flow`, `gap` / `row-gap` / `column-gap`, `align-items`, `justify-content` (start, center, end, space-between, space-around, space-evenly); on an item: `flex` (`1`, `none`, `0 0 60px`), `flex-grow`, `flex-basis`, `align-self` |
+| Grid | `display: grid`, `grid-template-columns` — lengths, percentages, `fr`, `auto`, `minmax()`, `repeat(3, 1fr)` and `repeat(auto-fit, minmax(220px, 1fr))`; `gap`; on an item: `grid-column: span 2` and `1 / -1` |
+| Visibility | `display: none`, `visibility: hidden` |
+| Tables | every cell's background, padding, alignment and borders — a striped table written with `tr:nth-child(even)` stripes |
+| Inline | a `<span>`'s background shows as a highlight behind its text — a badge, a `<mark>` |
+| Inline boxes | `display: inline-block`, `inline-flex`, `inline-grid`: holding only text, the element stays in its line, its background a highlight; holding blocks, it is a box as wide as its content rather than its container |
+| Lengths | px, em, rem, %, pt, and `calc()` over them — `calc(100% - 2rem)`, `calc(-1 * var(--gap))` |
+
+The selectors: a tag, `.class`, `#id`, `*`, a descendant (`nav a`), a child
+(`ul > li`), the element straight after another (`h1 + p`) or any later
+sibling (`h1 ~ p`), a comma-separated group, and `:first-child`, `:last-child`,
+`:only-child`, `:nth-child(…)`, `:nth-last-child(…)`, `:root` and
+`:not(…)` (`.box:not(:last-child)`). Colours come
+in every form CSS writes them: `#rgb`, `#rrggbbaa`, `rgb()`/`rgba()`,
+`hsl()`/`hsla()` and all the named colours.
+
+Text is laid out the way a browser lays it out: the line breaks and
+indentation of the page's source collapse into single spaces, and a unitless
+`line-height` (`1.5`) is a factor each element applies to its own font size.
+In a flex or grid row, an empty cell keeps its place, a box stretched to the
+row's height still centres what it holds (`align-items: center`), a short
+item such as a tag is never squeezed below its own width, and a column
+honours its items' `width` and its own `justify-content`.
+
+`@media` is answered as a desktop screen **1024 px wide** would answer it: a
+page's `(min-width: 769px)` rules apply, its `(max-width: 768px)` phone
+overrides and its `print` rules do not.
+
+> **Note — sizes follow the Viewer's zoom.** The CSS's 16 px is the Viewer's
+> base font size, and every length on the page is measured from it. Zoom and
+> `FontSize` scale a styled page as a whole — its padding and borders grow with
+> its text.
+
+> **Note — flex rows and grids.** A `display: flex` container puts its
+> children side by side: each takes the width it states, the share `flex: 1`
+> gives it, or — neither stated — the width its content needs, and what is
+> left over goes to `justify-content`. `align-items: center` centres each item
+> across the row, and the default, `stretch`, gives every card in a row the
+> same height. A `display: grid` container lays its children out in its
+> columns, a new row whenever one is full. Every element child of either is
+> an item of its own. The step list of an infographic — a round, coloured
+> number beside each step's text — and a row of three cards are both built
+> this way.
+
+> ⚠️ **Caveat — no floats, no positioning.** A layout built out of `float`
+> or `position` is not built: those blocks are stacked, in order, each in its
+> own styled box. A rule this subset does not understand — `:hover`,
+> `::before`, an attribute selector — is skipped, never guessed at. The
+> 1024 px `@media` answer is fixed: a narrow Viewer does not switch to a
+> page's phone layout. `width` counts the border and padding in, the way
+> `box-sizing: border-box` has it.
+
+> ⚠️ **Caveat — nothing is fetched.** `@import`, `<link rel="stylesheet">`,
+> `url(…)` backgrounds and web fonts are ignored. A viewer that loaded what a
+> page asked for would be a browser, with a browser's exposure. A page's
+> styles must be in the page — with one exception, Bulma, below.
+
+> **Note — Bulma, built in.** A page whose `<head>` links Bulma —
+> `<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">`,
+> or any `href` naming `bulma` — is styled by **Bulma 0.9.4 itself**,
+> which ships inside the Viewer: nothing is downloaded. A browser opening the
+> same page loads the same Bulma from the link, so one HTML file, with no
+> JavaScript, looks the same in both. Bulma's layout and components come
+> through — `section`, `container`, `hero` (its colours and `is-bold`
+> gradients), `columns` / `column` and their widths, `level`, `media`,
+> `tile`, `title` and `subtitle`, `box`, `card`, `notification`, `message`,
+> `panel`, `tag`, `table` — and the helpers `has-text-*`,
+> `has-background-*`, `is-size-*`, the flex helpers and the `m-*` / `p-*`
+> spacing. Bulma is cascaded before the page's own `<style>`, as a linked
+> sheet is, so the page can still override any rule.
+>
+> ```html
+> <head>
+>   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+> </head>
+> <body>
+>   <section class="hero is-info is-bold"><div class="hero-body">
+>     <p class="title">Leave report</p><p class="subtitle">First half</p>
+>   </div></section>
+>   <div class="columns">
+>     <div class="column is-half"><div class="box">Operations: <strong>82%</strong></div></div>
+>     <div class="column"><div class="notification is-warning is-light">Book overdue leave by July 31.</div></div>
+>   </div>
+> </body>
+> ```
+>
+> A COBOL program that writes such a page — `ASSIGN TO VIEWER`, a file it
+> shows with `Source`, an answer from an `AgentObject` — needs nothing else.
+
+> ⚠️ **Caveat — what Bulma cannot do here.** The Viewer answers `@media`
+> as a 1024 px desktop, so Bulma's desktop layout is the one shown. A
+> `.tag` or `.button` inside a sentence is a highlight without its padding
+> and rounded corners (inside `.tags` or `.buttons` it is a full box).
+> Hover states, `::before`/`::after` decorations (a `delete` button's
+> cross, a `select`'s arrow) and the form controls are not drawn, and the
+> JavaScript-driven parts (a navbar's burger, dropdowns, modals) are out of
+> scope: the pages this is for are reports.
+
+#### Layouts
+
+`Layout` decides how the document is presented:
+
+| `Layout` | What it looks like |
+|---|---|
+| `Raw` | The literal source, monospaced and unformatted |
+| `Web` | Formatted, with no page margins |
+| `Print` | Page margins, a paper border and a paper shadow |
+| `Page` | Print layout, on a black-on-white page whatever your form's theme is |
+| `Streamed` | One content pane and no chrome at all — for chatbot conversations, described at the end of this section |
+
+`Page` is about pagination, not about the kind of document: Markdown and plain
+text page up as willingly as a PDF does.
+
+**A document is black.** Its text is dark ink in every layout — `Raw`, `Web`,
+`Print`, `Page` and `Streamed` — and does not follow the form's theme, because a
+document is a document wherever it is shown. Only the document itself overrides
+that: a colour it states — `<font color="#E00000">`, or its CSS — is the colour
+it gets.
+
+`FontSize` scales the text **independently of** `Zoom`, so a reader who wants
+bigger words does not have to magnify the whole page to get them.
+
+#### Getting around
+
+Everything a reader can do with the mouse, your program can do too — there is
+no capability in this control that COBOL cannot reach.
+
+```cobol
+       MOVE 150 TO VWR-1::Zoom
+       MOVE 4 TO VWR-1::Page
+       MOVE 1 TO VWR-1::Fullscreen
+       MOVE "Cards" TO VWR-1::View1ViewMode
+```
+
+- **Fullscreen means the screen.** Turning it on puts your form's own window
+  into the platform's fullscreen and covers it with the Viewer. The toolbar
+  comes along — its Fullscreen button, pressed, is the way back, and `Esc` does
+  the same, as does leaving fullscreen from the platform's own control, which
+  the control notices and writes back so the property never claims a state the
+  window is not in. `Fullscreen` is an ordinary property, so a COBOL program
+  opens and closes it exactly as the operator does.
+- **Zoom** runs to a maximum of sixteen times. The wheel with your platform's
+  zoom modifier magnifies about the pointer — whatever is under it stays under
+  it. A double-click zooms one step, in `Full` mode; over a card it opens that
+  page instead. `Esc` returns to 100 %; in fullscreen it leaves fullscreen
+  first. It reaches a **picture** as well as a page: 100 % is the whole image
+  fitted to the view, every other zoom is that size scaled, and a picture
+  larger than its view scrolls like any other document. The slider comes to
+  rest on the usual stops — 50, 75, 100, 125, 150, 200 and so on — rather than
+  on whatever percentage the pointer happened to be over.
+- **View mode** is `Full` (the document) or `Cards` (a grid of one card per
+  page, replacing the document). The grid reflows to **the control's own
+  width** — make the control wider and you get more columns; making the
+  *window* wider changes nothing, because a control should not depend on
+  something it cannot see. A card is the page **in miniature**, drawn by the
+  same renderer that draws the page, so a heading is a heading and a picture is
+  the picture. One click selects a card; two open it, leaving `Cards` for
+  `Full` on that page. Pages the reader has not opened are not decoded — the
+  control never reads a document it was not asked for — so those cards show a
+  short extract and their number.
+- **Closing a side closes its document.** Side by side with two different
+  files, asking for a single view on the *left* leaves the *right* document in
+  the view that survives — you dismissed the left one. Two views of the same
+  file have no document to lose, so there only the view closes.
+- **One slider**, at the bottom right of each view, drives `Zoom` in `Full`
+  mode and `CardSize` in `Cards` mode. Switching modes never disturbs the
+  value you left the other one at.
+- **The filmstrip** is a rail of page thumbnails docked to the left edge of the
+  content. It closes two ways: its toolbar button again, or dragging its
+  splitter all the way to the left edge. One click on a thumbnail selects that
+  page; two show it, at its top. It is not drawn in `Cards` mode — the grid is
+  already that list — and `ShowFilmstrip` keeps whatever you set it to, so
+  returning to `Full` brings the rail back.
+- **Text wraps by the word**, at the width the layout gives it. A word too
+  long for a whole line is broken rather than allowed to overflow, and a
+  non-breaking space is never a wrapping point — which is the reason to type
+  one. Inside a fenced code block a long token is broken wherever it has to be,
+  because code carries no spaces to break at.
+- **The text can be taken.** Drag across a document to select it, and the
+  selection spans headings, paragraphs, list items and table cells the way a
+  reader expects. `Ctrl`/`Cmd+A` selects the whole page, `Ctrl`/`Cmd+C` copies
+  what is selected, and a right-click opens a two-item menu — **Select All**
+  and **Copy** — where the pointer is. Starting a selection gives the Viewer
+  the keyboard, so `Ctrl`/`Cmd+C` copies it even after the pointer has moved
+  on — to a chat's question box, say, which would otherwise take the
+  keystroke. Text laid out side by side (table cells, columns, the cards of a
+  report) selects where you press, in whichever column that is. What reaches the clipboard keeps its
+  blocks on separate lines, because they are separate blocks. Cards and images
+  are not selectable: a contact sheet is not a page, and a picture has no text.
+- **The wheel belongs to the Viewer.** While the pointer is over the control,
+  a wheel notch scrolls the document and stops there — it never also scrolls
+  the form, a Panel or a GroupBox behind it, and that holds even where the
+  document is already at its last line.
+- **Scrolling** behaves the way the IDE's own documentation viewer does: an
+  arrow key taps one line and, held, winds up to four times that pace; Page Up
+  and Page Down move a screenful less two lines so you keep your place;
+  Home and End jump to the ends; and dragging the page throws it, slowing under
+  steady friction to a stop. None of it happens while the Find box has the
+  caret.
+
+Each of these raises an event when it **settles** — `onZoomChanged`,
+`onCardSizeChanged`, `onScrolled`, `onViewModeChanged`, `onFilmstripToggled`,
+`onFullscreenEntered` and `onFullscreenExited` — so one wheel gesture is one
+event, not one per notch.
+
+#### Finding text
+
+`Ctrl+F` (`Cmd+F` on a Mac) opens the Find bar; `Esc` closes it. `F3` and
+`Shift+F3` walk the matches, wrapping round at both ends. Every match is
+marked, with the current one picked out, and a live counter says which of how
+many you are on.
+
+All of it is yours to drive:
+
+```cobol
+       INVOKE VWR-1::Find("INVOICE")
+       MOVE 1 TO VWR-1::SearchCaseSensitive
+       INVOKE VWR-1::FindNext()
+       MOVE VWR-1::SearchMatchCount TO WS-HOW-MANY
+       MOVE VWR-1::SearchCurrentMatch TO WS-WHICH-ONE
+```
+
+A format with no text to search — a standalone photograph — reports no matches.
+That is an answer, not an error.
+
+#### Two documents at once
+
+`SplitMode` set to `LeftRight` or `TopBottom` gives you two views with a
+draggable divider between them, and each one is genuinely its own: its own
+document, page, zoom, scroll position, view mode, filmstrip and Find.
+
+```cobol
+       MOVE "LeftRight" TO VWR-1::SplitMode
+       MOVE "statements/september.pdf" TO VWR-1::View1Source
+       MOVE "statements/detail.pdf"    TO VWR-1::View2Source
+```
+
+Point **both** views at the same document and it is read once, not twice — so
+an operator can study one section while browsing another section of the same
+statement, at no extra cost.
+
+> **Note — the plain names belong to the first view.** `Zoom` means
+> `View1Zoom`, `SearchText` means `View1SearchText`, and so on. A program
+> written before you split the control goes on meaning exactly what it did.
+
+#### Saving and printing
+
+```cobol
+       INVOKE VWR-1::SaveAs("archive/september-copy.pdf")
+       INVOKE VWR-1::SaveAs()
+       INVOKE VWR-1::Print()
+```
+
+**`SaveAs` two ways.** Given a path, that is the path written — always, with no
+defaulting, so a program that saves to a folder it computed gets what it asked
+for. Given **nothing**, the operator is asked: your platform's own Save panel
+opens, and the toolbar's Save As button does exactly the same thing.
+
+The name in the box is a proposal, and the operator may change it. A document
+opened from a `Source` proposes the name it already has. A document handed over
+with `LoadBytes` has no name, so it proposes the **first three words of its own
+content** plus the extension its resolved `Format` implies — a proposal made of
+the document beats `untitled`.
+
+Dismissing the panel is not an error: nothing is written and `onSaveCancelled`
+is raised, because the operator did exactly what they meant to.
+
+```cobol
+       PROGRAM-ID. VWR-1--ONSAVECANCELLED.
+       PROCEDURE DIVISION.
+           MOVE "Nothing saved" TO LBL-STATUS::Caption
+           .
+```
+
+**`SaveAsPdf` is what the Viewer shows.** `SaveAs` copies the document's own
+bytes. `SaveAsPdf` writes what the Viewer *paints* as a PDF instead: the
+Viewer's own painter lays the content out at the width of an A4 page, and
+every shape it draws becomes the same shape in the PDF. Under
+`Layout = Streamed` that is the conversation, which has no file to copy at
+all — the user's and the agent's bubbles in their colours, an HTML answer
+with its own CSS (backgrounds, gradients, borders, rounded corners, shadows,
+flex rows and grids), tables, code, a Mermaid diagram as its picture, and
+the same fonts and emoji. Text stays text: it can be selected, copied and
+searched in any PDF reader. Pages break between lines, never through one.
+Outside a conversation it takes a Markdown or text document the same way,
+copies a PDF as it stands, and raises `onError` for anything else.
+
+```cobol
+       PROGRAM-ID. BTN-PDF--ONCLICK.
+       PROCEDURE DIVISION.
+           INVOKE VWR-CHAT::SaveAsPdf()
+           .
+```
+
+With no argument the same Save panel opens, proposing `conversation.pdf` and
+offering the PDF type. With a path, that path is written. The events are
+`SaveAs`'s: `onSaveComplete`, `onSaveCancelled`, `onError`.
+
+> **Note — a PDF carries its fonts, trimmed.** Each font is embedded with
+> only the letters the document uses, so a conversation of a few pages is
+> tens of kilobytes, not megabytes. A face that cannot be embedded that way
+> (a font whose outlines are not TrueType) is drawn as its letter shapes:
+> it looks the same, but that text cannot be selected.
+
+> **Note — what `Print` does, and what its events mean.** A platform takes a
+> *file*, so a document opened from a `Source` is handed over as it stands, and
+> one given to `LoadBytes` is written out first — under the same proposed name
+> Save As would offer.
+>
+> **Print** goes to the print system: `lp` on macOS and Linux, the shell's own
+> `Print` verb on Windows. A document the spooler accepts is a document
+> printing, so `onPrintComplete` means exactly that. A spooler that refuses it,
+> or a machine with no printer configured, raises `onPrintCancelled` with the
+> reason in `LastError`.
+>
+> It runs off the drawing, so a slow spooler never stops your form
+> repainting.
+
+> ⚠️ **Caveat — Save As writes the original bytes, and only those.** It copies
+> the file; it never writes out what the Viewer drew. That is deliberate, and
+> it matters most for a PDF: the Viewer reads a PDF's structure in order to
+> paint it, and a saver that wrote *that* reading back would hand your operator
+> a different document with the same name. The Viewer also never modifies the
+> document it is showing.
+
+Print hands the document to the operating system. So its outcome is the
+operating system's to report, and that is where the events come from:
+
+```cobol
+       PROGRAM-ID. VWR-1--ONPRINTCOMPLETE.
+       PROCEDURE DIVISION.
+           MOVE "Sent to the printer" TO LBL-STATUS::Caption
+           .
+
+       PROGRAM-ID. VWR-1--ONPRINTCANCELLED.
+       PROCEDURE DIVISION.
+           MOVE "Printing cancelled" TO LBL-STATUS::Caption
+           .
+```
+
+> ⚠️ **Caveat — only the dialog knows.** `onPrintComplete` and
+> `onPrintCancelled` (and the Save pair beside them) report what the
+> operating system told the Viewer. Your program cannot tell in advance which
+> one it will get, and should not assume the cheerful one.
+
+#### Hosting a conversation
+
+The last part of this control is a different job for the same box: `Layout`
+set to `Streamed` turns a Viewer into a **conversation surface** — one content
+pane, no toolbar, no Find bar, no thumbnails — that you append to as replies
+arrive.
+
+```cobol
+       INVOKE VWR-1::AppendMarkdown("**You:** what were September's totals?")
+       INVOKE VWR-1::AppendRaw(WS-REPLY-FROM-SOMEWHERE-ELSE)
+```
+
+Three ways to append, and **you say which**, every time:
+
+| Method | What happens to the content |
+|---|---|
+| `AppendHtml` | Rendered through the HTML subset |
+| `AppendMarkdown` | Rendered as Markdown |
+| `AppendRaw` | Shown **literally** — markup inside it is displayed, never obeyed |
+
+**Chat bubbles.** Give an append a second argument saying who the message is
+from, and the conversation is drawn as a chat: `"user"` puts it in a bubble on
+the **right**, `"agent"` (or `"assistant"`) in a bubble on the **left**. Each
+bubble is as wide as its text, up to three quarters of the pane. A message
+appended without a role spans the pane as before — useful for a system note
+between the two voices.
+
+```cobol
+       INVOKE VWR-1::AppendMarkdown(WS-QUESTION, "user")
+       INVOKE VWR-1::AppendMarkdown(WS-ANSWER, "agent")
+```
+
+The colours are the Viewer's properties: `UserBubbleColor` /
+`UserBubbleTextColor` (green with white text to start with) and
+`AgentBubbleColor` / `AgentBubbleTextColor` (blue with white text).
+`UserBubbleBold` set to `1` draws the user's words in the bold face. A message
+streamed in with `AppendToMessage` keeps the bubble it started in.
+
+> **Note — bold is bold.** Bold text in a Viewer — `**…**` in Markdown,
+> `<strong>` or `<b>` in HTML, or `font-weight: 600` and heavier in a page's
+> CSS — is drawn in a real bold face, the system's bold Arial or Helvetica.
+
+A reply arriving a piece at a time extends the message already on screen,
+rather than starting a new one:
+
+```cobol
+       INVOKE VWR-1::AppendMarkdown("**Assistant:**") RETURNING WS-MESSAGE-ID
+      *> ... and then, for each piece that arrives:
+       INVOKE VWR-1::AppendToMessage(WS-MESSAGE-ID, WS-PIECE, "Raw")
+```
+
+A message can also be **replaced** — same id, same bubble, same place — or
+taken out. That is how a chat shows what it is doing without leaving a trail:
+one status bubble that changes as the work moves on and finally *becomes* the
+answer.
+
+```cobol
+       INVOKE VWR-1::AppendMarkdown("*Thinking...*", "agent")
+           RETURNING WS-STATUS-ID
+      *> ... later, as the work moves on:
+       INVOKE VWR-1::ReplaceMessage(WS-STATUS-ID,
+           "*Preparing the answer...*", "Markdown")
+      *> ... and when the answer arrives:
+       INVOKE VWR-1::ReplaceMessage(WS-STATUS-ID, WS-ANSWER, "Markdown")
+```
+
+`RemoveMessage(id)` takes a message out. Either method raises `onError` for an
+id the conversation does not hold.
+
+> **Note — the view follows only if the reader is already at the end.** If your
+> operator has scrolled up to re-read something, new content does **not** yank
+> them back down; a quiet indicator appears instead, and following resumes by
+> itself the moment they scroll back to the end. Any move up — however small, a
+> trackpad's few pixels included — counts as leaving the end.
+
+> **Note — moving through a long conversation.** The operator reaches every
+> line, first to last, three ways: the **wheel** (or a trackpad's two-finger
+> scroll); the **scrollbar** that appears on the pane's right edge as soon as
+> the conversation is taller than the pane — drag its thumb, or click the track
+> to move a page; and, with the pointer over the conversation, the **arrow**,
+> **Page Up / Page Down**, **Home** and **End** keys. The keys stand aside
+> while another control — the question box — holds the caret. Dragging across
+> the text still *selects* it for copying; it never scrolls. There is no
+> sideways scrolling to need: code wraps, tables fit the pane and images scale
+> down to it.
+
+> ⚠️ **Caveat — set `RenderAsHtml` to zero for content you did not write.**
+> It is a blanket switch: with it off, *every* append is treated as raw
+> whichever method you called. If a reply comes from somewhere you do not
+> control, say so once, at the start, and stop worrying about each call.
+
+##### Conversations, and the sidebar you build yourself
+
+The Viewer does not draw a chat sidebar, a "new chat" button or a history list.
+That is on purpose: your application's chrome should look like your
+application. What you get is the machinery, and you build the buttons out of
+the controls you already know.
+In an application shell the natural home for that history is the sidebar
+itself: see **Rows your program adds** in the application-shell chapter.
+
+| Method or property | What it does |
+|---|---|
+| `NewConversation()` | Files the open conversation into history, clears the pane, raises `onConversationCreated`. On an already-empty pane it does nothing at all |
+| `SelectConversation(id)` | Files the open one away, makes `id` current, clears the pane, raises `onConversationSelected` |
+| `RegisterConversation(id, title)` | Seeds a history entry for a conversation from an earlier run |
+| `HistoryList` | Up to ten entries, one `id|title` per line |
+
+A minimal chatbot form, then, is a Viewer, a ListBox and two buttons:
+
+```cobol
+      *> The developer's own "New chat" button.
+       PROGRAM-ID. BTN-NEW--ONCLICK.
+       PROCEDURE DIVISION.
+           MOVE "CHAT-0042" TO VWR-1::ConversationId
+           INVOKE VWR-1::NewConversation()
+           .
+
+      *> Whenever history changes, refill your own list.
+       PROGRAM-ID. VWR-1--ONCONVERSATIONCREATED.
+       PROCEDURE DIVISION.
+           MOVE VWR-1::HistoryList TO LST-HISTORY::Items
+           .
+
+      *> The operator picks a past conversation from your list. Keep the
+      *> ids in a table of your own as you fill the list - the list shows
+      *> titles, your program remembers which id each line came from.
+       PROGRAM-ID. LST-HISTORY--ONSELECTEDINDEXCHANGED.
+       PROCEDURE DIVISION.
+           MOVE LST-HISTORY::SelectedIndex TO WS-ROW
+           IF WS-ROW >= 0
+               MOVE WS-CHAT-ID-TABLE(WS-ROW + 1) TO WS-CHAT-ID
+               INVOKE VWR-1::SelectConversation(WS-CHAT-ID)
+           END-IF
+           .
+
+      *> ... and the Viewer asks YOU for that conversation's content.
+       PROGRAM-ID. VWR-1--ONCONVERSATIONSELECTED.
+       PROCEDURE DIVISION.
+           MOVE VWR-1::ConversationId TO WS-CHAT-ID
+           PERFORM READ-CHAT-FROM-FILE
+           PERFORM UNTIL WS-EOF = "Y"
+               INVOKE VWR-1::AppendMarkdown(WS-CHAT-LINE)
+               PERFORM READ-NEXT-CHAT-LINE
+           END-PERFORM
+           .
+```
+
+> ⚠️ **Caveat — history holds a name, never a conversation.** Ten entries, each
+> an id and a title and nothing else. Selecting one does not restore anything:
+> it **asks your program** for that conversation, through
+> `onConversationSelected`, and your program reads it back from wherever it
+> keeps it. That is what stops a session that runs all day from growing without
+> limit — and it means the conversation's storage is yours to choose, which is
+> usually an indexed file.
+
+📷 Screenshot needed — `viewer-split-pdf.png`. Drop a Viewer on a form, set
+`SplitMode` to `LeftRight`, open a multi-page PDF in the left view and the same
+PDF in the right, scroll the two to different pages, and open the Find bar in
+one of them — so the divider, the two independent scroll positions and the
+per-view Find bar are all visible at once.
+
+📷 Screenshot needed — `viewer-streamed-chat.png`. Build the little chatbot form
+above (a Viewer with `Layout = Streamed`, a ListBox of past conversations and a
+"New chat" button), append three or four messages so the conversation fills the
+pane, and capture the whole window — so a reader can see that the sidebar is
+the developer's own and the Viewer draws no chrome of its own.
+
+---
+
+## 9. Properties
+
+Every control exposes **properties** — its appearance, behaviour, and data
+bindings — editable in the properties pane and stored in the `.cfrm` file.
+
+PowerRustCOBOL uses **fully spelled-out property names** (no cryptic
+abbreviations). A few you will use constantly:
+
+
+| Property                                 | Meaning                                                                   |
+| ---------------------------------------- | ------------------------------------------------------------------------- |
+| `Caption` / `Text`                       | The control's text (`Caption` for labels/buttons; `Text` for text boxes). |
+| `BackgroundColor` / `ForegroundColor`    | Colours (hex, e.g. `#1E3A5F`).                                             |
+| `FontName`, `FontSize`, `Bold`, `Italic`, `Underline`, `Strikethrough` | Typography: the caption, list items, grid cells, a GroupBox legend and a TextBox's text as it is typed. |
+| `Visible`, `Enabled`                     | State.                                                                    |
+| `TextAlignment`                          | Text justification.                                                       |
+| `Padding`                                | Extra space (0-128 points) between the frame and the content; a TextBox adds it to its `InnerPadding`. |
+| `Tooltip`                                | Pop-up text while the pointer rests on the control, on every visual control, after its `HoverDelayMs`. |
+| `ZOrder`                                 | Stacking order; `SET ctl::ZOrder`, `BringToFront` and `SendToBack` change it while the form runs. |
+
+> **Binding a control to data** is done on the form, in the **Data Binding**
+> panel, not with a property. Older forms may still carry `DataItem` and
+> `DataFormat` on their controls; they load unchanged, and nothing reads them.
+
+A few properties whose effect depends on the control:
+
+| Control | Property | What it does |
+|---|---|---|
+| Label | `AutoSize` | The Label takes its caption's size, anchored at its top-left. It resizes as you type in the designer, and again when COBOL changes the caption. |
+| Label | `WordWrap` | On: the caption wraps at the Label's width. Off (the default): it keeps its own lines and shrinks its font to fit. |
+| TextBox | `WordWrap` | Multiline box. On (the default): long lines wrap. Off: they stay whole and the box scrolls sideways. |
+| CheckBox, RadioButton | `CheckAlignment` | `Right` puts the box or circle after the caption. |
+| CheckBox, RadioButton | `CheckSpacing` | Points between the box (or circle) and the caption, 0–64; 6 unless you set it. |
+| RadioButton | `CheckBoxColor` | The circle's fill in both states. A contrasting dot marks the selected radio. |
+| PictureBox | `SizeMode` | `Normal`: the image's own size, shrunk only when it does not fit. `Zoom`: the largest that fits. `Stretch`: fills the box. `CenterImage`: centred. `AutoSize`: the control takes the image's size. |
+| PictureBox | `ImageAlignment` | Where the image sits when it does not fill the box (`Normal`, `Zoom`): `TopLeft` … `BottomRight`. |
+| Shape | `FillStyle` | `Solid`, `None`, or `Hatched`: diagonal lines in `FillColor` over a transparent face. |
+| Panel, GroupBox, TabControl | `HScroll`, `VScroll` | The children scroll inside the content area when they reach past it. |
+
+> **Note.** Standard acronyms are kept (`CSV`, `URL`, `API`, `TLS`); everything
+> else is written in full — for example `BackgroundColor` (not `BackColor`),
+> `MaximumLength` (not `MaxLength`), `PasswordCharacter` (not `PasswordChar`),
+> and property names are written in full (not abbreviated).
+
+> **Caption rules.** Only Label, Button, CheckBox, RadioButton, and GroupBox use
+> `Caption`; TextBox uses `Text`; other controls use type-specific keys
+> (`Value`, `Items`, …).
+
+> **An empty Caption stays empty.** Clear a button's `Caption` to make it an
+> image-only button (an `IconPath` and nothing else): the image then has the
+> whole face. The emptied Caption is kept when the form is saved and opened
+> again. Before 1.70.221 it was lost on opening, and the button came back
+> labelled with its own id, a label that also crowded the image out. Before
+> 1.70.238 the image itself was not painted either: an image-only button showed
+> an empty face, in the designer and at run time.
+>
+> ⚠️ **The icon is drawn at exactly `IconSize` × `IconSize`.** `IconSize` is one
+> number, the side of a square, and the image is scaled to fill it — its own
+> proportions are not kept. Supplying an image of the right shape is your job: a
+> 3:2 flag drawn as a 32 × 32 icon comes out squashed. Pad a non-square picture
+> with transparency to a square canvas (a 72 × 48 flag becomes 72 × 72, with a
+> transparent band above and below), and it keeps its shape at any `IconSize`.
+> Keep the button at least `IconSize` + 2 × `IconPadding` in each direction: a
+> side that does not fit is squeezed to the space left, which distorts the icon.
+
+> **A Label's text can be selected and copied.** At run time a Label's `Caption`
+> is live text, not a picture of text: the operator drags across it to select,
+> and `Cmd`/`Ctrl`+`C` puts the selection on the clipboard. A drag that begins on
+> one Label and ends on another takes in both, so a figure can be copied together
+> with the caption that names it. There is nothing to switch on — no property,
+> and no COBOL to write.
+>
+> Coming from PowerCOBOL or isCOBOL you will expect a static text control to be
+> inert, and this is one of the places PowerRustCOBOL follows the modern desktop
+> instead. Everything else about a Label is unchanged: one with a bound `onClick`
+> still fires it, `TAB` still walks past labels to the controls you designed, and
+> on the designer canvas a drag still moves the control rather than selecting its
+> text.
+>
+> Note. Before this, copyable text meant a TextBox with `ReadOnly` set. That
+> still works and is still the right control when the text is a *value* the
+> operator may want to correct later — but it is no longer what you reach for
+> merely to let someone copy a caption.
+
+> **Text you can always read.** A form does not know what its theme paints, so
+> the colours that carry meaning are checked against the surface they land on: a
+> CheckBox or RadioButton caption, a CheckBox's `CheckColor` tick, a ListBox's
+> items, and the text caret. Your colour is used exactly as set while it stays
+> legible on that surface; where it would not be, the painter falls back to
+> black or white — whichever reads. This is why the same form stays usable when
+> you switch a dark theme for a light one without touching a property. To pin a
+> colour absolutely, choose one that reads on the theme you ship.
+>
+> **Which surface each one is measured against.** The one the text really lands
+> on. A CheckBox has two surfaces (see below): the caption sits on the **frame**
+> and is checked against `BackgroundColor`, while the `CheckColor` tick sits
+> inside the **box** and is checked against `CheckBoxColor`. Giving a check box
+> a dark frame colour therefore no longer turns its tick white, and colouring
+> the box no longer turns the caption white.
+>
+> **A see-through frame is left to you.** Once `Transparency` is above 70 the
+> frame paints too little to read, and what the caption really sits on — the
+> form, a GroupBox, a background image — is not something the control can see.
+> Nothing is measured there and your `ForegroundColor` is used exactly as set.
+> A CheckBox is 100 % transparent by default, so this is the normal case: pick a
+> caption colour that reads on the form you put it on.
+>
+> A CheckBox's caption sits to the right of its box, and a RadioButton's to the
+> right of its selection circle, at the same distance in both.
+
+> **A radio button is a circle on every theme** — filled when it is the chosen
+> one, an empty rim when it is not. It is drawn, not typed: earlier builds put
+> `(●)` or `( )` in the caption on every theme but Elegance, which is why there
+> was nothing to colour.
+>
+> Where a theme describes its own toggle look, that theme colours it — Elegance
+> paints the green you see in its own forms. Everywhere else the circle takes
+> the control's **`CheckColor`** (the same property that colours a CheckBox's
+> tick; a radio's dot is that tick), and **`CheckBoxColor`** sets the circle's
+> face if you want one. The unchosen circle's rim is chosen for **contrast**
+> against whatever you dropped the control onto, so it is visible on a dark form
+> and on a pale card without being told.
+>
+> ⚠️ **Caveat.** A radio now needs room for that circle, so a **newly dropped**
+> one is 140 points wide instead of 120 — enough to hold its own caption at the
+> seeded font. Forms you have already saved keep the width they were given;
+> nothing moves under you.
+
+> **A radio is `Selected`; a check box is `Checked` (1.62.131).** The property
+> grid used to offer a RadioButton a `Checked` property — the CheckBox's word.
+> A RadioButton now carries **`Selected`**; CheckBox and Switch keep
+> **`Checked`** and did not change.
+>
+> ```cobol
+> SET RADIO-CREDIT::SELECTED TO 1
+> IF RADIO-CREDIT::SELECTED = 1
+>     PERFORM CHARGE-THE-CARD
+> END-IF
+> ```
+>
+> **Nothing you already wrote breaks.** The two spellings resolve to each
+> other at run time, so a handler that says `RADIO-CREDIT::CHECKED` keeps
+> working, and `ISCHECKED` / `SETCHECKED` still answer beside `ISSELECTED` /
+> `SETSELECTED`. A form saved before the rename is upgraded when it loads: the
+> old key is renamed, its value preserved. Prefer `Selected` in new code — it
+> is what the property grid shows and what generated code writes.
+
+> **A CheckBox has two surfaces, and each has its own properties.** Coming from
+> PowerCOBOL or isCOBOL you will expect one background and one border; here the
+> tick box is a surface in its own right, so there are two of each. Which one a
+> property means never depends on the control:
+>
+>
+> | Surface   | What it is                                                              | Its properties                                                                        |
+> | --------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+> | **Frame** | The card behind the caption *and* the box — the whole control rectangle | `BackgroundColor` (or the gradient pair), `BorderStyle`, `BorderColor`, `BorderWidth` |
+> | **Box**   | The tick square itself — a RadioButton's selection circle              | `CheckBoxColor`, `CheckBoxBorderStyle`, `CheckBoxBorderColor`, `CheckBoxBorderWidth`  |
+>
+> `CheckColor` and `CheckSize` stay what they always were: the tick drawn
+> *inside* the box, and how much of the box it fills.
+>
+> `BackgroundColor` therefore means on a CheckBox exactly what it means on a
+> Label, a TextBox or a Panel — the control's own face. A check box starts
+> 100 % transparent and its `BorderStyle` starts `None`, so the frame shows
+> nothing at all until you ask for it; the box, meanwhile, starts with
+> `CheckBoxColor` empty, which leaves it wearing whatever the active theme
+> paints. Name a colour and yours leads.
+>
+> ```cobol
+>     MOVE "#1E3A5F" TO CHK-AGREE::BackgroundColor
+>     MOVE "Single"  TO CHK-AGREE::BorderStyle
+>     MOVE "#FFFFFF" TO CHK-AGREE::CheckBoxColor
+> ```
+>
+> ⚠️ **Caveat.** A border and a face are separate decisions. A frameless control
+> — a CheckBox left transparent, a Label with no background — still draws a
+> border you asked for, over nothing. That is deliberate: `BorderStyle` had no
+> effect at all on those two before, which is the more surprising behaviour.
+
+> **Control IDs.** When you drop a control, it gets a readable, per-type ID —
+> `Button-1`, `Button-2`, `TextBox-1`, `ComboBox-1`, … — which becomes its COBOL
+> data-name (`WS-BUTTON-1`) and the base of its nested event-handler program
+> (`BUTTON-1--ONCLICK`). You can rename a control's ID to something meaningful
+> (e.g. `BTN-SAVE`) in the properties pane; keep it a valid COBOL word (letters,
+> digits, hyphens; no leading/trailing hyphen).
+
+### Form themes and styles
+
+A **theme** gives your forms a distinctive look without styling every control by
+hand. Themes are applied by the same renderer the designer, the preview, the
+Run Form, and the compiled app all use (`cobolt-forms` unified render engine per
+spec 017), so a themed form looks identical everywhere.
+
+The **Theme** dropdown (in form *Appearance*) now selects the procedural surface
+style:
+
+- **Classic** — original frosted-glass look.
+- **Enhanced** — adds inner stroke, highlight band, micro-noise, and structural
+  states (the full Liquid Glass recipe).
+- **Neumorphic** — 100 % procedural soft-UI "clay" / extruded relief (no images).
+  Light from top-left. Low-contrast, large radii, soft layered shadows (highlight
+  top-left, shadow bottom-right), subtle inner rims, and an optional extra 3-sided
+  tinted border (top-right → bottom-right → bottom-left) that obeys the control's
+  `CornerRadius`.
+
+Asset-pack "skins" (9-slice PNGs from `assets/themes/<id>/`) are still supported
+for full photoreal looks and can be combined at project level; selecting a
+procedural style clears any per-form pack override for that form.
+
+**Choosing.**
+
+- Project default: *Settings → Appearance → Default form theme*.
+- Per-form: Designer form *Appearance → Theme* (or leave to inherit).
+- At creation: *File → New Form → Theme*, which lists the same catalogue and
+  defaults to inheriting the project's.
+
+Resolution: per-form → project default → Classic/Liquid Glass.
+
+A form that leaves its own Theme unset shows the inherited one marked
+**(from project)**, so what the picker reports is always what the form actually
+renders with.
+
+**Use theme background**, the checkbox under Theme, lets a theme that ships its
+own background art replace the form's background image — in the designer and
+when the form runs. Off by default; the form keeps its own background.
+
+#### Elegance
+
+**Elegance** is a second built-in theme, chosen from the same Theme dropdown as
+Liquid Glass and any installed pack. Where Liquid Glass is translucent and
+frosted, Elegance is **flat and opaque**: deep slate surfaces, a hairline border
+on every control, and one cool accent colour used consistently for buttons,
+selection, and focus. It suits business forms — dense data entry, grids,
+dashboards — where frosted panels compete with the data for attention.
+
+Choosing it is no different from any other theme:
+
+```text
+Project-wide   Settings → Appearance → Default form theme → Elegance
+One form only  Designer → form Appearance → Theme → Elegance
+```
+
+Everything on the form takes the theme at once — panels and group boxes, buttons,
+text boxes, check boxes and radio buttons, lists and combo boxes, sliders,
+progress bars, tabs, menu/tool/status bars, tree views, data grids, all six chart
+types, and the knob, gauge, switch and file-drop controls. Charts draw their
+series in the theme's accent family instead of the built-in colours, so a chart
+sits inside the form rather than on top of it.
+
+#### Spatial
+
+**Spatial** is the third built-in theme, for applications that should look
+like a floating glass panel over the desktop. Its surfaces are warm grey
+translucent glass with white text, large rounded corners and soft,
+unsaturated accents. It is the one **see-through** theme:
+
+- **The window is transparent.** The desktop shows through the form, and the
+  operating system blurs it, the way a room behind frosted glass is softened.
+  This works on macOS and Windows, and on Linux where the desktop offers it
+  (KDE on Wayland). Elsewhere the desktop shows through without blur.
+- **The form's backdrop is the theme's glass.** A solid *Back color*, a
+  background gradient or a background picture on the form would hide the
+  desktop, so under Spatial they are set aside. Choose another theme and they
+  come back unchanged.
+- **Read it over a darker desktop.** White text stays crisp over a dark or
+  colourful wallpaper; over a very bright one it fades.
+
+```text
+Project-wide   Settings → Appearance → Default form theme → Spatial
+One form only  Designer → form Appearance → Theme → Spatial
+```
+
+Spatial pairs naturally with `BorderStyle` `Glow`: a card with the default
+white glow looks like a lit glass edge. The same look is available for the
+IDE itself as the **Spatial** IDE theme (see *Appearance and
+internationalisation*).
+
+> 📷 Screenshot needed — `form-theme-spatial.png`: a running Spatial form over
+> a colourful desktop, with the blur visible behind it, a few buttons, a text
+> box and a panel with `BorderStyle` `Glow`.
+
+#### Themes that own the whole look
+
+Some themes supply only *part* of the appearance and let Liquid Glass fill in the
+rest. Others define the **complete** look and want nothing layered over it —
+Elegance and Spatial are two of these. A theme declares which kind it is, and the IDE follows
+that declaration everywhere.
+
+For a theme that owns the whole look:
+
+- **The Glass style row is greyed out**, with a note explaining why. Classic,
+  Enhanced and Neumorphic Light/Dark are variations *of* Liquid Glass; a flat
+  theme has no frost and no raised relief for them to vary. Offering the choice
+  while ignoring it was the confusing part, so the IDE no longer offers it. Your
+  last choice is remembered, and comes back the moment you return to Liquid
+  Glass.
+- **Choosing it changes nothing in your form file.** Picking a theme never
+  rewrites your background colours, gradient settings or per-control shadow
+  properties, so switching back and forth is lossless: the form you had is the
+  form you get.
+- **Your own properties still apply, all of them.** *Back color*, *Fore color*,
+  *Corner radius*, *Transparency*, *Shadow* — anything you set on a control wins
+  over the theme. In particular a drop shadow you switch on **is drawn**, whatever
+  the theme.
+
+> ⚠️ **Caveat — this changed in 1.61.37.** Before that release, selecting
+> Neumorphic Light or Neumorphic Dark while a self-contained theme was active
+> silently suppressed every drop shadow on the form, and could paint raised rims
+> on flat surfaces. If you worked around it by leaving Glass style on Classic,
+> that workaround is no longer needed: shadows now behave the same under all four
+> settings, because the setting no longer reaches the theme at all.
+
+Two more things worth knowing:
+
+- **Your own colours still win.** A control with an explicit *Back color* or
+  *Fore color* keeps it. The theme only supplies the defaults, so you can theme a
+  whole form and still make one field red.
+- **Elegance owns the whole look**, so the Glass style row is disabled while it
+  is selected — see above.
+
+Elegance is a control theme only: it does not supply a form background, so the
+form's own *Back color* / *Background Image* applies exactly as before.
+
+📷 Screenshot needed — `elegance-theme.png`
+Open a form containing a mix of controls (a group box with text boxes and a
+combo box, a data grid with a few rows, a couple of buttons, and one chart),
+set *Appearance → Theme* to **Elegance**, and capture the designer canvas.
+Capture the same form with Theme = Liquid Glass as `liquid-glass-theme.png` so
+the two can be shown side by side.
+
+When **Neumorphic** is active, the form page auto-defaults to the recipe's very
+light neutral background (#ECEFF4) unless you set an explicit background colour.
+
+**Neumorphic-specific properties** (appear only when Theme = Neumorphic):
+
+- **Illum. grad.** — two colours for the top-left illumination (highlight) effect
+  gradient.
+- **Shadow grad.** — two colours for the bottom-right shadow gradient.
+- **Illum. blur** / **Shadow blur** — softness / layer count for each.
+- **Transparency** — master alpha for all relief elements (0–100 %).
+- **Distance** — base shadow/illum offset (like drop-shadow distance).
+- **Rim tint** — colour for the extra 3-sided border.
+- **Rim weight** — thickness of that border.
+- **Rim blur** — softness of the extra border (layered offsets).
+
+These use the control's `CornerRadius` so rounded panels, charts, etc. get correct
+curved relief at BR/BL (and the extra rim reaches the top-right and bottom-left
+border junctions properly). The illumination and shadow effects are implemented
+with multiple expanded rounded rects + alpha falloff for convincing softness
+without real blur.
+
+**Themed backgrounds and packs.** Packs may supply a background PNG. Use *Use
+theme background*. Packs also supply chart palettes. Controls with explicit
+Foreground/Background colours override the pack.
+
+**Adding packs.** Drop `assets/themes/<id>/` with `theme.toml` + 9-slice images.
+See the `cobalt-steel` reference or `neumorphic` example pack.
+
+Example `theme.toml` excerpt (packs are additive; procedural Neumorphic does not
+load images):
+
+```toml
+id = "my-neumorphic"
+display_name = "My Neumorphic"
+
+[controls.panel]
+image = "panel/panel_normal_ref.png"
+slice = [20, 20, 20, 20]
+```
+
+(Full details and 9-slice rules in the bundled reference packs.)
+
+> **Mermaid diagram: theme resolution**
+>
+> ```mermaid
+> flowchart TD
+>     A[Form Appearance → Theme] --> B{Procedural?}
+>     B -->|Classic/Enhanced/Neumorphic| C[draw_neumorphic or glass]
+>     B -->|pack id| D[9-slice from assets/themes/id/ + palette]
+>     E[Project default] -->|fallback| F[Liquid Glass / Classic]
+>     C --> G[unified renderer]
+>     D --> G
+>     F --> G
+>     G --> H[Designer canvas / Preview / Run Form / binary]
+> ```
+
+---
+
+## 10. Event-driven programming
+
+This is the heart of GUI COBOL, and it works the way you expect: the form sits in
+an **event loop**, waiting; when the user does something, the matching **handler**
+runs.
+
+### The form event loop
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant W as Form window
+    participant L as Event loop (your program)
+    participant H as Event handler<br/>(nested COBOL program)
+
+    Note over L: PERFORM UNTIL quit
+    L->>L: COBOL::"WAIT-EVENT"( … )<br/>(blocks)
+    U->>W: clicks "Say hello" button
+    W-->>L: event = (control = "BTN-OK", event = "onClick")
+    L->>H: CALL "BTN-OK--ONCLICK"
+    H->>H: your COBOL runs
+    H-->>L: GOBACK
+    L->>L: next iteration (wait again)
+    U->>W: closes the window
+    W-->>L: quit signalled
+    Note over L: loop ends → onClose runs → program ends
+```
+
+In words:
+
+1. The generated program enters a loop and calls the built-in
+   **`COBOL::"WAIT-EVENT"`**, which blocks until the user interacts with the form.
+2. When an event occurs, the runtime hands back **which control** and **which
+   event** (e.g. `BTN-OK` / `onClick`).
+3. The loop dispatches to the handler for that pair — a **nested COBOL-85
+   program** named after the control and event (`BTN-OK--ONCLICK`).
+4. The handler runs and `GOBACK`s; the loop waits again.
+5. Closing the window ends the loop; the form's `onClose` handler runs last.
+
+### Events you can handle
+
+- **Widget events** follow the convention `on` + action: `onClick`, `onChange`,
+  `onDoubleClick`, `onMouseEnter`, `onGotFocus`, and so on. Each control exposes
+  the set that makes sense for it (a Button has `onClick`/`onDblClick`/mouse
+  events; a TextBox has `onChange`/`onKeyPress`/focus events; charts have
+  `onDataChanged`; etc.).
+- **Form events** — the window itself supports a rich set, grouped into
+  **Lifecycle, Activation & Focus, Window State, Layout & Painting, Mouse,
+  Touch & Pointer, Scrolling, Drag & Drop, Clipboard, System / OS, and Error
+  Handling**. The lifecycle pair `onLoad` (just before the window is shown) and
+  `onClose` (as it closes) are pre-created for every form; the rest you attach as
+  needed.
+
+> **A tooltip says what a field is for.** A Button, TextBox, ComboBox or
+> CheckBox shows its `Tooltip` while the pointer rests on it — the place to
+> tell the user, in plain words, what to type or choose. Set it in the designer
+> or from COBOL, which is how a translated interface changes it:
+> `MOVE "The address of the model's server" TO TXT-URL::Tooltip`. A ComboBox
+> hides it while its list is open, so it never covers the items.
+
+> **Every event in the design view fires at run time.** Control events are
+> handled through the same generated event loop in *Run Form* and compiled
+> output, grouped by family:
+>
+> - **Every visual control** gets the universal pointer set — `onClick`,
+>   `onDblClick`/`onDoubleClick`, `onRightClick`, `onMiddleClick`,
+>   `onContextMenu`, `onMouseDown`, `onMouseUp`, `onMouseMove`,
+>   `onMouseEnter`, `onMouseLeave`, `onMouseWheel`, `onHoverEnter`,
+>   `onHoverLeave` (after the control's `HoverDelayMs`, default 200 ms), and
+>   `onLoad` — plus the **geometry** set `onResize`/`onResized` and
+>   `onMove`/`onMoved`, and the **state** pair
+>   `onVisibleChanged`/`onEnabledChanged`.
+> - **Focusable controls** (Button, CheckBox, RadioButton, Slider,
+>   NumericUpDown, DateTimePicker, TextBox…) fire `onGotFocus`/`onLostFocus`
+>   and the keyboard set `onKeyDown`/`onKeyUp`/`onKeyPress`,
+>   `onEnterPressed`, `onEscapePressed` while focused.
+> - **Value controls** fire `onChange` plus their semantic aliases:
+>   `onCheckedChanged`/`onValueChanged` (check box / radio),
+>   `onSelectedIndexChanged` and `onItemDoubleClick` (list), the combo's
+>   `onDropDown`/`onDropDownClosed`, Slider `onValueChanged` on drag end, and
+>   ProgressBar `onValueChanged`/`onCompleted` as COBOL writes its Value.
+> - **Text input** additionally fires `onEnter`/`onLeave` and `onTextChanged`.
+> - **Containers & composites** — TabControl `onTabClick`/`onTabChanged`;
+>   TreeView `onNodeClick`/`onNodeSelect`/`onNodeDblClick`; Panel `onScroll`
+>   (AutoScroll); MenuBar `onMenuOpen`/`onMenuClose`; DataGrid
+>   `onCellClick`/`onCellDoubleClick`/`onRowDoubleClick`/`onColumnClick`/
+>   `onScroll` plus its selection events.
+> - **Media & charts** — PictureBox `onImageLoaded`/`onImageError`; Animator
+>   `onStarted`/`onFrameChanged`/`onLooped`/`onEnded`; charts `onDataChanged`
+>   when their data properties change.
+> - **Data controls** — SqlDatabase fires `onConnectOk`/`onConnectError` on
+>   `Open`, `onQueryComplete`/`onQueryError` on `Query`/`Execute`, and
+>   `onRowFetched` on `Fetch`; RestClient fires the async lifecycle
+>   (`onComplete`/`onError`/`onCancelled`/`onTimeout` — §16); the AI agent
+>   fires `onResponse` when `Ask` returns a reply. These dispatch on the next
+>   `COBOL::"WAIT-EVENT"` return.
+> - **Timer** fires `onTick` every `Interval` ms while enabled (`Start`/`Stop`).
+>   **`Enabled` is the timer's own switch** — it decides whether the timer runs,
+>   not whether a control is greyed out. Untick **Enabled at start** in the
+>   properties pane for a timer that waits to be started, and turn it on and off
+>   from COBOL with `SET Timer-1::Enabled TO 1` / `TO 0`. (Before 1.61.164
+>   neither did anything: both wrote the generic control flag, which the timer
+>   does not read, so a timer could not be stopped at all.)
+>   A Timer keeps a **steady cadence**: each tick schedules the next one interval
+>   on, so the rate does not drift with however the frames happen to land. It also
+>   never **repays** missed time — if your handler takes longer than the interval,
+>   or the form was stalled, you get one tick when it comes back, not a burst of
+>   the ones you missed. A handler that has fallen badly behind (eight events
+>   queued) has its ticks coalesced until it catches up; a click, an edit or a
+>   focus change is never coalesced.
+> - **Form-level** fires `onLoad`/`onClose` (at start-up / shutdown),
+>   `onShow`/`onActivate` (when the run window first appears) and `onResize`
+>   (when its size changes: `onResizing` repeats while the window is dragged,
+>   `onResize` fires once when it settles) — a form holding a `SideMenu`
+>   hears them too, because its window is the shell. Its size there is its
+>   content pane plus the rail's designed width — the coordinates its controls
+>   were designed in — so collapsing or opening the rail, which resizes the
+>   window to keep the pane as it was, is not a resize. Both find the new size
+>   already in the form's `Width` and `Height`, so the handler lays out from
+>   them:
+>
+>   ```cobol
+>       *> CHAT-FORM onResize: the chat grows with the window,
+>       *> the question box stays 24 px above the bottom edge.
+>           COMPUTE WS-INPUT-Y = CHAT-FORM::Height - Txt-Input::Height - 24
+>           MOVE WS-INPUT-Y TO Txt-Input::Y
+>           MOVE WS-INPUT-Y TO Btn-Send::Y
+>           COMPUTE WS-CHAT-H = WS-INPUT-Y - Vwr-Chat::Y - 20
+>           MOVE WS-CHAT-H TO Vwr-Chat::Height
+>   ```
+>
+>   ⚠️ No period inside an `IF … END-IF`: the first one ends the `IF`, and
+>   the `END-IF` is left with nothing to close.
+>
+> Events with no engine behind them (drag-and-drop, column sorting/resizing,
+> chart zoom, tree-node expand/checkbox states…) are no longer listed in the
+> design view — an event you can bind is an event that fires.
+
+### Adding a handler
+
+In the tree or the properties pane, click an event to open the COBOL editor for
+it. A handler is a self-contained **nested program**, and you edit its whole body
+in **one** editor — there is no separate box for working-storage.
+
+The event editor is the **same full editor as the main code editor**: as-you-type
+**IntelliSense** (keywords, verbs, and the form's control names; `Ctrl+Space` to
+trigger), **Find/Replace** (`Cmd/Ctrl+F`, with *Replace* and *Replace All*) in the
+top-right, and the **status bar** along the bottom (caret `Ln, Col`,
+**Insert/Overwrite** via the `Insert` key, **Trim on save**, and **Beautify**). It
+opens at 70 % of the window and is freely resizable.
+
+The **first time** you open an unwritten handler, the editor seeds it with the
+standard skeleton so you only fill in the blanks:
+
+```cobol
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           CONTINUE.
+```
+
+Everything from `ENVIRONMENT DIVISION` down to your statements is yours to edit;
+PowerRustCOBOL supplies only the `IDENTIFICATION DIVISION` / `PROGRAM-ID` header
+and the closing `GOBACK` / `END PROGRAM` (shown greyed-out around the editor).
+
+- **Local scratch variables** go straight into this handler's own
+  `WORKING-STORAGE SECTION`.
+- **Shared state** lives in the form's global working-storage (visible to every
+  handler because it is declared `GLOBAL` in the outer program).
+- **Event data** — when an event delivers data to its handler, those items
+  appear in the `LINKAGE SECTION` and are bound by `PROCEDURE DIVISION USING …`.
+  There are exactly **two** such payloads in the platform, and the designer
+  seeds each one for you.
+
+  A control inside a **repeating group** receives the 1-based index of the card
+  that fired:
+
+  ```cobol
+       LINKAGE SECTION.
+       01 CONTROL-ARRAY-INDEX     PIC S9(4) COMP-5.
+
+       PROCEDURE DIVISION USING CONTROL-ARRAY-INDEX.
+  ```
+
+  A **TreeView node event** — `onNodeClick`, `onNodeSelect`, `onNodeDblClick`,
+  `onNodeCheck`, `onNodeCollapse`, `onNodeExpand`, `onNodeRenamed` — receives
+  the node itself,
+  as one group so a handler that only wants the text still reads
+  `CONTROL-NODE` on its own:
+
+  ```cobol
+       LINKAGE SECTION.
+       01 CONTROL-NODE-DATA.
+          05 CONTROL-NODE           PIC X(256).
+          05 CONTROL-NODE-INDEX     PIC S9(4) COMP-5.
+          05 CONTROL-NODE-LEVEL     PIC S9(4) COMP-5.
+          05 CONTROL-NODE-CHECKED   PIC 9.
+
+       PROCEDURE DIVISION USING CONTROL-NODE-DATA.
+  ```
+
+  `CONTROL-NODE` is the node's label — the key every TreeView property uses —
+  `CONTROL-NODE-INDEX` its 1-based line in `Items` **as written**, so `Sorted`
+  cannot renumber it, `CONTROL-NODE-LEVEL` its 1-based depth, and
+  `CONTROL-NODE-CHECKED` is `1` when its box is ticked and `0` when it is not,
+  or when the tree has no boxes at all.
+
+  Every other event carries no data: an empty `LINKAGE SECTION` and a plain
+  `PROCEDURE DIVISION.` with no `USING`.
+
+> If you leave the seeded template untouched and close the editor, nothing is
+> saved — the handler stays "unwritten" until you actually add code.
+
+---
+
+## 11. Talking to the UI from COBOL
+
+### Reading and writing properties
+
+A control's properties are read and written with the **`::`** member syntax or
+the **`INVOKE`** verb — the same forms used for methods. The member is just the
+property name; there is **one** consistent way to touch a property.
+
+**Read (GET)** — `control::property` is a value usable anywhere (DISPLAY, a MOVE
+source, IF, COMPUTE), or read with `INVOKE … RETURNING`:
+
+```cobol
+      *> inline — used directly as a value
+           DISPLAY Button-1::Caption.
+           MOVE Button-1::Caption TO WS-NAME.
+           IF TextBox-1::Text = SPACES
+               DISPLAY "empty".
+
+      *> quoted member name — identical
+           MOVE Button-1::"Caption" TO WS-NAME.
+
+      *> INVOKE verb (optionally the explicit GET- prefix)
+           INVOKE Button-1 "Caption"     RETURNING WS-NAME.
+           INVOKE Button-1 "GET-Caption" RETURNING WS-NAME.
+```
+
+**Write (SET)** — assign to `control::property` with `MOVE`/`SET`, or pass the
+value with `INVOKE … USING`:
+
+```cobol
+      *> inline — MOVE or SET into the property
+           MOVE "Hello!" TO Button-1::Caption.
+           SET Button-1::"Caption" TO "Hello!".
+
+      *> INVOKE verb (a USING argument means set; SET- is the explicit prefix)
+           INVOKE Button-1 "Caption"     USING "Hello!".
+           INVOKE Button-1 "SET-Caption" USING "Hello!".
+```
+
+Property names are **case-insensitive** and are exactly the ones in the
+properties pane (`Caption`, `Text`, `BackgroundColor`, `Value`, …). A **numeric**
+property reads as a number, so `IF Slider1::Value > 50` is algebraic, and you can
+move or compute between a data item and a property — e.g. `MOVE WS-N TO Spinner1::Value` — with no intermediate `PIC` item.
+
+> **IntelliSense.** Type `::` (or `::"`) after a control id and the editor lists
+> that control's **properties (green)** and **methods (light blue)**; keep typing
+> to filter (`Button-1::Cap…` → `Caption`). A plain `"` is just a string literal —
+> it opens no popup. The list is complete — every match, scrolled, never a
+> capped sample — and the same editor is used for the **Form Designer's event
+> handlers**, so it behaves identically there.
+>
+> The receiver is simply the expression to the left of `::`, wherever it sits.
+> An opening parenthesis or a comma ends the statement's operand and begins a
+> new name, exactly as a space would, so all of these complete:
+>
+> ```cobol
+>            COMPUTE WS-HALF = (Form-1::Width / 2) * 4
+>            Grid-1::Fill(Slider-1::Value)
+>            Grid-1::Fill(WS-ROW, Slider-1::Value)
+> ```
+>
+> In the second and third the **inner** control owns the member being typed —
+> `Slider-1`, not `Grid-1`. A subscript stays part of its own expression, so a
+> chain tail such as `Grid-1::Rows(0)::` still lists `Grid-1`'s members.
+
+### Calling control methods
+
+Properties describe *what a control is*; **methods** describe *what it can do* —
+showing it, moving it, ticking a value up, adding a list item, firing an HTTP
+request. Every control understands a set of **universal** methods plus its own
+**type-specific** ones. You can call a method three ways, all equivalent:
+
+```cobol
+      *> 1. Inline call — reads like a sentence, no result kept
+           Lbl-Out::SetCaption("Saved.").
+
+      *> 2. As an expression — the return value flows into a MOVE / IF / COMPUTE
+           MOVE Txt-Name::GetText() TO WS-NAME.
+           IF Chk-Agree::IsChecked() = "1"
+               PERFORM SUBMIT-ORDER
+           END-IF.
+
+      *> 3. INVOKE verb — when you prefer the spelled-out keyword, with optional
+      *>    USING arguments and RETURNING receiver
+           INVOKE Db-1 "query"
+               USING "SELECT id, name FROM customer"
+               RETURNING WS-ROWS.
+```
+
+Arguments go in parentheses (inline / expression form) or after `USING`
+(`INVOKE` form); a method that returns a value can be used directly in an
+expression or captured with `RETURNING`. The editor's IntelliSense lists a
+control's methods after you type `::`, each with a one-line description.
+
+> ⚠️ **A method call is a statement, never a receiving field.** A property can
+> receive a value; a method call cannot, and writing one as a `MOVE` target —
+> `MOVE X TO Btn::SetFocus()` — raises *"is a method call, not a receiving
+> field"* at run time.
+>
+> A method call written on the line after a `MOVE` is **not** that mistake: a
+> `MOVE`'s receiving fields end in front of a method call, so the call is the
+> next statement even without a period between them.
+>
+> ```cobol
+>            MOVE WSE-STAT TO WS-SENT
+>            me::"SetProperty"("meuParametro", WSE-STAT)
+>            INVOKE me::"OpenFormSync"("FRM-ERROARQ")
+> ```
+>
+> Several receivers under one `MOVE` stay legal as long as all of them *are*
+> receivers: `MOVE GLOBAL-TOTAL TO GLOBAL-TOTAL-ED dgReceipt::X` writes the
+> edited item **and** the `X` property, and `List::Items(4)` is an element, so
+> it receives too. The same holds for the receivers of `ADD`, `SUBTRACT`,
+> `MULTIPLY` and `DIVIDE`.
+
+**Universal methods** (every visible control):
+
+
+| Method                                           | Effect                                    |
+| ------------------------------------------------ | ----------------------------------------- |
+| `Show` / `Hide`                                  | Set the `Visible` property on or off.      |
+| `Enable` / `Disable`                             | Set the `Enabled` property on or off.      |
+| `SetFocus`                                       | Give the control keyboard focus.          |
+| `MoveTo(x, y)`                                   | Reposition the control (sets `X` / `Y`).   |
+| `Resize(w, h)`                                   | Change its size (sets `Width` / `Height`). |
+| `BringToFront` / `SendToBack`                    | Change stacking order.                    |
+| `SetProperty(name, value)` / `GetProperty(name)` | Generic access to any property by name.   |
+
+**Type-specific highlights** (the full list is in IntelliSense):
+
+
+| Widget                      | Methods                                                                                                                                                         |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Label / Button              | `SetCaption`, `GetCaption`                                                                                                                                      |
+| Text box                    | `SetText`, `GetText`, `AppendText`, `Clear`                                                                                                                     |
+| Check box / radio           | `IsChecked`, `SetChecked`, `Toggle`, `Select`                                                                                                                   |
+| Progress / slider / numeric | `SetValue`, `GetValue`, `Increment`, `Decrement`, `Reset`                                                                                                       |
+| List / combo                | `AddItem`, `RemoveItem`, `GetCount`, `GetSelected`, `SetIndex`, `LoadFromFile`, `Clear`, `RefreshBinding`                                                         |
+| Timer                       | `Start`, `Stop`, `SetInterval`, `IsEnabled`                                                                                                                     |
+| REST Client                 | `get`, `post`, `put`, `delete`, `call`, `setHeader`, `clearHeaders`                                                                                             |
+| SQL Database                | `open`, `execute`, `query`, `fetch`, `fetchAll`, `close`                                                                                                        |
+| AI Agent                    | `Ask`, `SetPrompt`, `SetModel`, `Stop`                                                                                                                          |
+| DataGrid                    | `RefreshBinding`, `ExportCSV`, `SetFilter`, `ClearFilters`, `FreezeColumns`, `FreezeRows`, `SetRowHeight`, `SetColumnWidth`, `GetSelectedText`, `CopySelection` |
+
+A method that changes a property updates the **running form immediately** — the
+same channel the property syntax uses — so `Lbl-Out::SetCaption("Done")` repaints
+the label the moment it runs. Methods and the property syntax are fully
+interchangeable; pick whichever reads best for the line you are writing.
+
+> **Designed values are available before you set anything.** When a form starts,
+> every control is seeded with the values from its properties pane, so
+> `Txt-Name::GetText()` (or `Txt-Name::Text`) returns the text you typed at
+> design time even before the first setter runs.
+
+### Member-access chains and collections
+
+The `::` operator **chains**, so you can reach a member of a member to any depth
+with one consistent syntax. A subscript `(n)` indexes a collection (a grid's
+rows, a list's items, a row's columns); a bare name is a property; a name with
+`()` is a method call:
+
+```cobol
+      *> read a nested cell, then a method on its value
+           DISPLAY Grid-1::Rows(I)::Columns(2)::Value.
+           DISPLAY Grid-1::Rows(I)::Columns(2)::Value::toUpperCase().
+
+      *> write a nested cell — the structure is created on demand
+           MOVE "Total" TO Grid-1::Rows(0)::Columns(0)::Value.
+
+      *> a method on a collection element (mutates it)
+           List-1::Rows(I)::Delete().
+
+      *> index the legacy item list; count its entries
+           DISPLAY List-1::Items(3).
+           DISPLAY List-1::Items::Count().
+```
+
+**A property is a receiving field; a method result is not.** A chain that ends in
+a **bare property** (or an indexed cell) is *readable and assignable* — so every
+content-changing verb may write to it, not just `MOVE`/`SET`:
+
+```cobol
+           MOVE  WS-TEXT       TO Label-1::Caption.
+           ADD   1             TO Counter-1::Value.
+           STRING WS-A WS-B DELIMITED BY SIZE INTO Label-1::Caption.
+           COMPUTE Slider-1::Value = Slider-1::Value * 2.
+```
+
+A chain that ends in a **method call** `()` is a value only:
+
+```cobol
+           MOVE name TO obj::UpperCase().   *> INVALID — not a receiving field
+           SET  name TO obj::UpperCase().   *> valid — reads the transformed value
+           obj::UpperCase().                *> valid as a statement, but changes nothing
+```
+
+**Collection / value helper methods** available on a chain element:
+`Count` / `Size` (number of entries), `Delete` / `Remove`, `Clear`, `Add` /
+`Append`, and the value transforms `toUpperCase`, `toLowerCase`, `trim`, `len`.
+
+**INITIALIZE on a control.** Initialising a control resets its **`Value`**
+property; you can also target one property explicitly, and mix controls with
+ordinary data items — each operand follows its own rules:
+
+```cobol
+           INITIALIZE Spinner-1.            *> resets Spinner-1::Value
+           INITIALIZE Spinner-1::Value.     *> the same, explicitly
+           INITIALIZE Spinner-1 WS-COUNT.   *> control → Value, data item → PIC default
+```
+
+### Property access via the `COBOL` object (also supported)
+
+The built-in form remains available and is interchangeable with the syntax
+above (see *The built-ins: the `COBOL` object* below):
+
+
+| Built-in                 | Purpose                                                     |
+| ------------------------ | ----------------------------------------------------------- |
+| `COBOL::"WAIT-EVENT"`    | Block until the next UI event (used by the generated loop). |
+| `COBOL::"GET-PROPERTY"`  | Read a control property into a data item.                   |
+| `COBOL::"SET-PROPERTY"`  | Write a control property from a data item.                  |
+
+A handler is a nested program, not a paragraph, and its body is what you write
+— the IDE supplies the `IDENTIFICATION DIVISION` / `PROGRAM-ID` header and the
+`END PROGRAM` terminator. The same greeting handler, using `::`:
+
+```cobol
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-NAME     PIC X(40).
+       01 WS-MESSAGE  PIC X(60).
+
+       PROCEDURE DIVISION.
+           MOVE TXT-NAME::Text TO WS-NAME.
+           STRING "Hello, " DELIMITED BY SIZE
+                  WS-NAME    DELIMITED BY SPACE
+                  INTO WS-MESSAGE.
+           SET LBL-OUT::Caption TO WS-MESSAGE.
+           GOBACK.
+```
+
+Written with the built-in primitives instead, the two property lines would read
+`COBOL::"GET-PROPERTY"( "TXT-NAME" "Text" WS-NAME )` and
+`COBOL::"SET-PROPERTY"( "LBL-OUT" "Caption" WS-MESSAGE )`. They still work, but
+`::` on the control itself is the form to write — the agents are instructed
+never to emit these primitives for control access.
+
+#### The built-ins: the `COBOL` object
+
+Beyond the controls, the runtime has a set of **built-in calls** — HTTP, SQL,
+text files, the operating system's file dialogs, API keys, the model list,
+charts. They are the methods of one object, **`COBOL`**, and you write them
+inline, like any other method:
+
+```cobol
+           COBOL::"HTTP-GET" ( WS-URL WS-RESPONSE WS-HTTP-STATUS )
+           COBOL::"OPEN-FILE-DIALOG" ( "Import settings" "XML files|xml" WS-PATH )
+```
+
+If you come from PowerCOBOL or isCOBOL, read this as the runtime library you
+would `CALL` — and you still can: `COBOL::"HTTP-GET"( … )` **is**
+`CALL "COBOL-HTTP-GET" USING …`. The two are the same call, with the same
+arguments in the same order. A data item is passed by reference, so whatever
+the built-in returns lands in it; a literal is passed by content. The inline
+form is the one to write — it reads as what it is, IntelliSense completes it
+(type `COBOL::` to see every built-in with its arguments), and it is the form
+the agents write.
+
+> **Note.** A built-in is a **statement**: its results come back in its
+> arguments, so it is never used as a value (`MOVE COBOL::…` is wrong). The name
+> may be written bare (`COBOL::HTTP-GET( … )`) and may keep its `COBOL-` prefix;
+> quoted is the house style. Arguments are separated by spaces. A common
+> procedure is still reached with `CALL "PROCEDURE-NAME"`.
+
+The built-ins, by family (each covered in its own section):
+
+- **Charts:** `CHART-ADD-POINT`, `CHART-SET-TABLE`, `CHART-CLEAR`,
+  `CHART-REFRESH`.
+- **SQL:** `OPEN-DB`, `EXEC-SQL`, `FETCH-ROW`, `NEXT-ROW`, `ROW-COUNT`,
+  `CLOSE-DB`.
+- **HTTP:** `HTTP-GET`, `HTTP-POST`, `HTTP-PUT`, `HTTP-DELETE`,
+  `HTTP-SET-HEADER`, `HTTP-CLEAR-HEADERS`.
+- **Text files:** `WRITE-FILE`, `APPEND-FILE`, and `FILE-STATUS` for the last
+  status of an `FD` file.
+- **Asking for a file or a folder:** `OPEN-FILE-DIALOG`, `SAVE-FILE-DIALOG`,
+  `FOLDER-DIALOG`.
+- **Models and keys:** `MODEL-SET`, `MODEL-REMOVE`, `MODEL-LIST`,
+  `MODEL-LIST-GET`, `MODEL-TEST`, `PROVIDER-COUNT`, `PROVIDER-GET`, `KEY-SET`,
+  `KEY-REMOVE`, `KEY-IS-SET`.
+- **Data bindings and MCP:** the `BINDING-…` calls the generated code makes, and
+  `MCP-SEARCH`.
+- **Lifecycle:** `INIT-FORM` and `WAIT-EVENT`, which the generated program
+  calls for you — written inline there too.
+
+> **Note.** Property names passed to `GET`/`SET` are exactly the names shown in
+> the properties pane (e.g. `"Text"`, `"Caption"`, `"BackgroundColor"`,
+> `"Value"`). Control IDs are the IDs shown in the tree (e.g. `"BTN-GREET"`).
+
+### Multi-form applications and the main form
+
+Every project has exactly **one main form** — the form the application shows
+first and the app's single identity in the OS taskbar/dock. The first form you
+create takes the role automatically; move it by checking **Main form** in
+another form's Window properties (the current holder's checkbox is read-only,
+so a project can never end up without one). The move is recorded in both form
+files the moment you check the box — even when the other form is open in a
+designer with unsaved changes, and even if you later close it without saving —
+so undo is the way to take it back. The Forms tree marks the main form
+with a **crown**. If a project is ever opened, run or built with zero or
+several forms marked (a `.cfrm` edited by hand, say), the first form in the
+project list wins and the status line says so; re-check **Main form** on the
+form you meant if that is not the one.
+
+#### Only the main form starts an application
+
+The IDE runs whichever form you ask it to — that is what a designer is for. A
+*runtime* does not. A built binary and `rcrun` always open the project's main
+form, and nothing else. Where the main form is your sign-on form, that rule is
+what stops someone starting the third form directly and walking past it.
+
+The designation is recorded **twice**, and the two records must agree:
+
+- **In the form** — the `main-form` mark inside its `.cfrm`, which the IDE
+  keeps on exactly one form.
+- **In the project file** — `main-form` under `[forms]`, together with
+  `main-form-seal`, a digest over the designation and the project's form list.
+
+You never maintain either by hand: the IDE rewrites both whenever it saves. A
+runtime re-derives the designation from the form files and compares it with the
+project file. If they disagree — a mark moved to another form, `[forms] main-form` pointed somewhere else, a seal deleted — the application reports a
+**corrupted application** and exits at once, without opening a window:
+
+```text
+run-form: CORRUPTED APPLICATION — the main-form seal does not match this
+project's forms.
+This application will not start. Restore it from its original distribution.
+```
+
+Asking a runtime for a form that is merely *not* the main one is not
+corruption. It is refused, and the message names the form the application does
+start at. Opening that form the ordinary way — `OpenFormSync` / `OpenFormAsync`
+from a running application, or a menu item — is unaffected: the application
+itself decides who gets through, which is the point.
+
+> **Note.** A project whose files predate the seal keeps working. With no
+> designation recorded, the runtime falls back to the form marked main — or, in
+> a project older than the marker, to the first form in the project — and warns
+> once that the project is unsealed.
+
+**Updating an older project.** Open one in PowerRustCOBOL and it offers the
+upgrade — *Update this project's structure*, listing what changes and what it
+buys. Accept and the designation is recorded and sealed. Decline and **nothing
+changes**: the IDE does not touch the shape of a project you did not ask it to
+change, not even on save, and the offer returns the next time you open it.
+
+The mechanism is general. `[project] structure` numbers the shape of a project
+file; PowerRustCOBOL writes the current number into every project it creates,
+and any project below it is offered the steps that bring it up. Future changes
+to the project file arrive the same way — as an offer, described in your
+language, that you are free to refuse.
+
+⚠️ **Caveat — what the seal is and is not.** It detects an *edited* project,
+which is what this rule is about. It is not a lock. Its key ships with the
+tools, so anyone holding the project folder and PowerRustCOBOL can designate a
+different main form and seal it — exactly as if they had opened the project and
+changed it, because that is what they did. The strong case is a **built
+binary**: its forms live inside the executable, its main form is chosen at build
+time, and there is nothing on disk left to edit. Ship applications as built
+binaries when the sign-on form is the thing you are protecting.
+
+The main form's Window section also offers **Taskbar icon** — the image the
+single taskbar/dock entry uses; 📂 picks it, and a path relative to the project
+works wherever the application runs, a built binary included. Windows opened
+from other forms never create taskbar entries. Per-OS note: on macOS the Dock naturally shows one icon per
+application; on Windows/Linux child windows are created with the skip-taskbar
+flag.
+
+**Window chrome & state.** Every form has `CanMinimize` / `CanMaximize`
+(title-bar buttons), `TitleVisible` (`false` = chromeless window),
+`WindowState` (`Normal` / `Minimized` / `Maximized` — the state the window
+opens in, settable at runtime) and `FullScreen` (orthogonal to WindowState:
+leaving fullscreen returns to the previous state). At runtime:
+
+```cobol
+    INVOKE me "SetWindowState"  USING "Maximized".
+    INVOKE me "SetFullScreen"   USING "true".
+    INVOKE me "SetTitleVisible" USING "false".
+```
+
+Each **actual** fullscreen transition fires the form's `onFullScreenChanged`
+event (the OS may refuse a request — the event follows reality, once per real
+change; read `me`'s `FullScreen` for the new value).
+
+**Where they apply.** The main window, a **shell** application's window (a
+main form carrying a SideMenu) and a **child window** opened with
+`OpenFormSync` / `OpenFormAsync` or a Stand Alone menu action all honour
+`CanMinimize`, `CanMaximize`, `FullScreen` and `WindowState`; a child window
+also opens where its `StartPosition` says when the caller passes no position,
+and a shell window takes `TitleVisible`, `StartPosition` and the taskbar icon
+too. Entrance/exit effects stay the main window's.
+
+**Changing the window from COBOL.** Writing the form's own properties changes
+the running window, from the form itself or from a form it opened:
+
+```cobol
+    MOVE "Saving…"   TO me::Title.
+    MOVE 900         TO me::Width.
+    MOVE "#1E3A5FFF" TO me::BackgroundColor.
+    MOVE "Done"      TO super::Title.
+```
+
+`Title` retitles, `Width`/`Height` resize (64 to 8192), `X`/`Y` move, and
+`BackgroundColor`/`Transparency` repaint the backdrop. In a shell application
+the shell owns the window, so there only the backdrop changes.
+
+**A see-through form.** `Transparency` above 0 makes the main window show the
+desktop through the form. A `BackgroundColor` of `#000000FF` is black, and a
+colour's own alpha multiplies with `Transparency`; only `#00000000` or an empty
+value leave the theme's default dark background.
+
+> ⚠️ **Caveat.** Before 1.70.237 none of this reached the window: the writes
+> changed the property and nothing else, a shell or child window ignored most
+> of its design, and a black background came out dark blue. A child window is
+> still opaque whatever its `Transparency`.
+
+**FormState — protecting unsaved work.** `FormState` is a runtime-only form
+property with two values, `Ready` (default) and `Waiting`. While a form is
+`Waiting` it cannot be closed by ANY path — the title-bar button, a
+`windowHandler` `Close`, or a cascade — and its `onCloseRejected` event fires
+instead. Typical pattern: set `Waiting` in `onTextChanged` handlers, set
+`Ready` after a successful save:
+
+```cobol
+    INVOKE me "SetProperty" USING "FormState" "Waiting".
+    *> … after saving …
+    INVOKE me "SetProperty" USING "FormState" "Ready".
+```
+
+**Opening forms from COBOL.** Two methods on `me`, each in two syntaxes:
+
+```cobol
+    *> Comma form — trailing parameters are OPTIONAL and default to the
+    *> target form's designed properties; modal defaults to true.
+    INVOKE me::"OpenFormSync"("DETAIL-FORM") RETURNING WS-H.
+    INVOKE me::"OpenFormAsync"("DETAIL-FORM", "Maximized", 100, 80)
+        RETURNING WS-H.
+
+    *> COBOL-standard space form — ALL parameters are required; a missing or
+    *> wrongly-typed parameter is a COMPILE-TIME error.
+    INVOKE me "OpenFormSync"
+        USING "DETAIL-FORM" "Normal" 100 80 640 480 "true"
+        RETURNING WS-H.
+```
+
+`WS-H` is a **windowHandler** (declare it `USAGE OBJECT`). Through it you can
+`Close`, `Focus` (restores a minimized window first), `SetWindowState`,
+`SetFullScreen`, `SetTitleVisible`, and read `WS-H::FormState`. When a form
+closes, every windowHandler that referred to it becomes **NULL**
+automatically; invoking through a NULL handle is a runtime error.
+
+**What the opener looks like while it waits — `ModalOverlayStyle`.** A form
+opened with `OpenFormSync` is modal: until it closes, the opener refuses
+input, a click on it reaches no handler, and the focus stays with the child.
+That behaviour never changes. What *you* choose, per form, in the Designer's
+Properties pane, is whether the blocked face shows it:
+
+| Value | The blocked opener |
+|---|---|
+| `None` (default) | Looks exactly as designed — behaves blocked, wears no layer. |
+| `SemiTransparent` | A light grey layer (25 % opaque) over the whole face. |
+| `Greyed` | The same grey layer, heavier (~60 %) — the classic dimmed backdrop. |
+
+Set it on the **opener** — the form that waits — not on the form it opens:
+the child's own `ModalOverlayStyle` only matters when *it* opens another form
+with `OpenFormSync`. The opener also keeps its own theme while it waits,
+whatever theme the child was designed with.
+
+The form keeps its own designed **Transparency** under any of them; when the
+opener lives in a sidebar's ContentPane, the layer covers the sidebar and
+breadcrumb too, so the whole window reads as one waiting face. Read it from
+COBOL with `me::"GetProperty"("ModalOverlayStyle")`.
+
+`OpenFormAsync` is different: the two windows are **independent** — the
+opener is never blocked, so for an Async child every style reads as `None`.
+The child can still hand results back through `super::"SetProperty"`. And
+closing the opener closes its children of **either** kind, unless one of
+them is `Waiting` (`FormState`), which vetoes the whole close and raises
+`onCloseRejected` — the same rule a PowerCOBOL developer would expect from a
+child form that has unsaved work.
+
+**Passing data to a child form and back.** A PowerCOBOL developer would
+reach for a shared global area; here the two forms are separate programs, and
+the data travels as **properties of the parent form**, under names you choose:
+
+```mermaid
+sequenceDiagram
+    participant P as Parent form
+    participant C as Child form
+    P->>P: INVOKE ME::"SetProperty"("OrderRecord", WS-ORDER)
+    P->>C: INVOKE ME::"OpenFormSync"("PROPS-CHILD-FORM")
+    C->>P: INVOKE super::"GetProperty"("OrderRecord") RETURNING WS-ORDER
+    Note over C: the operator edits
+    C->>P: INVOKE super::"SetProperty"("OrderRecord", WS-ORDER)
+    C->>C: INVOKE ME::Close()
+    P->>P: INVOKE ME::"GetProperty"("OrderRecord") RETURNING WS-ORDER
+```
+
+The parent publishes before it opens the child:
+
+```cobol
+           INVOKE ME::"SetProperty"("CustomerName", Txt-Name::Text)
+           INVOKE ME::"SetProperty"("OrderRecord", WS-ORDER)
+           INVOKE ME::"SetProperty"("ChildResult", "NONE")
+           INVOKE ME::"OpenFormSync"("PROPS-CHILD-FORM")
+           INVOKE ME::"GetProperty"("ChildResult") RETURNING WS-RESULT
+           IF WS-RESULT = "OK"
+               INVOKE ME::"GetProperty"("OrderRecord") RETURNING WS-ORDER
+           END-IF
+```
+
+The child reads in its `onLoad`, and answers before it closes:
+
+```cobol
+           INVOKE super::"GetProperty"("CustomerName") RETURNING Txt-Name::Text
+           INVOKE super::"GetProperty"("OrderRecord") RETURNING WS-ORDER
+      *>   ... on OK:
+           INVOKE super::"SetProperty"("OrderRecord", WS-ORDER)
+           INVOKE super::"SetProperty"("ChildResult", "OK")
+           INVOKE ME::Close()
+```
+
+- **Simple values** — a name, an amount, a flag — go one property each.
+  `RETURNING` may name a data item or a control's property
+  (`RETURNING Txt-Name::Text`).
+- **Complex data** — a **group item**, header and `OCCURS` table included —
+  goes as **one** property: its bytes travel as they stand, and `RETURNING`
+  into the same layout fills it field by field, numeric fields with implied
+  decimals (`PIC 9(5)V99`) included. Both forms must describe the record the
+  same way; in an application, `COPY` it from one copybook.
+- The **parent's own form properties** read bare: `super::Title`. A property
+  of your own naming always goes through `GetProperty` / `SetProperty` — a
+  bare `super::OrderRecord` does not build, because a bare name is checked
+  against the fixed form surface.
+- `COBOL::"GET-PROPERTY"` reads the controls of **its own** program only; the
+  parent is reached through `super`.
+
+PowerDemo3 has the whole example — **General → Passing Data to a Child
+Form** (`props-parent-form` and `props-child-form`).
+
+> 📷 Screenshot needed — `props-demo.png`: PowerDemo3's *Passing Data to a
+> Child Form* with the Order Editor open over it, a quantity edited.
+
+**Lifecycle rules.**
+
+- The **main form is a singleton**: opening it while it runs focuses the
+  running instance and returns its existing handle. Other forms may run any
+  number of concurrent instances.
+- **Sync** children close together with their caller — and a caller cannot
+  close while any of its Sync children is `Waiting` (it gets
+  `onCloseRejected` too).
+- **Async** children survive their caller's close — except when the **main
+  form** closes: then every form closes and the application exits.
+- A **modal** Sync child blocks the caller's input and its COBOL flow until
+  the child closes; the `RETURNING` handle is NULL by the time the caller
+  resumes.
+
+> **Status.** The window-lifecycle rules above (FormState vetoes,
+> `onCloseRejected`, window commands, `onFullScreenChanged`) are live in the
+> run-form runtime today. Hosting the OpenForm* **child windows** is landing
+> with the multi-viewport host; until then a child open is accepted, logged
+> to stderr, and immediately released (its handle reads NULL), so programs
+> never deadlock.
+
+---
+
+## 12. Generated code
+
+When you save/generate a form, PowerRustCOBOL writes a `.cbl` into `generated/`.
+Its shape is predictable:
+
+- a **PROGRAM-ID** for the form;
+- working-storage for each control's state;
+- the **event loop** (the `PERFORM UNTIL` around `COBOL::"WAIT-EVENT"`);
+- one **nested COBOL-85 program** per event handler, named
+  `CONTROL-ID--EVENTNAME` (uppercased, e.g. `BTN-OK--ONCLICK`); the form's
+  `onLoad` runs at start-up and `onClose` at shutdown.
+
+```mermaid
+flowchart TB
+    CFRM["forms/main-form.cfrm"] -->|Save & Generate| GEN["generated/main-form.cbl"]
+    GEN --> OUTER["Outer program:<br/>data + event loop"]
+    OUTER --> P1["Nested: BTN-OK--ONCLICK"]
+    OUTER --> P2["Nested: TXT-NAME--ONCHANGE"]
+    OUTER --> P3["Nested: MAIN-FORM--ONLOAD"]
+```
+
+Every generated file opens with a `*>` comment banner addressed to you: it states
+the file was produced by PowerRustCOBOL RAD, that you must not edit it directly,
+and that its structure may change between versions (for performance, observability
+or bug fixes) without breaking your code.
+
+> ⚠️ **Caveat.** Generated `.cbl` is a build artefact, so **do not hand-edit it** —
+> your edits would be overwritten. PowerRustCOBOL **regenerates every form's COBOL
+> automatically each time you Build, Run, Debug, or Check** the project (open
+> designers use their live, even unsaved, state; other forms reload from their
+> `.cfrm`), so what compiles and runs always matches your forms. Put reusable
+> logic in **Common Code** and `CALL` it from handlers.
+
+### Reading a diagnostic
+
+Because the compiler sees the woven `.cbl`, an error used to be reported
+against that artifact — `842:17: ✖ error: …`, line 842 of a file you never
+wrote. A Check now reports the place **you** wrote instead. An Output row
+reads:
+
+```
+MAIN-FORM ▸ BTN-OK ▸ onClick — 3:12: ✖ error: syntax error near "DISPLYA"
+    3 │            DISPLYA "HELLO".
+      │            ^
+```
+
+- The left part is the **site path** — the form, then the control and event
+  (or the procedure name, or the section keyword, e.g.
+  `MAIN-FORM ▸ WORKING-STORAGE`). It reads the way you navigate the RAD.
+- The line and column are **within that handler's or section's own text**,
+  exactly as the editor shows it — not the generated file's numbering.
+- The offending line is quoted with the column marked, so the message says
+  where on its own — in a screenshot, a forum post, or over a shoulder.
+- The row is a **link**: click it and the IDE opens the owning editor — the
+  event modal for a handler, the COBOL Structure window for a section or
+  procedure, the code editor for a Common Code file — with the caret on that
+  line. The generated `.cbl` is never opened.
+
+Some lines belong to the generator itself (the event loop, an unwritten
+handler's stub). A diagnostic on one of those is labelled
+`[generated code]` with the generated file and line, and is deliberately
+**not** attributed to any of your handlers — if you see one, the fault is in
+PowerRustCOBOL's plumbing or in how a property is set, not in code you can
+edit.
+
+> **Note.** Site locations cover **compile-time** diagnostics (Check, and the
+> parse/analysis run before Build/Run/Debug). A runtime abort still reports
+> the generated program's location for now.
+
+> **⚠️ Caveat — an undeclared data item is an error.** `identifier 'X' is
+> not declared in DATA DIVISION` stops Check, Run Form and Build, as it would
+> on any COBOL compiler. It used to be a warning, and the program then ran:
+> the runtime created the item the first time it was written, **sized to that
+> first value**, and cut every later value to that width — a `WS-RESULT`
+> that first received `ButtonOk clicked` (16 characters) showed `ButtonCancel
+> cli` ever after. Two things trip this in RAD code that a PowerCOBOL or
+> isCOBOL developer would not expect:
+>
+> - **A handler's `WORKING-STORAGE` belongs to that handler.** Delete the
+>   control and its declarations go with it — a data item another handler
+>   still uses must be declared where it is used, or at form level.
+> - **Handlers see form-level data only through `GLOBAL`.** Every event
+>   handler is a `COMMON` program nested in the form's program, so a
+>   form-level item is visible to it only if declared `01 WS-FS GLOBAL PIC
+>   XX.`, and a file's record only if its `FD` says `IS GLOBAL` — the
+>   `FD … IS GLOBAL RECORD CONTAINS 424 CHARACTERS.` clauses in **one
+>   sentence**; a `RECORD CONTAINS` sentence of its own after the `FD`'s
+>   period detaches the record entries from the file.
+
+---
+
+## 13. The RustCOBOL language
+
+RustCOBOL implements a substantial subset of **COBOL-85**, plus PowerRustCOBOL
+extensions. Highlights a working COBOL programmer will rely on:
+
+- **Data & structure:** group items, `OCCURS` (with subscripts/indices),
+  `REDEFINES`, `RENAMES` (66 level), condition-names (88 level with `VALUE` /
+  `THRU`), `USAGE` incl. `POINTER`.
+
+> **`PERFORM a THRU b` is a range of paragraphs.** A `GO TO` naming a paragraph
+> *inside* the range transfers control within the range, and the `PERFORM`
+> returns to its caller when the range's last paragraph finishes — including
+> when that paragraph was reached by the `GO TO`. This is the classic
+> exit-paragraph idiom, and it works as written:
+>
+> ```cobol
+>            PERFORM CHECK-IT THRU CHECK-IT-EX.
+>        CHECK-IT.
+>            IF WS-VALUE = SPACE GO TO CHECK-IT-EX.
+>            MOVE "NON-BLANK" TO WS-NOTE.
+>        CHECK-IT-EX. EXIT.
+> ```
+>
+> A `GO TO` whose target lies **outside** the range still leaves the `PERFORM`,
+> as the standard requires — control does not come back.
+
+> **A group is its children.** A group item has no storage of its own: it is the
+> items under it laid end to end, it is alphanumeric whatever they are, and its
+> size is the sum of theirs. Reading one gives you the whole record, writing one
+> spreads the bytes across the children by width, and a change to any child shows
+> through the group immediately. `FILLER` counts — it holds its bytes and its
+> `VALUE` like any other item — and the word itself is optional, so `05 PIC X VALUE ":".` is a perfectly good separator.
+> The same holds for elementary items that share one name under one group — the
+> classic value table written as `05 F PIC XX VALUE "AC".` repeated: each keeps
+> its own bytes and `VALUE`, and only *referring* to that name is an error, since
+> no qualification can tell the copies apart:
+>
+> ```cobol
+>        01 EDITED-TIME.
+>           05 HH PIC 99.
+>           05    PIC X VALUE ":".
+>           05 MM PIC 99.
+> ```
+>
+> With `HH` = 09 and `MM` = 30, `DISPLAY EDITED-TIME` shows `09:30`. This is the
+> ordinary way to build a formatted field out of parts, and it is why a group
+> never needs a `PIC` of its own.
+>
+> ⚠️ **Reference modification counts characters, not values.** `T(1:2)` takes the
+> first two *character positions* of `T`, so a `PIC 9(8)` holding `00224845`
+> gives `"00"` — the leading zeros are part of the item. That is what makes the
+> classic unpack (`MOVE T(1:2) TO HH`, `MOVE T(3:2) TO MM`, …) line up.
+> It works on a table entry the same way — `ROW(I)(2:3)` — whether the entry is
+> sent, received (`MOVE "AB" TO ROW(I)(2:2)` changes only those two positions)
+> or inspected (`INSPECT ROW(I)(1:3) CONVERTING …` touches only the first three).
+
+- **Arithmetic:** `ADD/SUBTRACT/MULTIPLY/DIVIDE/COMPUTE` with multiple receivers
+  and per-receiver `ROUNDED`; numeric-edited `PICTURE` editing.
+
+> **A size error phrase protects the receivers — either half of it.** If a
+> statement carries `ON SIZE ERROR` *or* `NOT ON SIZE ERROR`, a receiver that
+> cannot hold its result keeps the value it already had, and the other
+> receivers still get theirs. Without any size error phrase the result is
+> truncated into the field instead. This catches people out because the
+> protection reads like it belongs to `ON SIZE ERROR`; it belongs to the
+> statement.
+>
+> ```cobol
+> ADD  WS-BIG  6  GIVING WS-A WS-B
+>      NOT ON SIZE ERROR  MOVE "OK" TO WS-FLAG.
+> *>   WS-A and WS-B are unchanged if the sum will not fit them,
+> *>   and WS-FLAG stays as it was.
+> ```
+
+- **Control flow:** `IF/ELSE`, `EVALUATE` (with `ALSO` and `WHEN NOT`), inline and
+  out-of-line `PERFORM` (incl. `VARYING`, `UNTIL`, `TIMES`), `GO TO`, `ALTER`,
+  `EXIT PERFORM/PARAGRAPH/SECTION`, faithful `NEXT SENTENCE`.
+- **Strings:** `STRING`, `UNSTRING`, `INSPECT` (`TALLYING` + `REPLACING`, with
+  `BEFORE/AFTER INITIAL`), `INITIALIZE … REPLACING`.
+
+> **`UNSTRING` in full.** Every phrase is honoured: `DELIMITED BY [ALL] … OR …`,
+> `DELIMITER IN`, `COUNT IN`, `WITH POINTER`, `TALLYING`, and
+> `ON OVERFLOW` / `NOT ON OVERFLOW`. Three details are worth knowing because
+> they are where hand-written unpackers usually go wrong:
+>
+> - **`WITH POINTER` is read *and* written.** The scan starts at the character
+>   that item names (1-based) and the item is left pointing one past the last
+>   character examined, so the next `UNSTRING` continues where this one stopped.
+>   A pointer outside the source raises overflow and moves nothing at all.
+> - **`ALL` consumes the run but delivers one.** `DELIMITED BY ALL ZERO` on
+>   `"1200000"` skips all five zeros, and `DELIMITER IN` receives a single `"0"`.
+> - **No `DELIMITED BY` means "by size".** Each receiver takes exactly as many
+>   characters as it is wide, in turn.
+>
+> ```cobol
+> 01  WS-LINE   PIC X(7) VALUE "1200000".
+> 01  WS-FIELD  PIC X.
+> 01  WS-DELIM  PIC X(4).
+> 01  WS-COUNT  PIC 99.
+> 01  WS-PTR    PIC 99  VALUE 1.
+> 01  WS-TALLY  PIC 99  VALUE 0.
+> ...
+>     UNSTRING WS-LINE DELIMITED BY ALL ZERO
+>         INTO WS-FIELD DELIMITER IN WS-DELIM COUNT IN WS-COUNT
+>         WITH POINTER WS-PTR TALLYING WS-TALLY.
+> *>   WS-FIELD = "1"   (the field is "12", cut to one character)
+> *>   WS-DELIM = "0"   WS-COUNT = 02   WS-PTR = 08   WS-TALLY = 01
+> ```
+>
+> **`INSPECT … LEADING` / `TRAILING` count whole patterns.** `FOR LEADING "AH"`
+> counts how many times `"AH"` repeats *contiguously from the start* of the
+> region — one, in `"AH YES AH YES"`, not two, and not "characters that appear
+> in the pattern".
+>
+> **A series of `TALLYING` operands shares one pass over the field, and the
+> order you write them in decides the answer.** The field is inspected once,
+> left to right; at each character position the operands are tried in the order
+> written, the first that matches claims the position, and the scan continues
+> past the characters it took. Nothing is counted twice.
+>
+> ```cobol
+>        01  SUBJ  PIC X(4)  VALUE "AABA".
+>            INSPECT SUBJ TALLYING T1 FOR ALL "AA"  T2 FOR ALL "A".
+>        *>  T1 = 1, T2 = 1   — "AA" takes positions 1-2, so only the last
+>        *>                     "A" is left for T2
+>            INSPECT SUBJ TALLYING T1 FOR ALL "A"   T2 FOR ALL "AA".
+>        *>  T1 = 3, T2 = 0   — the same statement, operands swapped
+> ```
+>
+> This catches people out with `CHARACTERS`, which counts only the positions no
+> earlier operand claimed, and with `LEADING`, whose run must start at the very
+> first position of its region: put an `ALL` operand in front of it that matches
+> there, and the `LEADING` run is over before it begins.
+>
+> **`REPLACING` works the same way, and its `BEFORE`/`AFTER` delimiters are
+> found before anything is replaced.** That is the part worth knowing: an
+> operand may be anchored on characters an earlier operand overwrites, and it
+> still finds them, because the windows were all fixed against the field as it
+> arrived.
+>
+> ```cobol
+>        01  SUBJ  PIC X(20).
+>            MOVE "CAN NOT BE ALL BAD." TO SUBJ.
+>            INSPECT SUBJ REPLACING
+>                FIRST "L "  BY "ZZ"  AFTER INITIAL "AL"
+>                FIRST "BAD" BY "ZZZ" AFTER "L "
+>                ALL   "."   BY "Z"   AFTER "AL".
+>        *>  SUBJ = "CAN NOT BE ALZZZZZZ"
+> ```
+>
+> Had each phrase been applied on its own over the whole field, the first would
+> have erased the `"L "` the second is anchored on and `"BAD"` would still be
+> there.
+>
+> ⚠️ **A signed numeric item has no minus sign to count.** `INSPECT` reads the
+> character positions an item actually occupies, and a `PIC S9(5)` holding
+> `-12345` occupies five of them, all digits — the sign travels as an overpunch
+> on a digit, not as a character of its own. So
+> `INSPECT AMT TALLYING T FOR ALL "-"` gives **zero**, and a `REPLACING` over the
+> digits leaves the sign untouched. Declare `SIGN IS LEADING SEPARATE` if you
+> want the sign to be a character position; then it is counted like any other.
+> This is standard COBOL behaviour, and it is the usual surprise when a
+> validation routine tries to spot negatives by looking for `"-"`.
+
+- **Tables:** `SORT` / `MERGE` (with `INPUT`/`OUTPUT PROCEDURE`, `USING`/`GIVING`,
+  `RELEASE`/`RETURN`); `SEARCH` (serial) and `SEARCH ALL` (binary search over an
+  `ASCENDING`/`DESCENDING KEY` table).
+- **Sub-programs:** `CALL … USING` (with `ON EXCEPTION` / `NOT ON EXCEPTION`),
+  `CANCEL`, `GOBACK`/`EXIT PROGRAM`, nested programs.
+- **Error handling:** `DECLARATIVES` with `USE AFTER STANDARD ERROR PROCEDURE`
+  for centralised file-error handling.
+- **Intrinsics:** the standard library of `FUNCTION`s, including the date/time
+  and financial functions.
+- **Screen ACCEPT/DISPLAY** for character-mode interaction (when you are not
+  building a windowed form).
+- **Scope terminators:** the COBOL-85 set (`END-IF`, `END-PERFORM`, `END-READ`,
+  `END-EVALUATE`, `END-STRING`, and the rest) plus `END-ACCEPT` and
+  `END-DISPLAY`. Every one of them is optional — a period closes the statement
+  just as well — but `END-DISPLAY` is the one that can change what a line
+  means, because it closes the **operand list**:
+
+  ```cobol
+           DISPLAY "A" END-DISPLAY
+           DISPLAY "B".
+  ```
+
+  is two statements. Without the terminator, a `DISPLAY` runs until it meets a
+  period or a phrase it recognises, so writing the two on separate lines with
+  no terminator and no period between them makes `"B"` a third operand of the
+  first `DISPLAY`. If you are used to closing every verb explicitly, that habit
+  carries over here unchanged.
+
+> **Ground truth.** The authoritative, always-current list of supported syntax is
+> `docs/cobol85-supported-syntax-en.md`; the verb-by-verb test matrix is
+> `docs/cobol85-verb-test-matrix-en.md`. When in doubt, those files (and the test
+> suite) are definitive.
+
+> ⚠️ **Out of scope (today):** cross-process record locking and OO
+> `CLASS`/`METHOD` definitions are not implemented. **RELATIVE file
+> organisation is implemented** — see
+> [Addressing records by number](#addressing-records-by-number-organization-is-relative).
+
+### Writing it the way the standard lets you
+
+COBOL-85 allows several spellings that a PowerCOBOL or isCOBOL developer will
+have in their fingers already. All of these work, and none of them is required.
+
+**Commas and semicolons are decoration.** A `,` or `;` *followed by a space* is
+a **separator**: it may appear anywhere a space may appear, and it means exactly
+what a space means. These four lines are the same statement to the compiler:
+
+```cobol
+       MOVE ZERO TO DN3, DN4.
+       MOVE ZERO TO DN3 DN4.
+       CALL "SUB" USING TABLE-1, TABLE-2, DN1.
+       READ CUSTOMER-FILE ; AT END GO TO EOF-ROUTINE.
+```
+
+> ⚠️ **A comma with no space after it is a different thing.** That is how the
+> decimal comma (`1,5` under `DECIMAL-POINT IS COMMA`) and the PICTURE editing
+> comma (`PIC ZZ,ZZ9.99`) keep working. The rule is the standard's own: a
+> separator comma is a comma *followed by a space*.
+
+**An edited picture is still a numeric item.** `Z`, `*` and a floating `$`, `+`
+or `-` are digit positions, so a numeric-edited item is a legal receiver for
+`COMPUTE`, `ADD`, `SUBTRACT`, `MULTIPLY` and `DIVIDE … GIVING` — editing the
+result is the reason to declare one. The editing point may be followed by a
+single digit, and a picture need carry no `9` at all:
+
+```cobol
+       01  DIV9        PICTURE IS ZZ,ZZZ.9.
+       01  NET-PAY     PIC $**.**CR.
+       01  RUNNING-QTY PIC ZZZZ.
+           DIVIDE GROSS BY 12 GIVING DIV9.
+           SUBTRACT TAX FROM GROSS GIVING NET-PAY.
+```
+
+> **Note.** The value is stored in its *edited* form, so the receiver reads back
+> as the characters you see on a report. Compute with a plain numeric item and
+> move the result into the edited one when you need both.
+
+**Check protection (`*`) fills the whole field when the value is zero.** This is
+the point of it on a cheque or a remittance line — nothing can be written into
+the blank. Every character position becomes an asterisk, the decimal point
+alone excepted, and that includes a fixed `$` and a trailing `CR` or `DB`:
+
+```cobol
+       01  NET-PAY  PIC $**.**CR.
+           MOVE ZERO TO NET-PAY.     *> ***.****
+           MOVE -2.34 TO NET-PAY.    *> $*2.34CR
+```
+
+The second line is the ordinary case: with a non-zero value only the *leading
+zeros* are protected, so the fixed `$` keeps its own position and `CR` prints
+because the value is negative. It is worth checking a zero against the field's
+declared width the first time you use one — `PIC $**.**CR` is eight character
+positions, because `CR` occupies two.
+
+**The currency symbol is yours to choose.** `SPECIAL-NAMES. CURRENCY [SIGN] [IS] literal` names the character that fills a currency position, and every picture
+rule then applies to that character instead of `$` — including the floating run,
+where a repeated symbol drifts right to sit against the first significant digit:
+
+```cobol
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       SPECIAL-NAMES.
+           CURRENCY SIGN IS "£".
+       ...
+       01  INVOICE-TOTAL  PICTURE £(3),£££.99.
+           MOVE 1234 TO INVOICE-TOTAL.      *> reads  £1,234.00
+           MOVE ZERO TO INVOICE-TOTAL.      *> reads       £.00
+```
+
+> ⚠️ **It replaces `$`, it does not join it.** Once a program declares a currency
+> sign, `$` stops being a picture character in that program, and a picture that
+> still uses one is rejected. If you are porting a program that mixes the two,
+> change every picture in the same edit.
+>
+> The literal is one character, and the standard rules out any that would
+> collide with a picture character or a separator: not a digit, not one of
+> `A B C D E G N P R S V X Z`, and none of `space * + - , . ; ( ) " / =`.
+
+**A numeric receiver holds exactly its declared digits — at both ends.** A
+`MOVE` aligns on the decimal point, then drops whatever does not fit. The
+low-order end is the familiar one; the high-order end is cut just as silently:
+
+```cobol
+       01  M   PICTURE 99V999.
+       01  W   PICTURE 9999V9.
+           MOVE 123.45 TO M.        *> 23.450  — the hundreds digit is gone
+           MOVE 123.45 TO W.        *> 123.4   — the hundredths digit is gone
+```
+
+> ⚠️ **This is silent.** Nothing is reported, because the standard defines it as
+> the result rather than as an error. If losing the high-order digits would be a
+> bug in your program, declare the receiver wide enough — or use an arithmetic
+> statement with `ON SIZE ERROR`, which tests the receiver's capacity *first*
+> and leaves it untouched instead.
+
+**`P` moves the decimal point without storing a digit.** A `P` in a picture is a
+digit position the item *spans* but does not *hold* — useful when a field
+records thousands, or thousandths, and the trailing or leading zeros would be
+wasted bytes:
+
+```cobol
+       01  IN-HUNDREDS  PICTURE S999PP.     *> 3 digits, value × 100
+       01  IN-TEN-THOUS PICTURE PP99.       *> 2 digits, value ÷ 10 000
+           MOVE 12300 TO IN-HUNDREDS.       *> stored exactly
+           MOVE 12345 TO IN-HUNDREDS.       *> stored as 12300
+```
+
+> **Note.** The positions the `P`s stand for always read back as zero, and they
+> occupy **no bytes** — `PIC S999PP` is three character positions in a record,
+> not five. Comparisons and arithmetic use the scaled value, so
+> `IF IN-HUNDREDS = 12300` is true above.
+
+**`REDEFINES` is a second reading of the same bytes, not a second field.** The
+redefining item adds nothing to the record: it describes storage its target
+already owns, and a write through either description is immediately visible
+through the other — and through the group above them both. This is the idiom
+report programs are built on:
+
+```cobol
+       01  TEST-CORRECT.
+           02  FILLER      PIC X(17) VALUE "       CORRECT =".
+           02  CORRECT-X.
+               03  CORRECT-A               PIC X(20) VALUE SPACE.
+               03  CORRECT-N REDEFINES CORRECT-A  PIC -9(9).9(9).
+           ...
+           MOVE 242.4332220110 TO CORRECT-N.
+           MOVE TEST-CORRECT   TO PRINT-REC.   *> the edited number is there
+```
+
+> ⚠️ **Caveat — very large overlays.** Keeping two descriptions in step costs a
+> pass over both on every write. Above 256 storage positions — a redefined
+> 10×10×10 table, say — PowerRustCOBOL stops mirroring and gives each
+> description its own storage, because refreshing a thousand occurrences on
+> every `MOVE` would make the program unusable. Redefine records, not large
+> tables; if you need both readings of a table, `MOVE` between them explicitly.
+
+**A redefining description need not have a name.** Mainframe layouts often
+redescribe a field with an unnamed group, so that only the pieces are named:
+
+```cobol
+       01  IN-RECORD.
+           02  IN-DATE                     PIC X(8).
+           02  FILLER REDEFINES IN-DATE.
+               03  IN-DATE-YYYY            PIC X(4).
+               03  IN-DATE-MM              PIC XX.
+               03  IN-DATE-DD              PIC XX.
+```
+
+`MOVE "20260828" TO IN-DATE` then leaves `IN-DATE-MM` reading `08`. The children
+divide the target's bytes between them **in layout order**, exactly as they
+would under a named group — an unnamed overlay is a description, not another
+name for its first child.
+
+> **Note — two overlays of one field both start at its first byte.** Declaring
+> `02 FILLER REDEFINES IN-DATE.` twice gives two independent readings, each
+> beginning at `IN-DATE`'s first character. A second overlay does *not* continue
+> where the first left off. To reach a later part of the field, put a `FILLER`
+> of the right width in front of it inside the same overlay.
+
+> **Note — overlays nest, and a write travels the whole chain.** A `REDEFINES`
+> may sit inside a record that is itself redefined, and inside *that* overlay
+> another one. Two bytes written through the outermost description are visible
+> through every reading of those bytes, however deep — including a condition-name
+> declared on the innermost item:
+>
+> ```cobol
+>        01  REC-10.
+>            02  PART-A.
+>                08  FILLER   PIC X(6).
+>                08  CODE-X   PIC XX99.
+>            02  PART-B REDEFINES PART-A.
+>                03  FILLER   PIC X(8).
+>                03  FLAGS    PIC 99.
+>                03  FLAG-BITS REDEFINES FLAGS.
+>                    04  FLAG-1  PIC 9.
+>                    04  FLAG-2  PIC 9.
+>                        88  SOFT  VALUE 1.
+>        01  REC-12 REDEFINES REC-10.
+>            02  FILLER       PIC X(24).
+>            02  STATUS-CODE  PIC 99.
+>
+>            MOVE 11 TO STATUS-CODE.     *> SOFT is now true
+> ```
+>
+> Each description is re-rendered once per write, so this stays a fixed cost —
+> but it *is* a cost. A very large overlay (a redefined 10×10×10 table) opts out
+> and keeps its own storage instead; see the caveat in the syntax reference.
+
+**`MOVE CORRESPONDING` pairs items by name, and only one of a pair need be
+elementary.** This is the shortcut for copying a record into a differently
+ordered one: items the two groups share by name are moved, items in only one of
+them are left alone, and matching sub-groups are walked into.
+
+```cobol
+       01  IN-REC.
+           05  CUST-NO    PIC 9(6).
+           05  CUST-NAME  PIC X(30).
+           05  FILLER     PIC X(4).
+       01  OUT-REC.
+           05  CUST-NAME  PIC X(30).
+           05  CUST-NO    PIC 9(6).
+           MOVE CORRESPONDING IN-REC TO OUT-REC.   *> reordered, by name
+```
+
+The pairing is by name, **not** by position — that is the whole point, and it is
+also the trap: rename a field on one side and it silently stops being copied.
+
+> **Note.** A pair may put a **group** opposite an elementary item; the standard
+> asks only that one of the two be elementary. The move across it is an
+> ordinary alphanumeric one, so a `PIC XXX` sending into a group of `999` + `XXX`
+> fills all six characters. Two *groups* facing each other are walked into
+> instead, pairing their children.
+
+> ⚠️ **Some items never take part.** An item described with `REDEFINES` or
+> `RENAMES` is left out of the pairing, and so is everything subordinate to it.
+> That is the standard's rule, and it is there to stop the same bytes being
+> moved twice under two names — a `66` regrouping and the items it renames are
+> the same storage. If a field mysteriously fails to copy, check whether it sits
+> under a `REDEFINES` branch.
+
+> **Note — a `66` regrouping belongs to its record, and can be qualified like
+> anything else.** A `66` sits outside the level hierarchy, which makes it look
+> free-floating, but it is subordinate to the record whose items it renames. So
+> the same `66` name may appear once per record and be told apart with
+> `OF`/`IN`, on reads and on writes:
+>
+> ```cobol
+>        01  T-DATA.
+>            02  TAG-1.
+>                03  TAG-1A     PIC XXXX.
+>                03  TAG-1B     PIC XXXXXX.
+>        66  SPAN RENAMES TAG-1A THRU TAG-1B.
+>        01  U-DATA.
+>            02  UNIT-1.
+>                03  UNIT-1A    PIC X(7).
+>                03  UNIT-1B    PIC XXXX.
+>        66  SPAN RENAMES UNIT-1A THRU UNIT-1B.
+>
+>            MOVE "CALIFORNIA" TO SPAN OF T-DATA.   *> TAG-1, not UNIT-1
+> ```
+>
+> Two more things follow from "a `66` is its covered items". A regrouping that
+> reaches over a table covers **every occurrence** of it, not just the first —
+> `66 R RENAMES ITEM-1 THRU TABLE-2` where `TABLE-2` is `PIC XXX OCCURS 5` is
+> twenty characters wide. And a regrouping of **exactly one** item takes that
+> item's whole description: `66 R RENAMES W` where `W` is `PIC 9(4)` is a
+> four-digit numeric item, so `ADD 3500 TO R` with 8000 in it raises
+> `ON SIZE ERROR` and leaves it alone, exactly as `ADD 3500 TO W` would.
+
+**One occurrence of a table is a legitimate operand.** Subscript the group and
+the pairing writes that occurrence's own fields:
+
+```cobol
+       01  A-FLOCK.
+           05  B-FLOCK OCCURS 4 TIMES.
+               10  C-FLOCK.
+                   15  CUST-NO    PIC 9(6).
+                   15  CUST-NAME  PIC X(30).
+           MOVE CORRESPONDING IN-REC TO C-FLOCK (4).   *> the 4th entry only
+```
+
+### Comparing a number with text
+
+`IF` compares two numbers **algebraically** — by value, sign and all. It
+compares two pieces of text **character by character**. What it does when you
+mix them is the rule worth knowing, because a screen field, a file record and a
+report line are all text:
+
+> **One numeric operand and one nonnumeric operand makes the whole comparison
+> nonnumeric.** The number is treated as though it had been moved to an
+> alphanumeric item **of its own size**, and the two are then compared as text.
+> That move carries the item's character positions and **not its sign**.
+
+```cobol
+       01  WS-AMOUNT   PIC S9(18).
+       01  WS-TYPED    PIC X(18).
+           MOVE -123456789012345678 TO WS-AMOUNT.
+           MOVE "123456789012345678" TO WS-TYPED.
+           IF WS-AMOUNT = WS-TYPED           *> TRUE — the sign is not compared
+```
+
+Three details decide whether the rule applies at all:
+
+- **The number must be an integer.** A `PIC S9(9)V9(9)` item has no character
+  position for its decimal point, so it has no text form to compare with. The
+  standard does not permit the comparison, and PowerRustCOBOL leaves such a
+  relation alone rather than inventing an answer.
+- **"Text" means *declared* as text.** A `PIC 99` item is numeric even at a
+  moment when it happens to hold characters — after a group `MOVE`, say — so
+  `IF WS-COUNT = 0` stays an ordinary numeric comparison.
+- **`ALL "x"` takes the size of the other operand**, which is the only size it
+  has: against a `PIC 9` item, `ALL "00"` is one character.
+
+> ⚠️ **The item's width is what is compared, not the value's.** `PIC 9(4)`
+> holding 12 is the four characters `0012`, so it equals `"0012"` and does *not*
+> equal `"12"`. If you are comparing a number against something a user typed,
+> compare against a field declared at the same width, or `MOVE` the number into
+> an edited item first and compare that.
+
+**Subscripts need only a space between them.** The comma is optional there too:
+
+```cobol
+       MOVE 1 TO CELL (1 2).
+       MOVE 1 TO CELL (1, 2).
+       MOVE W-3 TO CELL OF COLS OF ROWS (IDX-A IDX-B).
+```
+
+The last line is worth noting: the subscript follows the **complete** qualified
+name, which is the order the standard specifies.
+
+**Index-names, literals and relative indexing mix freely.** A table declared
+`INDEXED BY` may be subscripted by its index-names, by literals, or by both in
+the same reference — and a subscript may be *relative*, an index-name plus or
+minus an integer:
+
+```cobol
+       01  GRP-TAB1.
+           02  GRP-1 OCCURS 6 TIMES INDEXED BY IN1.
+               03  ELEM1 PIC XXX OCCURS 4 TIMES INDEXED BY IN2.
+           ...
+           MOVE ELEM1 (IN1, 1)     TO TEMP.
+           MOVE ELEM1 (1 IN2)      TO TEMP.
+           MOVE ELEM1 (IN1 - 1, 3) TO TEMP.
+           MOVE ELEM1 (IN1 +3)     TO TEMP.
+```
+
+> ⚠️ **Where the spaces go decides what the sign means.** `IN1 - 1` — spaces on
+> both sides — is *relative indexing*: **one** subscript, one less than the
+> index. `IN1 +3` — the sign glued to its digits — is a *signed literal opening
+> the next subscript*: **two** subscripts, the same as `IN1, +3`. And `I+1`,
+> glued on both sides, is ordinary arithmetic. This is the standard's own rule,
+> and it is the same spacing rule that makes `3-DEM-TBL` a name rather than a
+> subtraction.
+
+**A table of groups is addressed one occurrence at a time.** `GRP-1 (2)` above
+is not a slot of its own: it *is* `ELEM1 (2,1)` through `ELEM1 (2,4)`. Writing
+it spreads the bytes across those four, reading it concatenates them, and
+`GRP-TAB1` — the record above the table — is every occurrence laid end to end,
+so one `MOVE` copies the whole table:
+
+```cobol
+           MOVE "AAABBBCCCDDD" TO GRP-1 (1).
+           MOVE ELEM1 (1, 3)   TO TEMP.        *> CCC
+           MOVE GRP-TAB1       TO GRP-TAB2.    *> the entire table
+```
+
+**A name may begin with a digit.** A user-defined word is drawn from `A-Z`,
+`0-9` and the hyphen; only a *data-name* has to contain at least one letter, and
+a paragraph or section name does not even need that:
+
+```cobol
+       01  25COUNT       PICTURE 99.
+       01  3-DEM-TBL     REDEFINES 3-DIMENSION-TBL.
+       0 SECTION.
+```
+
+> ⚠️ **An operator needs spaces around it.** `B - C` is a subtraction; `B-C` is
+> a data-name. That is the standard's rule and it is what makes `3-DEM-TBL` and
+> `WRK-DS-18V00-S` read as the single names they are. If you mean to subtract,
+> put spaces around the sign.
+
+**A literal escapes its own delimiter by doubling it.** COBOL has no backslash:
+
+```cobol
+       DISPLAY 'IT''S WORKING'.          *> IT'S WORKING
+       DISPLAY "HE SAID ""HI""".         *> HE SAID "HI"
+```
+
+The other delimiter needs no escaping at all, so `"IT'S"` is usually simpler.
+A backslash is an ordinary character, so `"\"` is a one-character literal and
+`'C:\TEMP\'` means exactly what it says.
+
+**`ALL` before a figurative constant is redundant and allowed.** `MOVE ALL ZEROS` is `MOVE ZEROS`. Before a literal, `ALL` *repeats* it to fill the whole
+receiving field:
+
+```cobol
+       01  WS-BAR PIC X(10).
+           MOVE ALL "-" TO WS-BAR.       *> ----------
+           MOVE ALL "ab" TO WS-BAR.      *> ababababab
+```
+
+**A conditional phrase ends at the period.** `ON SIZE ERROR`, `AT END`,
+`INVALID KEY`, `ON OVERFLOW` and `ON EXCEPTION` each take an *imperative*, and
+the period that ends the sentence ends the phrase with it. This is worth
+knowing because the failure mode is silent: everything you meant to run
+unconditionally would instead run only when the condition fired.
+
+```cobol
+           DIVIDE A INTO B GIVING C
+               ON SIZE ERROR MOVE "P" TO FLAG.
+           DISPLAY FLAG.               *> always runs — the period closed the phrase
+```
+
+Write `END-DIVIDE` when you want the phrase closed without ending the sentence,
+which is what lets an arithmetic statement sit inside an `IF`:
+
+```cobol
+           IF READY
+               DIVIDE A INTO B GIVING C
+                   ON SIZE ERROR MOVE "P" TO FLAG
+               END-DIVIDE
+               DISPLAY FLAG
+           END-IF.
+```
+
+**`INTO` and `BY` name the operands in opposite orders.** This trips people up
+in every COBOL dialect, so it is worth stating plainly: the dividend is the
+operand `INTO` points *at*, and the one `BY` points *from*.
+
+```cobol
+           DIVIDE 20 BY 5 GIVING C.        *> C = 4   — 20 ÷ 5
+           DIVIDE 5 INTO 20 GIVING C.      *> C = 4   — 20 ÷ 5, written backwards
+           DIVIDE 5 INTO B.                *> B = B ÷ 5, in place
+           DIVIDE 2 INTO A B.              *> halves A, and halves B
+```
+
+> **Note — `REMAINDER` uses the quotient you actually stored.** The remainder is
+> the dividend minus *the receiver's value* times the divisor, truncated to that
+> receiver's PICTURE — not an integer quotient. With `C PIC 999V99`,
+> `DIVIDE 7 INTO 23 GIVING C REMAINDER R` gives `C = 3.28` and `R = 0.04`,
+> because 23 − (3.28 × 7) is 0.04. Declare `C` as an integer if you want the
+> integer-division remainder.
+
+**Every `01` under one `FD` describes the same record area.** An FD owns one
+buffer; each `01` is a different reading of it, exactly like `REDEFINES`. A
+value moved through one is immediately there through the others, and `WRITE`
+names whichever description is convenient:
+
+```cobol
+       FD  PRINT-FILE.
+       01  PRINT-REC     PICTURE X(120).
+       01  DUMMY-RECORD  PICTURE X(120).
+       ...
+           MOVE REPORT-LINE TO PRINT-REC.
+           WRITE DUMMY-RECORD AFTER ADVANCING 1 LINES.   *> writes REPORT-LINE
+```
+
+**`PERFORM` a section name and the whole section runs.** A section is its
+paragraphs, from its header to the next one; a `THRU` that names a section ends
+at that section's last paragraph. A `GO TO` whose target is inside the range
+stays inside it, and the `PERFORM` still returns when the range ends:
+
+```cobol
+           PERFORM CLEAN-UP-SECTION.
+           PERFORM OPEN-FILES THRU CLEAN-UP-SECTION.
+```
+
+**`PERFORM … VARYING` has three rules that catch people out.** All three are
+standard COBOL, and all three matter the moment a loop is doing anything less
+ordinary than counting from 1.
+
+*`WITH TEST AFTER` runs the body before it tests anything.* Written on either
+side of the phrase, and inline or out-of-line, it turns the loop into a
+do-while: the body runs once whatever the condition says, and only then are the
+conditions tested — **innermost first**. The level whose condition comes out
+false is stepped, every level inside it restarts at its `FROM` value, and the
+body runs again. A variable is stepped only when its own test is false, so the
+test that ends the loop leaves it exactly as the body left it.
+
+```cobol
+           PERFORM COUNT-IT WITH TEST AFTER
+                   VARYING WS-I FROM 9 BY 1 UNTIL WS-I > 5.
+       *>  COUNT-IT runs once; WS-I is still 9 afterwards.
+```
+
+*An `AFTER` variable goes back to its `FROM` value when its own loop ends.*
+Only the outermost `VARYING` variable keeps the value that ended it. So after
+
+```cobol
+           PERFORM COUNT-IT
+                   VARYING WS-A FROM 2 BY 2 UNTIL WS-A > 4
+                     AFTER WS-B FROM 10 BY -5 UNTIL WS-B = 0.
+```
+
+`WS-A` is 6 and `WS-B` is **10**, not 0. Reading an inner index after the loop
+to find out where it stopped will not tell you — carry the value out in a
+variable of your own.
+
+*A subscripted `VARYING` identifier follows its subscript.* It names whichever
+occurrence the subscript selects at that moment, so a body that moves the
+subscript walks the table:
+
+```cobol
+           PERFORM STEP-IT
+                   VARYING TBL (S1) FROM 10 BY INC (S2)
+                   UNTIL TBL (S1) > 70.
+```
+
+If `STEP-IT` adds 1 to `S1`, each pass steps the *next* element. That is
+deliberate in the standard and useful — but if you meant one element, keep the
+subscript out of the body.
+
+**A paragraph name may repeat across sections — qualify it to say which.** The
+same `OF`/`IN` that disambiguates a data name disambiguates a procedure name,
+and it works on `GO TO` as well as on `PERFORM`:
+
+```cobol
+       VALIDATE SECTION.
+       WRITE-ERROR.
+           MOVE "VALIDATION" TO ERR-STAGE.
+           GO TO WRITE-ERROR IN REPORTING.
+       ...
+       REPORTING SECTION.
+       WRITE-ERROR.
+           WRITE ERR-LINE.
+```
+
+Without the qualifier the jump goes to the **first** paragraph of that name in
+the program, which is rarely the one you meant. A section named in a qualifier
+that does not exist is ignored rather than fatal — the unqualified paragraph is
+used — so a typo in the section name shows up as the wrong branch running, not
+as a diagnostic. `GO TO … DEPENDING ON` takes a plain list and no qualifier.
+
+**Qualification goes as deep as it needs to.** `OF` and `IN` are the same word,
+they may be mixed, and the standard allows up to 49 levels — enough that any
+duplicated name can be made unique by naming as many of its parents as it takes:
+
+```cobol
+           ADD TBL-ITEM-1 OF TABLE-LEVEL-1A IN TABLE-LEVEL-2A
+                          OF TABLE-LEVEL-3A IN TABLE-LEVEL-4A
+                          OF TABLE-LEVEL-5A
+               TO ACCUMULATOR1.
+```
+
+> **Note.** You need only enough qualifiers to be unambiguous, and they must
+> appear in inner-to-outer order — but they need not be *consecutive* levels.
+
+### Handing a whole table to a function
+
+The statistical intrinsics take a variable number of arguments, and COBOL-85
+lets you pass an entire table by subscripting it with the reserved word `ALL`:
+
+```cobol
+       01  READINGS.
+           05  SAMPLE PIC 9(4) OCCURS 5 TIMES.
+       ...
+           COMPUTE WS-PEAK = FUNCTION MAX(SAMPLE(ALL)).
+           COMPUTE WS-AVG  = FUNCTION MEAN(SAMPLE(ALL)).
+```
+
+One written argument becomes one argument per occurrence. It works for `MAX`,
+`MIN`, `SUM`, `MEAN`, `MEDIAN`, `MIDRANGE`, `RANGE`, `VARIANCE`,
+`STANDARD-DEVIATION`, `ORD-MAX` and `ORD-MIN`.
+
+`ALL` may sit in one dimension of a multi-dimensional table with ordinary
+subscripts in the others, and expands in row-major order — so this sums one
+column:
+
+```cobol
+           COMPUTE WS-COL2 = FUNCTION SUM(CELL(ALL, 2)).
+```
+
+An `OCCURS … DEPENDING ON` table expands against its count at the moment the
+function is called.
+
+> **A function name you did not implement is now a compile error.** An
+> unrecognised `FUNCTION` used to return **0** silently, so a typo produced a
+> confident wrong answer that nothing reported. `FUNCTION SQRTT(4)` now fails to
+> compile and says *did you mean FUNCTION SQRT?*
+
+### Closing a file for good: `WITH LOCK`
+
+```cobol
+       CLOSE CUSTOMER-FILE WITH LOCK.
+```
+
+A file closed `WITH LOCK` may not be reopened in the same run. A later `OPEN`
+sets **file status 38** rather than succeeding, so the lock is a real
+guarantee rather than a comment. The tape phrases parse and are accepted as
+no-ops on disk:
+
+```cobol
+       CLOSE REEL-FILE REEL FOR REMOVAL.
+       CLOSE TAPE-FILE WITH NO REWIND.
+```
+
+### Debugging lines
+
+A `D` in **column 7** marks a *debugging line*. It is a **comment** unless the
+program asks for it:
+
+```cobol
+       SOURCE-COMPUTER. XYZ WITH DEBUGGING MODE.
+```
+
+Without that clause the line is not compiled — which is the standard's default,
+and the point of the feature: you leave your traces in the source and switch
+them on only when you need them.
+
+> ⚠️ **Fixed format only.** Free format has no indicator area, so it has no
+> debugging lines: a `D` there is an ordinary COBOL word.
+
+### Long and awkward text: the ``` block literal
+
+**This is a PowerRustCOBOL extension, not COBOL-85.** The standard has no
+multi-line literal at all — continuation is a fixed-format column mechanism —
+so free-format source had no way to write one, and no way to write a literal
+full of quotation marks without doubling every one.
+
+A block literal is fenced the way a Markdown code block is. The text is the
+lines *between* the fences, taken **verbatim**:
+
+````cobol
+       MOVE
+```
+Hello, World!
+```
+       TO WS-GREETING.
+````
+
+`WS-GREETING` receives `Hello, World!`.
+
+The rules are short:
+
+
+|                                                        |                                                                           |
+| ------------------------------------------------------ | ------------------------------------------------------------------------- |
+| The text starts on the **line after** the opening fence | anything after ``` on that line is a tag, like Markdown's `json`           |
+| The closing fence's line is **not** text                | nor is the newline before it, so a one-line block has no trailing newline |
+| Interior newlines **are** kept                          | that is the whole point                                                   |
+| **No escaping**                                        | quotes and apostrophes are literal characters                             |
+
+Which makes embedded JSON, SQL and HTML readable:
+
+````cobol
+       MOVE
+```json
+{"name": "O'Brien", "tags": ["a", "b"], "ok": true}
+```
+       TO WS-PAYLOAD.
+       COBOL::"HTTP-POST" ( WS-URL WS-PAYLOAD WS-RESPONSE WS-HTTP-STATUS ).
+````
+
+> ⚠️ **Free format only.** Fixed format has an indicator column and a sequence
+> area, so a line of backticks there means something else and is refused.
+
+### Unique declarations are enforced
+
+Every program unit must declare its mandatory structural elements **once and only
+once**. PowerRustCOBOL checks this while it reads your source and **refuses to
+run the program** until you fix it — exactly as a compiler would flag a redeclared
+symbol. The rule covers:
+
+- a single `PROGRAM-ID`;
+- at most one `ENVIRONMENT`, `DATA`, and `PROCEDURE` DIVISION header;
+- unique **section** names within the program, and unique **paragraph** names
+  within their section (or within the program when no sections are used).
+
+For example, this is rejected because the program names itself twice:
+
+```cobol
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. MYPROG.
+       PROCEDURE DIVISION.
+           DISPLAY "Hello".
+       PROGRAM-ID. MYPROGNEWNAME.   *> ✗ PROGRAM-ID declared more than once
+           STOP RUN.
+```
+
+The IDE shows the error in the **Problems** panel (and the CLI prints it) with the
+offending line, and the Run/Build action is blocked until the duplicate is
+removed. Legitimate multi-unit sources — sequential sibling programs each closed
+by `END PROGRAM name.`, or true nested programs — are **not** affected: each unit
+gets its own `IDENTIFICATION DIVISION` and is validated independently.
+
+> This is a structural check, not a style suggestion. There is no flag to
+> override it; redeclaring a unique element is always an error.
+
+### `STRING` with smart default delimiters
+
+> **First, the standard rule this builds on: one `DELIMITED BY` covers every
+> sender written before it.** The phrase governs the whole *series*, not the
+> sender it happens to sit next to:
+>
+> ```cobol
+>            STRING WS-FIRST WS-MIDDLE WS-LAST
+>                DELIMITED BY SPACE INTO WS-FULL-NAME
+> ```
+>
+> delimits all three. Write several phrases and each governs the senders since
+> the previous one, so this splits the first pair on a space and the second on a
+> comma:
+>
+> ```cobol
+>            STRING WS-FIRST WS-LAST   DELIMITED BY SPACE
+>                   WS-CITY  WS-REGION DELIMITED BY ","
+>                INTO WS-LINE
+> ```
+>
+> Senders written after the last phrase take the whole of each.
+
+Standard COBOL makes you write `DELIMITED BY` on **every** `STRING` operand, even
+when the obvious choice is the only sensible one. RustCOBOL keeps that explicit
+form working, but when **no phrase governs an operand** it picks the right
+default from the operand's category — so the common case reads like plain text:
+
+
+| Operand                         | Default               | Why                               |
+| ------------------------------- | --------------------- | --------------------------------- |
+| String literal (`" earns "`)    | `DELIMITED BY SIZE`   | take it verbatim, spaces included |
+| Alphanumeric item (`PIC X`/`A`) | `DELIMITED BY SPACES` | drop the trailing space padding   |
+| Numeric item (`PIC 9`/`S9`)     | `DELIMITED BY SIZE`   | move the field's characters       |
+| Numeric-edited (`PIC ZZ9.99`)   | `DELIMITED BY SIZE`   | move the edited characters        |
+| `FUNCTION …` / expression      | `DELIMITED BY SIZE`   | move the whole computed value     |
+
+A data item is moved **in its field form** — exactly the characters it stores: a
+`PIC S9(9)` holding `100000` contributes `000100000` (full PIC width), a
+`PIC ZZZ,ZZ9.99` contributes its edited text. So this:
+
+```cobol
+       01 NAME-X        PIC X(40)        VALUE "Joe".
+       01 SALARY        PIC S9(09)       VALUE 100000.
+       01 SALARY-EDITED PIC ZZZ,ZZZ,ZZ9.99.
+       01 TEXT-OUT      PIC X(100).
+       ...
+           MOVE SALARY TO SALARY-EDITED
+           STRING NAME-X
+                  " earns "
+                  SALARY
+                  " or US$"
+                  FUNCTION TRIM(SALARY-EDITED)
+             INTO TEXT-OUT
+```
+
+produces:
+
+```text
+Joe earns 000100000 or US$100,000.00
+```
+
+`DELIMITED BY SPACES` here keeps any **internal** spaces (`"Joe Smith"` stays
+`"Joe Smith"`) and trims only the trailing pad. Writing an explicit
+`DELIMITED BY …` phrase always overrides the default for every sender it
+governs.
+
+**`INTO` a group item** works and distributes the result across the group's
+subordinate items, filling them left to right by their own widths — a
+`STRING … INTO` a five-byte group made of `PIC XX` and `PIC XXX` leaves the
+first two characters in one and the next three in the other.
+
+The result is built **byte by byte**, so `STRING HIGH-VALUE` contributes the
+single byte it names and occupies exactly one character position of the
+receiver.
+
+### Searching tables: `SEARCH` and `SEARCH ALL`
+
+Both forms of the COBOL table search work over an `OCCURS` table that declares an
+`INDEXED BY` index.
+
+- **`SEARCH`** is a **serial** scan: it walks the table from the *current* index
+  value upward, running the first `WHEN` whose condition is true, or the
+  `AT END` phrase if it runs off the end. Set the index (`SET idx TO 1`) before
+  searching to control where the scan starts.
+- **`SEARCH ALL`** is a **binary** search and is dramatically faster on large
+  tables. It requires the table to be **sorted** on the key named in its
+  `ASCENDING KEY` (or `DESCENDING KEY`) clause, and each `WHEN` must test that key
+  for equality. RustCOBOL performs a true bisection: on average it probes
+  `log₂(n)` entries instead of `n`.
+
+```cobol
+       01  CITY-TABLE.
+           05  CITY-ENTRY OCCURS 5 TIMES
+               ASCENDING KEY IS CITY-CODE
+               INDEXED BY CITY-IX.
+               10 CITY-CODE PIC 9(2).
+               10 CITY-NAME PIC X(12).
+       ...
+           SEARCH ALL CITY-ENTRY
+               AT END   DISPLAY "not found"
+               WHEN CITY-CODE (CITY-IX) = WS-WANTED
+                   DISPLAY "found: " CITY-NAME (CITY-IX)
+           END-SEARCH
+```
+
+> ⚠️ `SEARCH ALL` assumes the table really is ordered on its key. As in standard
+> COBOL, searching an unsorted table with `SEARCH ALL` gives an undefined result —
+> use the serial `SEARCH` if the data is not in key order.
+
+### Centralised file-error handling: `DECLARATIVES`
+
+A `DECLARATIVES … END DECLARATIVES` block at the head of the `PROCEDURE DIVISION`
+lets you handle file errors in one place instead of writing an `INVALID KEY` /
+`AT END` phrase on every statement. Each declarative is a `SECTION` whose first
+statement is `USE AFTER STANDARD ERROR PROCEDURE ON …`:
+
+```cobol
+       PROCEDURE DIVISION.
+       DECLARATIVES.
+       CUST-ERROR SECTION.
+           USE AFTER STANDARD ERROR PROCEDURE ON CUSTOMER-FILE.
+       REPORT-IT.
+           DISPLAY "I/O error on customer file, status " CUST-STATUS.
+       END DECLARATIVES.
+       MAIN SECTION.
+       MAIN-PARA.
+           OPEN INPUT CUSTOMER-FILE.   *> if this fails, REPORT-IT runs
+           ...
+```
+
+The `USE` target can be one or more **file names** (`ON file-1 file-2`), an
+**open mode** (`ON INPUT`, `ON OUTPUT`, `ON I-O`, `ON EXTEND`), or nothing (a
+catch-all that covers every file). **`ON` is optional** — `USE AFTER STANDARD ERROR PROCEDURE OUTPUT.` means the same as `… PROCEDURE ON OUTPUT.`, and a
+program may mix the two spellings across its handlers. When a file operation (`OPEN`, `READ`,
+`WRITE`, `REWRITE`, `DELETE`, `START`, `CLOSE`) finishes with an **error**
+`FILE STATUS` (any class other than `0x`), the matching declarative runs — unless
+that same statement carried its own `AT END` / `INVALID KEY` phrase, which always
+takes precedence. After the declarative returns, control continues with the
+statement after the failed operation. (A declarative's own I/O does not
+re-trigger itself.)
+
+**A handler is a section, with real paragraphs.** It is entered at the top of its
+section and flows through the paragraphs to the section's end, and those
+paragraphs keep their names — so a handler can be written the way you would
+write any other procedure:
+
+```cobol
+       DECLARATIVES.
+       CUST-ERROR SECTION.
+           USE AFTER STANDARD ERROR PROCEDURE ON CUSTOMER-FILE.
+       CLASSIFY.
+           IF CUST-STATUS = "35"
+               PERFORM REPORT-MISSING
+               GO TO CUST-ERROR-EXIT.
+           PERFORM REPORT-OTHER.
+       REPORT-MISSING.
+           DISPLAY "Customer file not found.".
+       REPORT-OTHER.
+           DISPLAY "I/O error, status " CUST-STATUS.
+       CUST-ERROR-EXIT.
+           EXIT.
+       END DECLARATIVES.
+```
+
+`PERFORM` and `GO TO` inside a handler reach that section's paragraphs, any
+*other* declarative section's paragraphs, and paragraphs of the ordinary body.
+
+> ⚠️ **Caveat — the two portions do not run into each other.** The declaratives
+> are a separate procedure area: your main body never *falls* into a handler,
+> and a handler ends at the end of its own section rather than continuing into
+> the next one. If a paragraph name is declared in both portions, a reference
+> made inside a handler resolves to the declarative's copy and one made in the
+> body resolves to the body's. Coming from PowerCOBOL or isCOBOL this is the
+> familiar rule; the point worth remembering is that it is enforced, not
+> incidental.
+
+**Some statuses only a declarative will tell you about.** Three error paths the
+sequential verbs report are easy to miss because nothing else surfaces them:
+
+
+| Situation                                                                                       | `FILE STATUS` |
+| ----------------------------------------------------------------------------------------------- | ------------: |
+| `OPEN` of a file that is **already open** (the file is left as it was — it is *not* re-opened) |          `41` |
+| A sequential `READ` **after** `AT END` — the end left no valid next record                      |          `46` |
+| `CLOSE` of a file that was never opened                                                         |          `42` |
+
+`46` is a class-4 status, so neither `AT END` nor `NOT AT END` runs for it: a
+declarative (or an explicit `FILE STATUS` test) is the only way to see it. A
+fresh `OPEN`, or a successful `START`, establishes a record again.
+
+> **Note.** `FILE STATUS` may name a two-character **group** item —
+> `01 CUST-STATUS. 03 CS-1 PIC X. 03 CS-2 PIC X.` — as well as an ordinary
+> `PIC XX`. Both receive the code.
+
+### Copybook paths in `COPY`
+
+`COPY` takes the copybook as a word (`COPY CUSTREC.`) or as a literal, and the
+literal may carry a folder. It is looked for **beside the program first, then
+from the project's folder** — the one holding the project's `.project.toml`.
+If no file matches the name exactly, the extensions `.cpy`, `.cbl`, `.cob`,
+`.cpb` and `.cobol` are tried in turn:
+
+```cobol
+       WORKING-STORAGE SECTION.
+       COPY "txt\Padrao.ws".
+       COPY "txt/Padrao.ws".
+```
+
+Both lines name the same file. A backslash is read as a folder separator on
+**every** platform, so sources brought over from Windows (the PowerCOBOL
+habit) compile unchanged on macOS and Linux. A copybook that itself contains
+`COPY` resolves its names from its own folder first.
+
+> **Note — sources written on Windows.** A program (`.cbl`) or a copybook
+> saved as UTF-8 is read as such. One that is not — saved by PowerCOBOL or
+> another Windows editor in **Windows-1252** (or Latin-1), where `ç`, `ã` or
+> `é` is a single byte — is read as Windows-1252, so its accents arrive intact:
+> by `rcrun`, by **Run** and **Build**, in every `COPY`. The editor opens such
+> a file with its accents and **saves it back in Windows-1252**, so the editor
+> that wrote it still reads it; only a character Windows-1252 has no place for
+> (Japanese or Chinese text, say) makes it save the file as UTF-8 instead.
+> Single or double quotes around a `COPY` name are the same:
+> `COPY 'txt/Padrao.ws'.`
+
+> ⚠️ **Caveat — an accented letter takes two bytes.** Text is held as UTF-8
+> at run time, whatever the file's encoding, and `PIC X(n)` counts bytes: `ç`,
+> `ã` or `é` takes two, `–` or `€` three. `PIC X(30) VALUE "Configuração
+> concluída – ok"` — 27 characters, 32 bytes — keeps only what fits in 30.
+> Leave room in fields that hold accented text.
+
+**In a form**, write the path from the project's folder: a form's program is
+generated into the project's `generated/` folder, which you never write in, so
+`COPY "txt\Padrao.ws"` finds `<project>/txt/Padrao.ws`. It works in every
+block you write — FILE-CONTROL, FILE SECTION, WORKING-STORAGE, and a handler's
+own WORKING-STORAGE and PROCEDURE DIVISION — under the form check, **Run
+Form** and a built application alike.
+
+> **Note — `GLOBAL` travels with the copybook.** A form's event handlers are
+> programs nested inside the form's program, and they see only the form items
+> declared `GLOBAL` (`01 WS-PADRAO GLOBAL PIC X(20).`, `FD CUST-FILE IS
+> GLOBAL.`). A copybook copied into the form's WORKING-STORAGE or FILE SECTION
+> follows the same rule, so declare its items `GLOBAL` when a handler uses them.
+
+> **Note — line numbers stay yours.** Every line after a `COPY` keeps the
+> number you wrote — in an error, the debugger's current line and a
+> breakpoint. Something reported *inside* a copybook is reported on the line
+> of the `COPY` that brought it in.
+
+### Where a relative `ASSIGN` path starts
+
+`SELECT SETTINGS-FILE ASSIGN TO "data/settings.idx"` — or the same path held in
+a data item — names a file **relative to the application's folder**: the
+project folder under **Run Form**, and the folder holding `assets/` in a built
+application (`bin/` during development, the hand-over folder in `dist/`). It is
+the same anchor your images, your Knowledge Base and your Indexed bindings
+already use, so a relative path means the same file in every place the program
+runs, whoever launched it and from wherever.
+
+An absolute path is used exactly as written. A console program run with
+`rcrun run` has no application folder, so there a relative path starts at the
+current directory, as it always has.
+
+> ⚠️ **The folder has to exist.** `OPEN OUTPUT` creates a file, not the folders
+> above it: ship an empty `data/` folder with the project (a `README.md` in it
+> is enough to keep it in version control), or the first `OPEN OUTPUT` fails —
+> `30` for a sequential file, `90` for an indexed one.
+
+### Opening a file that may not be there: `SELECT OPTIONAL`
+
+Only `OPEN OUTPUT` creates a file. `OPEN INPUT`, `OPEN I-O` and `OPEN EXTEND`
+all expect the file to exist, and its absence is `FILE STATUS` **`35`** — which
+is usually what you want, because a missing master file is a problem worth
+stopping for.
+
+A refused `OPEN` leaves the file **closed**, whatever the status. So the
+familiar way to create a keyed file on first use works as written: answer a
+`35` with `OPEN OUTPUT`, `CLOSE`, then `OPEN I-O` again. A `CLOSE` straight
+after a refused `OPEN` answers `42` — the file was never open.
+
+When it is *not* a problem — an optional transaction file, a log that starts
+empty on first run — say so in the `SELECT`:
+
+```cobol
+       FILE-CONTROL.
+           SELECT OPTIONAL DAILY-TRANSACTIONS
+               ASSIGN TO "trans.dat"
+               ORGANIZATION IS SEQUENTIAL
+               FILE STATUS IS TRANS-STATUS.
+```
+
+Now a missing file is created instead of refused, and the `OPEN` reports **`05`**
+so the program can tell the two cases apart — `00` means the file was already
+there, `05` means it was not. Opened `INPUT`, a file that was not there behaves
+as an empty one: the first `READ` raises `AT END`.
+
+### Printing a report into a Viewer: `ASSIGN TO VIEWER`
+
+A report has always had two destinations — a printer, or a file you then have to
+find and open in something else. There is a third:
+
+```cobol
+       FILE-CONTROL.
+           SELECT REPORT-FILE ASSIGN TO VIEWER "VWR-1"
+               ORGANIZATION IS MARKDOWN
+               FILE STATUS IS REPORT-STATUS.
+```
+
+`"VWR-1"` is the **id of a Viewer control on the form**, exactly as it appears
+in the Form Designer. Everything else about the file is the COBOL you already
+write: the same `FD`, the same record description, the same `OPEN OUTPUT`,
+`WRITE` and `CLOSE`. Only the destination changed.
+
+What changes with `ORGANIZATION` is how the lines are **read**:
+
+| `ORGANIZATION IS` | The Viewer shows | Page control |
+|---|---|---|
+| `SEQUENTIAL` | plain text | **yes** — `ADVANCING PAGE` makes a page |
+| `MARKDOWN` | Markdown, rendered: headings, tables, emphasis | no |
+| `HTML` | HTML, rendered — the subset the Viewer draws, styled by its CSS, no scripts | no |
+
+Each `WRITE` contributes one line, with trailing spaces removed. Leading and
+intervening spaces are kept, which is what a report's columns are made of.
+
+#### When the report appears
+
+On `CLOSE`. Not before — a half-written report is not a document, and a reader
+watching a page assemble line by line is watching the machine work rather than
+reading. `STOP RUN` closes an open file, so a program that ends without `CLOSE`
+still shows its report.
+
+The report lands in **view 1**, and nothing else about the control changes: the
+`Layout`, `Zoom`, `SplitMode` and `FontSize` you set are yours.
+
+#### It really is a file
+
+The report is written to a real file in the operating system's temporary
+directory, named after the form. That is what makes the rest of the Viewer work
+on it with no effort from you: **Save As** writes exactly those bytes,
+**Print** hands that file to the platform, and search, zoom and the card grid
+behave as they do for any document you opened yourself.
+
+When the temporary directory cannot be written, the report is held in memory and
+displayed from there instead. Nothing about the program changes; a filesystem
+problem simply cannot cost you the report.
+
+#### A paged report
+
+`ORGANIZATION IS SEQUENTIAL` keeps traditional print page control, and the page
+breaks you write are the pages the reader turns in the `Page` layout:
+
+```cobol
+       PRINT-HEADINGS.
+           MOVE "SALES BY REGION" TO REPORT-LINE
+           WRITE REPORT-LINE AFTER ADVANCING PAGE.
+
+       PRINT-DETAIL.
+           MOVE DETAIL-LINE TO REPORT-LINE
+           WRITE REPORT-LINE AFTER ADVANCING 2 LINES.
+```
+
+`AFTER ADVANCING 2 LINES` leaves one blank line, as it does on paper —
+`ADVANCING 1 LINE` is single spacing. In a **Markdown** report that blank line
+is not decoration: it is what separates one paragraph, or one table, from the
+next, so `ADVANCING n LINES` is accepted in all three organizations.
+
+`ADVANCING PAGE`, the `FD`'s `LINAGE` clause and `AT END-OF-PAGE` describe a
+printed page, and Markdown and HTML flow — they have no pages to break. Writing
+either on a rendered report is reported when you check the program, rather than
+quietly dropping the page breaks you asked for.
+
+> **Note** — `LINAGE-COUNTER` is one name for the whole program. A program with
+> two `LINAGE` files at once shares it between them; the overwhelmingly common
+> shape is one printed report, and that is the shape it serves.
+
+#### What a report will not do
+
+- **It cannot be read.** `OPEN INPUT` or `OPEN I-O` on a `VIEWER` file is
+  refused with `FILE STATUS` **`37`** — a Viewer is somewhere to print, not a
+  file to read back. Open the document with `Source` if you want to read it.
+- **It needs a form.** A console program has no Viewer to print into, and its
+  `OPEN` is refused with **`93`**.
+- `ASSIGN TO VIEWER` with no control id after it is **`31`**.
+- A **second** report closed into the same Viewer replaces the first. The first
+  one's file is left where it is — the operating system owns its temporary
+  directory, and deleting the file would break a Save As the reader had not got
+  to yet.
+- A report with **no records** is still a report: an empty document, which is a
+  result like any other.
+
+⚠️ A report held in memory (the fallback above) is held whole. One written to a
+file is indexed as the reader moves through it, so a very large report is
+cheaper on disk than in memory — which is the usual case, and the one you get
+unless the temporary directory refuses you.
+
+### Ending a tape volume: `CLOSE … REEL` / `CLOSE … UNIT`
+
+`CLOSE file REEL` and `CLOSE file UNIT` end a *volume* of a multi-volume tape.
+They do **not** close the file — it stays open and the next `READ` or `WRITE`
+carries on. On disk there are no volumes, so the statement reports **`07`**:
+successful, but this file is not on a reel/unit medium.
+
+> ⚠️ `07` is a class-0 (success) status, so it does not run a `USE` declarative.
+> If you are porting a tape job, the thing to check is that your code does not
+> treat `CLOSE … REEL` as "the file is finished" — it never was.
+
+### How long is a record? The FD `RECORD` clause
+
+Coming from PowerCOBOL or isCOBOL you will have written records of one fixed
+size most of the time, and that is still the default: with no `RECORD` clause the
+`01` record description gives the length, and the file is a plain run of
+equal-sized records.
+
+The clause matters when records **vary**. It has three spellings.
+
+**Fixed** — documentation, and a check on the record description:
+
+```cobol
+       FD  LEDGER-FILE
+           RECORD CONTAINS 120 CHARACTERS.
+       01  LEDGER-RECORD PIC X(120).
+```
+
+**Variable, sized by the record you write.** Give a range, then declare a record
+description per size. Each `WRITE` sends as many characters as the record it
+names, and each `READ` gives back exactly what was written:
+
+```cobol
+       FD  CUSTOMER-FILE
+           RECORD CONTAINS 120 TO 151 CHARACTERS.
+       01  SHORT-RECORD.
+           02  CUST-KEY    PIC X(120).
+       01  LONG-RECORD.
+           02  CUST-KEY-2  PIC X(120).
+           02  CUST-NOTES  PIC X(31).
+       ...
+           WRITE SHORT-RECORD.     *> 120 characters
+           WRITE LONG-RECORD.      *> 151 characters
+```
+
+**Variable, sized by a data item** — `DEPENDING ON` makes an item *be* the
+length, and it works in both directions:
+
+```cobol
+       FD  CUSTOMER-FILE
+           RECORD IS VARYING IN SIZE FROM 120 TO 151 CHARACTERS
+             DEPENDING ON WS-RECORD-LENGTH.
+       ...
+       WORKING-STORAGE SECTION.
+       01  WS-RECORD-LENGTH PIC 999.
+       ...
+           MOVE 151 TO WS-RECORD-LENGTH.
+           WRITE LONG-RECORD.              *> writes 151 characters
+           ...
+           READ CUSTOMER-FILE
+               AT END SET END-OF-FILE TO TRUE
+           END-READ.
+           DISPLAY "read " WS-RECORD-LENGTH " characters".
+```
+
+Set it before the `WRITE`; read it after the `READ`. A length outside the
+declared `FROM … TO` range is a boundary violation — `FILE STATUS` **`44`**, and
+nothing is written. It is not quietly rounded into range: a record the FD forbids
+is a bug worth hearing about.
+
+> **Note.** An FD whose `01` records are of **different sizes** is a
+> variable-length file whether or not it says so — the `RECORD` clause is
+> optional and the record descriptions are what count. If you meant fixed-length
+> records, keep the descriptions the same size (or say `RECORD CONTAINS n CHARACTERS`).
+
+> ⚠️ **A variable-length file is not interchangeable with a fixed-length one.**
+> Its records carry their own lengths, because that is the only way `READ` can
+> know where each one ends. A file written through a fixed-length FD is not read
+> correctly through a variable-length FD, or the other way round — so if two
+> programs share a file, give them the same `RECORD` clause.
+
+**Every `01` under an FD describes the same storage.** They are not separate
+buffers: `SHORT-RECORD` and `LONG-RECORD` above are two readings of one record
+area, exactly as in the COBOL you already write. So a `READ` fills in both — the
+long record's `CUST-NOTES` is there after reading a long record — and a `WRITE`
+sends the whole area, including any part the record it names covers only with
+`FILLER`.
+
+**`FILLER` holds its bytes.** An unnamed item in a record description is space
+you cannot address by name, not space that disappears:
+`02 FILLER PIC X(120).` is 120 characters of the record, and a record built
+entirely from `FILLER` still carries whatever a group `MOVE` put into it.
+
+**`SIGN IS SEPARATE CHARACTER` costs a character.** `PIC S9(5)` occupies five
+positions with the sign riding on a digit; `PIC S9(5) SIGN IS LEADING SEPARATE CHARACTER` occupies **six**, the extra one holding a literal `+` or `-`. Count it
+when you are laying out a record by hand.
+
+### Reading straight into working storage: `READ … INTO`
+
+`READ file INTO identifier` is the `READ` followed by a group `MOVE` of the
+record to `identifier` — which is worth stating plainly, because it means the
+move follows **group-move rules** and not the receiving item's `PICTURE`:
+
+```cobol
+       01  WS-SUMMARY-AREA.
+           02  WS-ACCOUNT  PIC X(12).
+           02  WS-BALANCE  PIC X(10).
+       ...
+           READ LEDGER-FILE INTO WS-SUMMARY-AREA
+               AT END SET END-OF-FILE TO TRUE
+           END-READ.
+```
+
+The record's characters are laid across the receiver's subordinate items left to
+right, each taking its own width, and the record is **cut at the receiver's total
+width** — a 120-character record into a 22-character group delivers the first 22
+characters and leaves everything declared after the group alone. A receiver
+shorter than the record is therefore normal, not an error.
+
+The receiver may be subscripted (`READ LEDGER-FILE INTO TABLE-ENTRY (WS-I)`), and
+the record area itself is left holding the record as well, so you can read it
+through the `01` too.
+
+### Updating a sequential file in place: `REWRITE`
+
+`REWRITE` replaces the record the last `READ` delivered. The file must be open
+`I-O`, and the pattern is always read-then-rewrite:
+
+```cobol
+           OPEN I-O LEDGER-FILE.
+           READ LEDGER-FILE
+               AT END SET END-OF-FILE TO TRUE
+           END-READ.
+           MOVE "SETTLED" TO LEDGER-STATUS.
+           REWRITE LEDGER-RECORD.
+```
+
+The read position is not disturbed: the next `READ` still gives the record that
+*follows* the one you replaced, so a read-modify-rewrite loop walks the file
+exactly once.
+
+Three things it will refuse, each with a `FILE STATUS` worth testing for:
+
+
+| Situation                                                                                                           | Status |
+| ------------------------------------------------------------------------------------------------------------------- | ------ |
+| The file is not open `I-O`                                                                                           | `49`   |
+| No successful `READ` established a record — including after `AT END`, and a second `REWRITE` with no `READ` between | `43`   |
+| The new record is not the same length as the one read                                                               | `44`   |
+
+The length rule is the one that surprises people coming from indexed files.
+A sequential file has no room to grow a record in place — everything after it
+would have to move — so on a `RECORD … DEPENDING ON` file the item's value at
+`REWRITE` time must equal the length the `READ` reported. Changing it and
+rewriting is how you *ask* for a different length, and `44` is the answer.
+
+> **Note.** `REWRITE` never repositions the file, so there is no such thing as
+> rewriting "the record I read three reads ago". Keep the loop tight: read,
+> change, rewrite, read again.
+
+### Addressing records by number: `ORGANIZATION IS RELATIVE`
+
+A **relative** file is a table of numbered slots, not a list of records. Slot
+*n* either holds a record or is empty, and an empty slot keeps its number:
+deleting record 7 does not renumber record 8. If you have used relative files
+in PowerCOBOL or isCOBOL the model is the familiar one, and it sits neatly
+between the two organizations either side of it — a sequential file you can
+only walk, an indexed file you address by a key inside the record, and a
+relative file you address by the record's *position*.
+
+That number lives in the `RELATIVE KEY` item, which is in WORKING-STORAGE, **not
+in the record**:
+
+```cobol
+       SELECT CUSTOMER-FILE ASSIGN TO "customers.rel"
+           ORGANIZATION IS RELATIVE
+           ACCESS MODE IS DYNAMIC
+           RELATIVE KEY IS CUST-SLOT
+           FILE STATUS IS CUST-STATUS.
+```
+
+`RELATIVE KEY` is required for `RANDOM` and `DYNAMIC` access and for `START`;
+a file you only ever walk with `ACCESS MODE IS SEQUENTIAL` may omit it. Both
+`KEY` and `IS` are optional, so `RELATIVE KEY RK` and plain `RELATIVE RK` name
+the same item — useful to know when reading older source.
+
+**Creating a file.** In the sequential access mode you do not choose the
+numbers — each `WRITE` takes the next slot, and the engine puts the number it
+used into the `RELATIVE KEY` item. That is how a program that creates a file
+learns its own record numbers:
+
+```cobol
+           OPEN OUTPUT CUSTOMER-FILE.
+           PERFORM 1000-BUILD-ONE UNTIL NO-MORE-INPUT.
+      *    After each WRITE, CUST-SLOT holds the number just assigned.
+```
+
+**Addressing a record directly.** Under `RANDOM` or `DYNAMIC` you set the
+number first, and every verb acts on that slot:
+
+```cobol
+           MOVE 417 TO CUST-SLOT.
+           READ CUSTOMER-FILE
+               INVALID KEY DISPLAY "NO RECORD 417"
+           END-READ.
+```
+
+**Walking it.** `READ … NEXT` and `READ … PREVIOUS` visit the occupied slots in
+number order and skip the empty ones, and each read reports the slot it
+delivered in the `RELATIVE KEY` item — the only way to know *where* the record
+you just read actually sits.
+
+**Positioning without reading.** `START` moves to the first slot matching the
+comparison and delivers nothing; the following `READ NEXT` returns that record:
+
+```cobol
+           MOVE 400 TO CUST-SLOT.
+           START CUSTOMER-FILE KEY IS NOT LESS THAN CUST-SLOT
+               INVALID KEY SET NO-SUCH-RECORD TO TRUE
+           END-START.
+           READ CUSTOMER-FILE NEXT RECORD AT END ...
+```
+
+**Changing and removing.** `REWRITE` and `DELETE` name their record by number
+under random or dynamic access, or act on the record the last `READ` delivered
+in the sequential access mode. `DELETE` empties the slot; the number stays
+addressable and later records do **not** move down.
+
+The statuses worth testing for:
+
+
+| Situation                                                                    | Status           |
+| ---------------------------------------------------------------------------- | ---------------- |
+| `WRITE` onto a slot that already holds a record                              | `22`             |
+| `WRITE`, `READ`, `REWRITE` or `DELETE` with a `RELATIVE KEY` of zero         | `24`             |
+| `READ`, `REWRITE`, `DELETE` or `START` on an empty slot, or one past the end | `23`             |
+| `READ NEXT` / `PREVIOUS` with no further record                              | `10`             |
+| A sequential `READ` whose record number will not fit the `RELATIVE KEY` item  | `14`             |
+| Sequential `REWRITE` or `DELETE` with no `READ` before it                     | `43`             |
+| The file is not open in the mode the verb needs                              | `47`, `48`, `49` |
+
+**Size the key item for the whole file.** Status `14` is the one on that list
+that catches people out, because it is caused by a *declaration* rather than by
+anything the program does. The width of the `RELATIVE KEY` PICTURE decides how
+large a record number can be reported, so a `PIC 99` key over a 500-record file
+walks happily to record 99 and then cannot say where it is:
+
+```cobol
+       01  CUST-SLOT PIC 99.      *> reads 1-99, then status 14
+```
+
+`14` is an at-end class condition like `10`, so the `AT END` phrase is what
+handles it — which means a loop that only checks `AT END` will stop early and
+look, from the outside, as though the file simply ended.
+
+Storage follows the same `STORAGE [MODE] IS MEMORY | DISK` clause as indexed
+files (see §14), and the two containers are required to answer identically — a
+program must not be able to tell which one it is running on. `RECORD IS VARYING` works as it does elsewhere: each slot stores its record's own length,
+so a short record is not padded into ambiguity.
+
+> ⚠️ **Caveat.** Slot numbers start at **1**, never 0, and a random `WRITE`
+> beyond the current end of the file is legal — the slots it skips over become
+> part of the file and read as empty. A file whose highest slot is 10 000 with
+> three records in it is a perfectly ordinary relative file, so size your
+> numbering deliberately rather than using, say, a customer number directly.
+
+### Printed reports with page control: `LINAGE`
+
+If you have been counting lines by hand to decide when to print a page trailer,
+`LINAGE` does it for you. It divides the print file into a top margin, a **body**
+of so many lines, and a bottom margin, and gives you a counter and a condition:
+
+```cobol
+       FD  PRINT-FILE
+           LINAGE IS 60 LINES
+               WITH FOOTING AT 55
+               LINES AT TOP 3
+               LINES AT BOTTOM 3.
+       01  PRINT-REC PIC X(132).
+```
+
+`LINAGE-COUNTER` holds the current line of the body, counting from 1, and is set
+back to 1 whenever the file is opened. `WRITE` gains a page-overflow phrase:
+
+```cobol
+           WRITE PRINT-REC AFTER ADVANCING 1 LINE
+               AT END-OF-PAGE     PERFORM PAGE-TRAILER
+               NOT AT END-OF-PAGE ADD 1 TO WS-LINES-ON-PAGE
+           END-WRITE.
+```
+
+`AT END-OF-PAGE` (or `AT EOP`) becomes true from the **footing** line onward —
+line 55 above — which is what gives you room to print a trailer before the body
+is full. Without a `FOOTING` clause the condition waits until the body is full.
+`WRITE … AFTER ADVANCING PAGE` starts a new page and resets the counter.
+
+**Every value may be a data item instead of a number**, which is how you size a
+page at run time — from a control record, a parameter file, or the operator:
+
+```cobol
+       FD  PRINT-FILE
+           LINAGE LINAGE-CTR
+               FOOTING FOOT-CTR
+               TOP TOP-CTR
+               BOTTOM BOTTOM-CTR.
+       ...
+       WORKING-STORAGE SECTION.
+       77  LINAGE-CTR PIC 999 VALUE 66.
+       01  FOOT-CTR   PIC 999 VALUE 60.
+       01  TOP-CTR    PIC 999 VALUE 3.
+       01  BOTTOM-CTR PIC 999 VALUE 3.
+```
+
+The page is measured from those items at each `WRITE`, so changing one between
+writes changes the page from that point on.
+
+> ⚠️ **A file with no `LINAGE` clause has no page**, so `AT END-OF-PAGE` on it
+> can never become true. A loop written as "keep writing until end of page" then
+> never ends. If a report of yours runs away, the `LINAGE` clause is the first
+> thing to check.
+
+### Writing a text file without an `FD`
+
+A log line, an audit trail, a small export — work that does not deserve a
+`SELECT`, an `FD`, and an `OPEN`/`CLOSE` pair around a single `WRITE`. Two
+built-in calls write one line and are done:
+
+```cobol
+           COBOL::"WRITE-FILE"  ( WS-PATH WS-LINE WS-STATUS ).
+           COBOL::"APPEND-FILE" ( WS-PATH WS-LINE WS-STATUS ).
+```
+
+
+|                       |                                                                     |
+| --------------------- | ------------------------------------------------------------------- |
+| `COBOL::"WRITE-FILE"`  | **Replaces** the file — this is how you write the first, header line |
+| `COBOL::"APPEND-FILE"` | **Adds** to the end — this is how you write every line after it      |
+
+Both create the file when it is not there, and both write the text **followed by
+a newline**, so you never add one yourself.
+
+The three arguments are positional:
+
+
+| Argument                  | What it does                                                                                                                          |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 — path                  | Where to write. Spaces at **both ends** are removed, so a `PIC X(120)` item holding a short path works as it stands                    |
+| 2 — text                  | The line itself. **Trailing** spaces are removed, so a `PIC X(200)` item does not pad the file out to 200 columns                      |
+| 3 — status *(optional)*   | Set to spaces when the line was written, or to the operating system's own error text when it was not                                   |
+
+A header line and then the rows is the whole pattern:
+
+```cobol
+       WORKING-STORAGE SECTION.
+       01  WS-PATH    PIC X(120) VALUE "audit.csv".
+       01  WS-LINE    PIC X(200).
+       01  WS-STATUS  PIC X(120).
+      *> ...
+       PROCEDURE DIVISION.
+           COBOL::"WRITE-FILE" ( WS-PATH "id,name,total" WS-STATUS ).
+           IF WS-STATUS NOT = SPACES
+               DISPLAY "Cannot write the export: " WS-STATUS
+               GOBACK
+           END-IF.
+
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-COUNT
+               STRING CUST-ID   (WS-I) DELIMITED BY SIZE
+                      ","             DELIMITED BY SIZE
+                      CUST-NAME (WS-I) DELIMITED BY SIZE
+                   INTO WS-LINE
+               COBOL::"APPEND-FILE" ( WS-PATH WS-LINE WS-STATUS )
+           END-PERFORM.
+```
+
+> **Note.** Ask for the status argument whenever the file matters. Leave it out
+> and a failure — a folder you cannot write to, a path that is not there — lets
+> the program carry on as though the line had been written.
+
+> ⚠️ **Each call opens and closes the file.** That is exactly what makes these
+> two convenient for a handful of lines and wrong for a hundred thousand of
+> them. For bulk output declare an ordinary `LINE SEQUENTIAL` file and `WRITE`
+> to it, which holds the file open across the run.
+
+### Asking the operator for a file or a folder
+
+A path the operator has to type is a path the operator will mistype. Three
+built-in calls open the operating system's own dialog instead, and the program
+**waits** on the call until the operator has chosen:
+
+```cobol
+           COBOL::"OPEN-FILE-DIALOG" ( "Import settings"
+                "XML files|xml" WS-PATH ).
+           COBOL::"SAVE-FILE-DIALOG" ( "Export settings"
+                "XML files|xml" "rag-settings.xml" WS-PATH ).
+           COBOL::"FOLDER-DIALOG"    ( "Knowledge Base folder"
+                WS-KB-FOLDER WS-PATH ).
+           IF WS-PATH = SPACES
+               DISPLAY "Nothing chosen."
+           END-IF.
+```
+
+| Call | Arguments, in order |
+|---|---|
+| `COBOL::"OPEN-FILE-DIALOG"` | title · filter · *start folder* · **path** |
+| `COBOL::"SAVE-FILE-DIALOG"` | title · filter · suggested file name · *start folder* · **path** |
+| `COBOL::"FOLDER-DIALOG"` | title · *start folder* · **path** |
+
+- **path** is always the **last** argument. It receives the file or folder
+  chosen, or **SPACES** when the operator cancels.
+- The *start folder* is optional; leave it out and the dialog opens where the
+  operating system chooses.
+- A **filter** is written `"Description|ext1,ext2"` — `"XML files|xml"`,
+  `"Documents|pdf,docx,md"` — or as the extensions alone, `"xml"`. An empty
+  filter shows every file.
+- The save dialog asks before overwriting an existing file; the program then
+  writes it as it would any other path (`COBOL::"WRITE-FILE"`, or an `FD`).
+
+> **Note.** The dialog belongs to the running form's window, so it works in Run
+> Form and in a built application. A console program has no window to show one
+> in: there the calls return SPACES at once rather than wait for nothing.
+
+### Rust inside COBOL — `EXEC RUST`
+
+`EXEC RUST … END-EXEC` embeds **real Rust**, compiled into your program. Not a
+subset, not an interpreted imitation: closures, generics, iterator chains,
+`match`, `?` and the whole of `std` work, because each block becomes an ordinary
+Rust function inside the crate PowerRustCOBOL already builds for you.
+
+```cobol
+       01 USER-NAME USAGE IS OBJECT REFERENCE RUST-STRING VALUE "ada".
+       ...
+           EXEC RUST
+           user_name.push_str("-lovelace");
+           let vowels = user_name.chars().filter(|c| "aeiou".contains(*c)).count();
+           println!("{vowels} vowels");
+           END-EXEC.
+```
+
+> **Indent with spaces, not tabs.** The IDE's editors insert **two spaces** when
+> you press Tab, so code you type here is always tab-free. If you *paste* Rust
+> from elsewhere, paste it with spaces. A tab is not merely cosmetic in COBOL
+> source: when a file is read in fixed form, columns 1–6 are the sequence area
+> and column 7 the indicator, and both are stripped before parsing — so a
+> tab-indented line can lose its first characters. A tab-indented `END-EXEC.`
+> reaching the parser as `D-EXEC.` leaves the block unterminated, and the error
+> is then reported at the end of the program rather than at the offending line.
+
+**A program with a block is built before it runs.** *Run* performs that build and
+starts the built binary; the pause is reported in the Output panel. A program
+with no block keeps the fast interpreter path exactly as before. Building needs a
+Rust toolchain (install it from [https://rustup.rs](https://rustup.rs)) — **the application you
+produce does not**: it runs on machines with no Rust installed. Builds target the
+host operating system only, so build a Windows application on Windows and a macOS
+one on macOS.
+
+> **The build question is asked of the WHOLE project, and that matters for Run
+> Form.** One block anywhere — even in a form you are not running — means every
+> Run Form in that project takes the build path. It has to: an application opens
+> child forms, each runs its own program, and all of them share one compiled
+> block registry, so asking only about the form you pressed Run on let a block in
+> a child form's handler fail at the button click instead of at Run.
+>
+> What follows from that is worth knowing. **Run Form still runs the form you
+> pressed it on**, not the application's main form — the IDE names the form it
+> wants and the built application opens that one, running *its* program. (Before
+> 1.62.137 it opened the main form instead, because a built application normally
+> refuses to start anywhere else; that refusal still guards an application you
+> have distributed.) And **Stop stops it**: the toolbar's Run button becomes Stop
+> while a built application is up, exactly as it does for an interpreted form.
+
+#### Two kinds of block
+
+
+| Kind                | Where                                                                                            | What it holds                                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| **Item-level**      | `CONFIGURATION SECTION`, after `REPOSITORY` (outermost program only, like everything else there) | Rust *items*: `struct`, `enum`, `impl`, `trait`, `use` — visible to every block in the program |
+| **Statement-level** | `PROCEDURE DIVISION`, anywhere a statement may go — including an event handler                  | Rust *statements*: the work                                                                     |
+
+> **In a form, where do you actually type it?** A form has no division headers
+> for you to aim at — it has COBOL Structure blocks. An item-level block goes in
+> the **REPOSITORY** block, below the `CLASS` entries, because that block is
+> woven into the `CONFIGURATION SECTION`:
+>
+> ```cobol
+>     CLASS RUST-STRING IS "Rust.String".
+>     EXEC RUST
+>         pub fn shout(s: &str) -> String { s.to_uppercase() }
+>     END-EXEC
+> ```
+>
+> **Not WORKING-STORAGE** — that block is woven into the `DATA DIVISION`, where a
+> block is rejected. A statement-level block goes in an event handler or a common
+> procedure, which are `PROCEDURE DIVISION` code.
+
+#### What may cross into a block
+
+Only a `USAGE OBJECT REFERENCE` item whose `CLASS` names a Rust type. A `PIC`
+item is rejected by name: its value is a scaled decimal or a fixed-width padded
+field, and there is no Rust type it *is*. Move such a value through an object
+with `INVOKE` before the block.
+
+The Rust variable is your COBOL name, lowercased, hyphens turned into
+underscores: `WS-USER-NAME` becomes `ws_user_name`. A name that lands on a Rust
+keyword (`01 TYPE` → `type`) or cannot start an identifier (`01 1ST-FLAG`) is
+rejected — rename the item.
+
+**A bound name is a `&mut T`, not a `T`.** That is what lets you assign through
+it, and method calls auto-dereference as usual:
+
+```rust
+*counter = 10;              // assign through the name
+text.push_str("x");         // method call — no `*` needed
+let n = text.chars().count();
+```
+
+Every integer class binds as `i64` and both float classes as `f64`, because that
+is how the object bridge stores them: `INVOKE` and a block always see the same
+value. **A `CLASS RUST-I32` item is an `i64` inside the block** — a function you
+write to fill it must return `i64`, not `i32`. Collections hold the bridge's own
+value type, so a `Rust.Vec` filled by `INVOKE` and one filled inside a block hold
+the same things.
+
+**Reading a bound item from COBOL yields its value.** After a block runs,
+`DISPLAY clicked-button`, `MOVE clicked-button TO WS-N` and
+`SET Label-1::Caption TO clicked-button` all see what the block wrote —
+strings, any integer width, floats and booleans. Collections and your own types
+have no single printable value; reading those yields an internal id, so go
+through `INVOKE`/`::methods` for them instead.
+
+> ⚠️ **Before 1.60.23 every such read yielded the internal id** — a small
+> integer that follows declaration order, so a program reading its second item
+> always showed "2" no matter what the block computed. If a label shows a
+> constant small number where a result should be, rebuild with a current
+> version.
+
+**Writing a bound item from COBOL reaches the Rust value.** `MOVE 5 TO clicked-button` and `SET cobol-text TO TextBox-1::Text` update the object the
+item names, so the next block sees what COBOL wrote — that is how you hand the
+operator's input to a block:
+
+```cobol
+       01 cobol-text  USAGE IS OBJECT REFERENCE RUST-STRING.
+       01 rust-result USAGE IS OBJECT REFERENCE RUST-STRING.
+       ...
+           SET cobol-text TO TextBox-1::Text
+           EXEC RUST
+           *rust_result = ferris_say(cobol_text);
+           END-EXEC
+           SET Label-1::Caption TO rust-result
+```
+
+The classes that accept such a write are the ones with a single scalar value:
+`RUST-STRING`, every integer width, the floats, and `RUST-BOOL`. A collection or
+one of your own types has no scalar to write, so a `MOVE` into one is reported as
+an error — fill those inside a block.
+
+> ⚠️ **Before 1.61.2 the write landed on the item's internal handle instead of
+> its object**, which left the object unreachable: the next block that bound the
+> item failed with `EXEC RUST cannot bind <ITEM>: handle 0 is not live`, usually
+> seen as `FFI failed:` from the handler's `CATCH RUST-EXCEPTION`. Rebuild with a
+> current version.
+
+> ⚠️ **Before 1.63.28, a form opened any way other than as your project's main
+> window** — picked from a sidebar/menu into a content pane, or opened with
+> `OPEN FORM … AS WINDOW` — **could hit the same `handle is not live` failure,
+> or worse: a plain `MOVE` into one of its own `OBJECT REFERENCE` items could
+> silently overwrite an unrelated object belonging to another open form,**
+> with no error at all. A form running as your project's main window never
+> showed this. Rebuild with a current version — nothing about how you write
+> `EXEC RUST` changes.
+
+#### Where a block may appear
+
+Anywhere a statement may appear — including inside `IF`, `EVALUATE`, `PERFORM`,
+`ON SIZE ERROR`, `INVALID KEY`, `AT END`, and inside `TRY … END-TRY`, which is
+where you put one when you want to catch what it might do.
+
+#### Your own Rust types
+
+The 48 shipped `CLASS RUST-*` types are a floor, not a ceiling. Declare a type in
+an item-level block, name it with a `CLASS`, and use it like any other:
+
+```cobol
+       REPOSITORY.
+           CLASS MY-POINT IS "Rust.Point"
+       EXEC RUST
+       #[derive(Default)]
+       pub struct Point { pub x: i64, pub y: i64 }
+       impl Point {
+           pub fn shift(&mut self, dx: i64, dy: i64) { self.x += dx; self.y += dy; }
+       }
+       END-EXEC.
+```
+
+Your type must implement `Default` — that is what the first block to touch the
+item starts it from.
+
+#### How a block behaves
+
+- **A block body is a Rust function body returning `Result<(), Box<dyn Error>>`,**
+  which is what makes `?` usable inside it. To leave early write `return Ok(())`,
+  not `return;`. An error that propagates out becomes a `RUST-EXCEPTION`.
+- **A panic is catchable.** `TRY … CATCH RUST-EXCEPTION e … END-TRY` catches it,
+  `DISPLAY e` prints the panic's message as plain text, and the program carries
+  on. A plain `CATCH EXCEPTION` does *not* catch a panic, and a COBOL `THROW`
+  never reaches a `RUST-EXCEPTION` clause — one `TRY` may carry both clauses and
+  each gets its own kind.
+- **State is shared for the whole run.** Two blocks in different paragraphs, or
+  in a form event handler, see the same objects. `CANCEL` does not reset it.
+- **An event handler may declare its own `OBJECT REFERENCE` items.** A handler is
+  a nested program with its own `WORKING-STORAGE`; an item declared there is
+  bindable exactly like one declared in the form, and its object lives as long as
+  the run — the handler's next click sees what the last one left. Declare it in
+  the handler when only that handler uses it, and in the form as `GLOBAL` when
+  several do. ⚠️ **Before 1.61.2 only the form's own items were given objects**,
+  so a handler-local one failed with `handle 0 is not live`; moving it to the
+  form and marking it `GLOBAL` was the workaround, and is no longer needed.
+- **Crates**: `std`, plus `eframe`, `egui`, `egui_extras` and PowerRustCOBOL's own
+  crates. A program containing any block links the GUI crates even when it has no
+  forms, so a console program can open a window. A `use` of anything else is
+  rejected, naming the crate; arbitrary dependencies are not supported yet.
+- **Errors are reported in your terms.** A Rust type error inside a block fails
+  the build at *your* `EXEC RUST` line and column, not at generated code.
+
+#### Debugging a program that contains a block
+
+You can debug it. Press **Debug** exactly as you would for any other form.
+
+There is one thing to know, and it explains everything else: a program with a
+block is always **built** before it runs, and Debug is no exception. The IDE
+says so in the Output pane, builds, and then attaches the debugger to the
+application the build produced. That is not a limitation being worked around —
+it is the only arrangement in which your Rust actually executes while you step,
+which is what you want from a debugger.
+
+**A block is one step.** Stepping stops on the `EXEC RUST` line, because that is
+where the statement is. One step from there runs the *whole* block and lands on
+the next COBOL sentence. There is no stepping line-by-line through the Rust:
+those lines are not being interpreted at all — they were compiled into machine
+code before the program started.
+
+**Breakpoints.** Set them anywhere in your COBOL, including on the `EXEC RUST`
+line itself. Try to set one on a line *inside* a block and the IDE declines it
+and tells you why, rather than accepting a breakpoint it could never honour.
+
+Everything else is the ordinary debugger: Continue, Step, Pause, the variable
+snapshot at each stop, and **Only my code** for skipping generated scaffolding.
+Your COBOL data items read exactly as they do in any other session — including
+items a block wrote to, since the block runs for real before the next stop.
+
+> **Note — coming from PowerCOBOL or isCOBOL.** The instinct is that "compiled"
+> and "debuggable" are opposites, because the debugger you are used to steps
+> interpreted code. Here the built application *is* the debuggee: it speaks the
+> debugger's protocol itself, so building buys you working Rust without costing
+> you the session.
+
+> ⚠️ **Caveat — the build happens first, and takes as long as a build takes.**
+> Pressing Debug on a program with a block is not instant the way it is for a
+> pure-COBOL form. The Output pane says a build has started; the debugger window
+> opens, paused at line 1, once it finishes. A build that fails reports the
+> failure and starts nothing — you are not left waiting on a session that will
+> never arrive.
+
+#### A worked example: a dialog from COBOL
+
+This builds and runs as a console program. It defines an `eframe` application in
+an item-level block, then calls it from a statement-level block inside a `TRY`,
+so a failure arrives as a `RUST-EXCEPTION` rather than killing the run.
+
+Note `fn ui`, not `fn update`: PowerRustCOBOL links **eframe 0.36**, whose `App`
+trait requires `fn ui(&mut self, ui: &mut egui::Ui, frame: &mut Frame)`. Older
+eframe tutorials showing `update` will not compile here.
+
+```cobol
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. WINDEMO.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-I32    IS "Rust.i32"
+
+      *> Item-level block: items only. Emitted at module scope, so every
+      *> statement-level block in the program can see these.
+       EXEC RUST
+           use eframe::egui;
+           use std::sync::{Arc, Mutex};
+
+           pub struct ButtonDialog {
+               pub clicked: Arc<Mutex<i64>>,
+           }
+
+           impl eframe::App for ButtonDialog {
+               fn ui(&mut self, ui: &mut egui::Ui, _f: &mut eframe::Frame) {
+                   ui.horizontal(|ui| {
+                       for caption in [1_i64, 2_i64] {
+                           if ui.button(caption.to_string()).clicked() {
+                               *self.clicked.lock().unwrap() = caption;
+                               ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                           }
+                       }
+                   });
+               }
+           }
+
+      *> Opens the window, blocks until a button closes it, and returns the
+      *> caption. Zero means the window was closed instead.
+           pub fn ask(title: &str) -> i64 {
+               let clicked = Arc::new(Mutex::new(0_i64));
+               let out = clicked.clone();
+               let _ = eframe::run_native(
+                   title,
+                   eframe::NativeOptions::default(),
+                   Box::new(move |_cc| Ok(Box::new(ButtonDialog { clicked: out }))),
+               );
+               let v = *clicked.lock().unwrap();
+               v
+           }
+       END-EXEC.
+
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+      *> Only USAGE OBJECT REFERENCE items may cross into a block, and their
+      *> names must convert to valid Rust identifiers:
+      *> window-title -> window_title, clicked-button -> clicked_button.
+       01 window-title    USAGE IS OBJECT REFERENCE RUST-STRING
+                          VALUE "Hello, From COBOL".
+       01 clicked-button  USAGE IS OBJECT REFERENCE RUST-I32.
+       01 ws-error        PIC X(120).
+
+       PROCEDURE DIVISION.
+       MAIN.
+           TRY
+               EXEC RUST
+      *> `clicked_button` is a `&mut i64` — assign through it. `RUST-I32`
+      *> binds as i64, which is why `ask` returns i64.
+                   *clicked_button = ask(window_title.as_str());
+               END-EXEC
+           CATCH RUST-EXCEPTION ws-error
+               DISPLAY "Window failed: " ws-error
+           END-TRY.
+
+           DISPLAY clicked-button.
+           GOBACK.
+```
+
+> ### ⚠️ Do not copy this into a form's event handler
+>
+> **The build will stop you** — since 1.60.14, a project with forms whose block
+> calls `run_native` fails to build, at your own line and column:
+>
+> ```
+> EXEC RUST error in 'checkboxes-form.cbl' at line 97, column 32:
+> `run_native` cannot open a window from a form application …
+> ```
+>
+> Before that it built, and then did **nothing at all** — no window, no error, no
+> output — which is why the build now refuses.
+>
+> A form application already owns the process's one winit event loop, created on
+> the main thread, while the COBOL interpreter runs on a worker thread. winit's
+> guard against a second event loop is process-global and returns
+> `Err(EventLoopError::RecreationAttempt)`. It does **not** panic, so
+> `CATCH RUST-EXCEPTION` never fires, and the customary
+> `let _ = eframe::run_native(...)` throws the error away. Every trace of the
+> failure disappears.
+>
+> There is no viewport workaround either: a block receives `env`, `objects` and
+> `bridge`, so it has no `egui::Context` with which to open one. **From a
+> handler, drive the form's own controls through `cobolt_objects`, or show a
+> second form built in the designer.** `run_native` is for console programs,
+> where the interpreter owns the main thread.
+
+### Changing a control from inside a block
+
+A block is handed `cobolt_objects`, the running program's object registry. Write
+a control property there and the window is repainted when the block returns:
+
+```cobol
+       PROCEDURE DIVISION.
+       MAIN.
+           EXEC RUST
+           cobolt_objects.set_property("LABEL-1", "Caption", "Done");
+           END-EXEC.
+           GOBACK.
+```
+
+> **Note.** Property names are case-insensitive here, as everywhere else in
+> PowerRustCOBOL: `Caption`, `CAPTION` and `caption` address the same property.
+>
+> ⚠️ **Before 1.60.14 these writes did nothing.** Block execution had no channel
+> to the window, so the control changed in memory and the form never showed it.
+> If you worked around that with `COBOL::"SET-PROPERTY"`, that still works and needs
+> no change.
+>
+> ⚠️ **Write with `set_property`; do not reach for `get_mut(..).unwrap()`.** A
+> running form registers a control the first time something writes to it, so
+> `get_mut` returns nothing for a control you have not written yet and the
+> `unwrap` panics. For the same reason a block cannot **read** a control's
+> designed value — only one it set itself. To read what the operator typed, use
+> `TextBox-1::Text` in COBOL and pass the item into the block.
+
+### Opening a window from a block
+
+A block can open a window of its own and draw whatever egui it likes in it. Use
+`cobolt_windows`, which is in scope in every block:
+
+```cobol
+       PROCEDURE DIVISION.
+       MAIN.
+           EXEC RUST
+           let picked = std::sync::Arc::new(std::sync::Mutex::new(0_i64));
+           let out = picked.clone();
+
+           let win = cobolt_windows::open(
+               "pick-a-number",
+               eframe::egui::ViewportBuilder::default().with_title("Pick"),
+               move |ui, _class| {
+                   ui.horizontal(|ui| {
+                       for n in [1_i64, 2_i64] {
+                           if ui.button(n.to_string()).clicked() {
+                               *out.lock().unwrap() = n;
+                           }
+                       }
+                   });
+               },
+           );
+
+           win.wait();
+           cobolt_objects.set_property("Label-1", "Caption",
+                                       picked.lock().unwrap().to_string());
+           END-EXEC.
+
+           GOBACK.
+```
+
+`open` takes an id, an `egui::ViewportBuilder` and the closure that draws the
+window. It returns a handle:
+
+
+| Handle          | What it does                              |
+| --------------- | ----------------------------------------- |
+| `win.wait()`    | Parks the handler until the window closes |
+| `win.is_open()` | `true` while the window is still up       |
+| `win.close()`   | Closes the window from COBOL's side       |
+
+`cobolt_windows::is_open(id)` and `cobolt_windows::close(id)` do the same by id,
+from anywhere. Opening an id that is already open replaces what it draws.
+
+> ### ⚠️ Close the window with `cobolt_windows::close`, not `send_viewport_cmd`
+>
+> To close the window from inside its own drawing closure — the OK button, a
+> picked value — call `cobolt_windows::close("your-id")`:
+>
+> ```rust
+> if ui.button(caption.to_string()).clicked() {
+>     *out.lock().unwrap() = caption;
+>     cobolt_windows::close("ask");     // ← closes THIS window
+> }
+> ```
+>
+> **Never** `ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close)` there,
+> however many eframe tutorials show it. That command targets the viewport
+> current during the pass — the **parent** — so it closes the whole
+> application. The dialog does disappear, which is why the mistake survives:
+> the form disappears with it, and any COBOL after `win.wait()` (setting a
+> label from the result) then races the shutdown, so the label updates
+> sometimes and not others.
+
+> **`wait()` is safe.** Your handler blocks, but the form does not: the
+> interpreter runs on its own thread, so the window keeps painting and stays
+> responsive while the handler waits.
+
+> **Share state with an `Arc<Mutex<..>>`.** The drawing closure runs on the UI
+> thread, not the handler's, so that is how the two halves talk — exactly as in
+> the example above. It is also why the closure must be `Send + Sync`.
+
+> ⚠️ **Forms only.** In a program with no form there is nothing painting, and
+> `open` tells you so instead of registering a window that never appears. A
+> console program uses `eframe::run_native`, which works there because the
+> interpreter owns the main thread.
+
+**Why you register a closure instead of being handed an `egui::Context`.** The
+`Context` is not the obstacle — it would travel to your handler's thread quite
+happily. The obstacle is that egui's `show_viewport_deferred` must be called
+**on the UI thread, on every frame the window should exist**: it marks the
+viewport as used for the current pass and drops it otherwise. Your block runs
+once, off the main thread, so it cannot do that. It hands over what to draw, and
+the form application replays it every frame on your behalf.
+
+### Project's Crates (Beta) — third-party libraries for your blocks
+
+> **Beta.** The feature is complete and tested, and the tree calls it
+> *Project's Crates (Beta)* so you know its edges are still being found —
+> the pin format in `cobolt.toml`, the conflict wording and the dialog may
+> still move. What a project records today keeps working.
+
+Out of the box a block may use the Rust standard library and the GUI stack
+every program already links. Everything else comes from **Project's Crates**:
+a project-level catalogue of third-party libraries you pick from the community
+registry (crates.io), the way you once picked OCXs or `.jar` files for
+PowerCOBOL or isCOBOL projects — except the catalogue is searchable from
+inside the IDE and the download, version pinning and licensing paperwork are
+handled for you.
+
+**Adding one.** In the project tree, the **Project's Crates (Beta)** node
+sits below Generated Code. Click its `[+]` (or any crate row) to open the
+dialog:
+
+📷 Screenshot needed — project-crates-dialog.png (the Project's Crates dialog
+over a project: a search for "csv" showing the results table, one crate
+registered in the list below, the log pane narrating an add. Capture after
+adding `csv`.)
+
+1. **Search** — type what you need ("csv", "regex", "barcode") and press
+   Enter. The matches arrive as a table — **crate, version, downloads,
+   description** — 50 to a page, with `◀` / `▶` and a "Page 2/7 — 318
+   results" counter beneath it, so you can browse everything the registry has
+   rather than a truncated handful. Download counts show abbreviated
+   (`1.2K`, `3.4M`) so a glance tells an established library from an
+   abandoned experiment; click either the **Crate** or **Downloads** header
+   to sort the page by name or by true popularity, click again to reverse.
+   **Click a crate name** in the table to pick it — that is the *only* way
+   to fill the name field below; it cannot be typed into, so what you add is
+   always something you actually found. Value columns are only as wide as
+   their contents so the description gets the rest of the room; drag any
+   column boundary to change that split.
+
+   A **System** column, hidden by default, marks results already part of
+   your application: yellow for a crate PowerRustCOBOL links directly
+   (`egui`, `eframe`, …), gray for one only pulled in as a dependency of
+   something linked. Neither can be registered — searching still finds them,
+   but Add refuses without touching the network, since there's nothing to
+   fetch. Tick **Show System crates** next to the search button to see the
+   column and browse them anyway (useful for checking what version of
+   something is already in your app before picking a compatible one of your
+   own).
+2. **Version requirement** (optional) — leave it empty to take the newest
+   stable release, or write a cargo-style requirement such as `^1.3` or
+   `=1.3.6` to hold a line.
+3. **Features** (optional, comma-separated) — some libraries keep parts of
+   themselves behind named switches; the crate's own page (the ↗ link) lists
+   them. `serde` needs its `derive` feature to be useful, for example.
+4. **Add** — the IDE resolves the newest version matching your requirement,
+   checks it against everything PowerRustCOBOL itself links, downloads its
+   source into the project's `crates/` folder, and records it in the project.
+
+From then on the block simply names it — no other ceremony:
+
+```cobol
+           EXEC RUST
+           use csv::ReaderBuilder;
+           let mut rows = 0_i64;
+           let mut rdr = ReaderBuilder::new()
+               .from_reader(order_data.as_bytes());
+           for rec in rdr.records() {
+               let _ = rec?;
+               rows += 1;
+           }
+           END-EXEC.
+```
+
+A library name with a hyphen is written with an underscore inside the block:
+register `serde-json`, write `use serde_json::…;`.
+
+**Pinned means pinned.** The add records the *exact* version and keeps its
+source inside your project. Builds use that copy and nothing else — a release
+on the internet next month changes nothing here. When *you* want newer, press
+**Update** on one crate or **Update All** on the category; each crate moves to
+the newest version its recorded requirement allows and the dialog reports
+`old → new`, `current`, or `failed` per crate. A crate added with `=1.3.6`
+reports `current` forever — that is what an exact pin is for; to change the
+requirement itself, remove and re-add.
+
+**Conflicts are settled when you add, not when you build.** Three outcomes:
+
+- *Already available* — you asked for something every program links anyway
+  (`egui`, `eframe`, …). Nothing to add; use it directly.
+- *Refused* — the library cannot coexist with what PowerRustCOBOL links, for
+  example two claimants for one native library. The dialog shows the exact
+  reason. Your project is left untouched.
+- *Allowed with a warning* — the library drags in a second, incompatible copy
+  of something already present. It works, but the two copies do not mix; the
+  warning names them so the surprise is now, not at three in the morning.
+
+**When you genuinely need a different version of something PowerRustCOBOL
+already links.** Say your block needs `egui` 0.29 for a reason of your own,
+but the platform itself links `egui` 0.36 — ordinarily that is a plain
+refusal ("already available" / "clashes with the built-in"). For exactly
+this case — a name that collides directly with a linked crate, at a version
+that genuinely cannot coexist with the linked one — the dialog offers an
+alternative instead of just refusing: add it under an **alias**
+(`prj_egui`), a second, independent copy living alongside the platform's
+own. Accept the offer and your block writes `use prj_egui::…` instead of
+`use egui::…`; both `rust_manifest.md` and the crate's entry in the tree
+note the alias. This is the *only* situation aliasing is offered — every
+other add still uses the library's own name and unifies normally, and a
+crate that is merely a **dependency** of something linked (the gray
+System-dependency case above) is never offered an alias at all; it is
+always refused outright, since your block was never going to reference it
+by name in the first place.
+
+> ⚠️ **An aliased copy does not interoperate with the platform's own.** A
+> value built with `prj_egui::Color32` cannot be handed to a PowerRustCOBOL
+> API expecting `egui::Color32` — they are, deliberately, two different
+> crates that happen to share a name. Reach for this only when your block's
+> use of the library is self-contained.
+
+**What ships.** Registered crates are compiled into your program's single
+binary like everything else — end users still install nothing. Every build
+also writes **`rust_manifest.md`** next to the binary in the destination
+folder (`dist/` unless you chose otherwise): a table of every external crate
+in the binary — name, exact version, and the registry page it came from — the
+document an auditor asks for. A build with no external crates removes a stale
+manifest, so the folder never claims code the binary does not contain.
+
+**Removing.** The ✖ button asks for confirmation, then deletes the record and
+the downloaded source — never your COBOL. A block still naming the crate
+fails the next Check with a message pointing back at Project's Crates.
+
+> **Notes**
+>
+> - Adding and updating need the network; building does not (the source is
+>   already in your project). The first build after an add may still fetch
+>   the library's own dependencies.
+> - The registry searched is an IDE-wide setting shown at the top of the
+>   dialog — point it at a company mirror and every search, add and update
+>   uses the mirror; crates already pinned are untouched until you update.
+> - The `crates/` folder belongs to Project's Crates. Don't hand-edit what is
+>   vendored there (updates replace it), and if a folder of your own already
+>   sits at `crates/`, the dialog refuses to touch it and says so.
+> - ⚠️ Opening a project that uses Project's Crates in an **older**
+>   PowerRustCOBOL builds without them, and blocks then fail Check with an
+>   unregistered-crate error — upgrade the IDE rather than re-adding.
+
+---
+
+## 14. Indexed files — a first-class resource
+
+Indexed (ISAM) files get unusually deep, **original** support in PowerRustCOBOL —
+this is one of its standout resources. You use them through standard COBOL verbs
+(`OPEN`, `READ`, `WRITE`, `REWRITE`, `DELETE`, `START`), dispatched automatically
+by the file's `ORGANIZATION`. On top of that, PowerRustCOBOL adds:
+
+### Two storage modes (a SELECT-clause extension)
+
+```cobol
+       SELECT CUSTOMER-FILE ASSIGN TO "customers.idx"
+           ORGANIZATION IS INDEXED
+           ACCESS MODE IS DYNAMIC
+           RECORD KEY IS CUST-ID
+           ALTERNATE RECORD KEY IS CUST-NAME WITH DUPLICATES
+           STORAGE MODE IS DISK WITH DATA COMPRESSION.
+```
+
+> **⚠️ Caveat — the keys belong to the record.** `RECORD KEY` and every
+> `ALTERNATE RECORD KEY` must name a field of that file's own `FD`. If you
+> rename the key field in the `FD` and forget the `SELECT`, the program does
+> not compile: the error names the key and the `FD`. A file already written
+> with a different key layout answers `OPEN` with status **39**. Status 39
+> means the file on disk was made for another description: a key field moved,
+> or its length changed. Recreate the file, or copy its records into a new one
+> with the current description.
+
+- **`STORAGE [MODE] IS MEMORY | DISK`** chooses how a program holds the file
+  while it is open: the whole file in RAM, or read and written on disk as it
+  goes. **Default is DISK.** On disk, both write the same format.
+- **`WITH [DATA] COMPRESSION`** transparently compresses records (no external
+  dependencies).
+- **`WITH PERSISTENCE`** (MEMORY only) lets an in-RAM file be changed and saves
+  it to disk on `CLOSE`. Without it, a `STORAGE IS MEMORY` file is a
+  **read-only** copy held for fast queries (see the next section). The phrases
+  combine: `STORAGE IS MEMORY WITH COMPRESSION WITH PERSISTENCE`.
+- **Composite and alternate keys**, ascending key order, and `WITH DUPLICATES`
+  semantics are honoured.
+
+### When data reaches disk (persistence timing)
+
+The two storage modes differ in *when* a record actually lands on disk — this
+matters for performance and for what survives across runs:
+
+- **`STORAGE IS MEMORY`** loads the whole file into RAM on `OPEN`, so every
+  `READ` and `START` after that is served from memory. **Without `WITH
+  PERSISTENCE` it is read-only**: it opens `INPUT` only, and `OPEN OUTPUT`,
+  `I-O` and `EXTEND` are refused with FILE STATUS **37**, the file on disk left
+  exactly as it was. That is its purpose: a fast copy of a file for queries.
+  (It used to accept writes and throw them away at `CLOSE`, and `OPEN OUTPUT`
+  emptied the file on disk. Data that looks saved and is not is the danger, so
+  it is refused instead.)
+  - **`WITH PERSISTENCE`** makes it writable. `WRITE`/`REWRITE`/`DELETE` change
+    the in-RAM image, `COMMIT`/`ROLLBACK` are pure **in-RAM transaction
+    boundaries** (**`COMMIT` never writes to disk**), and the file is written
+    back **on `CLOSE` only**. That is how you keep an in-RAM file between runs
+    while paying the disk cost just once, at close.
+- **`STORAGE IS DISK`** (the default storage mode) writes each record and its
+  index pages to the file **as the operation happens**, and flushes the record
+  directory plus a durability sync (`fsync`) **on `COMMIT` and on `CLOSE`**. It
+  is continuously written and made fully consistent/durable at those points.
+- **`WITH [DATA] COMPRESSION`** is orthogonal to both: records are stored
+  compressed in the container, but keys are always evaluated on the
+  **uncompressed logical record**, so search order and key comparisons are
+  unaffected.
+
+**One format on disk.** `MEMORY` and `DISK` are ways of *using* a file, not
+two kinds of file. Both write the same container (`PRCIDXD1`), so one program
+may declare a file `STORAGE IS DISK` and another `STORAGE IS MEMORY`, and
+both read and write the same data. An outside reader, such as a driver, a
+report tool or PowerChat, has a single format to understand: the data file
+plus its `.cidx`.
+
+- Opened as **MEMORY**, the file loads with all its records. With `WITH
+  PERSISTENCE`, `CLOSE` writes it back in that same format, including the
+  records the program added, and a DISK program reads it as before.
+- **Files written by a MEMORY program before 1.80.37** are in an older
+  container (`PRCIDX1`). They are still read by both modes. The first time
+  one is opened for writing, by a DISK program `I-O` or `EXTEND` or by a
+  MEMORY program `WITH PERSISTENCE`, it is rewritten in the current format,
+  every record kept. A DISK program opening one `INPUT` reads a converted
+  temporary copy that is deleted at `CLOSE`, leaving the file unchanged.
+
+**`OPEN INPUT` never changes a file**, in either storage mode, and needs no
+write permission, so a read-only file, or one on a read-only share, can be
+read. When opening would otherwise have to write to the file (to finish a
+transaction a crash interrupted, to convert an old container, or to convert a
+MEMORY-format file), an `INPUT` open does that work on a temporary copy and
+leaves the file exactly as it was. The next `I-O` open does it on the file
+itself.
+
+A file that is not an indexed file at all is refused on `OPEN` (FILE STATUS
+90); it is never read as an empty file and never overwritten.
+
+> ⚠️ **Durability caveat.** `STORAGE IS MEMORY WITH PERSISTENCE` saves only at
+> `CLOSE`: if the program crashes or `STOP RUN`s before a clean `CLOSE`, the
+> in-RAM changes are lost. Saving rewrites the whole file, which for a large
+> file takes noticeably longer than a DISK program's `CLOSE` (in our
+> measurement, about 6 seconds for 100 000 records). For data that changes,
+> prefer `STORAGE IS DISK`: durability lands at each `COMMIT`/`CLOSE`, and
+> nothing is rewritten. `ROLLBACK` always undoes changes since the last
+> `COMMIT`/`OPEN`, in RAM, for both modes.
+
+### What `ACCESS MODE` changes about writing and updating
+
+`ACCESS MODE IS SEQUENTIAL` is not merely a different way of reading — it puts
+the file under ordering rules that `RANDOM` and `DYNAMIC` do not have. If you
+are coming from PowerCOBOL or isCOBOL this is familiar ground, but it is worth
+testing for explicitly, because the statuses are the only way to see it.
+
+
+| Statement,`ACCESS MODE IS SEQUENTIAL`                                        | `FILE STATUS` |
+| ---------------------------------------------------------------------------- | ------------- |
+| `WRITE` whose `RECORD KEY` is **not greater** than the previous one written  | `21`          |
+| `REWRITE` or `DELETE` with no successful `READ` immediately before it        | `43`          |
+| A second `REWRITE`/`DELETE` with no `READ` in between                         | `43`          |
+| `REWRITE`/`DELETE` after a `START`, an `OPEN`, a `WRITE`, or a failed `READ` | `43`          |
+
+```cobol
+       SELECT LEDGER-FILE ASSIGN TO "ledger.idx"
+           ORGANIZATION IS INDEXED
+           ACCESS MODE IS SEQUENTIAL
+           RECORD KEY IS LEDGER-ID
+           FILE STATUS IS LEDGER-STATUS.
+      *
+       OPEN OUTPUT LEDGER-FILE.
+       MOVE 100 TO LEDGER-ID.  WRITE LEDGER-RECORD.   *> 00
+       MOVE 200 TO LEDGER-ID.  WRITE LEDGER-RECORD.   *> 00
+       MOVE 150 TO LEDGER-ID.  WRITE LEDGER-RECORD.   *> 21 — out of order
+       MOVE 300 TO LEDGER-ID.  WRITE LEDGER-RECORD.   *> 00
+```
+
+**Notes.**
+
+- A rejected `WRITE` stores nothing and does **not** move the sequence forward,
+  so the next key is judged against the last key actually written — `300` above
+  follows `200`, not the rejected `150`.
+- A key merely *equal* to the previous one is not greater, so it is `21` too —
+  not the duplicate-key `22` you would get under `RANDOM` or `DYNAMIC`.
+- `START` positions the file but delivers no record. It does not satisfy the
+  `REWRITE`/`DELETE` requirement; only a successful `READ` does.
+- Under `RANDOM` or `DYNAMIC` none of this applies: write in any order you
+  like, and address `REWRITE`/`DELETE` by the `RECORD KEY` value with no
+  preceding `READ`. A clash with an existing record there is `22`.
+
+> ⚠️ **Caveat.** Status `43` is class 4, not an `INVALID KEY` condition, so an
+> `INVALID KEY` phrase will not catch it. Test `FILE STATUS`, or let the file's
+> `USE AFTER STANDARD ERROR` declarative handle it.
+
+### Telling same-named keys apart with `OF` / `IN`
+
+A file may declare several keys whose data-names are identical and which are
+separated only by the group each one sits in. Qualify them exactly as you would
+anywhere else in COBOL:
+
+```cobol
+       SELECT ORDER-FILE ASSIGN TO "orders.idx"
+           ORGANIZATION IS INDEXED
+           ACCESS MODE IS DYNAMIC
+           RECORD KEY IS ORDER-KEY IN PRIME-AREA
+           ALTERNATE RECORD KEY IS ORDER-KEY OF ALT-AREA
+           FILE STATUS IS ORDER-STATUS.
+      *
+       FD  ORDER-FILE.
+       01  ORDER-RECORD.
+           05  PRIME-AREA.
+               10  ORDER-KEY   PIC X(10).
+           05  ALT-AREA.
+               10  ORDER-KEY   PIC X(10).
+           05  ORDER-DETAIL    PIC X(60).
+```
+
+The qualifier belongs to the key's identity, so use the same form when you name
+the key of reference:
+
+```cobol
+       MOVE "AX-4471" TO ORDER-KEY IN ALT-AREA.
+       READ ORDER-FILE KEY IS ORDER-KEY IN ALT-AREA
+           INVALID KEY     DISPLAY "no such order"
+           NOT INVALID KEY DISPLAY ORDER-DETAIL
+       END-READ.
+```
+
+**Notes.**
+
+- Qualification is by *containment*, not immediate parentage: `ORDER-KEY OF ORDER-RECORD` names the field even when it sits one or more groups deeper.
+- An unqualified name still means the first field of that name, so nothing
+  changes for the ordinary case of one key per name.
+- The same applies to `START … KEY IS`.
+
+### Positioning on part of a key: generic `START`
+
+`START` does not have to name the whole key. It may name a **subordinate item**
+of it — the leftmost part — and the file is then positioned on that *prefix*.
+This is the generic-key form, and it is how you scan a family of related
+records without knowing the rest of the key:
+
+```cobol
+       FD  ORDER-FILE.
+       01  ORDER-RECORD.
+           05  ORDER-KEY.
+               10  ORDER-BRANCH  PIC X(5).
+               10  ORDER-SEQ     PIC X(8).
+           05  ORDER-DETAIL      PIC X(60).
+      *
+       MOVE SPACES  TO ORDER-KEY.
+       MOVE "LONDN" TO ORDER-BRANCH.
+       START ORDER-FILE KEY IS EQUAL TO ORDER-BRANCH
+           INVALID KEY DISPLAY "no orders for that branch"
+       END-START.
+       PERFORM UNTIL FINISHED
+           READ ORDER-FILE NEXT AT END EXIT PERFORM END-READ
+           IF ORDER-BRANCH NOT = "LONDN" EXIT PERFORM END-IF
+           DISPLAY ORDER-DETAIL
+       END-PERFORM.
+```
+
+**Notes.**
+
+- `EQUAL TO` positions on the **first** record whose key begins with the value,
+  not on an exact whole-key match.
+- `GREATER THAN` passes **every** record sharing the prefix and lands on the
+  first one beyond them — so the example above could jump straight to the next
+  branch with `KEY IS GREATER THAN ORDER-BRANCH`.
+- `NOT LESS THAN` behaves as `GREATER THAN OR EQUAL`, positioning on the first
+  record whose prefix reaches the value.
+- The item must start at the same character position as the key. Naming an item
+  in the middle of the key is not a generic key.
+- The same applies to an `ALTERNATE RECORD KEY`.
+- Naming the whole key is just the special case where the prefix is the entire
+  key, so ordinary `START` is unaffected.
+
+> **Note.** Only `START` reads a key generically. `READ … KEY IS` addresses one
+> record and needs the complete key value.
+
+### Crash-safe transactions
+
+The COBOL verbs **`COMMIT`** and **`ROLLBACK`** apply to your *open indexed
+files*: a `COMMIT` confirms the pending `WRITE`/`REWRITE`/`DELETE` operations
+(so a later `ROLLBACK` can no longer undo them); a `ROLLBACK` discards changes
+made since the last `COMMIT`/`OPEN`. For **`STORAGE IS DISK`** a `COMMIT` also
+makes those changes *durable on disk*; for **`STORAGE IS MEMORY WITH
+PERSISTENCE`** it is purely an in-RAM boundary (the file is written at `CLOSE`
+— see above). A MEMORY file without `WITH PERSISTENCE` is read-only, so it has
+nothing to commit. (These are **file** transactions — for SQL transactions use
+`COBOL::"EXEC-SQL"` with `BEGIN`/`COMMIT`/`ROLLBACK`.)
+
+```mermaid
+flowchart LR
+    OPEN["OPEN I-O CUSTOMER-FILE"] --> WORK["WRITE / REWRITE / DELETE …"]
+    WORK --> DEC{commit or rollback?}
+    DEC -- "COMMIT" --> DUR["changes durable"]
+    DEC -- "ROLLBACK" --> UNDO["changes discarded"]
+    DUR --> CLOSE["CLOSE"]
+    UNDO --> CLOSE
+```
+
+### Pluggable storage engines
+
+Choose the engine with `rcrun --indexed-engine <name>` (or the
+`COBOL_INDEXED_ENGINE` environment variable). For a project, choose it once in
+**Settings → Default Indexed File Engine**. Run, Run Form, Debug Form and Build
+all use that choice, for every form, including the forms another form opens.
+A built application carries the choice with it. When the project leaves it
+empty, the application uses `COBOL_INDEXED_ENGINE` on the machine that runs it.
+The engine decides only how **new** files are created: a file that already
+exists always opens with the engine that wrote it.
+
+
+| Engine           | Use it for                                                                                                                                                      |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rust` (default) | The built-in B-tree store; in-memory and on-disk paged formats.                                                                                                 |
+| `redb`           | A **crash-safe, ACID** on-disk engine (copy-on-write B-tree, checksums, dual meta pages) — `COMMIT` survives power loss; instant `OPEN` on very large datasets. |
+| `rm` / `fujitsu` | Reserved engine names that currently behave identically to the built-in store (native formats are future work).                                                 |
+
+### Operations log (observability)
+
+For diagnostics you can switch on a **per-file operations log**
+(`rcrun --indexed-log basic|full`, format `--indexed-log-format text|json`).
+It records one line per `OPEN`/`COMMIT`/`ROLLBACK`/`CLOSE` with timestamps,
+write/rewrite/delete counts, byte and throughput figures, and key-order quality —
+ready to feed into log tooling. The log rotates automatically under a size cap.
+
+### Recording the operator
+
+```cobol
+           OPEN I-O CUSTOMER-FILE WITH REGISTERED USER WS-OPERATOR
+```
+
+`OPEN … WITH REGISTERED [USER] {literal | data-item}` records *who* opened the
+file in the operations log. This is **observational only** — PowerRustCOBOL does
+not provide an authentication or authorisation engine; the field simply tags log
+entries with the operator you supply.
+
+> **Note.** The default disk format is self-describing and stores the full key
+> schema, so a file can be inspected and validated on `OPEN` (mismatches surface
+> as standard file-status codes). The format is **not** binary-compatible with
+> any third-party ISAM; do not assume interchange with other vendors' files.
+
+> ⚠️ **Caveat.** Record locking is single-process (VSAM/RLS-style semantics
+> within one running program). Cross-*process* locking is not implemented.
+
+---
+
+## 15. SQL databases
+
+Relational access is exposed behind a single `CALL` surface, with the backend
+chosen from the connection string:
+
+
+| Connection string starts with…       | Backend          |
+| ------------------------------------- | ---------------- |
+| `:memory:`, `sqlite:`, or a file path | SQLite (bundled) |
+| `postgres://` / `postgresql://`       | PostgreSQL       |
+| `mysql://`                            | MySQL            |
+
+Typical flow:
+
+```cobol
+           COBOL::"OPEN-DB" ( "sqlite:app.db" WS-DB WS-STATUS )
+           COBOL::"EXEC-SQL" ( WS-DB
+               "SELECT id, name FROM customers WHERE active = 1"
+               WS-ROWS WS-STATUS )
+      *>   The first row is the current one; NEXT-ROW says whether
+      *>   there is another.
+           IF WS-ROWS > 0
+               MOVE "Y" TO WS-MORE
+           END-IF
+           PERFORM UNTIL WS-MORE NOT = "Y"
+               COBOL::"FETCH-ROW" ( WS-DB 1 WS-ID WS-STATUS )
+               COBOL::"FETCH-ROW" ( WS-DB 2 WS-NAME WS-STATUS )
+               ...
+               COBOL::"NEXT-ROW" ( WS-DB WS-MORE )
+           END-PERFORM
+           COBOL::"CLOSE-DB" ( WS-DB ).
+```
+
+The drivers are pure and bundled (no `libpq`/OpenSSL to install). Use
+`COBOL::"EXEC-SQL"` with `BEGIN`/`COMMIT`/`ROLLBACK` for SQL transactions. Full
+reference: `docs/database-runtime-en.md`.
+
+> **Note.** You can model a database connection visually with the **SQL Database**
+> non-visual control (its properties hold the connection string, driver, and the
+> data items its events populate), or drive it entirely from code with the
+> `CALL`s above.
+
+---
+
+## 16. HTTP / REST and AI agents
+
+- **HTTP/REST.** `COBOL::"HTTP-GET"`, `"HTTP-POST"`, `"HTTP-PUT"` and `"HTTP-DELETE"` issue requests;
+  `COBOL::"HTTP-SET-HEADER"` / `COBOL::"HTTP-CLEAR-HEADERS"` manage headers. The
+  **REST Client** non-visual control gives you a designable endpoint with four
+  events to bind: `onComplete`, `onError`, `onTimeout` and `onCancelled`.
+- **AI agents.** The **AI Agent** non-visual control models a connection to a
+  Large Language Model — its endpoint, model, system prompt, temperature and token
+  limits — and raises events for your COBOL handlers: `onResponse` when the
+  reply arrives, `onError` when it does not, and — with `StreamReply` on —
+  `onPartialReply` while it is still being written.
+
+> ⚠️ **Caveat.** Network features reach the outside world — handle errors and
+> timeouts in COBOL. Treat credentials as runtime configuration, never as part
+> of the design.
+>
+> **A form file cannot carry a credential.** The three properties that hold one
+> — a REST Client's `AuthToken`, a Web Search's `ApiKey`, an Agent Object's
+> `AgentAPIKey` — are stored **on your machine**, not in the `.cfrm`. Type a key
+> into the properties pane and it goes to the local credential file; the running
+> form is handed it when it starts. Save the form, open the `.cfrm` in a text
+> editor, and the property is there and empty. That holds however the key was
+> entered, so a key cannot reach the repository your team shares by being typed
+> in the designer and forgotten.
+>
+> The box tells you which empty it is: *stored on this machine* when a key is on
+> file for that control, *no key on file* when there is none. Clearing the box
+> withdraws the key from the machine as well — an empty box never means a
+> forgotten credential is still authenticating on your behalf.
+>
+> For a credential several forms share, prefer a **named connection** (REST and
+> Web Search) or a **Model Provider** (Agent Object): one place to enter it, one
+> place to rotate it, and the forms carry only its id.
+
+### Configuring the REST Client
+
+The control's properties configure **every request it sends**, so a handler is
+usually a single line — the address and the credentials live in the properties
+pane, not repeated through your COBOL.
+
+#### Local settings, or a project connection
+
+Every `RestClient` has a **`Configuration`** property that decides where its
+connection comes from:
+
+- **`(Local)`** — the default, and what every form built so far uses: the
+  control's own properties below.
+- **a named project connection** — its address, method, authentication scheme,
+  headers and timeouts replace the control's own before the form runs.
+
+Define connections in **Settings → Integrations → REST connections** (click the
+project tree's top node → *Settings*). Give one a name, a base URL, a default
+method, an authentication scheme, a timeout, and its API key. Then point as
+many forms at it as you like: change the address once and every form that uses
+it follows, instead of six forms drifting apart.
+
+> **Where each half is stored — this matters before you commit.** The
+> connection itself (name, URL, method, auth *scheme*, headers, timeouts) is
+> saved in `cobolt.toml` and is **meant to be committed**: a colleague who
+> checks the project out gets your connections. **The API key is not part of
+> it.** Keys are held in a machine-local store outside the project and are
+> never written to `cobolt.toml`, to a `.cfrm`, or to generated COBOL — so each
+> developer supplies their own, and a shared repository never carries one.
+>
+> ⚠️ Machine-local means *on this machine, in a file* — it is not the operating
+> system's keychain yet. Treat it as you would any local credential file.
+
+> **Notes.** The control stores the connection's **id**, not its name, so
+> renaming a connection in Settings does not break the forms using it. The
+> control's own settings are kept while a connection is selected and apply
+> again the moment you switch back to `(Local)`. If a form names a connection
+> the project no longer has, that is reported rather than quietly falling back
+> to the local settings — the control was told to ignore those, and silently
+> using them would send requests to an address you had already overridden.
+
+##### Shipping an application that uses a connection
+
+The connection travels with the build: `rcrun build` bakes the project's
+connections into the binary, so a built application resolves them with no
+`cobolt.toml` beside it. **The key does not travel with the build** — that is
+the point of keeping it out of the project — so the machine running the
+application supplies it through an environment variable, one per connection:
+
+```bash
+COBOLT_CONNECTION_KEY_<CONNECTION-ID> = <the key>
+```
+
+The connection id is the one shown in the properties pane when a connection is
+missing, with dashes written as underscores and the whole thing upper-cased —
+so a connection whose id is `3f2a-91bc` is read from
+`COBOLT_CONNECTION_KEY_3F2A_91BC`. One variable per connection rather than one
+encoded blob, so a deployment script can set exactly the keys that machine
+should hold, and an operations team can see which value goes where.
+
+> **Notes.** While you are working in the IDE you never set these: **Run Form**
+> resolves each key from your machine-local store and hands it to the running
+> form itself, and only for the connections that form actually uses. The same
+> is true of `rcrun run-form` inside a project. A control whose key is missing
+> behaves like any unauthenticated request — the service answers with a 401,
+> which arrives in `onError` like any other failure.
+
+- **`BaseURL`** — the address the control requests. A verb called with **no
+  argument** uses it as it stands, which is the ordinary case:
+
+  ```cobol
+           RestClient-1::get()
+  ```
+
+  A **relative** argument is joined onto it (`orders/42` becomes
+  `https://api.example.com/v1/orders/42`); an argument starting with `?`
+  attaches a query string to it; and an argument carrying its own scheme
+  (`https://...`) is used unchanged — so a handler that already passes a
+  complete URL behaves exactly as before.
+- **`AuthType`** and **`AuthToken`** — applied to every request:
+
+
+  | `AuthType` | Header sent                                                                                     |
+  | ---------- | ----------------------------------------------------------------------------------------------- |
+  | `None`     | *(none)*                                                                                        |
+  | `Bearer`   | `Authorization: Bearer <AuthToken>`                                                             |
+  | `Basic`    | `Authorization: Basic <AuthToken>` — encoded for you when the token is written `user:password` |
+  | `APIKey`   | `X-API-Key: <AuthToken>`                                                                        |
+
+  An **empty `AuthToken` sends no header at all** rather than an empty one, so
+  an unconfigured control fails as "unauthenticated" instead of looking like a
+  server fault. An API that wants its key under a different header name uses
+  `DefaultHeaders` for it.
+- **`DefaultHeaders`** — `key: value`, one per line, sent with every request. A
+  line with no colon is ignored. A header set at run time with
+  `COBOL::"HTTP-SET-HEADER"` **overrides** the one named here: an explicit call is
+  more specific than design-time configuration.
+- **`DefaultMethod`** — the verb `Call()` uses when it is given no method
+  argument. The named verbs (`get`, `post`, `put`, `delete`) always use theirs.
+- **`FollowRedirects`** — follow `3xx` responses (default: yes). Switched off,
+  the redirect response itself is delivered.
+- **`VerifyTLS`** — verify the server's certificate and host name
+  (default: yes).
+- **`TimeoutSeconds`** / **`TimeoutMs`** — bound the request in **both** `Sync`
+  and `Async` mode.
+
+A complete pair of handlers, with everything else configured in the designer:
+
+```cobol
+      *> Button-1 :: onClick
+           RestClient-1::get()
+
+      *> RestClient-1 :: onComplete
+           MOVE RestClient-1::ResponseBody TO TextBox-1::Text
+
+      *> RestClient-1 :: onError
+           MOVE RestClient-1::LastError TO TextBox-1::Text
+```
+
+> **Note.** `Call()` takes the verb as its first argument —
+> `RestClient-1::Call("PATCH", "orders/42", WS-BODY)` — which is how you reach
+> `PATCH` and any other verb with no named method of its own. Called with an
+> empty verb it uses `DefaultMethod`.
+
+> ⚠️ **Caveat.** Turn `VerifyTLS` off only against a development server with a
+> self-signed certificate. With verification off, nothing distinguishes the
+> real server from anything else answering at that address — never ship a form
+> that way. `AuthToken` needs no such care: the form file cannot carry it (see
+> the caveat above), so it is runtime configuration whether you meant it to be
+> or not.
+
+### Asynchronous I/O (`Mode`, `Busy`, `TimeoutMs`, `Cancel()`)
+
+A `RestClient` call no longer blocks the whole form while it runs. The control
+is **asynchronous by default**: `GET` / `POST` / `PUT` / `DELETE` start a
+background worker, set the control's `Busy` flag, and return immediately. The
+event loop keeps dispatching (timer ticks, clicks, other controls), and the
+response arrives later as an event on the same control:
+
+- `onComplete` — the response arrived; read `ResponseBody` / `StatusCode` in
+  the handler.
+- `onError` — the transport failed (no HTTP status); `LastError` has the
+  message and `StatusCode` is `0`.
+- `onCancelled` — you called `Cancel()` while a request was in flight.
+- `onTimeout` — the request exceeded `TimeoutMs` without completing. It has
+  been cancelled, and `LastError` says so — *No answer within N seconds: the
+  call was cancelled.* — so a handler that shows `LastError` for `onError` can
+  show it here too. The same holds for an AI agent's `Ask`.
+
+The control surface, on `RestClient` and `WebSearch`:
+
+- **`Mode`** (`Async` / `Sync`) — both default to `Async`. (`IndexedFile` once
+  carried `Mode`, `Busy` and `TimeoutMs` too, for an asynchronous path that
+  was planned and never built: its facade is plain COBOL, where a `READ` fills
+  the record before the next statement. The three are retired there — new
+  controls do not carry them, and a form or program that still sets or reads
+  them keeps working; the values are simply ignored, and `IsBusy()` answers
+  0. `SqlDatabase` has a real `Mode` — see below.)
+- **`Busy`** (read-only) — `1` while an operation is in flight. A second call
+  while `Busy` is ignored; poll `Busy` or wait for the lifecycle event.
+- **`TimeoutMs`** — per-control timeout in milliseconds; `0` falls back to the
+  legacy `TimeoutSeconds × 1000`. On expiry the control fires `onTimeout` and
+  clears `Busy`.
+- **`Cancel()`** — abandon the in-flight operation immediately: `Busy` clears,
+  `onCancelled` fires, and any late result from the abandoned worker is
+  discarded safely. Calling `Cancel()` with nothing in flight is a no-op.
+
+> ⚠️ **Compatibility.** An existing form that reads `ResponseBody` on the
+> statement *after* a `GET` relies on the old blocking behaviour. Set that
+> control's `Mode` to `Sync` to keep the original same-statement result, or
+> move the read into an `onComplete` handler. The `COBOL::"HTTP-…"` built-ins
+> is unchanged and always synchronous.
+
+#### An asynchronous SqlDatabase
+
+A `SqlDatabase` is **synchronous by default** — `Query` and `Execute` finish
+inside the statement and return their count, as they always have. A report
+query that takes seconds freezes nothing but your own handler, yet the form
+cannot answer a click meanwhile. Set the control's **`Mode`** to `Async` and
+`Query` / `Execute` run on a background worker instead: they return `0` at
+once, `Busy` turns on, and the result arrives as the **same events a
+synchronous call raises** — so a handler you already wrote keeps working:
+
+- `onQueryComplete` — the count is in **`ResultCount`** (result rows for a
+  `Query`, affected rows for an `Execute`); `Fetch()` reads the rows as usual.
+- `onQueryError` — `LastError` says why.
+- `onTimeout` — the statement ran longer than **`TimeoutMs`** (`0`, the
+  default, means no limit). `onCancelled` — you called `Cancel()`.
+
+```cobol
+       REFRESH-BUTTON--ONCLICK.
+           MOVE "Loading…" TO Status-Label::Caption.
+           SqlDatabase-1::Query("SELECT NAME, CITY FROM CUSTOMERS").
+
+       SQLDATABASE-1--ONQUERYCOMPLETE.
+           MOVE SqlDatabase-1::ResultCount TO WS-ROWS
+           PERFORM UNTIL 1 = 2
+               MOVE SqlDatabase-1::Fetch() TO WS-ROW
+               IF WS-ROW = SPACES
+                   EXIT PERFORM
+               END-IF
+               CustomerList::AddItem(WS-ROW)
+           END-PERFORM
+           MOVE SPACES TO Status-Label::Caption.
+```
+
+> **Notes.** One statement at a time per control: while `Busy` is on, a
+> second `Query` or `Execute` is ignored, and a `COBOL::"EXEC-SQL"` call on the
+> same connection answers that it is busy — the connection is out on the
+> worker, so it is never used by two things at once. `Open`, `Fetch` and
+> `Close` stay synchronous. A timed-out or cancelled statement is not
+> interrupted in the database: it finishes on its worker, its result is
+> discarded, and the connection is usable again the moment it does.
+>
+> ⚠️ **Caveat.** Do not read `ResultCount` or `Fetch()` on the statement after
+> an asynchronous `Query` — nothing has arrived yet. Their home is the
+> `onQueryComplete` handler.
+
+### Data items: where a result lands in WORKING-STORAGE
+
+Several non-visual controls can hand their results straight to an item your
+program declares, so a handler reads a plain COBOL field instead of a property:
+
+
+| Control       | Property                | What lands there                                                                                                     |
+| ------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `RestClient`  | `ResponseDataItem`      | Every response body, from `::Get` / `Post` / `Put` / `Delete` / `Call`, `Sync` or `Async` (declared for you, `PIC X(32767)`). |
+| `RestClient`  | `StatusDataItem`        | Every HTTP status; `0` when no response came (declared for you, `PIC 9(4)`).                                          |
+| `RestClient`  | `RequestDataItem`       | *Read*, not written: its value is the body when `Post` / `Put` / `Call` is given none.                                |
+| `SqlDatabase` | `ConnectionDataItem`    | The connection handle, from the generated `<id>-CONNECT` and from `Open()`.                                          |
+| `SqlDatabase` | `ResultSetDataItem`     | Each row `Fetch()` returns, tab-separated; spaces once the rows run out.                                             |
+| `IndexedFile` | `StatusDataItem`        | The engine's own FILE STATUS after every generated operation — `00`, `10`, `22`, `23`, `35`, `39` …                  |
+| `IndexedFile` | `CurrentRecordDataItem` | Every record the generated paragraphs read (`READ … INTO`).                                                         |
+
+Except where the table says "declared for you", the item is yours to declare —
+the same rule as every other `…DataItem`.
+
+```cobol
+       01  WS-ORDER-JSON   PIC X(200).
+      *> RestClient-1 has RequestDataItem = WS-ORDER-JSON
+           MOVE '{"sku":"A-1","qty":2}' TO WS-ORDER-JSON
+           RestClient-1::Post("orders")
+```
+
+A `SqlDatabase` with **`AutoConnect`** connects as the form starts — before any
+handler runs — and closes as it ends, and `Open()` called with no argument
+opens the control's own `ConnectionString`. An `IndexedFile`'s
+**`OperatorName`** (recorded by `OPEN … REGISTERED USER`) is sent as a literal,
+unless it names an item your form declares.
+
+> ⚠️ **Caveat.** Before 1.70.236 an `IndexedFile`'s `StatusDataItem` held only
+> the facade's guesses — `00` after every `OPEN`, `23` after any refused write —
+> so a missing file or a duplicate key reached your program as something else.
+> It now holds the real code; a test written against the old `23` for a
+> duplicate key must look for `22`.
+
+> **Retired, and harmless.** `LoadStrategy` (the `.cidx` definition owns
+> storage — a form that has it still gets its `WS-<id>-LOAD-STRATEGY` item),
+> `MaximumConnections` (there is no pool), and the AgentObject's `Stream`
+> (it was switched on in every older form and never read — streaming is the
+> new `StreamReply`, off until you turn it on) and `TargetControls` (an agent
+> never writes a control itself). None is offered any more; code that sets or reads one still
+> compiles and runs, and the value is ignored. An AgentObject's
+> `AgentEndpoint` may now be a path — `/v1/chat/completions` — joined onto
+> `AgentURL`'s host.
+
+### Maps (location & directions)
+
+The **Maps** control is an embedded, pannable/zoomable **OpenStreetMap**
+view, optionally backed by the real Google Maps API for directions,
+geocoding, places, and distance data. The basemap and the data API are
+independent halves with different credential needs:
+
+- **The basemap needs no API key at all.** `CenterLat` / `CenterLng` /
+  `Zoom` position the view; the user pans and scrolls the wheel to zoom
+  interactively, firing `onBoundsChanged` (and updating those three
+  properties) when they do. Set **where the map opens** in the properties
+  pane — *Start latitude*, *Start longitude* and *Start zoom*, in decimal
+  degrees — and the canvas shows that view as you design. Writing those three
+  from COBOL moves the map:
+
+  ```cobol
+  MOVE "-23.5614" TO MAP-1::CenterLat
+  MOVE "-46.6558" TO MAP-1::CenterLng
+  MOVE 16         TO MAP-1::Zoom
+  ```
+
+  **Zooming is continuous.** One notch of the wheel is one level, as it always
+  was, but the map *glides* there over a handful of frames instead of arriving
+  in one: while it travels it is drawn **between** levels, scaling the tiles it
+  already has, and whatever is under the pointer stays under the pointer the
+  whole way. Markers, routes and regions scale with the basemap, so nothing
+  drifts mid-glide.
+
+  `Zoom` stays a whole number — the level whose tiles are fetched, and the value
+  a handler reads or writes. The fraction the map is holding mid-glide is view
+  state and is never published, so `onBoundsChanged` still reports whole levels
+  and a `MOVE 16 TO MAP-1::Zoom` still lands exactly on 16.
+
+  **A tile that has not arrived shows the ground, not a hole.** The new level's
+  images take a moment to come down, and the map already has a picture of that
+  same ground at another scale — so it uses it, the way every map client does:
+  zooming **in**, the nearest loaded tile from a lower level is magnified and
+  cropped to the piece you are looking at; zooming **out**, the four tiles of
+  the level you just left are drawn shrunk into their quarters. The real image
+  then arrives *over a picture* and simply sharpens, instead of replacing a grey
+  block. `TileLoadingColor` is what you see only when there is nothing to borrow
+  — the very first view of a place, or a tile that failed.
+
+  ⚠️ **A grey map with only its markers on it** means the tiles are not
+  arriving — the control is fine, the download is not. Tiles come from
+  `tile.openstreetmap.org` over HTTPS and need no key, so the usual causes are
+  no network or a proxy in the way. The first failure of a session says so on
+  the console; centring and markers keep working regardless, which is why an
+  empty basemap can otherwise pass for a map of open water.
+- **Drive time comes back as numbers**, not just words. `Directions` answers on
+  `onComplete` with seven TAB-separated fields: the distance and duration as
+  text, the route summary, then the distance in **metres**, the duration in
+  **seconds**, the route's encoded polyline, and the duration **with current
+  traffic** in seconds (0 when Google supplied none). Compute from the numbers;
+  never parse a figure back out of `"72,4 km"`.
+
+  The polyline is the road itself, **step by step** — not the thumbnail-grade
+  summary Google also publishes — so a trace drawn from it sits on the motorway
+  rather than near it. It never exceeds **4,000 characters**: declare
+  `PIC X(4096)` for it. A route long enough to need more than that gives up its
+  redundant points on the straight runs and keeps its bends, which is why the
+  shape survives the trim.
+
+  ⚠️ Traffic is available as a **number only**. Google exposes its traffic
+  *layer* through its own JavaScript and mobile SDKs, never as map tiles, so
+  there is no coloured overlay to draw — but "how long will this take, leaving
+  now" is answered by that last field.
+- **Routes** trace lines over the map — a planned round, a driven route. One
+  line per route in the `Routes` property (`id`⇥`colour`⇥`width`⇥`geometry`), or
+  `AddRoute(id, colour, width, geometry)` / `RemoveRoute(id)` / `ClearRoutes()`.
+  The geometry is either an **encoded polyline** — the sixth field of a
+  `Directions` answer, so Google's own route traces with no conversion — or an
+  explicit `lat,lng;lat,lng;…` list you worked out yourself. **No API key**: the
+  basemap is OpenStreetMap and the geometry is yours.
+
+  ⚠️ **A route is exactly as close to the road as the points you give it.** The
+  map draws every point and invents none, so a hand-written list of a dozen
+  waypoints is a *planned corridor*, not a road — it cuts every curve between
+  them, and the more you zoom in the more plainly it leaves the tarmac. Road
+  geometry has to come from a routing service: field 6 of a `Directions` answer
+  carries the road **step by step**, which is what makes a trace sit on the
+  motorway instead of near it. There is no setting that makes a short waypoint
+  list follow a road; either add points or ask a routing service.
+- **A road route without a Google key** — `TraceRoad(apiKey, fromLat, fromLng, toLat, toLng)` asks **OpenRouteService** instead, and answers on `onComplete`
+  with three TAB-separated fields: the distance in **metres**, the duration in
+  **seconds**, and the encoded polyline for `AddRoute`. Same 4,000-character
+  bound as `Directions`, so one `PIC X(4096)` holds either answer.
+
+  **The key is an argument, not a setting.** Ask your operator for it — a
+  `TextBox` with `PasswordCharacter` set — and pass what they typed:
+
+  ```cobol
+       MOVE TXT-ORS-KEY::Text TO WS-ORS-KEY
+       IF WS-ORS-KEY = SPACES
+           MOVE "Enter your OpenRouteService key first." TO LBL-STATUS::Caption
+       ELSE
+           INVOKE MAP-1 "TraceRoad" USING
+               WS-ORS-KEY "40.4168" "-3.7038" "37.1773" "-3.5986"
+       END-IF
+  ```
+
+  PowerRustCOBOL never stores that key: not in the form, not in the project
+  manifest, not in any file. A key written into a project file travels to
+  everyone the project is shared with, which is the reason. A blank key fails on
+  `onError` without a network call.
+
+  > **Note.** `Directions` and `TraceRoad` both answer on the same `onComplete`
+  > event and **do not answer in the same shape** — seven fields against three.
+  > Record which one you called (a one-character flag in WORKING-STORAGE is
+  > enough) and branch on it, or the handler will read metres as a distance
+  > *text* and the polyline as a route summary.
+  >
+- **Regions** fill areas — sales territories, delivery zones, coverage. One line
+  per region (`id`⇥`fill`⇥`stroke`⇥`width`⇥`geometry`), or `AddRegion` /
+  `RemoveRegion` / `ClearRegions`. Give the fill an alpha (`#RRGGBBAA`) so the
+  streets stay readable under it. A region **may be concave** — a territory that
+  follows a coastline fills correctly. No API key either.
+
+  Re-using an id **replaces** that route or region. A map that redraws itself as
+  its data changes would otherwise stack duplicates it could never move again.
+- **Every colour the map paints is a property** — nothing on a map is fixed by
+  the platform. They sit in the inspector's **Basic properties** section for the
+  Maps control, and each can be written from COBOL like any other property:
+
+
+  | Property              | What it colours                                                                                       |
+  | --------------------- | ----------------------------------------------------------------------------------------------------- |
+  | `MarkerColor`         | The pin itself                                                                                        |
+  | `MarkerBorderColor`   | The ring around a pin, so it reads on a busy basemap                                                  |
+  | `RouteColor`          | A route whose own line names no colour                                                                |
+  | `RouteCasingColor`    | The casing under **every** route — the bright halo that makes a thin line readable over mixed terrain |
+  | `RegionFillColor`     | A region whose own line names no fill                                                                 |
+  | `RegionBorderColor`   | A region whose own line names no stroke                                                               |
+  | `TileBackgroundColor` | Under the whole map, before any tile has arrived                                                      |
+  | `TileLoadingColor`    | A single tile that has not arrived yet                                                                |
+
+  Each starts **empty**, meaning the colour the map has always painted, so a
+  form that sets none of them looks exactly as it did. Colour carried by the
+  **data still wins**: a route drawn by `AddRoute` with its own colour keeps it,
+  and so do `AddRegion`'s fill and stroke — the three region/route properties
+  are only what a line naming none falls back to.
+
+  Three are the *only* way to set their colour, because the data has no field
+  for it: a marker has no colour argument, so `MarkerColor` and
+  `MarkerBorderColor` are it, and `RouteCasingColor` applies to every route
+  whatever colour the route itself names.
+
+
+  ```cobol
+           MOVE "#0F7B6C" TO MAP-1::MarkerColor
+           MOVE "#FFFFFF" TO MAP-1::MarkerBorderColor
+  ```
+
+  > ⚠️ **Caveat.** `RegionBorderColor` is the one where empty is not a colour
+  > but a decision: a region whose own line names no stroke is drawn **without a
+  > border**. Naming a colour here gives every such region an outline — which
+  > may be more than you wanted on a map of many small territories.
+  >
+
+  📄 **Worked example** — `forms/maps/maps-demo.cfrm` in the demo project: five
+  salesmen as markers, five coloured territories, Madrid → Granada traced, and
+  the drive time in kilometres, minutes and cost. Every button works with no
+  credential configured except the one that says it calls Google.
+- **Markers** are pins on the map: one line per marker in the `Markers`
+  property, TAB-separated (`id`⇥`lat`⇥`lng`⇥`label`⇥`info`). Prefer
+  `AddMarker(id, lat, lng, label, info)` / `RemoveMarker(id)` over
+  hand-formatting that string yourself. Clicking the basemap fires
+  `onMapClick` (the primary event); clicking a marker fires `onMarkerClick`
+  and sets `SelectedMarkerId`.
+- **The five data methods below call the real Google Maps API** and need a
+  **Google Maps API key** configured once for the whole project (see *Data
+  & credentials* below). With no key configured, each one fails immediately
+  — `LastError` explains it, `onError` fires — never a crash and never a
+  silent network attempt:
+
+⚠️ **All five are asynchronous — they do not return the answer.** The call
+starts the lookup, sets `Busy` to `1` and comes straight back with an **empty
+string**; the result arrives later on the `onComplete` event, in the
+`ResponseBody` property. There is no synchronous mode. So this does *not*
+work, however much it reads like it should:
+
+> **Note — `ResponseBody`, `StatusCode`, `LastError` and `Busy` are read-only
+> runtime properties.** Do not look for them in the property inspector: the
+> runtime writes them when it has something to report, so they have no
+> design-time value, no default, and are not stored in the form. They are read
+> exactly like any other property, and only reading them makes sense — an
+> answer is not a setting.
+
+```cobol
+      *> WRONG — Geocode returns immediately, before any answer exists,
+      *> so WS-GEOCODE-RESULT is always empty.
+           MOVE Map1::Geocode("1600 Amphitheatre Parkway") TO WS-GEOCODE-RESULT.
+```
+
+Start the lookup in one handler and read the answer in the other:
+
+```cobol
+      *> Btn-Find :: onClick — start it
+       FIND-ADDRESS-PARA.
+           Map1::Geocode("1600 Amphitheatre Parkway, Mountain View").
+
+      *> Map1 :: onComplete — the answer landed in ResponseBody
+       ADDRESS-FOUND-PARA.
+           MOVE Map1::ResponseBody TO WS-GEOCODE-RESULT.
+      *>   WS-GEOCODE-RESULT = "lat<TAB>lng<TAB>formatted address"
+           UNSTRING WS-GEOCODE-RESULT DELIMITED BY X"09"
+               INTO WS-LAT WS-LNG WS-ADDRESS.
+           MOVE WS-LAT TO Map1::CenterLat.
+           MOVE WS-LNG TO Map1::CenterLng.
+           MOVE 16     TO Map1::Zoom.
+
+      *> Map1 :: onError — LastError says why
+       ADDRESS-FAILED-PARA.
+           DISPLAY "Lookup failed: " Map1::LastError.
+```
+
+
+| Method                                | `onComplete` leaves in `ResponseBody`                          |
+| ------------------------------------- | -------------------------------------------------------------- |
+| `Geocode(address)`                    | `lat`⇥`lng`⇥`formatted_address`                              |
+| `ReverseGeocode(lat, lng)`            | the formatted address                                          |
+| `Directions(origin, destination)`     | `distance_text`⇥`duration_text`⇥`route_summary`              |
+| `DistanceMatrix(origin, destination)` | `distance_text`⇥`duration_text`                               |
+| `PlacesSearch(query, radiusMeters)`   | one `place_id`⇥`name`⇥`address`⇥`lat`⇥`lng` line per result |
+
+Like every other async control, Maps offers the four lifecycle events —
+`onComplete`, `onError`, `onTimeout` and `onCancelled` — alongside its own
+`onMapClick` / `onMarkerClick` / `onBoundsChanged`.
+
+> **Note.** `X"09"` above is the standard hexadecimal literal for a TAB. Write
+> any byte that way (`X"0D0A"` is CR LF); each *pair* of hex digits is one
+> character, so the digit count is always even.
+
+**Data binding.** A Maps control can be a standalone binding target: bind
+its `Markers` collection to a source with `Lat`/`Lng`/`Label` fields mapped
+(all three required by the Guardian; `Id`/`Info` are optional) and each
+bound row becomes one marker, refreshed the same way a bound DataGrid
+refreshes its `Rows`.
+
+### Web Search (five providers)
+
+The **WebSearch** control is a non-visual search client with the same async
+lifecycle as `RestClient` (`Mode`, `Busy`,
+`onComplete`/`onError`/`onCancelled`/`onTimeout`, plus its own
+`onResultsReceived` as primary event).
+
+It is **not tied to one search engine**. The `Provider` property chooses the
+back end, and every back end answers through the same accessors, so switching
+provider needs **no change to your COBOL** — the handler below is the same
+whichever row of this table you are on:
+
+| `Provider` | Credential | Also needs | `NumResults` cap | `SafeSearch` |
+|---|---|---|---|---|
+| `Google` (default) | Custom Search API key | `SearchEngineId` (the "cx" value — a plain id, not a secret) | 10 | `Off` → off, `Medium`/`High` → on |
+| `Brave` | Brave Search API key | — | 20 | `Off` / `Medium` / `High` |
+| `Serper` | Serper API key | — | 100 | **ignored** |
+| `Tavily` | Tavily API key | — | 20 | **ignored** |
+| `SearXNG` | **none** | `Endpoint` — the address of the instance you run | 50 | `Off` / `Medium` / `High` |
+
+`Provider` defaults to `Google`, and an unrecognised value falls back to it, so
+a form built before the control had a choice behaves exactly as it did.
+
+> ⚠️ **`SafeSearch` is not universal.** Serper and Tavily expose no filtering
+> level, so the property is simply not sent to them. Do not assume a filter is
+> running on those two.
+
+> **Notes.** `NumResults` is clamped to the chosen provider's own cap rather
+> than passed through, because asking a provider for more than it allows is an
+> HTTP error, not more results. `SearchEngineId` is read only by Google — the
+> others search the whole web without being told where. A **SearXNG** instance
+> must have `format=json` enabled in its own settings; that is off by default,
+> and a JSON-disabled instance returns a page the control cannot read (you will
+> get zero results rather than an error).
+
+Set `Query`, `NumResults` and `SafeSearch`, then call `Search()`:
+
+Results arrive on **`onResultsReceived`**, the control's primary event and the
+one a double-click binds. The uniform `onComplete` is raised straight after it,
+so a handler on either works — bind whichever reads better, not both:
+
+```cobol
+       SEARCH-1--ONRESULTSRECEIVED.
+           MOVE SEARCH-1::TopTitle   TO WS-TITLE
+           MOVE SEARCH-1::TopSnippet TO WS-SNIPPET
+           MOVE SEARCH-1::TopLink    TO WS-LINK
+      *>   or walk every result:
+           MOVE SEARCH-1::ResultCount TO WS-N
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-N
+               MOVE SEARCH-1::GetResult(WS-I) TO WS-RESULT-LINE
+      *>       WS-RESULT-LINE = "title<TAB>snippet<TAB>link"
+           END-PERFORM.
+```
+
+#### One search engine, or several
+
+Everything above configures **one** WebSearch control. A project that searches
+from several forms — or that needs Brave in one place and a private SearXNG in
+another — defines **named search connections** instead, exactly as it does for
+`RestClient`:
+
+- **`Configuration` = `(Local)`** — the default: this control's own `Provider`,
+  `Endpoint`/`SearchEngineId`, `NumResults` and `SafeSearch`, with the key from
+  the project's single **Web Search API key**.
+- **`Configuration` = a named connection** — all of those come from the
+  connection instead, including its own key. The local rows disappear from the
+  pane, because every one of them is dictated by the connection.
+
+Define them in **Settings → Integrations → Web search connections**: a name, a
+provider, its engine id (Google) or instance URL (SearXNG), and its API key.
+SearXNG is not asked for a key, because it has no account.
+
+> **A connection does not carry `NumResults` or `SafeSearch`.** Those stay on
+> the control, because they are per-call settings your COBOL changes at run
+> time — `MOVE 10 TO Search-1::NumResults` before a `Search()` is an ordinary
+> thing to write. A connection that carried them would overwrite what you
+> designed, and silently beat any value your program set at start-up.
+
+> The same storage split as the REST connections: the connection is saved in
+> `cobolt.toml` and is meant to be committed, the key never is. A built
+> application carries the connections baked in and reads each key from
+> `COBOLT_CONNECTION_KEY_<ID>` on the machine that runs it.
+
+#### When a search seems to do nothing
+
+Set **`Verbose`** on the control. The runtime then narrates the whole call into
+the program's output — the provider, the method and URL, the request headers,
+the body sent, whether it went async or sync, and then the HTTP status and the
+**raw response, uncut**, so you can compare it against the provider's own
+documentation. A misconfiguration is reported there too, before anything is
+sent.
+
+It exists because a search that returned nothing and a search that never ran
+produce the same silence. `Verbose` is what separates them.
+
+> **Credentials are masked.** A key in a request header, or in the URL query
+> where Google signs it, prints as its first few characters and a length —
+> enough to see that a key is present and to tell two apart, without putting it
+> in output that ends up pasted into a bug report.
+
+**Where the key comes from.** For a control on `(Local)`: the project-level
+search credential (Settings → Integrations), the same way Maps resolves its
+key. A control may
+override it with its own `ApiKey` property when one form has to search under a
+different account than the project default — leave `ApiKey` empty and the
+project's key is used. `SearXNG` needs no key at all; it needs `Endpoint`.
+Either way the check happens **before anything is sent**: a control missing its
+key (or, for SearXNG, its `Endpoint`) fails immediately with `onError` and
+`LastError` naming the provider and the missing setting, with no request made.
+
+A `WebSearch` control also gets a generated `<id>-SEARCH` paragraph
+(`PERFORM SEARCH-1-SEARCH`) as a low-level fallback, but it does plain,
+**unencoded** string concatenation (a multi-word `Query` truncates at its first
+space), never carries the key, and is **Google-only** — it does not follow
+`Provider`, because two of the providers need a POST with an authentication
+header and `COBOL::"HTTP-GET"` cannot send one. **Prefer `Search()`**, which
+percent-encodes the query, resolves the credential, and honours `Provider`.
+
+#### Where an agent's credentials live
+
+An `AgentObject` also has a **`Configuration`** property, but it does not point
+at a project connection. It points at one of the **Model Providers** you have
+configured in the IDE (Settings → Models) — the same list Grace and the
+specialists use.
+
+- **`(Local)`** — the default: this control's own `AgentAPI`, `URL` and
+  `API Key`.
+- **a configured provider** — its protocol, endpoint and API key are used
+  instead, and **the `API Key` row disappears from the properties pane**. That
+  is the whole point: a provider's key is entered once, in one place, and never
+  copied onto a form. A `.cfrm` is a file people commit.
+
+The **model and the tuning stay yours**: `Model`, `Temperature`,
+`Maximum tokens` and `Timeout` remain on the control even while it is bound,
+because one provider offers many models and which one this agent uses is a
+property of this agent.
+
+> ⚠️ **This binding is machine-scoped.** Model Providers are configured per
+> machine, not per project — configuring Anthropic once serves every project —
+> so a colleague who opens your project, or a machine running your built
+> application, needs that provider configured too. The control says so plainly
+> ("this machine has no such model provider configured") rather than pretending
+> the project is broken. A deployed application receives them through the
+> `COBOLT_AGENT_PROVIDERS` environment variable, and each key through
+> `COBOLT_CONNECTION_KEY_<PROVIDER>`.
+
+##### Models your users choose: the model list and the key store
+
+A `Configuration` is fixed before your application starts. When the people
+*using* your application should decide which model it talks to — add the
+company's model server, rotate a key, retire a model — give them a settings
+form of your own and hand the choices to the runtime while the program runs.
+
+Two things are kept apart, on purpose:
+
+- **The model list is yours.** Keep it in an indexed file your program owns,
+  and hand each entry to the runtime at start-up — and again whenever the user
+  edits it. The runtime holds it for this run only and writes it nowhere.
+- **The keys are the runtime's.** Your program stores a key once and can never
+  read it back — only ask whether one is set, so your form can show *"a key is
+  set"* without showing it.
+
+```cobol
+       LOAD-MODEL-LIST.
+      *>   At start-up: every entry from the application's own file.
+           PERFORM UNTIL WS-EOF = "Y"
+               READ MODELS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO WS-EOF
+                   NOT AT END
+                       COBOL::"MODEL-SET" ( MOD-NAME MOD-API
+                                            MOD-URL MOD-MODEL WS-STATUS )
+               END-READ
+           END-PERFORM.
+
+       SETTINGS-FORM--SAVE-KEY.
+      *>   The administrator typed a key: store it, then forget it.
+           COBOL::"KEY-SET" ( MOD-NAME WS-NEW-KEY WS-STATUS )
+           MOVE SPACES TO WS-NEW-KEY
+           COBOL::"KEY-IS-SET" ( MOD-NAME WS-KEY-FLAG )
+      *>   WS-KEY-FLAG is "Y" or "N" — never the key.
+           .
+
+       ASK-FORM--ONLOAD.
+           MOVE "company-model" TO AGENT-1::ModelEntry.
+```
+
+| Built-in | What it does |
+|---|---|
+| `COBOL::"MODEL-SET"( name api url model [status] )` | Adds or changes an entry. `api` is a provider id from the list below (`openai`, `anthropic`, `groq`, `ollama`, …), or `LMStudio` / `Custom`; `model` may be blank. |
+| `COBOL::"MODEL-REMOVE"( name [status] )` | Withdraws an entry. |
+| `COBOL::"KEY-SET"( name key [status] )` | Stores or replaces the key for an entry. |
+| `COBOL::"KEY-REMOVE"( name [status] )` | Removes it. |
+| `COBOL::"KEY-IS-SET"( name flag )` | `Y` or `N`. |
+
+`status` receives `OK`, or why it failed (the key file cannot be written, for
+example).
+
+**Offering your users the IDE's providers.** The IDE's Model Providers Manager
+knows seventeen providers — OpenAI, Anthropic, Cohere, Google Gemini,
+Perplexity, Mistral, Groq, OpenRouter, HuggingFace, Together AI, DeepSeek,
+Alibaba, xAI, Voyage AI, Ollama (local and cloud) and Llamafile — each with its
+default endpoint, whether it needs a key, how it lists its models and how its
+connection is tested. A built application has the same list and the same
+rules, without the IDE:
+
+| Built-in | What it does |
+|---|---|
+| `COBOL::"PROVIDER-COUNT"( count )` | How many providers there are (17). |
+| `COBOL::"PROVIDER-GET"( index id label endpoint needs-key )` | Provider *index* (1-based, the IDE's order): its id (what `MODEL-SET` takes as `api`), the name to show, its default endpoint, and `Y`/`N`. |
+| `COBOL::"MODEL-LIST"( provider endpoint key count status [entry] )` | Asks the provider which models it offers; `count` receives how many, `status` `OK` or the IDE's own message ("Could not list models: …"). A blank endpoint is the provider's default. |
+| `COBOL::"MODEL-LIST-GET"( index model )` | Model *index* of that list. |
+| `COBOL::"MODEL-TEST"( provider endpoint model key status [entry] )` | Asks the model one tiny question, as the IDE's **Test** button does. `status` is `OK`, or what to fix. |
+
+With a blank `key` and an `entry` name, the key stored for that entry is used —
+so a settings screen can test a saved model without ever reading its key back.
+
+```cobol
+           COBOL::"MODEL-LIST" ( WS-PROVIDER WS-ENDPOINT WS-KEY
+                WS-COUNT WS-STATUS WS-ENTRY )
+           IF WS-STATUS = "OK"
+               PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-COUNT
+                   COBOL::"MODEL-LIST-GET" ( WS-I WS-MODEL )
+                   MOVE CMB-MODEL::AddItem(WS-MODEL) TO WS-OK
+               END-PERFORM
+           ELSE
+               MOVE WS-STATUS TO LBL-STATUS::Caption
+           END-IF
+```
+
+The messages are the IDE's. A model the provider has retired is named as
+such; a hosted provider with no key is refused **before** anything is sent
+(an unauthenticated call comes back as 401 and reads like a rejected key); a
+401 comes with what to check, in order — a valid key, an expired or rotated
+one, a model the provider no longer offers.
+
+> **Note.** Both calls wait for the provider, for up to 30 seconds (a list) or
+> 60 (a test). The window keeps painting meanwhile; put "Testing…" in a status
+> label before the call so the operator knows why nothing else happens.
+
+**Which settings an agent uses.** Set **`ModelEntry`** — in the properties
+pane or at run time — and that entry wins: its API, endpoint and key, and its
+model if it names one. Otherwise `Configuration`, as above; otherwise the
+control's own properties. `Temperature`, `MaximumTokens` and `TimeoutSeconds`
+are always the agent's own. A `KnowledgeBase` has a `ModelEntry` too, for its
+`Endpoint` embedder.
+
+**A long answer is never cut short in silence.** `MaximumTokens` is the most
+a model may write in one reply. Every provider says why its model stopped, and
+when the reason is that limit, the agent does not hand you half an answer. It
+sends the conversation back with the answer so far and asks the model to go on
+exactly where it stopped, up to `MaximumContinuations` times (default 4), then
+joins the pieces. `onResponse` fires once, with the whole answer, and a
+`StreamReply` agent keeps showing the text as it grows. Three properties say
+what happened:
+
+| Property | Meaning |
+|---|---|
+| `StopReason` | Why the model stopped, in the provider's words: `stop` or `end_turn` (finished), `length` or `max_tokens` (cut off by the limit), `tool_calls`. |
+| `ContinuationCount` | How many times the answer had to be continued. |
+| `Truncated` | 1 when the answer is still incomplete: the limit cut it off and the continuations ran out (or `MaximumContinuations` is 0). |
+
+```cobol
+       AGT-1--ONRESPONSE.
+           MOVE AGT-1::LastReply TO WS-ANSWER
+           IF AGT-1::Truncated = "1"
+               MOVE "Incomplete answer: ask for less." TO LBL-STATUS::Caption
+           END-IF.
+```
+
+A local Ollama model is also told how much text to hold (`num_ctx`), sized to
+the request. Ollama's own default is a few thousand tokens, and it drops the
+START of a prompt that does not fit without a word — the instructions and the
+documents the model was asked about.
+
+If the entry does not exist, or its provider needs a key (every provider but
+local Ollama) and none is stored, `Ask` fails at once with `onError` naming the
+entry — nothing is sent. When an entry an agent has used is changed or withdrawn — by this form
+or any other — that agent raises **`onModelChanged`**, so you can re-read your
+settings or pick another entry. A new key applies from the next request; no
+restart.
+
+> ⚠️ **Where the keys are, and who can use them.** The keys are kept in
+> `settings/model-keys.dat` in the application's folder, **shared by every
+> user of that installation**. They are encrypted with a key derived from the
+> installation folder and the machine's name: the file is unreadable at a
+> glance, and a copy on another machine or in another folder decrypts nothing.
+> It is **not** protected by a secret the user holds — **anyone who can run the
+> application on that machine can use the stored keys** (though never read
+> them through your program). The operating system's keychain will replace this
+> file behind the same CALLs, with no change to your program. Until then,
+> install the application where only the people who should use those keys can
+> run it.
+>
+> **Notes.**
+> - If the key file cannot be read — damaged, or copied from elsewhere — it is
+>   reported and left exactly as it is, and storing a key answers why in
+>   `status` until you move the file aside. Renaming the machine has the same
+>   effect: enter the keys again.
+> - A key is never shown: not in `LastError`, not in the verbose agent log
+>   (which masks it as `****`), not in anything sent to the model.
+> - Deployments that set `COBOLT_AGENT_PROVIDERS` keep working unchanged.
+
+**Combining with an AI Agent.** A common pattern: run a search, then ask an
+`AgentObject` to summarise the results into a multiline TextBox.
+
+`Ask` is **asynchronous**. It hands the call to a background worker and
+returns immediately, so the form keeps painting and keeps answering clicks
+while the model thinks. The answer therefore arrives in a *second* handler —
+`onResponse` — and is read from `LastReply`:
+
+```cobol
+       SEARCH-1--ONCOMPLETE.
+           MOVE SPACES TO WS-SUMMARY-PROMPT
+           STRING "Summarise these search results in three bullet points: "
+                  SEARCH-1::TopTitle " — " SEARCH-1::TopSnippet
+             INTO WS-SUMMARY-PROMPT
+           Agent1::Ask(WS-SUMMARY-PROMPT).
+
+       AGENT1--ONRESPONSE.
+           MOVE Agent1::LastReply TO Summary-Box::Text.
+
+       AGENT1--ONERROR.
+           MOVE Agent1::LastError TO Summary-Box::Text.
+```
+
+> ⚠️ **Do not write `MOVE Agent1::Ask(...) TO X`.** `Ask` returns the empty
+> string — the reply does not exist yet when the statement finishes — so that
+> `MOVE` silently clears the receiving field. This is the same convention every
+> other non-visual control follows (`RestClient::Get`, `Maps::Geocode`,
+> `WebSearch::Search`): the verb starts the work, the event delivers it.
+>
+> **Notes.** `Busy` is true from the `Ask` until `onResponse`, `onError` or
+> `onTimeout` fires, and a second `Ask` while it is true is ignored rather than
+> raced — test `Busy` (or disable the button) if the user can press twice.
+> Two limits guard the wait, and both end in `onTimeout` with `LastError`
+> saying which:
+> - **`StartTimeoutSeconds`** (60 by default; 0 for none) — the longest the
+>   model may take to **begin** its answer. A model that never starts — stuck,
+>   overloaded, or asked for something it cannot do — is **cancelled** at that
+>   point: its connection is closed, not merely ignored, so a local model stops
+>   working for nobody. Raise it for a model that thinks before its first word,
+>   or for the first question to a local model that has to load.
+> - **`TimeoutSeconds`** — once the answer has begun, the longest it may fall
+>   **silent** between two pieces. Every agent request is streamed on the wire
+>   (you see the pieces only with `StreamReply`), so a long answer that keeps
+>   coming is never cut off, however long it takes in total.
+
+**Showing the reply while it arrives — `StreamReply`.** A long answer can take
+many seconds, and an empty box for all of them feels broken. Turn `StreamReply`
+on and the model's text reaches your program while it is being written: up to
+ten times a second `onPartialReply` fires, with `PartialReply` holding the
+reply so far and `ReplyPiece` only what is new since the last time. The Ask
+still ends the way it always did — `onResponse`, once, with the whole text in
+`LastReply` — so a handler written for the unstreamed Ask keeps working.
+
+```cobol
+       SEND-BUTTON--ONCLICK.
+           INVOKE VWR-1::AppendMarkdown("**Assistant:**")
+               RETURNING WS-MESSAGE-ID.
+           Agent1::Ask(Prompt-Box::Text).
+
+       AGENT1--ONPARTIALREPLY.
+           INVOKE VWR-1::AppendToMessage(WS-MESSAGE-ID,
+               Agent1::ReplyPiece, "Raw").
+
+       AGENT1--ONRESPONSE.
+           MOVE Agent1::LastReply TO WS-LAST-ANSWER.
+```
+
+> **Notes.** `TimeoutSeconds` is a limit on *silence*: every piece that
+> arrives restarts it, so a long answer that keeps coming is never cut off,
+> while a provider that goes quiet still times out. `Busy` stays true until
+> `onResponse` (or `onError`). An Ask that offers tools is never *shown* on
+> the way — its rounds are answered by your program, not read — though each
+> round is streamed on the wire like any other request.
+>
+> ⚠️ **Caveat.** The OpenAI-compatible providers, Anthropic and Ollama all
+> stream. A `Custom` endpoint that ignores the request to stream and answers
+> in one piece still works — its reply is read whole — but for it the first
+> piece IS the whole answer, so `StartTimeoutSeconds` bounds the entire
+> answer: raise it (or set it to 0) for such an endpoint if its answers are
+> slow.
+
+`WebSearch` is classified as a `RestApi`-kind binding **source** (the same
+kind `RestClient` uses — there is no separate `WebSearch` source kind), so
+its response can feed a DataGrid/Chart/ComboBox/array binding the same way
+a RestClient response can.
+
+### Data & credentials
+
+The **google_maps** key (Maps' Directions/Geocoding/Places/Distance-Matrix
+methods) and the **search API key** + **Search Engine id** (WebSearch)
+are configured once per project, in the **Integrations** section of
+project Settings (click the project tree's top node → *Integrations*) —
+the same machine-local pattern already used for AI provider keys (see *The
+AI assistant* above):
+
+
+| Field                     | Meaning                                                                                         |
+| ------------------------- | ----------------------------------------------------------------------------------------------- |
+| **Google Maps API key**   | Used by Maps' five data methods. The OSM basemap itself needs no key at all.                    |
+| **Search API key**        | Used by `WebSearch`'s `Search()` — the key for whichever `Provider` the control is set to (Google, Brave, Serper or Tavily). `SearXNG` needs none. A control may override this with its own `ApiKey` property. |
+| **Search Engine id (cx)** | Which Google Custom Search engine to query — a plain, non-secret id, entered separately from the key. Read only when `Provider` is `Google`. |
+
+Both keys are **machine-local, never written to `cobolt.toml`, the `.cfrm`
+form file, or any generated `.cbl`** — the same discipline the AI
+assistant's own API key already follows. Running a form seeds the resolved
+key into the interpreter as a runtime-only value; it never becomes literal
+generated-source text, so it cannot leak through a shared `.cbl` file
+(Build and Run compile the exact same generated source).
+
+### Driving the IDE with an AI agent (MCP)
+
+The IDE itself is agent-operable. At startup it serves the **egui inspection
+protocol** on `127.0.0.1:5719` (change the port under ⚙ *Settings* → AI —
+takes effect on restart; the Output console shows the listen address). Through
+it an agent can read the live widget tree, click and type on real IDE
+controls, resize the window, and capture screenshots.
+
+- **External agents** (Claude and other MCP clients) connect through the
+  official `egui-mcp` bridge — configure it as an MCP server pointing at the
+  IDE's address, and the agent gets see-and-drive access to every IDE surface.
+- **The built-in AI assistant** uses the same machinery in-process: each
+  request includes a snapshot of the rendered widget tree alongside the form
+  model, so the model reasons about what your form actually looks like — and
+  after applying changes it re-reads the tree to verify them.
+
+> ⚠️ **Caveat.** The endpoint is bound to `127.0.0.1` only — it is never
+> reachable from the network. It also exists **only in the IDE**: applications
+> you build and ship, and `rcrun`, contain no inspection endpoint at all.
+
+### Working with a coding agent (Claude Code)
+
+A coding agent such as **Claude Code** can write your forms, programs and
+indexed files — but on its own it does not know RustCOBOL. It cannot see the
+compiler, guesses at controls and properties, and does not know that generated
+COBOL is never edited. **File ▸ Export coding-agent kit ▸ Claude Code** gives
+it what it is missing: the rules, a reference that matches *this* version of
+PowerRustCOBOL, a way to check its work against the real compiler, and a fixed
+way to report what the product cannot do yet.
+
+The command is enabled while a project is open. It writes into the project
+folder, and the Output panel lists every file.
+
+| File | What it is for |
+| --- | --- |
+| `CLAUDE.md` | The agent's brief: the project layout, the standing rules, the tools, the skills. If you already have a `CLAUDE.md`, the kit adds its own section between two `powerrustcobol-kit` markers and leaves your text untouched. |
+| `.claude/settings.json` | Permissions: edit and read inside the project, use the project tools, and no shell commands. |
+| `.claude/skills/powerrustcobol-*/SKILL.md` | Seven task skills: create a form, add a control and bind its event, define an indexed file, add assets, write a common procedure, check and fix, write a gap report. |
+| `.claude/agents/powerrustcobol-reviewer.md` | A reviewer the agent runs before it calls a change done. |
+| `.mcp.json` | The connection to the project tools (below). |
+| `docs/powerrustcobol/` | The reference: this Guide, the supported-syntax document, every control with its properties, methods and events, every built-in, and the `.cfrm` and `.cidx` formats. A name that is not there does not exist for the agent. |
+| `.claude/powerrustcobol-kit.json` | The kit's own record: the version that wrote each file and a fingerprint of it. |
+
+Every file records the PowerRustCOBOL version that wrote it. Open the project
+with a newer IDE and you are offered a refresh of the kit; **Not now** changes
+nothing and the offer returns on the next open.
+
+**Your edits are safe.** Export again whenever you like. A kit file you changed
+yourself is kept, and the Output panel names it — delete it if you want this
+version's. Your own servers in `.mcp.json` and your own rules in
+`.claude/settings.json` are merged with the kit's, never replaced.
+
+**Nothing secret or personal goes in.** The kit carries no API key: if a key
+stored on this machine would appear in any kit file, the export is refused and
+nothing is written. Your home folder, login name and git name and e-mail are
+replaced in everything the export fills in — the project name and the path to
+`rcrun`, which is written as `${HOME}/…` when it lives in your home folder.
+
+#### The project tools
+
+The agent checks its own work through seven tools, served over MCP by two
+servers that `.mcp.json` names:
+
+| Server | When the agent uses it |
+| --- | --- |
+| `powerrustcobol-ide` | While PowerRustCOBOL AI runs with **this** project open. The IDE serves it over HTTP on `127.0.0.1`, port **5720** by default. With another project open it answers that a different project is open; with none, "no project open". |
+| `powerrustcobol` | When the IDE is closed. The agent starts `rcrun mcp` itself, so `rcrun` must be beside the IDE or on your `PATH`. |
+
+- **`list_files`** — the files the project tracks, and the gap reports.
+- **`check`** — the IDE's own Check: every form's code, every source, every
+  `.cfrm` and `.cidx`, the main-form designation and data-binding problems. A
+  form error names the form, the control ▸ event and the line in that handler.
+- **`regenerate`** — rewrites a form's (or an indexed file's) generated COBOL
+  with the IDE's generator.
+- **`add_to_project`** — puts a new form, indexed file, source or asset in the
+  project.
+- **`build`** — regenerates, refuses while `check` reports an error, then builds
+  the binary. A long build answers "running"; the agent asks again.
+- **`validate`** — checks that one `.cfrm` or `.cidx` loads.
+- **`kb_lookup`** — finds a control, property, method, event or built-in in the
+  reference.
+
+The agent never edits the project file by hand. It carries a seal over the
+main-form designation, and a hand edit makes your application report itself
+corrupted — so new files go through `add_to_project`, which seals as the IDE
+does. While the IDE is open it stays the only writer of the project file: a
+tool that would overwrite a form with unsaved edits in the IDE refuses and
+names the form, and a form the agent changed on disk is reloaded if you have
+no unsaved edits in it.
+
+The first time you start Claude Code in the folder it asks you to approve the
+project's two servers. The port is a setting — ⚙ *Settings* → AI →
+**Coding-agent tools port**. A change takes effect on restart, and you export
+the kit again so `.mcp.json` points at the new port.
+
+> ⚠️ **Caveat — no authentication.** The tools listen on `127.0.0.1` only, so
+> nothing on the network can reach them. But anything running **on this
+> machine** that can reach the port can call them, and so check, regenerate
+> and build the open project. They act only inside the open project, and only
+> when it has a kit: they never read or write your settings, your API keys or
+> anything outside the project folder.
+
+> ⚠️ **Caveat — the permissions narrow, they do not wall off.** The kit allows
+> edits inside the project and denies the shell, and the brief and the
+> reviewer forbid touching anything else, PowerRustCOBOL included. Claude Code
+> may still ask to work outside the folder; say no.
+
+#### When the product cannot do it: gap reports
+
+When you ask for something PowerRustCOBOL does not support — a verb, a
+property, an event, an IDE capability — the agent does not invent it. It does
+the part that works, writes a **gap report** in `docs/compiler-requests/`
+(`<date>-<topic>.md`), and tells you. A report names the request, the missing
+capability, why it is needed, a minimal example, the workaround used, the
+version, and whether it is standard COBOL-85 behaviour (a fix) or something
+beyond it (a feature) — ready to send to the PowerRustCOBOL team.
+
+The reports appear in the project tree under **Compiler requests**, newest
+first, as soon as the agent writes one. Click a report to open it. The node is
+absent while there is none.
+
+> 📷 **Screenshot needed — `agent-kit-export.png`.** The File menu open on
+> *Export coding-agent kit ▸ Claude Code*, with the Output panel below listing
+> the files written, and the **Compiler requests** node in the project tree.
+
+### Letting a model query your data (MCP)
+
+The inspection endpoint above lets an agent drive *the IDE*. This is the other
+direction, and it belongs to **your application**: letting a model answer
+questions from your own indexed files.
+
+The problem it solves is the one every "AI assistant over business data" runs
+into. A user asks *"how many contractors started in Q3"* and names no file. The
+model has to choose one — and it can only choose from what each file says about
+itself.
+
+**So your descriptions are the mechanism.** The comment you write on an indexed
+file becomes the description of a search tool, and each field's comment
+describes one of that tool's parameters. Nothing else is involved. A file
+described as *"one row per employment record"* with a field described as
+*"start date"* can be chosen correctly; one described as *"loaded by
+`load-staff.cbl`"* cannot, however accurate that note is for a colleague.
+
+> 💡 **Write the comment for the reader who will use it.** A note explaining
+> where a file came from helps the next developer. A sentence saying what the
+> file *holds* helps a model pick it. If you want both, lead with what it
+> holds.
+
+#### Choosing which files may be consulted
+
+Describing a file does **not** publish it. Nothing is consultable until your
+application marks it so, and an application that marks nothing answers nothing:
+
+```
+    ACTORS-FILE: no consultable file is served by that tool
+```
+
+That is the deliberate default. A half-built application should not quietly
+expose every indexed file you happen to have.
+
+#### Asking from your own COBOL
+
+Your program asks the same question an outside client would, without a port or
+a round trip:
+
+```cobol
+       01 WS-TOOL   PIC X(40) VALUE "search_actors_file".
+       01 WS-ARGS   PIC X(80) VALUE '{"ACTOR-SALARY": "100000"}'.
+       01 WS-RESULT PIC X(500).
+       ...
+           COBOL::"MCP-SEARCH" ( WS-TOOL WS-ARGS WS-RESULT ).
+           DISPLAY WS-RESULT.
+```
+
+which answers with the file that responded and the records it matched:
+
+```
+    ACTORS-FILE: 2 record(s)
+    ACTOR-ID=1  ACTOR-SALARY=100000
+    ACTOR-ID=3  ACTOR-SALARY=100000
+```
+
+`WS-ARGS` is a JSON object of field name to value — the same shape an external
+client sends, so both callers take the same input and reach the same code.
+Matching is textual and case-insensitive, and a field you leave out is simply
+not filtered on.
+
+**No match is an answer, not a failure.** A search that matches nothing says so
+plainly, which is different from a tool that could not run. A caller that
+cannot tell those apart will ask the same question twice.
+
+**Results are bounded.** Pass `"limit"` to cap them; the reply says when it was
+truncated and that more exist.
+
+#### Your data is read, never touched
+
+The indexed files a tool reads are **yours and pre-existing**. Neither the model
+nor the tool may change one — not a record, not a key, not a byte. This is not a
+rule the tool checks and could get wrong: the file is opened `INPUT`, only
+sequential reads are issued, and no write, rewrite, delete or commit exists
+anywhere on that path. There is no writable handle to obtain.
+
+#### Memory, and which engine actually opens your file
+
+A file that already exists has already chosen its container, and the
+container decides how it is read, not the search:
+
+| The file's container | How it reads | Memory cost |
+|---|---|---|
+| `PRCIDXD1`: written by any program since 1.80.37, DISK or MEMORY | records on demand | bounded, any size |
+| redb | records on demand | bounded, any size |
+| `PRCIDX1`: written by a MEMORY program before 1.80.37 | loaded whole | grows with the file |
+
+So the project carries a **memory limit** — *Project Settings → Runtime → Model
+file-search memory*, stored in `cobolt.toml` as `[agents] file_memory_limit_mb`,
+64 MB unless you change it — and it applies to the last row only.
+Ask to search such a file larger than that limit and the tool
+declines, naming both numbers:
+
+```
+    ACTORS-FILE is held in an in-memory container of 412000000 bytes, over
+    this project's 67108864-byte limit, so it was not loaded. Raise the
+    limit, or rebuild the file with STORAGE IS DISK so it can be read
+    without loading it whole.
+```
+
+That is deliberately a refusal rather than an attempt. A process killed for
+running out of memory tells you nothing; this tells you the two numbers and the
+two ways out.
+
+> 💡 **Rule of thumb.** An old `PRCIDX1` file stops being a question the
+> first time a program opens it for writing: it is rewritten in the current
+> format, and from then on it is read in place.
+
+#### What a delivered `.cidx` is trusted for
+
+Your application reads its descriptions from the `.cidx` files delivered beside
+it, which is what lets you **correct a misleading description in the field
+without rebuilding** — edit the file, restart, and the tool describes itself
+differently.
+
+That file is also editable by whoever runs your application, so only the
+descriptive half is believed. Record layout, field offsets, keys and storage
+mode come from your compiled program and are never read from the delivery. The
+consequence is worth knowing:
+
+> ⚠️ Someone who edits a delivered `.cidx` can make a file **describe itself
+> wrongly** — visible, and fixed by restoring the file. They cannot move a field,
+> change a key, or make a record read as something it is not.
+
+A definition that describes no fields is not offered as a tool at all: there is
+nothing to search, and nothing to tell a model.
+
+> ⚠️ **No authentication.** Anything that can reach the server can call the
+> tools you marked. Treat what you mark, and where you serve it, as the whole
+> of the security boundary.
+
+### Letting an agent use tools (`onToolCall`, `AllowFile`)
+
+An `AgentObject` can do more than answer from what it already knows. Give it
+**tools** and one `Ask` becomes a short conversation: the model asks for a tool,
+the tool runs, the result goes back, and the model answers with that result in
+hand. Your `onResponse` handler still receives one finished answer — the rounds
+in between happen for you.
+
+If you have written PowerCOBOL or isCOBOL event handlers, the shape is familiar:
+the model raises an event, your handler fills in the answer, and control goes
+back to it.
+
+```mermaid
+sequenceDiagram
+    participant P as Your program
+    participant A as AgentObject
+    participant M as Model
+    P->>A: Ask(question)
+    A->>M: question + tool list
+    M-->>A: call search_actors_file
+    Note over A: indexed-file tool:<br/>searched in-process
+    A->>M: search result
+    M-->>A: call get_rate(CURRENCY)
+    A->>P: onToolCall (ToolName, ToolArguments)
+    P->>A: SetToolResult(ToolCallId, text)
+    A->>M: your result
+    M-->>A: final answer
+    A->>P: onResponse (LastReply)
+```
+
+A tool comes from one of two places.
+
+**An indexed file you allow.** `AllowFile` offers one of your indexed files to
+every agent in the application, as the same read-only `search_<file>` tool
+described in *Letting a model query your data* above:
+
+```cobol
+           MOVE AGENT-1::AllowFile("ACTORS-FILE", "indexed/actors.cidx")
+             TO WS-OK
+```
+
+The first argument is the file's name in your `SELECT`; the second is its
+`.cidx` definition (leave it out and the delivered `indexed/` folder is searched
+for the definition of that file). What the file *means* — its description and
+the field comments — comes from the `.cidx`. How its records are *laid out*
+comes from your program's own `FD`, never from the definition. The search runs
+inside your program and never reaches a handler. `DenyFile("ACTORS-FILE")`
+withdraws it. `AllowFile` answers `0` when it cannot find the `FD` or the
+definition, and the file is simply not offered.
+
+**An indexed file you register by path.** `AllowFile` needs the file's `FD` in
+your program, so it can only offer files you knew about when you built it.
+`RegisterFile` offers one your *users* point at while the application runs —
+the orders file on the finance server, a colleague's customer list — with no
+`FD` and no rebuild:
+
+```cobol
+           MOVE AGENT-1::RegisterFile(
+                "smb://finance/data/orders.dat",
+                "smb://finance/data/orders.cidx") TO WS-OK
+           IF WS-OK = "1"
+               MOVE AGENT-1::RegisterResult TO WS-HOW
+      *>       "MEMORY" or "DISK"
+           ELSE
+               MOVE AGENT-1::RegisterResult  TO WS-CODE
+               MOVE AGENT-1::RegisterMessage TO WS-WHY
+               PERFORM TELL-THE-USER
+           END-IF
+```
+
+The model then sees `search_orders_file` — named after the `.cidx`, or after
+the third argument if you give one — and searches it exactly as it searches a
+file you allowed. `UnregisterFile("ORDERS-FILE")` withdraws it.
+
+*Where the file may be.* Any of these, for the data file and for its `.cidx`:
+
+| Path | Example |
+|---|---|
+| A local path | `C:\Data\orders.dat`, `/home/ana/orders.dat`, or relative to your application |
+| The system's own network path | `\\finance\data\orders.dat` on Windows; the mounted share on macOS (`/Volumes/data/orders.dat`) or Linux (`/mnt/data/orders.dat`) |
+| An `smb://` address, on every system | `smb://finance/data/orders.dat`, read without mounting the share |
+
+An `smb://` address with no user logs in as a guest. For a share that needs a
+login, put it in the address — `smb://CORP;ana:password@finance/data/orders.dat`.
+The password is used to log in and nothing else: it never appears in
+`RegisterMessage`, in a log, or in anything sent to the model, where the
+address shows as `ana:****@`.
+
+> ⚠️ **For now, a password in an `smb://` address lives in your program.** Keep
+> it out of the source — build the address at run time from something the user
+> types, or use a share that allows guests.
+
+*What the `.cidx` must say.* With no `FD`, the record layout comes from the
+`.cidx` — so before the model sees anything, the definition is checked against
+the schema the data file keeps about itself. A record length or a key that
+does not match, a definition that says nothing about what the file is for, or
+fields with no descriptions, and the file is refused, with the reason.
+
+*Read only, always.* A registered file is opened `INPUT`, and nothing is ever
+written to it — not a record, not a header byte. It needs no write
+permission, so a read-only file or a read-only share is fine. If an
+interrupted write left a recovery journal beside the file (`orders.dat.jrn`),
+reading it would mean repairing it first, which is not the assistant's job —
+the file is refused, and both it and the journal are left exactly as they
+were.
+
+*Memory, or disk.* A registered file is held in memory when it is under the
+project's memory limit **and** no more than half of the machine's free memory
+at that moment. A larger one is read in place from disk, a page at a time, if
+it is a local (or OS network path) `STORAGE IS DISK` file. Anything else too
+large — a legacy `PRCIDX1` file (written by a MEMORY program before 1.80.37),
+or any file on an `smb://` share — is refused, and `RegisterFileBytes` / `RegisterLimitBytes` give you both numbers.
+
+| `RegisterResult` | Meaning |
+|---|---|
+| `MEMORY` / `DISK` | Registered — held in memory, or read in place from disk |
+| `NOT-FOUND`, `CIDX-NOT-FOUND` | The data file, or its `.cidx`, is not there |
+| `ACCESS-DENIED` | No permission, or the share refused the login |
+| `UNREACHABLE` | The server did not answer |
+| `BAD-PATH` | The path cannot be understood (a Windows `\\server` path on macOS or Linux, for example — use the mounted path or `smb://`) |
+| `RECORD-LENGTH-MISMATCH`, `KEY-MISMATCH` | The `.cidx` does not describe this file |
+| `NO-PURPOSE`, `NO-FIELDS`, `NO-FIELD-DESCRIPTIONS` | The `.cidx` does not say enough for a model to use the file |
+| `CIDX-INVALID`, `CORRUPT` | The `.cidx`, or the data file, is damaged |
+| `NOT-INDEXED`, `FORMAT-UNSUPPORTED` | Not a PowerRustCOBOL indexed file, or an older format that carries no schema to check |
+| `JOURNAL-PRESENT` | A recovery journal is beside the file |
+| `TOO-LARGE-FOR-LIMIT`, `TOO-LARGE-FOR-FREE-MEMORY` | Too large to hold in memory, and cannot be read in place |
+| `NEEDS-UPGRADE` | Too large to hold in memory, and in an older disk format that cannot be read in place without changing it |
+| `SMB-UNAVAILABLE` | The application was built without `smb://` support |
+
+`RegisterMessage` says the same thing in English; translate the code for your
+users in your own tables.
+
+> **Notes.**
+> - A registration lasts until your program ends. Nothing about it — least of
+>   all a path with a password in it — is saved. Register the files again at
+>   start-up.
+> - "Free memory" is the operating system's own estimate, and each system
+>   counts reclaimable cache differently. Treat it as a guard, not a promise.
+> - `smb://` works over SMB 2 and 3. SMB 1 is not supported.
+
+📷 Screenshot needed — `registerfile-project-settings.png`: *Project Settings →
+Runtime* with the **Model file-search memory** field visible (set it to 64 MB).
+
+**A tool your program answers.** Declare it, describe its arguments, and answer
+it in `onToolCall`:
+
+```cobol
+       FORM-1--ONLOAD.
+           MOVE AGENT-1::AddTool("get_rate",
+                "Today's exchange rate from euros to a currency") TO WS-OK
+           MOVE AGENT-1::AddToolParameter("get_rate", "CURRENCY",
+                "Three-letter currency code, e.g. USD") TO WS-OK.
+
+       AGENT-1--ONTOOLCALL.
+           MOVE AGENT-1::ToolCallId    TO WS-CALL-ID
+           MOVE AGENT-1::ToolArguments TO WS-ARGS
+      *>   WS-ARGS holds {"CURRENCY":"USD"}
+           PERFORM LOOK-UP-RATE
+           MOVE AGENT-1::SetToolResult(WS-CALL-ID, WS-RATE-TEXT) TO WS-OK.
+
+       AGENT-1--ONRESPONSE.
+           MOVE AGENT-1::LastReply TO ANSWER-BOX::Text.
+```
+
+`ToolName` says which tool was called, when you declared more than one.
+`ToolArguments` is a JSON object whose keys are the parameter names you
+declared, and every value in it is a string.
+
+| Member | What it does |
+|---|---|
+| `AddTool(name, description)` | Offers a tool your program answers. The description is what the model reads when it decides whether to call the tool, so say what the tool *returns*. |
+| `AddToolParameter(tool, name, description)` | Describes one argument. |
+| `RemoveTool(name)` | Stops offering a tool. |
+| `SetToolResult(call-id, text)` | The answer, sent when your handler returns. |
+| `AllowFile(fd-name [, cidx-path])` / `DenyFile(fd-name)` | Offers or withdraws an indexed file, for every agent. |
+| `RegisterFile(data-path, cidx-path [, name])` / `UnregisterFile(name)` | Offers or withdraws an indexed file by its path — local, network or `smb://` — with no `FD`. |
+| `ToolProtocol` | `Native` (default), `Fenced`, or `None` — see below. |
+| `MaximumToolRounds` | How many rounds of tool calls one `Ask` may take (default 8). |
+| `MaximumContinuations` | How many times an answer cut off by `MaximumTokens` is continued (default 4; see "A long answer is never cut short in silence"). |
+| `LastInputTokens`, `LastOutputTokens` | Tokens the provider reported for the last `Ask`, summed over every round. |
+| `LastToolCallCount` | How many tools the model called during the last `Ask`. |
+
+**`Native` or `Fenced`.** With `Native`, tools use the provider's own
+tool-calling format — OpenAI-compatible servers, Ollama and Anthropic each have
+one, and the control speaks all three. Some local models have no tool calling
+at all. For those, set `ToolProtocol` to `Fenced`: the tools are described in
+the system prompt, and the model calls one by answering with a small fenced
+JSON block. It is slower and relies on the model following instructions, but it
+works with any model that can follow them. The control never guesses which one
+a model needs from its name — you choose.
+
+**`None`.** The files, Knowledge Bases and tools you allow are offered to
+**every** agent in the program. Set `ToolProtocol` to `None` on an agent whose
+model cannot call tools at all, and that agent is offered none of them — its
+requests are plain chat, whatever the others do. PowerChat's election sets it
+on every agent except the one doing the tool work.
+
+> **Notes.**
+> - An agent that offers no tools sends exactly the request it always sent.
+>   Tools cost nothing until you declare one.
+> - Your program answers **one call at a time**, in the order the model made
+>   them. If the model asks for three things at once, `onToolCall` fires three
+>   times.
+> - A handler that never calls `SetToolResult` sends the model an **empty**
+>   result. An unbound `onToolCall` does the same, so the question never hangs.
+> - A call to a tool that was never offered, or arguments that are not valid
+>   JSON, are reported **to the model** as an error result so it can try again.
+>   Your handler never sees them.
+> - `LastInputTokens` / `LastOutputTokens` are written on every `Ask`, with or
+>   without tools. They are how you watch what a question costs.
+
+> ⚠️ **Caveats.**
+> - `TimeoutSeconds` bounds the **whole** question — every round, and every
+>   wait for your handler. A tool that runs a long batch job should hand the
+>   work off and answer at once. `StartTimeoutSeconds` applies to each round
+>   on its own: every request to the model must begin in time.
+> - A model that keeps calling tools is stopped at `MaximumToolRounds` with
+>   `onError`, and `LastError` says so. Raise the limit only for a question
+>   that really needs many steps.
+> - `Cancel()` stops the question at any point, including inside your own
+>   `onToolCall` handler. `onCancelled` fires, and nothing more is sent to the
+>   model.
+> - An allowed file is visible to **every** agent in the application. Allow
+>   only files whose contents any of your agents may repeat to its user.
+
+**Knowing when the agent searches — `onToolUse`.** The tools the runtime
+answers itself never reach `onToolCall`: a Knowledge Base search, a registered
+indexed file. `onToolUse` tells you they are being used, before they run,
+while the model is still working. `ToolKind` is `KnowledgeBase` or
+`IndexedFile`, and `ToolName` and `ToolArguments` say which tool and with what.
+There is nothing to answer: the result goes straight to the model. It is what
+a chat needs to say "searching the Knowledge Base…" while it happens.
+
+```cobol
+       PROGRAM-ID. AGENT-1--ONTOOLUSE.
+       PROCEDURE DIVISION.
+           MOVE AGENT-1::ToolKind TO WS-KIND
+           IF WS-KIND = "KnowledgeBase"
+               INVOKE VWR-1::ReplaceMessage(WS-STATUS-ID,
+                   "*Searching the documents...*", "Markdown")
+           END-IF
+           .
+```
+
+### Your users' documents: the KnowledgeBase control
+
+A **KnowledgeBase** gives your application a library of its users' documents
+that a program — or a model — can search: company policies, manuals, meeting
+notes. It is the application's own. It has nothing to do with the Knowledge
+Base the IDE's assistant uses while you design, and a built application carries
+nothing of the IDE for it.
+
+Drop a **KnowledgeBase** from the Toolbox (*NonVisual*) onto a form. It holds
+**collections**: independent sets of documents, each in its own folder with a
+searchable index built from them.
+
+```text
+<app>/assets/KB/                  ← Location (the default)
+    hr/                           ← a collection
+        documents/                ← the users' files
+        collection.kbindex        ← the index, built from them
+    legal/
+        documents/
+        collection.kbindex
+```
+
+| Property | What it does |
+|---|---|
+| `Location` | The folder holding the collections. Relative paths start at the application's folder; it may be a folder on another machine in your network. |
+| `Collection` | The collection the document and search methods act on. |
+| `Embedder` | `Lexical`, `Endpoint` or `Builtin` — see *How text is matched*. |
+| `MaximumResults` | Hits a `Search` returns when it names no maximum (5). |
+| `WriteWaitMilliseconds` | How long a write waits for another application writing the same collection (5000). |
+| `ArchiveMaximumMegabytes`, `ArchiveMaximumFiles`, `ArchiveMaximumDepth` | Bounds on reading an archive of documents (500 MB, 10,000 files, 3 levels) — see *Which documents it reads*. |
+
+#### Everything happens in the background
+
+Adding, changing, deleting, refreshing and searching run while the form stays
+responsive. The method answers at once — `1` when the work started, `0` when it
+could not (read `LastError`) — and the result arrives as an event. **The
+properties you read inside an event's branch are the values that event
+carried**, so two progress reports never overwrite each other before your
+handler sees them:
+
+```cobol
+           MOVE KB-1::AddDocument("policies/leave.md", WS-TEXT) TO WS-OK
+      *>   …then, in the event loop:
+           EVALUATE COBOL-EVENT-ID
+               WHEN "onProgress"
+                   MOVE KB-1::ProgressCurrent TO WS-DONE
+                   MOVE KB-1::ProgressTotal   TO WS-TOTAL
+                   PERFORM SHOW-PROGRESS
+               WHEN "onIndexed"
+                   MOVE KB-1::Search("annual leave") TO WS-OK
+               WHEN "onSearchComplete"
+                   MOVE KB-1::ResultCount TO WS-COUNT
+                   PERFORM VARYING WS-N FROM 1 BY 1
+                           UNTIL WS-N > WS-COUNT
+                       MOVE KB-1::GetResultDocument(WS-N) TO WS-DOC
+                       MOVE KB-1::GetResultPassage(WS-N)  TO WS-PASSAGE
+                       PERFORM SHOW-HIT
+                   END-PERFORM
+               WHEN "onBusy"
+                   MOVE KB-1::LastError TO WS-MESSAGE
+           END-EVALUATE
+```
+
+| Methods | |
+|---|---|
+| `AddDocument(name, text)`, `UpdateDocument(name, text)` | Save a document (sub-folders allowed: `policies/leave.md`) and index it. |
+| `ImportDocument(path [, name])` | Copy a file in and index it. |
+| `DeleteDocument(name)` | Delete a document and its entries in the index. |
+| `Refresh()` | Index what changed in the folder — see below. |
+| `Search(query [, max])` | Search; then `GetResultDocument`, `GetResultHeading`, `GetResultPassage`, `GetResultScore(n)`. |
+| `CreateCollection(name)`, `RemoveCollection(name)`, `ListCollections()`, `GetCollection(n)` | Manage collections. |
+| `ListDocuments()`, `GetDocument(n)` | The collection's documents. |
+| `Reindex()`, `FetchModel()`, `Cancel()` | Re-embed everything; fetch the built-in model; stop the running operation. |
+
+A document is split into passages by its headings, so a search returns the
+section that answers — `GetResultHeading` names it as
+`leave › Leave › Carry-over` — and a long section comes back whole.
+
+#### Which documents it reads
+
+Your users do not convert anything first: they drop in the files they already
+keep, and each is turned into text inside your application.
+
+| Format | Files | What a hit points at |
+|---|---|---|
+| Word | `.docx`, `.docm`, `.dotx`, `.dotm` | The heading it sits under |
+| PowerPoint | `.pptx`, `.pptm`, `.potx`, `.potm`, `.ppsx`, `.ppsm` | `Slide 4: Pricing` |
+| Excel | `.xlsx` and the old binary `.xls` | The sheet (read as a table) |
+| OpenDocument | `.odt` and `.ods` (and their templates) | The heading, or the sheet |
+| Tables | `.csv`, `.tsv` | The table |
+| PDF | `.pdf` | `Page 7` |
+| Web pages | `.html`, `.htm` | The heading; scripts, styles and navigation are left out |
+| Text | `.md`, `.txt` | The Markdown heading |
+| Archives | `.zip`, `.tar`, `.tar.gz` / `.tgz` | Each document inside, by its path |
+
+- **Content decides, not the name.** A Word file someone renamed `.txt` is
+  still read as Word.
+- **Word headings are found by their outline level**, not their style name, so
+  a document written in a Portuguese or Spanish Word — `Título 1` — is split
+  by heading like an English one.
+- **A document inside an archive is named through it**, in search hits and in
+  `SkippedDocuments` alike: `contracts-2025.zip › legal/nda.docx`, and through
+  a ZIP inside a ZIP, `old.zip › 2024.zip › legal/nda.docx`.
+- **Only text is indexed.** Pictures are ignored, and nothing a document
+  contains — macros, scripts, embedded objects — is ever run.
+
+A document it cannot read is **skipped, left in the folder, and never stops the
+others**. `onIndexed` lists each one in `SkippedDocuments` as
+`document: code (explanation)`, separated by `; `. The code is stable, so your
+program can show the reason in the user's language:
+
+| Code | Meaning | What the user can do |
+|---|---|---|
+| `legacy_office` | An old binary Word or PowerPoint file (`.doc`, `.ppt`) | Save it as `.docx` / `.pptx` |
+| `password_protected` | The document is encrypted | Save an unprotected copy |
+| `no_text` | A PDF with no text in it — usually a scan | Run it through OCR first |
+| `damaged` | The file is incomplete or corrupt | Replace it |
+| `unsupported` | Not a document format it reads — a picture, a program | — |
+| `too_large` | An archive past one of its bounds | Unpack it, or raise the bound |
+| `unreadable` | The file could not be opened | Check its permissions |
+
+**Archives are bounded.** An archive is read in memory, never unpacked to
+disk, and the three `ArchiveMaximum…` properties cap it — the total it
+unpacks to, the number of files, and how many archives deep. The caps count
+nested archives too, so a small file built to expand enormously is refused
+as `too_large` rather than filling the machine's memory.
+
+> ⚠️ **Caveat:** the bounds apply to archives. A single very large spreadsheet
+> or PDF is read whole, so keep individual documents to a sensible size.
+
+#### Keeping the index current
+
+Changes made through the control update the index straight away. Files your
+users copy into `documents/` with the file manager — or that a colleague adds on
+a shared folder — are picked up by `Refresh()`: it compares the folder with the
+index **by content** and indexes only what was added, changed or removed. Call it
+when your form opens a collection. Nothing watches the folder in the
+background; on a network share such watching is unreliable.
+
+#### How text is matched
+
+- **`Lexical`** — built in, always available. Matches words: "leave" finds
+  "leave", not "vacation".
+- **`Endpoint`** — an embedding model on a server (`EmbeddingAPI`,
+  `EmbeddingURL`, `EmbeddingModel`, or a **Configuration** naming one of your
+  Model Providers). Its key comes from the machine's key store, never from the
+  form.
+- **`Builtin`** — the semantic model runs inside your application and finds
+  meaning offline. It is linked only when the project asks for it:
+
+  ```toml
+  [rag]
+  embedder = "builtin"
+  ```
+
+  Building such an application **ships the model** (about 470 MB) in a
+  `models/` folder beside `assets/` in the destination folder, so it embeds
+  offline from its first run. The build takes it from the project's own
+  `models/` folder, or from the copy PowerRustCOBOL AI already keeps for its
+  assistant. When neither exists, the build says so, and the application
+  fetches it once per installation with `FetchModel()`. The application
+  looks for it in `<app>/models`, then in `<app>/assets/models`, where older
+  applications kept it. Every user of that installation shares it. Run Form
+  uses the IDE's own copy, so running from the IDE downloads nothing.
+
+`SearchMode` tells you how a search was scored. When the chosen embedder cannot
+be used — the server is down, the model not fetched yet, or the collection was
+indexed with a different embedder — search falls back to lexical and
+`SearchModeReason` says why. Documents added meanwhile are stored without
+vectors and still found by their words; the next `Refresh()` with a working
+embedder gives them vectors. Changing a collection's embedder takes a
+`Reindex()`.
+
+**Showing an update as it happens, and confirming it.** Embedding is where an
+update spends its time, so `onProgress` reports it passage by passage. While a
+document is being embedded, `ProgressPassages` holds how many passages it was
+split into and `ProgressPassage` how many are done, one batch of 16 at a
+time. After each document they are back to 0. When the update ends,
+`onIndexed` sets `PassageCount` and `SearchMode`, **every time**:
+`Semantic` confirms the passages carry embeddings, and `Lexical` means they
+were stored for word search, with `SearchModeReason` saying why.
+
+```cobol
+       PROGRAM-ID. KB-1--ONPROGRESS.
+       PROCEDURE DIVISION.
+           MOVE KB-1::ProgressPassages TO WS-PASSAGES
+           IF WS-PASSAGES NOT = SPACES AND WS-PASSAGES NOT = "0"
+               MOVE KB-1::ProgressPassages TO BAR-1::Maximum
+               MOVE KB-1::ProgressPassage  TO BAR-1::Value
+           END-IF
+           .
+       PROGRAM-ID. KB-1--ONINDEXED.
+       PROCEDURE DIVISION.
+           MOVE KB-1::PassageCount TO WS-PASSAGES
+           MOVE KB-1::SearchMode   TO WS-MODE
+           .
+```
+
+> 📷 Screenshot needed — `knowledgebase-properties.png`. Select a KnowledgeBase
+> on a form with `Embedder = Endpoint` and capture the properties pane showing
+> Location, Collection, Embedder, Configuration and EmbeddingModel.
+
+#### Sharing one Knowledge Base
+
+Several applications — on one machine, or users on a network share — can search
+and write the same collection at once. Writes take turns; one that waits longer
+than `WriteWaitMilliseconds` raises `onBusy` and writes nothing, so you can tell
+the user to try again. Concurrent use has been verified on a **local disk**
+(three processes searching and writing one collection). Point `Location` at a
+network share only after trying it there: sharing relies on the file locks the
+share provides.
+
+#### Letting an agent read the documents
+
+```cobol
+           MOVE AGT-1::AllowKnowledgeBase("KB-1") TO WS-OK
+           MOVE AGT-1::Ask("How much annual leave do we get?") TO WS-OK
+```
+
+The model now has a tool that searches the collection (the control's
+`Collection`, or the one you name as a second argument). It decides when to
+search, and each passage it receives names its document and section, so it can
+cite them. `DenyKnowledgeBase` withdraws it. Unlike `AllowFile`, a collection
+is granted to **the agent you call it on** and no other: with several agents,
+grant it to each one that should search, and denying it to one never takes it
+from another.
+
+> ⚠️ **Caveats.**
+> - One operation at a time per control: a second call while one runs answers
+>   `0`. Use a second KnowledgeBase control for work in parallel.
+> - `RemoveCollection` moves the folder aside (`hr.removed-<time>`) instead of
+>   deleting it — its documents may be the only copy your users have.
+> - Rebuilding your application never overwrites what your users own: a
+>   collection that already exists in the delivered `assets/KB` is left alone,
+>   and `models` only gains missing files. A collection you ship in
+>   `assets/KB/<name>/documents` is copied only where it does not exist yet.
+> - An application installed in a read-only folder cannot keep its
+>   Knowledge Base under `assets/KB`; set `Location` to a writable folder.
+
+---
+
+## 17. The command line (rcrun)
+
+Everything the IDE does can be scripted with `rcrun`:
+
+```text
+rcrun run      <file.cbl> [args…]       # interpret a COBOL source file
+rcrun run-form <form.cfrm> <file.cbl>   # run the project's MAIN form in its own GUI window
+rcrun check    <file.cbl>               # parse + semantic analysis only (no run)
+rcrun build    <file.cbl>               # compile a single console program → bin/<name>
+rcrun build    [cobolt.toml]            # compile a project → one native binary in bin/
+rcrun package  [cobolt.toml]            # package the project into a .zip
+rcrun mcp      [--project <path>]       # serve the coding-agent tools over stdio
+rcrun version                           # print version
+rcrun help                              # print usage
+```
+
+Anything after the source path on `rcrun run` is handed to the program itself,
+so a program can be driven from a shell script the same way any other command
+is.
+
+**Flags**
+
+
+| Command        | Flag                               | What it does                                                                                                                                                                                                                    |
+| -------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run`, `check` | `--source-format <fmt>`            | `free` (default), `fixed`, `fixed-relaxed`, `auto` — see **Bringing card-image source across** below                                                                                                                           |
+| `run`, `run-form` | `--indexed-engine <name>`, `-I` | ISAM engine: `rust` (default), `rm-cobol85`, `fujitsu`, `redb`                                                                                                                                                                   |
+| `run`          | `--indexed-log <basic|full>`       | Per-file INDEXED transaction log → `<assign-path>.log`                                                                                                                                                                          |
+| `run`          | `--indexed-log-format <text|json>` | Log line format; `json` is NDJSON for Grafana/Loki                                                                                                                                                                               |
+| `run`          | `--switch <NAME>=<ON|OFF>`         | Initial state of a `SPECIAL-NAMES` external switch, by its implementor name (repeatable) — see **External switches and user-defined classes**                                                                                   |
+| `run-form`     | `--debug`                          | Debugger control over stdin/stdout (`@DBG` lines)                                                                                                                                                                               |
+| `run-form`     | `--designer`                       | Run the named form even when it is not the main one. The IDE passes this for **Run Form**; a shipped application never does. It announces itself on stderr, so a designer run cannot be mistaken for how the application starts. |
+| `build`        | `--full`, `--clean`                | Discard every cached artefact and rebuild from scratch                                                                                                                                                                          |
+| `build`        | `--quiet`, `-q`                    | Report only the outcome, not the progress                                                                                                                                                                                       |
+| `package`      | `--output <path.zip>`              | Override the output archive path                                                                                                                                                                                                |
+| `mcp`          | `--project <file\|folder>`         | The project the coding-agent tools act on — its project file, or the folder holding it. Without it, the current folder. See **Working with a coding agent** |
+
+> **Exit codes.** `rcrun run-form` returns **3** when the application is
+> corrupted — its main-form records disagree — and **4** when the form asked
+> for is not the main one. Both are distinct from the ordinary failure code, so
+> a launcher can tell a tampered copy from a program that merely failed.
+
+> **Note.** Reach for `rcrun build --full` when a build behaves oddly after a
+> PowerRustCOBOL upgrade. The generated sources are rewritten on every build,
+> but cargo's own artefacts survive, so an incremental build can link objects
+> produced by an older version.
+
+**Environment variables** — the same settings, handy in CI:
+
+
+| Variable                   | What it sets                                                                                                  |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `COBOLT_LOG`               | Logging filter, e.g. `warn`, `debug`, `cobolt-runtime=trace`                                                   |
+| `COBOLT_SOURCE_FORMAT`     | Default for `--source-format`                                                                                  |
+| `COBOLT_FIXED`             | Set to `1` to force fixed-form source parsing                                                                  |
+| `COBOL_INDEXED_ENGINE`     | Same choices as `--indexed-engine`                                                                             |
+| `COBOL_INDEXED_LOG`        | `off` (default), `basic`, `full`                                                                              |
+| `COBOL_INDEXED_LOG_FORMAT` | `text` (default) or `json`                                                                                    |
+| `COBOL_SWITCHES`           | `SPECIAL-NAMES` external switches, `NAME=ON|OFF`, comma separated — the same as repeating `--switch NAME=ON` |
+
+A flag always wins over its environment variable.
+
+> 📷 **Screenshot needed — `rcrun-terminal.png`.** A terminal session showing
+> `rcrun check`, then `rcrun run`, on a small program, with the output. Helps
+> newcomers see the CLI is approachable.
+
+### Bringing card-image source across
+
+Source you wrote in PowerCOBOL or isCOBOL is very likely in the **classic
+reference format** — the punch-card layout, where columns 1-6 hold a sequence
+number, column 7 is the indicator, the program lives in columns 8 to 72, and
+columns 73-80 hold a program stamp the compiler ignores. Files that came off a
+mainframe are almost always 80 characters wide, whether or not anyone still
+thinks of them as cards.
+
+PowerRustCOBOL's own projects are **free format** — no column rules at all — and
+that is the default. So an imported file needs to be told what it is:
+
+```bash
+rcrun check --source-format=fixed  PAYROLL.CBL
+rcrun run   --source-format=fixed  PAYROLL.CBL
+```
+
+That switches on every column rule at once, including continuation lines, which
+free format has no equivalent for:
+
+```cobol
+011700     02 FILLER PICTURE IS X(54) VALUE IS "------------------------
+011800-    "------------------------------".
+```
+
+The hyphen in column 7 says "this line continues the last one". For a literal,
+the continued line has no closing quotation mark and the continuation line
+reopens with one; the literal is the two halves joined. For a word, the halves
+simply meet:
+
+```cobol
+004700 01  WRK-DS-18V00-CONTIN
+004800-    UED PICTURE X.
+```
+
+⚠️ **Do not pass `--source-format=fixed` for free-format source.** It is not a
+harmless reinterpretation: everything past column 72 is discarded, and anything
+you wrote in the first seven columns is read as a sequence number and an
+indicator. A `MOVE` that ran long would quietly lose its tail.
+
+⚠️ **A continued literal is only byte-exact under `fixed`.** The rule is that the
+continued fragment runs to column 72, trailing spaces included — so a line that
+stops short of column 72 still contributes those spaces to the literal. Without
+a column 72 there is nothing to pad to.
+
+**Note.** If you want the sequence area and indicator column honoured but *not*
+the 72-column cut — useful for source that has been reformatted over the
+years — use `--source-format=fixed-relaxed`.
+
+---
+
+## 18. Building a distributable binary
+
+`rcrun build` (or the IDE **Build** button) produces a **single self-contained
+native executable** in `bin/`. The application's parsed program and its forms are
+embedded inside the binary; no `.cbl` source is shipped, and the end user does
+**not** install PowerRustCOBOL.
+
+```mermaid
+flowchart LR
+    SRC["src/*.cbl + forms/*.cfrm"] --> COMPILE["rcrun build"]
+    COMPILE --> EMBED["parse · analyse · embed (compressed)"]
+    EMBED --> EXE["bin/yourapp  (native executable)"]
+    ASSETS["Assets/ + Knowledge Base/"] -. "copied alongside" .-> EXE
+```
+
+- Tracked **Assets** and **Knowledge Base** files are copied next to the binary so the
+  program finds them by relative path at run time.
+- Required licence/notice files are placed alongside the binary automatically.
+
+> ⚠️ **Caveat.** The *end user* of your application installs nothing, but the
+> machine that **builds** it needs two things: the Rust toolchain, and the
+> platform's own sources. Building is a real compile, not an export. A
+> PowerRustCOBOL installation that ships the platform SDK beside its executable
+> satisfies this on its own; if yours does not, Build stops and names every
+> folder it searched. Point it at a copy under **Help → Platform SDK Location**,
+> or see *Installing the IDE elsewhere* in `BUILDING-en.md`.
+
+> **Note — what a build links, and what that costs.** The SQL bridge
+> (`COBOL::"OPEN-DB"` and its companions) brings SQLite with it, and SQLite is C:
+> linking it means the build machine also needs a **C compiler** — `link.exe`
+> from the Visual Studio Build Tools on Windows, `cc` from `build-essential` or
+> the Xcode Command Line Tools elsewhere. So the build reads your program first
+> and links the database drivers only when something in it reaches them. A
+> program that never opens a database is built with **Rust alone**.
+>
+> **What this note does *not* excuse you from.** A C *compiler* is needed only
+> when something C is actually built. The **linker** is needed every time,
+> because every executable has to be linked — so a program that never opens a
+> database still needs the platform's build tools installed (§3). On Windows and
+> macOS, and on most Linux distributions, the same single package provides both,
+> which is why the two are easy to confuse: what varies is the C compiler, and
+> what never varies is the linker.
+>
+> The reading errs towards linking, because the cost of guessing wrong is a
+> program that works under *Run Form* and fails only once built. Anything it
+> cannot settle — a `CALL` whose verb name lives in a data item rather than in
+> quotes, an `EXEC RUST` block that names the database modules — links the
+> drivers. You do not have to declare anything; the point is only that a plain
+> program no longer pays for a database it never opens.
+>
+> The same applies to the network. `COBOL::"HTTP-…"` reaches the operating
+> system's TLS stack, which on **Linux** is OpenSSL — another C library, and
+> another development package to install. A console program that calls no HTTP
+> verb is built without it. The Maps client is separate again, and is linked
+> when a form in your project actually carries a **Maps** or **WebSearch**
+> control; a project without one does not pay for it.
+>
+> ⚠️ A **form** application always links TLS, whatever its COBOL does: the map
+> basemap is fetched over HTTPS by the Form Designer's own renderer, so the
+> stack is there regardless. On Linux, that means a form application still wants
+> the system TLS development package. It is the **console** programs that build
+> with nothing but Rust.
+
+- **`dist/`** is reserved for a future "bundle everything needed to run on a
+  machine without PowerRustCOBOL" feature (binary + assets + any libraries +
+  launcher). For now, ship `bin/` and the copied assets.
+
+### Full builds and the recorded version
+
+A project records the PowerRustCOBOL version that last **fully** built it. When
+you open a project that was last fully built by an **older** PowerRustCOBOL — or
+that has never been fully built at all — the **Build** button performs a **full**
+build: every cached compilation artefact is discarded first, so nothing produced
+by the older version can survive into the new executable. It takes noticeably
+longer than an ordinary build, and the Output panel says why it is doing so.
+
+Once that build succeeds the version is recorded, and later Build clicks are
+ordinary incremental builds again — the long build happens **once per upgrade**,
+not once per click. Pressing **Run** on a project that still needs one offers you
+the same full build before it starts anything.
+
+From the command line:
+
+```text
+rcrun build --full  [cobolt.toml]   # discard cached artefacts, then build
+rcrun build --clean [cobolt.toml]   # same thing, spelled the other way
+```
+
+> ⚠️ **Caveat.** Only a full build updates the recorded version, and that is
+> deliberate: an ordinary incremental build cannot promise that nothing compiled
+> by the earlier version is still linked into the result.
+
+> **Note.** Forms are loaded **lazily** inside the binary: a 20-form application
+> starts instantly even if the user only ever opens one form.
+
+<!-- 📷 everopen.png — a built application starting and opening one form, showing
+     that the other forms cost nothing until they are asked for. -->
+<p align="center"><img src="../assets/animations/everopen.png" alt="A built application starting instantly and opening a single form" width="900"></p>
+
+### The "Powered by PowerRustCOBOL" badge
+
+If you ship an application built with PowerRustCOBOL, please add the **"Powered by
+PowerRustCOBOL"** badge to your app's **About box** (and, optionally, your README):
+
+<p align="center">
+  <img src="../assets/images/made-with-powerrustcobol.png" alt="Powered by PowerRustCOBOL" width="320">
+</p>
+
+- Standard badge: `assets/images/made-with-powerrustcobol.png` (800×268, transparent).
+- High-resolution master (for print or large displays): `assets/images/made-with-powerrustcobol.webp`
+  (6785×2270) — scale it down to whatever size you need.
+
+The IDE's own **Help → About** box shows the same badge, so you can see exactly how
+it looks in an application.
+
+---
+
+## 19. Debugging
+
+Select a Generated Code item and press **Debug** to start a session. You get:
+
+- **Breakpoints** in the editor gutter **and in the debugger window's own
+  gutter** — click beside any line in either place, before the session or during
+  it. A breakpoint you set, move or clear while the program is stopped takes
+  effect on the very next statement; you do not restart to change your mind.
+- **step** controls and **continue** (F5 / F10 while debugging),
+- a **variable watch** panel,
+- **Only my code**, on by default: stepping runs straight through the generated
+  scaffolding — the event loop above all — and stops only in handlers and
+  procedures you wrote. Turn it off in the debugger toolbar when you want to
+  watch the machinery. Breakpoints are never filtered by it: one you set on a
+  generated line still stops there, because setting it was your decision.
+- **Pause**, which works on an idle form too: press it while the form sits
+  waiting for your click and the program stops at the **last line it
+  executed** — with *Only my code* on, the last line of your own handler,
+  not the event loop. Continue puts the form back to waiting.
+- **Animate**, which steps for you at the speed on the slider — and stops
+  the moment a step lands on a **breakpoint**: the toggle switches itself
+  off and the program waits for you, exactly as it would have had you been
+  stepping by hand. **Pause** stops an animation at any moment, and stays
+  clickable throughout one; press **Animate** again to carry on, or take
+  over by hand with **Step Into** / **Step Over**.
+
+During a session a *Stop Debug* control appears; otherwise debugging starts from
+the toolbar **Debug** button (to the right of **Run**). In a project the
+button comes alive **after a Build** — once the project has been built by the
+PowerRustCOBOL you are running (the tooltip says so while it is grey; a
+project built by an older version needs a fresh Build first). From then on,
+with a COBOL file open in the editor it debugs that file; with nothing open
+it debugs the project's **main form**, exactly the form **Run** would
+launch, with the debugger attached to its window.
+
+> **Note — the Breakpoints list is the whole project's.** The debugger's
+> **Breakpoints** list shows every breakpoint you have set anywhere in the
+> project, not only those in the listing on screen: each Common Code file's,
+> grouped under the file, and each event handler's, grouped under
+> `Form ▸ Control ▸ event`, each with its line and the statement it sits on.
+> The ✕ beside a row clears that breakpoint wherever it lives. A breakpoint
+> you set in a handler's own editor stays set when you close that editor —
+> and when you close the form's designer — and every handler's stops the
+> form, including the handlers of a second form the application opens.
+> Breakpoints last for the IDE session.
+
+> ⚠️ **To stop inside an event handler, debug the form — not its generated
+> `.cbl`.** Pressing **Debug** on a form launches it as a real window, so its
+> handlers actually run and your breakpoints in them are reached. Pressing
+> **Debug** on the generated file from the editor runs the program with no
+> window attached: `COBOL::"WAIT-EVENT"` finds no form to wait on, ends the event
+> loop straight away, and no handler is ever dispatched — so a breakpoint inside
+> one is never passed, however correctly it is set.
+
+### Debugging an application of several forms
+
+An application is rarely one form. When your main form opens another — a
+child window, a modal `OpenFormSync`, or a form shown in a **SideMenu**
+content pane — that form runs **its own program**, and the debugger follows
+you into it.
+
+You do nothing to arrange this. Put a breakpoint in the called form's
+generated program, start the session from the form you press **Debug** on,
+and work the application as you normally would. When the called form's
+handler reaches your breakpoint, the debugger brings up **that form's**
+code, positioned on your line, with its own breakpoints and its own folds.
+The caller's listing is not lost — step back into it later, or continue out
+of the child, and it is exactly as you left it. Continue, the steps and
+Pause always act on the form you are looking at.
+
+A few things follow from each form having its own program, and they are
+worth knowing:
+
+- **A breakpoint belongs to a file.** Line 42 in two forms' generated
+  programs is two different breakpoints. Setting one in the caller never
+  stops the called form, and vice versa.
+- **Stopping stops the whole application.** Every window goes quiet — none
+  of them takes a click — until you continue. That is deliberate: what has
+  stopped is your program, and your program is all of them.
+- **A form only produces events while you are working in it.** The others
+  sit inside `COBOL::"WAIT-EVENT"`, waiting, exactly as they do when you are
+  not debugging.
+- **Two forms can be stopped at once.** A Timer keeps ticking while the
+  application is paused, so a second form can reach a breakpoint of its own
+  while the first is stopped. The debugger shows the most recent, and when
+  you continue it, brings up the one still waiting.
+- **Only my code** is one switch, but it reads each form's own lines — so
+  stepping through the called form follows *its* handlers, not the caller's.
+- **Step Into does not cross into a called form.** Pressing **F11** on an
+  `OpenFormSync` line opens the called form and lets it run freely; it stops
+  only at a breakpoint of its own. When you close it — its Ok or Cancel —
+  control comes back to the caller, and since you were stepping, the caller
+  stops on the line after the `OpenFormSync`, ready to read the result. To
+  follow the called form's handlers too, put a breakpoint in its program.
+
+> ⚠️ **A form the debugger cannot place.** If a form's `.cfrm` is not in the
+> open project, or its program has not been generated yet, the debugger says
+> so in the Output panel and leaves the listing where it is. It will not show
+> you another file's line and call it that form's.
+
+> 📷 **Screenshot needed — `debugger.png`.** A debug session paused on a
+> breakpoint, with the variable-watch panel populated.
+
+### Diagnostic switches (Help → Debug Settings)
+
+Some faults are far easier to find with the IDE narrating what it is doing.
+**Help → Debug Settings** gathers every such switch into one modal, arranged in
+five tabs: **User Interface**, **Data Binding**, **Events**, **Indexed Files**
+and **Logging**.
+
+They are **machine settings, not project data** — kept in the IDE's own settings
+folder and never written to `cobolt.toml`. So they follow you from project to
+project, never travel to a colleague inside a commit, and the modal opens even
+with no project loaded.
+
+
+| Tab                | Switch                       | What it gives you                                                                                                                                                                                                    |
+| ------------------ | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **User Interface** | Frame diagnostics overlay    | Explodes each control's layers — shadow, face, border, content, outline — into coloured, offset frames. This is how a corner artifact or a mis-rounded layer becomes visible                                          |
+| **User Interface** | DataGrid component frames    | Outlines every internal part of a DataGrid — header, body, each column, each visible row and cell, frozen panes, scrollbar — each in its own colour                                                                   |
+| **User Interface** | Disable window effects       | Skips every window entrance and exit effect without editing a single project or form — for motion sensitivity, a weak GPU, or automation                                                                             |
+| **Data Binding**   | Data-bind trace              | Writes `databinding.log`: repeating-group seeding and per-row control-array binding                                                                                                                                  |
+| **Events**         | Event trace                  | One line per UI event at **both** ends of the channel — the host sending it and the interpreter dispatching it — interleaved with your own `DISPLAY` output in `prc-event-trace.log`                                  |
+| **Indexed Files**  | Transaction log, and format  | The per-file INDEXED operations log described in §14, and whether each line is written as logfmt text or as JSON                                                                                                      |
+| **Logging**        | Tracing filter               | The runtime's own tracing filter — `warn`, or something narrower like `cobolt-runtime=trace`                                                                                                                          |
+
+The trace files land in the machine's temporary folder: `/tmp` on macOS and
+Linux, `%TEMP%` on Windows.
+
+With the **event trace** it is the *order* of the lines that pays for itself. It
+separates a handler that ran twice because the event was delivered twice from a
+handler that ran twice on a single delivery — two faults that look identical
+from inside the handler.
+
+A switch takes effect **immediately**: the design canvas picks it up on the next
+frame, and **Run Form** is given it as the form's process starts, so you never
+restart the IDE to change your mind. While any diagnostic is on, the IDE also
+writes a per-control diagnostics dump named after the project.
+
+> **Note.** Each switch mirrors an environment variable the runtime has always
+> read, so a standalone `rcrun` run still honours one you export by hand. The
+> modal is a friendlier front door to them, not a replacement for them.
+
+> **Note.** The **User Interface** tab also carries a screenshot-capture switch
+> bound to F12. That one is an authoring tool used to produce this
+> documentation's images, not something an application you build ever needs.
+
+---
+## 20. Appearance and internationalisation
+
+- **Themes.** ⚙ ▸ *Settings* offers 41 colour themes — dark (Dark Glass
+  [default], Deep Blue, Dark+, Monokai, Solarized Dark, Nord, Dracula, and
+  more), light (Light+, GitHub Light, One Light, Gruvbox Light, Ayu Light,
+  Quiet Light, Tomorrow, Material Lighter, Nord Light, Rosé Pine Dawn,
+  Catppuccin Latte, Solarized Light), **Classic**, a faithful Windows
+  95 look (silver chrome, navy selection) for the full retro-RAD experience,
+  three **Neumorphic** palettes — Light, Dark and Cobalt — whose soft
+  relief matches the Neumorphic form styles, and **Silver Glass**, the same
+  soft-UI construction in frosted silver: slightly translucent panels that let
+  a background image frost through, crisp white edges and dark text.
+  **Aurora Pastel** keeps the same panes in the same places and paints them
+  differently: a backdrop of soft blue, mint and lavender gradients with two
+  waves along the bottom, each pane a translucent pastel card (mint for the
+  project tree, butter for the agent bar, sky for the main pane, lavender for
+  Output) whose border glows at its corners, raised toolbar buttons in their
+  own colours, and pastel inspector tabs. All its text reaches a 7:1 contrast
+  on the pane it sits on. **Aurora Prime** is the same design in live
+  colours instead of pastels: teal, emerald, indigo-violet, plum and burnt
+  orange, never a pure red, yellow or blue. The backdrop, the corner glows,
+  the toolbar buttons and the tabs carry the strong colour, while the panes
+  stay light enough for dark text to read just as well.
+  Five **Slick** themes use two colours and white, nothing pastel: white
+  cards on a white-to-light-grey backdrop, one dark colour for text, chrome
+  and the solid Build button, and one accent for the Run button, links and
+  the corner glows. They are **Navy & Teal**, **Graphite & Indigo**,
+  **Slate & Coral**, **Charcoal & Emerald** and **Piano & Coral** (glossy
+  black with a deep coral).
+  **Spatial** is a dark theme in the manner of spatial-computing interfaces:
+  warm grey frosted-glass panes floating over a dim room, white text, large
+  rounded corners, capsule-shaped buttons and no saturated colour. Light
+  catches the top corners of each pane, and the selected tab is bright
+  glass. Run is the one white button, so it stands out from the grey ones.
+  The IDE window is about 50 % transparent under Spatial: on macOS the
+  desktop behind it shows through, blurred, the way the room shows through a
+  floating panel. On systems that cannot blur a window it shows unblurred.
+  White text reads clearly over a dark or colourful wallpaper; over a very
+  bright one it fades, so choose Spatial with a darker desktop. The Form
+  Designer, the debugger and the other windows the IDE opens are
+  see-through and blurred in the same way. A project background image
+  replaces the see-through view in the main window.
+  There is also an optional **background image** with an opacity control.
+  Under either Aurora theme the image replaces the gradient backdrop.
+  Settings are saved **per project** in `cobolt.toml`. The project tree and
+  panel text automatically adapt their contrast to the theme — light text on
+  dark themes, dark text on light ones.
+- **IDE languages.** The IDE interface is available in **six** languages —
+  **English, Português, Español, Français, Japanese (日本語), and Chinese (中文)**
+  — chosen from the toolbar language selector. CJK glyphs render via bundled font
+  fallbacks, so 日本語 / 中文 display correctly on any system.
+- **Text rendering.** The IDE renders text with the UI framework's modern font
+  engine (hinting enabled), so glyphs are noticeably crisper at small sizes than
+  in earlier releases. Form **Font** properties keep working exactly as before:
+  a face the engine cannot rasterise (for example a bitmap-only system font)
+  is skipped and the control falls back to Arial instead of failing.
+- **Branding.** The IDE uses the PowerRustCOBOL icon for its window/taskbar
+  (override it with an `app-icon.png` in the config directory). **Help → About**
+  shows the mascot, the version, and the Apache-2.0 licence.
+
+> ⚠️ **Critical rule.** The IDE language translates the **interface only**. Your
+> **COBOL data names, paragraph names, and all generated COBOL source remain in
+> English** regardless of the selected UI language. This keeps code portable and
+> reviewable across teams.
+
+---
+
+## 21. COBOL Structure and shared data
+
+A form module is more than its controls and event handlers — it is a real COBOL
+program with an `ENVIRONMENT DIVISION` and a `DATA DIVISION`. The **COBOL
+Structure** editor lets you author those shared parts directly, and the runtime
+gives you COBOL-faithful `GLOBAL` / `EXTERNAL` data sharing across the module and
+the run unit.
+
+### The editor
+
+Select the form itself (click empty canvas, or the form node), then open the
+**COBOL Structure** section in the property inspector. It lists the five shared
+blocks, each woven verbatim into the generated program in the correct
+division/section order:
+
+
+| Block             | Goes into             | Use it for                                                                                        |
+| ----------------- | --------------------- | ------------------------------------------------------------------------------------------------- |
+| `SPECIAL-NAMES`   | CONFIGURATION SECTION | `DECIMAL-POINT IS COMMA`, mnemonic names, currency signs, external switches, user-defined classes |
+| `REPOSITORY`      | CONFIGURATION SECTION | class names — the Rust-FFI type bridge (see below)                                               |
+| `FILE-CONTROL`    | INPUT-OUTPUT SECTION  | `SELECT … ASSIGN` for files the form opens                                                       |
+| `FILE SECTION`    | DATA DIVISION         | the `FD`s for those files                                                                          |
+| `WORKING-STORAGE` | DATA DIVISION         | the form's shared data items                                                                      |
+
+Click a row to open a popup that edits **that one block**. The code box opens
+at about twelve lines and changes size only when you drag the grip in its
+bottom-right corner — the window follows the box, and neither ever grows on its
+own, however long the block is.
+
+User procedures have a tab of their own in the inspector, **User
+procedures**, after **Events** — the same list whichever control is selected,
+because the procedures belong to the form. They are listed **A–Z by name**;
+**➕ Add procedure** creates one, **Open** edits its name and body in the same
+popup, and 🗑 removes it. Once a form has procedures, a search box above the
+list narrows it to the names that contain what you type (case is ignored).
+Sorting the list does not reorder the procedures in the generated program:
+they are written in the order they were created, as before. Every edit marks
+the form dirty, so the
+next **Build / Run / Debug / Check** regenerates the `.cbl` with your changes.
+
+### External switches and user-defined classes
+
+`SPECIAL-NAMES` carries two COBOL-85 facilities you may not have needed on the
+desktop but will want the moment a program has to behave differently for a
+particular run — a nightly batch, a dry run, a customer-specific pass.
+
+**A switch is a run-time flag set from outside the program.** You declare the
+implementor's switch name, a mnemonic for it, and a condition-name for each
+state:
+
+```cobol
+       SPECIAL-NAMES.
+           SWITCH-1 IS SW-REPRINT
+               ON  STATUS IS REPRINTING
+               OFF STATUS IS NOT-REPRINTING.
+```
+
+Then test it like any other condition-name, and set it from the program when you
+need to:
+
+```cobol
+           IF  REPRINTING
+               PERFORM RE-PRINT-INVOICES
+           ELSE
+               PERFORM PRINT-NEW-INVOICES.
+
+           SET SW-REPRINT TO OFF.
+```
+
+**Nothing inside COBOL can set a switch before the run starts** — that is the
+whole point of it — so `rcrun` takes the initial state on the command line or
+from the environment, keyed by the *implementor* name (the mnemonic works too):
+
+```bash
+rcrun run invoices.cbl --switch SWITCH-1=ON
+```
+
+```bash
+COBOL_SWITCHES=SWITCH-1=ON,SWITCH-2=OFF rcrun run invoices.cbl
+```
+
+`--switch` may be repeated; `ON`/`1`/`TRUE`/`YES` and `OFF`/`0`/`FALSE`/`NO` are
+all accepted. A switch nobody sets starts **off**.
+
+**A class names a set of characters** you can then test an item against, which
+saves writing the same string of `OR`s in five places:
+
+```cobol
+       SPECIAL-NAMES.
+           CLASS VALID-GRADE  IS "A" THRU "D" "F"
+           CLASS HEX-DIGIT    IS "0" THRU "9" "A" THRU "F".
+```
+
+```cobol
+           IF  WS-GRADE IS VALID-GRADE
+               PERFORM RECORD-GRADE.
+
+           IF  WS-TOKEN IS NOT HEX-DIGIT
+               MOVE "BAD CHECKSUM" TO WS-ERROR.
+```
+
+**Every** character of the item must belong to the class for the test to be
+true — the same all-characters rule the built-in `NUMERIC` and `ALPHABETIC`
+tests follow. The `IS` is optional, as it is for the built-in class tests.
+
+> ⚠️ A class name is a *class*, not a data item: it has no storage, cannot be
+> moved to or from, and only ever appears after `IS [NOT]` in a condition.
+
+### Naming the console: mnemonic device names
+
+The third thing `SPECIAL-NAMES` does is give the operator's terminal a name of
+your own, so the rest of the program reads and writes through that name instead
+of naming a device inline:
+
+```cobol
+       SPECIAL-NAMES.
+           CONSOLE IS OPERATOR-CONSOLE.
+```
+
+```cobol
+           DISPLAY "ENTER THE RUN DATE (YYYYMMDD):"
+                                   UPON OPERATOR-CONSOLE.
+           ACCEPT  WS-RUN-DATE     FROM OPERATOR-CONSOLE.
+```
+
+`ACCEPT … FROM <mnemonic>` is **Format 1** — exactly what a bare
+`ACCEPT WS-RUN-DATE` does. It reads one line from the operator, and the line is
+laid across the receiving item: a group receiver is cut among its subordinate
+items by their widths, and a line shorter than the item is space-filled to the
+end. The `IS` is optional, as everywhere else in `SPECIAL-NAMES`.
+
+This is the shape mainframe and validation-suite COBOL uses everywhere, and it
+is worth naming the console even when you only have one: the mnemonic is the
+single place to change if the program is later driven from somewhere else.
+
+> **Note — a mnemonic and an environment variable are different sources.**
+> PowerRustCOBOL also lets `ACCEPT id FROM SOME-NAME` read the **environment
+> variable** `SOME-NAME`, which is an extension rather than COBOL-85. The
+> declaration decides which you get: a name `SPECIAL-NAMES` declares reads the
+> operator, a name it does not declare reads the environment. So declaring the
+> mnemonic is what makes the read standard — and if an `ACCEPT` unexpectedly
+> returns nothing, check that the name is declared before looking anywhere else.
+
+### Justified receivers and edited alphanumeric fields
+
+Two `PICTURE`-level facilities that PowerCOBOL developers reach for on report
+lines:
+
+```cobol
+       01  WS-RIGHT      PIC X(10) JUSTIFIED RIGHT.
+       01  WS-NAME       PIC A(5)  JUSTIFIED RIGHT.
+       01  WS-PART-NO    PIC XXBXX/XX.
+```
+
+`JUSTIFIED RIGHT` reverses the alignment rule for an alphanumeric receiver: a
+short sender is padded **on the left** and a long one loses its **leftmost**
+characters. `MOVE "AB" TO WS-RIGHT` leaves `"        AB"`.
+
+The clause applies to an **alphabetic** (`PIC A`) receiver in exactly the same
+way. `MOVE "ABC" TO WS-NAME` leaves `"  ABC"`, and moving the fifteen
+characters `"ABCDEFGHIJKLMNO"` in leaves `"KLMNO"` — the *right* end survives,
+which is the opposite of what an unjustified item does.
+
+> ⚠️ Losing the leftmost characters is the part that surprises people. On an
+> ordinary item an oversized sender is cut on the right, so a truncated account
+> number still starts with the right digits; on a `JUSTIFIED` one it ends with
+> them instead. Size the receiver for the widest sender you expect.
+
+An **alphanumeric-edited** picture owns its insertion characters — `B` prints a
+space, `0` a zero, `/` a slash — and the sender fills only the `X`, `A` and `9`
+positions. `MOVE "AB12CD" TO WS-PART-NO` gives `"AB 12/CD"`. Moving spaces in
+leaves the insertions in place (`"   /  "`), which is what `INITIALIZE` does to
+such a field.
+
+### A group operand suspends the receiver's PICTURE
+
+This is the rule that most often explains a `MOVE` that "did nothing sensible".
+When **either** operand of a `MOVE` is a group item, the standard makes the
+whole move alphanumeric: bytes are copied from left to right, and the other
+operand's `PICTURE` decides only **how many** of them fit. No editing, no
+de-editing, no numeric conversion.
+
+```cobol
+       01  SRC-GRP.
+           05  SRC-N   PIC 999  VALUE 123.
+           05  SRC-A   PIC AAA  VALUE "ABC".
+       01  RCV-EDITED  PIC 0XXXXX0.
+       01  RCV-NUM     PIC 9999V999.
+       01  RCV-CHAR    REDEFINES RCV-NUM PIC X(7).
+           MOVE SRC-GRP TO RCV-EDITED.  *> "123ABC " — the 0s are NOT inserted
+           MOVE SRC-GRP TO RCV-NUM.     *> RCV-CHAR reads "123ABC "
+```
+
+`JUSTIFIED RIGHT` is the one thing the receiver still gets a say in, because
+that is an alignment rule for an alphanumeric move.
+
+The same rule runs one level down, when a group hands its bytes to its own
+fields: each child takes its slice **verbatim**, whatever its `PICTURE` says. A
+`PIC 99` child left holding letters is exactly what the program asked for — what
+you must not then do is arithmetic on it.
+
+> **A `VALUE` clause on a group works the same way.** It initialises the group's
+> bytes and they are spread across the children by width, so
+> `01 MONEY-GRP VALUE "$123.45". 05 MONEY-EDITED PIC $999.99.` leaves
+> `MONEY-EDITED` holding `"$123.45"` — already edited, not re-edited.
+
+### Qualifying a condition-name
+
+An `88` may be declared under more than one group — three tables can each carry
+their own `EQUALS-A` — and `OF`/`IN` tells them apart exactly as it does for a
+data name. Intermediate levels may be skipped, and the subscript belongs to the
+**host** item, choosing which occurrence its `VALUE`s are tested against:
+
+```cobol
+           IF EQUALS-M OF TABLE-LEVEL-5 OF TABLE-LEVEL-4
+                    IN TABLE-LEVEL-3 OF TABLE-LEVEL-2
+                    OF GROUP-1-TABLE (13)
+               PERFORM FOUND-IT.
+```
+
+> ⚠️ An **unqualified** reference to a condition-name declared more than once is
+> ambiguous under the standard. RustCOBOL takes the first declaration rather
+> than rejecting the program — the same thing it does with an ambiguous data
+> name — so qualify it and do not rely on which one wins.
+
+### Figurative constants take the size of what they meet
+
+A figurative constant has no width of its own. It is repeated to fill whatever
+it is written against, and that rule reaches three places worth knowing:
+
+```cobol
+       01  WS-BANNER   PIC X(6) VALUE ALL "ABC".
+       01  WS-MARKS    PIC XXX  VALUE QUOTES.
+```
+
+- **In a `VALUE` clause** it fills the item. `WS-BANNER` holds `"ABCABC"`, and
+  `ALL "XY"` in a `PIC X(9)` holds `"XYXYXYXYX"` — the last unit is cut where
+  the item ends.
+- **In a comparison** it is repeated to the *other* operand's size, so
+  `IF WS-MARKS = QUOTE` is true: three quotation marks against three.
+- **In a `MOVE`** it fills the receiver, whatever the receiver is.
+  `MOVE HIGH-VALUE TO WS-KEY` with `WS-KEY PIC X(10)` sets all ten bytes, and a
+  **group** receiver has the fill distributed across every one of its fields —
+  which is how you clear a whole record to a sentinel before a table scan.
+  An alphanumeric-**edited** receiver still places its own insertion characters,
+  so a `PIC XX0XXBXXX` keeps its `0` and its blank and fills the seven positions
+  around them.
+- **`ALL` in front of another figurative constant is redundant** and means the
+  same thing — `ALL SPACES` is `SPACES`.
+
+> **`HIGH-VALUE` and `LOW-VALUE` are bytes, not letters.** They are the highest
+> and lowest byte values in the collating sequence, and they occupy exactly one
+> character position each wherever they appear — in a record, in a group `MOVE`,
+> and as a `STRING` sender. They are the usual choice for a sentinel key in an
+> indexed file. `DISPLAY` cannot render them meaningfully, so compare against
+> the constant rather than reading them off the console.
+
+### The `NUMERIC` class test is stricter than a parse
+
+`IF WS-FIELD IS NUMERIC` asks whether **every character position holds a
+digit** — not whether the characters could be read as a number. For an item
+whose `PICTURE` carries no operational sign, all of these are **not** numeric:
+
+```text
+       "+1234"    a sign the PICTURE does not provide for
+       "1.234"    a decimal point is not a digit
+       "12 45"    a space is not a digit
+       "123  "    trailing pad from a shorter MOVE
+```
+
+That last one catches people. `MOVE "123" TO WS-X5` where `WS-X5` is `PIC X(5)`
+leaves `"123  "`, and the class test says no. If you are validating operator
+input, move it to a numeric item and test *that*, or check the field's used
+length first.
+
+### Reading an edited field back — de-editing
+
+Moving a numeric-**edited** item to a numeric one recovers the *value* its
+characters spell out, not the characters. Currency signs, grouping commas,
+asterisk protection, `/` and `B` insertions and blanks are dropped; `CR`, `DB`
+or a `-` anywhere in the field makes it negative:
+
+```cobol
+       01  WS-SHOWN   PIC $(4)9.99CR.
+       01  WS-VALUE   PIC S9(4)V99.
+...
+           MOVE -123.45 TO WS-SHOWN.     *> WS-SHOWN  = "$ 123.45CR"
+           MOVE WS-SHOWN TO WS-VALUE.    *> WS-VALUE  = -123.45
+```
+
+This is the standard's own rule, and it is the reason you can safely re-read a
+printed amount off a report line rather than keeping a second copy of it.
+
+### Beautify — the layout rules
+
+Every editor that offers **✨ Beautify** (the code editor tabs, the event
+editor, the COBOL Structure block popups, and the Indexed editor's canonical
+layout) reformats to one set of rules. If you have used a mainframe or
+PowerCOBOL pretty-printer, these will feel familiar:
+
+- **Paragraphs** sit at column 8; **procedure statements** start at column 12.
+- **Level numbers**: `01`/`77`/`78` at column 8, each nesting depth 3 more
+  spaces in (`88`/`66` sit one step under their item).
+- A **data entry occupies one line** — wrapped clauses are joined — and the
+  `PIC` and `VALUE` clauses of consecutive declarations **start on the same
+  column**, so a block of items reads as a table.
+- **Nesting is indented like structured code**, 4 spaces per level;
+  `END-IF`, `END-PERFORM`, `END-TRY`, `ELSE`, `WHEN`, `CATCH` and `FINALLY`
+  align with the verb that opened their scope.
+- **`EXEC … END-EXEC` interiors are never touched** — embedded code keeps
+  its own formatting, byte for byte.
+- **Block literals are never touched either** — the `` ``` `` fences and
+  everything between them. That text is the literal's *value*, so
+  re-indenting a line, collapsing a run of spaces or changing a word's case
+  would change what your program moves. The 256-character cap is not applied
+  inside one either: a long line of JSON stays one long line. An **unclosed
+  fence is an error**, and stops the beautify like any other.
+- Every **`SECTION` header gets one blank line above it** (never two), so
+  the divisions of a long program stay easy to scan.
+- A **missing sentence period** is added only where COBOL requires one
+  (before a paragraph header, before `CATCH`/`FINALLY`, at the end of a data
+  entry followed by the next); an existing period is never doubled.
+- Emitted lines are capped at **256 characters**: an overlong literal splits
+  onto a column-7 continuation line with the remainder re-quoted, anything
+  else wraps at a word boundary.
+
+Clicking Beautify first opens a small dialog with two choices, remembered as
+your defaults: how to case **COBOL verbs** (leave as written / UPPERCASE /
+lowercase / Capitalized — identifiers and literals are never touched), and
+whether **comments** stay exactly as authored or align with the surrounding
+code.
+
+⚠️ **Erroneous code is never beautified.** The code is checked first (whole
+programs through the real compiler front end); if it has errors, a dialog
+lists them and the text is left byte-for-byte untouched — reformatting broken
+code buries the very line you need to fix. And if a result ever surprises
+you, **undo (⌘Z / Ctrl+Z) restores the exact previous text** in one step.
+
+> **Note.** **✨ Beautify leaves a block literal completely alone** — both
+> fences and every line between them. Since the text is the literal's value,
+> there is nothing in there the formatter could tidy without changing what your
+> program does. Format the surrounding code as freely as you like; what is
+> inside the fences is yours.
+
+### GLOBAL, EXTERNAL, and GLOBAL EXTERNAL
+
+You write the sharing clauses yourself, exactly as COBOL-85 defines them, on
+`01`/`77` items in `WORKING-STORAGE`:
+
+- **`GLOBAL`** — visible to the program's *contained* programs. The event
+  handlers and user procedures are nested in the form module, so a `GLOBAL`
+  item in the form's WORKING-STORAGE is readable and writable from every handler
+  without passing it around. `GLOBAL` is also valid on an **`FD`** — `FD F IS GLOBAL` makes the file and its record area visible to the form's procedures, so
+  a handler or user procedure can `READ`/`WRITE` a file the form opened.
+- **`EXTERNAL`** — one physical copy shared *run-unit-wide*, matched by the
+  item's real name. **Each form module is its own run unit**, so an `EXTERNAL`
+  item is shared between the form and every program it `CALL`s that declares the
+  same item `EXTERNAL`; two *different* forms that each declare
+  `01 WS-COUNTER PIC 9(4) EXTERNAL` get separate storage. To reach another
+  form's data, qualify the reference (below). `EXTERNAL` is valid only on
+  `01`/`77` items and `FD`s — the checker flags it anywhere else.
+- **`GLOBAL EXTERNAL`** — both at once: run-unit-shared *and* visible to
+  contained programs.
+
+```cobol
+       01  WS-SESSION-ID   PIC X(32) GLOBAL.
+       01  WS-OPEN-FORMS   PIC 9(4)  EXTERNAL.
+       01  WS-APP-CONFIG   PIC X(80) GLOBAL EXTERNAL.
+```
+
+### Reaching another form's data — qualified `EXTERNAL`
+
+If you have built with PowerCOBOL you will recognise the shape of this problem.
+Each form is a closed run unit, so a grid event in one form cannot simply update
+what another form is showing. The data has to be carried across the boundary,
+and the plumbing that carries it is what the operator feels as lag.
+
+PowerRustCOBOL keeps the standard meaning of `EXTERNAL` and adds one thing: an
+`EXTERNAL` item may be **qualified by the form module that declares it**.
+
+Form `CRM-MAIN` publishes the current selection:
+
+```cobol
+       01  WS-SELECTED-CUSTOMER EXTERNAL.
+           05  WS-CUST-ID     PIC X(10).
+           05  WS-CUST-NAME   PIC X(40).
+```
+
+Any other form reads or writes it by naming the owner:
+
+```cobol
+           MOVE WS-CUST-ID OF CRM-MAIN  TO WS-ORDER-CUSTOMER.
+           MOVE "ACME LTD"              TO WS-CUST-NAME OF CRM-MAIN.
+```
+
+The form name is the **outermost** qualifier, so ordinary group qualification
+still works inside it when a name would otherwise be ambiguous:
+
+```cobol
+           MOVE WS-CUST-ID OF WS-SELECTED-CUSTOMER OF CRM-MAIN
+             TO WS-ORDER-CUSTOMER.
+```
+
+What to expect:
+
+
+| Rule                        | What to expect                                                                                                                                                                                                   |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **What is reachable**       | Only items the target form declares `EXTERNAL`. Qualification is not a back door into a form's ordinary `WORKING-STORAGE`.                                                                                        |
+| **Naming**                  | The qualifier is the form's name, which must be a valid COBOL word.                                                                                                                                              |
+| **Lifetime**                | The storage belongs to the application run, not to the form's window. It exists whether or not the target form is open, and keeps its contents after that form closes.                                           |
+| **Initial content**         | COBOL-85 forbids a `VALUE` clause on an `EXTERNAL` item, so some form must set the initial contents explicitly.                                                                                                   |
+| **`CANCEL`**                | Does not reset it. Cancelling a program clears that program's own `WORKING-STORAGE`; `EXTERNAL` storage outlives it.                                                                                              |
+| **Descriptions must agree** | The same `EXTERNAL` name must be described identically everywhere it is declared. Because the build sees every form in the project, a mismatch is reported when you build instead of corrupting data at run time. |
+
+> **Note — sharing is not notifying.** Writing into another form's data changes
+> the data, not the picture on screen. The other form repaints when something
+> tells it to; the shared item does not push an update by itself.
+
+> ⚠️ **This is a PowerRustCOBOL extension.** Standard COBOL-85 has no way to
+> qualify an `EXTERNAL` item by the module that owns it — `OF`/`IN` qualifies by
+> containing *group*, never by program. Unqualified `EXTERNAL` stays portable
+> COBOL-85; a qualified reference does not, and will not compile on another
+> vendor's compiler. Reserve it for the places that genuinely need cross-form
+> data.
+
+> ⚠️ **Availability.** Qualified `EXTERNAL` requires the forms of one
+> application to run in a shared run unit. That sharing is not active in current
+> builds — every running form still gets its own private `EXTERNAL` storage — so
+> the qualified form described here is the defined behaviour, not yet the
+> shipped one.
+
+### Procedures: the form-module model
+
+Each form becomes its **own COBOL program module** (`PROGRAM-ID` = the form
+name); a project is one or more such modules. Inside a module, every procedure —
+**each event handler and each user procedure** — is generated as an embedded
+(nested) program marked **`IS COMMON`**, so *any* procedure is callable from
+anywhere in the module: a handler may `CALL` another handler, a user procedure
+may call a handler, and so on. The run-time system feeds OS events into the
+module's event loop, which branches to the matching event procedure.
+
+```cobol
+      *> in a button handler — call a user procedure, or another handler
+           CALL "RECALC-TOTAL".
+```
+
+A user procedure is just a named procedure you add via **➕ Add** (the COBOL
+Structure list); it sees the form's `GLOBAL` data and is callable by name.
+
+**Every procedure name is unique in its form.** Each procedure is its own
+nested program, and COBOL-85 lets a source hold only one program of each name.
+Two user procedures with the same name - or one named like the form or like a
+handler - are refused by **Check**, Run and Build with *"program '…' is declared
+more than once"*. **➕ Add** always proposes a name that is still free.
+
+**Procedure-local data is private.** A procedure may declare its own
+`WORKING-STORAGE`; those items are visible only inside it. A `GLOBAL` clause on a
+procedure-local item shares nothing outward (the procedure is a leaf — there is
+nothing nested below it).
+
+**Procedures are static.** A procedure's local data is initialised **once** and
+its values **persist between calls** — re-entering a handler does not reset its
+WORKING-STORAGE, and exiting does not cancel it. If you want a fresh value on
+each entry, that is your decision: use the COBOL **`INITIALIZE`** verb for the
+items you want reset, or `CANCEL "<name>"` to reset the whole procedure's state.
+
+### The Rust-FFI type bridge (preview)
+
+A new form's `REPOSITORY` starts pre-populated with a curated set of Rust types
+declared as COBOL classes — all primitives plus the common standard-library
+types — so you can write object references immediately:
+
+```cobol
+       REPOSITORY.
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-VEC IS "Rust.Vec"
+      *> … 45 more
+```
+
+```cobol
+       01  WS-NAME  USAGE IS OBJECT REFERENCE RUST-STRING.
+```
+
+The literal is the type's path in the Rust hierarchy (think `System.String` in
+.NET). If you clear `REPOSITORY` to empty it is re-seeded on the next load; any
+content you write is left untouched, even if you delete the Rust entries.
+
+You **invoke** a Rust method two ways — the `INVOKE` verb, or the inline
+`object::method(…)` form, which also works as a **value** inside
+`DISPLAY`/`MOVE`/`COMPUTE`:
+
+```cobol
+       01  S  USAGE IS OBJECT REFERENCE RUST-STRING VALUE "hello".
+       01  N  PIC 9(4).
+      *> verb form, result into N
+           INVOKE S "len" RETURNING N.
+      *> inline form, used directly as a value
+           DISPLAY S::len().
+           MOVE S::len() TO N.
+```
+
+---
+
+## 22. The application shell and the `super` receiver
+
+If you have built a large PowerCOBOL application, you know the shape it takes:
+dozens of windows, each its own island. PowerRustCOBOL adds an alternative for
+enterprise applications — an **application shell**: one window, divided into a
+menu pane, a breadcrumb, and a content area where forms are loaded in place.
+Think of an ERP whose main menu lists subsystems (CRM, HR, Sales); entering
+one mounts its menu and loads its screens into the same window.
+
+### Turning the shell on
+
+Place a **SideMenu** control on your **main form**. That is the whole switch:
+
+- Main form with a SideMenu → the application starts in **shell mode**.
+- No SideMenu — including a form with a classic `MenuBar` — → every form opens
+  in its own window, exactly as before. An existing project can never become a
+  shell application by accident.
+
+You fill the sidebar in the **same menu editor a `MenuBar` uses**: select the
+SideMenu and press **Edit Menu…** in the property inspector. Everything you
+already know carries over — items, submenus, separators, accelerators, icons,
+the action each item performs — because the menu is stored in a sidecar file
+keyed by the control, not by the kind of control. A SideMenu adds two things:
+**Preserve previous form** on items that load a form (see *The navigation
+chain*), and a **badge**.
+
+**Badges.** A row can carry a short tag at its right edge — an unread count, a
+"New" marker. In the menu editor, type it into the row's **Badge** field
+(leave it empty for none) and pick a **Badge style**:
+
+| Style | Drawn as | Suits |
+|---|---|---|
+| **Pill** (default) | Filled rounded tag in the accent colour | `New`, `Beta` |
+| **Count** | Filled circle | a number: `6` |
+| **Outline** | Accent outline and text, no fill | `Pro`, `outlined` |
+
+The badge shows on every surface — designer, Preview, Run Form and the built
+application. A MenuBar has no badges, so its editor does not offer the fields.
+From COBOL, `SetItemBadge(id, text)` changes the badge only on rows your
+program added (see *Rows your program adds*), never on a designed
+row.
+
+### Sidebar layout — the two properties that matter
+
+**FullHeight** (on by default) says the sidebar owns the window's whole vertical
+extent, with the breadcrumb starting at its right edge. Turn it off and the
+breadcrumb spans the full width instead, with the sidebar filling the height
+beneath it. Either way the sidebar reaches the bottom of the window; the
+property chooses which of the two owns the top-left corner.
+
+While FullHeight is on, the SideMenu's **Y** and **Height** are the shell's to
+decide, so the inspector greys them and the control is drawn down the form's
+full height in the designer — resize the form and the sidebar follows. Its
+**Width** stays yours.
+
+**Collapsed** (off by default) is the state the application *opens* in. Once the
+operator has worked the ☰ themselves, their own last choice is remembered per
+application and takes precedence from then on — so this property sets the first
+impression, not a permanent setting. The designer canvas shows whichever state
+you have selected, so what you design is what starts.
+
+> **Note.** The operator can always collapse and open the sidebar with the **☰**
+> button at the top of the sidebar itself, *including before you have added a
+> single menu item*. Being able to reclaim the width is the operator's control
+> over the window, so it never depends on what you put in the menu. COBOL can
+> drive the same thing with `super::<menu-id>::Collapse()` / `::Open()`.
+
+**Your controls move when the rail closes — on the canvas too.** Collapsing the
+sidebar hands its width back to the content, which slides left to take it, and
+the designer canvas shows that slide exactly as the running application will.
+Nothing has been edited: the rects in your `.cfrm` are untouched, the inspector
+still reports the positions you gave, and opening the rail puts everything back.
+Clicking picks the control where you see it, in either state — so you can lay a
+form out with the rail closed and know it will hold when it opens.
+
+Everything the sidebar draws is anchored to its **top** and grows downward — the
+☰ first, then the menu items. A sidebar is a rail, not a centred caption.
+
+**The header logo.** **HeaderImage** is the picture at the top of an **open**
+sidebar. Its box is **270 x 80 points**, and that box is a **limit** rather than
+a shape to fill:
+
+- A logo that fits inside 270 x 80 is drawn at **its own size**, centred.
+- A logo bigger than that is **scaled down to fit**, keeping its **aspect
+  ratio** -- so a 540 x 80 banner is drawn 270 x 40, a tall 270 x 240 mark is
+  drawn 90 x 80, and a square one stays square.
+
+Design at 270 x 80 and it lands exactly; design larger and it is fitted, never
+squeezed out of shape. The SideMenu's default **HeaderHeight** of 120 holds the
+full box, so you need not change anything to use all of it -- but a header
+shorter than about 88 points, or a collapsed rail, shrinks the box (keeping its
+27:8 shape) and the logo with it.
+
+Leave **HeaderImage** empty and the box is **outlined** instead, so you can see
+where the logo goes and how big it will be before you have one.
+
+**The application title.** Give **AppTitle** a text and it is drawn beside the
+logo, in the accent colour (`SelectedBgColor`). The title is given its room
+first — up to 60 % of the header — and the logo box shrinks, keeping its shape
+and moving to the left, into what is left; a box that would be narrower than
+24 points is not drawn and the title takes the header. (Before 1.70.233 the
+title appeared only beside a full-size logo, which a default 200-point rail
+never had room for, so it simply did not show.)
+
+**Hover colours.** The row under the pointer is laid down as a soft **tint** of
+`HighlightBgColor` — about a fifth of the colour — so a hovered row never reads
+as the active one, which wears `SelectedBgColor` solid. Its text and icon take
+`HighlightFgColor` wherever that stays readable (WCAG AA, 4.5:1) on the tinted
+row; where it would not — the default white on a pale rail — the row keeps its
+`ForegroundColor`.
+
+A **collapsed** rail does not show the logo at all: it shows **HeaderIcon**, a
+purpose-made 45 x 45 mark, because an image drawn for a 270-point header cannot
+be read at rail width. Set no **HeaderIcon** and the pane draws the
+**fold/unfold arrow** instead, so a collapsed rail always shows the control that
+opens it again rather than a blank strip. That matters most in an **embedded
+form**, where the rail is an ordinary control on the ContentPane and there is no
+breadcrumb of its own above it to carry that control.
+
+**The footer panel is yours.** Every SideMenu owns a Panel in its footer band,
+and it is an ordinary container: drop controls into it, style it through the
+inspector, bind and handle events on what you put there. A clock, a user badge,
+a version string and a Log-out button are the usual tenants.
+
+What you do *not* own is where the Panel sits. Its rectangle is re-pinned to the
+footer band on every change, so it follows a form resize, a **FooterHeight**
+edit and a collapse without you moving it — dragging it is not how you position
+it, and **FooterHeight** is.
+
+> **Note.** In a shell the rail is chrome painted beside the ContentPane, so the
+> footer Panel and its contents are drawn by the **rail**, not with the rest of
+> the form. That is invisible to you — a control sits where the designer showed
+> it, and its events fire as they always did — but it is the reason a control
+> in the footer is the one place where a control's designed X is not measured
+> from the form's left edge. (Before 1.61.151 the footer's contents were drawn
+> with the form's content instead, so they surfaced *beside* the rail at run
+> time while looking correct in the designer.)
+> **Icons in the sidebar.** Each menu item's icon (picked in the menu editor)
+> renders beside its label on every surface — the designer canvas, the preview,
+> the Run Form pane and the running shell's MenuPane. The SideMenu's
+> **IconEffect** property (`None` | `Shadow` | `Neumorphic`) chooses how those
+> icons are painted — `Neumorphic` matches the IDE's Neumorphic surface style.
+
+**One icon size per rail state.** The inspector offers two:
+
+
+| Property            | Inspector row             | What it sizes                                                      |
+| ------------------- | ------------------------- | ------------------------------------------------------------------ |
+| `IconSize`          | **Icon size (Open)**      | Menu-item icons while the sidebar is open, beside their labels.    |
+| `IconSizeCollapsed` | **Icon size (Collapsed)** | Menu-item icons on the collapsed rail, where the icon *is* the row. |
+
+Both default to 22 points and take any value from 8 to 64. They are separate
+because the two states are two designs: next to a label an icon must not
+overpower the text, while alone on the narrow rail that same size reads as
+lost. Icons are drawn as vectors, so any value is a clean scale rather than a
+stretched bitmap.
+
+> **Note.** A form designed before **Icon size (Collapsed)** existed simply uses
+> its open size in both states, so nothing you already drew changes until you
+> set it.
+
+**The collapsed rail's width is yours too.** The **Collapsed width** row
+(`CollapsedWidth`, default 48, from 24 to 200 points) sets how wide the icon
+rail is while the sidebar is collapsed — and it is **one value on every
+surface**: the running application's pane, the designer canvas and the
+preview all narrow the rail to exactly it, so the rail you design against is
+the rail your users see. When the rail collapses, the **content follows its
+edge** on those surfaces too — everything to the right of the rail slides
+left over the column the rail gave up, exactly as the running shell moves
+its content pane, and slides back when the rail opens. The *open* pane needs no property: it is as wide as
+you drew the control. Values under 24 are raised to 24 — below that an icon
+row has nothing to fit in — values over 200 are lowered to 200, and a form
+designed before the property existed keeps collapsing to 48, as it always did.
+
+**What the collapsed rail carries.** The rail is one icon wide, so an item earns
+a place on it only when it can be reached *by its icon*: it has **an icon**, it
+has **an action**, and it is **not a group**.
+
+
+| Left off, and why                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A group.** Its meaning is the list it opens, and a rail has nowhere to open one to. Its qualifying children come up **in its place** instead — the rail is your shortcuts, not your structure. |
+| **An item with an action but no icon.** Nothing to draw and nothing to aim at.                                                                                                                    |
+| **An item with an icon but no action.** A label wearing a picture; the rail has no room for labels.                                                                                               |
+
+So a menu of *Home*, *Samples* (a group holding *Dashboard*, *Form 1*, *Form 2*
+and an icon-less *CMS*) and *SaaS* collapses to five icons: Home, Dashboard,
+Form 1, Form 2, SaaS. The **open form's operations** follow the same rule and
+appear below a divider. Nothing is special-cased by name — *Home* is there
+because it has an icon and an action.
+
+> **Note.** This is the rule to design *to*: if you want a screen on the rail,
+> give its menu item an icon and an action. A group that you also want reachable
+> should have a leaf item of its own, rather than relying on the group row.
+
+**Indentation.** A group's items are **indented** under it, one level at a time.
+The whole row moves: an item that has an icon carries that icon in with its
+label, so the icon keeps its place beside the text at every level and each level
+has its own column to read down.
+
+**Home stands apart on the rail.** On the collapsed rail, an item whose action is
+**Home (main content pane)** is followed by a whole row's worth of extra space,
+so the distance from it to the icon beneath is twice the distance between any
+other two icons. It is the item's *action* that earns the space, not its
+label — call a row "Home" without the Home action and it is an ordinary icon,
+and the space follows the action if you move it elsewhere. (Where a section
+divider already falls beneath Home, nothing is added: the divider separates.)
+
+**The sidebar is live in Preview and Run Form.** Clicking the ☰ collapses and
+opens the rail (firing `onMenuOpen`/`onMenuClose`), and clicking an item row
+sets `SelectedItemId` and fires `onMenuItemClick` — the same behaviour the
+shell delivers, so what you try in preview is what ships.
+
+The shell window has three fixed regions:
+
+
+| Region          | What it is                                                                                                                                                                                                                                                                           |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **MenuPane**    | The main form's menu (the *root* slot, always present) plus the current subsystem's menu (the *contextual* slot, swapped whole). Open or Collapsed — collapsed is a narrow icon rail; both states carry the ☰ toggle, and the state is remembered per application, across restarts. |
+| **Breadcrumb**  | One segment per step of the navigation chain (`Main › CRM › Customers`). Clicking a segment goes back there. Painted by the shell — a loaded form's colours never affect it.                                                                                                      |
+| **ContentPane** | The loaded form, top-left, at its designed size.                                                                                                                                                                                                                                     |
+
+> **A target form that carries its own SideMenu opens in a new window
+> instead of the ContentPane** (1.63.29). A rail-shaped form loaded beside
+> the shell's own rail is two sidebars fighting for the same edge of the
+> screen — so a menu item pointed at one behaves exactly like an
+> **open-standalone** item instead: its own top-level window, closable on
+> its own, the shell's ContentPane untouched. A target with an ordinary
+> `MenuBar` (a horizontal strip, not a rail) still loads into the
+> ContentPane as always — only a `SideMenu` triggers this.
+
+### Rows your program adds
+
+The menu editor draws the sidebar you know at design time. Much of a real
+sidebar is only known while the program runs — the user's past conversations,
+the documents in a folder, the reports they can open. Add those rows from COBOL;
+they appear after the designed ones, look and click exactly like them, and
+disappear when the program ends. Nothing is written back to the menu file.
+
+```cobol
+       PROGRAM-ID. MAIN-FORM--ONLOAD.
+       PROCEDURE DIVISION.
+      *> A section title, then one row per conversation.
+           MOVE SIDEMENU-1::AddSection("History") TO WS-SECTION-ID
+           MOVE SIDEMENU-1::AddItem("CHAT-0041", "Tuesday's invoice query",
+                                    "chat") TO WS-OK
+           MOVE SIDEMENU-1::AddItem("CHAT-0042", "Supplier onboarding",
+                                    "chat") TO WS-OK
+      *> A row under a designed row (its id copied from the menu editor),
+      *> which opens a form when clicked.
+           MOVE SIDEMENU-1::AddItem("RPT-Q3", "Q3 report", "report",
+                                    "rpqx", "open-form:Q3-REPORT") TO WS-OK
+           .
+
+       PROGRAM-ID. SIDEMENU-1--ONMENUITEMCLICK.
+       PROCEDURE DIVISION.
+           MOVE SIDEMENU-1::SelectedItemId TO WS-CHAT-ID
+           INVOKE VWR-1::SelectConversation(WS-CHAT-ID)
+           .
+```
+
+| Call | What it does |
+|---|---|
+| `AddItem(id, label [, icon [, parent-id [, action]]])` | Adds a row, or replaces the row *you* added with that id, in place. `parent-id` hangs it under any row, designed or yours, up to three levels. `action` is what a designed row's action would be; empty means `onMenuItemClick` |
+| `AddSection(title)` | Adds a section title; answers its id |
+| `SetItemLabel` / `SetItemIcon` / `SetItemBadge` / `SetItemEnabled` / `SetItemAction` `(id, value)` | Change one of your rows. `SetItemLabel` and `SetItemEnabled` also reach a designed row |
+| `RemoveItem(id)` | Removes one of your rows and everything under it |
+| `Clear()` | Removes all of your rows; the designed menu stays, with any label or state you gave it |
+| `GetCount()` / `HasItem(id)` | How many rows you added; whether an id exists at all |
+| `ActivateItem(id)` | Does what a click on that row does — opens its form in the ContentPane, goes home, or raises `onMenuClick` — from code. Any row, designed or yours; a disabled row does nothing. How a program sends the operator somewhere by itself: a welcome form on first run, a form a finished task leads to |
+
+```cobol
+      *> first run: nothing is configured yet, so show the welcome form
+           IF WS-CONFIGURED NOT = "Y"
+               MOVE SIDEMENU-1::ActivateItem("welc") TO WS-OK
+           END-IF
+```
+
+> **Note.** `ActivateItem` works in a **shell** — a main form whose SideMenu
+> is its menu pane — because it is the shell that opens forms in the
+> ContentPane.
+
+Every call that changes something answers `1` when it did and `0` when it did
+not, so a program can tell.
+
+> ⚠️ **The designed menu's structure is yours at design time, not at run
+> time.** A program can never remove or replace a row that came from the menu
+> editor, nor change its icon, badge or action — the call answers `0` and the
+> menu is untouched. Give your own rows ids that cannot collide with the
+> designed ones (a prefix such as `CHAT-` is enough).
+>
+> Two things about a designed row *are* the program's: its **label** and
+> whether it is **enabled**. That is what lets you design the whole menu in the
+> menu editor — so it shows in the designer and the preview — and still
+> translate it and keep it shut until the application is set up:
+>
+> ```cobol
+>            MOVE SIDEMENU-1::SetItemLabel("tpcs", T-MENU-TOPICS) TO WS-OK
+>            MOVE SIDEMENU-1::SetItemEnabled("tpcs", "0") TO WS-OK
+> ```
+>
+> A disabled row ignores clicks. `Clear()` leaves these settings in place.
+
+> **Note — actions and where the sidebar lives.** In the application shell a
+> row's action navigates, whether it was designed or added. A SideMenu on a
+> plain window raises `onMenuItemClick` for every row and leaves the navigating
+> to your handler — the same for both kinds of row.
+
+> 📷 Screenshot needed — `sidemenu-runtime-rows.png`. Capture a shell whose
+> rail shows two designed rows, a "History" section and three conversation rows
+> added by the program, with one of them selected.
+
+### The breadcrumb frame
+
+The breadcrumb is a **frame**, not just a line of text. It always runs from the
+sidebar's right edge to the right edge of the window — there is no width or
+position to set, because there is only one place it can be — and the sidebar
+owns the five things that are yours to choose:
+
+
+| Property (on the SideMenu)  | Inspector row                 | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BreadcrumbHeight`          | **Breadcrumb height**         | How tall the frame is drawn, 16 to 200 points. Default 28.                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `BreadcrumbBackgroundColor` | **Breadcrumb background**     | The frame's own colour. Leave it **empty** and the frame keeps following the content pane's background, which is what it has always done.                                                                                                                                                                                                                                                                                                                                                          |
+| `BreadcrumbTextAlign`       | **Breadcrumb vertical align** | Where the chain **and the Open/Collapsed toggle** sit inside the frame: `Top`, `Middle` (the default) or `Bottom`. They move as one group: the alignment places the pair, and the chain then centres on the toggle's own line, so the text sits on the icon's middle at `Top` and at `Bottom` exactly as it does at `Middle`, however large the icon. Aligning each to the frame's own edge instead left a tall icon and a small font with their middles apart, reading as two unrelated controls. |
+| `BreadcrumbFontSize`        | **Breadcrumb font size**      | The chain's own text size. `0` — the default — keeps it following the sidebar's `FontSize`, as it always did.                                                                                                                                                                                                                                                                                                                                                                                    |
+| `BreadcrumbIconSize`        | **Breadcrumb icon size**      | The Open/Collapsed toggle's own size. `0` — the default — keeps it a square of the frame's height, as it always did. It is never drawn taller than the frame.                                                                                                                                                                                                                                                                                                                                    |
+
+A colour you choose may carry alpha, in which case the pane shows through it —
+but the frame is always painted **opaque** in the end, because it is chrome: a
+hole in it would show the desktop.
+
+**Height, text size and icon size are three separate dials.** This is worth
+stating plainly, because it used to be one dial pretending to be three:
+
+- Changing **`BreadcrumbHeight`** moves the frame and nothing else. Text too big
+  for it is cut off *by* the frame rather than spilling outside, so the height
+  you set is the height you get.
+- Changing **`BreadcrumbFontSize`** moves the chain's text and nothing else. The
+  chain used to share the sidebar's `FontSize` with the menu labels, so sizing
+  one always sized the other; now the menu labels stay put.
+- Changing **`BreadcrumbIconSize`** moves the toggle and nothing else. The toggle
+  used to be a square of the frame's height, so making the band taller to hold
+  your own controls grew the arrow along with it.
+
+Leave the last two at `0` and everything behaves exactly as before — no form you
+have already drawn changes appearance. Coming from PowerCOBOL, this is the
+difference between a band whose parts size each other by side effect and one
+where each part is a property you set.
+
+That independence is what makes the alignment worth having: set a 64-point frame
+and the chain has room to move, so you decide whether it sits against the top, in
+the middle, or against the bottom.
+
+**You may place controls over the frame.** Give it some height and it becomes a
+band you can design in: a title, a search box, a status label, a toolbar of your
+own. Draw the control over the frame in the designer and it is drawn over the
+frame when the application runs — the same picture on the canvas, in Preview and
+in the shell.
+
+> **Note.** The frame is **not a container**. A control over it is an ordinary
+> form control that happens to overlap: it is nobody's child, it is not clipped
+> by the frame, it does not move or scroll with it, and it keeps every property
+> and event it would have anywhere else on the form. It simply paints on top,
+> and it takes the click — the frame never steals one from your control.
+
+> ⚠️ **This applies to the shell form's own controls, and only those.** A form
+> **loaded into the content pane** is a different form with a coordinate space
+> of its own, and it starts **below** the frame. Its first row of controls can
+> never land on the navigation chain, however tall you make the band — you do
+> not have to leave a margin at the top of every embedded form to avoid it.
+
+📷 Screenshot needed — `breadcrumb-frame.png`. In the Form Designer, select the
+SideMenu on a shell form, set **Breadcrumb height** to 64 and **Breadcrumb
+background** to a colour that contrasts with the form, then drop a Label and a
+TextBox over the frame. Capture the canvas so both the taller coloured frame and
+the two controls sitting on it are visible.
+
+### Naming what you are working on — the detail level
+
+A breadcrumb segment names a *screen*. Often the operator needs to know *which
+record* that screen is holding. Add a **detail level** after the current form's
+own name, from the form itself:
+
+```cobol
+      *> Main Menu > Customer Data > John Smith
+           INVOKE me "SetBreadcrumbDetail" USING WS-CUSTOMER-NAME.
+      *> ...and back to just Main Menu > Customer Data
+           INVOKE me "ClearBreadcrumbDetail".
+```
+
+Rules worth knowing:
+
+- The detail belongs to the form that set it and to the moment it is displayed.
+  Navigate anywhere — another screen, a breadcrumb segment, **Home** — and it is
+  dropped; the incoming form starts with a clean crumb and sets its own.
+- Only the **displayed** form can set one. A form running off the pane has no
+  name up there to hang a detail from, so its call is ignored rather than
+  hijacking somebody else's segment.
+- Setting an empty text is the same as clearing it.
+- It is one level, not a stack: setting it again replaces it.
+
+### Clicking your own name — the reset
+
+Once a detail level is showing, the form's own segment stops being "where you
+are" and becomes a link. Clicking it **starts that form over**:
+
+```mermaid
+flowchart TD
+    A["Operator clicks the form's own segment<br/>(Main Menu > Customer Data > John Smith)"] --> B{"me::PreventReset<br/>set by the form?"}
+    B -- "on" --> C["Nothing is reset<br>onResetRejected fires<br>the crumb stays"]
+    B -- "off, pane occupant" --> D["onDestroy on the old instance<br>a fresh instance replaces it<br>onShow / onActivate, blank storage<br>the crumb is cleared"]
+    B -- "off, the shell's own form" --> E["onReset fires<br>the crumb is cleared"]
+```
+
+**The form has the last word.** Set the guard whenever you are holding something
+worth losing, and clear it when you are not:
+
+```cobol
+       CUSTOMER-CHANGED SECTION.        *> any field's onChange
+           MOVE 1 TO me::PreventReset.
+
+       SAVE-CUSTOMER SECTION.           *> after a successful write
+           MOVE 0 TO me::PreventReset.
+
+       RESET-REFUSED SECTION.           *> onResetRejected
+           MOVE "Save or cancel first" TO Label-Status::Caption.
+```
+
+`PreventReset` is part of the universal form surface, like `Title` or
+`FormState`, so it is checked at build time and readable through `super::` from
+another form.
+
+**What "start over" means** depends on which form is displayed:
+
+- A form **loaded into the ContentPane** is rebuilt: its `onDestroy` runs (close
+  files, COMMIT), its instance and WORKING-STORAGE are released, and a brand-new
+  instance takes its place — same screen, blank as the day it first opened, in
+  the same position in the chain. A reset is **not** a navigation: the chain
+  does not move.
+- The shell's **own main form** has no second instance to swap in — restarting it
+  would restart the application — so it receives **`onReset`** and does its own
+  housekeeping (`INITIALIZE`, re-read defaults, clear the screen).
+
+> ⚠️ **Caveat.** The frame is the top band of the **content area**, so controls
+> can sit over it only while the sidebar's **FullHeight** is on (the default).
+> With FullHeight off the breadcrumb is a strip above the whole window — above
+> the sidebar too — and there is no form underneath it to place a control on.
+
+### FormFormat — how a form may be loaded
+
+Every form declares it in the property inspector:
+
+- **Standalone** (default) — its own window, opened with `OpenFormSync` /
+  `OpenFormAsync`. Everything §21-era applications do today.
+- **Embedded** — loaded into the ContentPane by a menu item.
+- **Both** — a reusable screen valid on either path (a customer lookup that is
+  a modal dialog from Sales and a browsing pane inside CRM).
+
+The **build checks the pairing**: a menu item pointing at a Standalone form,
+or an `OpenFormSync` call naming an Embedded one, is a compile error naming
+the form. The main form is always Standalone — it owns the window.
+
+While a form is embedded, its window-only properties (WindowState, FullScreen,
+TitleVisible, CanMinimize, CanMaximize) are inert and shown greyed in the
+inspector; `Width`/`Height` report the **designed** values. Entrance and exit
+window effects play only for standalone forms — an embedded form is simply
+present.
+
+**The background rule.** The loaded form's background paints the **whole
+ContentPane** — colour, gradient, or image, with the image/gradient geometry
+computed against the *pane*, not the form rectangle. While the form scrolls
+(a form larger than the pane scrolls inside it), the background stays put.
+A fully transparent form (Transparency = 100) shows the desktop through the
+pane region — the menu and breadcrumb stay opaque.
+
+> ⚠️ **Caveat.** The same `Both` form therefore shows its background
+> differently embedded (pane-sized, fixed) and standalone (window rules,
+> spec 037). This is by design; design backgrounds accordingly.
+
+### Sizing an Embedded form to the ContentPane
+
+An Embedded form keeps the size you designed. The pane does **not** stretch to
+hold it and the form is **not** scaled down to fit — so if the form is larger
+than the pane, the surplus scrolls. The scrollbars float over the form and
+reserve no gutter, but they are **visible** whenever the form is larger than the
+pane — a thin handle along the pane's bottom (sideways) or right edge (up and
+down) that thickens under the pointer, so the operator can see the form
+continues and drag to it without a trackpad. Scrolling moves the form only: the
+SideMenu stands still, and whatever scrolls past the pane's left edge passes
+under the rail, never over it.
+
+Work out the pane before you design the form:
+
+```text
+ContentPane width  = main form width  − SideMenu width
+ContentPane height = main form height − BreadcrumbHeight
+```
+
+Both numbers come from the **main form**: the rail is the SideMenu control as
+you drew it (not a fixed default), and the band is that same control's
+`BreadcrumbHeight` property. A main form 1584x936 with a 296-wide SideMenu and
+the default 28-point breadcrumb gives a pane of **1288x908** — so an Embedded
+form designed 1320 wide has 32 points that can never be on screen, and the gap
+grows as the operator makes the window smaller.
+
+Which controls disappear is decided by each control's **right edge**, not by
+where it starts: a control at x=32 that is 456 wide (right edge 488) survives a
+much narrower pane than one at x=568 that is 704 wide (right edge 1272).
+
+The Form Designer warns you about this while the size is still yours to
+choose — an amber strip above the canvas naming the form's size, the pane's
+size and the surplus:
+
+> ⚠️ This Embedded form is 1320x720; the main form's ContentPane is 1288x908 —
+> 32px will scroll out of view.
+
+The remedy is to narrow the Embedded form, or to widen the main form (or its
+pane, by drawing a narrower SideMenu). The strip clears itself the moment the
+form fits.
+
+> **Note.** The warning appears for Embedded forms only. A Standalone form owns
+> its window and has no pane to overflow, and `Both` forms are measured the
+> same way as Embedded ones because that is the path where they can be cropped.
+
+> ⚠️ **Caveat.** The strip compares against the main form's **designed** size.
+> An operator who drags the running window narrower than that loses more, and
+> one who maximises it gets the surplus back. Design for the designed size and
+> treat anything past the pane edge as optional.
+
+### The navigation chain
+
+Forms loaded from menus form a chain — main form → subsystem → screen. Every
+form **in the chain stays resident**: its WORKING-STORAGE lives, its menu
+handlers keep firing, even while its body is not displayed. The breadcrumb IS
+that chain. Clicking a segment destroys everything below it (deepest first),
+remounts that form's menu, and shows its body again.
+
+Two menu behaviours control sibling switches (menu editor, per item):
+
+- Default: switching from screen A to screen B **destroys** A.
+- **Preserve previous form** checked: A is kept resident, and returning to A
+  is instant, with its data exactly as left.
+
+Two form events tell them apart — bind them like any other:
+
+- **onDeactivate** — the body left the pane; the form is still resident. Do
+  *not* close files here.
+- **onDestroy** — storage is about to be released. Close files, COMMIT, free
+  resources here.
+
+### `super` — the form that loaded me
+
+`me` addresses the current form; **`super`** addresses the form that loaded
+or opened it — on both paths, menu loads and `OpenFormSync`/`OpenFormAsync`:
+
+```cobol
+      *> read and change the parent form's properties
+           MOVE super::Title TO WS-T.
+           MOVE "Processing…" TO super::Title.
+      *> drive its window (any windowHandler method)
+           INVOKE super::"SetWindowState"("Minimized").
+      *> walk further up: one loader per super
+           MOVE super::super::Title TO WS-T.
+      *> drive the menu pane (state persists per application)
+           super::SIDE-1::Collapse().
+           super::SIDE-1::Open().
+```
+
+Rules to expect:
+
+- **Bare properties are checked at build time** against the universal form
+  surface (Name, Title, Width, Height, X, Y, WindowState, FullScreen,
+  TitleVisible, CanMinimize, CanMaximize, FormState, FormFormat,
+  BackgroundColor, Transparency, PreventReset) — a typo like `super::Widht` fails the
+  build at any depth.
+- **Running a procedure of the form that loaded you** — `INVOKE
+  super::"RecalcTotals"()`. The name is one of the *parent's* own procedures (a
+  paragraph or user procedure of its program), and it runs there exactly as
+  `CALL "RecalcTotals"` would. The call is answered at once and the procedure
+  runs the next time the parent waits for an event, so it returns nothing to
+  you; what it changes, it changes on the parent. This is how a form in the
+  ContentPane tells the main form that something changed:
+
+  ```cobol
+      *> in the settings pane, after the agents were saved
+           INVOKE super::"PC-MENU-STATE"().
+  ```
+
+  A name the parent has no procedure for is reported in its program output and
+  nothing runs. ⚠️ Until 1.70.255 this was documented and refused at run time
+  with "windowHandler has no method".
+- **`super` can be NULL**: in the main form, and in an async-opened form
+  whose opener has closed (the child never keeps its opener alive).
+  Referencing a NULL `super` raises the standard runtime error.
+- `me::<property>` works the same way on the form's own surface —
+  `me::Width`, `MOVE "New" TO me::Title` — and `me` and the form's own name
+  address the same thing. Writing `Title`, `Width`, `Height`, `X`, `Y`,
+  `BackgroundColor` or `Transparency` through either changes the running
+  window (see *Window chrome & state*).
+
+### Opening forms — the three doors
+
+An application holds many live forms at once. Each opened form runs as its
+**own program** with its **own WORKING-STORAGE** — forms never read each
+other's data items. They talk through the surfaces above: published form
+properties, `super::X`, and windowHandler methods.
+
+There are three ways to open a form, and the **Form format** property decides
+which of them may load it:
+
+1. **Into the ContentPane** — a sidebar item with the **Open form** action.
+   The target needs format `Embedded` or `Both`. The outgoing occupant
+   deactivates (and parks, when the clicking item checked *Preserve previous
+   form*); the breadcrumb follows.
+2. **As a child window from COBOL** — `INVOKE me "OpenFormSync"` /
+   `"OpenFormAsync"`, parented to the calling form. The target needs
+   `Standalone` or `Both`.
+3. **As a child window from the sidebar** — the **Open Stand Alone Form
+   (Sync)** / **(Async)** menu actions, or programmatically through the
+   SideMenu control itself:
+
+```cobol
+      *> block until the report window closes (Sync is implicitly modal —
+      *> the whole shell waits with you)
+           INVOKE SideMenu-1 "OpenStandAloneFormSync"
+               USING "RPT-MONTH" "Normal" 80 80 640 480 "true".
+      *> or open it modeless and keep its handle
+           INVOKE SideMenu-1::"OpenStandAloneFormAsync"("MONITOR")
+               RETURNING WS-H.
+           INVOKE WS-H "Focus".
+```
+
+Windows opened this way are parented to the **shell**, whichever form ran
+the INVOKE — closing the application closes them. The target needs
+`Standalone` or `Both`.
+
+> **A target that has its own SideMenu keeps its Open/Collapsed control.**
+> Run such a form on its own and it opens as a shell, whose breadcrumb carries
+> that control at its head. Opened as a child window it is a plain window with
+> no shell over it, so it draws the strip itself: the same live toggle, and one
+> static segment naming the form. There is no navigation chain to show — a
+> chain is a fact of the shell, and a child window is not in one.
+
+**Sync is implicitly modal.** From a menu click or from COBOL: while a
+Sync-opened window lives, its parent's whole face — the shell's chrome
+included — takes no input. Async windows are never modal.
+
+#### Going back to the shell's own pane — the Home action
+
+The shell form has its own ContentPane content: whatever you drew on the
+form that carries the SideMenu. Once a menu item has loaded another form into
+that pane, the shell's own content is behind it. The **Home** action brings it
+back — so a "main screen" needs **no form of its own**.
+
+Give any sidebar item the **Home (main content pane)** action. It takes no
+target, because it opens nothing: it simply shows the form the sidebar
+belongs to.
+
+> **Home never destroys.** The form that was on the pane is **parked**, not
+> closed: no `onDestroy` fires, its WORKING-STORAGE is intact, and loading it
+> again later revives that very instance rather than starting a fresh one —
+> the same "instant return" *Preserve previous form* gives you. Every other
+> live form is untouched, child windows included: they keep running and keep
+> their own state while you are at Home.
+>
+> The breadcrumb collapses to the shell form alone, since that is what the
+> pane is showing, and the contextual menu section empties for the same
+> reason. Home while already at Home does nothing at all — no `onDeactivate`,
+> no `onActivate`.
+
+⚠️ **Home is a SideMenu action only.** A MenuBar form has no ContentPane to
+restore, so the action is not offered there.
+
+The menu editor's **Target** list only offers the forms the chosen action may
+legally load, and the build enforces the same rule for literal form ids in
+COBOL — a mismatch is a compile error, not a surprise at run time.
+
+**Parked forms stay alive.** A preserved occupant keeps its storage AND its
+enabled Timer controls keep ticking while off-pane — timer handlers run the
+whole time, with bursts coalesced when the form's event queue is busy.
+
+> ⚠️ **Caveat.** An open that cannot be satisfied — a form id nothing
+> matches, or a form whose generated program was missing when the
+> application was built — raises a visible runtime error and leaves the
+> handle NULL. Check your build output for "form … omitted" warnings.
+
+---
+
+## 23. Caveats and current limitations
+
+A consolidated list so you are never surprised:
+
+- **Event firing.** All form/control events are *designable*; only the core set is
+  *fired* by the runtime today (see §10). Verify in *Run Form*.
+- **File organisations.** All four are supported — SEQUENTIAL, LINE
+  SEQUENTIAL, INDEXED and RELATIVE (§13). Each verb is dispatched by the
+  file's declared `ORGANIZATION`.
+- **Locking.** Single-process record locking only.
+- **One INDEXED file, two live forms.** Each form is its own program, so two
+  forms writing the *same* INDEXED file are two independent writers — their
+  record locks do not coordinate across forms. Give each data file one owner
+  form and pass values through published form properties instead.
+- **EXEC RUST across forms.** The object bridge is one per *application*:
+  a handle created in any form's block resolves in every other form's
+  blocks, and blocks from different forms take turns on it. Values stored
+  through the bridge must be thread-safe (`Send`) for that reason.
+- **`rcrun build` regenerates, like the IDE.** Before it compiles, `rcrun
+  build` rewrites every form's generated COBOL from its `.cfrm`, and every
+  indexed file's facade and `COPYBOOKS/<name>.SEL`/`.FD` from its `.cidx`.
+  It uses the same generator and the same files the IDE's Generate uses, so
+  a form edited outside the IDE builds its current code. Your handlers and
+  procedures live in the `.cfrm`, so nothing you wrote is lost. Anything
+  typed by hand into a `generated/` file is replaced, as it is on every IDE
+  build. `rcrun build` leaves the project file as it is: a generated program
+  it creates for a form that never had one is used for this build, and the
+  IDE adds it to the project the next time it regenerates.
+- **OO COBOL.** `CLASS`/`METHOD` definitions are out of scope.
+- **ISAM interchange.** The on-disk format is original and **not**
+  binary-compatible with any third-party ISAM.
+- **Generated code is read-only.** Edit forms or Common Code, never `generated/`.
+- **`dist/` is reserved**, not yet populated by tooling.
+- **Secrets** must not be embedded in shipped forms.
+- **Form Theme / procedural styles.** The Appearance "Theme" dropdown selects
+  Classic / Enhanced / Neumorphic Light / Neumorphic Dark (procedural relief
+  with full gradient, blur, distance, rim controls). Asset-pack selection is project / toml driven; some
+  per-form pack UI is still evolving.
+
+---
+
+## Appendix A — Coming from PowerCOBOL / isCOBOL
+
+A rough mental map to speed you up. These are *analogies*, not exact equivalents.
+
+
+| You knew (PowerCOBOL / isCOBOL)       | In PowerRustCOBOL                                                                                       |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| A *sheet* / *form* with controls       | A **form** (`.cfrm`) edited in the **Form Designer**                                                     |
+| Property sheet                        | The **properties pane** (collapsible section cards)                                                      |
+| Event procedure attached to a control | A COBOL **event handler** (`CONTROL-ID--EVENTNAME` nested program)                                       |
+| The event loop hidden by the runtime  | The explicit **`COBOL::"WAIT-EVENT"`** loop in generated code                                               |
+| `INVOKE`/method calls on controls     | The same —`Ctrl::Method(args)`, `INVOKE Ctrl "Method" USING …`, or the `COBOL::"GET-PROPERTY"` / `"SET-PROPERTY"` built-ins |
+| Vendor ISAM                           | PowerRustCOBOL **indexed files** (`STORAGE IS MEMORY/DISK`, `redb`, `COMMIT`/`ROLLBACK`)                 |
+| Embedded SQL / ODBC                   | `COBOL::"OPEN-DB"` + `COBOL::"EXEC-SQL"` (SQLite/PostgreSQL/MySQL)                                            |
+| Building an `.exe` with a runtime DLL  | `rcrun build` → **one self-contained binary**, no runtime to install                                   |
+| Project/workspace file                | `cobolt.toml` + the standard folder layout                                                              |
+
+> ⚠️ **Do not** expect source-level, file-format, or binary compatibility with
+> any prior vendor's product. The concepts transfer; the artefacts do not.
+
+---
+
+## Appendix B — Glossary
+
+- **Application shell** — the one-window arrangement a **SideMenu** on the main
+  form switches on: a menu pane, a breadcrumb, and a **ContentPane** that forms
+  are loaded into in place (§22).
+- **Block literal** — a multi-line literal fenced with backticks, taken
+  verbatim. A PowerRustCOBOL extension; free format only (§13).
+- **Breadcrumb** — the frame across the top of a shell window naming the
+  navigation chain. Sized and coloured by the SideMenu's `Breadcrumb*`
+  properties (§22).
+- **Common Code** — your hand-written COBOL, in `src/`. Editable, and `CALL`ed
+  from handlers.
+- **ContentPane** — the area of a shell window that holds the loaded form. It is
+  the main form's size less the SideMenu's width and the breadcrumb's height.
+- **Control** — an element on a form: button, text box, chart, and so on.
+- **Data binding** — a form-level mapping from a source (indexed file, SQL,
+  COBOL table, REST, AI agent) to an approved target control (§8).
+- **Data Binding Guardian** — the validator that checks bindings before a save,
+  run, debug, Check, Build or package, reporting Blockers, Warnings and Info.
+- **Engine** — the storage backend for indexed files, chosen with
+  `rcrun --indexed-engine` or, for a project, **Settings → Default Indexed File
+  Engine**. The default is the paged `rust` engine; the crash-safe **`redb`**
+  engine is chosen by name.
+- **Event** — something the user or the system does; named `onSomething`.
+- **`EXEC RUST` block** — a block of host-language code embedded in a handler,
+  compiled into the application at Build (§13). It reaches the form through
+  `cobolt_objects` and can open its own window through `cobolt_windows`.
+- **Form** — a window you design; stored as a `.cfrm` file.
+- **Form format** — whether a form may open in its own window (`Standalone`),
+  be loaded into a ContentPane (`Embedded`), or either (`Both`) (§22).
+- **Generated code** — the read-only `.cbl` PowerRustCOBOL produces from a form,
+  in `generated/`. Never hand-edited; regenerated on every Build, Run, Debug and
+  Check.
+- **Handler** — the COBOL that runs for an event; generated as a nested program
+  named `CONTROL-ID--EVENTNAME`.
+- **Indexed file** — an ISAM file (`ORGANIZATION IS INDEXED`), described in the
+  project by a `.cidx` definition.
+- **Knowledge Base** — the project category holding Markdown, text and PDF
+  material the AI assistant can draw on.
+- **Main form** — the one form in a project marked as the application's entry
+  point. Its generated program is what a built binary starts at.
+- **`me`** — the receiver naming the current form, as in `me::Title`.
+- **Non-visual control** — a service with no run-time appearance: Timer,
+  AI Agent, REST Client, SQL Database, Indexed File, Web Search, Snackbar.
+- **Project's Crates** — the project-level catalogue of third-party libraries
+  registered for `EXEC RUST` blocks to use (§13).
+- **Property** — a named attribute of a control or form, read and written with
+  the `::` member syntax.
+- **rcrun** — the command-line runtime, checker, packager and binary compiler.
+- **Repeating group** — a GroupBox turned into a card template repeated once per
+  array element; a member's handler is told which card fired through
+  `CONTROL-ARRAY-INDEX` (§8).
+- **Site path** — how a diagnostic names the place *you* wrote, rather than a
+  line of generated code: `MAIN-FORM ▸ BTN-OK ▸ onClick` (§12).
+- **Storage mode** — the `STORAGE [MODE] IS MEMORY | DISK` clause on a `SELECT`,
+  choosing an in-RAM table or a persistent on-disk store. **DISK** is the
+  default (§14).
+- **`super`** — the receiver naming the form that loaded or opened this one, as
+  in `super::Title`. It is NULL in the main form (§22).
+- **User Control** — a reusable GroupBox-based component stored in the project
+  and deployed as real controls with qualified ids (§8).
+
+---
+
+*This guide is a living document. It is expanded whenever a feature is added or a
+behaviour changes — if something here disagrees with the running tool, the tool
+(and the `docs/` reference files and test suite) are authoritative; please report
+the discrepancy.*

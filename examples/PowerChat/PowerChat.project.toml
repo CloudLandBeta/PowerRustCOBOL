@@ -30,7 +30,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 destination_folder = "PowerChat"
 debug_compilation = true
-built_with_version = "1.80.28"
+built_with_version = "1.80.110"
 
 [files]
 sources = ["src/main.cbl"]
@@ -84,7 +84,7 @@ indexed = []
 fixed_format = false
 
 [ide]
-theme = "neumorphic-cobalt"
+theme = "spatial"
 background_image = ""
 project_icon = ""
 background_opacity = 70
@@ -189,6 +189,8 @@ timeout_secs = 30
 verbose_log = true
 max_review_revisions = 2
 unreviewed_temperature = 0.10000000149011612
+grace_reasoning = false
+prompt_review = true
 agentic_ai_enabled = true
 reviewer_provider = ""
 reviewer_endpoint = ""
