@@ -22,11 +22,12 @@
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use cobolt_mcp::{McpHandler, ServerInfo, Tool, ToolResult};
-use cobolt_project_tools::http::{serve_http, OpenKit};
+use cobolt_project_tools::http::{serve_http, HttpGate};
 use cobolt_project_tools::tools::Shared;
 use cobolt_project_tools::{FileList, NoProject, ProjectHost, ProjectRoot, ProjectTools};
 use serde_json::Value;
@@ -35,6 +36,8 @@ use crate::project_model::{Category, CoboltProject};
 
 /// How long a recording tool waits for the UI thread to apply it.
 const RECORD_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long `create_project` / `open_project` wait for the IDE to open it.
+const PROJECT_SWITCH_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// What the UI thread last published about the open project.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -72,6 +75,18 @@ pub enum HostRequest {
     /// A tool was called (one Output line), and open forms that changed on
     /// disk should be reloaded first (T3.3).
     Called { tool: String, target: String },
+    /// Create a project in `folder` and open it in the IDE (spec 084 R15).
+    CreateProject {
+        folder: PathBuf,
+        name: String,
+        reply: Sender<Result<Value, String>>,
+    },
+    /// Open the project at `path` in the IDE, as File → Open Project does
+    /// (spec 084 R16).
+    OpenProject {
+        path: PathBuf,
+        reply: Sender<Result<Value, String>>,
+    },
 }
 
 /// The state shared between the UI thread and the listener's threads.
@@ -80,6 +95,11 @@ pub struct IdeShared {
     tx: Mutex<Sender<HostRequest>>,
     ctx: Option<egui::Context>,
     tools: Arc<Shared>,
+    /// The access token a request must carry (spec 084 R35); `None` until
+    /// Configure Claude Code generated one. Never logged.
+    token: Mutex<Option<String>>,
+    /// The running listener: its port and the flag that stops it.
+    listener: Mutex<Option<(u16, Arc<AtomicBool>)>>,
 }
 
 impl IdeShared {
@@ -93,6 +113,8 @@ impl IdeShared {
                 tx: Mutex::new(tx),
                 ctx,
                 tools: Arc::new(Shared::new()),
+                token: Mutex::new(None),
+                listener: Mutex::new(None),
             }),
             rx,
         )
@@ -123,15 +145,24 @@ impl IdeShared {
         ok
     }
 
-    /// Which kit the open project carries — what the HTTP gate compares the
-    /// URL's id with (R14).
-    pub fn open_kit(&self) -> OpenKit {
-        match self.snapshot().manifest.as_deref().and_then(Path::parent) {
-            None => OpenKit::NoProject,
-            Some(dir) => OpenKit::Project {
-                kit_id: super::kit_id_of(dir),
-            },
-        }
+    /// Whether a project is open — what the HTTP gate needs to know.
+    pub fn project_open(&self) -> bool {
+        self.snapshot().manifest.is_some()
+    }
+
+    /// Set (or clear) the access token requests must carry.
+    pub fn set_token(&self, token: Option<String>) {
+        let token = token.filter(|t| !t.trim().is_empty());
+        *self.token.lock().unwrap_or_else(|p| p.into_inner()) = token;
+    }
+
+    fn token(&self) -> Option<String> {
+        self.token.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
+    /// The port the tools are served on, while they are.
+    pub fn listening_port(&self) -> Option<u16> {
+        self.listener.lock().unwrap_or_else(|p| p.into_inner()).as_ref().map(|(p, _)| *p)
     }
 }
 
@@ -194,6 +225,30 @@ impl ProjectHost for IdeHost {
 
     fn version(&self) -> String {
         crate::version::VERSION.to_owned()
+    }
+
+    /// The UI thread creates it and opens it (spec 084 R15, R17).
+    fn create_project(&mut self, folder: &Path, name: &str) -> Result<Value, String> {
+        let (reply, answer) = mpsc::channel();
+        let req = HostRequest::CreateProject { folder: folder.to_path_buf(), name: name.to_owned(), reply };
+        self.ask(req, answer)
+    }
+
+    /// The UI thread opens it, as File → Open Project (spec 084 R16, R17).
+    fn open_project(&mut self, path: &Path) -> Result<Value, String> {
+        let (reply, answer) = mpsc::channel();
+        self.ask(HostRequest::OpenProject { path: path.to_path_buf(), reply }, answer)
+    }
+}
+
+impl IdeHost {
+    fn ask(&self, req: HostRequest, answer: Receiver<Result<Value, String>>) -> Result<Value, String> {
+        if !self.shared.send(req) {
+            return Err("the IDE is closing".to_owned());
+        }
+        answer
+            .recv_timeout(PROJECT_SWITCH_TIMEOUT)
+            .unwrap_or_else(|_| Err("the IDE did not answer in time; try again".to_owned()))
     }
 }
 
@@ -328,24 +383,70 @@ impl McpHandler for IdeTools {
     }
 }
 
-/// Bind `127.0.0.1:<port>` and serve the tools on a background thread.
-/// Returns the address it listens on.
+/// Bind `127.0.0.1:<port>` and serve the tools on a background thread,
+/// replacing any listener already running (spec 084 R25: a port change takes
+/// effect at once). Returns the address it listens on.
 pub fn start_listener(shared: &Arc<IdeShared>, port: u16) -> Result<String, String> {
     let addr = format!("127.0.0.1:{port}");
+    stop_listener(shared);
     let listener = TcpListener::bind(&addr).map_err(|e| e.to_string())?;
+    let stop = Arc::new(AtomicBool::new(false));
     let for_handler = Arc::clone(shared);
-    let for_gate = Arc::clone(shared);
+    let (for_token, for_open) = (Arc::clone(shared), Arc::clone(shared));
+    let gate = HttpGate {
+        token: Arc::new(move || for_token.token()),
+        project_open: Arc::new(move || for_open.project_open()),
+        stop: Arc::clone(&stop),
+    };
     std::thread::Builder::new()
         .name("coding-agent-tools".into())
         .spawn(move || {
-            let _ = serve_http(
-                listener,
-                move || IdeTools::new(Arc::clone(&for_handler)),
-                move || for_gate.open_kit(),
-            );
+            let _ = serve_http(listener, move || IdeTools::new(Arc::clone(&for_handler)), gate);
         })
         .map_err(|e| e.to_string())?;
+    *shared.listener.lock().unwrap_or_else(|p| p.into_inner()) = Some((port, stop));
     Ok(addr)
+}
+
+/// Stop the running listener, if any: raise its flag and wake its accept
+/// with a connection of our own, so the port is free when this returns.
+pub fn stop_listener(shared: &Arc<IdeShared>) {
+    let running = shared.listener.lock().unwrap_or_else(|p| p.into_inner()).take();
+    if let Some((port, stop)) = running {
+        stop.store(true, Ordering::SeqCst);
+        let _ = std::net::TcpStream::connect(("127.0.0.1", port));
+        for _ in 0..50 {
+            if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+}
+
+/// Why the IDE cannot switch project now, or `None` when it can (spec 084
+/// R17): unsaved work is never discarded by a coding agent's request.
+pub fn project_switch_refusal(unsaved: &[PathBuf], settings_dirty: bool, project_dir: Option<&Path>) -> Option<String> {
+    if unsaved.is_empty() && !settings_dirty {
+        return None;
+    }
+    let mut names: Vec<String> = unsaved
+        .iter()
+        .map(|p| {
+            project_dir
+                .and_then(|d| p.strip_prefix(d).ok())
+                .unwrap_or(p)
+                .to_string_lossy()
+                .replace('\\', "/")
+        })
+        .collect();
+    if settings_dirty {
+        names.push("Project Settings".to_owned());
+    }
+    Some(format!(
+        "the IDE has unsaved changes in {}; ask the developer to save or close them first",
+        names.join(", ")
+    ))
 }
 
 /// The UI thread's half of [`HostRequest::Record`]: put `rel` in the project
@@ -394,58 +495,104 @@ mod tests {
         (text.clone(), r.is_error == Some(true))
     }
 
+    /// POST one JSON-RPC body to `port` with `auth` headers; the raw answer.
+    fn post_raw(port: u16, auth: &str, body: &str) -> String {
+        use std::io::{Read, Write};
+        let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        write!(
+            s,
+            "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\n{auth}Content-Length: {}\r\n\r\n{body}",
+            body.len()
+        )
+        .unwrap();
+        let mut out = String::new();
+        s.read_to_string(&mut out).unwrap();
+        out
+    }
+
+    fn free_port() -> u16 {
+        TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+    }
+
+    /// Spec 084 AC16 + R25: over the real listener the access token is
+    /// required (none, wrong, or before Configure: 401), the right one serves
+    /// the open project, and a port change moves the server at once.
     #[test]
-    fn ide_host_answers_no_project_and_different_project() {
+    fn the_ide_listener_admits_only_its_token_and_rebinds() {
         let (shared, _rx) = IdeShared::new(None);
         let mut tools = IdeTools::new(Arc::clone(&shared));
         let (t, err) = call(&mut tools, "list_files", json!({}));
         assert!(err && t == "no project open", "{t}");
-        assert_eq!(shared.open_kit(), OpenKit::NoProject);
+        let dir = temp_project("token");
+        shared.publish(Snapshot { manifest: Some(dir.join("Demo.project.toml")), ..Default::default() });
 
-        let dir = temp_project("kit");
-        shared.publish(Snapshot {
-            manifest: Some(dir.join("Demo.project.toml")),
-            ..Default::default()
-        });
-        assert_eq!(shared.open_kit(), OpenKit::Project { kit_id: None }, "no kit yet");
-        std::fs::create_dir_all(dir.join(".claude")).unwrap();
-        std::fs::write(dir.join(super::super::KIT_MANIFEST), r#"{"kit_id":"k-1234"}"#).unwrap();
-        assert_eq!(
-            shared.open_kit(),
-            OpenKit::Project { kit_id: Some("k-1234".into()) }
-        );
+        let port = free_port();
+        start_listener(&shared, port).expect("binds");
+        let body = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_files","arguments":{}}}).to_string();
+        assert!(post_raw(port, "Authorization: Bearer x\r\n", &body).starts_with("HTTP/1.1 401"), "no token configured: nothing admitted");
+        shared.set_token(Some("tok-ide".into()));
+        assert!(post_raw(port, "", &body).starts_with("HTTP/1.1 401"), "no token");
+        assert!(post_raw(port, "Authorization: Bearer nope\r\n", &body).starts_with("HTTP/1.1 401"), "wrong token");
+        let ok = post_raw(port, "Authorization: Bearer tok-ide\r\n", &body);
+        assert!(ok.contains("forms/MAIN.cfrm") && !ok.contains("isError"), "{ok}");
 
-        // Over the real listener: the open kit's id runs, another id is refused.
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let (h, g) = (Arc::clone(&shared), Arc::clone(&shared));
-        std::thread::spawn(move || {
-            serve_http(listener, move || IdeTools::new(Arc::clone(&h)), move || g.open_kit())
+        // Renewing the token refuses the old one.
+        shared.set_token(Some("tok-new".into()));
+        assert!(post_raw(port, "Authorization: Bearer tok-ide\r\n", &body).starts_with("HTTP/1.1 401"), "old token after renew");
+
+        // A port change: the new port serves, the old one is free again.
+        let port2 = free_port();
+        start_listener(&shared, port2).expect("rebinds");
+        assert_eq!(shared.listening_port(), Some(port2));
+        assert!(post_raw(port2, "Authorization: Bearer tok-new\r\n", &body).contains("forms/MAIN.cfrm"));
+        assert!(TcpListener::bind(("127.0.0.1", port)).is_ok(), "the old port was released");
+        stop_listener(&shared);
+        assert_eq!(shared.listening_port(), None);
+        println!("ide listener: before Configure 401; no/wrong/old token 401; right token lists files; rebound {port} -> {port2}, old port released");
+    }
+
+    /// Spec 084 AC9 (R17): a project switch is refused while anything is
+    /// unsaved, naming each file (project-relative) and the Settings form.
+    #[test]
+    fn a_project_switch_is_refused_while_work_is_unsaved() {
+        let dir = PathBuf::from("/p/Demo");
+        assert_eq!(project_switch_refusal(&[], false, Some(&dir)), None);
+        let why = project_switch_refusal(&[dir.join("forms/ORDERS.cfrm"), dir.join("src/x.cbl")], true, Some(&dir)).unwrap();
+        assert!(why.contains("forms/ORDERS.cfrm") && why.contains("src/x.cbl") && why.contains("Project Settings"), "{why}");
+        assert!(!why.contains("/p/Demo"), "names are project-relative: {why}");
+        println!("project switch: clean -> allowed; 2 unsaved files + Settings -> refused naming all 3");
+    }
+
+    /// `create_project` and `open_project` reach the UI thread, which answers.
+    #[test]
+    fn create_and_open_requests_reach_the_ui_thread() {
+        let (shared, rx) = IdeShared::new(None);
+        let worker_shared = Arc::clone(&shared);
+        let worker = std::thread::spawn(move || {
+            let mut tools = IdeTools::new(worker_shared);
+            let a = call(&mut tools, "open_project", json!({"path": "/abs/Demo"}));
+            let b = call(&mut tools, "create_project", json!({"folder": "/abs/New", "name": "New"}));
+            (a, b)
         });
-        let post = |id: &str| {
-            use std::io::{Read, Write};
-            let body = json!({"jsonrpc":"2.0","id":1,"method":"tools/call",
-                              "params":{"name":"list_files","arguments":{}}})
-            .to_string();
-            let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
-            write!(
-                s,
-                "POST /mcp/{id} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
-                body.len()
-            )
-            .unwrap();
-            let mut out = String::new();
-            s.read_to_string(&mut out).unwrap();
-            out
-        };
-        let right = post("k-1234");
-        assert!(right.contains("forms/MAIN.cfrm") && !right.contains("isError"), "{right}");
-        let other = post("k-9999");
-        assert!(other.contains("different project"), "{other}");
-        println!(
-            "ide_host: no project → \"no project open\"; kit k-1234 open → its id lists files, \
-             k-9999 → \"different project\" (over 127.0.0.1:{port})"
-        );
+        let mut seen = Vec::new();
+        while !worker.is_finished() {
+            match rx.recv_timeout(Duration::from_millis(50)) {
+                Ok(HostRequest::OpenProject { path, reply }) => {
+                    seen.push(format!("open {}", path.display()));
+                    reply.send(Ok(json!({"opened": true, "project": "Demo.project.toml"}))).unwrap();
+                }
+                Ok(HostRequest::CreateProject { folder, name, reply }) => {
+                    seen.push(format!("create {} {name}", folder.display()));
+                    reply.send(Err("the IDE has unsaved changes in forms/X.cfrm".into())).unwrap();
+                }
+                Ok(_) | Err(_) => {}
+            }
+        }
+        let ((open_text, open_err), (create_text, create_err)) = worker.join().unwrap();
+        assert!(!open_err && open_text.contains("Demo.project.toml"), "{open_text}");
+        assert!(create_err && create_text.contains("unsaved"), "{create_text}");
+        assert_eq!(seen, ["open /abs/Demo", "create /abs/New New"]);
+        println!("ide host: open_project and create_project forwarded to the UI thread; its answer and its refusal returned");
     }
 
     #[test]
@@ -480,7 +627,7 @@ mod tests {
                     reply.send(r).unwrap();
                 }
                 Ok(HostRequest::Called { .. }) => calls += 1,
-                Ok(HostRequest::Written(_)) | Err(_) => {}
+                Ok(_) | Err(_) => {}
             }
         }
         let (text, err) = worker.join().unwrap();
@@ -501,44 +648,28 @@ mod tests {
 
     /// Gate 3's manual check, automated (the GUI is never driven): the
     /// listener `CoboltApp::new` starts — `start_listener`, on a real port —
-    /// answers the plan's `curl -X POST …/mcp/x` `tools/list` with the seven
-    /// tools, with no project open, and refuses a non-loopback Host.
+    /// answers `tools/list` with every tool, with no project open, to the
+    /// token; and refuses a non-loopback Host.
     #[test]
-    fn the_ide_listener_lists_seven_tools_as_the_gate_curl_would() {
-        use std::io::{Read, Write};
+    fn the_ide_listener_lists_every_tool_as_the_gate_curl_would() {
         let (shared, _rx) = IdeShared::new(None);
-        let port = {
-            let probe = TcpListener::bind("127.0.0.1:0").unwrap();
-            probe.local_addr().unwrap().port()
-        };
+        shared.set_token(Some("tok-gate".into()));
+        let port = free_port();
         let addr = start_listener(&shared, port).expect("the listener binds");
         assert_eq!(addr, format!("127.0.0.1:{port}"), "loopback only");
-        let send = |host: &str| {
-            let body = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
-            let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
-            write!(
-                s,
-                "POST /mcp/x HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
-                body.len()
-            )
-            .unwrap();
-            let mut out = String::new();
-            s.read_to_string(&mut out).unwrap();
-            out
-        };
-        let out = send(&format!("127.0.0.1:{port}"));
-        let body = out.split_once("\r\n\r\n").unwrap().1;
-        let v: Value = serde_json::from_str(body).unwrap();
-        let names: Vec<&str> = v["result"]["tools"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|t| t["name"].as_str().unwrap())
-            .collect();
-        assert_eq!(names.len(), 10, "{body}");
-        assert!(send("evil.example").starts_with("HTTP/1.1 403"));
-        println!("gate 3 (automated): POST http://{addr}/mcp/x tools/list → {} tools: {}", names.len(), names.join(", "));
-        println!("gate 3 (automated): Host: evil.example → 403");
+        let body = r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
+        let out = post_raw(port, "Authorization: Bearer tok-gate\r\n", body);
+        let v: Value = serde_json::from_str(out.split_once("\r\n\r\n").unwrap().1).unwrap();
+        let names: Vec<&str> = v["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+        assert_eq!(names.len(), 10, "{out}");
+        use std::io::{Read, Write};
+        let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        write!(s, "POST /mcp HTTP/1.1\r\nHost: evil.example\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+        let mut foreign = String::new();
+        s.read_to_string(&mut foreign).unwrap();
+        assert!(foreign.starts_with("HTTP/1.1 403"));
+        stop_listener(&shared);
+        println!("gate 3 (automated): POST http://{addr}/mcp tools/list with the token -> {} tools; Host: evil.example -> 403", names.len());
     }
 
     #[test]

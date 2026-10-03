@@ -1123,6 +1123,9 @@ pub struct CoboltApp {
     agent_tools: std::sync::Arc<crate::agent_kit::ide_host::IdeShared>,
     /// … and what they ask of the UI thread (drained every frame).
     agent_tools_rx: std::sync::mpsc::Receiver<crate::agent_kit::ide_host::HostRequest>,
+    /// A port the tools listener could not bind, so it is not retried every
+    /// frame (spec 084 R25).
+    mcp_bind_failed: Option<u16>,
 }
 
 /// An app-level file dialog awaiting the user, identifying what to do with the
@@ -2004,6 +2007,9 @@ impl CoboltApp {
         let (agent_tools, agent_tools_rx) =
             crate::agent_kit::ide_host::IdeShared::new(Some(cc.egui_ctx.clone()));
         let mcp_port = crate::llm::LlmConfig::load().mcp_port;
+        // Spec 084 R35 — the server admits only the token Configure Claude
+        // Code generated; with none yet it admits nothing.
+        agent_tools.set_token(crate::claude_code_settings::ClaudeCodeSettings::load().token());
         let mcp_status = crate::agent_kit::ide_host::start_listener(&agent_tools, mcp_port)
             .map_err(|e| (format!("127.0.0.1:{mcp_port}"), e));
 
@@ -2194,6 +2200,7 @@ impl CoboltApp {
             egui_ctx: cc.egui_ctx.clone(),
             agent_tools,
             agent_tools_rx,
+            mcp_bind_failed: None,
         };
         // Surface the agent endpoint in the Output console (translated when the
         // language loads; English at first frame matches the console's startup
@@ -2216,6 +2223,10 @@ impl CoboltApp {
                 Err((addr, e)) => tr.ai_mcp_failed.replacen("{}", addr, 1).replacen("{}", e, 1),
             };
             app.output.push_status(line);
+        }
+        // Said once above; `follow_mcp_port` must not retry it every frame.
+        if mcp_status.is_err() {
+            app.mcp_bind_failed = Some(app.llm.mcp_port);
         }
 
         // Can this machine Build? Probed on every start — it is one cheap
@@ -4671,6 +4682,28 @@ impl CoboltApp {
     /// Spec 080 — publish the open project, the files with unsaved edits,
     /// whether a build runs and the project's crates, for the coding-agent
     /// tools on the listener's threads.
+    /// Spec 084 R25 — serve on the configured port as soon as it changes,
+    /// not at the next start. A port that would not bind is said once and
+    /// not retried until it changes again.
+    fn follow_mcp_port(&mut self) {
+        let want = self.llm.mcp_port;
+        if self.agent_tools.listening_port() == Some(want) || self.mcp_bind_failed == Some(want) {
+            return;
+        }
+        let tr = self.lang.tr();
+        let line = match crate::agent_kit::ide_host::start_listener(&self.agent_tools, want) {
+            Ok(addr) => {
+                self.mcp_bind_failed = None;
+                tr.ai_mcp_listening.replacen("{}", &addr, 1)
+            }
+            Err(e) => {
+                self.mcp_bind_failed = Some(want);
+                tr.ai_mcp_failed.replacen("{}", &format!("127.0.0.1:{want}"), 1).replacen("{}", &e, 1)
+            }
+        };
+        self.output.push_status(line);
+    }
+
     fn publish_agent_tools_snapshot(&self) {
         let mut unsaved: Vec<PathBuf> = self
             .designers
@@ -4743,7 +4776,49 @@ impl CoboltApp {
                         .replacen("{}", &target, 1);
                     self.output.push_status(line.trim_end().to_owned());
                 }
+                HostRequest::CreateProject { folder, name, reply } => {
+                    let result = self.agent_project_switch_refused().map_or_else(
+                        || {
+                            let made = cobolt_project_tools::create::create_project(&folder, &name)?;
+                            let manifest = folder.join(made["project"].as_str().unwrap_or_default());
+                            self.agent_open_project(manifest).map(|_| made)
+                        },
+                        Err,
+                    );
+                    let _ = reply.send(result);
+                }
+                HostRequest::OpenProject { path, reply } => {
+                    let result = self.agent_project_switch_refused().map_or_else(
+                        || {
+                            let root = cobolt_project_tools::ProjectRoot::open(&path)
+                                .map_err(|_| "no PowerRustCOBOL project there".to_owned())?;
+                            self.agent_open_project(root.manifest().to_path_buf())
+                        },
+                        Err,
+                    );
+                    let _ = reply.send(result);
+                }
             }
+        }
+    }
+
+    /// Spec 084 R17 — a coding agent never makes the IDE drop unsaved work.
+    fn agent_project_switch_refused(&self) -> Option<String> {
+        crate::agent_kit::ide_host::project_switch_refusal(
+            &self.agent_tools.snapshot().unsaved,
+            self.settings_dirty(),
+            self.project_dir().as_deref(),
+        )
+    }
+
+    /// Open `manifest` as File → Open Project does, and say whether it took.
+    fn agent_open_project(&mut self, manifest: PathBuf) -> Result<serde_json::Value, String> {
+        self.open_project_at(manifest.clone());
+        if self.project_path.as_deref() == Some(manifest.as_path()) {
+            let name = manifest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            Ok(serde_json::json!({ "opened": true, "project": name }))
+        } else {
+            Err("the IDE could not open that project; see its Output pane".to_owned())
         }
     }
 
@@ -14799,6 +14874,7 @@ impl eframe::App for CoboltApp {
         // Spec 080 — what the coding-agent tools may see of the IDE this
         // frame, then whatever they asked of it.
         self.publish_agent_tools_snapshot();
+        self.follow_mcp_port();
         self.drain_agent_tools();
         // Remember the language across restarts. Written only on a real change,
         // so this costs nothing on a normal frame.

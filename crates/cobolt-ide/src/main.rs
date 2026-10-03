@@ -27,6 +27,7 @@ pub mod aurora;
 pub mod contrast;
 pub mod crash;
 pub mod data_binding_guardian;
+pub mod claude_code_settings;
 pub mod debug_settings;
 pub mod doc_movie;
 pub mod doc_shots;

@@ -60,7 +60,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 - [x] **T7 (A2e) — `create_project` / `open_project` headless.** Extract the
   create core from `create_new_project_at` into `project_model`; host-trait
   methods; refuse non-empty folders. *Verify:* AC8. *Serves:* R15, R16, R18.
-- [ ] **T8 (A3) — IDE server: token, fixed path, live port, project requests.**
+- [x] **T8 (A3) — IDE server: token, fixed path, live port, project requests.**
   `/mcp` + bearer token (401, constant time, never logged); rebind on port
   change; `HostRequest::{CreateProject, OpenProject}` refused while
   `has_unsaved_changes()`. *Verify:* AC9, AC16. *Serves:* R16, R17, R25, R35–R38.

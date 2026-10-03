@@ -9,7 +9,8 @@
 //!
 //! | Request | Answer |
 //! |---|---|
-//! | `POST /mcp/<kit-id>`, a JSON-RPC request | `200`, `application/json`, the one reply. Never SSE. |
+//! | `POST /mcp` with the access token, a JSON-RPC request | `200`, `application/json`, the one reply. Never SSE. |
+//! | no `Authorization: Bearer <token>`, or the wrong one | `401` (spec 084 R36) |
 //! | `POST` of a notification or a response | `202`, empty body |
 //! | `GET` / `DELETE` (or any other method) | `405` — no server stream, no session |
 //! | `Origin` present and not this server | `403` (DNS-rebinding defence) |
@@ -22,13 +23,15 @@
 //! so a `check` can answer while a `build` waits; the writing tools serialise
 //! on the tool set's own lock.
 //!
-//! The URL carries the kit's id, and the request is served only when that id
-//! is the open project's (R14): with no project open every tool answers "no
-//! project open", with another project open every tool says so — and
-//! `tools/list` always answers, so a client can connect first.
+//! One IDE-wide address (spec 084): the access token the IDE generated at
+//! Configure Claude Code admits a request. With no project open, every project
+//! tool answers "no project open" while the knowledge tools and
+//! `create_project` / `open_project` still work — and `tools/list` always
+//! answers, so a client can connect first. The token is never logged.
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -40,37 +43,52 @@ use crate::host::NoProject;
 /// Longest request head accepted.
 const MAX_HEAD_BYTES: usize = 64 * 1024;
 
-/// What the server knows of the open project when a request arrives.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum OpenKit {
-    /// No project is open.
-    NoProject,
-    /// A project is open; `kit_id` is its kit's id, `None` without a kit.
-    Project { kit_id: Option<String> },
+/// What a request is checked against when it arrives (spec 084 R35–R36).
+#[derive(Clone)]
+pub struct HttpGate {
+    /// The access token a request must carry; `None` admits nothing.
+    pub token: Arc<dyn Fn() -> Option<String> + Send + Sync>,
+    /// Whether a project is open now.
+    pub project_open: Arc<dyn Fn() -> bool + Send + Sync>,
+    /// Set to make the server stop accepting (a port change rebinds).
+    pub stop: Arc<AtomicBool>,
 }
 
-/// Serve until the listener fails. `make_handler` builds the handler for one
-/// request; `open_kit` says which project is open now.
-pub fn serve_http<H, F, K>(listener: TcpListener, make_handler: F, open_kit: K) -> io::Result<()>
+/// Serve until the listener fails or `gate.stop` is set (checked after every
+/// connection — the IDE wakes the accept with a connection of its own).
+/// `make_handler` builds the handler for one request.
+pub fn serve_http<H, F>(listener: TcpListener, make_handler: F, gate: HttpGate) -> io::Result<()>
 where
     H: McpHandler + 'static,
     F: Fn() -> H + Send + Sync + 'static,
-    K: Fn() -> OpenKit + Send + Sync + 'static,
 {
     let port = listener.local_addr()?.port();
     let make_handler = Arc::new(make_handler);
-    let open_kit = Arc::new(open_kit);
     for stream in listener.incoming() {
+        if gate.stop.load(Ordering::SeqCst) {
+            break;
+        }
         let Ok(stream) = stream else { continue };
         let make_handler = Arc::clone(&make_handler);
-        let open_kit = Arc::clone(&open_kit);
+        let gate = gate.clone();
         std::thread::spawn(move || {
             let mut stream = stream;
-            let _ = handle(&mut stream, port, &*make_handler, &*open_kit);
+            let _ = handle(&mut stream, port, &*make_handler, &gate);
             close_gently(&mut stream);
         });
     }
     Ok(())
+}
+
+/// Equal without an early exit, so the answer time says nothing about how
+/// much of a guessed token was right.
+fn same_token(given: &str, expected: &str) -> bool {
+    let (a, b) = (given.as_bytes(), expected.as_bytes());
+    let mut diff = (a.len() ^ b.len()) as u8;
+    for i in 0..a.len().max(b.len()) {
+        diff |= a.get(i).copied().unwrap_or(0) ^ b.get(i).copied().unwrap_or(0xFF);
+    }
+    diff == 0 && !expected.is_empty()
 }
 
 struct Head {
@@ -155,7 +173,7 @@ fn handle<H: McpHandler>(
     stream: &mut TcpStream,
     port: u16,
     make_handler: &dyn Fn() -> H,
-    open_kit: &dyn Fn() -> OpenKit,
+    gate: &HttpGate,
 ) -> io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(30)))?;
     let mut reader = BufReader::new(stream.try_clone()?);
@@ -176,9 +194,9 @@ fn handle<H: McpHandler>(
         }
     }
     let path = head.path.split('?').next().unwrap_or_default();
-    let Some(kit_id) = path.strip_prefix("/mcp/").filter(|id| !id.is_empty() && !id.contains('/')) else {
+    if path != "/mcp" {
         return respond(stream, "404 Not Found", "", b"");
-    };
+    }
     if head.method != "POST" {
         return respond(stream, "405 Method Not Allowed", "Allow: POST\r\n", b"");
     }
@@ -201,6 +219,15 @@ fn handle<H: McpHandler>(
     if !json_type {
         return respond(stream, "415 Unsupported Media Type", "", b"");
     }
+    let given = head
+        .header("Authorization")
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(str::trim)
+        .unwrap_or_default();
+    let admitted = (gate.token)().is_some_and(|expected| same_token(given, &expected));
+    if !admitted {
+        return respond(stream, "401 Unauthorized", "WWW-Authenticate: Bearer\r\n", b"");
+    }
     let mut body = vec![0u8; len];
     reader.read_exact(&mut body)?;
 
@@ -212,11 +239,7 @@ fn handle<H: McpHandler>(
         return respond(stream, "202 Accepted", "", b"");
     }
 
-    let refuse = match open_kit() {
-        OpenKit::NoProject => Some(NoProject::NoneOpen),
-        OpenKit::Project { kit_id: Some(open) } if open == kit_id => None,
-        OpenKit::Project { .. } => Some(NoProject::Different),
-    };
+    let refuse = (!(gate.project_open)()).then_some(NoProject::NoneOpen);
     let mut gated = Gated {
         inner: make_handler(),
         refuse,
@@ -230,8 +253,9 @@ fn handle<H: McpHandler>(
     }
 }
 
-/// The handler, or — for a request meant for a project that is not open —
-/// the same tool list with every call answering why not.
+/// The handler, or — with no project open — the same tool list with every
+/// PROJECT tool answering why not. The knowledge tools and the two that make
+/// or choose a project need none.
 struct Gated<H> {
     inner: H,
     refuse: Option<NoProject>,
@@ -246,8 +270,8 @@ impl<H: McpHandler> McpHandler for Gated<H> {
     }
     fn call_tool(&mut self, name: &str, arguments: &Value) -> ToolResult {
         match &self.refuse {
-            Some(why) => ToolResult::failed(why.message()),
-            None => self.inner.call_tool(name, arguments),
+            Some(why) if !crate::tools::project_free(name) => ToolResult::failed(why.message()),
+            _ => self.inner.call_tool(name, arguments),
         }
     }
     fn capabilities(&self) -> Value {
@@ -262,5 +286,20 @@ impl<H: McpHandler> McpHandler for Gated<H> {
     }
     fn read_resource(&mut self, uri: &str) -> Option<cobolt_mcp::ResourceContents> {
         self.inner.read_resource(uri)
+    }
+}
+
+#[cfg(test)]
+mod token_tests {
+    use super::same_token;
+
+    #[test]
+    fn a_token_matches_only_itself() {
+        assert!(same_token("abc123", "abc123"));
+        for wrong in ["", "abc12", "abc1234", "abc124", "ABC123"] {
+            assert!(!same_token(wrong, "abc123"), "{wrong:?}");
+        }
+        assert!(!same_token("", ""), "an empty expected token admits nothing");
+        println!("token compare: 1 match, 5 near misses refused, empty token admits nothing");
     }
 }
