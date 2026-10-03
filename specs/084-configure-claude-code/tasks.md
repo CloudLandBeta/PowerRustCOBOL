@@ -104,9 +104,13 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 - [ ] **T15b — `render_form` inside its shell.** Refactor `run_shell` into
   `ShellApp::new` + a frame fn without `eframe::Frame`; picture a ContentPane
   form with the side menu. *Verify:* AC17 (shell half).
-- [ ] **T16 (B3) — `run_form`.** `prepare_form` refactor of `cmd_run_form`;
+- [x] **T16 (B3) — `run_form`.** `prepare_form` refactor of `cmd_run_form`;
   `cobolt_form_host::headless`; hidden `rcrun run-form-headless`; subprocess
   with timeout, injected like `build::Builder`. *Verify:* AC18. *Serves:* R31.
+  *(Done as `rcrun run-form … --headless <script>`: the existing command keeps
+  its own preparation, and the headless branch replaces only the window. A
+  scripted event queues an input wake behind it, so "settled" means the
+  handler returned, not merely that it was dequeued.)*
 
 ## Phase C — building an application
 

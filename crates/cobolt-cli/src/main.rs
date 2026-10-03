@@ -394,7 +394,12 @@ fn cmd_mcp(args: &[String]) {
             let opts = cobolt_forms::snapshot::SnapshotOptions { theme_default, themes_dir: Some(themes_dir), scale };
             cobolt_forms::snapshot::render_form_png(cfrm, project, &opts)
         });
-    let shared = std::sync::Arc::new(cobolt_project_tools::tools::Shared::new().with_renderer(renderer));
+    // `run_form` runs a form in a separate `rcrun run-form --headless` — this
+    // very binary (spec 084 R31).
+    let runner = cobolt_project_tools::tools::run::rcrun_runner(
+        std::env::current_exe().unwrap_or_else(|_| PathBuf::from("rcrun")),
+    );
+    let shared = std::sync::Arc::new(cobolt_project_tools::tools::Shared::new().with_renderer(renderer).with_runner(runner));
     let mut tools = cobolt_project_tools::ProjectTools::with_shared(host, shared);
     let stdin = io::stdin();
     let stdout = io::stdout();

@@ -28,6 +28,7 @@ pub mod list;
 pub mod regenerate;
 pub mod register;
 pub mod render;
+pub mod run;
 pub mod validate;
 
 /// What every handler serving one project shares: the lock that serialises
@@ -41,6 +42,8 @@ pub struct Shared {
     pub(crate) build_wait: Duration,
     /// Pictures a form (`render_form`); `None` in a host that cannot.
     pub(crate) renderer: Option<render::Renderer>,
+    /// Runs a form off screen (`run_form`); `None` in a host that cannot.
+    pub(crate) runner: Option<run::FormRunner>,
 }
 
 impl Shared {
@@ -58,7 +61,14 @@ impl Shared {
             builder,
             build_wait,
             renderer: None,
+            runner: None,
         }
+    }
+
+    /// Give `run_form` its runner (spec 084 R31).
+    pub fn with_runner(mut self, runner: run::FormRunner) -> Self {
+        self.runner = Some(runner);
+        self
     }
 
     /// Give `render_form` its renderer (spec 084 R30).
@@ -231,6 +241,30 @@ impl<H: ProjectHost> ProjectTools<H> {
                 }),
             },
             Tool {
+                name: "run_form".into(),
+                description: Some(
+                    "Run a form off screen, with its real program, through a script of steps — \
+                     {\"set\": {control, property, value}} as if typed, {\"event\": {control, name}} \
+                     as if clicked, {\"wait_ms\": n}, {\"read\": {control, property}} — and answer \
+                     with what the program DISPLAYed, the values read, any runtime error and a \
+                     picture of the final state. The program's real effects happen (its files, its \
+                     web calls). Nothing is shown on screen."
+                        .into(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Project-relative .cfrm" },
+                        "steps": { "type": "array", "items": { "type": "object" },
+                                   "description": "The script, in order." },
+                        "time_limit_s": { "type": "integer", "minimum": 1, "maximum": 120,
+                                          "description": "Stop the run after this long (default 20)." }
+                    },
+                    "required": ["path", "steps"],
+                    "additionalProperties": false
+                }),
+            },
+            Tool {
                 name: "create_project".into(),
                 description: Some(
                     "Create a new PowerRustCOBOL project in an empty or new folder — exactly what the \
@@ -374,6 +408,34 @@ impl<H: ProjectHost> ProjectTools<H> {
         Ok((png, meta))
     }
 
+    /// `run_form` with its picture (see `call_tool`).
+    pub fn run_form(&mut self, args: &Value) -> Result<(Option<Vec<u8>>, Value), String> {
+        let root: ProjectRoot = self.host.project().map_err(|e| e.message().to_owned())?;
+        if let Some(asked) = opt_str(args, "project") {
+            if !names_project(&root, &asked) {
+                return Err(format!(
+                    "this call is for project '{asked}', but the project open is '{}'. \
+                     Open the right one with open_project, or ask the developer.",
+                    root.manifest_name()
+                ));
+            }
+        }
+        let (png, mut meta) = self.run_form_in(args, &root)?;
+        meta["project"] = json!(root.manifest_name());
+        Ok((png, meta))
+    }
+
+    fn run_form_in(&mut self, args: &Value, root: &ProjectRoot) -> Result<(Option<Vec<u8>>, Value), String> {
+        let path = opt_str(args, "path").ok_or("run_form needs a 'path'")?;
+        let steps: Vec<Value> = args.get("steps").and_then(Value::as_array).cloned().unwrap_or_default();
+        let limit = args.get("time_limit_s").and_then(Value::as_u64).unwrap_or(20).clamp(1, 120);
+        let runner = self.shared.runner.clone();
+        // A run writes the generated program: one writer at a time.
+        let shared = Arc::clone(&self.shared);
+        let _w = shared.write_lock.lock().unwrap_or_else(|p| p.into_inner());
+        run::run(&mut self.host, root, runner.as_ref(), &path, &steps, limit)
+    }
+
     fn render(&self, args: &Value, root: &ProjectRoot) -> Result<(Vec<u8>, Value), String> {
         let path = opt_str(args, "path").ok_or("render_form needs a 'path'")?;
         let scale = args.get("scale").and_then(Value::as_f64).unwrap_or(1.0).clamp(0.25, 3.0) as f32;
@@ -404,6 +466,11 @@ impl<H: ProjectHost> ProjectTools<H> {
             "validate" => {
                 let path = opt_str(args, "path").ok_or("validate needs a 'path'")?;
                 validate::run(&root, &path)
+            }
+            "run_form" => {
+                let (png, mut meta) = self.run_form_in(args, &root)?;
+                meta["png_bytes"] = json!(png.map(|p| p.len()).unwrap_or(0));
+                Ok(meta)
             }
             "render_form" => {
                 // The picture travels as image content: see `call_tool`.
@@ -474,6 +541,19 @@ impl<H: ProjectHost> McpHandler for ProjectTools<H> {
     }
 
     fn call_tool(&mut self, name: &str, arguments: &Value) -> ToolResult {
+        if name == "run_form" {
+            return match self.run_form(arguments) {
+                Ok((png, meta)) => {
+                    let mut content = Vec::new();
+                    if let Some(png) = png {
+                        content.push(Content::png(&png));
+                    }
+                    content.push(Content::text(meta.to_string()));
+                    ToolResult::ok(content)
+                }
+                Err(e) => ToolResult::failed(e),
+            };
+        }
         if name == "render_form" {
             return match self.render_form(arguments) {
                 Ok((png, meta)) => ToolResult::ok(vec![Content::png(&png), Content::text(meta.to_string())]),

@@ -36,6 +36,8 @@
 pub mod debug_link;
 pub mod diagnostics;
 pub mod file_dialog;
+/// Running a form off screen with a script (spec 084 R31).
+pub mod headless;
 pub mod host;
 /// Handing a document to the operating system: Print and Share (R19/R20).
 pub mod os_handoff;

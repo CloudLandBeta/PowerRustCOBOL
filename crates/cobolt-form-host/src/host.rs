@@ -4778,6 +4778,41 @@ impl FormHost {
         self.last_pane_backdrop_fill
     }
 
+    /// `run_form` (spec 084 R31): set a control's property as the operator
+    /// editing it would — the host's state and the interpreter's both.
+    pub(crate) fn script_set_prop(&mut self, ctrl_id: &str, prop: &str, value: &str) {
+        let key = self.root.resolve_ctrl_key(ctrl_id);
+        self.root.state_entry_mut(&key).set(prop, value.to_owned());
+        let _ = self.root.input_tx.send(StateUpdate::new(ctrl_id, prop, value));
+        self.root.wake_for_input(ctrl_id);
+    }
+
+    /// `run_form`: raise `event` on a control, as the operator would.
+    pub(crate) fn script_event(&mut self, ctrl_id: &str, event: &str) {
+        self.root.send_event(FormEvent::new(ctrl_id, event));
+        // The program takes an event off the queue BEFORE handling it, so the
+        // queue alone says nothing about a handler still running. An input
+        // wake behind the event is taken only back in the wait loop — after
+        // the handler returns — and is never shown to the program.
+        self.root.wake_for_input(ctrl_id);
+    }
+
+    /// Events sent to the program and not yet handled (with
+    /// [`Self::script_event`]: not yet finished).
+    pub(crate) fn script_pending(&self) -> usize {
+        self.root.pending.load(Ordering::Relaxed)
+    }
+
+    /// The program has ended (STOP RUN, or the form closed).
+    pub(crate) fn script_finished(&self) -> bool {
+        self.root.finished.load(Ordering::Relaxed)
+    }
+
+    /// The root form's designed size.
+    pub(crate) fn script_form_size(&self) -> egui::Vec2 {
+        self.root.form_size
+    }
+
     /// A root-form control's live property, as the program last wrote it
     /// (case-insensitive id and name). Read-only: the shell uses it to draw the
     /// SideMenu's run-time rows and selection (spec 066), which it would
@@ -4895,7 +4930,7 @@ impl FormHost {
     /// One frame of the host. Split from [`eframe::App::ui`] (which only adds
     /// the unused `Frame` parameter) so the parity suite can drive frames
     /// through `Context::run_ui` headlessly (spec 042 R29).
-    fn ui_impl(&mut self, root_ui: &mut egui::Ui) {
+    pub(crate) fn ui_impl(&mut self, root_ui: &mut egui::Ui) {
         // Form windows render through Context-level panels; only the Context
         // is needed per frame.
         let ctx = root_ui.ctx().clone();

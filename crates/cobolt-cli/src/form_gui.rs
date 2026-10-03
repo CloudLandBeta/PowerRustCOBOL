@@ -708,6 +708,33 @@ pub fn cmd_run_form(args: &[String]) {
         surface: cobolt_form_host::Surface::Window,
         hooks: Box::new(cobolt_form_host::NoHooks),
     };
+    // Spec 084 R31 — `run_form`: the same form and program, driven off screen
+    // by a script instead of shown; the result is one marked stdout line
+    // after the program's own DISPLAY lines.
+    let arg_after = |flag: &str| args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)).cloned();
+    if let Some(script_path) = arg_after("--headless") {
+        let script: Vec<serde_json::Value> = std::fs::read_to_string(&script_path)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+        let limit = arg_after("--headless-limit").and_then(|v| v.parse::<u64>().ok()).unwrap_or(20).clamp(1, 120);
+        let png = arg_after("--headless-png").map(PathBuf::from);
+        let mut report = cobolt_form_host::headless::run_headless(
+            config,
+            &script,
+            std::time::Duration::from_secs(limit),
+            png.as_deref(),
+        );
+        if let Some(e) = error_slot.lock().ok().and_then(|mut s| s.take()) {
+            report["runtime_error"] = serde_json::Value::String(e);
+        }
+        println!("{}{}", cobolt_form_host::headless::RESULT_MARKER, report);
+        use std::io::Write as _;
+        let _ = std::io::stdout().flush();
+        // The interpreter thread may still be waiting for an event: this
+        // process is done.
+        process::exit(0);
+    }
     if shell_mode {
         cobolt_form_host::shell::run_shell(config, root_menu);
     } else {

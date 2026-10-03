@@ -10728,6 +10728,15 @@ is not there does not exist for the agent.
   name.
 - **`kb_search`** — searches the same Knowledge Base the IDE's assistant uses,
   in plain words, when the agent does not know the exact name.
+- **`render_form`** — a picture of a form as Run Form draws it when it opens,
+  so the agent can look at what it built. Nothing is shown on your screen.
+- **`run_form`** — runs a form off screen, with its real program, through a
+  script: type into a control, click, wait, read a property back. The agent
+  gets what the program DISPLAYed, the values it read, any runtime error and a
+  picture of where the form ended up. A handler that never returns is stopped
+  at a time limit (20 seconds unless the agent asks for less or more, at most
+  120). The program's real effects happen — the files it writes, the web
+  services it calls — exactly as when you run it.
 - **`create_project`** — creates a new project in an empty folder, exactly as
   **File ▸ New Project** does, and opens it.
 - **`open_project`** — opens an existing project, as **File ▸ Open Project**

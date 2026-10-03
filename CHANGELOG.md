@@ -8,6 +8,23 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.122] — 2026-10-03
+
+### Spec 084 T16: `run_form` — a coding agent runs the form it built
+
+A new tool on both servers runs a form **off screen, with its real program**,
+through a script of steps: `set` a property as if typed, raise an `event` as if
+clicked, `wait_ms`, `read` a property back. It answers with what the program
+DISPLAYed, the values read, whether the program ended, and a picture of the
+final state. The form's COBOL is regenerated first, as Run Form does.
+
+Each run is a separate `rcrun run-form <form> <program> --headless <script>`
+process — the real form host and interpreter, frames on a headless context
+instead of a window — so a time limit (default 20 s, at most 120) can stop a
+handler that never returns, and a crash stays in that process. A scripted event
+counts as handled only once its handler has returned. Nothing is shown on
+screen and the IDE is not driven.
+
 ## [PowerRustCOBOL 1.80.121] — 2026-10-03
 
 ### Spec 084 T15: `render_form` — a coding agent sees the form it built

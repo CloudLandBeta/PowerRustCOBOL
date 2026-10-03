@@ -112,7 +112,7 @@ impl IdeShared {
                 snapshot: Mutex::new(Snapshot::default()),
                 tx: Mutex::new(tx),
                 ctx,
-                tools: Arc::new(Shared::new().with_renderer(form_renderer())),
+                tools: Arc::new(Shared::new().with_renderer(form_renderer()).with_runner(form_runner())),
                 token: Mutex::new(None),
                 listener: Mutex::new(None),
             }),
@@ -178,6 +178,13 @@ pub fn form_renderer() -> cobolt_project_tools::tools::render::Renderer {
         let opts = cobolt_forms::snapshot::SnapshotOptions { theme_default, themes_dir: Some(themes_dir), scale };
         cobolt_forms::snapshot::render_form_png(cfrm, project, &opts)
     })
+}
+
+/// `run_form`'s runner (spec 084 R31): the `rcrun` beside the IDE, one
+/// process per run.
+pub fn form_runner() -> cobolt_project_tools::tools::run::FormRunner {
+    let rcrun = crate::project_model::find_cobolt_binary().unwrap_or_else(|| PathBuf::from("rcrun"));
+    cobolt_project_tools::tools::run::rcrun_runner(rcrun)
 }
 
 /// The tools' view of the IDE.
@@ -675,7 +682,7 @@ mod tests {
         let out = post_raw(port, "Authorization: Bearer tok-gate\r\n", body);
         let v: Value = serde_json::from_str(out.split_once("\r\n\r\n").unwrap().1).unwrap();
         let names: Vec<&str> = v["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(names.len(), 11, "{out}");
+        assert_eq!(names.len(), 12, "{out}");
         use std::io::{Read, Write};
         let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
         write!(s, "POST /mcp HTTP/1.1\r\nHost: evil.example\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
