@@ -8,6 +8,22 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.139] — 2026-10-03
+
+### Spec 086 draft: a PowerCOBOL 5.x+ project converter
+
+`specs/086-powercobol-converter/spec.md` specifies an IDE menu action,
+**File → Import PowerCOBOL Project…**, that reads a PowerCOBOL `.ppj` and
+writes a new PowerRustCOBOL project. The converted project carries the
+forms, controls, properties, event scripts, form procedures and copybooks;
+images move into the project's assets; every form gets `ObsoleteScalingStyle`
+and the Elegance theme by default; and every indexed SELECT/FD gets a `.cidx`
+plus a generated import program. Anything not carried over exactly stays in
+the code as a marked comment and is listed in a conversion report. The spec
+is a draft: six open questions (embedded SQL, legacy data input, one `.ppj`
+or the whole application, the default scaling, ActiveX placeholders,
+`EXTERNAL` data) await the operator. No code changes.
+
 ## [PowerRustCOBOL 1.80.138] — 2026-10-03
 
 ### The application's AI settings: one model list, kept by the runtime (spec 085 T10)
