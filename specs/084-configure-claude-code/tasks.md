@@ -26,7 +26,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 - [x] **T0 — Spec, plan, tasks.** Record the approved plan and these tasks;
   apply the R8/R24/AC13 corrections. *Verify:* files present.
-- [ ] **T1 (A0) — Claude Code spike.** Minimal plugin + local marketplace under a
+- [x] **T1 (A0) — Claude Code spike.** Minimal plugin + local marketplace under a
   throwaway `CLAUDE_CONFIG_DIR`: `userConfig` schema and `--config`;
   `${user_config.x}` in the plugin's `.mcp.json` (URL and header); plugin-level
   tool pre-approval; server `instructions` and `resources/list` reaching the

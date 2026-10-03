@@ -60,6 +60,33 @@ this plan into `specs/084-configure-claude-code/plan.md` and writes `tasks.md`.
 - The IDE's snapshot `unsaved` excludes `settings_dirty()`; `has_unsaved_changes()` includes it.
 - Both listeners bind only at startup (port change needs restart today).
 
+## T1 spike findings (Claude Code 2.1.158, throwaway `CLAUDE_CONFIG_DIR`, 2026-10-02)
+
+- **Plugin layout validates** (`claude plugin validate`): marketplace
+  `.claude-plugin/marketplace.json` `{name, owner, plugins:[{name, source:"./prc", version}]}`;
+  plugin `.claude-plugin/plugin.json` `{name, version, description, userConfig}`; `skills/<n>/SKILL.md`;
+  `.mcp.json` at the plugin root. Add `author` and a marketplace `description` (warnings otherwise).
+- **userConfig works for port and token.** `userConfig: { port: {type:"number", title, description,
+  default}, token: {type:"string", title, description, sensitive:true} }`;
+  `claude plugin install powerrustcobol@powerrustcobol --scope user --config port=N --config token=T`.
+  `${user_config.port}` resolves in the HTTP `url`, `${user_config.token}` in `headers` — a capturing
+  listener received `Authorization: Bearer <token>`. Non-sensitive options land in
+  `settings.json` `pluginConfigs`; the **sensitive token is in no file** (Claude Code's secure
+  storage) → R38 holds on Claude's side. **Decision: userConfig, not `claude mcp add`.**
+- **Server names** become `plugin:powerrustcobol:<server>`; tool permission names follow from that.
+- **Idempotence/update:** `marketplace add` on an existing one and `install` of the installed
+  version both exit 0 ("already…"). A new version: `claude plugin marketplace update powerrustcobol`
+  then `claude plugin update powerrustcobol@powerrustcobol` ("Restart to apply"). Changing
+  `--config` on an installed plugin via `install` updates the stored option.
+- **No plugin-level tool pre-approval:** a `settings.json` in the plugin is not a recognised
+  component, and there is no `claude config` CLI for permission rules. → **R8 deviation:** the
+  developer approves each tool once ("don't ask again"); nothing writes `~/.claude/settings.json`.
+- **Claude Code's `initialize`** asks for protocol `2025-11-25` and advertises `roots` and
+  `elicitation`: `cobolt-mcp` must negotiate that version, and the IDE server may use `roots/list`
+  to learn Claude's working folder for R20.
+- Clean-up: plugin uninstalled and marketplace removed (clears the secure-storage token), folder
+  deleted; the operator's real config lists no PowerRustCOBOL plugin.
+
 ## Spec corrections to make in step 1
 
 - R24/AC13: the port is already machine-wide (`LlmConfig.mcp_port`); the change is moving its row

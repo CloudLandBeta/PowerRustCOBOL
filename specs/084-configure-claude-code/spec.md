@@ -108,9 +108,9 @@ three skills, a patterns pack and an architecture map (R32–R34).
   reviewer (R10), and the connection to both tool servers: the IDE over HTTP,
   and `rcrun mcp` over stdio for when the IDE is closed.
 - **R8 (constraint):** The plugin shall pre-approve the PowerRustCOBOL project
-  tools on both servers, where Claude Code lets a plugin do so (confirmed in plan
-  step A0; if it does not, the developer approves each tool once and this is
-  recorded as a deviation). It shall not deny or restrict any other Claude Code
+  tools on both servers, where Claude Code lets a plugin do so. **Deviation
+  (T1 spike, 2026-10-02):** Claude Code 2.1.158 offers no plugin-level or CLI
+  permission rule, so the developer approves each tool once in Claude Code. It shall not deny or restrict any other Claude Code
   tool, Bash included, because user-scope rules apply to every project.
 - **R9 (constraint):** The plugin shall not install a user-level `CLAUDE.md` or
   any other instruction that applies outside PowerRustCOBOL projects.

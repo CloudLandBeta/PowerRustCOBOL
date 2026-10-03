@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.102] — 2026-10-02
+
+### Spec 084 T1: the Claude Code spike
+
+Settles how the IDE configures Claude Code, against Claude Code 2.1.158 in a
+throwaway configuration: a local marketplace and a plugin whose `userConfig`
+carries the port and the access token (the token is kept in Claude Code's
+secure storage, never a file), installed and updated with `claude plugin`
+commands. A plugin cannot pre-approve its tools, so the developer approves each
+once — recorded as a deviation from spec 084 R8. Documents only.
+
 ## [PowerRustCOBOL 1.80.101] — 2026-10-02
 
 ### Spec 084: Configure Claude Code — spec, plan and tasks
