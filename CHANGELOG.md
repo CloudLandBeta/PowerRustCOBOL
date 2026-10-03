@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.103] — 2026-10-02
+
+### Spec 084 T2: MCP server instructions, resources and image content
+
+`cobolt-mcp`, the protocol crate both tool servers share, can now send its
+instructions at `initialize`, answer `resources/list` and `resources/read`
+(an unknown URI is MCP's -32002), and return an image (`Content::png`, with an
+inline base64 encoder so the crate keeps JSON as its only dependency). Existing
+handlers are unchanged: every new trait method has a default. Code that read a
+tool answer's text uses the new `Content::as_text`.
+
 ## [PowerRustCOBOL 1.80.102] — 2026-10-02
 
 ### Spec 084 T1: the Claude Code spike

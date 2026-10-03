@@ -158,6 +158,7 @@ fn the_two_front_doors_agree() {
         .content[0]
     {
         cobolt_mcp::Content::Text { text } => text.clone(),
+        other => panic!("a text answer, got {other:?}"),
     };
 
     // The COBOL side lands in a PIC X(500), so compare on content rather than
@@ -206,6 +207,7 @@ fn a_tampered_definition_cannot_change_how_records_are_read() {
         .content[0]
     {
         cobolt_mcp::Content::Text { text } => text.clone(),
+        other => panic!("a text answer, got {other:?}"),
     };
 
     // Now doctor it: a wrong offset, a wrong length, and a rewritten note.
@@ -219,6 +221,7 @@ fn a_tampered_definition_cannot_change_how_records_are_read() {
         .content[0]
     {
         cobolt_mcp::Content::Text { text } => text.clone(),
+        other => panic!("a text answer, got {other:?}"),
     };
 
     assert_eq!(

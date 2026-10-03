@@ -18,7 +18,8 @@ use serde_json::{json, Value};
 
 use crate::transport::{read_message, write_message};
 use crate::types::{
-    error_code, negotiate, InitializeResult, Request, Response, ServerInfo, Tool, ToolResult,
+    error_code, negotiate, InitializeResult, Request, Resource, ResourceContents, Response,
+    ServerInfo, Tool, ToolResult,
 };
 
 /// What a host must provide to be served.
@@ -52,6 +53,23 @@ pub trait McpHandler {
     /// have to say so.
     fn capabilities(&self) -> Value {
         json!({ "tools": { "listChanged": false } })
+    }
+
+    /// Prose the client hands to its model at `initialize`: how to use this
+    /// server. `None` sends none.
+    fn instructions(&self) -> Option<String> {
+        None
+    }
+
+    /// The documents on offer to `resources/list`. A server that offers any
+    /// also advertises `resources` in [`capabilities`](Self::capabilities).
+    fn list_resources(&mut self) -> Vec<Resource> {
+        Vec::new()
+    }
+
+    /// One document's text, or `None` for a URI this server does not have.
+    fn read_resource(&mut self, _uri: &str) -> Option<ResourceContents> {
+        None
     }
 }
 
@@ -111,6 +129,7 @@ pub fn dispatch<H: McpHandler>(raw: &[u8], handler: &mut H) -> Option<Response> 
                 protocol_version: negotiate(requested.as_deref()).to_string(),
                 capabilities: handler.capabilities(),
                 server_info: handler.server_info(),
+                instructions: handler.instructions(),
             };
             match serde_json::to_value(result) {
                 Ok(v) => Response::ok(id, v),
@@ -148,6 +167,34 @@ pub fn dispatch<H: McpHandler>(raw: &[u8], handler: &mut H) -> Option<Response> 
             match serde_json::to_value(result) {
                 Ok(v) => Response::ok(id, v),
                 Err(e) => Response::err(id, error_code::INTERNAL_ERROR, e.to_string()),
+            }
+        }
+
+        "resources/list" => {
+            let resources: Vec<Resource> = handler.list_resources();
+            match serde_json::to_value(resources) {
+                Ok(v) => Response::ok(id, json!({ "resources": v })),
+                Err(e) => Response::err(id, error_code::INTERNAL_ERROR, e.to_string()),
+            }
+        }
+
+        "resources/read" => {
+            let Some(uri) = params.get("uri").and_then(Value::as_str) else {
+                return finish(
+                    is_notification,
+                    Response::err(id, error_code::INVALID_PARAMS, "resources/read requires a 'uri'"),
+                );
+            };
+            match handler.read_resource(uri) {
+                Some(contents) => match serde_json::to_value(vec![contents]) {
+                    Ok(v) => Response::ok(id, json!({ "contents": v })),
+                    Err(e) => Response::err(id, error_code::INTERNAL_ERROR, e.to_string()),
+                },
+                None => Response::err(
+                    id,
+                    error_code::RESOURCE_NOT_FOUND,
+                    format!("no such resource: {uri}"),
+                ),
             }
         }
 
@@ -200,6 +247,71 @@ mod tests {
             self.calls.push((name.to_string(), arguments.clone()));
             ToolResult::ok(vec![Content::text("two records")])
         }
+    }
+
+    /// A handler that offers instructions and one document.
+    struct Library;
+
+    impl McpHandler for Library {
+        fn server_info(&self) -> ServerInfo {
+            ServerInfo { name: "library".into(), version: "1".into() }
+        }
+        fn list_tools(&mut self) -> Vec<Tool> {
+            Vec::new()
+        }
+        fn call_tool(&mut self, _name: &str, _arguments: &Value) -> ToolResult {
+            ToolResult::failed("no tools")
+        }
+        fn capabilities(&self) -> Value {
+            json!({ "tools": {}, "resources": {} })
+        }
+        fn instructions(&self) -> Option<String> {
+            Some("Read the guide first.".into())
+        }
+        fn list_resources(&mut self) -> Vec<Resource> {
+            vec![Resource {
+                uri: "lib://guide.md".into(),
+                name: "guide.md".into(),
+                title: Some("The guide".into()),
+                description: None,
+                mime_type: Some("text/markdown".into()),
+            }]
+        }
+        fn read_resource(&mut self, uri: &str) -> Option<ResourceContents> {
+            (uri == "lib://guide.md").then(|| ResourceContents {
+                uri: uri.into(),
+                mime_type: Some("text/markdown".into()),
+                text: "# Guide".into(),
+            })
+        }
+    }
+
+    /// Instructions travel in `initialize`; `resources/list` and
+    /// `resources/read` answer, and an unknown URI is MCP's -32002.
+    #[test]
+    fn instructions_and_resources_are_served() {
+        let mut lib = Library;
+        let mut ask = |m: &str, p: Value| {
+            let raw = serde_json::to_vec(&json!({"jsonrpc":"2.0","id":1,"method":m,"params":p})).unwrap();
+            dispatch(&raw, &mut lib).expect("a reply")
+        };
+        let init = ask("initialize", json!({"protocolVersion":"2025-06-18"})).result.unwrap();
+        assert_eq!(init["instructions"], "Read the guide first.");
+        let list = ask("resources/list", json!({})).result.unwrap();
+        assert_eq!(list["resources"][0]["uri"], "lib://guide.md");
+        assert_eq!(list["resources"][0]["mimeType"], "text/markdown");
+        let read = ask("resources/read", json!({"uri":"lib://guide.md"})).result.unwrap();
+        assert_eq!(read["contents"][0]["text"], "# Guide");
+        let missing = ask("resources/read", json!({"uri":"lib://nope"}));
+        assert_eq!(missing.error.unwrap().code, error_code::RESOURCE_NOT_FOUND);
+        let no_uri = ask("resources/read", json!({}));
+        assert_eq!(no_uri.error.unwrap().code, error_code::INVALID_PARAMS);
+        // A handler without instructions sends none.
+        let mut spy = Spy::default();
+        let raw = serde_json::to_vec(&json!({"jsonrpc":"2.0","id":2,"method":"initialize","params":{}})).unwrap();
+        let plain = dispatch(&raw, &mut spy).unwrap().result.unwrap();
+        assert!(plain.get("instructions").is_none(), "no instructions key: {plain}");
+        println!("instructions + resources: initialize, resources/list, resources/read (hit, -32002 miss, -32602 no uri), and none for a plain handler — 6 checks");
     }
 
     /// Drive `serve` with a scripted client and collect its replies.

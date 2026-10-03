@@ -32,7 +32,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   tool pre-approval; server `instructions` and `resources/list` reaching the
   model; re-install idempotence. Findings into plan.md §Facts; decide
   userConfig vs `claude mcp add -H`. *Serves:* R2, R6–R8, R11, R13, R35.
-- [ ] **T2 (A2a) — `cobolt-mcp`: instructions, resources, image content.**
+- [x] **T2 (A2a) — `cobolt-mcp`: instructions, resources, image content.**
   `McpHandler::instructions`, `list_resources`/`read_resource`, dispatch arms,
   `resources` capability, `Content::Image`. *Verify:* `cargo test -p cobolt-mcp`
   (new dispatch tests). *Serves:* R11, R13, R30.

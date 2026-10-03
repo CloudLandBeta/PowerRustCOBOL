@@ -1069,7 +1069,7 @@ mod tests {
         );
         assert_eq!(result.is_error, None, "a successful search is not an error");
 
-        let cobolt_mcp::Content::Text { text } = &result.content[0];
+        let cobolt_mcp::Content::Text { text } = &result.content[0] else { panic!("a text answer") };
         assert!(text.contains("ACTORS-FILE"), "the answering file: {text}");
         assert!(text.contains("2 record(s)"), "two matched: {text}");
         assert!(text.contains("ACTOR-ID=1"), "{text}");
@@ -1091,7 +1091,7 @@ mod tests {
             &serde_json::json!({"ACTOR-SALARY": "999999"}),
         );
         assert_eq!(empty.is_error, None, "an empty result is a successful one");
-        let cobolt_mcp::Content::Text { text } = &empty.content[0];
+        let cobolt_mcp::Content::Text { text } = &empty.content[0] else { panic!("a text answer") };
         assert!(text.contains("no records matched"), "{text}");
 
         let broken = set.call("search_nothing_at_all", &serde_json::json!({}));
@@ -1117,7 +1117,7 @@ mod tests {
             "search_actors_file",
             &serde_json::json!({"ACTOR-SALARY": "100000", "limit": 5}),
         );
-        let cobolt_mcp::Content::Text { text } = &result.content[0];
+        let cobolt_mcp::Content::Text { text } = &result.content[0] else { panic!("a text answer") };
         assert!(text.contains("5 record(s)"), "the cap held: {text}");
         assert!(text.contains("truncated at 5"), "truncation reported: {text}");
 
@@ -1240,7 +1240,7 @@ mod tests {
         set.set_memory_limit(1);
         let refused = set.call("search_actors_file", &serde_json::json!({}));
         assert_eq!(refused.is_error, Some(true), "over budget must be refused");
-        let cobolt_mcp::Content::Text { text } = &refused.content[0];
+        let cobolt_mcp::Content::Text { text } = &refused.content[0] else { panic!("a text answer") };
         assert!(text.contains("limit"), "the limit is named: {text}");
         assert!(text.contains("STORAGE IS DISK"), "a remedy is offered: {text}");
 
@@ -1336,7 +1336,7 @@ mod tests {
 
         // Each answers from its own file and no other.
         let from_staff = set.call("search_staff_file", &serde_json::json!({"ACTOR-ID": "9"}));
-        let cobolt_mcp::Content::Text { text } = &from_staff.content[0];
+        let cobolt_mcp::Content::Text { text } = &from_staff.content[0] else { panic!("a text answer") };
         assert!(text.contains("STAFF-FILE"), "{text}");
         assert!(text.contains("ACTOR-ID=9"), "{text}");
         assert!(!text.contains("ACTOR-ID=1"), "files must not bleed: {text}");
@@ -1387,7 +1387,7 @@ mod tests {
 
         let result = set.call("search_actors_file", &serde_json::json!({"ACTOR-ID": "7"}));
         assert_eq!(result.is_error, None, "the memory engine opened: {result:?}");
-        let cobolt_mcp::Content::Text { text } = &result.content[0];
+        let cobolt_mcp::Content::Text { text } = &result.content[0] else { panic!("a text answer") };
         assert!(
             text.contains("ACTOR-ID=7"),
             "a persisted MEMORY file is searchable: {text}"

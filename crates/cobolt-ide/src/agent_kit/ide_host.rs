@@ -374,7 +374,7 @@ mod tests {
 
     fn call(tools: &mut IdeTools, name: &str, args: Value) -> (String, bool) {
         let r = tools.call_tool(name, &args);
-        let cobolt_mcp::Content::Text { text } = &r.content[0];
+        let cobolt_mcp::Content::Text { text } = &r.content[0] else { panic!("a text answer") };
         (text.clone(), r.is_error == Some(true))
     }
 

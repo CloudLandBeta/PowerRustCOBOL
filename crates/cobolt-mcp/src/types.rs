@@ -119,6 +119,8 @@ pub mod error_code {
     pub const METHOD_NOT_FOUND: i64 = -32601;
     /// The method exists; the params do not fit it.
     pub const INVALID_PARAMS: i64 = -32602;
+    /// `resources/read` named a URI this server does not have (MCP's code).
+    pub const RESOURCE_NOT_FOUND: i64 = -32002;
     /// The handler failed for a reason of its own.
     pub const INTERNAL_ERROR: i64 = -32603;
 }
@@ -138,6 +140,31 @@ pub struct InitializeResult {
     pub capabilities: Value,
     #[serde(rename = "serverInfo")]
     pub server_info: ServerInfo,
+    /// How to use this server, in prose the client hands to its model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
+}
+
+/// One document a server offers to be read, as `resources/list` lists it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Resource {
+    pub uri: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(rename = "mimeType", default, skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
+}
+
+/// The text of one resource, as `resources/read` returns it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ResourceContents {
+    pub uri: String,
+    #[serde(rename = "mimeType", default, skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
+    pub text: String,
 }
 
 /// One tool, as `tools/list` advertises it.
@@ -160,12 +187,55 @@ pub struct Tool {
 pub enum Content {
     #[serde(rename = "text")]
     Text { text: String },
+    /// A picture, base64-encoded — a rendered form, for instance.
+    #[serde(rename = "image")]
+    Image {
+        data: String,
+        #[serde(rename = "mimeType")]
+        mime_type: String,
+    },
 }
 
 impl Content {
     pub fn text(s: impl Into<String>) -> Self {
         Content::Text { text: s.into() }
     }
+
+    /// The text of a text block; `None` for an image.
+    pub fn as_text(&self) -> Option<&str> {
+        match self {
+            Content::Text { text } => Some(text),
+            Content::Image { .. } => None,
+        }
+    }
+
+    /// A PNG, from its bytes.
+    pub fn png(bytes: &[u8]) -> Self {
+        Content::Image {
+            data: base64(bytes),
+            mime_type: "image/png".into(),
+        }
+    }
+}
+
+/// Standard base64 with padding — the encoding MCP's image content uses.
+/// Written here rather than taken as a dependency: this crate's only
+/// dependencies are the JSON ones (see `Cargo.toml`).
+fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(ALPHABET[((n >> (18 - 6 * i)) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
 }
 
 /// What a tool call returns.
@@ -257,6 +327,21 @@ mod tests {
         assert_eq!(negotiate(Some("2024-11-05")), "2024-11-05", "echo the client");
         assert_eq!(negotiate(Some("1999-01-01")), PROTOCOL_VERSION, "offer ours");
         assert_eq!(negotiate(None), PROTOCOL_VERSION);
+    }
+
+    /// An image travels as MCP's `{"type":"image","data":…,"mimeType":…}`.
+    #[test]
+    fn an_image_content_has_the_mcp_shape() {
+        let v = serde_json::to_value(Content::png(&[0x89, b'P', b'N', b'G'])).unwrap();
+        assert_eq!(v["type"], "image");
+        assert_eq!(v["mimeType"], "image/png");
+        assert_eq!(v["data"], "iVBORw==");
+        // RFC 4648 test vectors, every padding case.
+        let vectors = [("", ""), ("f", "Zg=="), ("fo", "Zm8="), ("foo", "Zm9v"), ("foobar", "Zm9vYmFy")];
+        for (plain, encoded) in vectors {
+            assert_eq!(base64(plain.as_bytes()), encoded, "base64({plain:?})");
+        }
+        println!("image content: MCP shape checked; base64 matched {} RFC 4648 vectors", vectors.len());
     }
 
     #[test]

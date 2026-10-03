@@ -115,9 +115,7 @@ fn rcrun_mcp_serves_the_same_tools_and_answers_over_stdio() {
     // The same check answer.
     let in_process = local.call_tool("check", &json!({}));
     let remote_text = replies[2]["result"]["content"][0]["text"].as_str().unwrap();
-    let local_text = match &in_process.content[0] {
-        cobolt_mcp::Content::Text { text } => text.clone(),
-    };
+    let local_text = in_process.content[0].as_text().expect("a text answer").to_owned();
     assert_eq!(remote_text, local_text, "rcrun mcp check = in-process check");
     let check: Value = serde_json::from_str(remote_text).unwrap();
     assert!(check["errors"].as_u64().unwrap() >= 1);

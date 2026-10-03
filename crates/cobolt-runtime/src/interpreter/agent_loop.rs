@@ -449,9 +449,7 @@ impl Interpreter {
                 let text: Vec<String> = r
                     .content
                     .iter()
-                    .map(|c| match c {
-                        cobolt_mcp::types::Content::Text { text } => text.clone(),
-                    })
+                    .filter_map(|c| c.as_text().map(str::to_owned))
                     .collect();
                 let text = text.join("\n");
                 Some(if r.is_error.unwrap_or(false) { format!("error: {text}") } else { text })

@@ -11278,9 +11278,7 @@ impl Interpreter {
                 let text = result
                     .content
                     .iter()
-                    .map(|c| match c {
-                        cobolt_mcp::Content::Text { text } => text.as_str(),
-                    })
+                    .filter_map(|c| c.as_text())
                     .collect::<Vec<_>>()
                     .join("\n");
                 self.env.set_str(&result_name, &text);

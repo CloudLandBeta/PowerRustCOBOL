@@ -53,6 +53,6 @@ pub mod types;
 
 pub use server::{dispatch, serve, McpHandler};
 pub use types::{
-    Content, InitializeResult, Request, Response, RpcError, ServerInfo, Tool, ToolResult,
-    PROTOCOL_VERSION,
+    Content, InitializeResult, Request, Resource, ResourceContents, Response, RpcError, ServerInfo,
+    Tool, ToolResult, PROTOCOL_VERSION,
 };
