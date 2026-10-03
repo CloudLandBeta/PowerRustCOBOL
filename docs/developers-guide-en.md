@@ -10735,7 +10735,8 @@ rules, which the servers give it on connecting and its reviewer checks:
    private GitHub repository and helps you set it up; the application works
    just as well without it.
 8. **PowerChat only when asked** — the agent leaves room in the side menu for
-   an Assistant entry, and adds PowerChat only when you ask.
+   an Assistant entry, and adds PowerChat only when you ask (`add_powerchat`,
+   below).
 
 They also offer a **patterns pack**: working forms from the PowerDemo3 and
 PowerChat examples, each with a note on what it shows — the application shell
@@ -10773,6 +10774,15 @@ caller. The agent reads the closest one before writing its own.
   at a time limit (20 seconds unless the agent asks for less or more, at most
   120). The program's real effects happen — the files it writes, the web
   services it calls — exactly as when you run it.
+- **`add_powerchat`** — adds **PowerChat**, a complete AI chat with topics,
+  documents, prompts and its own settings, to your application in one step,
+  when you ask for it. It goes into folders of its own (`forms/powerchat/`,
+  `Assets/powerchat/`, `data/powerchat/`), wears your application's theme,
+  name and icon instead of its own, and an **Assistant** item is added to
+  your main form's side menu: it opens PowerChat in a window of its own,
+  beside whatever you are doing, with PowerChat's own side menu working
+  there. It refuses, changing nothing, if PowerChat is already in the
+  project or one of your forms has one of its names.
 - **`create_project`** — creates a new project in an empty folder, as
   **File ▸ New Project** does, and opens it. A project the agent creates starts
   in **Spatial**, for the IDE and as its forms' default theme.

@@ -36,6 +36,7 @@ pub mod http;
 pub mod ide_launch;
 /// The reference documents a coding agent reads (spec 080 R7, spec 084 R13).
 pub mod patterns;
+pub mod powerchat;
 pub mod reference;
 pub mod root;
 pub mod tools;

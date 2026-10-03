@@ -293,7 +293,7 @@ fn tools_over_serve_list_check_refuse_paths_and_answer_no_project() {
         .collect();
     assert_eq!(
         names,
-        ["list_files", "check", "regenerate", "add_to_project", "build", "validate", "kb_lookup", "render_form", "run_form", "create_project", "open_project", "kb_search"]
+        ["list_files", "check", "regenerate", "add_to_project", "build", "validate", "kb_lookup", "render_form", "run_form", "add_powerchat", "create_project", "open_project", "kb_search"]
     );
     let (check_text, is_err) = text_of(&replies[2]);
     assert!(!is_err);
@@ -329,7 +329,7 @@ fn tools_over_serve_list_check_refuse_paths_and_answer_no_project() {
             refused += 1;
         }
     }
-    assert_eq!((refused, knowledge), (8, 2));
+    assert_eq!((refused, knowledge), (9, 2));
     println!("serve: no project → {refused} project tools answered \"no project open\", {knowledge} knowledge tools answered");
 }
 
@@ -559,4 +559,68 @@ fn the_instructions_map_only_real_tools_and_resources() {
     }
     let _ = std::fs::remove_dir_all(&dir);
     println!("instructions: architecture + map; {named} tools and resources named, every one offered");
+}
+
+/// Spec 085 AC3, AC4 (R6–R13): `add_powerchat` on a new project whose main
+/// form carries a side menu — PowerChat's forms in their own folder, none of
+/// them a main form or themed, the host's name on them, everything checking
+/// clean, and an Assistant item opening it modeless; asked again, or over a
+/// form with one of its names, it refuses and writes nothing.
+#[test]
+fn add_powerchat_makes_powerchat_the_applications_own() {
+    let start = fixture("add-powerchat");
+    let mut tools = ProjectTools::new(HeadlessHost::new(&start, "test"));
+    let base = std::env::temp_dir().join(format!("prc-085-add-powerchat-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let project = base.join("Inventory");
+    call(&mut tools, "create_project", json!({"folder": project.to_string_lossy(), "name": "Inventory"})).unwrap();
+    let main = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="MAIN-FORM" title="Inventory Pro" width="1200" height="800" main-form="true">
+  <Control id="SideMenu-1" type="SideMenu" x="0" y="0" w="240" h="800" tab-order="0" z-order="0" visible="true" enabled="true">
+  </Control>
+</Form>
+"#;
+    std::fs::write(project.join("forms/main-form.cfrm"), main).unwrap();
+    let mut home = cobolt_forms::menu::MenuItem::new_action("home", "Home");
+    home.action = Some("home".into());
+    let def = cobolt_forms::menu::MenuDefinition { menu: vec![home], hash: String::new() };
+    let menu_path = cobolt_forms::menu::menu_yaml_path(&project.join("forms"), "SideMenu-1");
+    cobolt_forms::menu::save_menu(&menu_path, &def).unwrap();
+    call(&mut tools, "add_to_project", json!({"path": "forms/main-form.cfrm"})).unwrap();
+    call(&mut tools, "regenerate", json!({"path": "forms/main-form.cfrm"})).unwrap();
+
+    let added = call(&mut tools, "add_powerchat", json!({})).unwrap();
+    assert_eq!(added["check"]["errors"], 0, "everything checks clean: {}", added["check"]);
+    assert_eq!(added["added"], 14);
+    assert_eq!(added["branding"]["name"], "Inventory Pro");
+    let menu = cobolt_forms::menu::load_menu(&menu_path).unwrap();
+    let item = menu.menu.iter().find(|i| i.id == "assistant").expect("an Assistant item");
+    assert_eq!(item.action.as_deref(), Some("open-standalone-async:chat-form"), "modeless, its own window");
+    // Exactly one main form, none themed, the host's name on them.
+    let listed = call(&mut tools, "list_files", json!({})).unwrap();
+    let forms: Vec<String> = listed["files"]["forms"].as_array().map(|a| a.iter().filter_map(|v| v["path"].as_str().map(str::to_owned)).collect()).unwrap_or_default();
+    assert_eq!(forms.len(), 15, "the host's form and PowerChat's 14: {listed}");
+    let mains = forms.iter().filter(|f| cobolt_forms::load_form(&project.join(f)).unwrap().main_form).count();
+    assert_eq!(mains, 1, "the host's main form stays the only one");
+    let chat = std::fs::read_to_string(project.join("forms/powerchat/chat-form.cfrm")).unwrap();
+    assert!(chat.contains("title=\"Inventory Pro\"") && !chat.contains("glass-style="));
+    assert!(project.join("Assets/powerchat/flags/en.png").is_file() && project.join("samples/powerchat/main-prompt.md").is_file());
+
+    // Again: refused, nothing changed.
+    let before = std::fs::read_to_string(&menu_path).unwrap();
+    assert!(call(&mut tools, "add_powerchat", json!({})).is_err());
+    assert_eq!(std::fs::read_to_string(&menu_path).unwrap(), before);
+
+    // A project with a form of one of PowerChat's names: refused, nothing written.
+    let other = base.join("Clash");
+    call(&mut tools, "create_project", json!({"folder": other.to_string_lossy(), "name": "Clash"})).unwrap();
+    std::fs::write(other.join("forms/chat-form.cfrm"), main.replace("MAIN-FORM", "CHAT-FORM")).unwrap();
+    call(&mut tools, "add_to_project", json!({"path": "forms/chat-form.cfrm"})).unwrap();
+    let refused = call(&mut tools, "add_powerchat", json!({})).unwrap_err();
+    assert!(refused.contains("forms/chat-form.cfrm"), "{refused}");
+    assert!(!other.join("forms/powerchat").exists(), "nothing written");
+
+    let _ = std::fs::remove_dir_all(&base);
+    let _ = std::fs::remove_dir_all(&start);
+    println!("add_powerchat: 14 forms + menu + 7 pictures + 3 defaults, check 0 errors, one main form, Assistant item modeless; second add and a name clash refused untouched");
 }

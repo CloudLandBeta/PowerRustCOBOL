@@ -267,3 +267,59 @@ fn a_side_menu_form_opened_as_a_window_loads_its_menu_forms_into_its_own_pane() 
     let _ = std::fs::remove_dir_all(&base);
     println!("child shell via rcrun: APP-SHELL opened as a shell window, its menu loaded PAGE-ONE into its own pane");
 }
+
+/// Spec 085 AC5 — PowerChat added with `add_powerchat`, opened from the host
+/// through the real `rcrun`: it comes up as a window of its own running as a
+/// shell (its own side menu and pane), in the host's Spatial look and name.
+#[test]
+fn powerchat_added_to_an_application_opens_as_a_shell_window_of_its_own() {
+    let base = std::env::temp_dir().join(format!("prc-085-powerchat-open-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let start = base.join("start");
+    std::fs::create_dir_all(&start).unwrap();
+    let runner = run::rcrun_runner(Path::new(env!("CARGO_BIN_EXE_rcrun")).to_path_buf());
+    let shared = Arc::new(Shared::new().with_runner(runner));
+    let mut tools = ProjectTools::with_shared(HeadlessHost::new(start.join("none.project.toml"), "test"), shared);
+    let project = base.join("Inventory");
+    let (_, made, err) = call(&mut tools, "create_project", json!({"folder": project.to_string_lossy(), "name": "Inventory"}));
+    assert!(!err, "{made}");
+    let host_main = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="HOST-MAIN" title="Inventory Pro" width="480" height="300" main-form="true">
+  <Control id="BTN-AI" type="Button" x="20" y="20" w="160" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Assistant</Property>
+    <Event name="onClick" paragraph="BTN-AI--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE ME::"OpenFormAsync"("CHAT-FORM").
+]]></Event>
+  </Control>
+</Form>
+"#;
+    std::fs::write(project.join("forms/host-main.cfrm"), host_main).unwrap();
+    for tool in ["add_to_project", "regenerate"] {
+        let (_, out, err) = call(&mut tools, tool, json!({"path": "forms/host-main.cfrm"}));
+        assert!(!err, "{tool}: {out}");
+    }
+    let (_, added, err) = call(&mut tools, "add_powerchat", json!({}));
+    assert!(!err, "{added}");
+    assert_eq!(added["check"]["errors"], 0, "{added}");
+    assert_eq!(added["opens_with"]["cobol"], "INVOKE ME::\"OpenFormAsync\"(\"CHAT-FORM\")", "no side menu: the COBOL to open it");
+
+    let (png, out, err) = call(
+        &mut tools,
+        "run_form",
+        json!({"path": "forms/host-main.cfrm", "time_limit_s": 30, "steps": [
+            {"event": {"control": "BTN-AI", "name": "onClick"}},
+            {"wait_ms": 2500}
+        ]}),
+    );
+    assert!(!err, "{out}");
+    let windows = out["windows"].as_array().cloned().unwrap_or_default();
+    assert_eq!(windows.len(), 1, "PowerChat's window is open: {out}");
+    assert_eq!(windows[0]["form"], "CHAT-FORM");
+    assert_eq!(windows[0]["shell"], true, "running as a shell of its own: {out}");
+    assert!(out.get("runtime_error").is_none(), "{out}");
+    std::fs::write(std::env::temp_dir().join("prc-085-powerchat-open.png"), png.expect("a picture")).unwrap();
+    let _ = std::fs::remove_dir_all(&base);
+    println!("powerchat in a host: CHAT-FORM opened as a shell window; on its pane: {}", windows[0]["on_pane"]);
+}

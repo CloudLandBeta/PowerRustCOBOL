@@ -8,6 +8,36 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.137] — 2026-10-03
+
+### Coding agents: `add_powerchat` adds PowerChat to an application (spec 085 T7–T9)
+
+A new tool on both servers adds **PowerChat** to the open project in one
+call, when the developer asks for it. PowerChat ships inside the tools (the
+PowerChat example, compiled in) and is copied into folders of its own —
+`forms/powerchat/`, `Assets/powerchat/`, `samples/powerchat/`, its data in
+`data/powerchat/` — so nothing collides with the application's. The copy is
+the application's: no form sets a theme or a glass style (they wear the
+application's Spatial), none is a main form, the application's name and icon
+replace PowerChat's branding (the Titan Voyages logos are not copied), and
+its forms are registered, generated and checked. An **Assistant** item is
+added to the main form's side menu: it opens PowerChat as a window of its
+own, modeless, where PowerChat's own side menu works (1.80.136). The answer
+gives the label's six translations for the application's text table. It is
+refused, changing nothing, when PowerChat is already there or a form of the
+project has one of its names.
+
+The golden rule on PowerChat, the instructions' map and the Developer's
+Guide name the tool. Tests: the forms adapted (no theme, no main form, no
+Titan Voyages, the host's name in every language's text); added to a new
+project with `check` clean, one main form and the Assistant item; refused
+twice untouched; opened from a host through the real `rcrun`, running as a
+shell window with its Welcome screen on its own pane.
+
+PowerChat still keeps its own model providers, models and agents: the
+application-wide AI settings it should use instead need a runtime change
+that is specified and waiting for review (spec 085 plan, D4a).
+
 ## [PowerRustCOBOL 1.80.136] — 2026-10-03
 
 ### A window with its own side menu is a shell of its own (spec 085 T3–T6)

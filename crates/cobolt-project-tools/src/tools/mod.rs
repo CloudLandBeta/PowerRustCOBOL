@@ -27,6 +27,7 @@ pub mod kb;
 pub mod list;
 pub mod regenerate;
 pub mod register;
+pub mod powerchat;
 pub mod render;
 pub mod run;
 pub mod validate;
@@ -272,6 +273,27 @@ impl<H: ProjectHost> ProjectTools<H> {
                 }),
             },
             Tool {
+                name: "add_powerchat".into(),
+                description: Some(
+                    "Add PowerChat — a complete AI chat with topics, documents, prompts and its own \
+                     settings — to the open project, only when the developer asks for it. It is copied \
+                     into folders of its own (forms/powerchat, Assets/powerchat, data/powerchat), wears \
+                     the application's theme and name, is registered, generated and checked, and an \
+                     Assistant item is added to the main form's side menu: it opens PowerChat as a \
+                     window of its own, modeless. Refused, changing nothing, when PowerChat is already \
+                     there or a form of the project has one of its names."
+                        .into(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "menu_label": { "type": "string",
+                                        "description": "The side-menu item's label (default \"Assistant\")." }
+                    },
+                    "additionalProperties": false
+                }),
+            },
+            Tool {
                 name: "create_project".into(),
                 description: Some(
                     "Create a new PowerRustCOBOL project in an empty or new folder — exactly what the \
@@ -484,6 +506,10 @@ impl<H: ProjectHost> ProjectTools<H> {
                 let (png, mut meta) = self.run_form_in(args, &root)?;
                 meta["png_bytes"] = json!(png.map(|p| p.len()).unwrap_or(0));
                 Ok(meta)
+            }
+            "add_powerchat" => {
+                let _w = shared.write_lock.lock().unwrap_or_else(|p| p.into_inner());
+                powerchat::run(&mut self.host, &root, opt_str(args, "menu_label").as_deref())
             }
             "render_form" => {
                 // The picture travels as image content: see `call_tool`.

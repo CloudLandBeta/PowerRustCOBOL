@@ -682,7 +682,7 @@ mod tests {
         let out = post_raw(port, "Authorization: Bearer tok-gate\r\n", body);
         let v: Value = serde_json::from_str(out.split_once("\r\n\r\n").unwrap().1).unwrap();
         let names: Vec<&str> = v["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(names.len(), 12, "{out}");
+        assert_eq!(names.len(), 13, "{out}");
         use std::io::{Read, Write};
         let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
         write!(s, "POST /mcp HTTP/1.1\r\nHost: evil.example\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();

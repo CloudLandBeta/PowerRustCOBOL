@@ -301,8 +301,10 @@ pub const APPLICATION_RULES: [(&str, &str); 8] = [
     (
         "powerchat",
         "PowerChat only when asked. Do not add PowerChat to an application unless the developer asks for \
-         it. Keep the side menu organised so an Assistant entry can be added later without reshaping the \
-         application.",
+         it; when they do, call `add_powerchat` — one call adds it in the application's own look and name, \
+         reached from an Assistant item in the side menu — and put that item's label in the application's \
+         text table in all six languages. Keep the side menu organised so the entry fits without reshaping \
+         the application.",
     ),
 ];
 
@@ -338,7 +340,7 @@ fn architecture() -> String {
 }
 
 /// Spec 084 R34 — which resource or tool answers which question.
-pub const RESOURCE_MAP: [(&str, &str); 12] = [
+pub const RESOURCE_MAP: [(&str, &str); 13] = [
     ("Does this control, property, method, event or built-in exist? (exact name)", "kb_lookup"),
     ("How do I …? (plain words)", "kb_search"),
     ("Every control, with its properties, events and methods", "powerrustcobol://reference/controls.md"),
@@ -351,6 +353,7 @@ pub const RESOURCE_MAP: [(&str, &str); 12] = [
     ("Did my change compile?", "regenerate, then check"),
     ("What does my form look like?", "render_form (in_shell for a ContentPane form)"),
     ("Does my form do what it should?", "run_form"),
+    ("Add an AI chat assistant to the application (only when asked)", "add_powerchat"),
 ];
 
 fn resource_map() -> String {

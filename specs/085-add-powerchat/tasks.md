@@ -28,17 +28,18 @@ One commit per task, each bumping `z` with a CHANGELOG entry.
 
 ## Phase B — `add_powerchat` (R6–R13)
 
-- [ ] **T7 — The embedded PowerChat pack** compiled in from
+- [x] **T7 — The embedded PowerChat pack** compiled in from
   `examples/PowerChat` (forms, menu, flags), data under `data/powerchat/`.
-- [ ] **T8 — The tool.** Copy, rename collisions refused, strip themes and
+- [x] **T8 — The tool.** Copy, rename collisions refused, strip themes and
   main-form, host branding, Assistant menu item (modeless), register,
   regenerate, check. *Verify:* AC3, AC4.
-- [ ] **T9 — Docs and skill.** Guide coding-agent section; the golden rule
+- [x] **T9 — Docs and skill.** Guide coding-agent section; the golden rule
   for PowerChat names the tool.
 
 ## Phase C — host AI settings (R14)
 
-- [ ] **T10 — The application's AI settings.** Embedded PowerChat stores
+- [ ] **T10 — The application's AI settings.** *(Held for the operator: needs the
+  runtime-owned model list of plan D4a.)* Embedded PowerChat stores
   model entries and agents in the host's data; its provider/model/agent
   screens become the host's Settings ▸ AI. *Verify:* a host AgentObject asks
   through an entry PowerChat registered.
