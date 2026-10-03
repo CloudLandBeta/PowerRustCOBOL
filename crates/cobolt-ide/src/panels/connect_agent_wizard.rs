@@ -133,7 +133,7 @@ impl ConnectAgentWizard {
                     ui.add_space(4.0);
                     ui.label(egui::RichText::new(tr.wiz_lead.replacen("{}", agent.name, 1)).size(14.0).color(TEXT_DIM));
                     ui.add_space(6.0);
-                    for point in [tr.wiz_point_once, tr.wiz_point_nothing, tr.wiz_point_local] {
+                    for point in [tr.wiz_point_market, tr.wiz_point_complex, tr.wiz_point_focus] {
                         ui.horizontal(|ui| {
                             let (dot, _) = ui.allocate_exact_size(vec2(14.0, 18.0), egui::Sense::hover());
                             ui.painter().circle_filled(dot.center(), 3.0, ACCENT);

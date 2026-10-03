@@ -8,6 +8,14 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.129] — 2026-10-03
+
+### The Connect a coding agent wizard: new points
+
+The three points under the wizard's introduction now read "Shorten your time
+to market", "Create complex applications effortlessly" and "The AI works for
+you while you stay focused on your customers", in all six languages.
+
 ## [PowerRustCOBOL 1.80.128] — 2026-10-03
 
 ### The Connect a coding agent wizard: Spec Driven Development, and Chibi seated
