@@ -94,7 +94,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 
 ## Phase B — seeing and running a form
 
-- [ ] **T14 (B1) — CPU rasteriser.** `cobolt-forms::raster` over
+- [x] **T14 (B1) — CPU rasteriser.** `cobolt-forms::raster` over
   `ctx.tessellate`, textures applied, PNG out. *Verify:* pixel tests (solid rect,
   text present). *Serves:* R30, R31.
 - [ ] **T15 (B2) — `render_form`.** Library-ise the golden test's render path;

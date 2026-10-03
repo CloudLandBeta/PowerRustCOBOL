@@ -292,6 +292,37 @@ mod tests {
         assert!(strip.left() > modal.left() + ART_W, "right of the illustration");
     }
 
+    /// The wizard rendered to pixels by the CPU rasteriser (spec 084 T14):
+    /// the picture is not blank, the mascot's orange and the agent's steel are
+    /// both on the left, and a PNG is left in the temp folder for a human look.
+    #[test]
+    fn the_wizard_renders_to_a_picture() {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(crate::fonts::base_font_definitions());
+        let mut raster = cobolt_forms::raster::Rasterizer::new();
+        let mut w = ConnectAgentWizard { open: true, ..Default::default() };
+        let tr = crate::i18n::Language::English.tr();
+        let agents = crate::coding_agents::AGENTS;
+        let conn = vec![Connection::NotConnected { path: "/opt/homebrew/bin/claude".into() }];
+        let size = vec2(900.0, 480.0);
+        let mut img = None;
+        // The modal fades in: the last frame is well past it.
+        for time in [0.0, 0.5, 1.0] {
+            img = Some(cobolt_forms::raster::render_frame(&ctx, &mut raster, size, Color32::from_rgb(20, 24, 34), time, |ui| {
+                w.show(ui.ctx(), agents, &conn, &tr);
+            }));
+        }
+        let img = img.unwrap();
+        let png = cobolt_forms::raster::to_png(&img).unwrap();
+        let out = std::env::temp_dir().join("prc-084-connect-wizard.png");
+        std::fs::write(&out, &png).unwrap();
+        let orange = img.pixels.iter().filter(|p| p.r() > 200 && p.g() > 100 && p.g() < 170 && p.b() < 80).count();
+        let accent = img.pixels.iter().filter(|p| p.b() > 220 && p.g() > 140 && p.g() < 180 && p.r() < 120).count();
+        assert!(orange > 200, "the mascot's orange: {orange} px");
+        assert!(accent > 200, "the connection and the Connect button: {accent} px");
+        println!("wizard picture: {}x{}, {orange} orange px, {accent} accent px -> {}", img.size[0], img.size[1], out.display());
+    }
+
     /// The wizard is exactly 800 × 400 and stays so, frame after frame.
     #[test]
     fn the_wizard_is_800_by_400_and_never_resizes() {

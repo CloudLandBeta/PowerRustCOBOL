@@ -99,6 +99,11 @@ pub mod surface_theme;
 #[cfg(feature = "render")]
 pub mod render;
 
+// Pixels without a GPU: egui's tessellated output filled in software, for a
+// coding agent's render_form / run_form (spec 084 T14).
+#[cfg(feature = "render")]
+pub mod raster;
+
 #[cfg(feature = "render")]
 pub mod fonts;
 

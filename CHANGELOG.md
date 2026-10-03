@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.120] — 2026-10-03
+
+### Spec 084 T14: pictures without a GPU — the CPU rasteriser
+
+`cobolt_forms::raster` turns what the render engine draws into pixels in
+software: it keeps egui's textures (font atlas, images, partial updates) and
+fills every tessellated triangle — vertex colour × bilinear texture sample,
+premultiplied "over", clipped — so a form can be pictured headless, on CI, the
+same bytes on every machine. `render_frame` runs a frame at a given time and
+rasterises it; `to_png` encodes. It is the ground for a coding agent's
+`render_form` and `run_form`, and already pictures the Connect a coding agent
+window in its test.
+
 ## [PowerRustCOBOL 1.80.119] — 2026-10-03
 
 ### Spec 084: Connect a coding agent — the first-run wizard
