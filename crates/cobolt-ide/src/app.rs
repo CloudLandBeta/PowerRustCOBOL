@@ -4492,6 +4492,17 @@ impl CoboltApp {
         }
     }
 
+    /// `--open <folder or manifest>` (spec 084 R20a): open that project at
+    /// start, as File → Open Project does. A folder names its own manifest.
+    pub fn open_project_from_command_line(&mut self, target: PathBuf) {
+        match cobolt_project_tools::ProjectRoot::open(&target) {
+            Ok(root) => self.open_project_at(root.manifest().to_path_buf()),
+            Err(_) => self
+                .output
+                .push_status(format!("--open: no PowerRustCOBOL project at {}", target.display())),
+        }
+    }
+
     fn open_project_at(&mut self, path: PathBuf) {
         match load_project(&path) {
             Ok(mut proj) => {

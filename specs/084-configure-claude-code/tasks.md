@@ -64,7 +64,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   `/mcp` + bearer token (401, constant time, never logged); rebind on port
   change; `HostRequest::{CreateProject, OpenProject}` refused while
   `has_unsaved_changes()`. *Verify:* AC9, AC16. *Serves:* R16, R17, R25, R35–R38.
-- [ ] **T9 (A4) — rcrun: find the project, launch the IDE.** Upward search from
+- [x] **T9 (A4) — rcrun: find the project, launch the IDE.** Upward search from
   `CLAUDE_PROJECT_DIR`/cwd; IDE `--open <path>`; launch sibling IDE and wait for
   its port. *Verify:* AC11, AC15. *Serves:* R20a, R21.
 - [ ] **T10 (A5) — Plugin bundle + Configure.** Bundle writer into

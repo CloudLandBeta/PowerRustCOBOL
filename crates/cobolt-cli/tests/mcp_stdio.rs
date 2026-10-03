@@ -229,3 +229,62 @@ fn rcrun_mcp_serves_instructions_and_the_reference_resources() {
         cobolt_project_tools::reference::DEVELOPERS_GUIDE.len()
     );
 }
+
+/// Spec 084 AC11 (R21): `rcrun mcp` with no `--project`, started in a
+/// project's SUB-folder, serves that project; started where no project is
+/// above, `create_project` works and the project tools then act on it. The IDE
+/// is never launched (`PRC_NO_IDE_LAUNCH`).
+#[test]
+fn rcrun_mcp_finds_its_project_from_the_working_folder() {
+    let ask = |cwd: &Path, requests: &[Value]| -> Vec<Value> {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_rcrun"))
+            .arg("mcp")
+            .current_dir(cwd)
+            .env_remove("CLAUDE_PROJECT_DIR")
+            .env("PRC_NO_IDE_LAUNCH", "1")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("rcrun starts");
+        let mut stdin = child.stdin.take().unwrap();
+        let mut stdout = BufReader::new(child.stdout.take().unwrap());
+        let mut replies = Vec::new();
+        for r in requests {
+            writeln!(stdin, "{r}").unwrap();
+            let mut line = String::new();
+            stdout.read_line(&mut line).unwrap();
+            replies.push(serde_json::from_str::<Value>(&line).unwrap());
+        }
+        drop(stdin);
+        let _ = child.wait();
+        replies
+    };
+    let text = |r: &Value| r["result"]["content"][0]["text"].as_str().unwrap_or_default().to_owned();
+
+    let project = fixture("subfolder");
+    let list = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_files","arguments":{}}});
+    let from_sub = ask(&project.join("forms"), std::slice::from_ref(&list));
+    assert!(text(&from_sub[0]).contains("CheckDemo.project.toml"), "served from a sub-folder: {}", text(&from_sub[0]));
+
+    let empty = std::env::temp_dir().join(format!("prc-084-noproj-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&empty);
+    std::fs::create_dir_all(&empty).unwrap();
+    let fresh = empty.join("Shop");
+    let replies = ask(
+        &empty,
+        &[
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"check","arguments":{}}}),
+            json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"create_project","arguments":{"folder": fresh.to_string_lossy(), "name":"Shop"}}}),
+            list.clone(),
+        ],
+    );
+    assert_eq!(text(&replies[0]), "no project open");
+    let created: Value = serde_json::from_str(&text(&replies[1])).unwrap();
+    assert_eq!(created["project"], "Shop.project.toml");
+    assert!(created["ide"].as_str().unwrap().contains("PRC_NO_IDE_LAUNCH"), "the IDE was not launched: {created}");
+    assert!(text(&replies[2]).contains("Shop.project.toml"), "the tools act on the new project");
+    let _ = std::fs::remove_dir_all(&empty);
+    let _ = std::fs::remove_dir_all(&project);
+    println!("rcrun mcp without --project: sub-folder -> its project; no project -> check refused, create_project made Shop and the tools switched to it (IDE not launched)");
+}

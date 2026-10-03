@@ -29,6 +29,8 @@ cobolt-semantic = { path = "../cobolt-semantic" }
 cobolt-runtime  = { path = "../cobolt-runtime" }
 # kb_search reads the System KB store through its shared reader (spec 084 T5).
 cobolt-kb       = { path = "../cobolt-kb" }
+# The IDE's machine configuration, for the tool server's port (spec 084 R20a).
+dirs            = "5.0"
 
 serde      = { workspace = true }
 serde_json = { workspace = true }

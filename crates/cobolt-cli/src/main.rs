@@ -371,12 +371,17 @@ fn cmd_mcp(args: &[String]) {
             }
         }
     }
-    let start = project
-        .or_else(|| std::env::current_dir().ok())
-        .unwrap_or_else(|| PathBuf::from("."));
+    let start = project.unwrap_or_else(|| mcp_start_folder(std::env::var_os("CLAUDE_PROJECT_DIR")));
     // The PRODUCT version (spec 084 R11), read from the IDE's `version.rs` —
     // still its single source — rather than this crate's workspace version.
-    let host = cobolt_project_tools::HeadlessHost::new(start, product_version::VERSION);
+    let host = cobolt_project_tools::HeadlessHost::new(start, product_version::VERSION)
+        .on_switch(|manifest| {
+            let beside = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf()));
+            cobolt_project_tools::ide_launch::open_in_ide(
+                manifest,
+                &cobolt_project_tools::ide_launch::IdeEnv::from_machine(beside.as_deref()),
+            )
+        });
     let mut tools = cobolt_project_tools::ProjectTools::new(host);
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -384,6 +389,19 @@ fn cmd_mcp(args: &[String]) {
         eprintln!("rcrun mcp: {e}");
         process::exit(1);
     }
+}
+
+/// Spec 084 R21 — the project `rcrun mcp` serves when not told: the one
+/// Claude Code was started in (`CLAUDE_PROJECT_DIR`, else the working folder),
+/// found by searching upward, so a session started in a sub-folder still has
+/// it. With none found it serves the folder, where only `create_project`,
+/// `open_project` and the knowledge tools work.
+fn mcp_start_folder(claude_project_dir: Option<std::ffi::OsString>) -> PathBuf {
+    let here = claude_project_dir
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."));
+    cobolt_compiler::find_project_manifest(&here).unwrap_or(here)
 }
 
 fn cmd_version() {
@@ -1086,4 +1104,23 @@ fn print_diagnostics(diagnostics: &[cobolt_semantic::SemanticDiagnostic], file: 
 /// (which holds only this constant), so `rcrun mcp` reports what the IDE does.
 mod product_version {
     include!("../../cobolt-ide/src/version.rs");
+}
+
+#[cfg(test)]
+mod mcp_start_tests {
+    use super::*;
+
+    /// Spec 084 R21: the start folder is Claude Code's project folder when
+    /// given, searched upward to its manifest.
+    #[test]
+    fn the_start_folder_is_found_upward_from_claude_project_dir() {
+        let dir = std::env::temp_dir().join(format!("prc-084-start-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("forms/deep")).unwrap();
+        std::fs::write(dir.join("Demo.project.toml"), "[project]\nname = \"Demo\"\n").unwrap();
+        let found = mcp_start_folder(Some(dir.join("forms/deep").into_os_string()));
+        assert_eq!(found, dir.join("Demo.project.toml"));
+        let _ = std::fs::remove_dir_all(&dir);
+        println!("start folder: CLAUDE_PROJECT_DIR = <project>/forms/deep -> <project>/Demo.project.toml");
+    }
 }

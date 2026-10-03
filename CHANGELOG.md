@@ -8,6 +8,23 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.114] — 2026-10-03
+
+### Spec 084 T9: `rcrun mcp` finds its project, and opens PowerRustCOBOL AI for it
+
+- **The project is found where Claude Code started.** Without `--project`,
+  `rcrun mcp` takes `CLAUDE_PROJECT_DIR` (else its working folder) and searches
+  upward for the manifest, so a session started in `forms/` still serves the
+  project. With none found, only `create_project`, `open_project` and the
+  knowledge tools work.
+- **`create_project` / `open_project` open the project in the IDE.** With the
+  IDE closed, `rcrun` starts PowerRustCOBOL AI from beside itself with the new
+  `--open <project>` argument, waits up to a minute for its tool server, and
+  tells the agent to use that server from then on — or says the IDE was
+  already running, was not found, or did not answer; the project is created or
+  opened either way. `PRC_NO_IDE_LAUNCH=1` switches the launch off (tests,
+  automation). `rcrun` still opens no listener — it only connects.
+
 ## [PowerRustCOBOL 1.80.113] — 2026-10-03
 
 ### Spec 084 T8: the IDE's tool server — one address, an access token, live port, project switching

@@ -32,6 +32,8 @@ pub mod create;
 pub mod gen_paths;
 pub mod host;
 pub mod http;
+/// Opening a project in PowerRustCOBOL AI from `rcrun mcp` (spec 084 R20a).
+pub mod ide_launch;
 /// The reference documents a coding agent reads (spec 080 R7, spec 084 R13).
 pub mod reference;
 pub mod root;

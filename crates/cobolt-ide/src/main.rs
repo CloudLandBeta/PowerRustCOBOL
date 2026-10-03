@@ -154,10 +154,25 @@ fn main() -> eframe::Result<()> {
     // reading and the window simply disappears.
     crash::install();
 
+    let open_arg: Option<std::path::PathBuf> = {
+        let args: Vec<String> = std::env::args().collect();
+        args.iter()
+            .position(|a| a == "--open")
+            .and_then(|i| args.get(i + 1))
+            .map(std::path::PathBuf::from)
+    };
     let result = eframe::run_native(
         &ide_title,
         native_options,
-        Box::new(|cc| Ok(Box::new(CoboltApp::new(cc)))),
+        Box::new(move |cc| {
+            let mut app = CoboltApp::new(cc);
+            // Spec 084 R20a — `rcrun` starts the IDE with the project a coding
+            // agent created or opened: `--open <project folder or manifest>`.
+            if let Some(target) = open_arg.clone() {
+                app.open_project_from_command_line(target);
+            }
+            Ok(Box::new(app))
+        }),
     );
 
     // Reaching here at all means the loop returned rather than the process

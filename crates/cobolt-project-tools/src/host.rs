@@ -151,6 +151,11 @@ pub trait ProjectHost: Send {
 pub struct HeadlessHost {
     start: PathBuf,
     version: String,
+    /// Called with the manifest after `create_project` / `open_project`
+    /// switched to it; what it returns is added to the answer as `ide`.
+    /// `rcrun` uses it to open the project in PowerRustCOBOL AI (spec 084
+    /// R20a).
+    on_switch: Option<Box<dyn Fn(&Path) -> String + Send>>,
 }
 
 impl HeadlessHost {
@@ -161,7 +166,23 @@ impl HeadlessHost {
         Self {
             start: manifest_or_dir.into(),
             version: version.into(),
+            on_switch: None,
         }
+    }
+}
+
+impl HeadlessHost {
+    /// Run `hook` with the manifest each time a tool switches project.
+    pub fn on_switch(mut self, hook: impl Fn(&Path) -> String + Send + 'static) -> Self {
+        self.on_switch = Some(Box::new(hook));
+        self
+    }
+
+    fn switched(&self, mut answer: serde_json::Value, manifest: &Path) -> serde_json::Value {
+        if let (Some(hook), Some(map)) = (&self.on_switch, answer.as_object_mut()) {
+            map.insert("ide".into(), serde_json::Value::String(hook(manifest)));
+        }
+        answer
     }
 }
 
@@ -189,8 +210,9 @@ impl ProjectHost for HeadlessHost {
     /// The new project becomes the one this server acts on.
     fn create_project(&mut self, folder: &Path, name: &str) -> Result<serde_json::Value, String> {
         let answer = crate::create::create_project(folder, name)?;
-        self.start = folder.to_path_buf();
-        Ok(answer)
+        let manifest = folder.join(answer["project"].as_str().unwrap_or_default());
+        self.start = manifest.clone();
+        Ok(self.switched(answer, &manifest))
     }
 
     /// Switch this server to another project. The IDE is not involved here;
@@ -198,7 +220,8 @@ impl ProjectHost for HeadlessHost {
     fn open_project(&mut self, path: &Path) -> Result<serde_json::Value, String> {
         let root = ProjectRoot::open(path).map_err(|_| "no PowerRustCOBOL project there".to_owned())?;
         self.start = root.manifest().to_path_buf();
-        Ok(serde_json::json!({ "opened": true, "project": root.manifest_name() }))
+        let answer = serde_json::json!({ "opened": true, "project": root.manifest_name() });
+        Ok(self.switched(answer, root.manifest()))
     }
 
     fn version(&self) -> String {

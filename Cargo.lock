@@ -1717,6 +1717,7 @@ dependencies = [
  "cobolt-parser",
  "cobolt-runtime",
  "cobolt-semantic",
+ "dirs",
  "serde",
  "serde_json",
  "toml_edit 0.22.27",
