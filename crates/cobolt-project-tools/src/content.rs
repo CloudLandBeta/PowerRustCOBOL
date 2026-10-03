@@ -334,7 +334,7 @@ pub fn rules() -> Vec<Rule> {
             "Write every built-in inline, as a method of the `COBOL` object: \
              `COBOL::\"HTTP-GET\" ( WS-URL WS-RESPONSE WS-HTTP-STATUS )`. Never write \
              `CALL \"COBOL-HTTP-GET\" USING …`. The built-ins are listed in \
-             `docs/powerrustcobol/builtins.md`. Your own common procedures are still reached with \
+             `powerrustcobol://reference/builtins.md`. Your own common procedures are still reached with \
              `CALL \"PROCEDURE-NAME\"`.",
         ),
         r(
@@ -365,7 +365,7 @@ pub fn rules() -> Vec<Rule> {
             "reference-only-properties",
             "A property, method or event exists only if the reference lists it for that control. \
              Before you write `<control>::<Property>` or `<control>::<Method>(…)`, find it in \
-             `docs/powerrustcobol/controls.md` or with `kb_lookup`. A misspelled or invented \
+             `powerrustcobol://reference/controls.md` or with `kb_lookup`. A misspelled or invented \
              property is silently ignored at run time — it is never an error, so nothing will \
              tell you.",
         ),
@@ -428,7 +428,7 @@ fn skills(version: &str) -> Vec<Skill> {
                 .into(),
             steps: vec![
                 s("Choose a form name that is a COBOL word (`ORDER-FORM`) and a file name for it, \
-                   `forms/<name>.cfrm`. Read `docs/powerrustcobol/cfrm-format.md` first."),
+                   `forms/<name>.cfrm`. Read `powerrustcobol://reference/cfrm-format.md` first."),
                 s("Write the `.cfrm`: a `<Form name=\"…\" title=\"…\" width=\"…\" height=\"…\">` \
                    element, its `<working-storage>` (form-level items, `GLOBAL` when a handler \
                    uses them), its `<form-events>` (`onLoad`, `onClose`) and its `<Control>` \
@@ -449,7 +449,7 @@ fn skills(version: &str) -> Vec<Skill> {
                 .into(),
             steps: vec![
                 s("Look the control up: its `## Control:` section in \
-                   `docs/powerrustcobol/controls.md`, or `kb_lookup` with its type. Use only the \
+                   `powerrustcobol://reference/controls.md`, or `kb_lookup` with its type. Use only the \
                    properties, methods and events listed there."),
                 s("Add a `<Control id=\"…\" type=\"…\" x=\"…\" y=\"…\" w=\"…\" h=\"…\">` element to \
                    the form. The id is a COBOL word, unique in the form. Inside a container, set \
@@ -490,7 +490,7 @@ fn skills(version: &str) -> Vec<Skill> {
                       file from a form's handlers."
                 .into(),
             steps: vec![
-                s("Read `docs/powerrustcobol/cidx-format.md`. Write `indexed/<name>.cidx`: the \
+                s("Read `powerrustcobol://reference/cidx-format.md`. Write `indexed/<name>.cidx`: the \
                    file's COBOL name, its `assign-path` (relative paths start at the project \
                    folder, e.g. `data/customers.idx`), access mode, keys and the record's fields \
                    with their PICTUREs, offsets and lengths. Every key part names a field of the \
@@ -557,7 +557,7 @@ fn skills(version: &str) -> Vec<Skill> {
                 s("Write `src/<name>.cbl` as an ordinary COBOL-85 program: `IDENTIFICATION \
                    DIVISION.`, `PROGRAM-ID. <NAME>.`, its data, a `LINKAGE SECTION` for what the \
                    caller passes, and `PROCEDURE DIVISION USING …` ending in `GOBACK`."),
-                s("Check every verb and clause against `docs/powerrustcobol/cobol85-supported-syntax.md`; \
+                s("Check every verb and clause against `powerrustcobol://reference/cobol85-supported-syntax.md`; \
                    write built-ins inline (`COBOL::\"NAME\" ( … )`)."),
                 s("Call `add_to_project` with the path, then `check` with it until it reports no \
                    error."),
@@ -635,7 +635,7 @@ fn reviewer() -> Reviewer {
             .into(),
         checks: vec![
             s("Every control type, property, method, event and built-in the change uses is in \
-               `docs/powerrustcobol/` or found by `kb_lookup` — for that control. Anything else is \
+               the `powerrustcobol://reference/` resources or found by `kb_lookup` — for that control. Anything else is \
                invented: reject it."),
             s("Nothing under `generated/` or `COPYBOOKS/` was edited by hand, and the project \
                manifest was not edited (files were added with `add_to_project`)."),

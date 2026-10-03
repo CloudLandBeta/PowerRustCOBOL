@@ -67,7 +67,9 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 - [x] **T9 (A4) — rcrun: find the project, launch the IDE.** Upward search from
   `CLAUDE_PROJECT_DIR`/cwd; IDE `--open <path>`; launch sibling IDE and wait for
   its port. *Verify:* AC11, AC15. *Serves:* R20a, R21.
-- [ ] **T10 (A5) — Plugin bundle + Configure.** Bundle writer into
+- [x] **T10 (A5) — Plugin bundle + Configure.** *(The menu item sits beside the
+  old export until T12 replaces it; the shared content now names the reference
+  resources instead of `docs/powerrustcobol/`.)* Bundle writer into
   `llm::base_dir()/claude-code/marketplace/`; `CommandRunner` trait; `claude`
   discovery; marketplace add/update + install with config (per T1); errors shown,
   prior config kept. *Verify:* AC1–AC4 (recorder runner, bundle redaction,

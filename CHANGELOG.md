@@ -8,6 +8,31 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.115] — 2026-10-03
+
+### Spec 084 T10: Configure Claude Code — the plugin and its installation
+
+**File → Configure Claude Code** installs the PowerRustCOBOL plugin in the
+developer's own Claude Code, once for every project:
+
+- **The plugin** is written into the IDE's data folder as a local marketplace:
+  the seven skills, the reviewer, the IDE's tool server over HTTP (its URL and
+  `Authorization` header filled from the plugin's `port` and `token` options)
+  and `rcrun mcp` over stdio. No `CLAUDE.md`, no settings, no token and no home
+  folder in any file; a bundle that would carry a stored API key or a personal
+  detail is refused. Claude Code's own `claude plugin validate` accepts it.
+- **Installation uses only `claude` commands** — `plugin list`, `marketplace
+  add`/`update`, `plugin install --scope user --config port=… --config token=…`,
+  and `plugin update` when an older version is installed — never an edit of
+  Claude Code's files. Claude Code keeps the token in its secure storage.
+  Configuring again with the same version changes nothing. Without Claude Code
+  the IDE says where it looked; a failing command's own message is shown, the
+  token always hidden.
+- The IDE generates its access token the first time.
+
+The skills and rules now name the `powerrustcobol://reference/` resources
+instead of a per-project `docs/powerrustcobol/` folder.
+
 ## [PowerRustCOBOL 1.80.114] — 2026-10-03
 
 ### Spec 084 T9: `rcrun mcp` finds its project, and opens PowerRustCOBOL AI for it

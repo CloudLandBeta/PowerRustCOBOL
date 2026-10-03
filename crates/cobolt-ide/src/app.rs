@@ -1126,6 +1126,10 @@ pub struct CoboltApp {
     /// A port the tools listener could not bind, so it is not retried every
     /// frame (spec 084 R25).
     mcp_bind_failed: Option<u16>,
+    /// A Configure Claude Code run in progress (spec 084 R1): its answer.
+    claude_configure_rx: Option<
+        std::sync::mpsc::Receiver<Result<crate::claude_code::configure::Outcome, crate::claude_code::configure::Failure>>,
+    >,
 }
 
 /// An app-level file dialog awaiting the user, identifying what to do with the
@@ -2201,6 +2205,7 @@ impl CoboltApp {
             agent_tools,
             agent_tools_rx,
             mcp_bind_failed: None,
+            claude_configure_rx: None,
         };
         // Surface the agent endpoint in the Output console (translated when the
         // language loads; English at first frame matches the console's startup
@@ -4693,6 +4698,85 @@ impl CoboltApp {
     /// Spec 080 — publish the open project, the files with unsaved edits,
     /// whether a build runs and the project's crates, for the coding-agent
     /// tools on the listener's threads.
+    /// Spec 084 R1–R6, R35 — Configure Claude Code: make sure the IDE has an
+    /// access token, write the plugin bundle (refused if it would carry a key
+    /// or a personal detail), and install it with `claude` on a background
+    /// thread. The answer arrives in [`Self::poll_claude_configure`].
+    pub fn do_configure_claude_code(&mut self) {
+        if self.claude_configure_rx.is_some() {
+            return;
+        }
+        let tr = self.lang.tr();
+        let mut settings = crate::claude_code_settings::ClaudeCodeSettings::load();
+        let token = match settings.token() {
+            Some(t) => t,
+            None => {
+                let t = settings.renew_token();
+                if let Err(e) = settings.save() {
+                    self.output.push_status(tr.claude_code_refused.replacen("{}", &e, 1));
+                    return;
+                }
+                t
+            }
+        };
+        self.agent_tools.set_token(Some(token.clone()));
+        let home = dirs::home_dir();
+        let rcrun = cobolt_project_tools::content::locate_rcrun(
+            crate::project_model::find_cobolt_binary().as_deref(),
+            home.as_deref(),
+        );
+        let files = crate::claude_code::bundle::files(crate::version::VERSION, &rcrun);
+        let personal = crate::ai_bundle::Personal::from_environment();
+        let dir = crate::claude_code::bundle::bundle_dir();
+        if let Err(why) = crate::claude_code::bundle::check(&files, &personal, &self.llm)
+            .and_then(|_| crate::claude_code::bundle::write(&dir, &files))
+        {
+            self.output.push_status(tr.claude_code_refused.replacen("{}", &why, 1));
+            return;
+        }
+        let searched = crate::claude_code::configure::candidate_dirs(home.as_deref());
+        let claude = crate::claude_code::configure::find_claude(&searched);
+        let port = self.llm.mcp_port;
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = self.egui_ctx.clone();
+        std::thread::spawn(move || {
+            let result = crate::claude_code::configure::configure(
+                &crate::claude_code::configure::SystemRunner,
+                claude.as_deref(),
+                &searched,
+                &dir,
+                port,
+                &token,
+                crate::version::VERSION,
+            );
+            let _ = tx.send(result);
+            ctx.request_repaint();
+        });
+        self.claude_configure_rx = Some(rx);
+        self.output.push_status(tr.claude_code_configuring.to_owned());
+    }
+
+    /// The answer of a Configure Claude Code run, said once in Output.
+    fn poll_claude_configure(&mut self) {
+        use crate::claude_code::configure::Failure;
+        let Some(rx) = &self.claude_configure_rx else { return };
+        let Ok(result) = rx.try_recv() else { return };
+        self.claude_configure_rx = None;
+        let tr = self.lang.tr();
+        let line = match result {
+            Ok(o) if o.unchanged() => tr.claude_code_unchanged.replacen("{}", &o.after, 1),
+            Ok(o) => tr.claude_code_configured.replacen("{}", &o.after, 1),
+            Err(Failure::NotFound(dirs)) => {
+                let list: Vec<String> = dirs.iter().map(|d| d.display().to_string()).collect();
+                tr.claude_code_not_found.replacen("{}", &list.join(", "), 1)
+            }
+            Err(Failure::Command { command, message }) => {
+                tr.claude_code_failed.replacen("{}", &command, 1).replacen("{}", &message, 1)
+            }
+        };
+        self.output.push_status(line);
+    }
+
     /// Spec 084 R25 — serve on the configured port as soon as it changes,
     /// not at the next start. A port that would not bind is said once and
     /// not retried until it changes again.
@@ -14886,6 +14970,7 @@ impl eframe::App for CoboltApp {
         // frame, then whatever they asked of it.
         self.publish_agent_tools_snapshot();
         self.follow_mcp_port();
+        self.poll_claude_configure();
         self.drain_agent_tools();
         // Remember the language across restarts. Written only on a real change,
         // so this costs nothing on a normal frame.
@@ -15405,6 +15490,16 @@ impl eframe::App for CoboltApp {
                     }
                     if ui.add_enabled(has_project, egui::Button::new(tr.menu_package_project)).clicked() {
                         self.do_package_project(); ui.close();
+                    }
+                    // Spec 084 R1 — once, for every project (the per-project
+                    // export below goes in T12).
+                    if ui
+                        .button(tr.menu_configure_claude_code)
+                        .on_hover_text(tr.menu_configure_claude_code_hint)
+                        .clicked()
+                    {
+                        self.do_configure_claude_code();
+                        ui.close();
                     }
                     // Spec 080 R1 — one item per coding agent the kit can target.
                     ui.add_enabled_ui(has_project, |ui| {
