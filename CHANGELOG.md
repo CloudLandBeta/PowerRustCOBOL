@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.140] — 2026-10-03
+
+### Spec 086 approved: the PowerCOBOL converter takes a whole application
+
+The operator settled all six open questions. The converter takes a **folder
+of `.ppj`** and merges them into one project. When the same form name exists
+in several projects with different content, the dialog proposes the copy from
+the most recently modified `.ppj`, and the developer can choose another.
+`EXEC SQL` blocks are kept as marked comments, and SQL support gets its own
+spec. Legacy indexed data is loaded from a record-sequential export with the
+FD's layout. A form with no scaling setting gets `ObsoleteScalingStyle` 7.
+Third-party controls are mapped to native controls by role (a table or grid
+becomes a `DataGrid`), with a Panel only when nothing fits. `EXTERNAL`/`GLOBAL`
+items stay standard COBOL. No code changes.
+
 ## [PowerRustCOBOL 1.80.139] — 2026-10-03
 
 ### Spec 086 draft: a PowerCOBOL 5.x+ project converter
