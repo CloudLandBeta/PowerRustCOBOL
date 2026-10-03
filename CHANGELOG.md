@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.144] — 2026-10-03
+
+### Fix: the toolbox's section names are readable
+
+The operator: the toolbox's section names were too faint. They were drawn in
+the small text style (11.5 px) with `RichText::strong`, which in egui only
+changes the colour, so they were neither large nor bold. They are now 2 px
+larger (13.5 px) in a real bold face, the system's bold sans
+(`cobolt_forms::fonts::bold_font_id`), with the regular face standing in for
+the frame or two while it loads. This applies to every category header and to
+the User Controls heading. Test: `section_names_are_two_pixels_above_small_text`.
+
 ## [PowerRustCOBOL 1.80.143] — 2026-10-03
 
 ### Fix: Grace answers the question asked, lists files from the manifest, and a model that thinks past its budget gets a larger one

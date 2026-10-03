@@ -408,12 +408,11 @@ impl ToolboxPanel {
 
                             let hdr = egui::Button::new(
                                 RichText::new(format!("{arrow}{cat_label}"))
-                                    .small()
-                                    .strong()
+                                    .font(section_font(ui))
                                     .color(heading_color),
                             )
                             .frame(false)
-                            .min_size(Vec2::new(ui.available_width(), 16.0));
+                            .min_size(Vec2::new(ui.available_width(), 18.0));
 
                             if ui.add(hdr).clicked() {
                                 if collapsed {
@@ -485,6 +484,21 @@ impl ToolboxPanel {
     }
 }
 
+/// The toolbox's section names: 2 px above the IDE's small text, in a real
+/// bold face (operator: "too faint"). `RichText::strong` only changes the
+/// colour, so the bold comes from the system's bold sans; until that face has
+/// loaded, the regular face at the same size stands in.
+fn section_font(ui: &Ui) -> egui::FontId {
+    let size = ui
+        .style()
+        .text_styles
+        .get(&egui::TextStyle::Small)
+        .map_or(11.5, |font| font.size)
+        + 2.0;
+    cobolt_forms::fonts::bold_font_id(ui.ctx(), "", size)
+        .unwrap_or_else(|| egui::FontId::proportional(size))
+}
+
 fn render_user_controls(
     ui: &mut Ui,
     tr: &Tr,
@@ -512,8 +526,7 @@ fn render_user_controls(
     ui.add_space(4.0);
     ui.label(
         RichText::new(format!("▾ {}", tr.uc_section_title))
-            .small()
-            .strong()
+            .font(section_font(ui))
             .color(heading_color),
     );
     ui.add_space(4.0);
@@ -1834,5 +1847,25 @@ mod toolbox_layout_tests {
         let common = texts.iter().filter(|t| t.ends_with(tr.cat_common)).count();
         assert_eq!(common, 1, "one Common header: {texts:?}");
         assert!(!texts.iter().any(|t| t.contains('🔍')), "no search row: {texts:?}");
+    }
+}
+
+#[cfg(test)]
+mod section_font_tests {
+    use super::*;
+
+    /// The section names stand 2 px above the small text style the toolbox
+    /// used to draw them in (operator: "too faint").
+    #[test]
+    fn section_names_are_two_pixels_above_small_text() {
+        let ctx = egui::Context::default();
+        let mut sizes = (0.0, 0.0);
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let small = ui.style().text_styles[&egui::TextStyle::Small].size;
+            sizes = (small, section_font(ui).size);
+        });
+        out.textures_delta.clear();
+        assert_eq!(sizes.1, sizes.0 + 2.0, "small {} -> section {}", sizes.0, sizes.1);
+        println!("toolbox section font: {} px (small text {} px + 2)", sizes.1, sizes.0);
     }
 }
