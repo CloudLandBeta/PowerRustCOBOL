@@ -590,27 +590,33 @@ impl<H: ProjectHost> McpHandler for ProjectTools<H> {
 
     /// The reference pack, served live from this binary (spec 084 R13, R14).
     fn list_resources(&mut self) -> Vec<cobolt_mcp::Resource> {
-        crate::reference::pack(&self.host.version())
+        let resource = |prefix: &str, name: String, title: String| cobolt_mcp::Resource {
+            uri: format!("{prefix}{name}"),
+            name,
+            title: Some(title),
+            description: None,
+            mime_type: Some("text/markdown".into()),
+        };
+        let mut out: Vec<_> = crate::reference::pack(&self.host.version())
             .into_iter()
-            .map(|d| cobolt_mcp::Resource {
-                uri: format!("{}{}", crate::content::RESOURCE_PREFIX, d.name),
-                name: d.name,
-                title: Some(d.title),
-                description: None,
-                mime_type: Some("text/markdown".into()),
-            })
-            .collect()
+            .map(|d| resource(crate::content::RESOURCE_PREFIX, d.name, d.title))
+            .collect();
+        // Spec 084 R33 — the patterns pack.
+        out.extend(
+            crate::patterns::resources()
+                .into_iter()
+                .map(|(name, title)| resource(crate::patterns::PATTERN_PREFIX, name, title)),
+        );
+        out
     }
 
     fn read_resource(&mut self, uri: &str) -> Option<cobolt_mcp::ResourceContents> {
-        let name = uri.strip_prefix(crate::content::RESOURCE_PREFIX)?;
-        crate::reference::pack(&self.host.version())
-            .into_iter()
-            .find(|d| d.name == name)
-            .map(|d| cobolt_mcp::ResourceContents {
-                uri: uri.to_owned(),
-                mime_type: Some("text/markdown".into()),
-                text: d.body,
-            })
+        let text = if let Some(name) = uri.strip_prefix(crate::patterns::PATTERN_PREFIX) {
+            crate::patterns::read(name)?
+        } else {
+            let name = uri.strip_prefix(crate::content::RESOURCE_PREFIX)?;
+            crate::reference::pack(&self.host.version()).into_iter().find(|d| d.name == name)?.body
+        };
+        Some(cobolt_mcp::ResourceContents { uri: uri.to_owned(), mime_type: Some("text/markdown".into()), text })
     }
 }

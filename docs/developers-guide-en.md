@@ -10713,6 +10713,13 @@ control with its properties, methods and events, every built-in, and the
 `.cfrm` and `.cidx` formats — read live from the running version. A name that
 is not there does not exist for the agent.
 
+They also offer a **patterns pack**: working forms from the PowerDemo3 and
+PowerChat examples, each with a note on what it shows — the application shell
+with its side menu, a form loaded into the ContentPane, maintaining records in
+indexed files, a DataGrid bound to an indexed file, a REST call, a question to
+a model through an AgentObject, and a small modal dialog that answers its
+caller. The agent reads the closest one before writing its own.
+
 - **`list_files`** — the files the project tracks, and the gap reports.
 - **`check`** — the IDE's own Check: every form's code, every source, every
   `.cfrm` and `.cidx`, the main-form designation and data-binding problems. A

@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.124] — 2026-10-03
+
+### Spec 084 T18: the patterns pack
+
+Both tool servers now serve working forms from the PowerDemo3 and PowerChat
+examples as MCP resources (`powerrustcobol://patterns/…`, with an index), each
+with a note on what it shows: the application shell with its side menu and
+menu file, a form loaded into the ContentPane, maintaining records in indexed
+files, a DataGrid bound to an indexed file, a REST call, a question to a model
+through an AgentObject, and a modal dialog that answers its caller. The forms
+are compiled in from `examples/`, and a test puts each one in a project of its
+own and proves it loads and passes `check`.
+
 ## [PowerRustCOBOL 1.80.123] — 2026-10-03
 
 ### Spec 084 T15b: a form pictured inside its application shell

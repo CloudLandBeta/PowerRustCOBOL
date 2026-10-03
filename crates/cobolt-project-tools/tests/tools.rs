@@ -474,3 +474,49 @@ fn render_form_answers_with_an_image() {
     let _ = std::fs::remove_dir_all(&dir);
     println!("render_form: image + meta (600x400 at scale 2, project named); non-form and renderer-less server refused");
 }
+
+/// Spec 084 AC20 (R33): the patterns pack is listed and readable as
+/// resources — at least the five named patterns — and every pattern, put in
+/// a project of its own, loads and passes `check`.
+#[test]
+fn every_pattern_is_served_and_passes_check_in_a_project_of_its_own() {
+    use cobolt_mcp::McpHandler;
+    use cobolt_project_tools::patterns::{PATTERNS, PATTERN_PREFIX};
+    let start = fixture("patterns");
+    let mut tools = ProjectTools::new(HeadlessHost::new(&start, "test"));
+    let listed: Vec<String> = tools.list_resources().into_iter().map(|r| r.uri).collect();
+    for name in ["README.md", "application-shell", "contentpane-form", "indexed-maintenance", "rest-call", "agent-chat"] {
+        let uri = format!("{PATTERN_PREFIX}{name}");
+        assert!(listed.contains(&uri), "{uri} listed");
+        let doc = tools.read_resource(&uri).expect("readable").text;
+        assert!(doc.starts_with("# "), "{uri}: a document");
+    }
+
+    let base = std::env::temp_dir().join(format!("prc-084-patterns-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    for p in PATTERNS {
+        let dir = base.join(p.name);
+        call(&mut tools, "create_project", json!({"folder": dir.to_string_lossy(), "name": "Pattern"})).unwrap();
+        for (rel, text) in p.files {
+            let abs = dir.join(rel);
+            std::fs::create_dir_all(abs.parent().unwrap()).unwrap();
+            std::fs::write(&abs, text).unwrap();
+            if rel.ends_with(".yaml") {
+                continue; // a menu sidecar travels beside its form, unregistered
+            }
+            call(&mut tools, "validate", json!({"path": rel})).unwrap_or_else(|e| panic!("{}: {rel} does not load: {e}", p.name));
+            call(&mut tools, "add_to_project", json!({"path": rel})).unwrap_or_else(|e| panic!("{}: add {rel}: {e}", p.name));
+        }
+        // The .cidx first: a form bound to it reads its generated copybooks.
+        for (rel, _) in p.files.iter().filter(|(r, _)| r.ends_with(".cidx")).chain(p.files.iter().filter(|(r, _)| r.ends_with(".cfrm"))) {
+            call(&mut tools, "regenerate", json!({"path": rel})).unwrap_or_else(|e| panic!("{}: regenerate {rel}: {e}", p.name));
+        }
+        let checked = call(&mut tools, "check", json!({})).unwrap();
+        assert_eq!(checked["errors"], 0, "{}: {checked}", p.name);
+        let forms = p.files.iter().filter(|(r, _)| r.ends_with(".cfrm")).count() as u64;
+        assert_eq!(checked["checked"]["forms"].as_u64(), Some(forms), "{}: the form itself was checked: {checked}", p.name);
+    }
+    let _ = std::fs::remove_dir_all(&base);
+    let _ = std::fs::remove_dir_all(&start);
+    println!("patterns: {} served + index; each checks clean in a project of its own", PATTERNS.len());
+}

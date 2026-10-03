@@ -119,8 +119,9 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 ## Phase C — building an application
 
 - [ ] **T17 (C1) — Three application skills.** *Verify:* AC19. *Serves:* R32.
-- [ ] **T18 (C2) — Patterns pack.** Five curated example forms as resources;
-  load + `check` test. *Verify:* AC20. *Serves:* R33.
+- [x] **T18 (C2) — Patterns pack.** Five curated example forms as resources;
+  load + `check` test. *Verify:* AC20. *Serves:* R33. *(Done with seven:
+  the five, plus a grid bound to an indexed file and a modal dialog.)*
 - [ ] **T19 (C3) — Architecture section and resource map in the instructions.**
   *Verify:* AC19. *Serves:* R34.
 
