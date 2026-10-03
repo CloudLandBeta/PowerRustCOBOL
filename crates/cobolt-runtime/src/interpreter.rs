@@ -13751,12 +13751,34 @@ impl Interpreter {
     /// The index counts the items as the list SHOWS them (Sorted applied), as
     /// a pick reports it; -1 or an index past the end clears the selection.
     fn sync_list_selection(&mut self, obj: &str, prop: &str, val: &str) {
-        if !(prop.eq_ignore_ascii_case("SelectedIndex") && self.is_list_object(obj)) {
+        let by_index = prop.eq_ignore_ascii_case("SelectedIndex");
+        if !((by_index || prop.eq_ignore_ascii_case("Value")) && self.is_list_object(obj)) {
             return;
         }
         let mut items: Vec<String> = self.obj_get(obj, "Items").lines().map(str::to_owned).collect();
         if matches!(self.obj_get(obj, "Sorted").as_str(), "1" | "true" | "TRUE" | "True") {
             items.sort_by_key(|a| a.to_lowercase());
+        }
+        if !by_index {
+            // The other direction (operator, 2026-10-03): `MOVE EMP-UF TO
+            // CBO-UF::Value` showed the item but left SelectedIndex where it
+            // was, so GetSelectedIndex() answered the old position. The index
+            // follows the value: the first item equal to it as the list SHOWS
+            // it, or -1 when no item is (a typed value in an editable combo).
+            // A COBOL field arrives space-padded, so trailing spaces do not count.
+            let wanted = val.trim_end();
+            let index = items
+                .iter()
+                .position(|item| item.trim_end() == wanted)
+                .map_or(-1, |i| i as i64)
+                .to_string();
+            if self.obj_get(obj, "SelectedIndex") != index {
+                self.objects.set_property(obj, "SelectedIndex", index.clone());
+                if let Some(tx) = &self.state_tx {
+                    let _ = tx.send(StateUpdate::new(obj.to_string(), "SelectedIndex".to_string(), index));
+                }
+            }
+            return;
         }
         let chosen = val
             .trim()
@@ -21742,6 +21764,52 @@ MAIN.
         assert_eq!(interp.obj_get("LST-1", "Items"), "", "Clear() empties the list");
         assert_eq!(interp.obj_get("LST-1", "SelectedIndex"), "-1", "and its selection");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Writing a ComboBox / ListBox `Value` moves `SelectedIndex` to that item
+    /// (operator, 2026-10-03): `MOVE EMP-UF TO CBO-UF::Value` showed "SP" while
+    /// `GetSelectedIndex()` still answered the old position. Index 0-based, as
+    /// the list shows it (Sorted applied); -1 when no item matches; the COBOL
+    /// field's trailing spaces do not count.
+    #[test]
+    fn writing_a_list_value_moves_its_selected_index() {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 EMP-UF PIC X(10) VALUE \"SP\".
+01 WS-I PIC S9(4).
+01 WS-J PIC S9(4).
+01 WS-K PIC S9(4).
+01 WS-S PIC X(10).
+PROCEDURE DIVISION.
+MAIN.
+    MOVE EMP-UF TO CBO-UF::Value
+    MOVE CBO-UF::GetSelectedIndex() TO WS-I
+    MOVE CBO-UF::GetSelected() TO WS-S
+    MOVE \"XX\" TO CBO-UF::Value
+    MOVE CBO-UF::GetSelectedIndex() TO WS-J
+    MOVE \"AL\" TO LST-1::Value
+    MOVE LST-1::GetSelectedIndex() TO WS-K
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let mut interp = Interpreter::new(program);
+        interp.seed_objects([
+            ("CBO-UF".to_owned(), "ComboBox".to_owned(), vec![("Items".to_owned(), "AC\nAL\nSP\nTO".to_owned())]),
+            (
+                "LST-1".to_owned(),
+                "ListBox".to_owned(),
+                vec![("Items".to_owned(), "TO\nAL\nAC".to_owned()), ("Sorted".to_owned(), "1".to_owned())],
+            ),
+        ]);
+        interp.run().expect("runs");
+        assert_eq!(interp.env.get("WS-I").and_then(|v| v.as_i64()), Some(2), "SP is the third item");
+        assert_eq!(interp.env.get("WS-S").map(|v| v.to_string().trim_end().to_owned()), Some("SP".into()));
+        assert_eq!(interp.env.get("WS-J").and_then(|v| v.as_i64()), Some(-1), "no item XX");
+        assert_eq!(interp.env.get("WS-K").and_then(|v| v.as_i64()), Some(1), "AL is second as SHOWN (sorted AC, AL, TO)");
     }
 
     #[test]

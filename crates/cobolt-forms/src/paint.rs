@@ -8770,6 +8770,60 @@ pub struct ComboPopup<'a> {
     /// Scroll this item into view this frame — set by the caller on the frame
     /// the dropdown opens, so it opens showing the current value.
     pub reveal: Option<usize>,
+    /// Typed letters and digits search the list ([`type_ahead`]): a pick-only
+    /// combo. A typable one searches with its own text field instead.
+    pub type_ahead: bool,
+}
+
+/// How long a pause ends a type-ahead search (operator, 2026-10-03): a key
+/// pressed within this many seconds of the last one extends the search, and
+/// one pressed later starts a new search with itself as the first character.
+pub const TYPE_AHEAD_WINDOW_SECS: f64 = 0.7;
+
+/// The characters typed into a pick-only list so far, and when the last one
+/// arrived — kept per control between frames.
+#[derive(Clone, Default)]
+struct TypeAheadState {
+    text: String,
+    at: f64,
+}
+
+/// Type-ahead for a pick-only list (a ListBox, a DropDownList or non-editable
+/// ComboBox): takes this frame's typed letters and digits off the input and
+/// returns the search they make, or `None` when nothing was typed.
+///
+/// Only call it while the list has the keyboard — the characters are consumed.
+pub fn type_ahead(ui: &egui::Ui, id: egui::Id) -> Option<String> {
+    let (typed, now) = ui.input_mut(|i| {
+        let mut typed = String::new();
+        i.events.retain(|e| match e {
+            egui::Event::Text(t) if t.chars().all(char::is_alphanumeric) && !t.is_empty() => {
+                typed.push_str(t);
+                false
+            }
+            _ => true,
+        });
+        (typed, i.time)
+    });
+    if typed.is_empty() {
+        return None;
+    }
+    let state_id = id.with("type-ahead");
+    let mut state: TypeAheadState = ui.data(|d| d.get_temp(state_id)).unwrap_or_default();
+    if now - state.at > TYPE_AHEAD_WINDOW_SECS {
+        state.text.clear();
+    }
+    state.text.push_str(&typed);
+    state.at = now;
+    let text = state.text.clone();
+    ui.data_mut(|d| d.insert_temp(state_id, state));
+    Some(text)
+}
+
+/// The first item that begins with `search`, ignoring case.
+pub fn type_ahead_match(items: &[String], search: &str) -> Option<usize> {
+    let search = search.to_lowercase();
+    items.iter().position(|item| item.to_lowercase().starts_with(&search))
 }
 
 /// What an open dropdown did this frame, and the state to hand back to it next.
@@ -8862,6 +8916,8 @@ pub fn glass_combo_popup(ui: &mut egui::Ui, p: ComboPopup<'_>) -> GlassComboOutc
     let mut gesture = p.gesture;
     let mut action: Option<GlassComboAction> = None;
     let mut reveal = p.reveal;
+    // A type-ahead match is scrolled to the top of the list, not just into view.
+    let mut reveal_top = false;
     let mut pressed_in_list = false;
 
     let item_h = p.item_h.max(1.0);
@@ -8971,6 +9027,18 @@ pub fn glass_combo_popup(ui: &mut egui::Ui, p: ComboPopup<'_>) -> GlassComboOutc
                 reveal = Some(to);
             }
         }
+        // Type-ahead: the first item the search begins goes to the TOP of the
+        // list and takes the highlight, so the arrows carry on from it — down
+        // to the next matches, up to the items before it — and Enter picks it.
+        if p.type_ahead {
+            if let Some(m) = type_ahead(ui, egui::Id::new(("glass_combo", p.ctrl_id)))
+                .and_then(|search| type_ahead_match(p.items, &search))
+            {
+                highlight = m;
+                reveal = Some(m);
+                reveal_top = true;
+            }
+        }
         if enter {
             action = Some(GlassComboAction::Select(highlight, p.items[highlight].clone()));
         } else if escape {
@@ -9064,7 +9132,7 @@ pub fn glass_combo_popup(ui: &mut egui::Ui, p: ComboPopup<'_>) -> GlassComboOutc
                         if reveal == Some(i) {
                             ui.scroll_to_rect_animation(
                                 row,
-                                None,
+                                reveal_top.then_some(egui::Align::Min),
                                 egui::style::ScrollAnimation::none(),
                             );
                         }

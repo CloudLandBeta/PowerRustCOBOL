@@ -2632,6 +2632,7 @@ fn render_form_inner(
             style,
             max_h,
             reveal,
+            type_ahead,
         } = combo;
         let gesture = ui
             .data(|d| d.get_temp(combo_gesture_id(scope, &cid)))
@@ -2659,6 +2660,7 @@ fn render_form_inner(
                 max_h,
                 enabled: true,
                 reveal,
+                type_ahead,
             },
         );
         let open_id = rt_id_in(scope, &cid).with("combo_open");
@@ -2720,6 +2722,8 @@ struct OpenCombo {
     max_h: f32,
     /// Scroll this item into view â set on the frame the dropdown opens.
     reveal: Option<usize>,
+    /// A pick-only combo: typed letters and digits search the list.
+    type_ahead: bool,
 }
 
 /// Where a ComboBox keeps the item it is highlighting between frames.
@@ -8018,6 +8022,25 @@ fn render_interactive(
                     }
                 }
             }
+            // Type-ahead on a CLOSED pick-only combo: a letter or digit opens the
+            // list, and the popup pass, later this frame, takes that same key
+            // and searches with it (operator, 2026-10-03).
+            if enabled && !typable && !is_open && !items.is_empty() && listening {
+                let typed = ui.input(|i| {
+                    i.events.iter().any(|e| {
+                        matches!(e, egui::Event::Text(t) if !t.is_empty() && t.chars().all(char::is_alphanumeric))
+                    })
+                });
+                if typed {
+                    is_open = true;
+                    has_keyboard = true;
+                    ui.data_mut(|d| {
+                        d.insert_temp(open_id, true);
+                        d.insert_temp(gesture_id, paint::ComboGesture::None);
+                    });
+                    out.events.push(UiEvent::ev(id, "onDropDown"));
+                }
+            }
             // The field, added AFTER the arrow keys were taken for the list, so
             // they walk the items rather than move the caret to either end.
             if typable {
@@ -8069,6 +8092,7 @@ fn render_interactive(
                         .unwrap_or(200.0)
                         .clamp(1.0, 4000.0),
                     reveal,
+                    type_ahead: !typable,
                 });
             }
         }
@@ -8199,6 +8223,8 @@ fn render_interactive(
             let mut active_item = cur.clone();
             // Where a row that has just been chosen must be scrolled into view.
             let mut reveal: Option<usize> = None;
+            // A type-ahead match goes to the top of the list, not just into view.
+            let mut reveal_top = false;
 
             // Keyboard navigation. Registered on the control's own id â the one
             // Tab traversal aims at â so egui keeps the focus alive, and
@@ -8261,6 +8287,22 @@ fn render_interactive(
                         picked = Some((to, items[to].clone()));
                         reveal = Some(to);
                     }
+                }
+                // Type-ahead (operator, 2026-10-03): the first item the typed
+                // search begins is chosen, as an arrow would choose it, and
+                // goes to the TOP of the list; the arrows carry on from it.
+                if let Some(m) = paint::type_ahead(ui, ctrl_id)
+                    .and_then(|search| paint::type_ahead_match(&items, &search))
+                {
+                    has_keyboard = true;
+                    if active_item != items[m] {
+                        active_item = items[m].clone();
+                        selected = vec![items[m].clone()];
+                        selection_changed = true;
+                        picked = Some((m, items[m].clone()));
+                    }
+                    reveal = Some(m);
+                    reveal_top = true;
                 }
             }
 
@@ -8382,7 +8424,7 @@ fn render_interactive(
                             if reveal == Some(idx) {
                                 ui.scroll_to_rect_animation(
                                     row,
-                                    None,
+                                    reveal_top.then_some(egui::Align::Min),
                                     egui::style::ScrollAnimation::none(),
                                 );
                             }
@@ -19902,6 +19944,24 @@ mod tests {
         controls: &[Control],
         frames: Vec<(f64, Vec<Event>)>,
     ) -> (Vec<UiEvent>, Map<String, Map<String, String>>, Vec<String>) {
+        drive_inner(controls, frames, false)
+    }
+
+    /// [`drive`] with each frame at the time it is given, for behaviour that
+    /// depends on a pause (type-ahead's 700 ms window).
+    fn drive_timed(
+        controls: &[Control],
+        frames: Vec<(f64, Vec<Event>)>,
+    ) -> (Vec<UiEvent>, Map<String, Map<String, String>>) {
+        let (events, props, _) = drive_inner(controls, frames, true);
+        (events, props)
+    }
+
+    fn drive_inner(
+        controls: &[Control],
+        frames: Vec<(f64, Vec<Event>)>,
+        timed: bool,
+    ) -> (Vec<UiEvent>, Map<String, Map<String, String>>, Vec<String>) {
         let ctx = egui::Context::default();
         ctx.set_fonts(egui::FontDefinitions::default());
         let active = ActiveTabs::new();
@@ -19909,7 +19969,7 @@ mod tests {
         let mut all: Vec<UiEvent> = Vec::new();
         let mut copied: Vec<String> = Vec::new();
 
-        for (i, (_time, evs)) in frames.into_iter().enumerate() {
+        for (i, (time, evs)) in frames.into_iter().enumerate() {
             let mut input = egui::RawInput::default();
             input.screen_rect = Some(Rect::from_min_size(
                 pos2(0.0, 0.0),
@@ -19919,7 +19979,7 @@ mod tests {
             // Advance by small steps so a pressârelease across two frames still
             // counts as a click (egui's max click duration), while clearing the
             // Timer's 10 ms interval.
-            input.time = Some(i as f64 * 0.05);
+            input.time = Some(if timed { time } else { i as f64 * 0.05 });
             // The held modifiers travel with the key events, as real input
             // (egui-winit) reports them: a `ModifiersChanged` ahead of the keys,
             // so a Shift+Tab reads as Shift+Tab to `i.modifiers` as well.
@@ -24803,6 +24863,109 @@ mod tests {
              ââââ stops at Alpha, âââââ stops at Delta; open: ââ moves the highlight and \
              commits nothing, Enter â Delta, Escape â unchanged; picking Gamma from the \
              list then â â Delta\n"
+        );
+    }
+
+    /// Type-ahead in a pick-only list (operator, 2026-10-03): a letter or digit
+    /// goes to the first item it begins; another within 700 ms extends the
+    /// search; after a longer pause the next key starts a new search; the
+    /// arrows carry on from the match. A closed DropDownList opens on the key
+    /// and Enter picks the match.
+    #[test]
+    fn typing_searches_a_listbox_and_a_pick_only_combobox() {
+        let started = std::time::Instant::now();
+        let ufs = "Acre\nAlagoas\nAmapá\nBahia\nSão Paulo\nSergipe\nTocantins";
+        let text = |s: &str| Event::Text(s.to_owned());
+        let key = |k: egui::Key| Event::Key {
+            key: k,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::default(),
+        };
+        let value = |o: &Map<String, Map<String, String>>, id: &str| {
+            o.get(id).and_then(|p| p.get("Value")).cloned()
+        };
+
+        // ── ListBox: click the first row to give it the keyboard ──────────
+        let mut lst = ctrl("Lst", ControlType::ListBox, 20, 20, 200, 120);
+        lst.set_prop("Items", crate::PropValue::String(ufs.to_owned()));
+        let row = pos2(100.0, 30.0);
+        let focus = || {
+            vec![
+                (0.00, vec![Event::PointerMoved(row)]),
+                (0.05, vec![press(row)]),
+                (0.10, vec![release(row)]),
+            ]
+        };
+        let mut frames = focus();
+        frames.push((0.20, vec![text("s")]));
+        frames.push((0.25, vec![]));
+        let (_e, o) = drive_timed(&[lst.clone()], frames);
+        assert_eq!(value(&o, "Lst").as_deref(), Some("São Paulo"), "s -> the first item it begins");
+
+        let mut frames = focus();
+        frames.push((0.20, vec![text("s")]));
+        frames.push((0.60, vec![text("e")]));
+        frames.push((0.65, vec![]));
+        let (_e, o) = drive_timed(&[lst.clone()], frames);
+        assert_eq!(value(&o, "Lst").as_deref(), Some("Sergipe"), "se within 700 ms extends the search");
+
+        let mut frames = focus();
+        frames.push((0.20, vec![text("s")]));
+        frames.push((1.00, vec![text("a")]));
+        frames.push((1.05, vec![]));
+        let (_e, o) = drive_timed(&[lst.clone()], frames);
+        assert_eq!(value(&o, "Lst").as_deref(), Some("Acre"), "after 800 ms, a starts a new search");
+
+        let mut frames = focus();
+        frames.push((0.20, vec![text("s")]));
+        frames.push((0.25, vec![key(egui::Key::ArrowDown)]));
+        frames.push((0.30, vec![]));
+        let (_e, o) = drive_timed(&[lst.clone()], frames);
+        assert_eq!(value(&o, "Lst").as_deref(), Some("Sergipe"), "the arrows carry on from the match");
+
+        let mut frames = focus();
+        frames.push((0.20, vec![text("s")]));
+        frames.push((0.25, vec![key(egui::Key::ArrowUp)]));
+        frames.push((0.30, vec![]));
+        let (_e, o) = drive_timed(&[lst.clone()], frames);
+        assert_eq!(value(&o, "Lst").as_deref(), Some("Bahia"), "and up reaches the items before it");
+
+        // ── A closed pick-only combo opens on the key; Enter picks ────────
+        let mut cmb = ctrl("Cmb", ControlType::ComboBox, 20, 20, 220, 26);
+        cmb.set_prop("DropDownStyle", crate::PropValue::String("DropDownList".into()));
+        cmb.set_prop("Items", crate::PropValue::String(ufs.to_owned()));
+        let hc = pos2(130.0, 33.0);
+        let focus_closed = || {
+            vec![
+                (0.00, vec![Event::PointerMoved(hc)]),
+                (0.05, vec![press(hc)]),
+                (0.10, vec![release(hc)]),
+                (0.15, vec![press(hc)]),
+                (0.20, vec![release(hc)]),
+            ]
+        };
+        let mut frames = focus_closed();
+        frames.push((0.30, vec![text("t")]));
+        frames.push((0.35, vec![key(egui::Key::Enter)]));
+        frames.push((0.40, vec![]));
+        let (events, o) = drive_timed(&[cmb.clone()], frames);
+        assert!(names(&events).contains(&"onDropDown"), "the key opens the list: {:?}", names(&events));
+        assert_eq!(value(&o, "Cmb").as_deref(), Some("Tocantins"), "Enter picks the match");
+
+        let mut frames = focus_closed();
+        frames.push((0.30, vec![text("s")]));
+        frames.push((0.50, vec![text("e")]));
+        frames.push((0.55, vec![key(egui::Key::Enter)]));
+        frames.push((0.60, vec![]));
+        let (_e, o) = drive_timed(&[cmb.clone()], frames);
+        assert_eq!(value(&o, "Cmb").as_deref(), Some("Sergipe"), "se in the open list");
+
+        println!(
+            "\n  type-ahead: ListBox s/se/(pause)a/s+Down/s+Up and DropDownList t+Enter, se+Enter \
+             — 7 cases in {:.0} ms\n",
+            started.elapsed().as_secs_f64() * 1000.0
         );
     }
 

@@ -3904,6 +3904,16 @@ it already holds — so a combo of two hundred countries opens showing the one y
 chose, not the letter A. The wheel and the scrollbar still scroll the list on
 their own; a drag is a selection, not a swipe.
 
+**Typing to search.** In a pick-only combo (`DropDownList`, or `Editable` off)
+and in a ListBox, type a letter or digit and the list goes to the first item
+that begins with it — ignoring case — and scrolls that item to the **top**. A
+closed combo opens to show it; Enter picks it, and in a ListBox it is chosen
+straight away, as an arrow would choose it. Keep typing within **700 ms** and
+the search grows (`S` finds *São Paulo*, `SE` then finds *Sergipe*); pause
+longer and the next key starts a new search with itself. The arrows carry on
+from the item found: ↓ to the ones after it, ↑ to the ones before. A combo you
+can type in searches with its own text instead, as you type it.
+
 **Sorting the items.** Tick **Sorted** and the list shows its items in
 alphabetical order. Three things worth knowing:
 
@@ -3917,8 +3927,10 @@ alphabetical order. Three things worth knowing:
   the operator picked. `Value` is the item's text and is the same either way.
   Setting `SelectedIndex` — in the designer, or from COBOL with
   `MOVE 2 TO CBO-CITY::SelectedIndex` or `SetSelectedIndex` — selects that item
-  and moves `Value` with it; `-1` clears the selection. The same holds for a
-  ListBox.
+  and moves `Value` with it; `-1` clears the selection. It works the other way
+  too: `MOVE EMP-UF TO CBO-UF::Value` selects the item with that text and moves
+  `SelectedIndex` to it (trailing spaces in the field do not count), or to `-1`
+  when no item has that text. The same holds for a ListBox.
 
 > A **TreeView** carries `Sorted` too, and since 1.61.153 it acts on it — by
 > ordering **siblings**, leaving every child under the parent you wrote it

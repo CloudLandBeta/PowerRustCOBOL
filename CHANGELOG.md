@@ -8,6 +8,33 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.145] — 2026-10-03
+
+### Fix: writing a list's Value moves its SelectedIndex, and pick-only lists search as you type
+
+- **Value → SelectedIndex.** A forum developer positioned a ComboBox of
+  states with `MOVE EMP-UF TO CBO-UF::Value`: the combo showed "SP", but
+  `GetSelectedIndex()` still answered the old position, because only the other
+  direction (`SelectedIndex` → `Value`) was kept in step. The interpreter now
+  moves `SelectedIndex` to the first item equal to the written value, as the
+  list shows it (`Sorted` applied), ignoring the COBOL field's trailing
+  spaces, or to -1 when no item matches. One interpreter serves `rcrun
+  run-form`, child forms and the compiled binary. Test:
+  `writing_a_list_value_moves_its_selected_index`.
+- **Type-ahead** (operator, 2026-10-03). In a ListBox and a pick-only ComboBox
+  (`DropDownList`, or `Editable` off), a letter or digit goes to the first item
+  it begins (ignoring case) and scrolls it to the top of the list. Another key
+  within 700 ms extends the search; after a longer pause the next key starts a
+  new one. The arrows carry on from the match: down to the items after it, up
+  to the ones before. A closed combo opens on the key and Enter picks the
+  match; a ListBox chooses it as an arrow would. A typable combo keeps
+  searching with its own text. One helper (`paint::type_ahead`) serves both
+  controls. Test: `typing_searches_a_listbox_and_a_pick_only_combobox` (seven
+  cases, real timings through a new `drive_timed` harness).
+- **System KB** (ComboBox, ListBox, `SelectedIndex`) and the **Guide**
+  ("Typing to search"; `Value` selects too) updated; `chunked.data`
+  regenerated.
+
 ## [PowerRustCOBOL 1.80.144] — 2026-10-03
 
 ### Fix: the toolbox's section names are readable
