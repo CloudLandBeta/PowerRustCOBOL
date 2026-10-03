@@ -81,7 +81,8 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 - [x] **T12 (A7) — Remove the per-project export.** File menu → Configure Claude
   Code; delete stamp/manifest/refresh-offer paths and their keys; new keys in six
   languages. *Verify:* AC14 (`i18n_tests`), IDE sweep. *Serves:* R1, R29.
-- [ ] **T13 (A8) — Developer's Guide.** Rewrite the coding-agent section; delete
+- [x] **T13 (A8) — Developer's Guide.** *(No translation existed to delete: the
+  Guide and the support matrix ship English only until the next minor.)* Rewrite the coding-agent section; delete
   its five translations. *Verify:* doc renders in the viewer test set.
 
 ## Phase B — seeing and running a form

@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.118] — 2026-10-03
+
+### Spec 084 T13: the Developer's Guide describes Configure Claude Code
+
+"Working with a coding agent (Claude Code)" is rewritten for the one-time,
+IDE-wide integration: **File ▸ Configure Claude Code** and what the plugin
+carries; the two tool servers, the access token and the rules and reference
+they serve live; the ten tools, `kb_search`, `create_project` and
+`open_project` included; approving the tools once; **Help ▸ Claude Code
+Settings**; and gap reports — with a diagram of how Claude Code, the IDE and
+`rcrun` connect. The `rcrun mcp` reference says how it finds its project, and
+the support matrix row is updated. Phase A of spec 084 is complete.
+
 ## [PowerRustCOBOL 1.80.117] — 2026-10-03
 
 ### Spec 084 T12: the per-project coding-agent kit is gone
