@@ -415,6 +415,10 @@ fn create_project_makes_a_checkable_project_and_open_project_switches() {
 
     let made = call(&mut tools, "create_project", json!({"folder": fresh.to_string_lossy(), "name": "Inventory"})).unwrap();
     assert_eq!(made["project"], "Inventory.project.toml");
+    // The golden rules: a project an agent creates wears Spatial, for the IDE
+    // and as the forms' default.
+    let manifest: toml_edit::DocumentMut = std::fs::read_to_string(fresh.join("Inventory.project.toml")).unwrap().parse().unwrap();
+    assert_eq!((manifest["ide"]["theme"].as_str(), manifest["forms"]["theme"].as_str()), (Some("spatial"), Some("spatial")));
     assert!(fresh.join("Inventory.project.toml").is_file() && fresh.join("src/main.cbl").is_file());
     for sub in cobolt_project_tools::create::PROJECT_FOLDERS {
         assert!(fresh.join(sub).is_dir(), "{sub}/ created");
@@ -531,6 +535,11 @@ fn the_instructions_map_only_real_tools_and_resources() {
     let mut tools = ProjectTools::new(HeadlessHost::new(&dir, "test"));
     let text = tools.instructions().unwrap();
     assert!(text.contains("How an application is built:") && text.contains("Where to look:"), "{text}");
+    // The golden rules for every application, each one told in full.
+    assert!(text.contains("Golden rules for every application you build:"), "{text}");
+    for (id, rule) in cobolt_project_tools::content::APPLICATION_RULES {
+        assert!(text.contains(rule), "the {id} rule is in the instructions");
+    }
     let names: Vec<String> = tools.list_tools().into_iter().map(|t| t.name).collect();
     let uris: Vec<String> = tools.list_resources().into_iter().map(|r| r.uri).collect();
     let mut named = 0;

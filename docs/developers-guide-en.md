@@ -10718,6 +10718,25 @@ control with its properties, methods and events, every built-in, and the
 `.cfrm` and `.cidx` formats — read live from the running version. A name that
 is not there does not exist for the agent.
 
+**The golden rules.** Every application an agent builds follows the same
+rules, which the servers give it on connecting and its reviewer checks:
+
+1. **Responsive** — every form adapts to any screen resolution and form factor.
+2. **Spatial** — the IDE and the forms wear the Spatial theme.
+3. **Side menu and embedded forms** — a SideMenu on the main form, every screen
+   loaded into its ContentPane, unless you ask for something else.
+4. **Slick and lean** — few controls per screen, even spacing, one accent
+   colour, nothing decorative for its own sake.
+5. **Built-in controls first** — DataGrid, DateTimePicker, Snackbar, the charts,
+   IndexedFile, RestClient and the rest, rather than hand-built equivalents.
+6. **Six languages** — every text the operator sees in English, Portuguese,
+   Spanish, French, Japanese and Chinese, switched at run time.
+7. **GitHub if you want it** — the agent offers to keep the project in a
+   private GitHub repository and helps you set it up; the application works
+   just as well without it.
+8. **PowerChat only when asked** — the agent leaves room in the side menu for
+   an Assistant entry, and adds PowerChat only when you ask.
+
 They also offer a **patterns pack**: working forms from the PowerDemo3 and
 PowerChat examples, each with a note on what it shows — the application shell
 with its side menu, a form loaded into the ContentPane, maintaining records in
@@ -10754,8 +10773,9 @@ caller. The agent reads the closest one before writing its own.
   at a time limit (20 seconds unless the agent asks for less or more, at most
   120). The program's real effects happen — the files it writes, the web
   services it calls — exactly as when you run it.
-- **`create_project`** — creates a new project in an empty folder, exactly as
-  **File ▸ New Project** does, and opens it.
+- **`create_project`** — creates a new project in an empty folder, as
+  **File ▸ New Project** does, and opens it. A project the agent creates starts
+  in **Spatial**, for the IDE and as its forms' default theme.
 - **`open_project`** — opens an existing project, as **File ▸ Open Project**
   does.
 

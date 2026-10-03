@@ -234,10 +234,82 @@ pub fn server_instructions(version: &str) -> String {
     );
     out.push_str(&architecture());
     out.push_str("\n");
+    out.push_str(&application_rules());
+    out.push_str("\n");
     out.push_str(&resource_map());
     out.push_str("\nStanding rules:\n");
     for rule in rules() {
         out.push_str(&format!("- {}\n", rule.text));
+    }
+    out
+}
+
+/// The golden rules for every application a coding agent builds (operator,
+/// 2026-10-03): `(id, rule)`, in the order they are told.
+pub const APPLICATION_RULES: [(&str, &str); 8] = [
+    (
+        "responsive",
+        "Responsive. Every form is responsive (`responsive=\"true\"`) and holds together at any screen \
+         resolution and any form factor, from a narrow window to a wide monitor: anchors, docking and \
+         Flex/Grid/Flow containers, breakpoints where the layout must change, and size limits where it \
+         must stop. Never lay a form out for one size only.",
+    ),
+    (
+        "spatial",
+        "Spatial UI. The application wears the Spatial theme, in the IDE and on its forms. \
+         `create_project` sets both; leave each form's own `theme` unset so it inherits Spatial, and do \
+         not copy another theme or glass style from a pattern. In a project that is not in Spatial, ask \
+         the developer to choose Spatial for the IDE theme and the default form theme in Settings — never \
+         edit the project file.",
+    ),
+    (
+        "shell",
+        "Side menu and embedded forms. The main form carries a SideMenu and every screen is an \
+         `Embedded` form loaded into its ContentPane; dialogs are child windows. Build it another way only \
+         when the developer asks you to.",
+    ),
+    (
+        "slick",
+        "Slick, lean design. Few controls per screen, each one earning its place; generous, even spacing \
+         on the 8-point grid; aligned edges; consistent control sizes; one accent colour; short labels; \
+         nothing decorative for its own sake. Look at every screen with `render_form` and remove what does \
+         not help the operator.",
+    ),
+    (
+        "built-in-controls",
+        "Built-in controls first. Wherever one fits, use the product's own control instead of building the \
+         behaviour by hand: DataGrid, TreeView, DateTimePicker, NumericUpDown, ComboBox, Switch, Slider, \
+         the charts, Snackbar for messages, and the non-visual IndexedFile, RestClient, SqlDatabase and \
+         AgentObject. Look the catalogue up (`powerrustcobol://reference/controls.md`, `kb_lookup`) before \
+         writing anything a control already does.",
+    ),
+    (
+        "localized",
+        "Localized in six languages. Every text the operator sees exists in English, Portuguese, Spanish, \
+         French, Japanese and Chinese: a table in WORKING-STORAGE with one row per text and one column per \
+         language, the language chosen at run time and kept in the application's settings, and every \
+         caption set from the table when the form opens and when the language changes — as \
+         `powerrustcobol://patterns/indexed-maintenance` does. Data-item and paragraph names stay English.",
+    ),
+    (
+        "github",
+        "Saved on GitHub, if the developer wants. When you start a new application, ask the developer \
+         whether to keep it on GitHub. If yes, help them set it up — an account, `gh auth login`, a private \
+         repository — and commit and push as the work progresses. If not, carry on: the application must \
+         work entirely without GitHub. Never commit an API key or a password.",
+    ),
+    (
+        "powerchat",
+        "PowerChat only when asked. Do not add PowerChat to an application unless the developer asks for \
+         it. Keep the side menu organised so an Assistant entry can be added later without reshaping the \
+         application.",
+    ),
+];
+
+fn application_rules() -> String {
+    let mut out = String::from("Golden rules for every application you build:\n");
+    for (i, (_, rule)) in APPLICATION_RULES.iter().enumerate() {
+        out.push_str(&format!("{}. {rule}\n", i + 1));
     }
     out
 }
@@ -632,16 +704,22 @@ fn skills(version: &str) -> Vec<Skill> {
                       more than one form."
                 .into(),
             steps: vec![
+                s("Follow the golden rules in the server instructions on every screen: responsive, \
+                   Spatial, a side menu with embedded forms, slick and lean, built-in controls first, \
+                   six languages, GitHub if the developer wants it, PowerChat only when asked."),
                 s("Agree the shape with the developer first: the screens, the data each one keeps \
                    (indexed files, or a web service), and how the operator moves between them. \
-                   Ask, do not guess, when the request leaves it open."),
+                   Ask, do not guess, when the request leaves it open. Ask too whether to keep the \
+                   application on GitHub."),
                 s("Read the patterns index, `powerrustcobol://patterns/README.md`, and the pattern \
-                   closest to each kind of screen. Copy their structure, not their names."),
-                s("Choose the frame. Several screens of one application → an application shell: \
-                   the main form carries a SideMenu and the screens load into its ContentPane \
-                   (skill powerrustcobol-shell-and-navigation). A few independent windows → each \
-                   form opens as its own window. There is exactly one main form; with \
-                   `create_project` the project starts with `src/main.cbl` and no form yet."),
+                   closest to each kind of screen. Copy their structure, not their names, nor their \
+                   theme: the application is Spatial."),
+                s("The frame is an application shell: the main form carries a SideMenu and the \
+                   screens are `Embedded` forms loaded into its ContentPane (skill \
+                   powerrustcobol-shell-and-navigation); dialogs are child windows. Only when the \
+                   developer asks for separate windows does each form open as its own. There is \
+                   exactly one main form; with `create_project` the project starts in Spatial, with \
+                   `src/main.cbl` and no form yet."),
                 s("Build in this order: (1) the data — every `.cidx`, validated, added, regenerated; \
                    (2) the main form, empty but for its frame; (3) one screen at a time, each \
                    checked before the next; (4) the menu that opens them; (5) Common Code in \
@@ -731,11 +809,11 @@ fn skills(version: &str) -> Vec<Skill> {
                 s("Leave room: controls that touch in the design stop the window there. Give \
                    stretching fields a `MinWidth`, and the form a `MinFormWidth` / \
                    `MinFormHeight`, so it stops at a size that still works."),
-                s("Theme: a form takes the project's default theme unless its `<Form>` sets \
-                   `theme` (`liquid-glass`, `elegance`, `spatial`, or an installed pack); \
-                   `glass-style` (`Classic`, `Enhanced`, `Neumorphic`, `NeumorphicDark`) refines the \
-                   surface. Keep one theme across an application's forms. The project default is \
-                   set in the IDE's Settings by the developer — never in the project file."),
+                s("Theme: the application is Spatial (a golden rule). A form takes the project's \
+                   default theme unless its `<Form>` sets `theme`; leave it unset so every form \
+                   inherits Spatial, which `create_project` makes the default. Set no `glass-style` \
+                   and no other theme. In a project that is not yet Spatial, ask the developer to \
+                   choose it in the IDE's Settings — never edit the project file."),
                 s("Text must stay readable on its background: after a theme change, check every \
                    label and button colour against the new background."),
                 s("Look at it with `render_form` (scale 1). It shows the designed size: for the \
@@ -747,7 +825,7 @@ fn skills(version: &str) -> Vec<Skill> {
             example: Some(
                 "```xml\n\
                  <Form name=\"CUSTOMERS-FORM\" title=\"Customers\" width=\"1288\" height=\"908\" \
-                 form-format=\"Embedded\" responsive=\"true\" theme=\"elegance\">\n\
+                 form-format=\"Embedded\" responsive=\"true\">\n\
                  \x20 <Control id=\"TXT-SEARCH\" type=\"TextBox\" x=\"24\" y=\"24\" w=\"400\" h=\"32\">\n\
                  \x20   <Property name=\"Anchor\">Top,Left,Right</Property>\n\
                  \x20 </Control>\n\
@@ -802,6 +880,10 @@ fn reviewer() -> Reviewer {
             s("Exactly one form carries `main-form=\"true\"`; every control inside a container names \
                it in `parent`."),
             s("Nothing outside the project folder was changed, and nothing of PowerRustCOBOL itself."),
+            s("The golden rules hold for every changed form: responsive, Spatial (no other theme set \
+               on the form), embedded in the side menu's ContentPane unless the developer asked \
+               otherwise, lean, built-in controls where one fits, every visible text in all six \
+               languages."),
             s("`check` reports no error for the changed files. A missing capability has a gap report \
                in `docs/compiler-requests/` instead of a workaround that pretends."),
         ],

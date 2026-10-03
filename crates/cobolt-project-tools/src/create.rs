@@ -133,7 +133,7 @@ pub fn create_project(folder: &Path, name: &str) -> Result<Value, String> {
     }
     std::fs::write(folder.join(DEFAULT_MAIN), starter_main(&stored, DEFAULT_MAIN))
         .map_err(|e| format!("cannot write {DEFAULT_MAIN}: {e}"))?;
-    std::fs::write(folder.join(&manifest_name), render_manifest(&stored, DEFAULT_MAIN))
+    std::fs::write(folder.join(&manifest_name), with_spatial(&render_manifest(&stored, DEFAULT_MAIN))?)
         .map_err(|e| format!("cannot write the manifest: {e}"))?;
     Ok(json!({
         "created": true,
@@ -141,5 +141,21 @@ pub fn create_project(folder: &Path, name: &str) -> Result<Value, String> {
         "name": stored,
         "main": DEFAULT_MAIN,
         "folders": PROJECT_FOLDERS,
+        "theme": SPATIAL,
     }))
+}
+
+/// The theme an application made by a coding agent wears (the golden rules):
+/// Spatial, for the IDE and as every form's default.
+pub const SPATIAL: &str = "spatial";
+
+/// `manifest` with Spatial as the IDE theme (`[ide] theme`) and the default
+/// form theme (`[forms] theme`). The IDE's File ▸ New Project keeps the plain
+/// template; only a project a coding agent creates starts in Spatial.
+fn with_spatial(manifest: &str) -> Result<String, String> {
+    let mut doc: toml_edit::DocumentMut = manifest.parse().map_err(|e| format!("the manifest template does not parse: {e}"))?;
+    for table in ["ide", "forms"] {
+        doc[table]["theme"] = toml_edit::value(SPATIAL);
+    }
+    Ok(doc.to_string())
 }

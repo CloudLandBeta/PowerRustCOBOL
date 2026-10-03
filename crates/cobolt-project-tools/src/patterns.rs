@@ -128,7 +128,7 @@ pub fn index() -> String {
     let mut out = String::from(
         "# PowerRustCOBOL patterns\n\nWorking forms from the PowerDemo3 and PowerChat examples. Read the one \
          closest to what you are building before you write your own; copy its structure, not its \
-         names.\n\n",
+         names nor its theme — an application you build is Spatial.\n\n",
     );
     for p in PATTERNS {
         out.push_str(&format!("- `{PATTERN_PREFIX}{}` — **{}**\n", p.name, p.title));

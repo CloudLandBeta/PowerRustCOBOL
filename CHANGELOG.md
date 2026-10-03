@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.130] — 2026-10-03
+
+### Coding agents: the golden rules for every application
+
+What both tool servers tell a coding agent now carries eight golden rules for
+every application it builds: responsive at any resolution and form factor;
+Spatial for the IDE and the forms; a side menu with embedded forms unless the
+developer asks otherwise; a slick, lean design; the product's built-in
+controls first; every visible text in all six languages; GitHub if the
+developer wants it (the application works without it); PowerChat only when
+asked, with room left in the menu to add it later. The build-an-application,
+shell and layout skills and the reviewer follow them, and `create_project`
+now starts a project in Spatial — for the IDE and as the forms' default theme.
+File ▸ New Project in the IDE is unchanged.
+
 ## [PowerRustCOBOL 1.80.129] — 2026-10-03
 
 ### The Connect a coding agent wizard: new points
