@@ -224,6 +224,21 @@ impl<H: ProjectHost> ProjectTools<H> {
         ]
     }
 
+    /// The tool list, every PROJECT tool also taking the optional `project`
+    /// argument (spec 084 R20). The knowledge tools need no project.
+    pub fn tool_list_with_project() -> Vec<Tool> {
+        let mut tools = Self::tool_list();
+        for tool in tools.iter_mut().filter(|t| !t.name.starts_with("kb_")) {
+            if let Some(props) = tool.input_schema.get_mut("properties").and_then(Value::as_object_mut) {
+                props.insert(
+                    "project".into(),
+                    json!({ "type": "string", "description": "Optional: the project this call is for — its folder (your working directory), its manifest or its name. A call for any project other than the one open is refused." }),
+                );
+            }
+        }
+        tools
+    }
+
     /// Run one tool by name. `Ok` is the JSON answer; `Err` is a tool-level
     /// failure, said in words.
     pub fn call(&mut self, name: &str, args: &Value) -> Result<Value, String> {
@@ -244,7 +259,32 @@ impl<H: ProjectHost> ProjectTools<H> {
             _ => {}
         }
         let root: ProjectRoot = self.host.project().map_err(|e| e.message().to_owned())?;
+        // Spec 084 R20: a call for another project is refused, never applied
+        // to the one that happens to be open.
+        if let Some(asked) = opt_str(args, "project") {
+            if !names_project(&root, &asked) {
+                return Err(format!(
+                    "this call is for project '{asked}', but the project open is '{}'. \
+                     Open the right one with open_project, or ask the developer.",
+                    root.manifest_name()
+                ));
+            }
+        }
         let shared = Arc::clone(&self.shared);
+        let answer = self.run_project_tool(name, args, &root, &shared)?;
+        // Spec 084 R19: every answer names the project it acted on.
+        Ok(match answer {
+            Value::Object(mut map) => {
+                map.entry("project").or_insert_with(|| Value::String(root.manifest_name()));
+                Value::Object(map)
+            }
+            other => json!({ "project": root.manifest_name(), "result": other }),
+        })
+    }
+
+    fn run_project_tool(&mut self, name: &str, args: &Value, root: &ProjectRoot, shared: &Arc<Shared>) -> Result<Value, String> {
+        let root = root.clone();
+        let shared = Arc::clone(shared);
         match name {
             "list_files" => list::run(&root),
             "check" => check::run(&self.host, &root, opt_str(args, "path").as_deref()),
@@ -272,6 +312,26 @@ impl<H: ProjectHost> ProjectTools<H> {
     }
 }
 
+/// Whether `asked` names the open project: its folder or any folder inside it
+/// (a coding agent's working directory), its manifest, or its name.
+fn names_project(root: &ProjectRoot, asked: &str) -> bool {
+    let asked = asked.trim();
+    let path = std::path::Path::new(asked);
+    if path.is_absolute() || asked.contains('/') || asked.contains('\\') {
+        let canon = |p: &std::path::Path| std::fs::canonicalize(p).ok();
+        return match (canon(path), canon(root.dir())) {
+            (Some(given), Some(dir)) => given.starts_with(&dir) || canon(root.manifest()) == Some(given),
+            _ => false,
+        };
+    }
+    let manifest = root.manifest_name();
+    let stem = manifest
+        .strip_suffix(".project.toml")
+        .or_else(|| manifest.strip_suffix(".toml"))
+        .unwrap_or(&manifest);
+    asked.eq_ignore_ascii_case(&manifest) || asked.eq_ignore_ascii_case(stem)
+}
+
 fn opt_str(args: &Value, key: &str) -> Option<String> {
     args.get(key)
         .and_then(Value::as_str)
@@ -290,7 +350,7 @@ impl<H: ProjectHost> McpHandler for ProjectTools<H> {
     }
 
     fn list_tools(&mut self) -> Vec<Tool> {
-        Self::tool_list()
+        Self::tool_list_with_project()
     }
 
     fn call_tool(&mut self, name: &str, arguments: &Value) -> ToolResult {

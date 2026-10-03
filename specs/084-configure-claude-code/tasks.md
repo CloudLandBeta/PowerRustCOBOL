@@ -54,7 +54,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   into `cobolt-kb`; `chunked_knowledge` re-exports; installed store or in-memory
   fallback; optional cached semantic model; one excluded-documents constant;
   `kb_lookup` text fix. *Verify:* AC6. *Serves:* R12.
-- [ ] **T6 (A2d) — Project naming and mismatch.** `project` in every answer;
+- [x] **T6 (A2d) — Project naming and mismatch.** `project` in every answer;
   optional `project` argument refused on mismatch with both names; project-free
   tools dispatch before project resolution. *Verify:* AC10. *Serves:* R19, R20.
 - [ ] **T7 (A2e) — `create_project` / `open_project` headless.** Extract the

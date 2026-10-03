@@ -247,7 +247,7 @@ fn register_adds_a_form_and_the_seal_still_verifies() {
     let other = cobolt_forms::Form::new("ORDERS", "Orders", 300, 200);
     cobolt_forms::save_form(&other, &dir.join("forms/ORDERS.cfrm")).unwrap();
     let v = call(&mut tools, "add_to_project", json!({"path": "forms/ORDERS.cfrm"})).unwrap();
-    assert_eq!(v, json!({"added": "forms/ORDERS.cfrm", "list": "forms"}));
+    assert_eq!(v, json!({"added": "forms/ORDERS.cfrm", "list": "forms", "project": "CheckDemo.project.toml"}));
     let view = cobolt_compiler::project_manifest_view(&dir.join("CheckDemo.project.toml")).unwrap();
     assert_eq!(view.forms, ["forms/MAIN-FORM.cfrm", "forms/ORDERS.cfrm"]);
     use cobolt_compiler::main_form_guard::{authorize_form_start, StartVerdict};
@@ -349,4 +349,55 @@ fn list_files_and_validate_through_the_tool_set() {
     let cidx = call(&mut tools, "validate", json!({"path": "indexed/a.cidx"})).unwrap();
     assert_eq!(cidx["valid"], true, "{cidx}");
     println!("list_files + validate: 1 form listed; valid form, broken form, valid .cidx (3 verdicts)");
+}
+
+/// Spec 084 AC10 (R19, R20): every project-tool answer names its project; a
+/// call naming the open project — by folder, a folder inside it, its manifest
+/// or its name — runs; a call naming another project is refused with both
+/// names, and touches nothing.
+#[test]
+fn every_answer_names_its_project_and_another_project_is_refused() {
+    let dir = fixture("project-arg");
+    let mut tools = ProjectTools::new(HeadlessHost::new(&dir, "test"));
+    let manifest = "CheckDemo.project.toml";
+    for (tool, args) in [
+        ("list_files", json!({})),
+        ("check", json!({})),
+        ("validate", json!({"path": "forms/MAIN-FORM.cfrm"})),
+    ] {
+        let v = call(&mut tools, tool, args).unwrap();
+        let named = v["project"].as_str().unwrap_or_default();
+        assert!(named == manifest || named == "CheckDemo", "{tool} names its project: {v}");
+    }
+    let forms = dir.join("forms");
+    let accepted = [
+        dir.to_string_lossy().into_owned(),
+        forms.to_string_lossy().into_owned(),
+        dir.join(manifest).to_string_lossy().into_owned(),
+        "CheckDemo".to_owned(),
+        manifest.to_owned(),
+    ];
+    for asked in &accepted {
+        assert!(call(&mut tools, "list_files", json!({"project": asked})).is_ok(), "accepted: {asked}");
+    }
+    let elsewhere = std::env::temp_dir().join(format!("prc-084-elsewhere-{}", std::process::id()));
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let refused = [elsewhere.to_string_lossy().into_owned(), "PowerChat".to_owned()];
+    for asked in &refused {
+        let e = call(&mut tools, "check", json!({"project": asked})).unwrap_err();
+        assert!(e.contains(asked.as_str()) && e.contains(manifest), "both names in the refusal: {e}");
+    }
+    // The schema offers the argument on project tools, not on knowledge tools.
+    let listed = ProjectTools::<HeadlessHost>::tool_list_with_project();
+    for t in &listed {
+        let has = t.input_schema["properties"].get("project").is_some();
+        assert_eq!(has, !t.name.starts_with("kb_"), "{}", t.name);
+    }
+    let _ = std::fs::remove_dir_all(&elsewhere);
+    let _ = std::fs::remove_dir_all(&dir);
+    println!(
+        "project naming: 3 answers named, {} ways of naming the open project accepted, {} other projects refused with both names",
+        accepted.len(),
+        refused.len()
+    );
 }

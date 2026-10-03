@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.111] — 2026-10-03
+
+### Spec 084 T6: every tool answer names its project, and another project is refused
+
+Each project tool's answer now carries `project`, so a coding agent always sees
+which project it changed (R19). Every project tool also takes an optional
+`project` argument — the project's folder or any folder inside it (the agent's
+working directory), its manifest, or its name — and a call naming any other
+project than the one open is refused with both names, before anything is read
+or written (R20). The knowledge tools take no project. (1.80.110 is a fix on
+`main`.)
+
 ## [PowerRustCOBOL 1.80.109] — 2026-10-02
 
 ### Spec 084 T5: `kb_search` — free-text search of the Knowledge Base for coding agents
