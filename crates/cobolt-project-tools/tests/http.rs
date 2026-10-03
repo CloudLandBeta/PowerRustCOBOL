@@ -191,3 +191,33 @@ fn http_transport_answers_every_row_of_the_table() {
     }
     println!("http: {} requests over 127.0.0.1:{p}, every answer as plan §1.4 specifies", rows.len());
 }
+
+/// Spec 084 AC5 + AC7 over HTTP — and with NO project open, because knowledge
+/// needs none: the instructions and the reference resources still answer while
+/// every tool call is refused.
+#[test]
+fn http_serves_instructions_and_resources_even_without_a_project() {
+    let srv = start();
+    *srv.open.lock().unwrap() = OpenKit::NoProject;
+    let ask = |id: u32, method: &str, params: Value| -> Value {
+        let body = json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}).to_string();
+        let (code, text) = post(srv.port, "/mcp/k-test", "", &body);
+        assert_eq!(code, 200, "{method}: {text}");
+        serde_json::from_str(&text).unwrap()
+    };
+    let init = ask(1, "initialize", json!({"protocolVersion":"2025-06-18"}));
+    let instructions = init["result"]["instructions"].as_str().expect("instructions");
+    let rules = cobolt_project_tools::content::rules();
+    assert!(rules.iter().all(|r| instructions.contains(&r.text)), "every rule is in the instructions");
+    let list = ask(2, "resources/list", json!({}));
+    let n = list["result"]["resources"].as_array().map(Vec::len).unwrap_or(0);
+    assert!(n >= 10, "the reference pack is listed: {n}");
+    let read = ask(3, "resources/read", json!({"uri":"powerrustcobol://reference/cobol85-supported-syntax.md"}));
+    assert_eq!(
+        read["result"]["contents"][0]["text"].as_str(),
+        Some(cobolt_project_tools::reference::SUPPORTED_SYNTAX)
+    );
+    let call = ask(4, "tools/call", json!({"name":"check","arguments":{}}));
+    assert_eq!(call["result"]["isError"], true, "a tool call is still refused without a project");
+    println!("http, no project open: {} rules in the instructions, {n} resources listed, syntax doc read, tool call refused", rules.len());
+}

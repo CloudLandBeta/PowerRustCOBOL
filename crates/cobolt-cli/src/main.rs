@@ -374,8 +374,9 @@ fn cmd_mcp(args: &[String]) {
     let start = project
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| PathBuf::from("."));
-    // rcrun carries the workspace version, not the product's (spec 080 plan F8).
-    let host = cobolt_project_tools::HeadlessHost::new(start, env!("CARGO_PKG_VERSION"));
+    // The PRODUCT version (spec 084 R11), read from the IDE's `version.rs` —
+    // still its single source — rather than this crate's workspace version.
+    let host = cobolt_project_tools::HeadlessHost::new(start, product_version::VERSION);
     let mut tools = cobolt_project_tools::ProjectTools::new(host);
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -1079,4 +1080,10 @@ fn print_diagnostics(diagnostics: &[cobolt_semantic::SemanticDiagnostic], file: 
         );
     }
     has_errors
+}
+
+/// The product version, from the IDE's `crates/cobolt-ide/src/version.rs`
+/// (which holds only this constant), so `rcrun mcp` reports what the IDE does.
+mod product_version {
+    include!("../../cobolt-ide/src/version.rs");
 }

@@ -288,6 +288,22 @@ impl McpHandler for IdeTools {
         self.tools.list_tools()
     }
 
+    fn capabilities(&self) -> Value {
+        self.tools.capabilities()
+    }
+
+    fn instructions(&self) -> Option<String> {
+        self.tools.instructions()
+    }
+
+    fn list_resources(&mut self) -> Vec<cobolt_mcp::Resource> {
+        self.tools.list_resources()
+    }
+
+    fn read_resource(&mut self, uri: &str) -> Option<cobolt_mcp::ResourceContents> {
+        self.tools.read_resource(uri)
+    }
+
     fn call_tool(&mut self, name: &str, arguments: &Value) -> ToolResult {
         let arg = arguments
             .get("path")

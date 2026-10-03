@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.108] — 2026-10-02
+
+### Spec 084 T4: both tool servers serve the rules and the reference live
+
+The IDE's tool server and `rcrun mcp` now send the standing rules as their MCP
+instructions at `initialize`, and serve the reference pack — the Developer's
+Guide, the supported syntax, the controls, built-ins and file formats — as
+resources (`powerrustcobol://reference/<name>`), read from the running binary.
+Both keep answering for knowledge while no project is open. `rcrun mcp` now
+reports the product version, read from the IDE's `version.rs`, instead of its
+crate version. (1.80.106–1.80.107 are fixes on `main`/`fix/agent-provider`.)
+
 ## [PowerRustCOBOL 1.80.105] — 2026-10-02
 
 ### Spec 084 T3: the coding-agent content moves where `rcrun` can serve it

@@ -166,3 +166,50 @@ fn rcrun_mcp_with_an_unreadable_manifest_answers_no_project_on_every_tool() {
     }
     println!("rcrun mcp: unreadable manifest → {}/7 tools answered \"no project open\"", replies.len());
 }
+
+mod product {
+    include!("../../cobolt-ide/src/version.rs");
+}
+
+/// Spec 084 AC5 + AC7 over stdio: `initialize` carries the standing rules and
+/// the PRODUCT version; `resources/list` lists the reference pack and
+/// `resources/read` returns the very text embedded in the binary.
+#[test]
+fn rcrun_mcp_serves_instructions_and_the_reference_resources() {
+    let project = fixture("resources");
+    let requests = [
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}),
+        json!({"jsonrpc":"2.0","id":2,"method":"resources/list"}),
+        json!({"jsonrpc":"2.0","id":3,"method":"resources/read","params":{"uri":"powerrustcobol://reference/developers-guide.md"}}),
+        json!({"jsonrpc":"2.0","id":4,"method":"resources/read","params":{"uri":"powerrustcobol://reference/nope.md"}}),
+    ];
+    let (replies, _, _) = session(&project, &requests, |_| ());
+    let init = &replies[0]["result"];
+    assert_eq!(init["serverInfo"]["version"], product::VERSION, "rcrun reports the product version");
+    assert!(init["capabilities"]["resources"].is_object(), "resources advertised: {init}");
+    let instructions = init["instructions"].as_str().expect("instructions sent");
+    assert!(instructions.contains(product::VERSION));
+    let rules = cobolt_project_tools::content::rules();
+    for rule in &rules {
+        assert!(instructions.contains(&rule.text), "rule {} missing from the instructions", rule.id);
+    }
+    let listed = replies[1]["result"]["resources"].as_array().expect("a resource list");
+    let names: Vec<&str> = listed.iter().filter_map(|r| r["name"].as_str()).collect();
+    for want in ["README.md", "developers-guide.md", "cobol85-supported-syntax.md", "controls.md", "builtins.md", "cfrm-format.md", "cidx-format.md"] {
+        assert!(names.contains(&want), "{want} not listed: {names:?}");
+    }
+    assert_eq!(
+        replies[2]["result"]["contents"][0]["text"].as_str(),
+        Some(cobolt_project_tools::reference::DEVELOPERS_GUIDE),
+        "the guide is served byte for byte"
+    );
+    assert_eq!(replies[3]["error"]["code"], -32002, "an unknown resource is MCP's not-found");
+    let _ = std::fs::remove_dir_all(project);
+    println!(
+        "rcrun mcp: version {}, {} rules in the instructions, {} resources listed, guide read ({} bytes), unknown URI -> -32002",
+        product::VERSION,
+        rules.len(),
+        names.len(),
+        cobolt_project_tools::reference::DEVELOPERS_GUIDE.len()
+    );
+}

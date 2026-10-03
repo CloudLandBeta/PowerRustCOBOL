@@ -42,7 +42,9 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   English docs for rcrun; rules point at resource URIs; redaction over
   `(rel, text)`. *Verify:* moved tests pass in their new crate; IDE builds.
   *Serves:* R7, R10, R13.
-- [ ] **T4 (A2b) — Instructions and resources on both servers.** `ProjectTools`
+- [x] **T4 (A2b) — Instructions and resources on both servers.** *(The rules'
+  `docs/powerrustcobol/…` wording is rewritten in T12, when the per-project kit
+  that writes that folder is removed.)* `ProjectTools`
   answers `instructions` (rules + product version) and the reference resources;
   `Gated` and `IdeTools` forward them; rcrun reports the product version.
   *Verify:* AC5, AC7 tests over stdio and HTTP. *Serves:* R11, R13, R14.

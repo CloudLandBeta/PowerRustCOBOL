@@ -253,4 +253,14 @@ impl<H: McpHandler> McpHandler for Gated<H> {
     fn capabilities(&self) -> Value {
         self.inner.capabilities()
     }
+    // Knowledge needs no open project: forwarded even when calls are refused.
+    fn instructions(&self) -> Option<String> {
+        self.inner.instructions()
+    }
+    fn list_resources(&mut self) -> Vec<cobolt_mcp::Resource> {
+        self.inner.list_resources()
+    }
+    fn read_resource(&mut self, uri: &str) -> Option<cobolt_mcp::ResourceContents> {
+        self.inner.read_resource(uri)
+    }
 }

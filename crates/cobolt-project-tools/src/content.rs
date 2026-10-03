@@ -244,6 +244,30 @@ pub fn build(input: BuildInput) -> KitContent {
     }
 }
 
+/// URI prefix of the reference documents the tool servers serve as MCP
+/// resources (spec 084 R13).
+pub const RESOURCE_PREFIX: &str = "powerrustcobol://reference/";
+
+/// The instructions both tool servers send at `initialize` (spec 084 R11):
+/// how to work, the standing rules, and where the reference lives. Built from
+/// the same rules the exported brief carries, so the two cannot disagree.
+pub fn server_instructions(version: &str) -> String {
+    let mut out = format!(
+        "PowerRustCOBOL AI {version} — tools for PowerRustCOBOL projects: desktop applications \
+         written in RustCOBOL (COBOL-85 plus the PowerRustCOBOL extensions) with forms (`.cfrm`), \
+         indexed-file definitions (`.cidx`), Common Code and assets. You do not have the compiler's \
+         source and must not need it: what the product supports is in the reference resources \
+         (`{RESOURCE_PREFIX}…`, listed by resources/list) and `kb_lookup` finds one name in them.\n\n\
+         Work in this order: look the names up, make the change, `regenerate` what you changed, \
+         `check` until it reports no error, then report. A change is not done while `check` \
+         reports an error for it.\n\nStanding rules:\n"
+    );
+    for rule in rules() {
+        out.push_str(&format!("- {}\n", rule.text));
+    }
+    out
+}
+
 fn s(text: &str) -> String {
     text.to_owned()
 }
@@ -294,7 +318,8 @@ pub const R8_RULE_IDS: [&str; 7] = [
     "reference-only-properties",
 ];
 
-fn rules() -> Vec<Rule> {
+/// The standing rules, in brief order (spec 080 R8, R16–R19, the tool rules).
+pub fn rules() -> Vec<Rule> {
     let r = |id: &str, text: &str| Rule { id: id.to_owned(), text: text.to_owned() };
     vec![
         // ── R8 — the standing COBOL rules ─────────────────────────────────────

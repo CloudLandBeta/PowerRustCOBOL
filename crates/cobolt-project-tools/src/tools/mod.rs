@@ -270,4 +270,39 @@ impl<H: ProjectHost> McpHandler for ProjectTools<H> {
             Err(e) => ToolResult::failed(e),
         }
     }
+
+    fn capabilities(&self) -> Value {
+        serde_json::json!({ "tools": { "listChanged": false }, "resources": { "listChanged": false } })
+    }
+
+    /// The rules, served live (spec 084 R11) — never copied into a project.
+    fn instructions(&self) -> Option<String> {
+        Some(crate::content::server_instructions(&self.host.version()))
+    }
+
+    /// The reference pack, served live from this binary (spec 084 R13, R14).
+    fn list_resources(&mut self) -> Vec<cobolt_mcp::Resource> {
+        crate::reference::pack(&self.host.version())
+            .into_iter()
+            .map(|d| cobolt_mcp::Resource {
+                uri: format!("{}{}", crate::content::RESOURCE_PREFIX, d.name),
+                name: d.name,
+                title: Some(d.title),
+                description: None,
+                mime_type: Some("text/markdown".into()),
+            })
+            .collect()
+    }
+
+    fn read_resource(&mut self, uri: &str) -> Option<cobolt_mcp::ResourceContents> {
+        let name = uri.strip_prefix(crate::content::RESOURCE_PREFIX)?;
+        crate::reference::pack(&self.host.version())
+            .into_iter()
+            .find(|d| d.name == name)
+            .map(|d| cobolt_mcp::ResourceContents {
+                uri: uri.to_owned(),
+                mime_type: Some("text/markdown".into()),
+                text: d.body,
+            })
+    }
 }
