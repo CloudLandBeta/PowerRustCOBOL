@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.101] — 2026-10-02
+
+### Spec 084: Configure Claude Code — spec, plan and tasks
+
+Registers `specs/084-configure-claude-code/` (spec, approved plan, tasks). It
+replaces spec 080's per-project coding-agent kit with a one-time, IDE-wide
+Claude Code plugin: rules and knowledge served live by the IDE, project
+create/open/edit tools, a Claude Code Settings window in the Help menu, an
+access token, and — folded in — `render_form`, `run_form`, application-level
+skills and a patterns pack. No product code changes yet.
 ## [PowerRustCOBOL 1.80.110] — 2026-10-02
 
 ### Fix: a multiline TextBox takes the caret wherever it is clicked
