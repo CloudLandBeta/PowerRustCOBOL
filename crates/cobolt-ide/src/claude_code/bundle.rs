@@ -29,7 +29,16 @@ use std::path::{Path, PathBuf};
 use cobolt_project_tools::content::{self, gap_template_markdown, KitContent, RcrunLocation, Skill};
 use serde_json::{json, Value};
 
-use crate::agent_kit::claude_code::rcrun_command;
+
+/// The command that starts `rcrun`, using Claude Code's `${HOME}` expansion so
+/// the home folder is never written into the plugin (R10).
+pub fn rcrun_command(at: &RcrunLocation) -> String {
+    match at {
+        RcrunLocation::UnderHome(rest) => format!("${{HOME}}/{rest}"),
+        RcrunLocation::Absolute(path) => path.clone(),
+        RcrunLocation::OnPath => "rcrun".into(),
+    }
+}
 
 /// The marketplace's name, and the plugin's.
 pub const MARKETPLACE: &str = "powerrustcobol";

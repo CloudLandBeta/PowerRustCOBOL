@@ -78,7 +78,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   window pattern; status, port row moved from the Settings form, Configure/Update,
   Renew token; IDE-wide TOML. *Verify:* AC12, AC13, window-size test.
   *Serves:* R22–R27, R37.
-- [ ] **T12 (A7) — Remove the per-project export.** File menu → Configure Claude
+- [x] **T12 (A7) — Remove the per-project export.** File menu → Configure Claude
   Code; delete stamp/manifest/refresh-offer paths and their keys; new keys in six
   languages. *Verify:* AC14 (`i18n_tests`), IDE sweep. *Serves:* R1, R29.
 - [ ] **T13 (A8) — Developer's Guide.** Rewrite the coding-agent section; delete

@@ -9,8 +9,9 @@
 //! [`KitContent`] is plain data: the brief's rules, the task skills, the
 //! reviewer, the gap-report template, the reference pack, which servers to
 //! connect to and what the permissions should allow. It never names a target
-//! agent and never decides a file layout — a [`KitWriter`] turns it into one
-//! agent's files. Adding a second agent adds a writer, never a line here.
+//! agent and never decides a file layout: the Claude Code plugin bundle (spec
+//! 084) turns it into that agent's files. A second agent adds a writer, never
+//! a line here.
 //!
 //! All text is English (R22); every COBOL example writes a built-in inline as
 //! `COBOL::"NAME" ( … )`.
@@ -161,37 +162,6 @@ pub struct PermissionIntent {
     pub allow_project_tools: bool,
     /// Deny the shell outright (plan D10).
     pub deny_shell: bool,
-}
-
-/// One file a writer produces. Stamping, ownership and redaction work on these
-/// and never on a target's own types.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KitFile {
-    /// Project-relative, `/`-separated.
-    pub rel: String,
-    pub body: String,
-    pub kind: KitFileKind,
-}
-
-/// How a kit file is stamped and owned (plan §3.3).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KitFileKind {
-    /// Plain Markdown: the version stamp is its first line.
-    Markdown,
-    /// Markdown that must open with `---` frontmatter: the stamp follows it.
-    FrontMatterMarkdown,
-    /// The kit's delimited section of a file the developer may also write in.
-    Section,
-    /// JSON the kit owns only part of: `body` is the kit-owned value, merged
-    /// into whatever the file already holds.
-    Json,
-}
-
-/// Turns the content into one agent's files (R20).
-pub trait KitWriter {
-    /// The target's id, recorded in the kit manifest.
-    fn target(&self) -> &'static str;
-    fn files(&self, content: &KitContent) -> Vec<KitFile>;
 }
 
 /// What [`build`] needs that is not fixed text.

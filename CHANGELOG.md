@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.117] — 2026-10-03
+
+### Spec 084 T12: the per-project coding-agent kit is gone
+
+**File → Export coding-agent kit** is removed; **Configure Claude Code** (once,
+for every project) replaces it. With it go the "kit out of date" offer on
+opening a project, the kit's writer, file stamping and manifest, its redaction
+pass (the plugin bundle has its own), the writer-only types of the shared
+content, and the 16 strings nothing shows any more (×6 languages) — among them
+the old "Coding-agent tools port" row's label, whose setting now lives in
+Help → Claude Code Settings. A project that still holds an exported kit keeps
+its files: nothing deletes them.
+
 ## [PowerRustCOBOL 1.80.116] — 2026-10-03
 
 ### Spec 084 T11: Help → Claude Code Settings
