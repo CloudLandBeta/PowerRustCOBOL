@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.128] — 2026-10-03
+
+### The Connect a coding agent wizard: Spec Driven Development, and Chibi seated
+
+The wizard's introduction now reads "Connect <agent> to PowerRustCOBOL AI to
+build with Spec Driven Development. Clear specifications guide the development
+process, helping you create quality applications in a fraction of the usual
+development time." — the agent's name taken from the dropdown — in all six
+languages. Chibi is drawn as he is: black lacquered armour edged in orange,
+the `{:}` crest, shoulder plates, the orange rope belt, glowing trouser seams
+and black boots, seated on a stool at his laptop; the robot is unchanged. The
+wizard's picture test now renders it in every language.
+
 ## [PowerRustCOBOL 1.80.127] — 2026-10-03
 
 ### Examples: PowerDemo3 and PowerChat as last saved

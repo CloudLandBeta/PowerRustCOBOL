@@ -207,14 +207,81 @@ fn paint_scene(painter: &egui::Painter, art: Rect, time: f64, chibi: Option<egui
         painter.add(egui::Shape::ellipse_filled(p(cx, 176.0), vec2(58.0, 6.0) * s, Color32::from_black_alpha(90)));
     }
 
-    // ── The mascot (dark armour, orange trim), facing right ──
-    let armour = Color32::from_rgb(28, 29, 34);
+    // ── The mascot, seated at his laptop: Chibi as he is drawn — black
+    // lacquered armour edged in orange, the `{:}` crest on the chest, the
+    // orange rope belt, dark trousers with glowing seams, black boots. Turned
+    // three-quarters towards the laptop, so the body agrees with the head ──
+    let armour = Color32::from_rgb(30, 31, 37);
+    let rim = Color32::from_rgb(78, 82, 96);
+    let plate = Color32::from_rgb(46, 48, 56);
+    let cloth = Color32::from_rgb(36, 37, 44);
     let orange = Color32::from_rgb(242, 140, 40);
-    painter.rect_filled(r(38.0, 118.0, 42.0, 44.0), CornerRadius::same(12), armour);
-    painter.rect_stroke(r(38.0, 118.0, 42.0, 44.0), CornerRadius::same(12), Stroke::new(1.5 * s, orange), egui::StrokeKind::Inside);
-    painter.rect_filled(r(38.0, 140.0, 42.0, 5.0), CornerRadius::same(2), orange); // the rope belt
-    painter.rect_filled(r(66.0, 136.0, 34.0, 9.0), CornerRadius::same(4), armour); // arm to the keyboard
-    painter.circle_filled(p(100.0, 140.5), 5.0 * s, armour);
+    let ember = Color32::from_rgb(255, 172, 72);
+    // A limb: a thick stroke with rounded ends, under a thin lit edge.
+    let limb = |a: Pos2, b: Pos2, w: f32, c: Color32| {
+        for (width, colour) in [(w + 2.0, rim), (w, c)] {
+            painter.line_segment([a, b], Stroke::new(width * s, colour));
+            painter.circle_filled(a, width * 0.5 * s, colour);
+            painter.circle_filled(b, width * 0.5 * s, colour);
+        }
+    };
+    // The low stool he sits on.
+    painter.rect_filled(r(34.0, 158.0, 44.0, 6.0), CornerRadius::same(3), Color32::from_rgb(64, 71, 89));
+    for x in [38.0, 72.0] {
+        painter.rect_filled(r(x, 164.0, 3.0, 12.0), CornerRadius::same(1), Color32::from_rgb(52, 58, 73));
+    }
+    // Legs, under the desk: thighs along the seat, shins down, boots.
+    for (dy, dx) in [(0.0, 0.0), (3.0, 6.0)] {
+        limb(p(52.0, 153.0 + dy), p(90.0 + dx, 155.0 + dy), 11.0, cloth);
+        limb(p(91.0 + dx, 156.0 + dy), p(93.0 + dx, 168.0 + dy), 9.0, cloth);
+        painter.line_segment([p(58.0, 156.5 + dy), p(88.0 + dx, 158.0 + dy)], Stroke::new(1.1 * s, orange.gamma_multiply(0.85)));
+        let boot = r(86.0 + dx, 166.0 + dy, 18.0, 8.0);
+        painter.rect_filled(boot.expand(1.0 * s), CornerRadius { nw: 4, ne: 6, sw: 2, se: 3 }, rim);
+        painter.rect_filled(boot, CornerRadius { nw: 4, ne: 6, sw: 2, se: 3 }, armour);
+        painter.line_segment([boot.left_bottom(), boot.right_bottom()], Stroke::new(1.3 * s, orange));
+    }
+    // The far arm, resting on the knee.
+    limb(p(42.0, 128.0), p(48.0, 143.0), 8.0, armour);
+    limb(p(48.0, 143.0), p(66.0, 150.0), 7.0, armour);
+    // The torso: a lacquered cuirass, two riveted bands, the crest.
+    let torso = r(42.0, 118.0, 36.0, 34.0);
+    painter.rect_filled(torso.expand(1.2 * s), CornerRadius { nw: 10, ne: 10, sw: 7, se: 7 }, rim);
+    painter.rect_filled(torso, CornerRadius { nw: 10, ne: 10, sw: 7, se: 7 }, armour);
+    for y in [139.0, 145.0] {
+        painter.line_segment([p(44.0, y), p(76.0, y)], Stroke::new(1.2 * s, plate));
+        for x in [48.0, 56.0, 64.0, 72.0] {
+            painter.circle_filled(p(x, y), 0.9 * s, orange);
+        }
+    }
+    let crest = p(60.0, 129.0);
+    let octagon: Vec<Pos2> = (0..8)
+        .map(|i| {
+            let a = std::f32::consts::TAU * (i as f32 + 0.5) / 8.0;
+            crest + vec2(a.cos(), a.sin()) * 6.8 * s
+        })
+        .collect();
+    painter.add(egui::Shape::convex_polygon(octagon, plate, Stroke::new(1.4 * s, orange)));
+    painter.text(crest, egui::Align2::CENTER_CENTER, "{:}", egui::FontId::monospace(6.5 * s), ember);
+    // The rope belt, knotted at the front, its ends hanging.
+    painter.rect_filled(r(41.0, 148.0, 38.0, 5.0), CornerRadius::same(2), orange);
+    painter.circle_filled(p(62.0, 150.5), 3.6 * s, ember);
+    painter.line_segment([p(60.5, 153.0), p(58.0, 159.0)], Stroke::new(2.0 * s, orange));
+    painter.line_segment([p(63.5, 153.0), p(66.0, 158.5)], Stroke::new(2.0 * s, orange));
+    // The shoulder plates (sode), as on his helmet: stacked, edged in orange.
+    for (x0, x1, lean) in [(31.0, 44.0, -2.0), (76.0, 89.0, 2.0)] {
+        let guard = vec![p(x0, 120.0), p(x1, 120.0), p(x1 + lean, 138.0), p(x0 + lean, 138.0)];
+        painter.add(egui::Shape::convex_polygon(guard, plate, Stroke::new(1.3 * s, orange)));
+        for y in [126.0, 132.0] {
+            painter.line_segment([p(x0 + 1.0, y), p(x1 - 1.0, y)], Stroke::new(1.0 * s, armour));
+        }
+        painter.circle_filled(p((x0 + x1) / 2.0, 123.0), 1.1 * s, orange);
+    }
+    // The near arm reaching for the keys: upper arm, forearm, gauntlet.
+    limb(p(82.0, 136.0), p(88.0, 144.0), 8.0, armour);
+    limb(p(88.0, 144.0), p(100.0, 147.5), 7.0, armour);
+    painter.line_segment([p(91.0, 142.5), p(92.0, 148.5)], Stroke::new(1.3 * s, orange)); // gauntlet cuff
+    painter.circle_filled(p(102.0, 147.5), 4.6 * s, rim);
+    painter.circle_filled(p(102.0, 147.5), 3.8 * s, armour);
     match chibi {
         Some(tex) => {
             // 256 × 214: the helmet with its crest, eyes glowing.
@@ -292,16 +359,23 @@ mod tests {
         assert!(strip.left() > modal.left() + ART_W, "right of the illustration");
     }
 
-    /// The wizard rendered to pixels by the CPU rasteriser (spec 084 T14):
-    /// the picture is not blank, the mascot's orange and the agent's steel are
-    /// both on the left, and a PNG is left in the temp folder for a human look.
+    /// The wizard rendered to pixels by the CPU rasteriser (spec 084 T14), in
+    /// every language: the picture is not blank, the mascot's orange and the
+    /// agent's steel are both on the left, and a PNG per language is left in
+    /// the temp folder for a human look.
     #[test]
     fn the_wizard_renders_to_a_picture() {
+        for &lang in crate::i18n::Language::ALL {
+            render_in(lang);
+        }
+    }
+
+    fn render_in(lang: crate::i18n::Language) {
         let ctx = egui::Context::default();
         ctx.set_fonts(crate::fonts::base_font_definitions());
         let mut raster = cobolt_forms::raster::Rasterizer::new();
         let mut w = ConnectAgentWizard { open: true, ..Default::default() };
-        let tr = crate::i18n::Language::English.tr();
+        let tr = lang.tr();
         let agents = crate::coding_agents::AGENTS;
         let conn = vec![Connection::NotConnected { path: "/opt/homebrew/bin/claude".into() }];
         let size = vec2(900.0, 480.0);
@@ -314,7 +388,7 @@ mod tests {
         }
         let img = img.unwrap();
         let png = cobolt_forms::raster::to_png(&img).unwrap();
-        let out = std::env::temp_dir().join("prc-084-connect-wizard.png");
+        let out = std::env::temp_dir().join(format!("prc-084-connect-wizard-{}.png", lang.code()));
         std::fs::write(&out, &png).unwrap();
         let orange = img.pixels.iter().filter(|p| p.r() > 200 && p.g() > 100 && p.g() < 170 && p.b() < 80).count();
         let accent = img.pixels.iter().filter(|p| p.b() > 220 && p.g() > 140 && p.g() < 180 && p.r() < 120).count();
