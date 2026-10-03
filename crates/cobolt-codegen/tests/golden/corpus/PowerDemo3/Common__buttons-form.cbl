@@ -140,6 +140,11 @@
           05 WS-Button-10-VISIBLE    PIC 9      VALUE 1.
           05 WS-Button-10-ENABLED    PIC 9      VALUE 1.
 
+       01 WS-PictureBox-1.
+          05 WS-PictureBox-1-TEXT       PIC X(256) VALUE 'PictureBox-1'.
+          05 WS-PictureBox-1-VISIBLE    PIC 9      VALUE 1.
+          05 WS-PictureBox-1-ENABLED    PIC 9      VALUE 1.
+
        PROCEDURE DIVISION.
        COBOL-MAIN.
            COBOL::"INIT-FORM" ( FORM-NAME )

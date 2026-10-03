@@ -796,10 +796,10 @@
           05 WS-Vwr-Chat-ENABLED    PIC 9      VALUE 1.
 
        01 WS-Txt-Input.
-          05 WS-Txt-Input-TEXT       PIC ZZ9,99 VALUE SPACES.
+          05 WS-Txt-Input-TEXT       PIC X(8192) VALUE SPACES.
           05 WS-Txt-Input-VISIBLE    PIC 9      VALUE 1.
           05 WS-Txt-Input-ENABLED    PIC 9      VALUE 1.
-          05 WS-Txt-Input-VALUE      PIC ZZ9,99 VALUE SPACES.
+          05 WS-Txt-Input-VALUE      PIC X(8192) VALUE SPACES.
 
        01 WS-Btn-Send.
           05 WS-Btn-Send-TEXT       PIC X(256) VALUE 'Send'.
@@ -1069,6 +1069,10 @@
                MOVE SideMenu-1::ActivateItem("welc") TO WS-ITEM
            END-IF
 
+           Txt-Input::SetFocus().
+
+           EXIT PROGRAM.
+
            GOBACK.
 
        END PROGRAM CHAT-FORM--ONLOAD.
@@ -1231,6 +1235,8 @@
                MOVE T-THINKING TO WS-STATUS-TEXT
            END-IF
            CALL "PC-SAY-STATUS"
+
+           Txt-Input::SetFocus()
 
            GOBACK.
 
