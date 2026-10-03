@@ -520,3 +520,34 @@ fn every_pattern_is_served_and_passes_check_in_a_project_of_its_own() {
     let _ = std::fs::remove_dir_all(&start);
     println!("patterns: {} served + index; each checks clean in a project of its own", PATTERNS.len());
 }
+
+/// Spec 084 AC19 (R34): the instructions carry the architecture section and
+/// the map — and every tool and resource the map names is one the server
+/// actually offers.
+#[test]
+fn the_instructions_map_only_real_tools_and_resources() {
+    use cobolt_mcp::McpHandler;
+    let dir = fixture("map");
+    let mut tools = ProjectTools::new(HeadlessHost::new(&dir, "test"));
+    let text = tools.instructions().unwrap();
+    assert!(text.contains("How an application is built:") && text.contains("Where to look:"), "{text}");
+    let names: Vec<String> = tools.list_tools().into_iter().map(|t| t.name).collect();
+    let uris: Vec<String> = tools.list_resources().into_iter().map(|r| r.uri).collect();
+    let mut named = 0;
+    for (_, answer) in cobolt_project_tools::content::RESOURCE_MAP {
+        for word in answer.split([',', ' ', '(', ')']).filter(|w| !w.is_empty()) {
+            if word.starts_with("powerrustcobol://") {
+                assert!(uris.iter().any(|u| u == word), "{word} is served");
+                named += 1;
+            } else if word.contains('_') || ["check", "regenerate"].contains(&word) {
+                if word == "in_shell" {
+                    continue;
+                }
+                assert!(names.iter().any(|n| n == word), "{word} is a tool");
+                named += 1;
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    println!("instructions: architecture + map; {named} tools and resources named, every one offered");
+}

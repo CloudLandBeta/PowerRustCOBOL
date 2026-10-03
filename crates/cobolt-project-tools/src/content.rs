@@ -230,10 +230,61 @@ pub fn server_instructions(version: &str) -> String {
          (`{RESOURCE_PREFIX}…`, listed by resources/list) and `kb_lookup` finds one name in them.\n\n\
          Work in this order: look the names up, make the change, `regenerate` what you changed, \
          `check` until it reports no error, then report. A change is not done while `check` \
-         reports an error for it.\n\nStanding rules:\n"
+         reports an error for it.\n\n"
     );
+    out.push_str(&architecture());
+    out.push_str("\n");
+    out.push_str(&resource_map());
+    out.push_str("\nStanding rules:\n");
     for rule in rules() {
         out.push_str(&format!("- {}\n", rule.text));
+    }
+    out
+}
+
+/// Spec 084 R34 — how a PowerRustCOBOL application is put together, in the
+/// instructions so the agent has it before it reads anything.
+fn architecture() -> String {
+    "How an application is built:\n\
+     - A project is a folder with a `*.project.toml` manifest (never edited by hand), `forms/`, \
+     `indexed/`, `src/`, `generated/`, `COPYBOOKS/`, `Assets/` and `data/`.\n\
+     - Each form (`.cfrm`, XML) is one window or screen: its controls with their properties, its \
+     COBOL structure blocks (working-storage, file-control, file-section), and its event handlers \
+     and procedures as COBOL inside the form. `regenerate` turns a form into a COBOL program under \
+     `generated/`; every form runs as its own program with its own WORKING-STORAGE.\n\
+     - Forms never share data items. They talk through published properties, `super::` (the form \
+     that loaded or opened this one) and the files they share.\n\
+     - Exactly one form is the main form: the application starts there. A SideMenu on the main \
+     form turns on the application shell — one window with a menu rail, a breadcrumb, and a \
+     ContentPane where other forms (`Embedded` or `Both`) load. Without one, forms open as \
+     windows (`OpenFormSync` is modal, `OpenFormAsync` modeless).\n\
+     - Data lives in indexed files described by `.cidx` (or declared in a form's file-control), in \
+     web services reached with RestClient, and in SQL databases. A model is asked through an \
+     AgentObject.\n\
+     - Common Code in `src/` holds COBOL programs several forms `CALL`.\n"
+        .to_owned()
+}
+
+/// Spec 084 R34 — which resource or tool answers which question.
+pub const RESOURCE_MAP: [(&str, &str); 12] = [
+    ("Does this control, property, method, event or built-in exist? (exact name)", "kb_lookup"),
+    ("How do I …? (plain words)", "kb_search"),
+    ("Every control, with its properties, events and methods", "powerrustcobol://reference/controls.md"),
+    ("Is this COBOL verb or clause supported?", "powerrustcobol://reference/cobol85-supported-syntax.md"),
+    ("How is a .cfrm / .cidx written?", "powerrustcobol://reference/cfrm-format.md, powerrustcobol://reference/cidx-format.md"),
+    ("Layout, anchors, responsive forms, events", "powerrustcobol://reference/form-layout-and-events.md"),
+    ("Themes", "powerrustcobol://reference/form-themes.md"),
+    ("The whole product, chapter by chapter", "powerrustcobol://reference/developers-guide.md"),
+    ("A working example of a shell, a ContentPane screen, file maintenance, REST, AI, a dialog", "powerrustcobol://patterns/README.md"),
+    ("Did my change compile?", "regenerate, then check"),
+    ("What does my form look like?", "render_form (in_shell for a ContentPane form)"),
+    ("Does my form do what it should?", "run_form"),
+];
+
+fn resource_map() -> String {
+    let mut out = String::from("Where to look:\n");
+    for (question, answer) in RESOURCE_MAP {
+        out.push_str(&format!("- {question} → {answer}\n"));
     }
     out
 }

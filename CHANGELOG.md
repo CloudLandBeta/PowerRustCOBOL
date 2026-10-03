@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.126] — 2026-10-03
+
+### Spec 084 T19: the instructions explain the application and map where to look
+
+What both tool servers tell a coding agent when it connects now opens with how
+a PowerRustCOBOL application is put together — the project's folders, forms as
+programs that never share data items, the one main form and the application
+shell, where data lives, Common Code — followed by a map of which tool or
+resource answers which kind of question (a name, a how-to, a control, the
+supported syntax, the file formats, layout, themes, a working pattern, does it
+compile, what does it look like, does it work). A test proves every tool and
+resource the map names is one the server offers. This completes spec 084.
+
 ## [PowerRustCOBOL 1.80.125] — 2026-10-03
 
 ### Spec 084 T17: three skills for building an application

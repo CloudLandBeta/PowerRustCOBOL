@@ -10711,8 +10711,9 @@ The agent works through tools served over MCP, by one of two servers:
 | `powerrustcobol-ide` | While PowerRustCOBOL AI is running. It serves the project open in the IDE, over HTTP on `127.0.0.1` (port **5720** by default), and admits only requests that carry the IDE's **access token**. |
 | `powerrustcobol` | When the IDE is closed. Claude Code starts `rcrun mcp` itself, so `rcrun` must be beside the IDE or on your `PATH`. It serves the project in the folder Claude Code was started in — or in a folder above it, so a session started in `forms/` works too. |
 
-Both servers tell the agent the **standing rules** as soon as it connects, and
-offer the **reference** — this Guide, the supported-syntax document, every
+Both servers tell the agent, as soon as it connects, how a PowerRustCOBOL
+application is put together, where to look for each kind of question, and the
+**standing rules**; and they offer the **reference** — this Guide, the supported-syntax document, every
 control with its properties, methods and events, every built-in, and the
 `.cfrm` and `.cidx` formats — read live from the running version. A name that
 is not there does not exist for the agent.
