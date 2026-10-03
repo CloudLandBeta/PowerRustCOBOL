@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.132] — 2026-10-03
+
+### Spec 085 approved: plan and tasks
+
+The operator's answers settle spec 085: a side-menu form opened as a window
+becomes a shell of its own in every application; the Assistant opens
+modeless; an embedded PowerChat wears the host's branding and uses the host
+application's AI settings. The plan makes the ContentPane belong to its
+window instead of to the whole application, and moves the AI configuration
+from the chat window to the application.
+
 ## [PowerRustCOBOL 1.80.131] — 2026-10-03
 
 ### Spec 085 drafted: adding PowerChat to an application

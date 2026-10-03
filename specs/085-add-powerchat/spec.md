@@ -1,6 +1,6 @@
 # Spec — Add PowerChat to an application
 
-- **Status:** draft — awaiting the operator's review
+- **Status:** approved (operator, 2026-10-03 — answers to Q1–Q4 below)
 - **Folder:** specs/085-add-powerchat/
 - **Author:** Claude (for Emerson Lopes)   **Date:** 2026-10-03
 
@@ -119,15 +119,25 @@ PowerChat one tool call.
   navigation is dead). R6–R12 are a feature. They would ship as separate
   commits.
 
-## 7. Open questions
+## 7. Decisions (operator, 2026-10-03)
 
-- **Q1:** R1 makes a SideMenu form a full shell in a child window. Is that the
-  behaviour you want for every application (e.g. PowerDemo3's nested sidebar
-  demo would then work in its window), or only for PowerChat?
-- **Q2:** Should the Assistant open as a **modeless** window (the operator
-  keeps working in the host while chatting — proposed) or modal?
-- **Q3:** PowerChat's branding (Titan Voyages logos) — keep, or replace with
-  the host application's name and icon?
-- **Q4:** PowerChat's model providers and agents live in its own data files,
-  set up by its Welcome screen. Should it instead read the host
-  application's AI settings when there are any?
+- **Q1 → every application.** The child-window shell (R1–R5) is product
+  behaviour for any form with a SideMenu opened as a window, not a PowerChat
+  special case.
+- **Q2 → modeless.** The Assistant opens as a modeless window: the operator
+  keeps working in the host while chatting (R9 uses the asynchronous open).
+- **Q3 → host branding.** The copied PowerChat shows the host application's
+  name and icon, never Titan Voyages or "PowerChat" as an application name
+  (R13).
+- **Q4 → host AI settings.** The copied PowerChat uses the host application's
+  AI settings instead of keeping its own providers and models (R14).
+
+Added requirements:
+
+- **R13 (ubiquitous):** The copied PowerChat shall carry the host
+  application's branding: its name where PowerChat showed its own, its icon
+  or logo where PowerChat showed the Titan Voyages logos; no Titan Voyages
+  asset is copied.
+- **R14 (ubiquitous):** The copied PowerChat shall take its model providers,
+  models and agents from the host application's AI settings, and shall not
+  ask the operator to configure them again.
