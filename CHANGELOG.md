@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.131] — 2026-10-03
+
+### Spec 085 drafted: adding PowerChat to an application
+
+A draft for review, no code: a form with its own side menu, opened as a child
+window, would run as a full shell in that window (today its menu cannot load
+anything there), and a coding agent would add PowerChat to an application with
+one tool, `add_powerchat`, in the host's Spatial look, reached from an
+Assistant menu item.
+
 ## [PowerRustCOBOL 1.80.130] — 2026-10-03
 
 ### Coding agents: the golden rules for every application
