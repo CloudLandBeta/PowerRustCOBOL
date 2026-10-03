@@ -98,12 +98,16 @@ pub fn resolve(
     diagnostics: &mut Vec<SemanticDiagnostic>,
     form_formats: Option<&std::collections::HashMap<String, crate::FormLoadFormat>>,
     tolerate_undeclared: bool,
+    known_objects: Option<&std::collections::HashSet<String>>,
 ) {
+    let classes: Vec<String> = program.repository.iter().map(|(c, _)| c.trim().to_ascii_uppercase()).collect();
     let mut ctx = ResolveCtx {
         symbols,
         diagnostics,
         form_formats,
         tolerate_undeclared,
+        known_objects,
+        classes,
     };
     match &program.procedure.body {
         ProcedureBody::Paragraphs(paras) => {
@@ -130,6 +134,11 @@ pub fn resolve(
 struct ResolveCtx<'a> {
     symbols: &'a SymbolTable,
     diagnostics: &'a mut Vec<SemanticDiagnostic>,
+    /// The form's objects, when the caller knows the form (see
+    /// [`crate::AnalyzeOptions::known_objects`]).
+    known_objects: Option<&'a std::collections::HashSet<String>>,
+    /// This program's REPOSITORY class names, UPPERCASE: `Class::new()`.
+    classes: Vec<String>,
     /// 049 R17 — the project's form formats (UPPERCASE id → format), when a
     /// project supplied them. `None` disables the load-path check.
     form_formats: Option<&'a std::collections::HashMap<String, crate::FormLoadFormat>>,
@@ -419,18 +428,19 @@ impl<'a> ResolveCtx<'a> {
             // Visual-object method invocation: object is a control; resolve the
             // argument expressions and the optional RETURNING receiver.
             Stmt::Invoke {
+                object,
                 method,
                 args,
                 returning,
                 comma_form,
                 span,
-                ..
             } => {
                 // 037 R22 — the SPACE (COBOL-standard) form of the checked
                 // window methods requires every parameter; a mismatch is a
                 // compile-time error naming the method and its signature.
                 // The comma form defaults omitted trailing parameters (R21)
                 // and is exempt.
+                self.check_receiver(object, *span, &format!("INVOKE {}::{}()", object.trim(), method.trim()));
                 if !comma_form {
                     self.check_open_form_signature(method, args, *span);
                 }
@@ -672,6 +682,55 @@ impl<'a> ResolveCtx<'a> {
         }
     }
 
+    /// The root of a member chain (`Lbl-Cfg::Caption`, `Grid-1::Rows(I)::Value`)
+    /// must be an object the program can reach. Only the ROOT is checked:
+    /// what follows is the object's own member, dispatched at run time.
+    fn check_member_root(&mut self, expr: &Expr) {
+        let mut cur = expr;
+        let mut first = "";
+        while let Expr::Member { recv, member, .. } = cur {
+            first = member.as_str();
+            cur = recv;
+        }
+        if let Expr::Identifier(root, span) = cur {
+            self.check_receiver(root, *span, &format!("{}::{}", root.trim(), first));
+        }
+    }
+
+    /// A receiver that names nothing the form or program has is an ERROR:
+    /// the runtime finds no such control and the write or call is lost in
+    /// silence — `MOVE … TO Lbl-Cfg::Caption` on a form without `Lbl-Cfg`
+    /// did exactly that in a shipped demo (operator report, 2026-10-02).
+    /// Checked only when the caller supplied the form's objects.
+    fn check_receiver(&mut self, root: &str, span: cobolt_lexer::Span, written: &str) {
+        let Some(known) = self.known_objects else {
+            return;
+        };
+        let name = root.trim();
+        let upper = name.to_ascii_uppercase();
+        if name.is_empty()
+            || matches!(upper.as_str(), "ME" | "SUPER" | "COBOL" | "SELF")
+            || upper.starts_with("COBOL-")
+            || known.contains(&upper)
+            || self.classes.contains(&upper)
+            || self.symbols.has_data_item(name)
+        {
+            return;
+        }
+        let near = closest_object(&upper, known.iter().map(String::as_str));
+        let hint = match near {
+            Some(n) => format!(" Did you mean '{n}'?"),
+            None => String::new(),
+        };
+        self.error(
+            format!(
+                "{written}: this form has no control or object named '{name}'. \
+                 The call would reach nothing at run time and say nothing.{hint}"
+            ),
+            span,
+        );
+    }
+
     /// Warn when a member-access chain used as a **receiving field** ends in a
     /// method call (`MOVE name TO obj::UpperCase()`): a method-call result is an
     /// rvalue, not a receiving field (spec 011). An empty-parens tail is
@@ -784,6 +843,7 @@ impl<'a> ResolveCtx<'a> {
             // call argument expressions are. A `me`/`super` root gets the 049
             // R33 universal-surface check first.
             Expr::Member { args, .. } => {
+                self.check_member_root(expr);
                 self.check_form_receiver_property(expr);
                 for a in args {
                     self.resolve_expr(a);
@@ -878,4 +938,27 @@ mod tests_056 {
             );
         }
     }
+}
+
+/// The known object whose name is nearest to `name` (edit distance), when it
+/// is close enough to be a likely misspelling.
+fn closest_object<'a>(name: &str, known: impl Iterator<Item = &'a str>) -> Option<String> {
+    fn distance(a: &str, b: &str) -> usize {
+        let b: Vec<char> = b.chars().collect();
+        let mut prev: Vec<usize> = (0..=b.len()).collect();
+        for (i, ca) in a.chars().enumerate() {
+            let mut cur = vec![i + 1];
+            for (j, cb) in b.iter().enumerate() {
+                let cost = usize::from(ca != *cb);
+                cur.push((prev[j] + cost).min(prev[j + 1] + 1).min(cur[j] + 1));
+            }
+            prev = cur;
+        }
+        prev[b.len()]
+    }
+    known
+        .map(|k| (distance(name, k), k))
+        .filter(|(d, k)| *d <= (k.len().max(name.len()) / 3).max(2))
+        .min()
+        .map(|(_, k)| k.to_string())
 }

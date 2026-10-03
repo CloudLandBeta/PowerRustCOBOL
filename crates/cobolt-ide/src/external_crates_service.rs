@@ -122,6 +122,8 @@ pub fn analyze_project(
             form_formats: None,
             // The IDE is a product gate: an undeclared item is an error.
             tolerate_undeclared: false,
+            // No form context here: forms are checked by Run Form and Build.
+            known_objects: None,
         },
     )
 }

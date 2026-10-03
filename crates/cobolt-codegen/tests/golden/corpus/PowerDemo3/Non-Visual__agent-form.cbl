@@ -161,6 +161,11 @@
           05 WS-Btn-Cfg-VISIBLE    PIC 9      VALUE 1.
           05 WS-Btn-Cfg-ENABLED    PIC 9      VALUE 1.
 
+       01 WS-Lbl-Cfg.
+          05 WS-Lbl-Cfg-TEXT       PIC X(256) VALUE 'Lbl-Cfg'.
+          05 WS-Lbl-Cfg-VISIBLE    PIC 9      VALUE 1.
+          05 WS-Lbl-Cfg-ENABLED    PIC 9      VALUE 1.
+
        01 WS-Btn-Clear.
           05 WS-Btn-Clear-TEXT       PIC X(256) VALUE 'Clear log'.
           05 WS-Btn-Clear-VISIBLE    PIC 9      VALUE 1.

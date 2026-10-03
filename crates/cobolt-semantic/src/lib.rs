@@ -162,6 +162,13 @@ pub struct AnalyzeOptions {
     /// IDE's Run Form and Build, `rcrun run-form`, `rcrun build`, `rcrun
     /// check` — leaves this `false`, which is the default.
     pub tolerate_undeclared: bool,
+    /// The objects a `X::…` receiver may name besides `me`, `super`, `COBOL`
+    /// and the program's own data items and REPOSITORY classes: the form's
+    /// control ids (toolbar buttons included) and the form's own name, in
+    /// UPPERCASE. `Some(set)` = a form program: a receiver outside it is an
+    /// error, because the call would land on nothing and say nothing.
+    /// `None` = no form context (a lone `.cbl`); receivers are not checked.
+    pub known_objects: Option<std::collections::HashSet<String>>,
 }
 
 /// 049 R1 — a project form's FormFormat, as the load-path check needs it.
@@ -235,6 +242,7 @@ fn analyze_contained(
         &mut diagnostics,
         opts.form_formats.as_ref(),
         opts.tolerate_undeclared,
+        opts.known_objects.as_ref(),
     );
 
     // Pass 3: type checking.

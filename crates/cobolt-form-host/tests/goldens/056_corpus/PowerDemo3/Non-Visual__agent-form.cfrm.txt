@@ -16,6 +16,7 @@ Label-1 rect=[40 266 120 286] font=12
 Label-2 rect=[304 266 840 286] font=12
 Label-3 rect=[40 218 120 238] font=12
 Lbl-A-Cap rect=[40 418 104 438] font=12
+Lbl-Cfg rect=[960 336 1219 480] font=12
 Lbl-Log-Cap rect=[24 586 120 606] font=12
 Lbl-Q-Cap rect=[40 314 120 334] font=12
 Lbl-State rect=[960 298 1248 332] font=20
@@ -44,6 +45,7 @@ Label-1 rect=[260 294 340 314] font=12
 Label-2 rect=[524 294 1060 314] font=12
 Label-3 rect=[260 246 340 266] font=12
 Lbl-A-Cap rect=[260 446 324 466] font=12
+Lbl-Cfg rect=[1180 364 1439 508] font=12
 Lbl-Log-Cap rect=[244 614 340 634] font=12
 Lbl-Q-Cap rect=[260 342 340 362] font=12
 Lbl-State rect=[1180 326 1468 360] font=20
@@ -72,6 +74,7 @@ Label-1 rect=[40 266 120 286] font=12
 Label-2 rect=[304 266 840 286] font=12
 Label-3 rect=[40 218 120 238] font=12
 Lbl-A-Cap rect=[40 418 104 438] font=12
+Lbl-Cfg rect=[960 336 1219 480] font=12
 Lbl-Log-Cap rect=[24 586 120 606] font=12
 Lbl-Q-Cap rect=[40 314 120 334] font=12
 Lbl-State rect=[960 298 1248 332] font=20
@@ -100,6 +103,7 @@ Label-1 rect=[260 294 340 314] font=12
 Label-2 rect=[524 294 1060 314] font=12
 Label-3 rect=[260 246 340 266] font=12
 Lbl-A-Cap rect=[260 446 324 466] font=12
+Lbl-Cfg rect=[1180 364 1439 508] font=12
 Lbl-Log-Cap rect=[244 614 340 634] font=12
 Lbl-Q-Cap rect=[260 342 340 362] font=12
 Lbl-State rect=[1180 326 1468 360] font=20
@@ -128,6 +132,7 @@ Label-1 rect=[40 266 120 286] font=12
 Label-2 rect=[304 266 840 286] font=12
 Label-3 rect=[40 218 120 238] font=12
 Lbl-A-Cap rect=[40 418 104 438] font=12
+Lbl-Cfg rect=[960 336 1219 480] font=12
 Lbl-Log-Cap rect=[24 586 120 606] font=12
 Lbl-Q-Cap rect=[40 314 120 334] font=12
 Lbl-State rect=[960 298 1248 332] font=20
@@ -156,6 +161,7 @@ Label-1 rect=[260 294 340 314] font=12
 Label-2 rect=[524 294 1060 314] font=12
 Label-3 rect=[260 246 340 266] font=12
 Lbl-A-Cap rect=[260 446 324 466] font=12
+Lbl-Cfg rect=[1180 364 1439 508] font=12
 Lbl-Log-Cap rect=[244 614 340 634] font=12
 Lbl-Q-Cap rect=[260 342 340 362] font=12
 Lbl-State rect=[1180 326 1468 360] font=20

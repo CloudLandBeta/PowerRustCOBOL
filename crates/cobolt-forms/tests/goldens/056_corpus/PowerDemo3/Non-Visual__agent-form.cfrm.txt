@@ -16,6 +16,7 @@ Label-1 rect=[40 266 120 286] font=12
 Label-2 rect=[304 266 840 286] font=12
 Label-3 rect=[40 218 120 238] font=12
 Lbl-A-Cap rect=[40 418 104 438] font=12
+Lbl-Cfg rect=[960 336 1219 480] font=12
 Lbl-Log-Cap rect=[24 586 120 606] font=12
 Lbl-Q-Cap rect=[40 314 120 334] font=12
 Lbl-State rect=[960 298 1248 332] font=20
@@ -27,7 +28,7 @@ TextBox-1 rect=[128 210 752 250] font=13
 Txt-Log rect=[128 586 920 733] font=12
 Txt-Question rect=[128 314 800 370] font=13
 Txt-Reply rect=[128 394 920 513] font=13
-shapes=137 digest=99b596a8a6008892
+shapes=138 digest=bb93be3f294bc03d
 ## Run 0.75x 972x582
 Agent-Helper rect=[1128 656 1216 728] font=14
 Btn-Ask rect=[816 326 915 358] font=14
@@ -45,6 +46,7 @@ Label-1 rect=[40 266 120 286] font=12
 Label-2 rect=[304 266 840 286] font=12
 Label-3 rect=[40 218 120 238] font=12
 Lbl-A-Cap rect=[40 418 104 438] font=12
+Lbl-Cfg rect=[960 336 1219 480] font=12
 Lbl-Log-Cap rect=[24 586 120 606] font=12
 Lbl-Q-Cap rect=[40 314 120 334] font=12
 Lbl-State rect=[960 298 1248 332] font=20
@@ -56,7 +58,7 @@ TextBox-1 rect=[128 210 752 250] font=13
 Txt-Log rect=[128 586 920 733] font=12
 Txt-Question rect=[128 314 800 370] font=13
 Txt-Reply rect=[128 394 920 513] font=13
-shapes=86 digest=321dc5d4bc64b151
+shapes=87 digest=220c0d8abde7f6c2
 ## Preview 0.75x 972x582
 Agent-Helper rect=[1128 656 1216 728] font=14
 Btn-Ask rect=[816 326 915 358] font=14
@@ -74,6 +76,7 @@ Label-1 rect=[40 266 120 286] font=12
 Label-2 rect=[304 266 840 286] font=12
 Label-3 rect=[40 218 120 238] font=12
 Lbl-A-Cap rect=[40 418 104 438] font=12
+Lbl-Cfg rect=[960 336 1219 480] font=12
 Lbl-Log-Cap rect=[24 586 120 606] font=12
 Lbl-Q-Cap rect=[40 314 120 334] font=12
 Lbl-State rect=[960 298 1248 332] font=20
@@ -85,7 +88,7 @@ TextBox-1 rect=[128 210 752 250] font=13
 Txt-Log rect=[128 586 920 733] font=12
 Txt-Question rect=[128 314 800 370] font=13
 Txt-Reply rect=[128 394 920 513] font=13
-shapes=86 digest=f31c1b8eb95b4bc7
+shapes=87 digest=61fa2b4baa8d9904
 ## Canvas 1x 1296x776
 Agent-Helper rect=[1128 656 1216 728] font=14
 Btn-Ask rect=[816 326 915 358] font=14
@@ -103,6 +106,7 @@ Label-1 rect=[40 266 120 286] font=12
 Label-2 rect=[304 266 840 286] font=12
 Label-3 rect=[40 218 120 238] font=12
 Lbl-A-Cap rect=[40 418 104 438] font=12
+Lbl-Cfg rect=[960 336 1219 480] font=12
 Lbl-Log-Cap rect=[24 586 120 606] font=12
 Lbl-Q-Cap rect=[40 314 120 334] font=12
 Lbl-State rect=[960 298 1248 332] font=20
@@ -114,7 +118,7 @@ TextBox-1 rect=[128 210 752 250] font=13
 Txt-Log rect=[128 586 920 733] font=12
 Txt-Question rect=[128 314 800 370] font=13
 Txt-Reply rect=[128 394 920 513] font=13
-shapes=137 digest=8db029c4fdb26f43
+shapes=138 digest=574d1c131837ecc6
 ## Run 1x 1296x776
 Agent-Helper rect=[1128 656 1216 728] font=14
 Btn-Ask rect=[816 326 915 358] font=14
@@ -132,6 +136,7 @@ Label-1 rect=[40 266 120 286] font=12
 Label-2 rect=[304 266 840 286] font=12
 Label-3 rect=[40 218 120 238] font=12
 Lbl-A-Cap rect=[40 418 104 438] font=12
+Lbl-Cfg rect=[960 336 1219 480] font=12
 Lbl-Log-Cap rect=[24 586 120 606] font=12
 Lbl-Q-Cap rect=[40 314 120 334] font=12
 Lbl-State rect=[960 298 1248 332] font=20
@@ -143,7 +148,7 @@ TextBox-1 rect=[128 210 752 250] font=13
 Txt-Log rect=[128 586 920 733] font=12
 Txt-Question rect=[128 314 800 370] font=13
 Txt-Reply rect=[128 394 920 513] font=13
-shapes=88 digest=9373585f78b9b7b1
+shapes=89 digest=bc47392c8d47b9a2
 ## Preview 1x 1296x776
 Agent-Helper rect=[1128 656 1216 728] font=14
 Btn-Ask rect=[816 326 915 358] font=14
@@ -161,6 +166,7 @@ Label-1 rect=[40 266 120 286] font=12
 Label-2 rect=[304 266 840 286] font=12
 Label-3 rect=[40 218 120 238] font=12
 Lbl-A-Cap rect=[40 418 104 438] font=12
+Lbl-Cfg rect=[960 336 1219 480] font=12
 Lbl-Log-Cap rect=[24 586 120 606] font=12
 Lbl-Q-Cap rect=[40 314 120 334] font=12
 Lbl-State rect=[960 298 1248 332] font=20
@@ -172,7 +178,7 @@ TextBox-1 rect=[128 210 752 250] font=13
 Txt-Log rect=[128 586 920 733] font=12
 Txt-Question rect=[128 314 800 370] font=13
 Txt-Reply rect=[128 394 920 513] font=13
-shapes=88 digest=99aed3058c29f827
+shapes=89 digest=b768d729d8bda664
 ## Canvas 1.5x 1944x1164
 Agent-Helper rect=[1128 656 1216 728] font=14
 Btn-Ask rect=[816 326 915 358] font=14
@@ -190,6 +196,7 @@ Label-1 rect=[40 266 120 286] font=12
 Label-2 rect=[304 266 840 286] font=12
 Label-3 rect=[40 218 120 238] font=12
 Lbl-A-Cap rect=[40 418 104 438] font=12
+Lbl-Cfg rect=[960 336 1219 480] font=12
 Lbl-Log-Cap rect=[24 586 120 606] font=12
 Lbl-Q-Cap rect=[40 314 120 334] font=12
 Lbl-State rect=[960 298 1248 332] font=20
@@ -201,7 +208,7 @@ TextBox-1 rect=[128 210 752 250] font=13
 Txt-Log rect=[128 586 920 733] font=12
 Txt-Question rect=[128 314 800 370] font=13
 Txt-Reply rect=[128 394 920 513] font=13
-shapes=137 digest=43675469bb4f6102
+shapes=138 digest=294a410a5ade818d
 ## Run 1.5x 1944x1164
 Agent-Helper rect=[1128 656 1216 728] font=14
 Btn-Ask rect=[816 326 915 358] font=14
@@ -219,6 +226,7 @@ Label-1 rect=[40 266 120 286] font=12
 Label-2 rect=[304 266 840 286] font=12
 Label-3 rect=[40 218 120 238] font=12
 Lbl-A-Cap rect=[40 418 104 438] font=12
+Lbl-Cfg rect=[960 336 1219 480] font=12
 Lbl-Log-Cap rect=[24 586 120 606] font=12
 Lbl-Q-Cap rect=[40 314 120 334] font=12
 Lbl-State rect=[960 298 1248 332] font=20
@@ -230,7 +238,7 @@ TextBox-1 rect=[128 210 752 250] font=13
 Txt-Log rect=[128 586 920 733] font=12
 Txt-Question rect=[128 314 800 370] font=13
 Txt-Reply rect=[128 394 920 513] font=13
-shapes=88 digest=525a3f467048caaa
+shapes=89 digest=9cdb6f494d498187
 ## Preview 1.5x 1944x1164
 Agent-Helper rect=[1128 656 1216 728] font=14
 Btn-Ask rect=[816 326 915 358] font=14
@@ -248,6 +256,7 @@ Label-1 rect=[40 266 120 286] font=12
 Label-2 rect=[304 266 840 286] font=12
 Label-3 rect=[40 218 120 238] font=12
 Lbl-A-Cap rect=[40 418 104 438] font=12
+Lbl-Cfg rect=[960 336 1219 480] font=12
 Lbl-Log-Cap rect=[24 586 120 606] font=12
 Lbl-Q-Cap rect=[40 314 120 334] font=12
 Lbl-State rect=[960 298 1248 332] font=20
@@ -259,4 +268,4 @@ TextBox-1 rect=[128 210 752 250] font=13
 Txt-Log rect=[128 586 920 733] font=12
 Txt-Question rect=[128 314 800 370] font=13
 Txt-Reply rect=[128 394 920 513] font=13
-shapes=88 digest=3f93461fcbf2a90c
+shapes=89 digest=7972c30e001dadd5

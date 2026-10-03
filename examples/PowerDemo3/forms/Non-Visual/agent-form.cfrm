@@ -764,6 +764,40 @@ After create your own API Key use it to set the AgentControl API KEY property.</
            MOVE WS-TEXT TO Lbl-Cfg::Caption.
 ]]></Event>
   </Control>
+  <Control id="Lbl-Cfg" type="Label" x="960" y="336" w="259" h="144" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#9AA6BF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
   <Control id="Btn-Clear" type="Button" x="538" y="530" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Clear log</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>

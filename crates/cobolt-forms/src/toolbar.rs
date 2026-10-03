@@ -1787,3 +1787,27 @@ mod tests {
         );
     }
 }
+
+/// Every name a `X::…` receiver in a form's program may take, UPPERCASE: the
+/// form's own name, every control id (children included), and every toolbar
+/// button id. The same set the run-form host seeds the interpreter's object
+/// registry with (`cobolt_form_host::seeding::build_object_seed`), so the
+/// compile-time receiver check and the runtime agree on what exists.
+pub fn object_names(form: &crate::model::Form) -> std::collections::HashSet<String> {
+    fn walk(controls: &[crate::model::Control], out: &mut std::collections::HashSet<String>) {
+        for c in controls {
+            out.insert(c.id.trim().to_ascii_uppercase());
+            if c.control_type == crate::model::ControlType::ToolBar {
+                let def = ToolbarDef::from_control(c);
+                for (group, button) in def.buttons() {
+                    out.insert(button_control_id(&c.id, &group.id, &button.id).to_ascii_uppercase());
+                }
+            }
+            walk(&c.children, out);
+        }
+    }
+    let mut out = std::collections::HashSet::new();
+    out.insert(form.name.trim().to_ascii_uppercase());
+    walk(&form.controls, &mut out);
+    out
+}
