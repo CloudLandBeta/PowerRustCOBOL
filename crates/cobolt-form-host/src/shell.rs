@@ -1289,164 +1289,11 @@ impl Shell {
 /// performed: hosting a second form's interpreter is the same open work as
 /// 037 T16's child windows — see the 049 tasks note.
 pub fn run_shell(
-    mut config: crate::host::FormHostConfig,
+    config: crate::host::FormHostConfig,
     root_menu: Option<(String, cobolt_forms::menu::MenuDefinition)>,
 ) {
-    config.surface = crate::Surface::Pane;
-    let ev_tx = config.ev_tx.clone();
-    let input_tx = config.input_tx.clone();
-    let form_req_tx = config.form_req_tx.clone();
-    let title_fallback = config.title_fallback.clone();
-    let icon_path = config.icon_path.clone();
-    let (host, form) = crate::FormHost::new(config);
-
-    let mut shell = Shell::default();
-    shell.menu_background = form.menu_pane_background.clone();
-    let side_menu_ctrl = root_menu.as_ref().map(|(id, _)| id.clone());
-    let side_menu = side_menu_ctrl
-        .as_deref()
-        .and_then(|id| form.find_control(id));
-    // 049 — the designed `Collapsed` is where the application OPENS; once the
-    // operator has worked the ☰ themselves, their remembered choice wins (R9).
-    shell.collapsed = side_menu.map(|c| c.side_menu_collapsed()).unwrap_or(false);
-    let state_path = shell_state_path(&form.name);
-    if let Some(p) = &state_path {
-        if let Some(c) = load_collapsed_from(p) {
-            shell.collapsed = c;
-        }
-    }
-    // 049 — the sidebar's own FullHeight property decides the layout order.
-    // Absent (a form written before the property existed) means on.
-    shell.full_height = side_menu.map(|c| c.side_menu_full_height()).unwrap_or(true);
-    // How the pane paints menu-item icons (None | Shadow | Neumorphic).
-    shell.icon_effect = side_menu
-        .and_then(|c| c.get_prop("IconEffect"))
-        .map(|v| v.as_str().to_owned())
-        .unwrap_or_else(|| "None".to_owned());
-    // The designed control travels with the shell so the MenuPane paints in
-    // the application's own colours, title and profile card.
-    shell.side_ctrl = side_menu.cloned();
-    // The breadcrumb frame is the rail's chrome, so the rail sizes and colours
-    // it: `BreadcrumbHeight` (default 28) and `BreadcrumbBackgroundColor`
-    // (empty = follow the ContentPane's backdrop, as it always has).
-    if let Some(side) = side_menu {
-        shell.breadcrumb_height = cobolt_forms::breadcrumb::height_of(side);
-        shell.breadcrumb_bg = side
-            .breadcrumb_background()
-            .map(|hex| cobolt_forms::paint::parse_color(&hex));
-    }
-    // 049 R38 — the Open pane is as wide as the developer DREW the rail. The
-    // shell used a fixed 220 regardless, so the ContentPane started 20px past
-    // where the form was laid out for and every control in it sat that much
-    // off. Collapsed is the rail's own `CollapsedWidth` (operator, 2026-08-23)
-    // — the same value the designer canvas and the preview narrow to, so the
-    // running pane and the design surfaces cannot disagree.
-    if let Some(w) = side_menu.map(|c| c.rect.w).filter(|w| *w > 0) {
-        shell.menu_open_width = w as f32;
-    }
-    if let Some(side) = side_menu {
-        shell.menu_collapsed_width = side.side_menu_collapsed_width();
-    }
-    // What a translucent rail colour composites over — the SAME backdrop the
-    // ContentPane paints, so the rail and the form agree on the application's
-    // background the way they do on the designer canvas.
-    shell.form_backdrop = Some(cobolt_forms::render::backdrop_color(
-        &form.background_color,
-        form.transparency,
-    ));
-    if let Some((_, def)) = root_menu {
-        shell.mount_root_menu(&form.name, def);
-    }
-    let mut chain = NavChain::default();
-    chain.push(NavEntry {
-        form_object: form.name.trim().to_ascii_uppercase(),
-        label: if form.title.trim().is_empty() {
-            form.name.clone()
-        } else {
-            form.title.clone()
-        },
-        preserve_on_replace: false,
-        resident: Box::new(ChannelResident {
-            form_object: form.name.trim().to_ascii_uppercase(),
-            ev_tx: ev_tx.clone(),
-        }),
-    });
-
-    let title = {
-        let designed = form.title.trim();
-        if designed.is_empty() {
-            title_fallback
-        } else {
-            designed.to_owned()
-        }
-    };
-    // The window opens at the size the form was DESIGNED at — a shell window
-    // used to open at a fixed 1100x700 whatever the developer drew, so a form
-    // wider than that was clipped on its first frame and a narrower one sat in
-    // a window of empty pane. The width is the form's own (the rail's column
-    // plus the content beside it, which is exactly what the developer laid
-    // out), narrowed when the rail opens collapsed; the height adds the
-    // breadcrumb, which is chrome the shell puts OUTSIDE the form.
-    let designed = shell_window_size(
-        form.width as f32,
-        form.height as f32,
-        shell.menu_open_width,
-        shell.menu_pane_width(),
-        // A FullHeight rail's frame OVERLAYS the form's top band, so it costs
-        // the window nothing; a panel above the window still needs its own.
-        if shell.full_height {
-            0.0
-        } else {
-            shell.breadcrumb_height
-        },
-    );
-    // The main form's designed window, as a plain window gets it (`host::run`):
-    // title-bar buttons, the title bar itself, full screen, maximized, a
-    // custom position and the taskbar icon. A shell window used to take the
-    // title and size alone, so every one of these was ignored in a shell
-    // application (property audit, 2026-09-26). Minimized and a
-    // screen-relative position need the window to exist: first frame.
-    let mut viewport = egui::ViewportBuilder::default()
-        .with_title(&title)
-        .with_inner_size([designed.x, designed.y])
-        .with_resizable(true)
-        // R43 — the shell window carries alpha; the chrome paints itself.
-        .with_transparent(true)
-        .with_minimize_button(form.can_minimize)
-        .with_maximize_button(form.can_maximize)
-        .with_decorations(form.title_visible)
-        .with_fullscreen(form.full_screen)
-        .with_maximized(form.window_state == cobolt_forms::model::WindowState::Maximized);
-    // 056 R18 — a responsive main form's smallest layout is the window's
-    // floor; the rail's own resize of the window is unaffected, and a form that
-    // is not responsive keeps no minimum, as before.
-    if let Some(l) = cobolt_forms::layout::size_limits_of(&form) {
-        let (mw, mh) = l.window_max();
-        viewport = viewport.with_min_inner_size([l.min.0, l.min.1]).with_max_inner_size([mw, mh]);
-    }
-    if form.start_position == cobolt_forms::model::FormStartPosition::Custom {
-        viewport = viewport.with_position(egui::pos2(form.x as f32, form.y as f32));
-    }
-    let taskbar_icon = (!form.taskbar_icon.trim().is_empty())
-        .then(|| cobolt_forms::assets::resolve(form.taskbar_icon.trim()));
-    if let Some(icon) = crate::host::load_host_icon(taskbar_icon.as_deref().or(icon_path.as_deref())) {
-        viewport = viewport.with_icon(icon);
-    }
-    let start_minimized = form.window_state == cobolt_forms::model::WindowState::Minimized;
-    let pending_start = form.start_position.is_screen_relative().then_some(form.start_position);
+    let (app, title, viewport) = ShellApp::new(config, root_menu);
     let native_options = crate::native_options(viewport);
-    let app = ShellApp {
-        start_minimized,
-        pending_start,
-        shell,
-        chain,
-        host,
-        side_menu_ctrl,
-        state_path,
-        input_tx,
-        ev_tx,
-        form_req_tx,
-    };
     let _ = eframe::run_native(
         &title,
         native_options,
@@ -1458,9 +1305,175 @@ pub fn run_shell(
     );
 }
 
+impl ShellApp {
+    /// The shell application for the main form described by `config`, the
+    /// window's title, and the window it opens in — what [`run_shell`] runs,
+    /// and what a headless run (spec 084 `run_form`) drives frame by frame.
+    pub(crate) fn new(
+        mut config: crate::host::FormHostConfig,
+        root_menu: Option<(String, cobolt_forms::menu::MenuDefinition)>,
+    ) -> (Self, String, egui::ViewportBuilder) {
+        config.surface = crate::Surface::Pane;
+        let ev_tx = config.ev_tx.clone();
+        let input_tx = config.input_tx.clone();
+        let form_req_tx = config.form_req_tx.clone();
+        let title_fallback = config.title_fallback.clone();
+        let icon_path = config.icon_path.clone();
+        let (host, form) = crate::FormHost::new(config);
+
+        let mut shell = Shell::default();
+        shell.menu_background = form.menu_pane_background.clone();
+        let side_menu_ctrl = root_menu.as_ref().map(|(id, _)| id.clone());
+        let side_menu = side_menu_ctrl
+            .as_deref()
+            .and_then(|id| form.find_control(id));
+        // 049 — the designed `Collapsed` is where the application OPENS; once the
+        // operator has worked the ☰ themselves, their remembered choice wins (R9).
+        shell.collapsed = side_menu.map(|c| c.side_menu_collapsed()).unwrap_or(false);
+        let state_path = shell_state_path(&form.name);
+        if let Some(p) = &state_path {
+            if let Some(c) = load_collapsed_from(p) {
+                shell.collapsed = c;
+            }
+        }
+        // 049 — the sidebar's own FullHeight property decides the layout order.
+        // Absent (a form written before the property existed) means on.
+        shell.full_height = side_menu.map(|c| c.side_menu_full_height()).unwrap_or(true);
+        // How the pane paints menu-item icons (None | Shadow | Neumorphic).
+        shell.icon_effect = side_menu
+            .and_then(|c| c.get_prop("IconEffect"))
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "None".to_owned());
+        // The designed control travels with the shell so the MenuPane paints in
+        // the application's own colours, title and profile card.
+        shell.side_ctrl = side_menu.cloned();
+        // The breadcrumb frame is the rail's chrome, so the rail sizes and colours
+        // it: `BreadcrumbHeight` (default 28) and `BreadcrumbBackgroundColor`
+        // (empty = follow the ContentPane's backdrop, as it always has).
+        if let Some(side) = side_menu {
+            shell.breadcrumb_height = cobolt_forms::breadcrumb::height_of(side);
+            shell.breadcrumb_bg = side
+                .breadcrumb_background()
+                .map(|hex| cobolt_forms::paint::parse_color(&hex));
+        }
+        // 049 R38 — the Open pane is as wide as the developer DREW the rail. The
+        // shell used a fixed 220 regardless, so the ContentPane started 20px past
+        // where the form was laid out for and every control in it sat that much
+        // off. Collapsed is the rail's own `CollapsedWidth` (operator, 2026-08-23)
+        // — the same value the designer canvas and the preview narrow to, so the
+        // running pane and the design surfaces cannot disagree.
+        if let Some(w) = side_menu.map(|c| c.rect.w).filter(|w| *w > 0) {
+            shell.menu_open_width = w as f32;
+        }
+        if let Some(side) = side_menu {
+            shell.menu_collapsed_width = side.side_menu_collapsed_width();
+        }
+        // What a translucent rail colour composites over — the SAME backdrop the
+        // ContentPane paints, so the rail and the form agree on the application's
+        // background the way they do on the designer canvas.
+        shell.form_backdrop = Some(cobolt_forms::render::backdrop_color(
+            &form.background_color,
+            form.transparency,
+        ));
+        if let Some((_, def)) = root_menu {
+            shell.mount_root_menu(&form.name, def);
+        }
+        let mut chain = NavChain::default();
+        chain.push(NavEntry {
+            form_object: form.name.trim().to_ascii_uppercase(),
+            label: if form.title.trim().is_empty() {
+                form.name.clone()
+            } else {
+                form.title.clone()
+            },
+            preserve_on_replace: false,
+            resident: Box::new(ChannelResident {
+                form_object: form.name.trim().to_ascii_uppercase(),
+                ev_tx: ev_tx.clone(),
+            }),
+        });
+
+        let title = {
+            let designed = form.title.trim();
+            if designed.is_empty() {
+                title_fallback
+            } else {
+                designed.to_owned()
+            }
+        };
+        // The window opens at the size the form was DESIGNED at — a shell window
+        // used to open at a fixed 1100x700 whatever the developer drew, so a form
+        // wider than that was clipped on its first frame and a narrower one sat in
+        // a window of empty pane. The width is the form's own (the rail's column
+        // plus the content beside it, which is exactly what the developer laid
+        // out), narrowed when the rail opens collapsed; the height adds the
+        // breadcrumb, which is chrome the shell puts OUTSIDE the form.
+        let designed = shell_window_size(
+            form.width as f32,
+            form.height as f32,
+            shell.menu_open_width,
+            shell.menu_pane_width(),
+            // A FullHeight rail's frame OVERLAYS the form's top band, so it costs
+            // the window nothing; a panel above the window still needs its own.
+            if shell.full_height {
+                0.0
+            } else {
+                shell.breadcrumb_height
+            },
+        );
+        // The main form's designed window, as a plain window gets it (`host::run`):
+        // title-bar buttons, the title bar itself, full screen, maximized, a
+        // custom position and the taskbar icon. A shell window used to take the
+        // title and size alone, so every one of these was ignored in a shell
+        // application (property audit, 2026-09-26). Minimized and a
+        // screen-relative position need the window to exist: first frame.
+        let mut viewport = egui::ViewportBuilder::default()
+            .with_title(&title)
+            .with_inner_size([designed.x, designed.y])
+            .with_resizable(true)
+            // R43 — the shell window carries alpha; the chrome paints itself.
+            .with_transparent(true)
+            .with_minimize_button(form.can_minimize)
+            .with_maximize_button(form.can_maximize)
+            .with_decorations(form.title_visible)
+            .with_fullscreen(form.full_screen)
+            .with_maximized(form.window_state == cobolt_forms::model::WindowState::Maximized);
+        // 056 R18 — a responsive main form's smallest layout is the window's
+        // floor; the rail's own resize of the window is unaffected, and a form that
+        // is not responsive keeps no minimum, as before.
+        if let Some(l) = cobolt_forms::layout::size_limits_of(&form) {
+            let (mw, mh) = l.window_max();
+            viewport = viewport.with_min_inner_size([l.min.0, l.min.1]).with_max_inner_size([mw, mh]);
+        }
+        if form.start_position == cobolt_forms::model::FormStartPosition::Custom {
+            viewport = viewport.with_position(egui::pos2(form.x as f32, form.y as f32));
+        }
+        let taskbar_icon = (!form.taskbar_icon.trim().is_empty())
+            .then(|| cobolt_forms::assets::resolve(form.taskbar_icon.trim()));
+        if let Some(icon) = crate::host::load_host_icon(taskbar_icon.as_deref().or(icon_path.as_deref())) {
+            viewport = viewport.with_icon(icon);
+        }
+        let start_minimized = form.window_state == cobolt_forms::model::WindowState::Minimized;
+        let pending_start = form.start_position.is_screen_relative().then_some(form.start_position);
+        let app = ShellApp {
+            start_minimized,
+            pending_start,
+            shell,
+            chain,
+            host,
+            side_menu_ctrl,
+            state_path,
+            input_tx,
+            ev_tx,
+            form_req_tx,
+        };
+        (app, title, viewport)
+    }
+}
+
 /// The shell window's eframe app: Shell chrome + the main form's [`FormHost`]
 /// in the ContentPane.
-struct ShellApp {
+pub(crate) struct ShellApp {
     /// The main form opens minimized (first frame: winit has no builder).
     start_minimized: bool,
     /// A screen-relative designed StartPosition, applied once the monitor's
@@ -1872,6 +1885,34 @@ impl eframe::App for ShellApp {
         // see-through form theme also blurs what is behind it (spec 083),
         // whether it is the shell's own or the ContentPane occupant's.
         crate::host::sync_os_blur(frame, self.host.shell_wants_os_blur());
+        self.frame(root_ui);
+    }
+}
+
+impl ShellApp {
+    /// The host the shell carries (the ContentPane's forms).
+    pub(crate) fn host(&self) -> &crate::FormHost {
+        &self.host
+    }
+
+    pub(crate) fn host_mut(&mut self) -> &mut crate::FormHost {
+        &mut self.host
+    }
+
+    /// `run_form` (spec 084): load `form` into the ContentPane as a root-menu
+    /// item whose action is `open-form:<form>` would, on the next frame.
+    pub(crate) fn script_open_form(&mut self, form: &str) {
+        self.shell.pending_clicks.push(MenuClick {
+            slot: MenuSlot::Root,
+            item_id: String::new(),
+            action: Some(format!("open-form:{}", form.trim())),
+            preserve_previous_form: false,
+        });
+    }
+
+    /// One frame of the shell: everything [`eframe::App::ui`] does but the
+    /// window's OS blur, so a headless run can drive it (spec 084).
+    pub(crate) fn frame(&mut self, root_ui: &mut Ui) {
         if self.start_minimized {
             self.start_minimized = false;
             root_ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));

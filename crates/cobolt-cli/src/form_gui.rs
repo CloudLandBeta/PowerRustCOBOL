@@ -721,6 +721,7 @@ pub fn cmd_run_form(args: &[String]) {
         let png = arg_after("--headless-png").map(PathBuf::from);
         let mut report = cobolt_form_host::headless::run_headless(
             config,
+            shell_mode.then_some(root_menu),
             &script,
             std::time::Duration::from_secs(limit),
             png.as_deref(),

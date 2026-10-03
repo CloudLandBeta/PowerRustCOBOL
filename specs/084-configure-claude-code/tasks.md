@@ -101,9 +101,13 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   "inside its shell" option is split out as T15b.)* Library-ise the golden test's render path;
   tool returns `Content::Image`; shell option via `ShellApp::new` + frame fn.
   *Verify:* AC17. *Serves:* R30.
-- [ ] **T15b — `render_form` inside its shell.** Refactor `run_shell` into
+- [x] **T15b — `render_form` inside its shell.** Refactor `run_shell` into
   `ShellApp::new` + a frame fn without `eframe::Frame`; picture a ContentPane
   form with the side menu. *Verify:* AC17 (shell half).
+  *(Done: `ShellApp::new` + `ShellApp::frame`; the headless run drives the
+  shell for a main form with a SideMenu, and an `open_form` step loads a form
+  into the ContentPane. `render_form` with `in_shell` uses that run, so the
+  application's opening handlers run — the tool says so.)*
 - [x] **T16 (B3) — `run_form`.** `prepare_form` refactor of `cmd_run_form`;
   `cobolt_form_host::headless`; hidden `rcrun run-form-headless`; subprocess
   with timeout, injected like `build::Builder`. *Verify:* AC18. *Serves:* R31.

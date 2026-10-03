@@ -8,6 +8,22 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.123] — 2026-10-03
+
+### Spec 084 T15b: a form pictured inside its application shell
+
+`render_form` takes `in_shell`: a form the application loads into its
+ContentPane is pictured there — beside the side menu, under the breadcrumb, at
+the shell window's size. The application runs off screen to get there (the
+main form, then the form loaded as its menu would load it), so their opening
+handlers run; the tool says so.
+
+`run_form` now runs a main form with a SideMenu inside its shell, as `rcrun
+run-form` does, and takes an `open_form` step; `set`, `event` and `read` act
+on the form on the pane. The shell's window setup and its frame were split out
+of `run_shell` (`ShellApp::new`, `ShellApp::frame`) so a headless run can drive
+the very same code.
+
 ## [PowerRustCOBOL 1.80.122] — 2026-10-03
 
 ### Spec 084 T16: `run_form` — a coding agent runs the form it built

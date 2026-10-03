@@ -10729,9 +10729,14 @@ is not there does not exist for the agent.
 - **`kb_search`** — searches the same Knowledge Base the IDE's assistant uses,
   in plain words, when the agent does not know the exact name.
 - **`render_form`** — a picture of a form as Run Form draws it when it opens,
-  so the agent can look at what it built. Nothing is shown on your screen.
+  so the agent can look at what it built. Nothing is shown on your screen. For
+  a form your application loads into its ContentPane, the agent can ask for it
+  **inside the shell** — beside the side menu, under the breadcrumb. To get
+  there the application runs, so the main form's and that form's opening
+  handlers run too.
 - **`run_form`** — runs a form off screen, with its real program, through a
-  script: type into a control, click, wait, read a property back. The agent
+  script: type into a control, click, wait, read a property back — and, in an
+  application with a side menu, load a form into the ContentPane first. The agent
   gets what the program DISPLAYed, the values it read, any runtime error and a
   picture of where the form ended up. A handler that never returns is stopped
   at a time limit (20 seconds unless the agent asks for less or more, at most

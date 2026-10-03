@@ -4778,29 +4778,56 @@ impl FormHost {
         self.last_pane_backdrop_fill
     }
 
-    /// `run_form` (spec 084 R31): set a control's property as the operator
-    /// editing it would — the host's state and the interpreter's both.
+    /// `run_form` (spec 084 R31): the form the operator is looking at — the
+    /// ContentPane's occupant when one is on the pane, else the root form.
+    fn script_body(&mut self) -> &mut FormBody {
+        match self.active_occupant.clone() {
+            Some(k) if self.occupants.contains_key(&k) => &mut self.occupants.get_mut(&k).unwrap().body,
+            _ => &mut self.root,
+        }
+    }
+
+    fn script_body_ref(&self) -> &FormBody {
+        match self.active_occupant.as_ref().and_then(|k| self.occupants.get(k)) {
+            Some(occ) => &occ.body,
+            None => &self.root,
+        }
+    }
+
+    /// `run_form`: set a control's property as the operator editing it
+    /// would — the host's state and the interpreter's both.
     pub(crate) fn script_set_prop(&mut self, ctrl_id: &str, prop: &str, value: &str) {
-        let key = self.root.resolve_ctrl_key(ctrl_id);
-        self.root.state_entry_mut(&key).set(prop, value.to_owned());
-        let _ = self.root.input_tx.send(StateUpdate::new(ctrl_id, prop, value));
-        self.root.wake_for_input(ctrl_id);
+        let body = self.script_body();
+        let key = body.resolve_ctrl_key(ctrl_id);
+        body.state_entry_mut(&key).set(prop, value.to_owned());
+        let _ = body.input_tx.send(StateUpdate::new(ctrl_id, prop, value));
+        body.wake_for_input(ctrl_id);
     }
 
     /// `run_form`: raise `event` on a control, as the operator would.
     pub(crate) fn script_event(&mut self, ctrl_id: &str, event: &str) {
-        self.root.send_event(FormEvent::new(ctrl_id, event));
+        let body = self.script_body();
+        body.send_event(FormEvent::new(ctrl_id, event));
         // The program takes an event off the queue BEFORE handling it, so the
         // queue alone says nothing about a handler still running. An input
         // wake behind the event is taken only back in the wait loop — after
         // the handler returns — and is never shown to the program.
-        self.root.wake_for_input(ctrl_id);
+        body.wake_for_input(ctrl_id);
     }
 
-    /// Events sent to the program and not yet handled (with
+    /// Events sent to the form on the pane and not yet handled (with
     /// [`Self::script_event`]: not yet finished).
     pub(crate) fn script_pending(&self) -> usize {
-        self.root.pending.load(Ordering::Relaxed)
+        self.script_body_ref().pending.load(Ordering::Relaxed)
+    }
+
+    /// `run_form`: a control's live property on the form on the pane.
+    pub(crate) fn script_read(&self, ctrl_id: &str, prop: &str) -> Option<String> {
+        let body = self.script_body_ref();
+        let key = body.resolve_ctrl_key(ctrl_id);
+        body.state.get(&key).and_then(|s| {
+            s.props.iter().find(|(k, _)| k.eq_ignore_ascii_case(prop)).map(|(_, v)| v.clone())
+        })
     }
 
     /// The program has ended (STOP RUN, or the form closed).

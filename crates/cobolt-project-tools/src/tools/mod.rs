@@ -226,7 +226,10 @@ impl<H: ProjectHost> ProjectTools<H> {
                 description: Some(
                     "A picture (PNG) of a form as Run Form draws it when it opens — its theme, \
                      backdrop, controls and images — so you can see what you built: layout, \
-                     overlaps, text that does not fit. Before any event handler runs."
+                     overlaps, text that does not fit. Before any event handler runs. With \
+                     in_shell, a form the application loads into its ContentPane is pictured \
+                     there, beside the side menu — the application runs to get there, so the main \
+                     form's and this form's opening handlers run, with their real effects."
                         .into(),
                 ),
                 input_schema: json!({
@@ -234,7 +237,9 @@ impl<H: ProjectHost> ProjectTools<H> {
                     "properties": {
                         "path": { "type": "string", "description": "Project-relative .cfrm, e.g. forms/ORDERS.cfrm" },
                         "scale": { "type": "number", "minimum": 0.25, "maximum": 3,
-                                   "description": "Picture scale, 1 = one pixel per designed point (default 1)." }
+                                   "description": "Picture scale, 1 = one pixel per designed point (default 1)." },
+                        "in_shell": { "type": "boolean",
+                                      "description": "Picture the form inside the project's application shell (main form with a SideMenu)." }
                     },
                     "required": ["path"],
                     "additionalProperties": false
@@ -245,7 +250,9 @@ impl<H: ProjectHost> ProjectTools<H> {
                 description: Some(
                     "Run a form off screen, with its real program, through a script of steps — \
                      {\"set\": {control, property, value}} as if typed, {\"event\": {control, name}} \
-                     as if clicked, {\"wait_ms\": n}, {\"read\": {control, property}} — and answer \
+                     as if clicked, {\"wait_ms\": n}, {\"read\": {control, property}}, and in an \
+                     application shell {\"open_form\": name} to load a form into the ContentPane \
+                     (set, event and read then act on it) — and answer \
                      with what the program DISPLAYed, the values read, any runtime error and a \
                      picture of the final state. The program's real effects happen (its files, its \
                      web calls). Nothing is shown on screen."
@@ -436,9 +443,15 @@ impl<H: ProjectHost> ProjectTools<H> {
         run::run(&mut self.host, root, runner.as_ref(), &path, &steps, limit)
     }
 
-    fn render(&self, args: &Value, root: &ProjectRoot) -> Result<(Vec<u8>, Value), String> {
+    fn render(&mut self, args: &Value, root: &ProjectRoot) -> Result<(Vec<u8>, Value), String> {
         let path = opt_str(args, "path").ok_or("render_form needs a 'path'")?;
         let scale = args.get("scale").and_then(Value::as_f64).unwrap_or(1.0).clamp(0.25, 3.0) as f32;
+        if args.get("in_shell").and_then(Value::as_bool).unwrap_or(false) {
+            let runner = self.shared.runner.clone();
+            let shared = Arc::clone(&self.shared);
+            let _w = shared.write_lock.lock().unwrap_or_else(|p| p.into_inner());
+            return run::in_shell(&mut self.host, root, runner.as_ref(), &path);
+        }
         render::run(&self.host, root, self.shared.renderer.as_ref(), &path, scale)
     }
 

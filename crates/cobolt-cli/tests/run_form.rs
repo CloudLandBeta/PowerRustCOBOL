@@ -115,3 +115,64 @@ fn run_form_types_clicks_reads_back_and_stops_a_runaway_handler() {
     let _ = std::fs::remove_dir_all(&base);
     println!("run_form: typed Ann, clicked, read Caption=Ann, DISPLAY captured, picture; runaway handler stopped in {took:?}");
 }
+
+/// Standard base64 back to bytes (MCP image content).
+fn unbase64(text: &str) -> Vec<u8> {
+    const ABC: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = Vec::new();
+    let (mut acc, mut bits) = (0u32, 0);
+    for c in text.bytes().filter(|c| *c != b'=') {
+        acc = (acc << 6) | ABC.iter().position(|a| *a == c).unwrap() as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    out
+}
+
+fn copy_dir(src: &Path, dst: &Path) {
+    std::fs::create_dir_all(dst).unwrap();
+    for e in std::fs::read_dir(src).unwrap().flatten() {
+        let to = dst.join(e.file_name());
+        if e.path().is_dir() {
+            copy_dir(&e.path(), &to);
+        } else {
+            std::fs::copy(e.path(), to).unwrap();
+        }
+    }
+}
+
+/// Spec 084 AC17, shell half (R30): a form PowerDemo3 loads into its
+/// ContentPane, pictured inside the application shell — wider than the form
+/// by the side menu — and a non-shell request refused.
+#[test]
+fn render_form_in_shell_pictures_a_contentpane_form_beside_the_side_menu() {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let project = std::env::temp_dir().join(format!("prc-084-in-shell-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&project);
+    copy_dir(&repo.join("examples/PowerDemo3"), &project);
+    let runner = run::rcrun_runner(Path::new(env!("CARGO_BIN_EXE_rcrun")).to_path_buf());
+    let shared = Arc::new(Shared::new().with_runner(runner));
+    let mut tools = ProjectTools::with_shared(HeadlessHost::new(&project, "test"), shared);
+
+    let r = tools.call_tool("render_form", &json!({"path": "forms/Common/buttons-form.cfrm", "in_shell": true}));
+    let meta: Value = serde_json::from_str(r.content.last().unwrap().as_text().unwrap()).unwrap_or(Value::Null);
+    assert_eq!(r.is_error, None, "{meta}");
+    let image = serde_json::to_value(&r.content[0]).unwrap();
+    assert_eq!(image["type"], "image");
+    let png = unbase64(image["data"].as_str().unwrap());
+    std::fs::write(std::env::temp_dir().join("prc-084-in-shell.png"), &png).unwrap();
+    let img = image::load_from_memory(&png).unwrap();
+    let form = cobolt_forms::load_form(&project.join("forms/Common/buttons-form.cfrm")).unwrap();
+    assert!(img.width() > form.width, "the shell is wider than the form by its side menu: {} vs {}", img.width(), form.width);
+    assert_eq!(meta["shell"], "forms/sidebar-form.cfrm", "{meta}");
+
+    // The main form itself is not "inside" its own shell.
+    let r = tools.call_tool("render_form", &json!({"path": "forms/sidebar-form.cfrm", "in_shell": true}));
+    assert_eq!(r.is_error, Some(true));
+    let _ = std::fs::remove_dir_all(&project);
+    println!("render_form in_shell: buttons-form in sidebar-form's ContentPane, {}x{} (form {}x{})", img.width(), img.height(), form.width, form.height);
+}

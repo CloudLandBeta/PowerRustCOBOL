@@ -119,6 +119,64 @@ fn run_process(rcrun: &Path, cfrm: &Path, cbl: &Path, script: &Path, png: &Path,
     }
 }
 
+/// The generated program of `rel`, written fresh — what Run Form does first.
+fn fresh_program(host: &mut impl ProjectHost, root: &ProjectRoot, rel: &str) -> Result<PathBuf, String> {
+    let regenerated = super::regenerate::run(host, root, Some(rel))?;
+    regenerated["written"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .find(|p| p.to_ascii_lowercase().ends_with(".cbl"))
+        .map(|p| root.dir().join(p))
+        .ok_or_else(|| format!("the program of {rel} was not generated"))
+}
+
+/// `render_form` with `in_shell` (spec 084 R30): the form in the ContentPane
+/// of the project's application shell. Getting there runs the application —
+/// the main form, then this form loaded as its menu would load it.
+pub fn in_shell(host: &mut impl ProjectHost, root: &ProjectRoot, runner: Option<&FormRunner>, rel: &str) -> Result<(Vec<u8>, Value), String> {
+    let runner = runner.ok_or("render_form inside the shell is not available in this server")?;
+    let cfrm = root.resolve(rel)?;
+    let form = cobolt_forms::load_form(&cfrm).map_err(|e| format!("{rel} does not load: {e}"))?;
+    let view = cobolt_compiler::project_manifest_view(root.manifest())?;
+    let main = view
+        .forms
+        .iter()
+        .find(|f| {
+            root.resolve(f)
+                .ok()
+                .and_then(|p| cobolt_forms::load_form(&p).ok())
+                .is_some_and(|m| m.main_form && m.has_side_menu())
+        })
+        .cloned()
+        .ok_or("the project has no application shell: no main form with a SideMenu")?;
+    if root.resolve(&main)? == cfrm {
+        return Err(format!("{rel} is the shell's main form: picture it without in_shell"));
+    }
+    let main_cbl = fresh_program(host, root, &main)?;
+    fresh_program(host, root, rel)?;
+    let steps = [json!({"open_form": form.name})];
+    let outcome = runner(&root.resolve(&main)?, &main_cbl, &steps, 20)?;
+    let on_pane = outcome.report["on_pane"].as_str().unwrap_or_default();
+    if !on_pane.eq_ignore_ascii_case(&form.name) {
+        return Err(format!("the shell did not load {} into its ContentPane: {}", form.name, outcome.report));
+    }
+    let png = outcome.png.ok_or("the run made no picture")?;
+    let mut answer = json!({
+        "form": rel,
+        "shell": main,
+        "picture": outcome.report["picture"],
+        "display": outcome.display,
+        "note": "Inside the application shell, the form loaded into its ContentPane. The application ran to get \
+                 there: the main form's and this form's opening handlers ran, with their real effects.",
+    });
+    if let Some(e) = outcome.report.get("runtime_error") {
+        answer["runtime_error"] = e.clone();
+    }
+    Ok((png, answer))
+}
+
 /// Run `run_form`: regenerate the form's COBOL, run it, and answer.
 pub fn run(host: &mut impl ProjectHost, root: &ProjectRoot, runner: Option<&FormRunner>, rel: &str, steps: &[Value], limit_s: u64) -> Result<(Option<Vec<u8>>, Value), String> {
     let runner = runner.ok_or("run_form is not available in this server")?;
@@ -129,16 +187,7 @@ pub fn run(host: &mut impl ProjectHost, root: &ProjectRoot, runner: Option<&Form
     if !cfrm.is_file() {
         return Err(format!("no form at {rel}"));
     }
-    // What Run Form does first: the form's program, generated fresh.
-    let regenerated = super::regenerate::run(host, root, Some(rel))?;
-    let cbl = regenerated["written"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .find(|p| p.to_ascii_lowercase().ends_with(".cbl"))
-        .map(|p| root.dir().join(p))
-        .ok_or("the form's program was not generated")?;
+    let cbl = fresh_program(host, root, rel)?;
     let outcome = runner(&cfrm, &cbl, steps, limit_s)?;
     let mut answer = outcome.report;
     answer["form"] = json!(rel);
