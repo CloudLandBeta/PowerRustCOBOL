@@ -56,7 +56,7 @@ TextBox-1 rect=[128 210 752 250] font=13
 Txt-Log rect=[128 586 920 733] font=12
 Txt-Question rect=[128 314 800 370] font=13
 Txt-Reply rect=[128 394 920 513] font=13
-shapes=86 digest=321dc5d4bc64b151
+shapes=86 digest=67095e4f8e1ad573
 ## Preview 0.75x 972x582
 Agent-Helper rect=[1128 656 1216 728] font=14
 Btn-Ask rect=[816 326 915 358] font=14
@@ -85,7 +85,7 @@ TextBox-1 rect=[128 210 752 250] font=13
 Txt-Log rect=[128 586 920 733] font=12
 Txt-Question rect=[128 314 800 370] font=13
 Txt-Reply rect=[128 394 920 513] font=13
-shapes=86 digest=f31c1b8eb95b4bc7
+shapes=86 digest=e570ce03351d5901
 ## Canvas 1x 1296x776
 Agent-Helper rect=[1128 656 1216 728] font=14
 Btn-Ask rect=[816 326 915 358] font=14
@@ -143,7 +143,7 @@ TextBox-1 rect=[128 210 752 250] font=13
 Txt-Log rect=[128 586 920 733] font=12
 Txt-Question rect=[128 314 800 370] font=13
 Txt-Reply rect=[128 394 920 513] font=13
-shapes=88 digest=9373585f78b9b7b1
+shapes=88 digest=de3929f114cbcc4d
 ## Preview 1x 1296x776
 Agent-Helper rect=[1128 656 1216 728] font=14
 Btn-Ask rect=[816 326 915 358] font=14
@@ -172,7 +172,7 @@ TextBox-1 rect=[128 210 752 250] font=13
 Txt-Log rect=[128 586 920 733] font=12
 Txt-Question rect=[128 314 800 370] font=13
 Txt-Reply rect=[128 394 920 513] font=13
-shapes=88 digest=99aed3058c29f827
+shapes=88 digest=ee3681085c7e7f93
 ## Canvas 1.5x 1944x1164
 Agent-Helper rect=[1128 656 1216 728] font=14
 Btn-Ask rect=[816 326 915 358] font=14
@@ -230,7 +230,7 @@ TextBox-1 rect=[128 210 752 250] font=13
 Txt-Log rect=[128 586 920 733] font=12
 Txt-Question rect=[128 314 800 370] font=13
 Txt-Reply rect=[128 394 920 513] font=13
-shapes=88 digest=525a3f467048caaa
+shapes=88 digest=05d98d91571df1ba
 ## Preview 1.5x 1944x1164
 Agent-Helper rect=[1128 656 1216 728] font=14
 Btn-Ask rect=[816 326 915 358] font=14
@@ -259,4 +259,4 @@ TextBox-1 rect=[128 210 752 250] font=13
 Txt-Log rect=[128 586 920 733] font=12
 Txt-Question rect=[128 314 800 370] font=13
 Txt-Reply rect=[128 394 920 513] font=13
-shapes=88 digest=3f93461fcbf2a90c
+shapes=88 digest=99bb58cd355c8bdc

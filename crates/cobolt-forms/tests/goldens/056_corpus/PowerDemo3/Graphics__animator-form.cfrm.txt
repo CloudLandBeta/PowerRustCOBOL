@@ -28,7 +28,7 @@ Lbl-Sub rect=[32 54 968 92] font=13
 Lbl-Title rect=[32 20 968 50] font=20
 Num-Loops rect=[500 154 660 186] font=15
 Txt-Log rect=[32 448 968 632] font=12
-shapes=42 digest=d8eba74475b43868
+shapes=42 digest=565c9136b52a57b4
 ## Preview 0.75x 750x495
 Anm-Hero rect=[48 130 468 350] font=14
 Btn-Clear rect=[720 380 876 412] font=14
@@ -43,7 +43,7 @@ Lbl-Sub rect=[32 54 968 92] font=13
 Lbl-Title rect=[32 20 968 50] font=20
 Num-Loops rect=[500 154 660 186] font=15
 Txt-Log rect=[32 448 968 632] font=12
-shapes=42 digest=d8eba74475b43868
+shapes=42 digest=565c9136b52a57b4
 ## Canvas 1x 1000x660
 Anm-Hero rect=[48 130 468 350] font=14
 Btn-Clear rect=[720 380 876 412] font=14
@@ -73,7 +73,7 @@ Lbl-Sub rect=[32 54 968 92] font=13
 Lbl-Title rect=[32 20 968 50] font=20
 Num-Loops rect=[500 154 660 186] font=15
 Txt-Log rect=[32 448 968 632] font=12
-shapes=42 digest=244f4f841c447226
+shapes=42 digest=d567d7719545726a
 ## Preview 1x 1000x660
 Anm-Hero rect=[48 130 468 350] font=14
 Btn-Clear rect=[720 380 876 412] font=14
@@ -88,7 +88,7 @@ Lbl-Sub rect=[32 54 968 92] font=13
 Lbl-Title rect=[32 20 968 50] font=20
 Num-Loops rect=[500 154 660 186] font=15
 Txt-Log rect=[32 448 968 632] font=12
-shapes=42 digest=244f4f841c447226
+shapes=42 digest=d567d7719545726a
 ## Canvas 1.5x 1500x990
 Anm-Hero rect=[48 130 468 350] font=14
 Btn-Clear rect=[720 380 876 412] font=14
@@ -118,7 +118,7 @@ Lbl-Sub rect=[32 54 968 92] font=13
 Lbl-Title rect=[32 20 968 50] font=20
 Num-Loops rect=[500 154 660 186] font=15
 Txt-Log rect=[32 448 968 632] font=12
-shapes=42 digest=c9ac4e81e7fdd0bb
+shapes=42 digest=7e3ace3ce8345a53
 ## Preview 1.5x 1500x990
 Anm-Hero rect=[48 130 468 350] font=14
 Btn-Clear rect=[720 380 876 412] font=14
@@ -133,4 +133,4 @@ Lbl-Sub rect=[32 54 968 92] font=13
 Lbl-Title rect=[32 20 968 50] font=20
 Num-Loops rect=[500 154 660 186] font=15
 Txt-Log rect=[32 448 968 632] font=12
-shapes=42 digest=c9ac4e81e7fdd0bb
+shapes=42 digest=7e3ace3ce8345a53

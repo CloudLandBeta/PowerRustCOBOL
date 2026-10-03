@@ -28,7 +28,7 @@ Lbl-Title rect=[32 20 968 50] font=20
 Lst-Done rect=[460 168 840 352] font=14
 Lst-Tasks rect=[48 168 428 353] font=14
 Txt-Log rect=[48 464 965 630] font=12
-shapes=425 digest=eec2b75c53ea3ee9
+shapes=425 digest=6ad5bfbd9cdadfcd
 ## Preview 0.75x 750x495
 Btn-Add rect=[48 384 204 416] font=14
 Btn-Clear rect=[564 384 720 416] font=14
@@ -43,7 +43,7 @@ Lbl-Title rect=[32 20 968 50] font=20
 Lst-Done rect=[460 168 840 352] font=14
 Lst-Tasks rect=[48 168 428 353] font=14
 Txt-Log rect=[48 464 965 630] font=12
-shapes=425 digest=eec2b75c53ea3ee9
+shapes=425 digest=6ad5bfbd9cdadfcd
 ## Canvas 1x 1000x660
 Btn-Add rect=[48 384 204 416] font=14
 Btn-Clear rect=[564 384 720 416] font=14
@@ -73,7 +73,7 @@ Lbl-Title rect=[32 20 968 50] font=20
 Lst-Done rect=[460 168 840 352] font=14
 Lst-Tasks rect=[48 168 428 353] font=14
 Txt-Log rect=[48 464 965 630] font=12
-shapes=425 digest=5216ef9ed627b2de
+shapes=425 digest=5ac7abaa87178c66
 ## Preview 1x 1000x660
 Btn-Add rect=[48 384 204 416] font=14
 Btn-Clear rect=[564 384 720 416] font=14
@@ -88,7 +88,7 @@ Lbl-Title rect=[32 20 968 50] font=20
 Lst-Done rect=[460 168 840 352] font=14
 Lst-Tasks rect=[48 168 428 353] font=14
 Txt-Log rect=[48 464 965 630] font=12
-shapes=425 digest=5216ef9ed627b2de
+shapes=425 digest=5ac7abaa87178c66
 ## Canvas 1.5x 1500x990
 Btn-Add rect=[48 384 204 416] font=14
 Btn-Clear rect=[564 384 720 416] font=14
@@ -118,7 +118,7 @@ Lbl-Title rect=[32 20 968 50] font=20
 Lst-Done rect=[460 168 840 352] font=14
 Lst-Tasks rect=[48 168 428 353] font=14
 Txt-Log rect=[48 464 965 630] font=12
-shapes=425 digest=cda5c29100041b80
+shapes=425 digest=021adb04a59a0698
 ## Preview 1.5x 1500x990
 Btn-Add rect=[48 384 204 416] font=14
 Btn-Clear rect=[564 384 720 416] font=14
@@ -133,4 +133,4 @@ Lbl-Title rect=[32 20 968 50] font=20
 Lst-Done rect=[460 168 840 352] font=14
 Lst-Tasks rect=[48 168 428 353] font=14
 Txt-Log rect=[48 464 965 630] font=12
-shapes=425 digest=cda5c29100041b80
+shapes=425 digest=021adb04a59a0698

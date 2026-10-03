@@ -6799,6 +6799,11 @@ fn render_interactive(
                 // spill past the TextBox's fixed height (and its rounded bottom).
                 // Host it in a scroll area clipped to the field so extra rows scroll
                 // instead of overflowing: the box keeps its designed height.
+                let multiline_rows = {
+                    let row = ui.fonts_mut(|f| f.row_height(&edit_font))
+                        + ui.spacing().extra_text_line_spacing;
+                    ((edit_rect.height() / row.max(1.0)).floor() as usize).max(1)
+                };
                 ui.scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
                     // …and to the CONTAINER as well. Clipping to the box alone
                     // threw the ancestor clip away, so a TextBox reaching past
@@ -6833,7 +6838,17 @@ fn render_interactive(
                                 .id(ctrl_id)
                                 .frame(egui::Frame::NONE)
                                 .interactive(enabled)
-                                .desired_rows(1)
+                                // As many rows as the box holds, so the editor —
+                                // the only thing that takes a click — fills it.
+                                // With one row it was a single line tall at the
+                                // top, and a click anywhere lower landed on the
+                                // bare scroll area: a multiline box took the
+                                // caret only on its first line, and PowerChat's
+                                // question box could not be clicked into
+                                // (operator, 2026-10-02). Rounded DOWN so a short
+                                // text never scrolls. (egui 0.36 sizes the height
+                                // from the rows alone; `min_size` is width only.)
+                                .desired_rows(multiline_rows)
                                 // Text that scrolls sideways must not also wrap,
                                 // or there is nothing to scroll to.
                                 .desired_width(if scroll_dirs[0] {

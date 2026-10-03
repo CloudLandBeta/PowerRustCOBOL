@@ -8,6 +8,24 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.110] — 2026-10-02
+
+### Fix: a multiline TextBox takes the caret wherever it is clicked
+
+A Multiline TextBox could only be clicked into on its first line. Its editor
+asked egui for one row, so it was a single line tall at the top of the box, and
+a click anywhere lower landed on the bare scroll area under it: nothing took
+the focus and nothing could be typed. PowerChat's 104-px question box
+(`Txt-Input`) was clicked in the middle and ignored the click — the buttons
+beside it worked. The editor now asks for as many rows as the box holds, so it
+fills the box. Every surface draws through the one render engine, so Run Form,
+embedded child forms and the compiled binary all get it.
+
+Test: `cobolt-forms/tests/a_click_gives_powerchat_input_the_caret.rs` clicks
+PowerChat's real form at three heights. The example-corpus goldens of the 36
+forms with a multiline TextBox were regenerated: the same shapes, the editor
+taller. (1.80.108–1.80.109 are spec 084 work on `feat/configure-claude-code`.)
+
 ## [PowerRustCOBOL 1.80.107] — 2026-10-02
 
 ### Fix: the Agent Configuration tab and the direct AI surfaces follow each agent's provider

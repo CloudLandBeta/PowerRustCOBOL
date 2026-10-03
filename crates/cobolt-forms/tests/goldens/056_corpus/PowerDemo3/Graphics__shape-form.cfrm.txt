@@ -34,7 +34,7 @@ Shp-Circle rect=[268 154 458 344] font=14
 Shp-Rect rect=[48 154 238 344] font=14
 Shp-Tri rect=[480 144 670 334] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=46 digest=802a89d8bc20ea97
+shapes=46 digest=2a6ddaede905929f
 ## Preview 0.75x 750x495
 Btn-Clear rect=[720 380 876 412] font=14
 Btn-Cycle rect=[32 380 188 412] font=14
@@ -52,7 +52,7 @@ Shp-Circle rect=[268 154 458 344] font=14
 Shp-Rect rect=[48 154 238 344] font=14
 Shp-Tri rect=[480 144 670 334] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=46 digest=802a89d8bc20ea97
+shapes=46 digest=2a6ddaede905929f
 ## Canvas 1x 1000x660
 Btn-Clear rect=[720 380 876 412] font=14
 Btn-Cycle rect=[32 380 188 412] font=14
@@ -88,7 +88,7 @@ Shp-Circle rect=[268 154 458 344] font=14
 Shp-Rect rect=[48 154 238 344] font=14
 Shp-Tri rect=[480 144 670 334] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=46 digest=a9a485eec2428ce9
+shapes=46 digest=ae876f0319c3f6e9
 ## Preview 1x 1000x660
 Btn-Clear rect=[720 380 876 412] font=14
 Btn-Cycle rect=[32 380 188 412] font=14
@@ -106,7 +106,7 @@ Shp-Circle rect=[268 154 458 344] font=14
 Shp-Rect rect=[48 154 238 344] font=14
 Shp-Tri rect=[480 144 670 334] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=46 digest=a9a485eec2428ce9
+shapes=46 digest=ae876f0319c3f6e9
 ## Canvas 1.5x 1500x990
 Btn-Clear rect=[720 380 876 412] font=14
 Btn-Cycle rect=[32 380 188 412] font=14
@@ -142,7 +142,7 @@ Shp-Circle rect=[268 154 458 344] font=14
 Shp-Rect rect=[48 154 238 344] font=14
 Shp-Tri rect=[480 144 670 334] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=46 digest=1f0bf2c6f45c5c37
+shapes=46 digest=854f0fc1b01138bf
 ## Preview 1.5x 1500x990
 Btn-Clear rect=[720 380 876 412] font=14
 Btn-Cycle rect=[32 380 188 412] font=14
@@ -160,4 +160,4 @@ Shp-Circle rect=[268 154 458 344] font=14
 Shp-Rect rect=[48 154 238 344] font=14
 Shp-Tri rect=[480 144 670 334] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=46 digest=1f0bf2c6f45c5c37
+shapes=46 digest=854f0fc1b01138bf

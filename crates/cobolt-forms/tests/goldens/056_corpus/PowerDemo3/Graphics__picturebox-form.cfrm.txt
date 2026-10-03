@@ -34,7 +34,7 @@ Pic-Normal rect=[48 154 258 344] font=14
 Pic-Stretch rect=[280 154 490 344] font=14
 Pic-Zoom rect=[512 154 722 344] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=536 digest=44ada830b76f1b1f
+shapes=536 digest=8e33366ca31cbd9d
 ## Preview 0.75x 750x495
 Btn-Clear rect=[548 380 704 412] font=14
 Btn-Frame rect=[376 380 532 412] font=14
@@ -52,7 +52,7 @@ Pic-Normal rect=[48 154 258 344] font=14
 Pic-Stretch rect=[280 154 490 344] font=14
 Pic-Zoom rect=[512 154 722 344] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=536 digest=44ada830b76f1b1f
+shapes=536 digest=8e33366ca31cbd9d
 ## Canvas 1x 1000x660
 Btn-Clear rect=[548 380 704 412] font=14
 Btn-Frame rect=[376 380 532 412] font=14
@@ -88,7 +88,7 @@ Pic-Normal rect=[48 154 258 344] font=14
 Pic-Stretch rect=[280 154 490 344] font=14
 Pic-Zoom rect=[512 154 722 344] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=536 digest=1c911d6509371b75
+shapes=536 digest=6f430f2c064ef74b
 ## Preview 1x 1000x660
 Btn-Clear rect=[548 380 704 412] font=14
 Btn-Frame rect=[376 380 532 412] font=14
@@ -106,7 +106,7 @@ Pic-Normal rect=[48 154 258 344] font=14
 Pic-Stretch rect=[280 154 490 344] font=14
 Pic-Zoom rect=[512 154 722 344] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=536 digest=1c911d6509371b75
+shapes=536 digest=6f430f2c064ef74b
 ## Canvas 1.5x 1500x990
 Btn-Clear rect=[548 380 704 412] font=14
 Btn-Frame rect=[376 380 532 412] font=14
@@ -142,7 +142,7 @@ Pic-Normal rect=[48 154 258 344] font=14
 Pic-Stretch rect=[280 154 490 344] font=14
 Pic-Zoom rect=[512 154 722 344] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=536 digest=dfe3fff3081032e6
+shapes=536 digest=afc7f716fd0b0480
 ## Preview 1.5x 1500x990
 Btn-Clear rect=[548 380 704 412] font=14
 Btn-Frame rect=[376 380 532 412] font=14
@@ -160,4 +160,4 @@ Pic-Normal rect=[48 154 258 344] font=14
 Pic-Stretch rect=[280 154 490 344] font=14
 Pic-Zoom rect=[512 154 722 344] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=536 digest=dfe3fff3081032e6
+shapes=536 digest=afc7f716fd0b0480

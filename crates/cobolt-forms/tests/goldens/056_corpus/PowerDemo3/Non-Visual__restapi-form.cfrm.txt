@@ -36,7 +36,7 @@ Label-TITLE rect=[24 20 1256 50] font=19
 RestClient-1 rect=[1096 16 1152 72] font=11
 TextBox-BODY rect=[648 272 1256 696] font=12
 TextBox-LOG rect=[24 272 624 696] font=12
-shapes=171 digest=5e8f189974d0f68f
+shapes=171 digest=90652d0246ec5899
 ## Preview 0.75x 960x540
 Button-REST-404 rect=[972 96 1256 136] font=13
 Button-REST-BADHOST rect=[24 152 324 192] font=13
@@ -55,7 +55,7 @@ Label-TITLE rect=[24 20 1256 50] font=19
 RestClient-1 rect=[1096 16 1152 72] font=11
 TextBox-BODY rect=[648 272 1256 696] font=12
 TextBox-LOG rect=[24 272 624 696] font=12
-shapes=171 digest=5e8f189974d0f68f
+shapes=171 digest=90652d0246ec5899
 ## Canvas 1x 1280x720
 Button-REST-404 rect=[972 96 1256 136] font=13
 Button-REST-BADHOST rect=[24 152 324 192] font=13
@@ -93,7 +93,7 @@ Label-TITLE rect=[24 20 1256 50] font=19
 RestClient-1 rect=[1096 16 1152 72] font=11
 TextBox-BODY rect=[648 272 1256 696] font=12
 TextBox-LOG rect=[24 272 624 696] font=12
-shapes=171 digest=7cfb8a95c1522cf8
+shapes=171 digest=e9a908e56ff2d65e
 ## Preview 1x 1280x720
 Button-REST-404 rect=[972 96 1256 136] font=13
 Button-REST-BADHOST rect=[24 152 324 192] font=13
@@ -112,7 +112,7 @@ Label-TITLE rect=[24 20 1256 50] font=19
 RestClient-1 rect=[1096 16 1152 72] font=11
 TextBox-BODY rect=[648 272 1256 696] font=12
 TextBox-LOG rect=[24 272 624 696] font=12
-shapes=171 digest=7cfb8a95c1522cf8
+shapes=171 digest=e9a908e56ff2d65e
 ## Canvas 1.5x 1920x1080
 Button-REST-404 rect=[972 96 1256 136] font=13
 Button-REST-BADHOST rect=[24 152 324 192] font=13
@@ -150,7 +150,7 @@ Label-TITLE rect=[24 20 1256 50] font=19
 RestClient-1 rect=[1096 16 1152 72] font=11
 TextBox-BODY rect=[648 272 1256 696] font=12
 TextBox-LOG rect=[24 272 624 696] font=12
-shapes=171 digest=baa29f4b71cbfc4f
+shapes=171 digest=53dd030271d4e959
 ## Preview 1.5x 1920x1080
 Button-REST-404 rect=[972 96 1256 136] font=13
 Button-REST-BADHOST rect=[24 152 324 192] font=13
@@ -169,4 +169,4 @@ Label-TITLE rect=[24 20 1256 50] font=19
 RestClient-1 rect=[1096 16 1152 72] font=11
 TextBox-BODY rect=[648 272 1256 696] font=12
 TextBox-LOG rect=[24 272 624 696] font=12
-shapes=171 digest=baa29f4b71cbfc4f
+shapes=171 digest=53dd030271d4e959

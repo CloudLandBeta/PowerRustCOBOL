@@ -28,7 +28,7 @@ Num-Rows rect=[48 268 228 300] font=15
 StatusBar-Demo rect=[0 634 1000 660] font=14
 Tmr-Clock rect=[904 176 952 224] font=14
 Txt-Log rect=[32 408 968 608] font=12
-shapes=44 digest=53c386a737688c8c
+shapes=44 digest=cf0eaf7e3b06ff76
 ## Preview 0.75x 750x495
 Btn-Clear rect=[548 344 704 376] font=14
 Btn-Read rect=[376 344 532 376] font=14
@@ -43,7 +43,7 @@ Num-Rows rect=[48 268 228 300] font=15
 StatusBar-Demo rect=[0 634 1000 660] font=14
 Tmr-Clock rect=[904 176 952 224] font=14
 Txt-Log rect=[32 408 968 608] font=12
-shapes=44 digest=53c386a737688c8c
+shapes=44 digest=cf0eaf7e3b06ff76
 ## Canvas 1x 1000x660
 Btn-Clear rect=[548 344 704 376] font=14
 Btn-Read rect=[376 344 532 376] font=14
@@ -73,7 +73,7 @@ Num-Rows rect=[48 268 228 300] font=15
 StatusBar-Demo rect=[0 634 1000 660] font=14
 Tmr-Clock rect=[904 176 952 224] font=14
 Txt-Log rect=[32 408 968 608] font=12
-shapes=44 digest=cbca587162b05f8e
+shapes=44 digest=d61b06f577d290e8
 ## Preview 1x 1000x660
 Btn-Clear rect=[548 344 704 376] font=14
 Btn-Read rect=[376 344 532 376] font=14
@@ -88,7 +88,7 @@ Num-Rows rect=[48 268 228 300] font=15
 StatusBar-Demo rect=[0 634 1000 660] font=14
 Tmr-Clock rect=[904 176 952 224] font=14
 Txt-Log rect=[32 408 968 608] font=12
-shapes=44 digest=cbca587162b05f8e
+shapes=44 digest=d61b06f577d290e8
 ## Canvas 1.5x 1500x990
 Btn-Clear rect=[548 344 704 376] font=14
 Btn-Read rect=[376 344 532 376] font=14
@@ -118,7 +118,7 @@ Num-Rows rect=[48 268 228 300] font=15
 StatusBar-Demo rect=[0 634 1000 660] font=14
 Tmr-Clock rect=[904 176 952 224] font=14
 Txt-Log rect=[32 408 968 608] font=12
-shapes=44 digest=5b055417dcc833dc
+shapes=44 digest=a1a528eb74e21186
 ## Preview 1.5x 1500x990
 Btn-Clear rect=[548 344 704 376] font=14
 Btn-Read rect=[376 344 532 376] font=14
@@ -133,4 +133,4 @@ Num-Rows rect=[48 268 228 300] font=15
 StatusBar-Demo rect=[0 634 1000 660] font=14
 Tmr-Clock rect=[904 176 952 224] font=14
 Txt-Log rect=[32 408 968 608] font=12
-shapes=44 digest=5b055417dcc833dc
+shapes=44 digest=a1a528eb74e21186

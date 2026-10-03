@@ -32,7 +32,7 @@ Spl-Work-Pane1 rect=[50 132 367 348] font=14
 Spl-Work-Pane2 rect=[370 132 958 348] font=14
 Txt-Detail rect=[380 180 920 330] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=485 digest=43afff8042f14511
+shapes=485 digest=26ed4a6dcb8d862d
 ## Preview 0.75x 750x495
 Btn-Even rect=[204 380 360 412] font=14
 Btn-Flip rect=[548 380 704 412] font=14
@@ -49,7 +49,7 @@ Spl-Work-Pane1 rect=[50 132 367 348] font=14
 Spl-Work-Pane2 rect=[370 132 958 348] font=14
 Txt-Detail rect=[380 180 920 330] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=485 digest=43afff8042f14511
+shapes=485 digest=26ed4a6dcb8d862d
 ## Canvas 1x 1000x660
 Btn-Even rect=[204 380 360 412] font=14
 Btn-Flip rect=[548 380 704 412] font=14
@@ -83,7 +83,7 @@ Spl-Work-Pane1 rect=[50 132 367 348] font=14
 Spl-Work-Pane2 rect=[370 132 958 348] font=14
 Txt-Detail rect=[380 180 920 330] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=485 digest=1afa9ae70db48467
+shapes=485 digest=787d84bbcafaa4a3
 ## Preview 1x 1000x660
 Btn-Even rect=[204 380 360 412] font=14
 Btn-Flip rect=[548 380 704 412] font=14
@@ -100,7 +100,7 @@ Spl-Work-Pane1 rect=[50 132 367 348] font=14
 Spl-Work-Pane2 rect=[370 132 958 348] font=14
 Txt-Detail rect=[380 180 920 330] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=485 digest=1afa9ae70db48467
+shapes=485 digest=787d84bbcafaa4a3
 ## Canvas 1.5x 1500x990
 Btn-Even rect=[204 380 360 412] font=14
 Btn-Flip rect=[548 380 704 412] font=14
@@ -134,7 +134,7 @@ Spl-Work-Pane1 rect=[50 132 367 348] font=14
 Spl-Work-Pane2 rect=[370 132 958 348] font=14
 Txt-Detail rect=[380 180 920 330] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=485 digest=0969962da2ac35c6
+shapes=485 digest=6aef23df7f158472
 ## Preview 1.5x 1500x990
 Btn-Even rect=[204 380 360 412] font=14
 Btn-Flip rect=[548 380 704 412] font=14
@@ -151,4 +151,4 @@ Spl-Work-Pane1 rect=[50 132 367 348] font=14
 Spl-Work-Pane2 rect=[370 132 958 348] font=14
 Txt-Detail rect=[380 180 920 330] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=485 digest=0969962da2ac35c6
+shapes=485 digest=6aef23df7f158472

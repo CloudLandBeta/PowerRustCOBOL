@@ -30,7 +30,7 @@ Lbl-Title rect=[32 20 968 50] font=20
 Lbl-To-Cap rect=[340 134 580 154] font=12
 Lbl-Trip rect=[48 220 868 246] font=15
 Txt-Log rect=[32 448 968 632] font=12
-shapes=423 digest=85d1fa9799245766
+shapes=423 digest=7aef5a69bbb752f8
 ## Preview 0.75x 750x495
 Btn-Clear rect=[376 380 532 412] font=14
 Btn-Summary rect=[204 380 360 412] font=14
@@ -46,7 +46,7 @@ Lbl-Title rect=[32 20 968 50] font=20
 Lbl-To-Cap rect=[340 134 580 154] font=12
 Lbl-Trip rect=[48 220 868 246] font=15
 Txt-Log rect=[32 448 968 632] font=12
-shapes=423 digest=85d1fa9799245766
+shapes=423 digest=7aef5a69bbb752f8
 ## Canvas 1x 1000x660
 Btn-Clear rect=[376 380 532 412] font=14
 Btn-Summary rect=[204 380 360 412] font=14
@@ -78,7 +78,7 @@ Lbl-Title rect=[32 20 968 50] font=20
 Lbl-To-Cap rect=[340 134 580 154] font=12
 Lbl-Trip rect=[48 220 868 246] font=15
 Txt-Log rect=[32 448 968 632] font=12
-shapes=423 digest=1b4064baf4e0dda0
+shapes=423 digest=ad4d9f6f45d7b42a
 ## Preview 1x 1000x660
 Btn-Clear rect=[376 380 532 412] font=14
 Btn-Summary rect=[204 380 360 412] font=14
@@ -94,7 +94,7 @@ Lbl-Title rect=[32 20 968 50] font=20
 Lbl-To-Cap rect=[340 134 580 154] font=12
 Lbl-Trip rect=[48 220 868 246] font=15
 Txt-Log rect=[32 448 968 632] font=12
-shapes=423 digest=1b4064baf4e0dda0
+shapes=423 digest=ad4d9f6f45d7b42a
 ## Canvas 1.5x 1500x990
 Btn-Clear rect=[376 380 532 412] font=14
 Btn-Summary rect=[204 380 360 412] font=14
@@ -126,7 +126,7 @@ Lbl-Title rect=[32 20 968 50] font=20
 Lbl-To-Cap rect=[340 134 580 154] font=12
 Lbl-Trip rect=[48 220 868 246] font=15
 Txt-Log rect=[32 448 968 632] font=12
-shapes=423 digest=f92a85751e9851fd
+shapes=423 digest=edfea5d28795a3d3
 ## Preview 1.5x 1500x990
 Btn-Clear rect=[376 380 532 412] font=14
 Btn-Summary rect=[204 380 360 412] font=14
@@ -142,4 +142,4 @@ Lbl-Title rect=[32 20 968 50] font=20
 Lbl-To-Cap rect=[340 134 580 154] font=12
 Lbl-Trip rect=[48 220 868 246] font=15
 Txt-Log rect=[32 448 968 632] font=12
-shapes=423 digest=f92a85751e9851fd
+shapes=423 digest=edfea5d28795a3d3

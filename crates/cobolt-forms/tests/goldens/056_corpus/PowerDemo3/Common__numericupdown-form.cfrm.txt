@@ -32,7 +32,7 @@ Num-Price rect=[300 158 500 190] font=15
 Num-Qty rect=[48 158 248 190] font=15
 Num-Total rect=[552 158 772 190] font=15
 Txt-Log rect=[32 448 968 632] font=12
-shapes=47 digest=2abfc8b40364e16c
+shapes=47 digest=839e78d0111d69fe
 ## Preview 0.75x 750x495
 Btn-Clear rect=[548 380 704 412] font=14
 Btn-Down rect=[204 380 360 412] font=14
@@ -49,7 +49,7 @@ Num-Price rect=[300 158 500 190] font=15
 Num-Qty rect=[48 158 248 190] font=15
 Num-Total rect=[552 158 772 190] font=15
 Txt-Log rect=[32 448 968 632] font=12
-shapes=47 digest=8b518a1239b1c77a
+shapes=47 digest=1c28120bb2520d5c
 ## Canvas 1x 1000x660
 Btn-Clear rect=[548 380 704 412] font=14
 Btn-Down rect=[204 380 360 412] font=14
@@ -83,7 +83,7 @@ Num-Price rect=[300 158 500 190] font=15
 Num-Qty rect=[48 158 248 190] font=15
 Num-Total rect=[552 158 772 190] font=15
 Txt-Log rect=[32 448 968 632] font=12
-shapes=47 digest=d69961f40b901d3d
+shapes=47 digest=872f984e1d81581b
 ## Preview 1x 1000x660
 Btn-Clear rect=[548 380 704 412] font=14
 Btn-Down rect=[204 380 360 412] font=14
@@ -100,7 +100,7 @@ Num-Price rect=[300 158 500 190] font=15
 Num-Qty rect=[48 158 248 190] font=15
 Num-Total rect=[552 158 772 190] font=15
 Txt-Log rect=[32 448 968 632] font=12
-shapes=47 digest=281e30aa8440ff2b
+shapes=47 digest=ae6f07d0dc20a659
 ## Canvas 1.5x 1500x990
 Btn-Clear rect=[548 380 704 412] font=14
 Btn-Down rect=[204 380 360 412] font=14
@@ -134,7 +134,7 @@ Num-Price rect=[300 158 500 190] font=15
 Num-Qty rect=[48 158 248 190] font=15
 Num-Total rect=[552 158 772 190] font=15
 Txt-Log rect=[32 448 968 632] font=12
-shapes=47 digest=118c736907451c1f
+shapes=47 digest=2c454cc3e16739b5
 ## Preview 1.5x 1500x990
 Btn-Clear rect=[548 380 704 412] font=14
 Btn-Down rect=[204 380 360 412] font=14
@@ -151,4 +151,4 @@ Num-Price rect=[300 158 500 190] font=15
 Num-Qty rect=[48 158 248 190] font=15
 Num-Total rect=[552 158 772 190] font=15
 Txt-Log rect=[32 448 968 632] font=12
-shapes=47 digest=cb332937ce4d692d
+shapes=47 digest=80273de812f6b423

@@ -26,7 +26,7 @@ CL-WIDE rect=[24 190 135 222] font=13
 LBL-INTRO rect=[24 50 651 90] font=13
 LBL-TITLE rect=[24 14 651 46] font=20
 SB-INFO rect=[0 514 675 540] font=13
-shapes=60 digest=ed92795a75e4ab39
+shapes=60 digest=967e43966062fec9
 ## Preview 0.75x 675x420
 CL-A rect=[24 96 624 116] font=13
 CL-B rect=[24 166 624 186] font=13
@@ -40,7 +40,7 @@ CL-WIDE rect=[24 190 135 222] font=13
 LBL-INTRO rect=[24 50 651 90] font=13
 LBL-TITLE rect=[24 14 651 46] font=20
 SB-INFO rect=[0 514 675 540] font=13
-shapes=60 digest=ed92795a75e4ab39
+shapes=60 digest=967e43966062fec9
 ## Canvas 1x 900x560
 CL-A rect=[24 96 624 116] font=13
 CL-B rect=[24 166 624 186] font=13
@@ -68,7 +68,7 @@ CL-WIDE rect=[24 190 360 222] font=13
 LBL-INTRO rect=[24 50 876 90] font=13
 LBL-TITLE rect=[24 14 876 46] font=20
 SB-INFO rect=[0 534 900 560] font=13
-shapes=60 digest=f7e8f5d12d85a563
+shapes=60 digest=8b88c9d2f4f86005
 ## Preview 1x 900x560
 CL-A rect=[24 96 624 116] font=13
 CL-B rect=[24 166 624 186] font=13
@@ -82,7 +82,7 @@ CL-WIDE rect=[24 190 360 222] font=13
 LBL-INTRO rect=[24 50 876 90] font=13
 LBL-TITLE rect=[24 14 876 46] font=20
 SB-INFO rect=[0 534 900 560] font=13
-shapes=60 digest=f7e8f5d12d85a563
+shapes=60 digest=8b88c9d2f4f86005
 ## Canvas 1.5x 1350x840
 CL-A rect=[24 96 624 116] font=13
 CL-B rect=[24 166 624 186] font=13
@@ -110,7 +110,7 @@ CL-WIDE rect=[24 190 810 222] font=13
 LBL-INTRO rect=[24 50 1326 90] font=13
 LBL-TITLE rect=[24 14 1326 46] font=20
 SB-INFO rect=[0 814 1350 840] font=13
-shapes=60 digest=321ed03fbefee223
+shapes=60 digest=c3a734f37c955b59
 ## Preview 1.5x 1350x840
 CL-A rect=[24 96 624 116] font=13
 CL-B rect=[24 166 624 186] font=13
@@ -124,4 +124,4 @@ CL-WIDE rect=[24 190 810 222] font=13
 LBL-INTRO rect=[24 50 1326 90] font=13
 LBL-TITLE rect=[24 14 1326 46] font=20
 SB-INFO rect=[0 814 1350 840] font=13
-shapes=60 digest=321ed03fbefee223
+shapes=60 digest=c3a734f37c955b59

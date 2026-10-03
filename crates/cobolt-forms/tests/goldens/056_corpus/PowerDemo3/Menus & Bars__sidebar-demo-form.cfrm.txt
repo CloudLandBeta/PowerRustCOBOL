@@ -24,7 +24,7 @@ Lbl-Title rect=[272 20 968 50] font=20
 SideMenu-Demo rect=[0 0 240 660] font=14
 SideMenu-Demo-Footer rect=[0 660 240 660] font=14
 Txt-Log rect=[272 448 968 632] font=12
-shapes=36 digest=313e39a6477a4866
+shapes=36 digest=e69c31b34776a246
 ## Preview 0.75x 750x495
 Btn-Clear rect=[688 380 868 412] font=14
 Btn-Fold rect=[288 380 468 412] font=14
@@ -37,7 +37,7 @@ Lbl-Title rect=[272 20 968 50] font=20
 SideMenu-Demo rect=[0 0 240 660] font=14
 SideMenu-Demo-Footer rect=[0 660 240 660] font=14
 Txt-Log rect=[272 448 968 632] font=12
-shapes=36 digest=313e39a6477a4866
+shapes=36 digest=e69c31b34776a246
 ## Canvas 1x 1000x660
 Btn-Clear rect=[688 380 868 412] font=14
 Btn-Fold rect=[288 380 468 412] font=14
@@ -63,7 +63,7 @@ Lbl-Title rect=[272 20 968 50] font=20
 SideMenu-Demo rect=[0 0 240 660] font=14
 SideMenu-Demo-Footer rect=[0 660 240 660] font=14
 Txt-Log rect=[272 448 968 632] font=12
-shapes=36 digest=74cf8f2f99993444
+shapes=36 digest=ccd2360946e913cc
 ## Preview 1x 1000x660
 Btn-Clear rect=[688 380 868 412] font=14
 Btn-Fold rect=[288 380 468 412] font=14
@@ -76,7 +76,7 @@ Lbl-Title rect=[272 20 968 50] font=20
 SideMenu-Demo rect=[0 0 240 660] font=14
 SideMenu-Demo-Footer rect=[0 660 240 660] font=14
 Txt-Log rect=[272 448 968 632] font=12
-shapes=36 digest=74cf8f2f99993444
+shapes=36 digest=ccd2360946e913cc
 ## Canvas 1.5x 1500x990
 Btn-Clear rect=[688 380 868 412] font=14
 Btn-Fold rect=[288 380 468 412] font=14
@@ -102,7 +102,7 @@ Lbl-Title rect=[272 20 968 50] font=20
 SideMenu-Demo rect=[0 0 240 660] font=14
 SideMenu-Demo-Footer rect=[0 660 240 660] font=14
 Txt-Log rect=[272 448 968 632] font=12
-shapes=36 digest=b2e9f644610e37b4
+shapes=36 digest=b854eb6ced686dfc
 ## Preview 1.5x 1500x990
 Btn-Clear rect=[688 380 868 412] font=14
 Btn-Fold rect=[288 380 468 412] font=14
@@ -115,4 +115,4 @@ Lbl-Title rect=[272 20 968 50] font=20
 SideMenu-Demo rect=[0 0 240 660] font=14
 SideMenu-Demo-Footer rect=[0 660 240 660] font=14
 Txt-Log rect=[272 448 968 632] font=12
-shapes=36 digest=b2e9f644610e37b4
+shapes=36 digest=b854eb6ced686dfc

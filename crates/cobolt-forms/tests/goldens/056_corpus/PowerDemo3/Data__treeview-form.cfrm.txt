@@ -26,7 +26,7 @@ Lbl-Walk-Cap rect=[500 130 800 150] font=12
 Trv-Sites rect=[48 130 468 354] font=13
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Walk rect=[500 154 960 354] font=12
-shapes=47 digest=83878b6ed82ff2c6
+shapes=47 digest=9fdd4f54723891ee
 ## Preview 0.75x 750x495
 Btn-Add rect=[204 380 360 412] font=14
 Btn-Checked rect=[376 380 532 412] font=14
@@ -40,7 +40,7 @@ Lbl-Walk-Cap rect=[500 130 800 150] font=12
 Trv-Sites rect=[48 130 468 354] font=13
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Walk rect=[500 154 960 354] font=12
-shapes=47 digest=83878b6ed82ff2c6
+shapes=47 digest=9fdd4f54723891ee
 ## Canvas 1x 1000x660
 Btn-Add rect=[204 380 360 412] font=14
 Btn-Checked rect=[376 380 532 412] font=14
@@ -68,7 +68,7 @@ Lbl-Walk-Cap rect=[500 130 800 150] font=12
 Trv-Sites rect=[48 130 468 354] font=13
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Walk rect=[500 154 960 354] font=12
-shapes=47 digest=84619749d8bfee10
+shapes=47 digest=d2bc56d5ff8386a0
 ## Preview 1x 1000x660
 Btn-Add rect=[204 380 360 412] font=14
 Btn-Checked rect=[376 380 532 412] font=14
@@ -82,7 +82,7 @@ Lbl-Walk-Cap rect=[500 130 800 150] font=12
 Trv-Sites rect=[48 130 468 354] font=13
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Walk rect=[500 154 960 354] font=12
-shapes=47 digest=84619749d8bfee10
+shapes=47 digest=d2bc56d5ff8386a0
 ## Canvas 1.5x 1500x990
 Btn-Add rect=[204 380 360 412] font=14
 Btn-Checked rect=[376 380 532 412] font=14
@@ -110,7 +110,7 @@ Lbl-Walk-Cap rect=[500 130 800 150] font=12
 Trv-Sites rect=[48 130 468 354] font=13
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Walk rect=[500 154 960 354] font=12
-shapes=47 digest=26bf2d5599b403e6
+shapes=47 digest=143f1bfa4de19b0e
 ## Preview 1.5x 1500x990
 Btn-Add rect=[204 380 360 412] font=14
 Btn-Checked rect=[376 380 532 412] font=14
@@ -124,4 +124,4 @@ Lbl-Walk-Cap rect=[500 130 800 150] font=12
 Trv-Sites rect=[48 130 468 354] font=13
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Walk rect=[500 154 960 354] font=12
-shapes=47 digest=26bf2d5599b403e6
+shapes=47 digest=143f1bfa4de19b0e

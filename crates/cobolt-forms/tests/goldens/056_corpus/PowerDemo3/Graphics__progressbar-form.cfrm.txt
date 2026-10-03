@@ -34,7 +34,7 @@ Prg-Copy rect=[48 158 548 186] font=14
 Prg-Vert rect=[600 158 640 358] font=14
 Tmr-Copy rect=[900 300 948 348] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=534 digest=dd36209c7d40140a
+shapes=534 digest=a0df4793cdeddd80
 ## Preview 0.75x 750x495
 Btn-Clear rect=[720 380 876 412] font=14
 Btn-Half rect=[376 380 532 412] font=14
@@ -52,7 +52,7 @@ Prg-Copy rect=[48 158 548 186] font=14
 Prg-Vert rect=[600 158 640 358] font=14
 Tmr-Copy rect=[900 300 948 348] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=534 digest=dd36209c7d40140a
+shapes=534 digest=a0df4793cdeddd80
 ## Canvas 1x 1000x660
 Btn-Clear rect=[720 380 876 412] font=14
 Btn-Half rect=[376 380 532 412] font=14
@@ -88,7 +88,7 @@ Prg-Copy rect=[48 158 548 186] font=14
 Prg-Vert rect=[600 158 640 358] font=14
 Tmr-Copy rect=[900 300 948 348] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=534 digest=b6d63c6afb04a0bc
+shapes=534 digest=f9dd7f1beb7b8faa
 ## Preview 1x 1000x660
 Btn-Clear rect=[720 380 876 412] font=14
 Btn-Half rect=[376 380 532 412] font=14
@@ -106,7 +106,7 @@ Prg-Copy rect=[48 158 548 186] font=14
 Prg-Vert rect=[600 158 640 358] font=14
 Tmr-Copy rect=[900 300 948 348] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=534 digest=b6d63c6afb04a0bc
+shapes=534 digest=f9dd7f1beb7b8faa
 ## Canvas 1.5x 1500x990
 Btn-Clear rect=[720 380 876 412] font=14
 Btn-Half rect=[376 380 532 412] font=14
@@ -142,7 +142,7 @@ Prg-Copy rect=[48 158 548 186] font=14
 Prg-Vert rect=[600 158 640 358] font=14
 Tmr-Copy rect=[900 300 948 348] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=534 digest=74211a7131af6b3f
+shapes=534 digest=bafda3a0857047f1
 ## Preview 1.5x 1500x990
 Btn-Clear rect=[720 380 876 412] font=14
 Btn-Half rect=[376 380 532 412] font=14
@@ -160,4 +160,4 @@ Prg-Copy rect=[48 158 548 186] font=14
 Prg-Vert rect=[600 158 640 358] font=14
 Tmr-Copy rect=[900 300 948 348] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=534 digest=74211a7131af6b3f
+shapes=534 digest=bafda3a0857047f1

@@ -34,7 +34,7 @@ Snackbar-1 rect=[928 648 995 712] font=14
 Txt-Log rect=[32 464 984 632] font=14
 Txt-Query rect=[136 144 704 176] font=14
 Web-Find rect=[848 648 915 712] font=14
-shapes=481 digest=742f3590664110bf
+shapes=481 digest=b724de56a34fb423
 ## Preview 0.75x 756x540
 Btn-Cancel rect=[626 200 782 232] font=14
 Btn-Clear rect=[824 200 980 232] font=14
@@ -52,7 +52,7 @@ Snackbar-1 rect=[928 648 995 712] font=14
 Txt-Log rect=[32 464 984 632] font=14
 Txt-Query rect=[136 144 704 176] font=14
 Web-Find rect=[848 648 915 712] font=14
-shapes=481 digest=742f3590664110bf
+shapes=481 digest=b724de56a34fb423
 ## Canvas 1x 1008x720
 Btn-Cancel rect=[626 200 782 232] font=14
 Btn-Clear rect=[824 200 980 232] font=14
@@ -88,7 +88,7 @@ Snackbar-1 rect=[928 648 995 712] font=14
 Txt-Log rect=[32 464 984 632] font=14
 Txt-Query rect=[136 144 704 176] font=14
 Web-Find rect=[848 648 915 712] font=14
-shapes=481 digest=200db7ca5d81b1c7
+shapes=481 digest=b4b5e3e5505b4a0b
 ## Preview 1x 1008x720
 Btn-Cancel rect=[626 200 782 232] font=14
 Btn-Clear rect=[824 200 980 232] font=14
@@ -106,7 +106,7 @@ Snackbar-1 rect=[928 648 995 712] font=14
 Txt-Log rect=[32 464 984 632] font=14
 Txt-Query rect=[136 144 704 176] font=14
 Web-Find rect=[848 648 915 712] font=14
-shapes=481 digest=200db7ca5d81b1c7
+shapes=481 digest=b4b5e3e5505b4a0b
 ## Canvas 1.5x 1512x1080
 Btn-Cancel rect=[626 200 782 232] font=14
 Btn-Clear rect=[824 200 980 232] font=14
@@ -142,7 +142,7 @@ Snackbar-1 rect=[928 648 995 712] font=14
 Txt-Log rect=[32 464 984 632] font=14
 Txt-Query rect=[136 144 704 176] font=14
 Web-Find rect=[848 648 915 712] font=14
-shapes=481 digest=32382c128073821d
+shapes=481 digest=db6c3107dd76d7f9
 ## Preview 1.5x 1512x1080
 Btn-Cancel rect=[626 200 782 232] font=14
 Btn-Clear rect=[824 200 980 232] font=14
@@ -160,4 +160,4 @@ Snackbar-1 rect=[928 648 995 712] font=14
 Txt-Log rect=[32 464 984 632] font=14
 Txt-Query rect=[136 144 704 176] font=14
 Web-Find rect=[848 648 915 712] font=14
-shapes=481 digest=32382c128073821d
+shapes=481 digest=db6c3107dd76d7f9

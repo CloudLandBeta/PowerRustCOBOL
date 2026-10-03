@@ -46,7 +46,7 @@ Lbl-Title rect=[32 20 968 50] font=20
 Pnl-Card rect=[48 130 448 330] font=14
 Pnl-Scroll rect=[500 130 960 330] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=545 digest=fbe8b7ba548b71e0
+shapes=545 digest=f0baeb509ee61de2
 ## Preview 0.75x 750x495
 Btn-CardGo rect=[72 280 202 310] font=14
 Btn-Flat rect=[548 380 704 412] font=14
@@ -70,7 +70,7 @@ Lbl-Title rect=[32 20 968 50] font=20
 Pnl-Card rect=[48 130 448 330] font=14
 Pnl-Scroll rect=[500 130 960 330] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=545 digest=fbe8b7ba548b71e0
+shapes=545 digest=f0baeb509ee61de2
 ## Canvas 1x 1000x660
 Btn-CardGo rect=[72 280 202 310] font=14
 Btn-Flat rect=[548 380 704 412] font=14
@@ -118,7 +118,7 @@ Lbl-Title rect=[32 20 968 50] font=20
 Pnl-Card rect=[48 130 448 330] font=14
 Pnl-Scroll rect=[500 130 960 330] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=545 digest=d86827c3c415b244
+shapes=545 digest=54731f65a405344e
 ## Preview 1x 1000x660
 Btn-CardGo rect=[72 280 202 310] font=14
 Btn-Flat rect=[548 380 704 412] font=14
@@ -142,7 +142,7 @@ Lbl-Title rect=[32 20 968 50] font=20
 Pnl-Card rect=[48 130 448 330] font=14
 Pnl-Scroll rect=[500 130 960 330] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=545 digest=d86827c3c415b244
+shapes=545 digest=54731f65a405344e
 ## Canvas 1.5x 1500x990
 Btn-CardGo rect=[72 280 202 310] font=14
 Btn-Flat rect=[548 380 704 412] font=14
@@ -190,7 +190,7 @@ Lbl-Title rect=[32 20 968 50] font=20
 Pnl-Card rect=[48 130 448 330] font=14
 Pnl-Scroll rect=[500 130 960 330] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=545 digest=0ad2e654e9d5a87b
+shapes=545 digest=af0eae3fa2615309
 ## Preview 1.5x 1500x990
 Btn-CardGo rect=[72 280 202 310] font=14
 Btn-Flat rect=[548 380 704 412] font=14
@@ -214,4 +214,4 @@ Lbl-Title rect=[32 20 968 50] font=20
 Pnl-Card rect=[48 130 448 330] font=14
 Pnl-Scroll rect=[500 130 960 330] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=545 digest=0ad2e654e9d5a87b
+shapes=545 digest=af0eae3fa2615309

@@ -36,7 +36,7 @@ Lst-Items rect=- font=13
 Tab-Order rect=[48 130 960 350] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Name rect=[280 182 600 210] font=14
-shapes=55 digest=e2ef515d04d6c3c7
+shapes=55 digest=960dc41f574964cb
 ## Preview 0.75x 750x495
 Btn-Bottom rect=[548 380 704 412] font=14
 Btn-Next rect=[32 380 188 412] font=14
@@ -55,7 +55,7 @@ Lst-Items rect=- font=13
 Tab-Order rect=[48 130 960 350] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Name rect=[280 182 600 210] font=14
-shapes=55 digest=d36270fb96029a4c
+shapes=55 digest=b67fd65d83f7b450
 ## Canvas 1x 1000x660
 Btn-Bottom rect=[548 380 704 412] font=14
 Btn-Next rect=[32 380 188 412] font=14
@@ -93,7 +93,7 @@ Lst-Items rect=- font=13
 Tab-Order rect=[48 130 960 350] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Name rect=[280 182 600 210] font=14
-shapes=55 digest=063ea5668ef4a0cd
+shapes=55 digest=13d36bf2abea6ab9
 ## Preview 1x 1000x660
 Btn-Bottom rect=[548 380 704 412] font=14
 Btn-Next rect=[32 380 188 412] font=14
@@ -112,7 +112,7 @@ Lst-Items rect=- font=13
 Tab-Order rect=[48 130 960 350] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Name rect=[280 182 600 210] font=14
-shapes=55 digest=244d444bbd2d0e7a
+shapes=55 digest=75105481eac69e76
 ## Canvas 1.5x 1500x990
 Btn-Bottom rect=[548 380 704 412] font=14
 Btn-Next rect=[32 380 188 412] font=14
@@ -150,7 +150,7 @@ Lst-Items rect=- font=13
 Tab-Order rect=[48 130 960 350] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Name rect=[280 182 600 210] font=14
-shapes=55 digest=1fc646d7d9a0dfa7
+shapes=55 digest=d22f1eef9aeea6ab
 ## Preview 1.5x 1500x990
 Btn-Bottom rect=[548 380 704 412] font=14
 Btn-Next rect=[32 380 188 412] font=14
@@ -169,4 +169,4 @@ Lst-Items rect=- font=13
 Tab-Order rect=[48 130 960 350] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Name rect=[280 182 600 210] font=14
-shapes=55 digest=42bf6261d5b8902c
+shapes=55 digest=a49b0235a7a62330

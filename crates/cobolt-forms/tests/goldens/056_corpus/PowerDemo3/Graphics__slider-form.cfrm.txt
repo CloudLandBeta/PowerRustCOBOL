@@ -30,7 +30,7 @@ Prg-Meter rect=[48 216 548 238] font=14
 Sld-Bass rect=[620 158 664 348] font=14
 Sld-Volume rect=[48 158 548 202] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=87 digest=4ad5deb0499492ca
+shapes=87 digest=ac3597f5f719b506
 ## Preview 0.75x 750x495
 Btn-Clear rect=[720 380 876 412] font=14
 Btn-Flat rect=[548 380 704 412] font=14
@@ -46,7 +46,7 @@ Prg-Meter rect=[48 216 548 238] font=14
 Sld-Bass rect=[620 158 664 348] font=14
 Sld-Volume rect=[48 158 548 202] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=87 digest=4ad5deb0499492ca
+shapes=87 digest=ac3597f5f719b506
 ## Canvas 1x 1000x660
 Btn-Clear rect=[720 380 876 412] font=14
 Btn-Flat rect=[548 380 704 412] font=14
@@ -78,7 +78,7 @@ Prg-Meter rect=[48 216 548 238] font=14
 Sld-Bass rect=[620 158 664 348] font=14
 Sld-Volume rect=[48 158 548 202] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=87 digest=29f5b7af5fa531c4
+shapes=87 digest=55b16f7c5b24f698
 ## Preview 1x 1000x660
 Btn-Clear rect=[720 380 876 412] font=14
 Btn-Flat rect=[548 380 704 412] font=14
@@ -94,7 +94,7 @@ Prg-Meter rect=[48 216 548 238] font=14
 Sld-Bass rect=[620 158 664 348] font=14
 Sld-Volume rect=[48 158 548 202] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=87 digest=29f5b7af5fa531c4
+shapes=87 digest=55b16f7c5b24f698
 ## Canvas 1.5x 1500x990
 Btn-Clear rect=[720 380 876 412] font=14
 Btn-Flat rect=[548 380 704 412] font=14
@@ -126,7 +126,7 @@ Prg-Meter rect=[48 216 548 238] font=14
 Sld-Bass rect=[620 158 664 348] font=14
 Sld-Volume rect=[48 158 548 202] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=87 digest=67cd94c9a569d2ea
+shapes=87 digest=9e20cd6140f5b0a6
 ## Preview 1.5x 1500x990
 Btn-Clear rect=[720 380 876 412] font=14
 Btn-Flat rect=[548 380 704 412] font=14
@@ -142,4 +142,4 @@ Prg-Meter rect=[48 216 548 238] font=14
 Sld-Bass rect=[620 158 664 348] font=14
 Sld-Volume rect=[48 158 548 202] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=87 digest=67cd94c9a569d2ea
+shapes=87 digest=9e20cd6140f5b0a6

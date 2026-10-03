@@ -42,7 +42,7 @@ Rad-Slow rect=[520 160 820 184] font=13
 Txt-City rect=[196 208 440 236] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Street rect=[196 168 440 196] font=14
-shapes=87 digest=5223968078630b75
+shapes=87 digest=d578682cba2e3ebd
 ## Preview 0.75x 750x492
 Btn-HideGrp rect=[32 380 188 412] font=14
 Btn-Lock rect=[376 380 532 412] font=14
@@ -64,7 +64,7 @@ Rad-Slow rect=[520 160 820 184] font=13
 Txt-City rect=[196 208 440 236] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Street rect=[196 168 440 196] font=14
-shapes=87 digest=5223968078630b75
+shapes=87 digest=d578682cba2e3ebd
 ## Canvas 1x 1000x656
 Btn-HideGrp rect=[32 380 188 412] font=14
 Btn-Lock rect=[376 380 532 412] font=14
@@ -108,7 +108,7 @@ Rad-Slow rect=[520 160 820 184] font=13
 Txt-City rect=[196 208 440 236] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Street rect=[196 168 440 196] font=14
-shapes=87 digest=7ff56b0d1fe957b6
+shapes=87 digest=faa9fe918f21cbba
 ## Preview 1x 1000x656
 Btn-HideGrp rect=[32 380 188 412] font=14
 Btn-Lock rect=[376 380 532 412] font=14
@@ -130,7 +130,7 @@ Rad-Slow rect=[520 160 820 184] font=13
 Txt-City rect=[196 208 440 236] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Street rect=[196 168 440 196] font=14
-shapes=87 digest=7ff56b0d1fe957b6
+shapes=87 digest=faa9fe918f21cbba
 ## Canvas 1.5x 1500x984
 Btn-HideGrp rect=[32 380 188 412] font=14
 Btn-Lock rect=[376 380 532 412] font=14
@@ -174,7 +174,7 @@ Rad-Slow rect=[520 160 820 184] font=13
 Txt-City rect=[196 208 440 236] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Street rect=[196 168 440 196] font=14
-shapes=87 digest=8d9b83d654d3d636
+shapes=87 digest=0850175ac40c4a3a
 ## Preview 1.5x 1500x984
 Btn-HideGrp rect=[32 380 188 412] font=14
 Btn-Lock rect=[376 380 532 412] font=14
@@ -196,4 +196,4 @@ Rad-Slow rect=[520 160 820 184] font=13
 Txt-City rect=[196 208 440 236] font=14
 Txt-Log rect=[32 448 968 632] font=12
 Txt-Street rect=[196 168 440 196] font=14
-shapes=87 digest=8d9b83d654d3d636
+shapes=87 digest=0850175ac40c4a3a

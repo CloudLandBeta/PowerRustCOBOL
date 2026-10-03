@@ -36,7 +36,7 @@ Prg-Sweep rect=[420 208 920 232] font=14
 Tmr-Fast rect=[96 240 144 288] font=14
 Tmr-Slow rect=[264 240 312 288] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=477 digest=583090251561c4d0
+shapes=477 digest=74981055b9921536
 ## Preview 0.75x 750x495
 Btn-Clear rect=[720 380 876 412] font=14
 Btn-Enabled rect=[548 380 704 412] font=14
@@ -55,7 +55,7 @@ Prg-Sweep rect=[420 208 920 232] font=14
 Tmr-Fast rect=[96 240 144 288] font=14
 Tmr-Slow rect=[264 240 312 288] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=477 digest=583090251561c4d0
+shapes=477 digest=74981055b9921536
 ## Canvas 1x 1000x660
 Btn-Clear rect=[720 380 876 412] font=14
 Btn-Enabled rect=[548 380 704 412] font=14
@@ -93,7 +93,7 @@ Prg-Sweep rect=[420 208 920 232] font=14
 Tmr-Fast rect=[96 240 144 288] font=14
 Tmr-Slow rect=[264 240 312 288] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=477 digest=2667f7324d5d4f2a
+shapes=477 digest=6ca5c6dd50c2e818
 ## Preview 1x 1000x660
 Btn-Clear rect=[720 380 876 412] font=14
 Btn-Enabled rect=[548 380 704 412] font=14
@@ -112,7 +112,7 @@ Prg-Sweep rect=[420 208 920 232] font=14
 Tmr-Fast rect=[96 240 144 288] font=14
 Tmr-Slow rect=[264 240 312 288] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=477 digest=2667f7324d5d4f2a
+shapes=477 digest=6ca5c6dd50c2e818
 ## Canvas 1.5x 1500x990
 Btn-Clear rect=[720 380 876 412] font=14
 Btn-Enabled rect=[548 380 704 412] font=14
@@ -150,7 +150,7 @@ Prg-Sweep rect=[420 208 920 232] font=14
 Tmr-Fast rect=[96 240 144 288] font=14
 Tmr-Slow rect=[264 240 312 288] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=477 digest=d3a51bb0e8632c6f
+shapes=477 digest=60d1ed9abe09a839
 ## Preview 1.5x 1500x990
 Btn-Clear rect=[720 380 876 412] font=14
 Btn-Enabled rect=[548 380 704 412] font=14
@@ -169,4 +169,4 @@ Prg-Sweep rect=[420 208 920 232] font=14
 Tmr-Fast rect=[96 240 144 288] font=14
 Tmr-Slow rect=[264 240 312 288] font=14
 Txt-Log rect=[32 448 968 632] font=12
-shapes=477 digest=d3a51bb0e8632c6f
+shapes=477 digest=60d1ed9abe09a839

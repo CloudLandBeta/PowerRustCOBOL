@@ -102,7 +102,7 @@ Tmr-Stream rect=[1200 16 1248 64] font=11
 Txt-Find rect=[24 576 376 602] font=11
 Txt-Log rect=[400 822 1256 930] font=11
 VWR-1 rect=[400 192 1256 807] font=14
-shapes=428 digest=8499a3f094b2fbbd
+shapes=428 digest=5e166e4472a89c25
 ## Preview 0.75x 960x737
 Btn-Cards rect=[204 404 376 430] font=11
 Btn-Filmstrip rect=[204 372 376 398] font=11
@@ -154,7 +154,7 @@ Tmr-Stream rect=[1200 16 1248 64] font=11
 Txt-Find rect=[24 576 376 602] font=11
 Txt-Log rect=[400 822 1256 930] font=11
 VWR-1 rect=[400 192 1256 807] font=14
-shapes=428 digest=8499a3f094b2fbbd
+shapes=428 digest=5e166e4472a89c25
 ## Canvas 1x 1280x982
 Btn-Cards rect=[204 404 376 430] font=11
 Btn-Filmstrip rect=[204 372 376 398] font=11
@@ -258,7 +258,7 @@ Tmr-Stream rect=[1200 16 1248 64] font=11
 Txt-Find rect=[24 576 376 602] font=11
 Txt-Log rect=[400 822 1256 930] font=11
 VWR-1 rect=[400 192 1256 807] font=14
-shapes=430 digest=543d73e6e3eed2a0
+shapes=430 digest=ec627db9cd7042e4
 ## Preview 1x 1280x982
 Btn-Cards rect=[204 404 376 430] font=11
 Btn-Filmstrip rect=[204 372 376 398] font=11
@@ -310,7 +310,7 @@ Tmr-Stream rect=[1200 16 1248 64] font=11
 Txt-Find rect=[24 576 376 602] font=11
 Txt-Log rect=[400 822 1256 930] font=11
 VWR-1 rect=[400 192 1256 807] font=14
-shapes=430 digest=543d73e6e3eed2a0
+shapes=430 digest=ec627db9cd7042e4
 ## Canvas 1.5x 1920x1473
 Btn-Cards rect=[204 404 376 430] font=11
 Btn-Filmstrip rect=[204 372 376 398] font=11
@@ -414,7 +414,7 @@ Tmr-Stream rect=[1200 16 1248 64] font=11
 Txt-Find rect=[24 576 376 602] font=11
 Txt-Log rect=[400 822 1256 930] font=11
 VWR-1 rect=[400 192 1256 807] font=14
-shapes=430 digest=e7dc7be372fcb698
+shapes=430 digest=3f4c2575fdc8b87c
 ## Preview 1.5x 1920x1473
 Btn-Cards rect=[204 404 376 430] font=11
 Btn-Filmstrip rect=[204 372 376 398] font=11
@@ -466,4 +466,4 @@ Tmr-Stream rect=[1200 16 1248 64] font=11
 Txt-Find rect=[24 576 376 602] font=11
 Txt-Log rect=[400 822 1256 930] font=11
 VWR-1 rect=[400 192 1256 807] font=14
-shapes=430 digest=e7dc7be372fcb698
+shapes=430 digest=3f4c2575fdc8b87c
