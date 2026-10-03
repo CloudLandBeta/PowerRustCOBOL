@@ -1131,6 +1131,10 @@ pub struct CoboltApp {
     /// What the IDE last learned about Claude Code and the plugin.
     cc_status: crate::panels::claude_code_settings::PluginStatus,
     cc_status_rx: Option<std::sync::mpsc::Receiver<crate::panels::claude_code_settings::PluginStatus>>,
+    /// The first-run Connect a coding agent wizard (spec 084).
+    agent_wizard: crate::panels::connect_agent_wizard::ConnectAgentWizard,
+    /// Whether this session already decided to offer the wizard or not.
+    agent_wizard_decided: bool,
     claude_configure_rx: Option<
         std::sync::mpsc::Receiver<Result<crate::claude_code::configure::Outcome, crate::claude_code::configure::Failure>>,
     >,
@@ -2211,6 +2215,8 @@ impl CoboltApp {
             cc_settings: Default::default(),
             cc_status: Default::default(),
             cc_status_rx: None,
+            agent_wizard: Default::default(),
+            agent_wizard_decided: false,
             claude_configure_rx: None,
         };
         // Surface the agent endpoint in the Output console (translated when the
@@ -2239,6 +2245,9 @@ impl CoboltApp {
         if mcp_status.is_err() {
             app.mcp_bind_failed = Some(app.llm.mcp_port);
         }
+        // Spec 084 — is a coding agent connected? The answer decides whether
+        // the Connect wizard is offered (see `show_claude_code_settings`).
+        app.probe_claude_code();
 
         // Can this machine Build? Probed on every start — it is one cheap
         // process — because a `rustc` that lives outside the desktop session's
@@ -4792,8 +4801,17 @@ impl CoboltApp {
             if let Ok(status) = rx.try_recv() {
                 self.cc_status = status;
                 self.cc_status_rx = None;
+                if !self.agent_wizard_decided {
+                    self.agent_wizard_decided = true;
+                    let dismissed = crate::claude_code_settings::ClaudeCodeSettings::load().wizard_dismissed;
+                    let agent = &crate::coding_agents::AGENTS[0];
+                    if crate::coding_agents::should_offer(agent, &self.agent_connection(), &dismissed) {
+                        self.agent_wizard.open = true;
+                    }
+                }
             }
         }
+        self.show_agent_wizard(ctx);
         if !self.cc_settings.open {
             return;
         }
@@ -4829,6 +4847,48 @@ impl CoboltApp {
             // `follow_mcp_port` rebinds on the next frame.
             self.mcp_bind_failed = None;
             self.cc_settings.say(tr.cc_port_changed.replacen("{}", &self.llm.mcp_port.to_string(), 1));
+        }
+    }
+
+    /// What the IDE knows of the coding agent, for the wizard (spec 084).
+    fn agent_connection(&self) -> crate::coding_agents::Connection {
+        use crate::coding_agents::Connection;
+        use crate::panels::claude_code_settings::PluginStatus;
+        match &self.cc_status {
+            PluginStatus::Checking => Connection::Unknown,
+            PluginStatus::NoClaude => Connection::NotInstalled,
+            PluginStatus::Claude { plugin: None, path } => Connection::NotConnected { path: path.display().to_string() },
+            PluginStatus::Claude { plugin: Some(_), .. } => Connection::Connected,
+        }
+    }
+
+    /// The Connect a coding agent wizard, and what its buttons do.
+    fn show_agent_wizard(&mut self, ctx: &egui::Context) {
+        if !self.agent_wizard.open {
+            return;
+        }
+        let tr = self.lang.tr();
+        let agents = crate::coding_agents::AGENTS;
+        let connections = vec![self.agent_connection()];
+        let action = self.agent_wizard.show(ctx, agents, &connections, &tr);
+        if let Some(i) = action.connect {
+            match agents[i].id {
+                crate::coding_agents::AgentId::ClaudeCode => {
+                    self.do_configure_claude_code();
+                    // Where the run's progress and result show.
+                    self.cc_settings.open = true;
+                }
+            }
+        }
+        if let Some(i) = action.never {
+            let mut settings = crate::claude_code_settings::ClaudeCodeSettings::load();
+            let key = agents[i].key.to_owned();
+            if !settings.wizard_dismissed.contains(&key) {
+                settings.wizard_dismissed.push(key);
+            }
+            if let Err(e) = settings.save() {
+                self.output.push_status(e);
+            }
         }
     }
 

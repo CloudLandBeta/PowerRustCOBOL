@@ -29,6 +29,7 @@ pub mod crash;
 pub mod data_binding_guardian;
 pub mod claude_code;
 pub mod claude_code_settings;
+pub mod coding_agents;
 pub mod debug_settings;
 pub mod doc_movie;
 pub mod doc_shots;

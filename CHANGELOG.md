@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.119] — 2026-10-03
+
+### Spec 084: Connect a coding agent — the first-run wizard
+
+When the IDE starts and no coding agent is connected, a window asks once per
+start: **Connect a coding agent**. On the left the PowerRustCOBOL mascot sits at
+a laptop facing a coding agent at its own, a connection flowing between them;
+on the right the question, with the agent picker beside the title (Claude Code
+for now), and **Don't show again**, **Skip for now** and **Connect** 10 px from
+the bottom-right corner. Connect runs Configure Claude Code and shows its
+progress; Don't show again is remembered per agent. The window is 800 × 400
+and never resizes. Agents are a list, so another one is an entry rather than a
+new window. Help ▸ Claude Code Settings is now **Coding Agent Settings**.
+
 ## [PowerRustCOBOL 1.80.118] — 2026-10-03
 
 ### Spec 084 T13: the Developer's Guide describes Configure Claude Code
@@ -143,6 +157,24 @@ project than the one open is refused with both names, before anything is read
 or written (R20). The knowledge tools take no project. (1.80.110 is a fix on
 `main`.)
 
+## [PowerRustCOBOL 1.80.110] — 2026-10-02
+
+### Fix: a multiline TextBox takes the caret wherever it is clicked
+
+A Multiline TextBox could only be clicked into on its first line. Its editor
+asked egui for one row, so it was a single line tall at the top of the box, and
+a click anywhere lower landed on the bare scroll area under it: nothing took
+the focus and nothing could be typed. PowerChat's 104-px question box
+(`Txt-Input`) was clicked in the middle and ignored the click — the buttons
+beside it worked. The editor now asks for as many rows as the box holds, so it
+fills the box. Every surface draws through the one render engine, so Run Form,
+embedded child forms and the compiled binary all get it.
+
+Test: `cobolt-forms/tests/a_click_gives_powerchat_input_the_caret.rs` clicks
+PowerChat's real form at three heights. The example-corpus goldens of the 36
+forms with a multiline TextBox were regenerated: the same shapes, the editor
+taller. (1.80.108–1.80.109 are spec 084 work on `feat/configure-claude-code`.)
+
 ## [PowerRustCOBOL 1.80.109] — 2026-10-02
 
 ### Spec 084 T5: `kb_search` — free-text search of the Knowledge Base for coding agents
@@ -167,68 +199,6 @@ resources (`powerrustcobol://reference/<name>`), read from the running binary.
 Both keep answering for knowledge while no project is open. `rcrun mcp` now
 reports the product version, read from the IDE's `version.rs`, instead of its
 crate version. (1.80.106–1.80.107 are fixes on `main`/`fix/agent-provider`.)
-
-## [PowerRustCOBOL 1.80.105] — 2026-10-02
-
-### Spec 084 T3: the coding-agent content moves where `rcrun` can serve it
-
-The agent-neutral content (rules, skills, reviewer, gap-report template) and
-the reference pack moved from the IDE into `cobolt-project-tools`, which both
-the IDE and `rcrun` link. The Developer's Guide and the supported-syntax
-reference are embedded there from the same `docs/` files; a test proves they
-are identical to the IDE's own copies. The IDE re-exports both modules under
-their old paths, so nothing it shows or exports changed. (1.80.104 is a fix on
-`main`.)
-
-## [PowerRustCOBOL 1.80.103] — 2026-10-02
-
-### Spec 084 T2: MCP server instructions, resources and image content
-
-`cobolt-mcp`, the protocol crate both tool servers share, can now send its
-instructions at `initialize`, answer `resources/list` and `resources/read`
-(an unknown URI is MCP's -32002), and return an image (`Content::png`, with an
-inline base64 encoder so the crate keeps JSON as its only dependency). Existing
-handlers are unchanged: every new trait method has a default. Code that read a
-tool answer's text uses the new `Content::as_text`.
-
-## [PowerRustCOBOL 1.80.102] — 2026-10-02
-
-### Spec 084 T1: the Claude Code spike
-
-Settles how the IDE configures Claude Code, against Claude Code 2.1.158 in a
-throwaway configuration: a local marketplace and a plugin whose `userConfig`
-carries the port and the access token (the token is kept in Claude Code's
-secure storage, never a file), installed and updated with `claude plugin`
-commands. A plugin cannot pre-approve its tools, so the developer approves each
-once — recorded as a deviation from spec 084 R8. Documents only.
-
-## [PowerRustCOBOL 1.80.101] — 2026-10-02
-
-### Spec 084: Configure Claude Code — spec, plan and tasks
-
-Registers `specs/084-configure-claude-code/` (spec, approved plan, tasks). It
-replaces spec 080's per-project coding-agent kit with a one-time, IDE-wide
-Claude Code plugin: rules and knowledge served live by the IDE, project
-create/open/edit tools, a Claude Code Settings window in the Help menu, an
-access token, and — folded in — `render_form`, `run_form`, application-level
-skills and a patterns pack. No product code changes yet.
-## [PowerRustCOBOL 1.80.110] — 2026-10-02
-
-### Fix: a multiline TextBox takes the caret wherever it is clicked
-
-A Multiline TextBox could only be clicked into on its first line. Its editor
-asked egui for one row, so it was a single line tall at the top of the box, and
-a click anywhere lower landed on the bare scroll area under it: nothing took
-the focus and nothing could be typed. PowerChat's 104-px question box
-(`Txt-Input`) was clicked in the middle and ignored the click — the buttons
-beside it worked. The editor now asks for as many rows as the box holds, so it
-fills the box. Every surface draws through the one render engine, so Run Form,
-embedded child forms and the compiled binary all get it.
-
-Test: `cobolt-forms/tests/a_click_gives_powerchat_input_the_caret.rs` clicks
-PowerChat's real form at three heights. The example-corpus goldens of the 36
-forms with a multiline TextBox were regenerated: the same shapes, the editor
-taller. (1.80.108–1.80.109 are spec 084 work on `feat/configure-claude-code`.)
 
 ## [PowerRustCOBOL 1.80.107] — 2026-10-02
 
@@ -268,6 +238,18 @@ things around that made mixing providers look impossible:
 
 1.80.105 is spec 084 work on `feat/configure-claude-code`.
 
+## [PowerRustCOBOL 1.80.105] — 2026-10-02
+
+### Spec 084 T3: the coding-agent content moves where `rcrun` can serve it
+
+The agent-neutral content (rules, skills, reviewer, gap-report template) and
+the reference pack moved from the IDE into `cobolt-project-tools`, which both
+the IDE and `rcrun` link. The Developer's Guide and the supported-syntax
+reference are embedded there from the same `docs/` files; a test proves they
+are identical to the IDE's own copies. The IDE re-exports both modules under
+their old paths, so nothing it shows or exports changed. (1.80.104 is a fix on
+`main`.)
+
 ## [PowerRustCOBOL 1.80.104] — 2026-10-02
 
 ### Fix: an endpoint saved as the model-list URL no longer breaks chat
@@ -280,6 +262,39 @@ A trailing `/models` is now stripped like `/chat/completions` already was, in
 the IDE's transport and in the runtime copy a built application uses.
 
 1.80.101–1.80.103 are spec 084 work on `feat/configure-claude-code`.
+
+## [PowerRustCOBOL 1.80.103] — 2026-10-02
+
+### Spec 084 T2: MCP server instructions, resources and image content
+
+`cobolt-mcp`, the protocol crate both tool servers share, can now send its
+instructions at `initialize`, answer `resources/list` and `resources/read`
+(an unknown URI is MCP's -32002), and return an image (`Content::png`, with an
+inline base64 encoder so the crate keeps JSON as its only dependency). Existing
+handlers are unchanged: every new trait method has a default. Code that read a
+tool answer's text uses the new `Content::as_text`.
+
+## [PowerRustCOBOL 1.80.102] — 2026-10-02
+
+### Spec 084 T1: the Claude Code spike
+
+Settles how the IDE configures Claude Code, against Claude Code 2.1.158 in a
+throwaway configuration: a local marketplace and a plugin whose `userConfig`
+carries the port and the access token (the token is kept in Claude Code's
+secure storage, never a file), installed and updated with `claude plugin`
+commands. A plugin cannot pre-approve its tools, so the developer approves each
+once — recorded as a deviation from spec 084 R8. Documents only.
+
+## [PowerRustCOBOL 1.80.101] — 2026-10-02
+
+### Spec 084: Configure Claude Code — spec, plan and tasks
+
+Registers `specs/084-configure-claude-code/` (spec, approved plan, tasks). It
+replaces spec 080's per-project coding-agent kit with a one-time, IDE-wide
+Claude Code plugin: rules and knowledge served live by the IDE, project
+create/open/edit tools, a Claude Code Settings window in the Help menu, an
+access token, and — folded in — `render_form`, `run_form`, application-level
+skills and a patterns pack. No product code changes yet.
 
 ## [PowerRustCOBOL 1.80.100] — 2026-10-02
 

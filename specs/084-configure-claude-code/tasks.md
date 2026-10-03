@@ -85,6 +85,13 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   Guide and the support matrix ship English only until the next minor.)* Rewrite the coding-agent section; delete
   its five translations. *Verify:* doc renders in the viewer test set.
 
+- [x] **T20 — First-run Connect a coding agent wizard.** `coding_agents` (the
+  agent list and the offer rule), `panels/connect_agent_wizard` (800 × 400,
+  painted scene with the mascot's head, animated connection, picker, buttons),
+  start-up probe, "Don't show again" in `claude_code.toml`, window renamed
+  Coding Agent Settings. *Verify:* size/inset/offer tests, i18n. *Serves:*
+  R39–R43.
+
 ## Phase B — seeing and running a form
 
 - [ ] **T14 (B1) — CPU rasteriser.** `cobolt-forms::raster` over

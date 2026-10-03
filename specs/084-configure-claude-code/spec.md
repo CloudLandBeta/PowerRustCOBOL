@@ -229,6 +229,26 @@ three skills, a patterns pack and an architecture map (R32–R34).
   application-architecture section and a map of which resource or tool answers
   which kind of question.
 
+### First-run wizard (operator, 2026-10-03; mockup approved)
+
+- **R39 (event):** When the IDE starts and no coding agent is connected, and the
+  developer has not chosen "Don't show again" for it, the IDE shall show the
+  **Connect a coding agent** window, once per start, after the background check
+  answers.
+- **R40 (ubiquitous):** The window shall be 800 × 400 and never resize: the
+  PowerRustCOBOL mascot at a laptop facing a coding agent at its own, a
+  connection being made between them, on the left; on the right the title with
+  an agent picker beside it (Claude Code only for now), the lead text, three
+  points and the detection status; **Don't show again**, **Skip for now** and
+  **Connect** 10 px from the bottom and right borders.
+- **R41 (event):** **Connect** runs Configure for the picked agent (disabled
+  while it is not installed); **Skip for now** closes until the next start;
+  **Don't show again** records the agent in the IDE-wide settings.
+- **R42 (ubiquitous):** Agents are a list the wizard reads (name, key,
+  detection, configuration), so another agent is an entry, not a new window.
+- **R43 (ubiquitous):** Help ▸ Claude Code Settings is named **Coding Agent
+  Settings**.
+
 ### Unchanged from spec 080
 
 - **R28 (constraint):** The tools shall stay on `127.0.0.1` (spec 080 R12) and

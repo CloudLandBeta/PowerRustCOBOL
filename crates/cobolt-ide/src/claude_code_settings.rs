@@ -21,6 +21,9 @@ use serde::{Deserialize, Serialize};
 pub struct ClaudeCodeSettings {
     /// The access token; empty until Configure Claude Code generates one.
     pub token: String,
+    /// Coding agents (by `coding_agents::CodingAgent::key`) the developer
+    /// said "Don't show again" for in the Connect wizard.
+    pub wizard_dismissed: Vec<String>,
 }
 
 impl ClaudeCodeSettings {

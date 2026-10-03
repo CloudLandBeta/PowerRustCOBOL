@@ -10657,6 +10657,23 @@ flowchart LR
     R --> PRJ2["the project in<br/>Claude Code's folder"]
 ```
 
+#### Connecting the first time
+
+When PowerRustCOBOL AI starts and no coding agent is connected, it asks — once
+per start — in a small window: **Connect a coding agent**. Pick the agent (only
+Claude Code for now) and choose:
+
+| Button | What it does |
+| --- | --- |
+| **Connect** | Runs **Configure Claude Code** (below) and shows its progress in Coding Agent Settings. Disabled while the agent is not installed — the window says so and where to connect later. |
+| **Skip for now** | Closes the window; it asks again the next time the IDE starts. |
+| **Don't show again** | Never asks again for that agent. You can still connect from **File ▸ Configure Claude Code** or **Help ▸ Coding Agent Settings**. |
+
+> 📷 **Screenshot needed — `connect-coding-agent.png`.** The Connect a coding
+> agent window at start: the mascot and the coding agent at their laptops with
+> the connection between them on the left, the question with **Claude Code**
+> picked on the right, and the three buttons at the bottom right.
+
 #### Configure Claude Code
 
 **File ▸ Configure Claude Code** installs the **PowerRustCOBOL plugin** in the
@@ -10673,7 +10690,7 @@ The IDE installs it with Claude Code's own `claude plugin` commands — it never
 edits Claude Code's files — and says the result in the Output panel. If Claude
 Code is not installed, it says where it looked. Configuring again with the same
 IDE version changes nothing; after you update PowerRustCOBOL AI, configure
-again (or use **Update** in Claude Code Settings) and every project gets the
+again (or use **Update** in Coding Agent Settings) and every project gets the
 new version. Start a new Claude Code session to load it.
 
 **Nothing secret or personal goes in.** The plugin carries no API key — if a key
@@ -10735,9 +10752,9 @@ no unsaved edits in it.
 Answer *Yes, and don't ask again* for the PowerRustCOBOL tools: Claude Code
 gives a plugin no way to approve its own tools for you.
 
-#### Claude Code Settings
+#### Coding Agent Settings
 
-**Help ▸ Claude Code Settings** shows, for the whole IDE:
+**Help ▸ Coding Agent Settings** shows, for the whole IDE:
 
 | Row | What it says |
 | --- | --- |
