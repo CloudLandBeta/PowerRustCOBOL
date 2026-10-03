@@ -4354,7 +4354,9 @@ impl CoboltApp {
         let mut proj =
             CoboltProject::new(self.new_project.name.clone(), self.new_project.main.clone());
         proj.project.version = self.new_project.version.clone();
-        self.llm = crate::llm::LlmConfig::load();
+        let mut llm = crate::llm::LlmConfig::load();
+        llm.carry_session_keys_from(&self.llm);
+        self.llm = llm;
         proj.ai.apply_to_llm(&mut self.llm);
 
         match save_project(&proj, &path) {
@@ -4633,6 +4635,7 @@ impl CoboltApp {
     /// legacy global model metadata; the legacy source remains untouched.
     fn activate_project_ai(&mut self, project: &mut CoboltProject) -> bool {
         let mut llm = crate::llm::LlmConfig::load();
+        llm.carry_session_keys_from(&self.llm);
         let migrated = project.ai.schema_version == 0;
         if migrated {
             project.ai = crate::project_model::ProjectAiSettings::from_llm(&llm);

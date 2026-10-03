@@ -515,6 +515,31 @@ impl LlmConfig {
         changed
     }
 
+    /// Keep the credentials this session already holds when the configuration
+    /// is reloaded (a project opened or created).
+    ///
+    /// Keys are memory-only while the native store is off (`api_keys` is
+    /// `serde(skip)`), so a fresh [`load`](Self::load) holds none, and swapping
+    /// it in dropped every key typed earlier in the session. Every hosted
+    /// provider then read as unconfigured and its agents could not run, which
+    /// looked like "agents cannot use models from different providers"
+    /// (operator, 2026-10-02). A key the new configuration already holds wins,
+    /// and a slot it marks deleted stays deleted.
+    pub fn carry_session_keys_from(&mut self, previous: &LlmConfig) {
+        for (slot, key) in &previous.api_keys {
+            if key.trim().is_empty()
+                || self.deleted_api_key_slots.contains(slot)
+                || self.api_keys.get(slot).is_some_and(|k| !k.trim().is_empty())
+            {
+                continue;
+            }
+            self.api_keys.insert(slot.clone(), key.clone());
+            if let Some(at) = previous.api_key_saved_at.get(slot) {
+                self.api_key_saved_at.entry(slot.clone()).or_insert(*at);
+            }
+        }
+    }
+
     pub fn load() -> Self {
         let path = base_dir().join("llm_config.json");
         load_machine_config_at(&path)
@@ -7499,6 +7524,29 @@ mod extract_code_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Reloading the configuration (opening a project) keeps the keys typed
+    /// this session, never overrides one the new configuration holds, and
+    /// never revives a deleted slot.
+    #[test]
+    fn session_keys_survive_a_configuration_reload() {
+        let mut previous = LlmConfig::defaults();
+        previous.api_keys.insert("providerkey::openrouter".into(), "or-key".into());
+        previous.api_keys.insert("providerkey::ollama_cloud".into(), "oc-key".into());
+        previous.api_keys.insert("providerkey::groq".into(), "groq-old".into());
+        previous.api_keys.insert("providerkey::mistral".into(), "gone".into());
+        previous.api_key_saved_at.insert("providerkey::openrouter".into(), 1_790_000_000);
+        let mut fresh = LlmConfig::defaults();
+        fresh.api_keys.insert("providerkey::groq".into(), "groq-new".into());
+        fresh.deleted_api_key_slots.insert("providerkey::mistral".into());
+        fresh.carry_session_keys_from(&previous);
+        assert_eq!(fresh.api_keys["providerkey::openrouter"], "or-key");
+        assert_eq!(fresh.api_keys["providerkey::ollama_cloud"], "oc-key");
+        assert_eq!(fresh.api_keys["providerkey::groq"], "groq-new", "the reloaded key wins");
+        assert!(!fresh.api_keys.contains_key("providerkey::mistral"), "a deleted slot stays deleted");
+        assert_eq!(fresh.api_key_saved_at["providerkey::openrouter"], 1_790_000_000);
+        println!("session keys across a reload: 2 carried, 1 kept from the reload, 1 deleted slot not revived, saved-at carried");
+    }
 
     /// Grace is fast by default (1.80.81): no hidden reasoning, no prompt
     /// review. Both switches survive the per-project round-trip.

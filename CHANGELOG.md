@@ -8,6 +8,27 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.106] — 2026-10-02
+
+### Fix: agents on different providers — visible, selectable, and keyed
+
+Each agent already stored and used its own provider, endpoint and key; three
+things around that made mixing providers look impossible:
+
+- **API keys were dropped when a project opened.** Keys live only in memory
+  while the native secret store is off, and opening or creating a project
+  replaced the AI configuration with a freshly loaded one that holds none.
+  Every hosted provider then read as unconfigured, its model list emptied and
+  its agents could not run. Keys typed this session are now carried over; a
+  key the reloaded configuration holds wins, and a deleted one stays deleted.
+- **The Agent × Model table never showed a row's provider.** It now has a
+  Model provider column.
+- **The same model id on another provider could not be picked.** The table
+  compared model ids only, so `gemma4:31b` on Ollama looked already chosen for
+  an agent on `gemma4:31b` at Ollama (Cloud). It compares the provider too.
+
+1.80.105 is spec 084 work on `feat/configure-claude-code`.
+
 ## [PowerRustCOBOL 1.80.104] — 2026-10-02
 
 ### Fix: an endpoint saved as the model-list URL no longer breaks chat

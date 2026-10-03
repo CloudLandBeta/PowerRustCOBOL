@@ -783,11 +783,12 @@ impl AgentsModal {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 egui::Grid::new("agents_runtime_grid")
-                    .num_columns(6)
+                    .num_columns(7)
                     .spacing([12.0, 6.0])
                     .striped(true)
                     .show(ui, |ui| {
                         ui.label(egui::RichText::new(tr.agents_tbl_agent).strong());
+                        ui.label(egui::RichText::new(tr.agents_tbl_provider_scope).strong());
                         ui.label(egui::RichText::new(tr.agents_tbl_model).strong());
                         ui.label(egui::RichText::new(tr.agents_tbl_rating).strong());
                         ui.label(egui::RichText::new(tr.agents_tbl_temp).strong());
@@ -816,6 +817,23 @@ impl AgentsModal {
                                     );
                                 }
                             });
+
+                            // Provider — whose model this row runs. Each agent
+                            // keeps its own (R11); without this column a row on
+                            // another provider looked like every other row, and
+                            // the table read as one provider for the project
+                            // (operator, 2026-10-02).
+                            {
+                                let agent = &self.db.agents[i];
+                                let label = if agent.no_model || agent.provider.trim().is_empty() {
+                                    "—".to_string()
+                                } else {
+                                    crate::llm::Provider::from_id(&agent.provider)
+                                        .map(|p| p.label.to_string())
+                                        .unwrap_or_else(|| agent.provider.clone())
+                                };
+                                ui.label(label);
+                            }
 
                             // Model — (no model) plus the scoped provider's list.
                             let agent = &mut self.db.agents[i];
@@ -866,15 +884,21 @@ impl AgentsModal {
                                                 ui.close();
                                             }
                                             for model in matches {
-                                                let selected =
-                                                    !agent.no_model && &agent.model == model;
+                                                // The same id on another provider is
+                                                // a different model: compare both.
+                                                let selected = !agent.no_model
+                                                    && &agent.model == model
+                                                    && agent.provider == scope;
                                                 if ui.selectable_label(selected, model).clicked() {
                                                     picked = Some(model.clone());
                                                 }
                                             }
                                         });
                                     if let Some(model) = picked {
-                                        if agent.no_model || agent.model != model {
+                                        if agent.no_model
+                                            || agent.model != model
+                                            || agent.provider != scope
+                                        {
                                             // The agent takes the model AND the
                                             // provider it was picked from (R12);
                                             // other rows keep theirs (R11).
