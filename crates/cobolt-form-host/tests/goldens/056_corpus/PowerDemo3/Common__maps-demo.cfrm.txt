@@ -1,5 +1,5 @@
 # PowerDemo3/Common/maps-demo.cfrm
-## Window 0.75x 960x645
+## Window 0.75x 972x645
 BTN-CLEAR rect=[944 320 1264 352] font=16
 BTN-DRIVE rect=[944 262 1264 294] font=16
 BTN-MARKERS rect=[944 96 1264 128] font=16
@@ -19,7 +19,7 @@ LBL-STATUS rect=[32 816 1267 844] font=11
 LBL-TITLE rect=[24 16 724 46] font=24
 MAP-1 rect=[32 96 912 796] font=11
 TXT-ORS-KEY rect=[944 688 1264 724] font=16
-## Occupant 0.75x 960x645
+## Occupant 0.75x 972x645
 BTN-CLEAR rect=[1164 348 1484 380] font=16
 BTN-DRIVE rect=[1164 290 1484 322] font=16
 BTN-MARKERS rect=[1164 124 1484 156] font=16
@@ -39,7 +39,7 @@ LBL-STATUS rect=[252 844 1487 872] font=11
 LBL-TITLE rect=[244 44 944 74] font=24
 MAP-1 rect=[252 124 1132 824] font=11
 TXT-ORS-KEY rect=[1164 716 1484 752] font=16
-## Window 1x 1280x860
+## Window 1x 1296x860
 BTN-CLEAR rect=[944 320 1264 352] font=16
 BTN-DRIVE rect=[944 262 1264 294] font=16
 BTN-MARKERS rect=[944 96 1264 128] font=16
@@ -59,7 +59,7 @@ LBL-STATUS rect=[32 816 1267 844] font=11
 LBL-TITLE rect=[24 16 724 46] font=24
 MAP-1 rect=[32 96 912 796] font=11
 TXT-ORS-KEY rect=[944 688 1264 724] font=16
-## Occupant 1x 1280x860
+## Occupant 1x 1296x860
 BTN-CLEAR rect=[1164 348 1484 380] font=16
 BTN-DRIVE rect=[1164 290 1484 322] font=16
 BTN-MARKERS rect=[1164 124 1484 156] font=16
@@ -79,7 +79,7 @@ LBL-STATUS rect=[252 844 1487 872] font=11
 LBL-TITLE rect=[244 44 944 74] font=24
 MAP-1 rect=[252 124 1132 824] font=11
 TXT-ORS-KEY rect=[1164 716 1484 752] font=16
-## Window 1.5x 1920x1290
+## Window 1.5x 1944x1290
 BTN-CLEAR rect=[944 320 1264 352] font=16
 BTN-DRIVE rect=[944 262 1264 294] font=16
 BTN-MARKERS rect=[944 96 1264 128] font=16
@@ -99,7 +99,7 @@ LBL-STATUS rect=[32 816 1267 844] font=11
 LBL-TITLE rect=[24 16 724 46] font=24
 MAP-1 rect=[32 96 912 796] font=11
 TXT-ORS-KEY rect=[944 688 1264 724] font=16
-## Occupant 1.5x 1920x1290
+## Occupant 1.5x 1944x1290
 BTN-CLEAR rect=[1164 348 1484 380] font=16
 BTN-DRIVE rect=[1164 290 1484 322] font=16
 BTN-MARKERS rect=[1164 124 1484 156] font=16

@@ -8,6 +8,15 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.133] — 2026-10-03
+
+### Fix: the host layout golden follows the PowerDemo3 examples again
+
+The buttons and maps demos were redesigned in 1.80.127, and PowerDemo3's
+unused `Common/main-form` was removed, but the form host's example-corpus
+golden still described the old forms, so `corpus_golden` failed on `main`.
+The two goldens are regenerated and the removed form's golden is deleted.
+
 ## [PowerRustCOBOL 1.80.132] — 2026-10-03
 
 ### Spec 085 approved: plan and tasks
