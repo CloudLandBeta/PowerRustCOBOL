@@ -300,6 +300,11 @@ impl ProjectAiSettings {
             .find(|profile| profile.provider == llm.provider && profile.model == llm.model)
             .map(|profile| profile.resolve(llm).api_key)
             .filter(|key| !key.is_empty())
+            // The provider's own slot (spec 048) before the legacy per-model
+            // one: a key entered in the Models Manager lives there, and the
+            // direct AI surfaces went out keyless without it (operator,
+            // 2026-10-02).
+            .or_else(|| Some(llm.provider_api_key(&llm.provider)).filter(|k| !k.trim().is_empty()))
             .or_else(|| {
                 llm.api_keys
                     .get(&crate::llm::api_key_slot(&llm.provider, &llm.model))

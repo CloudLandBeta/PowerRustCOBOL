@@ -741,10 +741,18 @@ impl LlmConfig {
             });
         if let Some(cfg) = pick {
             if !cfg.provider.trim().is_empty() && !cfg.model.trim().is_empty() {
+                // A provider switch takes that provider's endpoint and key too:
+                // keeping the old endpoint sent the direct AI surfaces to one
+                // provider's host with another provider's model (operator,
+                // 2026-10-02).
+                let switched = self.provider.trim() != cfg.provider.trim();
                 self.provider = cfg.provider;
                 self.model = cfg.model;
-                if self.endpoint.trim().is_empty() {
+                if switched || self.endpoint.trim().is_empty() {
                     self.endpoint = cfg.endpoint;
+                }
+                if switched || self.api_key.trim().is_empty() {
+                    self.api_key = cfg.api_key;
                 }
                 return;
             }
@@ -753,10 +761,14 @@ impl LlmConfig {
         // configured provider, so the direct surfaces are not dead.
         if let Some(provider) = self.configured_providers().first().cloned() {
             if let Some(model) = self.models_for(&provider).first().cloned() {
+                let switched = self.provider.trim() != provider.trim();
                 self.provider = provider.clone();
                 self.model = model;
-                if self.endpoint.trim().is_empty() {
+                if switched || self.endpoint.trim().is_empty() {
                     self.endpoint = self.provider_endpoint(&provider);
+                }
+                if switched || self.api_key.trim().is_empty() {
+                    self.api_key = self.provider_api_key(&provider);
                 }
             }
         }

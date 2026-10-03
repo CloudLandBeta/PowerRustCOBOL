@@ -2934,6 +2934,18 @@ mod tests {
         assert_eq!(llm.provider, "anthropic");
         assert_eq!(llm.model, "claude-grace", "Grace sets the default");
 
+        // A stale endpoint and key from ANOTHER provider are not kept: the
+        // direct surfaces would send Grace's model to the wrong host.
+        llm.store_api_key(crate::llm::provider_key_slot("anthropic"), "sk-ant");
+        llm.provider = "openrouter".into();
+        llm.model.clear();
+        llm.endpoint = "https://openrouter.ai/api/v1".into();
+        llm.api_key = "sk-or".into();
+        llm.ensure_default_model_from_agents(&db);
+        assert_eq!(llm.provider, "anthropic");
+        assert_eq!(llm.endpoint, llm.provider_endpoint("anthropic"), "the provider's own endpoint");
+        assert_eq!(llm.api_key, "sk-ant", "the provider's own key");
+
         // An agent-less project must still not be dead: the first model of the
         // first configured provider stands in.
         let mut bare = crate::llm::LlmConfig::load_defaults_for_test();
@@ -2945,7 +2957,7 @@ mod tests {
         let empty = AgentsDb::load(&tmp_project());
         bare.ensure_default_model_from_agents(&empty);
         assert_eq!(bare.model, "claude-only", "fallback to a configured provider");
-        println!("default model: Grace -> claude-grace; agent-less -> claude-only");
+        println!("default model: Grace -> claude-grace (endpoint and key follow a provider switch); agent-less -> claude-only");
         let _ = std::fs::remove_dir_all(proj);
     }
 

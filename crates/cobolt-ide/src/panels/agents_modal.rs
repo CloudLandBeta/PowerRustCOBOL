@@ -265,10 +265,14 @@ impl AgentsModal {
             .and_then(|id| llm.profile(id))
             .map(|profile| profile.resolve(llm).api_key)
             .unwrap_or_else(|| {
-                llm.api_keys
-                    .get(&api_key_slot(&a.provider, &a.model))
-                    .cloned()
-                    .unwrap_or_default()
+                // Keys belong to the provider (spec 048); the per-model slot
+                // is the legacy place, read only when the provider has none.
+                let key = llm.provider_api_key(&a.provider);
+                if key.trim().is_empty() {
+                    llm.api_keys.get(&api_key_slot(&a.provider, &a.model)).cloned().unwrap_or_default()
+                } else {
+                    key
+                }
             });
     }
 
@@ -288,8 +292,10 @@ impl AgentsModal {
             .cloned()
         {
             llm.store_api_key(crate::llm::profile_api_key_slot(&profile.id), &self.key_buf);
-        } else if !a.model.trim().is_empty() {
-            llm.store_api_key(api_key_slot(&a.provider, &a.model), &self.key_buf);
+        } else if !a.provider.trim().is_empty() {
+            // The provider's slot — the one requests read first. A key stored
+            // in the legacy per-model slot was shadowed by it.
+            llm.store_api_key(crate::llm::provider_key_slot(&a.provider), &self.key_buf);
         }
     }
 
@@ -1393,56 +1399,28 @@ impl AgentsModal {
                 .default_open(true)
                 .show(ui, |ui| {
                     egui::Grid::new("ag_runtime").num_columns(2).spacing([14.0, 7.0]).show(ui, |ui| {
-                        // Model profile (spec 031): pick a reusable profile defined
-                        // in the Models Manager, instead of re-entering a connection.
+                        // The agent's model, read-only: provider and model are
+                        // chosen in the Agent × Model tab (spec 048). This row
+                        // used to pick from the retired model-profile list,
+                        // which migration empties, so a configured agent showed
+                        // "(none)" — and clicking it removed the agent's model
+                        // (operator, 2026-10-02).
                         ui.label(tr.agents_model_profile);
                         {
-                            let a = &mut self.db.agents[sel];
-                            let current_name = a
-                                .model_profile
-                                .as_ref()
-                                .and_then(|id| llm.profile(id))
-                                .map(|p| p.name.clone());
-                            let mut pick: Option<Option<String>> = None;
-                            ui.horizontal(|ui| {
-                                egui::ComboBox::from_id_salt("ag_model_profile")
-                                    .selected_text(
-                                        current_name
-                                            .clone()
-                                            .unwrap_or_else(|| tr.agents_model_profile_none.to_string()),
-                                    )
-                                    .width(240.0)
-                                    .show_ui(ui, |ui| {
-                                        if ui
-                                            .selectable_label(a.model_profile.is_none(), tr.agents_model_profile_none)
-                                            .clicked()
-                                        {
-                                            pick = Some(None);
-                                        }
-                                        for p in &llm.model_profiles {
-                                            let label =
-                                                if p.name.is_empty() { p.model.clone() } else { p.name.clone() };
-                                            if ui
-                                                .selectable_label(
-                                                    a.model_profile.as_deref() == Some(p.id.as_str()),
-                                                    label,
-                                                )
-                                                .clicked()
-                                            {
-                                                pick = Some(Some(p.id.clone()));
-                                            }
-                                        }
-                                    });
-                            });
-                            if let Some(p) = pick {
-                                // Picking "(none)" is an explicit choice, not an
-                                // unconfigured agent: record it so the built-in
-                                // seeding does not hand a model back on the next
-                                // project open.
-                                a.no_model = p.is_none();
-                                a.model_profile = p;
-                                changed = true;
-                            }
+                            let a = &self.db.agents[sel];
+                            let shown = if let Some(profile) =
+                                a.model_profile.as_deref().and_then(|id| llm.profile(id))
+                            {
+                                if profile.name.is_empty() { profile.model.clone() } else { profile.name.clone() }
+                            } else if a.no_model || a.model.trim().is_empty() {
+                                tr.agents_tbl_no_model.to_string()
+                            } else {
+                                let provider = crate::llm::Provider::from_id(&a.provider)
+                                    .map(|p| p.label.to_string())
+                                    .unwrap_or_else(|| a.provider.clone());
+                                format!("{provider} · {}", a.model)
+                            };
+                            ui.label(shown).on_hover_text(tr.agents_tab_agent_model);
                         }
                         ui.end_row();
                         ui.label(tr.agents_routing);

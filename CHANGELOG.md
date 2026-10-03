@@ -8,6 +8,23 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.107] — 2026-10-02
+
+### Fix: the Agent Configuration tab and the direct AI surfaces follow each agent's provider
+
+- **Agent Configuration no longer offers the retired model-profile list.**
+  Migration empties that list, so a configured agent showed "(none)", and
+  clicking "(none)" removed the agent's model. The row now shows the agent's
+  provider and model read-only; they are chosen in the Agent × Model tab.
+- **Its API key field uses the provider's key.** It read and wrote the legacy
+  per-model slot, which requests consult only after the provider's own — so a
+  key typed there was shadowed.
+- **The direct editor and designer requests keep endpoint and key with their
+  provider.** Seeding the default model from Grace switched the provider but
+  kept the previous provider's endpoint and key, and the project's key lookup
+  skipped the provider's own slot, so those requests could reach the wrong host
+  or go out without a key.
+
 ## [PowerRustCOBOL 1.80.106] — 2026-10-02
 
 ### Fix: agents on different providers — visible, selectable, and keyed
