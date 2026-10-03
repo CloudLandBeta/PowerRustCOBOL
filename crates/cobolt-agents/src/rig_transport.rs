@@ -208,7 +208,10 @@ pub struct AgentReply {
 /// Public so hosts can log the true request root in verbose mode.
 pub fn normalize_base(provider: &str, endpoint: &str) -> String {
     let mut base = endpoint.trim().trim_end_matches('/').to_string();
-    for suffix in ["/chat/completions", "/completions", "/messages"] {
+    // `/models` is the model-LIST URL. An endpoint saved as it (a developer
+    // pasting the listing URL so the model list would load) made every chat
+    // request `…/models/chat/completions`, a 404 (operator, 2026-10-02).
+    for suffix in ["/chat/completions", "/completions", "/messages", "/models"] {
         if let Some(stripped) = base.strip_suffix(suffix) {
             base = stripped.trim_end_matches('/').to_string();
         }
@@ -1183,6 +1186,14 @@ mod tests {
         assert_eq!(
             normalize_base("anthropic", "https://api.anthropic.com/v1/messages"),
             "https://api.anthropic.com/v1"
+        );
+        assert_eq!(
+            normalize_base("openrouter", "https://openrouter.ai/api/v1/models"),
+            "https://openrouter.ai/api/v1"
+        );
+        assert_eq!(
+            normalize_base("openai", "https://api.openai.com/v1/models/"),
+            "https://api.openai.com/v1"
         );
         assert_eq!(normalize_base("openai", ""), "https://api.openai.com/v1");
         assert_eq!(normalize_base("ollama", ""), "http://localhost:11434/v1");

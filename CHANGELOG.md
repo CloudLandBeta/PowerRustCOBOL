@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.104] — 2026-10-02
+
+### Fix: an endpoint saved as the model-list URL no longer breaks chat
+
+An OpenRouter endpoint saved as `https://openrouter.ai/api/v1/models` (the
+model-list URL, pasted so the model list would load) became the API root of
+every chat request, which then went to `…/models/chat/completions` and got
+`404 Not Found` — the Model Leaderboard's proficiency test failed this way.
+A trailing `/models` is now stripped like `/chat/completions` already was, in
+the IDE's transport and in the runtime copy a built application uses.
+
+1.80.101–1.80.103 are spec 084 work on `feat/configure-claude-code`.
+
 ## [PowerRustCOBOL 1.80.100] — 2026-10-02
 
 ### Fix: a Spatial form shown in the ContentPane blurs the desktop

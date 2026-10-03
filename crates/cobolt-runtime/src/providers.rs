@@ -102,7 +102,10 @@ pub fn heal_endpoint(ep: &str) -> String {
 /// origin the `/v1` root every provider here serves the chat under.
 pub fn normalize_base(provider: &str, endpoint: &str) -> String {
     let mut base = heal_endpoint(endpoint).trim_end_matches('/').to_string();
-    for suffix in ["/chat/completions", "/completions", "/messages"] {
+    // `/models` is the model-list URL; saved as the endpoint it made every
+    // chat request `…/models/chat/completions`, a 404 (same as the IDE's
+    // `rig_transport::normalize_base`).
+    for suffix in ["/chat/completions", "/completions", "/messages", "/models"] {
         if let Some(stripped) = base.strip_suffix(suffix) {
             base = stripped.trim_end_matches('/').to_string();
         }
@@ -471,6 +474,9 @@ mod tests {
         assert_eq!(model_list_headers("gemini", "k")[0].0, "x-goog-api-key");
         assert!(is_openai_chat_model("gpt-4o") && !is_openai_chat_model("text-embedding-3-large"));
         assert_eq!(heal_endpoint("https://api-inference.huggingface.co/models/x"), "https://router.huggingface.co/v1");
+        // An endpoint saved as the model-list URL still chats at the API root.
+        assert_eq!(normalize_base("openrouter", "https://openrouter.ai/api/v1/models"), "https://openrouter.ai/api/v1");
+        assert_eq!(model_list_url("openrouter", "https://openrouter.ai/api/v1/models"), "https://openrouter.ai/api/v1/models");
     }
 
     #[test]
