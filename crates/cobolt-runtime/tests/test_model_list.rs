@@ -28,7 +28,10 @@ use cobolt_runtime::Interpreter;
 fn memory_store() {
     static ONCE: OnceLock<()> = OnceLock::new();
     ONCE.get_or_init(|| {
-        cobolt_runtime::key_store::set_key_store(Arc::new(cobolt_runtime::key_store::MemoryKeyStore::default()))
+        cobolt_runtime::key_store::set_key_store(Arc::new(cobolt_runtime::key_store::MemoryKeyStore::default()));
+        // Spec 085 — the list is kept in the application's folder; a test
+        // keeps it in memory, as it keeps the keys.
+        cobolt_runtime::model_list::use_memory_only();
     });
 }
 

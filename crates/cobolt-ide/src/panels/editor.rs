@@ -6242,7 +6242,7 @@ END-EVALUATE
         let labels: Vec<&str> = filtered.iter().map(|i| i.label.as_str()).collect();
         println!("  COBOL:: offers {} built-ins; \"MOD → {labels:?}", all.len());
         assert_eq!(all.len(), cobolt_runtime::builtins::BUILTINS.len(), "every built-in, nothing else");
-        assert_eq!(labels, vec!["MODEL-LIST", "MODEL-LIST-GET", "MODEL-REMOVE", "MODEL-SET", "MODEL-TEST"]);
+        assert_eq!(labels, vec!["MODEL-COUNT", "MODEL-GET", "MODEL-LIST", "MODEL-LIST-GET", "MODEL-REMOVE", "MODEL-SET", "MODEL-TEST"]);
         let list = filtered.iter().find(|i| i.label == "MODEL-LIST").unwrap();
         assert!(list.detail.contains("provider in") && list.detail.contains("count out"), "{}", list.detail);
         // A form's handler lists the object among its receivers.

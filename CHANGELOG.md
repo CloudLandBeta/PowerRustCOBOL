@@ -8,6 +8,32 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.138] — 2026-10-03
+
+### The application's AI settings: one model list, kept by the runtime (spec 085 T10)
+
+An application's models are now the **application's**. The runtime keeps the
+model list in `settings/models.json` in the application's folder, beside the
+key store: it is there from the moment the application starts, shared by
+every form of it, and written on every `MODEL-SET` / `MODEL-REMOVE`. A
+program no longer keeps its own copy and hands it over at start-up (spec 076
+R2/R4, superseded by the operator). Two built-ins list it:
+`COBOL::"MODEL-COUNT"( count )` and `COBOL::"MODEL-GET"( index name [api]
+[url] [model] )`. The file holds no key; keys stay in the key store, never
+readable back.
+
+PowerChat uses the application's models: its models file mirrors the
+application's list and adds only what PowerChat knows of each model (tool
+calling, orchestration rank); the first time it runs it hands the models it
+kept before to the application. So a PowerChat added with `add_powerchat`
+uses the host application's AI settings, and the application's own agents
+can ask any model set up in PowerChat by name (`ModelEntry`).
+
+Tests: the list read from, listed and written back to its file, with no key
+in it; in PowerChat, a model the application has counted as its connection,
+its old models adopted once, a withdrawn model gone. The System KB, its
+store, the Developer's Guide and spec 076 are updated.
+
 ## [PowerRustCOBOL 1.80.137] — 2026-10-03
 
 ### Coding agents: `add_powerchat` adds PowerChat to an application (spec 085 T7–T9)

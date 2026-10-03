@@ -38,8 +38,8 @@ One commit per task, each bumping `z` with a CHANGELOG entry.
 
 ## Phase C — host AI settings (R14)
 
-- [ ] **T10 — The application's AI settings.** *(Held for the operator: needs the
-  runtime-owned model list of plan D4a.)* Embedded PowerChat stores
+- [x] **T10 — The application's AI settings.** *(Approved 2026-10-03: the runtime
+  keeps the list, `settings/models.json`; PowerChat mirrors it.)* Embedded PowerChat stores
   model entries and agents in the host's data; its provider/model/agent
   screens become the host's Settings ▸ AI. *Verify:* a host AgentObject asks
   through an entry PowerChat registered.

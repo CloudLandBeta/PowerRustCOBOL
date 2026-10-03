@@ -11350,9 +11350,13 @@ impl Interpreter {
             //
             // COBOL-MODEL-SET    USING name api url model [status]
             // COBOL-MODEL-REMOVE USING name [status]
-            //   Hand a model-list entry to the runtime (or withdraw it). The
-            //   program keeps the list in its own file; the runtime holds it for
-            //   this run only, shared by every form, and writes nothing.
+            //   Add, change or withdraw an entry of the application's model
+            //   list, shared by every form. Since spec 085 the runtime keeps the
+            //   list in the application's settings folder (no keys in it).
+            // COBOL-MODEL-COUNT  USING count
+            // COBOL-MODEL-GET    USING index name [api] [url] [model]
+            //   List it: how many entries, and the one at 1-based `index`, by
+            //   name order. An index out of range gives spaces.
             // COBOL-KEY-SET      USING name key [status]
             // COBOL-KEY-REMOVE   USING name [status]
             // COBOL-KEY-IS-SET   USING name flag
@@ -11378,6 +11382,29 @@ impl Interpreter {
                 if let Some(arg) = using.get(4) {
                     let var = self.expr_to_name(call_arg_expr(arg));
                     self.env.set_str(&var, &status);
+                }
+            }
+            "COBOL-MODEL-COUNT" if !using.is_empty() => {
+                let n = crate::model_list::entries().len();
+                let var = self.expr_to_name(call_arg_expr(&using[0]));
+                self.env.set_str(&var, &n.to_string());
+            }
+            "COBOL-MODEL-GET" if using.len() >= 2 => {
+                let ix = self
+                    .eval_call_arg(&using[0], span)?
+                    .as_display_string()
+                    .trim()
+                    .parse::<usize>()
+                    .unwrap_or(0);
+                let entries = crate::model_list::entries();
+                let found = ix.checked_sub(1).and_then(|i| entries.get(i));
+                let fields = match found {
+                    Some((name, e)) => [name.clone(), e.api.clone(), e.url.clone(), e.model.clone()],
+                    None => Default::default(),
+                };
+                for (arg, value) in using[1..].iter().zip(fields.iter()) {
+                    let var = self.expr_to_name(call_arg_expr(arg));
+                    self.env.set_str(&var, value);
                 }
             }
             "COBOL-MODEL-REMOVE" if !using.is_empty() => {

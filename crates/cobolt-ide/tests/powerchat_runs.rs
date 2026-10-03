@@ -72,6 +72,9 @@ impl Session {
         dialogs: Option<Vec<Option<String>>>,
         tweak: Option<fn(&mut cobolt_forms::Form)>,
     ) -> Session {
+        // Spec 085 — the runtime keeps the application's models in its
+        // folder; a test never writes there.
+        cobolt_runtime::model_list::use_memory_only();
         let path = project().join("forms").join(form_file);
         let mut form = cobolt_forms::load_form(&path).unwrap();
         if let Some(tweak) = tweak {
@@ -342,6 +345,10 @@ fn powerchat_settings_topics_documents_and_chat() {
     plant_model(&root, false);
     std::env::set_var("POWERCHAT_DATA", &data);
     cobolt_runtime::key_store::set_key_store(Arc::new(cobolt_runtime::key_store::MemoryKeyStore::default()));
+    // Spec 085 — the models are the application's, kept by the runtime: a
+    // test keeps them in memory, and each starts with none.
+    cobolt_runtime::model_list::use_memory_only();
+    cobolt_runtime::model_list::clear();
     let (url, requests) = model_server();
     let mut report: Vec<String> = Vec::new();
     let total = Instant::now();
@@ -2276,4 +2283,57 @@ fn powerchat_main_prompt_is_every_instruction_and_the_user_edits_it() {
         t.elapsed().as_secs_f64() * 1000.0
     );
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Spec 085 R14 — PowerChat's models are the APPLICATION's. A model the
+/// application has is one of PowerChat's connections without being entered
+/// again; the models PowerChat kept on its own before are handed to the
+/// application once; a model the application withdraws is gone from PowerChat.
+#[test]
+fn powerchat_models_are_the_applications() {
+    let _data_lock = POWERCHAT_DATA_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let t = Instant::now();
+    let root = std::env::temp_dir().join(format!(
+        "prc-085-models-{}",
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let first = root.join("first");
+    let second = root.join("second");
+    std::fs::create_dir_all(&first).unwrap();
+    std::fs::create_dir_all(&second).unwrap();
+    cobolt_runtime::key_store::set_key_store(Arc::new(cobolt_runtime::key_store::MemoryKeyStore::default()));
+    cobolt_runtime::model_list::use_memory_only();
+    cobolt_runtime::model_list::clear();
+    let summary = |data: &Path| -> String {
+        std::env::set_var("POWERCHAT_DATA", data);
+        let mut s = Session::start("settings-form.cfrm");
+        let v = s.settle();
+        s.quit();
+        v.get(&("LBL-PROVSUM".to_string(), "CAPTION".to_string())).cloned().unwrap_or_default()
+    };
+
+    // The application already has a model: PowerChat counts it as its own.
+    cobolt_runtime::model_list::set(
+        "host-model",
+        cobolt_runtime::model_list::ModelEntry { api: "ollama".into(), url: "http://localhost:11434".into(), model: "llama3".into() },
+    );
+    assert_eq!(summary(&first), "1 connection(s)", "the application's model is PowerChat's connection");
+
+    // PowerChat's data from before (its models file, nothing in the
+    // application's list): handed to the application once.
+    std::fs::copy(first.join("models.idx"), second.join("models.idx")).unwrap();
+    cobolt_runtime::model_list::clear();
+    assert_eq!(summary(&second), "1 connection(s)");
+    assert!(cobolt_runtime::model_list::get("host-model").is_some(), "PowerChat's model is the application's now");
+
+    // The application withdraws it: gone from PowerChat too.
+    cobolt_runtime::model_list::remove("host-model");
+    assert_eq!(summary(&second), "No connection yet: start here.", "a withdrawn model is not PowerChat's either");
+
+    let _ = std::fs::remove_dir_all(&root);
+    println!("── spec 085 PowerChat uses the application's models ─────");
+    println!("  shared    : a model set by the application → PowerChat's settings count 1 connection");
+    println!("  adopted   : PowerChat's own models file, empty application list → handed over once");
+    println!("  withdrawn : removed from the application → \"No connection yet\" in PowerChat");
+    println!("  elapsed   : {} ms", t.elapsed().as_millis());
 }

@@ -376,6 +376,116 @@
            STRING FUNCTION TRIM(WS-DATA-DIR) "/models.idx"
                DELIMITED BY SIZE INTO WS-MODELS-PATH
 ]]></Event>
+    <Event name="PC-SYNC-MODELS" paragraph="PC-SYNC-MODELS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 SY-N          PIC 9(3).
+       01 SY-I          PIC 9(3).
+       01 SY-J          PIC 9(3).
+       01 SY-NAME       PIC X(30).
+       01 SY-API        PIC X(12).
+       01 SY-URL        PIC X(200).
+       01 SY-MODEL      PIC X(80).
+       01 SY-FOUND      PIC X.
+       01 SY-EOF        PIC X.
+       01 SY-GONE-N     PIC 9(3).
+       01 SY-GONE-TABLE.
+          05 SY-GONE    PIC X(30) OCCURS 200 TIMES.
+       PROCEDURE DIVISION.
+      *>   The models are the APPLICATION's (spec 085): the runtime keeps the
+      *>   list for every form of it, the application's own agents included.
+      *>   MODELS mirrors that list and adds what only PowerChat knows of each
+      *>   model - whether it calls tools, how well it orchestrates. Once, the
+      *>   models PowerChat kept before are handed to the application's list.
+           OPEN I-O MODELS-FILE
+           IF WS-FS = "35"
+               OPEN OUTPUT MODELS-FILE
+               CLOSE MODELS-FILE
+               OPEN I-O MODELS-FILE
+           END-IF
+           MOVE "MODELS-ADOPTED" TO WS-SET-NAME
+           CALL "PC-SETTING-GET"
+           IF WS-SET-VALUE NOT = "Y"
+               MOVE LOW-VALUES TO MDL-NAME
+               MOVE "N" TO SY-EOF
+               START MODELS-FILE KEY IS >= MDL-NAME
+                   INVALID KEY MOVE "Y" TO SY-EOF
+               END-START
+               PERFORM UNTIL SY-EOF = "Y"
+                   READ MODELS-FILE NEXT RECORD
+                       AT END MOVE "Y" TO SY-EOF
+                       NOT AT END
+                           COBOL::"MODEL-SET" ( MDL-NAME MDL-API MDL-URL MDL-MODEL )
+                   END-READ
+               END-PERFORM
+               MOVE "MODELS-ADOPTED" TO WS-SET-NAME
+               MOVE "Y" TO WS-SET-VALUE
+               CALL "PC-SETTING-PUT"
+           END-IF
+      *>   Every model of the application's is here, with its own metadata.
+           COBOL::"MODEL-COUNT" ( SY-N )
+           PERFORM VARYING SY-I FROM 1 BY 1 UNTIL SY-I > SY-N
+               MOVE SPACES TO SY-NAME SY-API SY-URL SY-MODEL
+               COBOL::"MODEL-GET" ( SY-I SY-NAME SY-API SY-URL SY-MODEL )
+               MOVE SY-NAME TO MDL-NAME
+               READ MODELS-FILE
+                   INVALID KEY
+                       MOVE SY-API TO MDL-API
+                       MOVE SY-URL TO MDL-URL
+                       MOVE SY-MODEL TO MDL-MODEL
+                       MOVE "N" TO MDL-TOOLS
+                       MOVE 5 TO MDL-RANK
+                       WRITE MODEL-REC
+                           INVALID KEY CONTINUE
+                       END-WRITE
+                   NOT INVALID KEY
+                       IF MDL-API NOT = SY-API OR MDL-URL NOT = SY-URL
+                          OR MDL-MODEL NOT = SY-MODEL
+                           MOVE SY-API TO MDL-API
+                           MOVE SY-URL TO MDL-URL
+                           MOVE SY-MODEL TO MDL-MODEL
+                           REWRITE MODEL-REC
+                               INVALID KEY CONTINUE
+                           END-REWRITE
+                       END-IF
+               END-READ
+           END-PERFORM
+      *>   ...and none the application has withdrawn.
+           MOVE 0 TO SY-GONE-N
+           MOVE LOW-VALUES TO MDL-NAME
+           MOVE "N" TO SY-EOF
+           START MODELS-FILE KEY IS >= MDL-NAME
+               INVALID KEY MOVE "Y" TO SY-EOF
+           END-START
+           PERFORM UNTIL SY-EOF = "Y"
+               READ MODELS-FILE NEXT RECORD
+                   AT END MOVE "Y" TO SY-EOF
+                   NOT AT END
+                       MOVE "N" TO SY-FOUND
+                       PERFORM VARYING SY-J FROM 1 BY 1
+                               UNTIL SY-J > SY-N OR SY-FOUND = "Y"
+                           MOVE SPACES TO SY-NAME
+                           COBOL::"MODEL-GET" ( SY-J SY-NAME )
+                           IF FUNCTION UPPER-CASE(SY-NAME)
+                              = FUNCTION UPPER-CASE(MDL-NAME)
+                               MOVE "Y" TO SY-FOUND
+                           END-IF
+                       END-PERFORM
+                       IF SY-FOUND = "N" AND SY-GONE-N < 200
+                           ADD 1 TO SY-GONE-N
+                           MOVE MDL-NAME TO SY-GONE(SY-GONE-N)
+                       END-IF
+               END-READ
+           END-PERFORM
+           PERFORM VARYING SY-J FROM 1 BY 1 UNTIL SY-J > SY-GONE-N
+               MOVE SY-GONE(SY-J) TO MDL-NAME
+               DELETE MODELS-FILE
+                   INVALID KEY CONTINUE
+               END-DELETE
+           END-PERFORM
+           COMMIT
+           CLOSE MODELS-FILE
+]]></Event>
     <Event name="PC-SETTING-GET" paragraph="PC-SETTING-GET"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -438,6 +548,8 @@
            MOVE 0 TO WS-MODEL-COUNT
            MOVE 0 TO WS-WITH-MODEL
            CALL "PC-LOAD-AGENTS"
+      *>   The application's models, mirrored first (spec 085).
+           CALL "PC-SYNC-MODELS"
            OPEN I-O MODELS-FILE
            IF WS-FS = "35"
                OPEN OUTPUT MODELS-FILE

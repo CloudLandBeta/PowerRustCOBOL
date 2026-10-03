@@ -1353,8 +1353,13 @@ operator learns it once:
 No control is ever hidden over another to be swapped in by a condition: what
 alternates lives in a form of its own.
 
-Its own data — settings, topics, conversations, their turns, the model list,
-registered files, prompt versions, document folders — is eight
+Its models are the application's (the runtime's model list, above): its
+own models file mirrors that list and adds what only PowerChat knows of each
+model — whether it calls tools, how well it orchestrates — and, the first
+time it runs, hands the models it kept before to the application.
+
+Its own data — settings, topics, conversations, their turns, that models
+file, registered files, prompt versions, document folders — is eight
 `STORAGE MODE IS DISK` indexed files, opened `I-O` (`OUTPUT` the first
 time) and committed as each change is made. Set `POWERCHAT_DATA` to keep them
 somewhere other than `data/`. The project's `README.md` walks through a first
@@ -6634,7 +6639,8 @@ The built-ins, by family (each covered in its own section):
   status of an `FD` file.
 - **Asking for a file or a folder:** `OPEN-FILE-DIALOG`, `SAVE-FILE-DIALOG`,
   `FOLDER-DIALOG`.
-- **Models and keys:** `MODEL-SET`, `MODEL-REMOVE`, `MODEL-LIST`,
+- **Models and keys:** `MODEL-SET`, `MODEL-REMOVE`, `MODEL-COUNT`,
+  `MODEL-GET`, `MODEL-LIST`,
   `MODEL-LIST-GET`, `MODEL-TEST`, `PROVIDER-COUNT`, `PROVIDER-GET`, `KEY-SET`,
   `KEY-REMOVE`, `KEY-IS-SET`.
 - **Data bindings and MCP:** the `BINDING-…` calls the generated code makes, and
@@ -10355,28 +10361,34 @@ property of this agent.
 A `Configuration` is fixed before your application starts. When the people
 *using* your application should decide which model it talks to — add the
 company's model server, rotate a key, retire a model — give them a settings
-form of your own and hand the choices to the runtime while the program runs.
+form of your own; what they choose is the **application's**.
 
-Two things are kept apart, on purpose:
+Two things are kept, apart, by the runtime:
 
-- **The model list is yours.** Keep it in an indexed file your program owns,
-  and hand each entry to the runtime at start-up — and again whenever the user
-  edits it. The runtime holds it for this run only and writes it nowhere.
-- **The keys are the runtime's.** Your program stores a key once and can never
-  read it back — only ask whether one is set, so your form can show *"a key is
-  set"* without showing it.
+- **The model list.** Each entry names a model your agents can ask: its
+  provider, endpoint and model. The runtime keeps the list in
+  `settings/models.json` in your application's folder, so it is there from
+  the moment the application starts, for every form of it — your own agents,
+  and an assistant such as PowerChat added to the application, see the same
+  models. Change it with `MODEL-SET` / `MODEL-REMOVE`, list it with
+  `MODEL-COUNT` / `MODEL-GET`. The file holds no key.
+- **The keys.** Your program stores a key once and can never read it back —
+  only ask whether one is set, so your form can show *"a key is set"* without
+  showing it.
 
 ```cobol
-       LOAD-MODEL-LIST.
-      *>   At start-up: every entry from the application's own file.
-           PERFORM UNTIL WS-EOF = "Y"
-               READ MODELS-FILE NEXT RECORD
-                   AT END MOVE "Y" TO WS-EOF
-                   NOT AT END
-                       COBOL::"MODEL-SET" ( MOD-NAME MOD-API
-                                            MOD-URL MOD-MODEL WS-STATUS )
-               END-READ
+       SHOW-MODELS.
+      *>   The settings form's list: every model of the application's.
+           COBOL::"MODEL-COUNT" ( WS-N )
+           PERFORM VARYING WS-I FROM 1 BY 1 UNTIL WS-I > WS-N
+               COBOL::"MODEL-GET" ( WS-I WS-NAME WS-API WS-URL WS-MODEL )
+               MOVE Lst-Models::AddItem(WS-NAME) TO WS-OK
            END-PERFORM.
+
+       SETTINGS-FORM--SAVE-MODEL.
+      *>   Kept by the runtime from here on; no file of yours to update.
+           COBOL::"MODEL-SET" ( WS-NAME WS-API WS-URL WS-MODEL WS-STATUS )
+           .
 
        SETTINGS-FORM--SAVE-KEY.
       *>   The administrator typed a key: store it, then forget it.
@@ -10394,6 +10406,8 @@ Two things are kept apart, on purpose:
 |---|---|
 | `COBOL::"MODEL-SET"( name api url model [status] )` | Adds or changes an entry. `api` is a provider id from the list below (`openai`, `anthropic`, `groq`, `ollama`, …), or `LMStudio` / `Custom`; `model` may be blank. |
 | `COBOL::"MODEL-REMOVE"( name [status] )` | Withdraws an entry. |
+| `COBOL::"MODEL-COUNT"( count )` | How many entries the list has. |
+| `COBOL::"MODEL-GET"( index name [api] [url] [model] )` | Entry *index* (1-based, in name order); spaces past the end. |
 | `COBOL::"KEY-SET"( name key [status] )` | Stores or replaces the key for an entry. |
 | `COBOL::"KEY-REMOVE"( name [status] )` | Removes it. |
 | `COBOL::"KEY-IS-SET"( name flag )` | `Y` or `N`. |

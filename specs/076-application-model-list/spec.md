@@ -75,7 +75,11 @@ or the list changing.
 - **R3 (ubiquitous):** A program shall be able to add, change and withdraw an
   entry at any time; a change reaches the next request that uses it, without a
   restart.
-- **R4 (constraint):** The runtime shall not store the list. Entries last for
+- **R2 and R4 superseded (operator, 2026-10-03 — spec 085 D4a):** the runtime
+  now keeps the application's list, in `settings/models.json` beside the key
+  store, so it is the application's rather than one program's; a program no
+  longer hands it over at start-up. The rules on keys (§4.2) are unchanged.
+- **R4 (constraint, superseded — see above):** The runtime shall not store the list. Entries last for
   the life of the program; it hands them over again at start-up (as 075 R6a
   does for registered files).
 

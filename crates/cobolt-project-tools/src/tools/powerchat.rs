@@ -142,8 +142,9 @@ pub fn run(host: &mut impl ProjectHost, root: &ProjectRoot, menu_label: Option<&
         "check": checked,
         "note": "PowerChat opens as a window of its own with its own side menu, in the application's theme. \
                  Put the Assistant label in the application's text table in all six languages. \
-                 PowerChat keeps its model providers, models and agents in data/powerchat until the \
-                 application has AI settings of its own. Without a project icon, PowerChat's side menu \
-                 shows an empty logo box: suggest the developer give the project an icon.",
+                 Its models are the application's: the runtime keeps them in settings/models.json, so \
+                 the application's own AgentObjects can ask any model set up in PowerChat by name \
+                 (ModelEntry), and PowerChat sees models the application adds. Without a project icon, \
+                 PowerChat's side menu shows an empty logo box: suggest the developer give the project an icon.",
     }))
 }
