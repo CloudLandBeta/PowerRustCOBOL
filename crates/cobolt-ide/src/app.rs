@@ -1399,23 +1399,9 @@ fn error_modal_body_ui(
 const MIN_ERROR_FONT_SIZE: f32 = 8.0;
 const MAX_ERROR_FONT_SIZE: f32 = 28.0;
 
-/// Standard project sub-folders — one per category plus working/build folders.
-/// Created when a project is made, and back-filled (if missing) when one is opened.
-const PROJECT_FOLDERS: &[&str] = &[
-    "src",
-    "forms",
-    "indexed",
-    "generated",
-    "Assets",
-    "assets",
-    "Knowledge Base",
-    "bin",
-    "debug",
-    "temp",
-    "dist",
-    "data",
-    "COPYBOOKS",
-];
+/// Standard project sub-folders — shared with the coding-agent tools'
+/// `create_project` (spec 084), so both make the same project.
+use cobolt_project_tools::create::PROJECT_FOLDERS;
 
 /// Inline indexed-file inspector in the Main Pane.
 struct IndexedInspectState {
@@ -4395,28 +4381,8 @@ impl CoboltApp {
                         if let Some(parent) = main_path.parent() {
                             let _ = std::fs::create_dir_all(parent);
                         }
-                        let prog: String = main_path
-                            .file_stem()
-                            .and_then(|s| s.to_str())
-                            .unwrap_or("MAIN")
-                            .chars()
-                            .map(|c| {
-                                if c.is_ascii_alphanumeric() {
-                                    c.to_ascii_uppercase()
-                                } else {
-                                    '-'
-                                }
-                            })
-                            .collect();
-                        let template = format!(
-                            "       IDENTIFICATION DIVISION.\n\
-                             \x20      PROGRAM-ID. {prog}.\n\
-                             \x20     *> {proj_name} — main program.\n\
-                             \n\
-                             \x20      PROCEDURE DIVISION.\n\
-                             \x20          DISPLAY \"Hello from {proj_name}\".\n\
-                             \x20          GOBACK.\n"
-                        );
+                        let template =
+                            cobolt_project_tools::create::starter_main(&proj_name, &main_rel);
                         if std::fs::write(&main_path, template).is_ok() {
                             if let Some(p) = &mut self.cobolt_project {
                                 p.add_file_to(
@@ -19438,23 +19404,7 @@ fn ai_setup_complete_for(
 }
 
 fn sanitize_file_stem(name: &str) -> String {
-    let cleaned: String = name
-        .trim()
-        .chars()
-        .map(|c| {
-            if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() {
-                '-'
-            } else {
-                c
-            }
-        })
-        .collect();
-    let cleaned = cleaned.trim().trim_matches('.').trim().to_string();
-    if cleaned.is_empty() {
-        "project".to_string()
-    } else {
-        cleaned
-    }
+    cobolt_project_tools::create::sanitize_file_stem(name)
 }
 
 pub(crate) fn apply_data_binding_to_form(form: &mut Form, binding: DataBindingDef) {

@@ -293,7 +293,7 @@ fn tools_over_serve_list_check_refuse_paths_and_answer_no_project() {
         .collect();
     assert_eq!(
         names,
-        ["list_files", "check", "regenerate", "add_to_project", "build", "validate", "kb_lookup", "kb_search"]
+        ["list_files", "check", "regenerate", "add_to_project", "build", "validate", "kb_lookup", "create_project", "open_project", "kb_search"]
     );
     let (check_text, is_err) = text_of(&replies[2]);
     assert!(!is_err);
@@ -315,7 +315,7 @@ fn tools_over_serve_list_check_refuse_paths_and_answer_no_project() {
     // tools need no project and still answer (spec 084).
     let mut none = ProjectTools::new(HeadlessHost::new(dir.join("missing.project.toml"), "x"));
     let (mut refused, mut knowledge) = (0, 0);
-    for name in &names {
+    for name in names.iter().filter(|n| **n != "create_project" && **n != "open_project") {
         let reply = exchange(
             &mut none,
             &[json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":{"path":"forms/MAIN-FORM.cfrm","name":"Button","query":"Button Caption"}}})],
@@ -391,7 +391,7 @@ fn every_answer_names_its_project_and_another_project_is_refused() {
     let listed = ProjectTools::<HeadlessHost>::tool_list_with_project();
     for t in &listed {
         let has = t.input_schema["properties"].get("project").is_some();
-        assert_eq!(has, !t.name.starts_with("kb_"), "{}", t.name);
+        assert_eq!(has, !cobolt_project_tools::tools::project_free(&t.name), "{}", t.name);
     }
     let _ = std::fs::remove_dir_all(&elsewhere);
     let _ = std::fs::remove_dir_all(&dir);
@@ -399,5 +399,51 @@ fn every_answer_names_its_project_and_another_project_is_refused() {
         "project naming: 3 answers named, {} ways of naming the open project accepted, {} other projects refused with both names",
         accepted.len(),
         refused.len()
+    );
+}
+
+/// Spec 084 AC8 (R15, R16, R18): `create_project` makes, in a new folder, a
+/// project `check` accepts and the tools then act on; it refuses a folder that
+/// holds anything and changes nothing there; `open_project` switches back.
+#[test]
+fn create_project_makes_a_checkable_project_and_open_project_switches() {
+    let first = fixture("create-first");
+    let mut tools = ProjectTools::new(HeadlessHost::new(&first, "test"));
+    let base = std::env::temp_dir().join(format!("prc-084-create-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let fresh = base.join("Inventory");
+
+    let made = call(&mut tools, "create_project", json!({"folder": fresh.to_string_lossy(), "name": "Inventory"})).unwrap();
+    assert_eq!(made["project"], "Inventory.project.toml");
+    assert!(fresh.join("Inventory.project.toml").is_file() && fresh.join("src/main.cbl").is_file());
+    for sub in cobolt_project_tools::create::PROJECT_FOLDERS {
+        assert!(fresh.join(sub).is_dir(), "{sub}/ created");
+    }
+    let listed = call(&mut tools, "list_files", json!({})).unwrap();
+    assert_eq!(listed["manifest"], "Inventory.project.toml", "the tools now act on the new project");
+    let checked = call(&mut tools, "check", json!({})).unwrap();
+    assert_eq!(checked["errors"], 0, "a new project checks clean: {checked}");
+
+    // A folder holding anything is refused, and left exactly as it was.
+    let busy = base.join("busy");
+    std::fs::create_dir_all(&busy).unwrap();
+    std::fs::write(busy.join("notes.txt"), "keep me").unwrap();
+    assert!(call(&mut tools, "create_project", json!({"folder": busy.to_string_lossy(), "name": "X"})).is_err());
+    let entries: Vec<_> = std::fs::read_dir(&busy).unwrap().collect();
+    assert_eq!(entries.len(), 1, "nothing written into a non-empty folder");
+    assert_eq!(std::fs::read_to_string(busy.join("notes.txt")).unwrap(), "keep me");
+    assert!(call(&mut tools, "create_project", json!({"folder": "relative/x", "name": "X"})).is_err(), "relative refused");
+
+    // Open the first project again.
+    let opened = call(&mut tools, "open_project", json!({"path": first.to_string_lossy()})).unwrap();
+    assert_eq!(opened["project"], "CheckDemo.project.toml");
+    assert_eq!(call(&mut tools, "list_files", json!({})).unwrap()["manifest"], "CheckDemo.project.toml");
+    assert!(call(&mut tools, "open_project", json!({"path": busy.to_string_lossy()})).is_err(), "no project there");
+
+    let _ = std::fs::remove_dir_all(&base);
+    let _ = std::fs::remove_dir_all(&first);
+    println!(
+        "create_project: manifest + {} folders + main, check 0 errors, tools switched; non-empty and relative folders refused untouched; open_project switched back",
+        cobolt_project_tools::create::PROJECT_FOLDERS.len()
     );
 }

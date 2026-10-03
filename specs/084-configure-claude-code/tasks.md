@@ -57,7 +57,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 - [x] **T6 (A2d) — Project naming and mismatch.** `project` in every answer;
   optional `project` argument refused on mismatch with both names; project-free
   tools dispatch before project resolution. *Verify:* AC10. *Serves:* R19, R20.
-- [ ] **T7 (A2e) — `create_project` / `open_project` headless.** Extract the
+- [x] **T7 (A2e) — `create_project` / `open_project` headless.** Extract the
   create core from `create_new_project_at` into `project_model`; host-trait
   methods; refuse non-empty folders. *Verify:* AC8. *Serves:* R15, R16, R18.
 - [ ] **T8 (A3) — IDE server: token, fixed path, live port, project requests.**

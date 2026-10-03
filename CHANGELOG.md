@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.112] — 2026-10-03
+
+### Spec 084 T7: coding agents can create and open projects
+
+Two new tools on both servers. `create_project` makes a project in an empty or
+new folder exactly as the IDE's New Project does — the same manifest, the
+standard folders and the runnable starter main program — and refuses a folder
+that holds anything, writing nothing there. `open_project` switches the tools
+to an existing project (opening it in the IDE itself comes with T8). The folder
+list, the starter program and the file-name rule are now shared by New Project
+and the tools, and the manifest is a template pinned byte-for-byte to the IDE's
+own serialisation by a test (`COBOLT_WRITE_GOLDEN=1` regenerates it).
+
 ## [PowerRustCOBOL 1.80.111] — 2026-10-03
 
 ### Spec 084 T6: every tool answer names its project, and another project is refused

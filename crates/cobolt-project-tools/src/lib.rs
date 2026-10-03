@@ -27,6 +27,8 @@
 pub mod binding_guardian;
 /// What a coding agent is told, independent of which agent (spec 080 R20).
 pub mod content;
+/// A new project, exactly as the IDE's New Project makes it (spec 084 R15).
+pub mod create;
 pub mod gen_paths;
 pub mod host;
 pub mod http;

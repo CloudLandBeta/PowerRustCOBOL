@@ -131,6 +131,18 @@ pub trait ProjectHost: Send {
 
     /// The version this server reports in `initialize`.
     fn version(&self) -> String;
+
+    /// Create a new project in `folder` (spec 084 R15, R18) — exactly what
+    /// New Project writes. A host that can also OPEN it does so.
+    fn create_project(&mut self, folder: &Path, name: &str) -> Result<serde_json::Value, String> {
+        crate::create::create_project(folder, name)
+    }
+
+    /// Open the project at `path` — a project folder or its manifest — as the
+    /// one the tools act on (spec 084 R16).
+    fn open_project(&mut self, _path: &Path) -> Result<serde_json::Value, String> {
+        Err("this host cannot open a project".to_owned())
+    }
 }
 
 // ── HeadlessHost (rcrun mcp) ────────────────────────────────────────────────
@@ -172,6 +184,21 @@ impl ProjectHost for HeadlessHost {
             .and_then(|r| cobolt_compiler::project_manifest_view(r.manifest()).ok())
             .map(|v| v.crates)
             .unwrap_or_default()
+    }
+
+    /// The new project becomes the one this server acts on.
+    fn create_project(&mut self, folder: &Path, name: &str) -> Result<serde_json::Value, String> {
+        let answer = crate::create::create_project(folder, name)?;
+        self.start = folder.to_path_buf();
+        Ok(answer)
+    }
+
+    /// Switch this server to another project. The IDE is not involved here;
+    /// launching it for the project is `rcrun`'s (spec 084 R20a).
+    fn open_project(&mut self, path: &Path) -> Result<serde_json::Value, String> {
+        let root = ProjectRoot::open(path).map_err(|_| "no PowerRustCOBOL project there".to_owned())?;
+        self.start = root.manifest().to_path_buf();
+        Ok(serde_json::json!({ "opened": true, "project": root.manifest_name() }))
     }
 
     fn version(&self) -> String {

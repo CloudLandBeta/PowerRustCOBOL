@@ -2511,3 +2511,49 @@ mod responsive_new_forms_tests_056 {
         assert!(back.responsive && back.breakpoints == fresh.breakpoints, "round-trips");
     }
 }
+
+#[cfg(test)]
+mod new_project_template_tests {
+    use super::*;
+    use cobolt_project_tools::create::{render_manifest, MAIN_PLACEHOLDER, NAME_PLACEHOLDER, NEW_PROJECT_TEMPLATE};
+
+    /// What the IDE's New Project writes for `name` / `main`: `CoboltProject::new`,
+    /// the main program tracked under Common Code, then `save_project`.
+    fn ides_manifest(name: &str, main: &str) -> String {
+        let mut proj = CoboltProject::new(name, main);
+        proj.add_file_to(main, Category::CommonCode);
+        let dir = std::env::temp_dir().join(format!("prc-084-newproj-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("x.project.toml");
+        save_project(&proj, &path).expect("saves");
+        let text = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        text
+    }
+
+    /// Spec 084 R15: a coding agent's `create_project` writes byte-for-byte the
+    /// manifest the IDE's New Project writes. `cobolt-project-tools` carries it
+    /// as a template; this pins the template to the IDE's own serialisation.
+    /// `COBOLT_WRITE_GOLDEN=1` regenerates it after a deliberate default change.
+    #[test]
+    fn the_headless_new_project_manifest_is_the_ides() {
+        let template = ides_manifest(NAME_PLACEHOLDER, MAIN_PLACEHOLDER);
+        if std::env::var("COBOLT_WRITE_GOLDEN").is_ok() {
+            let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../cobolt-project-tools/src/new_project.toml");
+            std::fs::write(&out, &template).unwrap();
+            println!("wrote {} ({} bytes)", out.display(), template.len());
+            return;
+        }
+        assert_eq!(
+            NEW_PROJECT_TEMPLATE, template,
+            "the new-project template is stale: rerun with COBOLT_WRITE_GOLDEN=1"
+        );
+        // And the filled-in template is what the IDE writes for a real name,
+        // including one TOML has to escape.
+        for (name, main) in [("Inventory.project", "src/main.cbl"), ("Quote \"Ltd\".project", "src/main.cbl")] {
+            assert_eq!(render_manifest(name, main), ides_manifest(name, main), "{name}");
+        }
+        println!("new-project manifest: template ({} bytes) identical to the IDE's, 2 names rendered identically", template.len());
+    }
+}

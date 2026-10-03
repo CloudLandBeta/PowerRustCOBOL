@@ -202,6 +202,41 @@ impl<H: ProjectHost> ProjectTools<H> {
                 }),
             },
             Tool {
+                name: "create_project".into(),
+                description: Some(
+                    "Create a new PowerRustCOBOL project in an empty or new folder — exactly what the \
+                     IDE's New Project makes: the manifest, the standard folders and a runnable main \
+                     program — and make it the project these tools act on. Refuses a folder that \
+                     already holds files."
+                        .into(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "folder": { "type": "string", "description": "Absolute path of the new project's folder." },
+                        "name": { "type": "string", "description": "The project's name, e.g. Inventory." }
+                    },
+                    "required": ["folder", "name"],
+                    "additionalProperties": false
+                }),
+            },
+            Tool {
+                name: "open_project".into(),
+                description: Some(
+                    "Open an existing PowerRustCOBOL project — its folder or its manifest — as the project \
+                     these tools act on (in PowerRustCOBOL AI, as File → Open Project does)."
+                        .into(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "Absolute path of the project folder or its .project.toml." }
+                    },
+                    "required": ["path"],
+                    "additionalProperties": false
+                }),
+            },
+            Tool {
                 name: "kb_search".into(),
                 description: Some(
                     "Search the PowerRustCOBOL Knowledge Base in free text — the same store the IDE's \
@@ -228,7 +263,7 @@ impl<H: ProjectHost> ProjectTools<H> {
     /// argument (spec 084 R20). The knowledge tools need no project.
     pub fn tool_list_with_project() -> Vec<Tool> {
         let mut tools = Self::tool_list();
-        for tool in tools.iter_mut().filter(|t| !t.name.starts_with("kb_")) {
+        for tool in tools.iter_mut().filter(|t| !project_free(&t.name)) {
             if let Some(props) = tool.input_schema.get_mut("properties").and_then(Value::as_object_mut) {
                 props.insert(
                     "project".into(),
@@ -255,6 +290,16 @@ impl<H: ProjectHost> ProjectTools<H> {
             "kb_search" => {
                 let q = opt_str(args, "query").ok_or("kb_search needs a 'query'")?;
                 return kb::search(&q, args.get("limit").and_then(Value::as_u64));
+            }
+            // Spec 084 R15/R16 — they make or choose the project, so none need be open.
+            "create_project" => {
+                let folder = absolute_arg(args, "folder", "create_project")?;
+                let name = opt_str(args, "name").ok_or("create_project needs a 'name'")?;
+                return self.host.create_project(&folder, &name);
+            }
+            "open_project" => {
+                let path = absolute_arg(args, "path", "open_project")?;
+                return self.host.open_project(&path);
             }
             _ => {}
         }
@@ -310,6 +355,22 @@ impl<H: ProjectHost> ProjectTools<H> {
             _ => unreachable!("listed above"),
         }
     }
+}
+
+/// Tools that need no open project: the knowledge tools, and the two that
+/// make or choose one.
+pub fn project_free(name: &str) -> bool {
+    name.starts_with("kb_") || name == "create_project" || name == "open_project"
+}
+
+/// An argument that must be an absolute path.
+fn absolute_arg(args: &Value, key: &str, tool: &str) -> Result<std::path::PathBuf, String> {
+    let raw = opt_str(args, key).ok_or_else(|| format!("{tool} needs a '{key}'"))?;
+    let path = std::path::PathBuf::from(&raw);
+    if !path.is_absolute() {
+        return Err(format!("{tool}: '{key}' must be an absolute path"));
+    }
+    Ok(path)
 }
 
 /// Whether `asked` names the open project: its folder or any folder inside it

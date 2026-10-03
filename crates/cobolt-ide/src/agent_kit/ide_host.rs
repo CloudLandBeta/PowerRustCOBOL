@@ -535,7 +535,7 @@ mod tests {
             .iter()
             .map(|t| t["name"].as_str().unwrap())
             .collect();
-        assert_eq!(names.len(), 8, "{body}");
+        assert_eq!(names.len(), 10, "{body}");
         assert!(send("evil.example").starts_with("HTTP/1.1 403"));
         println!("gate 3 (automated): POST http://{addr}/mcp/x tools/list → {} tools: {}", names.len(), names.join(", "));
         println!("gate 3 (automated): Host: evil.example → 403");
