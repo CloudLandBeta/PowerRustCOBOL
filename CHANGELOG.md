@@ -8,6 +8,50 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.142] — 2026-10-03
+
+### Fix: a control name that does not exist is a compile-time error
+
+The report: misspell an object in a method call, for example `INVOKE
+btn-xxxxxxx::disable()`, and the compiler says nothing. At run time the call
+reaches no control, also in silence.
+
+- **Cause.** The semantic analyser never looked at the receiver of `X::…`. It
+  checked argument expressions and, for `me`/`super`, the universal form
+  properties, but not whether `X` existed. Nor was it told the form's
+  objects.
+- **Fix:**
+  - `AnalyzeOptions::known_objects` carries the form's objects:
+    `cobolt_forms::toolbar::object_names`, the same set the run-form host
+    seeds the interpreter with (the form, every control including children,
+    every toolbar button).
+  - The resolver checks the ROOT of every receiver: in `INVOKE`, in
+    `MOVE`/`SET` targets and inside expressions.
+  - Accepted besides those objects: `me`, `super`, `COBOL`, a declared data
+    item and a REPOSITORY class. Anything else is an ERROR naming the
+    receiver, with the nearest real name when it is close (*Did you mean
+    'BTN-SAVE'?*).
+  - With no form context (a lone `.cbl`) nothing is checked.
+- **Where it applies:** `rcrun run-form` (the IDE's Run Form) and Build, for
+  the main form's program.
+- **Found in a shipped demo.** PowerDemo3's `agent-form`: the `Btn-Cfg`
+  handler wrote to `Lbl-Cfg`, a label deleted on 2026-09-08 (`dc68742`). The
+  label is restored exactly as it was (operator's choice), and the codegen,
+  forms and form-host goldens for that form are regenerated. Nothing else
+  moved.
+- **Tests:**
+  - `test_object_receivers` (3): five unknown receivers refused, including
+    the report's `INVOKE btn-xxxxxxx::disable()`, with suggestions where
+    close; every real receiver kind passes; silent without form context.
+  - `example_forms_name_only_their_objects`: all 62 shipped form programs,
+    2655 `::` uses, 0 unknown receivers.
+- **Guide and System KB** updated; `chunked.data` regenerated.
+- **Not covered here** (reported to the operator):
+  - Build analyses only the MAIN program semantically; other forms' programs
+    are parsed and embedded unchecked, so their receivers are caught by Run
+    Form, not by Build.
+  - The IDE's Check and the agents' lint do not pass form context yet.
+
 ## [PowerRustCOBOL 1.80.141] — 2026-10-03
 
 ### Fix: a Snackbar is high-contrast unless the developer chose its colours

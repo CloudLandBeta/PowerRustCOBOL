@@ -100,6 +100,9 @@ pub fn validate_text(
                 form_formats: None,
                 // A product gate: an undeclared item is an error.
                 tolerate_undeclared: false,
+                // No form context here: receivers are checked by Run Form
+                // and Build (1.80.142), not by this lint yet.
+                known_objects: None,
             },
         );
         for d in &sem.diagnostics {

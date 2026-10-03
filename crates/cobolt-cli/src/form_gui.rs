@@ -31,7 +31,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_parser::parse;
 use cobolt_runtime::{FormEvent, Interpreter, StateUpdate};
-use cobolt_semantic::analyze;
+
 
 // ── Shared host pieces (spec 042) ─────────────────────────────────────────────
 // Control state, seeding, diagnostics and the host itself all live in
@@ -370,7 +370,15 @@ pub fn cmd_run_form(args: &[String]) {
             process::exit(1);
         }
     };
-    let sem = analyze(&program);
+    // The receiver check (2026-10-02): a `X::…` naming no control of this
+    // form is an error, not a call that silently reaches nothing.
+    let sem = cobolt_semantic::analyze_with(
+        &program,
+        &cobolt_semantic::AnalyzeOptions {
+            known_objects: Some(cobolt_forms::toolbar::object_names(&form)),
+            ..Default::default()
+        },
+    );
     for d in &sem.diagnostics {
         use cobolt_semantic::Severity;
         let sev = match d.severity {

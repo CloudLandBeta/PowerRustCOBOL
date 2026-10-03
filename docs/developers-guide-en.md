@@ -7029,6 +7029,24 @@ edit.
 >   sentence**; a `RECORD CONTAINS` sentence of its own after the `FD`'s
 >   period detaches the record entries from the file.
 
+> **⚠️ Caveat — a control name that does not exist is an error too.**
+> `INVOKE BTN-SAVX::Disable()`, `MOVE "ok" TO Lbl-Statsu::Caption` or `SET
+> Lbl-Nope::Visible TO TRUE` on a form with no such control stops Run Form and
+> Build with *this form has no control or object named 'BTN-SAVX'*, and
+> suggests the nearest real name (*Did you mean 'BTN-SAVE'?*). It used to
+> compile, and the call or the write reached nothing at run time without a
+> word. What a form's code may name before `::`:
+>
+> - its own controls, including toolbar buttons by their id;
+> - the form's own name, `me` and `super`;
+> - `COBOL`, for the built-in calls;
+> - a data item you declared (`WS-TEXT::UpperCase()`);
+> - a class from the program's `REPOSITORY`.
+>
+> Deleting a control removes its name. A handler of another control that
+> still writes to it is reported here, rather than doing nothing on the
+> day it runs.
+
 ---
 
 ## 13. The RustCOBOL language
