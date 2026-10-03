@@ -25,9 +25,13 @@
 //! source validation) and [`binding_guardian`] (the data-binding gate).
 
 pub mod binding_guardian;
+/// What a coding agent is told, independent of which agent (spec 080 R20).
+pub mod content;
 pub mod gen_paths;
 pub mod host;
 pub mod http;
+/// The reference documents a coding agent reads (spec 080 R7, spec 084 R13).
+pub mod reference;
 pub mod root;
 pub mod tools;
 pub mod validate_source;

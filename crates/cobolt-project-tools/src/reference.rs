@@ -15,7 +15,14 @@
 //! files. So the pack cannot describe a different product than the binary
 //! that exported it.
 
-use super::content::{RefDoc, REFERENCE_DIR};
+use crate::content::{RefDoc, REFERENCE_DIR};
+
+/// The English Developer's Guide, embedded from the one file in `docs/` — so
+/// `rcrun`, which does not link the IDE's documentation viewer, serves the same
+/// text the IDE does.
+pub const DEVELOPERS_GUIDE: &str = include_str!("../../../docs/developers-guide-en.md");
+/// The supported COBOL-85 syntax reference, embedded the same way.
+pub const SUPPORTED_SYNTAX: &str = include_str!("../../../docs/cobol85-supported-syntax-en.md");
 
 /// System KB documents left out of the pack: they describe the in-IDE agent
 /// mesh and its JSON designer operations, which an external agent cannot use
@@ -36,12 +43,8 @@ const KB_NAMES: [(&str, &str, &str); 6] = [
 pub fn pack(version: &str) -> Vec<RefDoc> {
     let mut docs = Vec::new();
     let verbatim = |name: &str, title: &str, body: String| RefDoc { name: name.into(), title: title.into(), body };
-    if let Some(guide) = crate::docs_embed::embedded_doc("developers-guide-en.md") {
-        docs.push(verbatim("developers-guide.md", "PowerRustCOBOL Developer's Guide", guide.to_owned()));
-    }
-    if let Some(syntax) = crate::docs_embed::embedded_doc("cobol85-supported-syntax-en.md") {
-        docs.push(verbatim("cobol85-supported-syntax.md", "Supported COBOL-85 syntax", syntax.to_owned()));
-    }
+    docs.push(verbatim("developers-guide.md", "PowerRustCOBOL Developer's Guide", DEVELOPERS_GUIDE.to_owned()));
+    docs.push(verbatim("cobol85-supported-syntax.md", "Supported COBOL-85 syntax", SUPPORTED_SYNTAX.to_owned()));
     let kb = cobolt_compiler::system_documentation();
     for (source, name, title) in KB_NAMES {
         if let Some((_, text)) = kb.iter().find(|(n, _)| *n == source) {
@@ -110,7 +113,7 @@ fn builtins_doc() -> String {
 
 /// A small but complete form, serialised by `cobolt_forms::form_to_string` —
 /// the function the IDE saves with.
-pub(crate) fn sample_form_xml() -> String {
+pub fn sample_form_xml() -> String {
     use cobolt_forms::{Control, ControlType, EventBinding, Form};
     let mut form = Form::new("CUSTOMER-FORM", "Customers", 480, 280);
     form.user_ws_source = "       01 WS-NAME         GLOBAL PIC X(40).\n".into();
@@ -234,7 +237,7 @@ fn cfrm_doc() -> String {
 
 /// A definition with a group record, a primary and an alternate key, read and
 /// re-serialised by `cobolt_indexed` — the code the IDE saves `.cidx` with.
-pub(crate) fn sample_cidx_xml() -> String {
+pub fn sample_cidx_xml() -> String {
     const SOURCE: &str = r#"<?xml version="1.0" encoding="UTF-8"?><IndexedFile name="CUSTOMER-FILE" finalized="false" version="1.0"><assign-path>data/customers.idx</assign-path><access-mode>dynamic</access-mode><record-format fixed-length="56"/><storage mode="disk" compression="false" persistence="false"/><comment><![CDATA[One row per customer.]]></comment><keys><primary duplicates="false" ordering="ascending"><part field="CUST-ID" offset="0" length="8" encoding="bytes"/></primary><alternate name="CUST-NAME" duplicates="true" ordering="ascending"><part field="CUST-NAME" offset="8" length="40" encoding="bytes"/></alternate></keys><fields><Field level="1" name="CUSTOMER-RECORD" usage="display"><Field level="5" name="CUST-ID" pic="9(8)" usage="display" offset="0" length="8"><comment><![CDATA[Primary key]]></comment></Field><Field level="5" name="CUST-NAME" pic="X(40)" usage="display" offset="8" length="40"></Field><Field level="5" name="CUST-BALANCE" pic="9(6)V99" usage="display" offset="48" length="8"></Field></Field></fields></IndexedFile>"#;
     cobolt_indexed::load_indexed_from_str(SOURCE)
         .ok()

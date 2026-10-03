@@ -244,7 +244,23 @@ fn reviewer_file(c: &KitContent) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent_kit::content::{locate_rcrun, tests::sample, RefDoc};
+    use crate::agent_kit::content::{build, locate_rcrun, BuildInput, KitContent, RcrunLocation, RefDoc, ToolInfo};
+
+    /// The kit content for a sample project (was `content::tests::sample`,
+    /// which moved crates with the content in spec 084 T3).
+    fn sample() -> KitContent {
+        build(BuildInput {
+            ide_version: "1.80.70".into(),
+            project_name: "Demo".into(),
+            ide_url: "http://127.0.0.1:5720/mcp/k-test".into(),
+            rcrun: RcrunLocation::OnPath,
+            tools: cobolt_project_tools::ProjectTools::<cobolt_project_tools::HeadlessHost>::tool_list()
+                .into_iter()
+                .map(|t| ToolInfo { name: t.name, description: t.description.unwrap_or_default() })
+                .collect(),
+            reference: Vec::new(),
+        })
+    }
     use std::path::Path;
 
     /// Renders the same content into a different layout: one flat text file

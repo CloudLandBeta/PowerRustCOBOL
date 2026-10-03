@@ -17,10 +17,11 @@
 //! ```
 
 pub mod claude_code;
-pub mod content;
+// Agent-neutral content and the reference pack live in `cobolt-project-tools`
+// so `rcrun` serves them too (spec 084 T3); re-exported under their old paths.
+pub use cobolt_project_tools::{content, reference};
 pub mod ide_host;
 pub mod redact;
-pub mod reference;
 pub mod stamp;
 
 use std::path::{Path, PathBuf};
@@ -192,6 +193,22 @@ pub fn export(project: &Path, target: Target, ctx: &ExportContext) -> Result<Exp
 
 #[cfg(test)]
 mod tests {
+    /// The reference documents `cobolt-project-tools` embeds for `rcrun` are
+    /// byte-for-byte the ones the IDE's documentation viewer embeds (spec 084
+    /// T3) — one source file each, two embeddings, no drift.
+    #[test]
+    fn the_reference_pack_embeds_the_same_documents_as_the_ide() {
+        let pairs = [
+            ("developers-guide-en.md", cobolt_project_tools::reference::DEVELOPERS_GUIDE),
+            ("cobol85-supported-syntax-en.md", cobolt_project_tools::reference::SUPPORTED_SYNTAX),
+        ];
+        for (name, embedded) in pairs {
+            assert_eq!(crate::docs_embed::embedded_doc(name), Some(embedded), "{name} differs");
+        }
+        println!("reference pack: {} documents identical to the IDE's embedded copies ({} bytes)",
+            pairs.len(), pairs.iter().map(|(_, t)| t.len()).sum::<usize>());
+    }
+
     use super::*;
     use std::collections::BTreeMap;
 

@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.105] — 2026-10-02
+
+### Spec 084 T3: the coding-agent content moves where `rcrun` can serve it
+
+The agent-neutral content (rules, skills, reviewer, gap-report template) and
+the reference pack moved from the IDE into `cobolt-project-tools`, which both
+the IDE and `rcrun` link. The Developer's Guide and the supported-syntax
+reference are embedded there from the same `docs/` files; a test proves they
+are identical to the IDE's own copies. The IDE re-exports both modules under
+their old paths, so nothing it shows or exports changed. (1.80.104 is a fix on
+`main`.)
+
 ## [PowerRustCOBOL 1.80.103] — 2026-10-02
 
 ### Spec 084 T2: MCP server instructions, resources and image content

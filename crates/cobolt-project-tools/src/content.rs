@@ -682,7 +682,7 @@ pub(crate) mod tests {
             project_name: "Demo".into(),
             ide_url: "http://127.0.0.1:5720/mcp/k-test".into(),
             rcrun: RcrunLocation::OnPath,
-            tools: cobolt_project_tools::ProjectTools::<cobolt_project_tools::HeadlessHost>::tool_list()
+            tools: crate::ProjectTools::<crate::HeadlessHost>::tool_list()
                 .into_iter()
                 .map(|t| ToolInfo { name: t.name, description: t.description.unwrap_or_default() })
                 .collect(),

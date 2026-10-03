@@ -36,7 +36,8 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   `McpHandler::instructions`, `list_resources`/`read_resource`, dispatch arms,
   `resources` capability, `Content::Image`. *Verify:* `cargo test -p cobolt-mcp`
   (new dispatch tests). *Serves:* R11, R13, R30.
-- [ ] **T3 (A1) — Shared content in `cobolt-project-tools`.** Move rules, skills,
+- [x] **T3 (A1) — Shared content in `cobolt-project-tools`.** *(The `(rel, text)`
+  redaction check moves to T10, where the bundle that needs it is written.)* Move rules, skills,
   reviewer, gap template and reference builders out of `agent_kit`; embed the two
   English docs for rcrun; rules point at resource URIs; redaction over
   `(rel, text)`. *Verify:* moved tests pass in their new crate; IDE builds.
