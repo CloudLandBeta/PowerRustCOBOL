@@ -591,8 +591,7 @@ impl FormHost {
                 viewer_sessions: Default::default(),
             },
             children: Vec::new(),
-            occupants: HashMap::new(),
-            active_occupant: None,
+            pane: Pane::default(),
             form_req_tx,
             form_source,
             child_theme,
@@ -664,10 +663,6 @@ impl FormHost {
             last_pane_backdrop_fill: None,
             last_content_scroll: egui::Vec2::ZERO,
             pending_menu_pane: None,
-            pending_crumb_detail: None,
-            pane_chrome: None,
-            pane_band: 0.0,
-            last_occupant_rect: None,
         };
         (host, form)
     }
@@ -3260,6 +3255,9 @@ pub(crate) struct ChildWindow {
     pub(crate) init_sent: bool,
     /// A finished interpreter is reported to the supervisor exactly once.
     pub(crate) finish_reported: bool,
+    /// Spec 085 — a window whose form carries a SideMenu runs as a shell of
+    /// its own: this is its ContentPane. `None` for a plain child window.
+    pub(crate) pane: Option<Pane>,
 }
 
 /// 051 — a ContentPane occupant: a full form instance shown in the shell's
@@ -3364,16 +3362,48 @@ pub(crate) struct Occupant {
     pub(crate) label: String,
 }
 
+/// Spec 085 — one window's ContentPane: the forms loaded into it, which one
+/// is showing, and the chrome the shell hands it each frame. The root window
+/// owns one (`FormHost::pane`); so does every child window that runs as a
+/// shell of its own.
+#[derive(Default)]
+pub(crate) struct Pane {
+    /// 051 R10/R11 — pane occupants, keyed by UPPERCASE form object. Every
+    /// entry is resident; `active_occupant` names the one on the pane
+    /// (`None` = the window's own form shows).
+    pub(crate) occupants: HashMap<String, Occupant>,
+    pub(crate) active_occupant: Option<String>,
+    /// A COBOL-driven breadcrumb DETAIL level awaiting the shell:
+    /// `(form object, text)`, `None` text = cleared.
+    pub(crate) pending_crumb_detail: Option<(String, Option<String>)>,
+    /// Chrome the SHELL paints over the pane's backdrop and UNDER the form's
+    /// controls — its breadcrumb frame. Handed in fresh each frame (the strip
+    /// follows the chain, the rail state and the pointer), and painted where
+    /// the pane backdrop is: outside the scroll area, so it stays put while
+    /// the form scrolls, and before the controls, so a control the developer
+    /// placed over the band paints on top of it.
+    pub(crate) pane_chrome: Option<Box<dyn Fn(&egui::Painter, egui::Rect)>>,
+    /// How tall that chrome band is. The shell form may design controls OVER
+    /// the band — it is the shell's own coordinate space. A form LOADED into
+    /// the pane may not: it is a different form, and its origin starts below
+    /// the band. Only the occupant path reads this.
+    pub(crate) pane_band: f32,
+    /// Where the last frame actually put the ContentPane's occupant. Recorded
+    /// so a test can check an embedded form lands inside the pane instead of
+    /// over the MenuPane — the thing that went wrong is a RECT, and nothing
+    /// else about the form's state reveals it.
+    pub(crate) last_occupant_rect: Option<egui::Rect>,
+}
+
 pub struct FormHost {
     /// The ROOT form — the window (or pane occupant) this host started with.
     root: FormBody,
     /// 051 — spawned child windows, one viewport each, re-declared per frame.
     children: Vec<ChildWindow>,
-    /// 051 R10/R11 — pane occupants, keyed by UPPERCASE form object. Every
-    /// entry is resident; `active_occupant` names the one on the pane
-    /// (`None` = the root form shows, as it always has).
-    occupants: HashMap<String, Occupant>,
-    active_occupant: Option<String>,
+    /// 051 R10/R11 — the root window's ContentPane: its occupants and which
+    /// one is showing. A child window that runs as a shell owns a `Pane` of
+    /// its own (spec 085).
+    pub(crate) pane: Pane,
     /// 051 — the pieces `SpawnWindow` builds a child from (see the config).
     form_req_tx: mpsc::Sender<cobolt_runtime::form_host::FormRequest>,
     form_source: Option<FormSource>,
@@ -3526,26 +3556,6 @@ pub struct FormHost {
     last_content_scroll: egui::Vec2,
     /// 049 R44 — a COBOL-driven MenuPane state change awaiting the shell.
     pending_menu_pane: Option<bool>,
-    /// A COBOL-driven breadcrumb DETAIL level awaiting the shell:
-    /// `(form object, text)`, `None` text = cleared.
-    pending_crumb_detail: Option<(String, Option<String>)>,
-    /// Chrome the SHELL paints over the pane's backdrop and UNDER the form's
-    /// controls — its breadcrumb frame. Handed in fresh each frame (the strip
-    /// follows the chain, the rail state and the pointer), and painted where
-    /// the pane backdrop is: outside the scroll area, so it stays put while
-    /// the form scrolls, and before the controls, so a control the developer
-    /// placed over the band paints on top of it.
-    pane_chrome: Option<Box<dyn Fn(&egui::Painter, egui::Rect)>>,
-    /// How tall that chrome band is. The shell form may design controls OVER
-    /// the band — it is the shell's own coordinate space. A form LOADED into
-    /// the pane may not: it is a different form, and its origin starts below
-    /// the band. Only the occupant path reads this.
-    pane_band: f32,
-    /// Where the last frame actually put the ContentPane's occupant. Recorded
-    /// so a test can check an embedded form lands inside the pane instead of
-    /// over the MenuPane — the thing that went wrong is a RECT, and nothing
-    /// else about the form's state reveals it.
-    last_occupant_rect: Option<egui::Rect>,
 }
 
 impl FormHost {
@@ -3620,19 +3630,29 @@ impl FormHost {
                             // not being re-declared next frame.
                             let child = self.children.remove(at);
                             let _ = child.body.ev_tx.send(FormEvent::quit());
-                        } else if let Some(key) = self
-                            .occupants
-                            .iter()
-                            .find(|(_, o)| o.handle == handle)
-                            .map(|(k, _)| k.clone())
+                            // Spec 085 — a window that ran as a shell takes the
+                            // forms loaded into its pane with it: the
+                            // supervisor only detaches embedded forms from a
+                            // closing window, so they are released here.
+                            if let Some(pane) = child.pane {
+                                for occ in pane.occupants.into_values() {
+                                    let _ = occ.body.ev_tx.send(FormEvent::quit());
+                                    next.extend(self.supervisor.form_finished(&occ.handle));
+                                }
+                            }
+                        } else if let Some((owner, key)) = self
+                            .occupant_by_handle(&handle)
+                            .map(|(owner, key, _)| (owner.to_string(), key.to_string()))
                         {
                             // 051 — an occupant caught in a close cascade
                             // (application close) goes the same way.
-                            if let Some(occ) = self.occupants.remove(&key) {
-                                let _ = occ.body.ev_tx.send(FormEvent::quit());
-                            }
-                            if self.active_occupant.as_deref() == Some(key.as_str()) {
-                                self.active_occupant = None;
+                            if let Some(pane) = self.pane_of_mut(&owner) {
+                                if let Some(occ) = pane.occupants.remove(&key) {
+                                    let _ = occ.body.ev_tx.send(FormEvent::quit());
+                                }
+                                if pane.active_occupant.as_deref() == Some(key.as_str()) {
+                                    pane.active_occupant = None;
+                                }
                             }
                         }
                     }
@@ -3715,10 +3735,7 @@ impl FormHost {
                         } else if let Some(c) = self.children.iter().find(|c| c.handle == handle) {
                             Some(&c.body)
                         } else {
-                            self.occupants
-                                .values()
-                                .find(|o| o.handle == handle)
-                                .map(|o| &o.body)
+                            self.occupant_by_handle(&handle).map(|(_, _, o)| &o.body)
                         };
                         if let Some(body) = target {
                             let _ = body.input_tx.send(StateUpdate {
@@ -3740,7 +3757,7 @@ impl FormHost {
                         } else if let Some(c) = self.children.iter_mut().find(|c| c.handle == handle) {
                             Some((&mut c.body, child_vp))
                         } else {
-                            self.occupants.values_mut().find(|o| o.handle == handle).map(|o| (&mut o.body, None))
+                            self.occupant_body_by_handle_mut(&handle).map(|b| (b, None))
                         };
                         if let Some((body, vp)) = body {
                             let u = StateUpdate::new(body.form_object.clone(), key, value);
@@ -3757,7 +3774,7 @@ impl FormHost {
                         } else if let Some(c) = self.children.iter_mut().find(|c| c.handle == handle) {
                             Some(&mut c.body)
                         } else {
-                            self.occupants.values_mut().find(|o| o.handle == handle).map(|o| &mut o.body)
+                            self.occupant_body_by_handle_mut(&handle)
                         };
                         if let Some(body) = target {
                             body.send_event(
@@ -3780,17 +3797,20 @@ impl FormHost {
                     // a form the operator has since navigated away from cannot
                     // reappear over someone else's name.
                     HostAction::SetBreadcrumbDetail { handle, text } => {
-                        let form_object = if handle == ROOT_HANDLE {
-                            self.root.form_object.clone()
+                        // Spec 085 — recorded on the pane of the window the
+                        // form lives in: the root's, or a shell child's.
+                        let target = if handle == ROOT_HANDLE {
+                            Some((ROOT_HANDLE.to_string(), self.root.form_object.clone()))
+                        } else if let Some(c) = self.children.iter().find(|c| c.handle == handle && c.pane.is_some()) {
+                            Some((c.handle.clone(), c.body.form_object.clone()))
                         } else {
-                            self.occupants
-                                .iter()
-                                .find(|(_, o)| o.handle == handle)
-                                .map(|(k, _)| k.clone())
-                                .unwrap_or_default()
+                            self.occupant_by_handle(&handle)
+                                .map(|(owner, key, _)| (owner.to_string(), key.to_string()))
                         };
-                        if !form_object.is_empty() {
-                            self.pending_crumb_detail = Some((form_object, text));
+                        if let Some((owner, form_object)) = target {
+                            if let Some(pane) = self.pane_of_mut(&owner) {
+                                pane.pending_crumb_detail = Some((form_object, text));
+                            }
                         }
                     }
                     HostAction::NotifyClosed { handle } => {
@@ -3883,13 +3903,83 @@ impl FormHost {
         &mut self,
         form_id: &str,
     ) -> Result<mpsc::Sender<FormEvent>, String> {
+        self.ensure_occupant_in(cobolt_runtime::form_host::ROOT_HANDLE, form_id)
+    }
+
+    /// Spec 085 — the ContentPane of the window `owner` (the root handle, or
+    /// a child window that runs as a shell). `None` = no such pane.
+    pub(crate) fn pane_of(&self, owner: &str) -> Option<&Pane> {
+        if owner == cobolt_runtime::form_host::ROOT_HANDLE {
+            return Some(&self.pane);
+        }
+        self.children.iter().find(|c| c.handle == owner).and_then(|c| c.pane.as_ref())
+    }
+
+    pub(crate) fn pane_of_mut(&mut self, owner: &str) -> Option<&mut Pane> {
+        if owner == cobolt_runtime::form_host::ROOT_HANDLE {
+            return Some(&mut self.pane);
+        }
+        self.children.iter_mut().find(|c| c.handle == owner).and_then(|c| c.pane.as_mut())
+    }
+
+    /// Spec 085 — every ContentPane with the window that owns it: the root's,
+    /// then each shell child window's.
+    fn panes(&self) -> impl Iterator<Item = (&str, &Pane)> {
+        std::iter::once((cobolt_runtime::form_host::ROOT_HANDLE, &self.pane)).chain(
+            self.children
+                .iter()
+                .filter_map(|c| c.pane.as_ref().map(|p| (c.handle.as_str(), p))),
+        )
+    }
+
+    /// The occupant registered under the supervisor `handle`, in whichever
+    /// window's pane it lives: `(that window's handle, the occupant's pane key,
+    /// the occupant)`.
+    fn occupant_by_handle(&self, handle: &str) -> Option<(&str, &str, &Occupant)> {
+        self.panes().find_map(|(owner, p)| {
+            p.occupants
+                .iter()
+                .find(|(_, o)| o.handle == handle)
+                .map(|(k, o)| (owner, k.as_str(), o))
+        })
+    }
+
+    fn occupant_body_by_handle_mut(&mut self, handle: &str) -> Option<&mut FormBody> {
+        if let Some(o) = self.pane.occupants.values_mut().find(|o| o.handle == handle) {
+            return Some(&mut o.body);
+        }
+        self.children
+            .iter_mut()
+            .filter_map(|c| c.pane.as_mut())
+            .find_map(|p| p.occupants.values_mut().find(|o| o.handle == handle))
+            .map(|o| &mut o.body)
+    }
+
+    /// The form that owns the window `owner` — the root form, or the child
+    /// window's own form.
+    fn window_body_mut(&mut self, owner: &str) -> Option<&mut FormBody> {
+        if owner == cobolt_runtime::form_host::ROOT_HANDLE {
+            return Some(&mut self.root);
+        }
+        self.children.iter_mut().find(|c| c.handle == owner).map(|c| &mut c.body)
+    }
+
+    /// [`Self::ensure_occupant`] for the ContentPane of the window `owner`:
+    /// the occupant is opened with that window's form as its caller, so its
+    /// `super::` is the form it was loaded into.
+    pub fn ensure_occupant_in(
+        &mut self,
+        owner: &str,
+        form_id: &str,
+    ) -> Result<mpsc::Sender<FormEvent>, String> {
         let key = form_id.trim().to_ascii_uppercase();
-        if let Some(occ) = self.occupants.get(&key) {
+        let Some(pane) = self.pane_of(owner) else {
+            return Err(format!("window '{owner}' has no ContentPane"));
+        };
+        if let Some(occ) = pane.occupants.get(&key) {
             return Ok(occ.body.ev_tx.clone());
         }
-        let handle = self
-            .supervisor
-            .open_embedded(cobolt_runtime::form_host::ROOT_HANDLE, &key);
+        let handle = self.supervisor.open_embedded(owner, &key);
         let (body, form) = match self.build_form_instance(&handle, form_id) {
             Ok(built) => built,
             Err(e) => {
@@ -3910,21 +4000,28 @@ impl FormHost {
         } else {
             form.title.trim().to_owned()
         };
-        self.occupants.insert(
-            key,
-            Occupant {
-                handle,
-                body,
-                label,
-            },
-        );
+        match self.pane_of_mut(owner) {
+            Some(pane) => {
+                pane.occupants.insert(key, Occupant { handle, body, label });
+            }
+            None => {
+                // The window closed while the form was being built.
+                let _ = body.ev_tx.send(FormEvent::quit());
+                return Err(format!("window '{owner}' has no ContentPane"));
+            }
+        }
         Ok(ev_tx)
     }
 
     /// What the breadcrumb should call a pane occupant: its designed **Title**,
     /// or its form object name when it has none. `None` = no such occupant.
     pub fn occupant_label(&self, form_object: &str) -> Option<String> {
-        self.occupants
+        self.occupant_label_in(cobolt_runtime::form_host::ROOT_HANDLE, form_object)
+    }
+
+    pub fn occupant_label_in(&self, owner: &str, form_object: &str) -> Option<String> {
+        self.pane_of(owner)?
+            .occupants
             .get(&form_object.trim().to_ascii_uppercase())
             .map(|o| o.label.clone())
     }
@@ -3951,20 +4048,31 @@ impl FormHost {
     }
 
     pub fn show_occupant(&mut self, form_object: Option<&str>) {
+        self.show_occupant_in(cobolt_runtime::form_host::ROOT_HANDLE, form_object)
+    }
+
+    /// [`Self::show_occupant`] for the ContentPane of the window `owner`;
+    /// `None` puts that window's own form back on its pane.
+    pub fn show_occupant_in(&mut self, owner: &str, form_object: Option<&str>) {
         let key = form_object.map(|f| f.trim().to_ascii_uppercase());
-        if key == self.active_occupant {
+        let Some(pane) = self.pane_of_mut(owner) else {
+            return;
+        };
+        if key == pane.active_occupant {
             return;
         }
-        self.active_occupant = key.clone();
+        pane.active_occupant = key.clone();
         match key {
             None => {
-                if self.root.lifecycle_sent {
-                    let name = self.root.form_object.clone();
-                    self.root.send_event(FormEvent::new(name, "onActivate"));
+                if let Some(body) = self.window_body_mut(owner) {
+                    if body.lifecycle_sent {
+                        let name = body.form_object.clone();
+                        body.send_event(FormEvent::new(name, "onActivate"));
+                    }
                 }
             }
             Some(k) => {
-                if let Some(occ) = self.occupants.get_mut(&k) {
+                if let Some(occ) = self.pane_of_mut(owner).and_then(|p| p.occupants.get_mut(&k)) {
                     // Fresh clocks on re-entry: the render engine owns timers
                     // while on-pane.
                     occ.body.parked_timer_clocks.clear();
@@ -3981,9 +4089,15 @@ impl FormHost {
     /// `onDestroy` already fired through the `Resident`): quit each
     /// interpreter and release its Embedded handle.
     pub fn retire_occupants(&mut self, gone: &[String]) {
+        self.retire_occupants_in(cobolt_runtime::form_host::ROOT_HANDLE, gone)
+    }
+
+    /// [`Self::retire_occupants`] for the ContentPane of the window `owner`.
+    pub fn retire_occupants_in(&mut self, owner: &str, gone: &[String]) {
         for form_object in gone {
             let key = form_object.trim().to_ascii_uppercase();
-            if let Some(occ) = self.occupants.remove(&key) {
+            let removed = self.pane_of_mut(owner).and_then(|p| p.occupants.remove(&key));
+            if let Some(occ) = removed {
                 let _ = occ.body.ev_tx.send(FormEvent::quit());
                 let acts = self.supervisor.form_finished(&occ.handle);
                 for act in acts {
@@ -4002,14 +4116,14 @@ impl FormHost {
 
     /// The pane's current occupant (UPPERCASE form object), `None` = root.
     pub fn active_occupant_form(&self) -> Option<&str> {
-        self.active_occupant.as_deref()
+        self.pane.active_occupant.as_deref()
     }
 
     /// Where the last rendered frame placed the ContentPane's occupant, or
     /// `None` if no embedded form was on the pane. The pane's origin is the
     /// whole point (see the occupant branch of `ui_impl`).
     pub fn last_occupant_rect(&self) -> Option<egui::Rect> {
-        self.last_occupant_rect
+        self.pane.last_occupant_rect
     }
 
     /// Where the last frame put each control of the form that currently owns
@@ -4019,7 +4133,7 @@ impl FormHost {
     /// missing" and "the control was drawn off the visible surface" look the
     /// same to an operator; this is what tells them apart.
     pub fn last_control_rects(&self) -> &HashMap<String, egui::Rect> {
-        match self.active_occupant.as_ref().and_then(|k| self.occupants.get(k)) {
+        match self.pane.active_occupant.as_ref().and_then(|k| self.pane.occupants.get(k)) {
             Some(occ) => &occ.body.last_control_rects,
             None => &self.root.last_control_rects,
         }
@@ -4037,7 +4151,7 @@ impl FormHost {
     #[cfg(test)]
     pub(crate) fn publish_prop_for_test(&mut self, form_object: &str, key: &str, value: &str) {
         let up = form_object.trim().to_ascii_uppercase();
-        let handle = match self.occupants.get(&up) {
+        let handle = match self.pane.occupants.get(&up) {
             Some(occ) => occ.handle.clone(),
             None => cobolt_runtime::form_host::ROOT_HANDLE.to_string(),
         };
@@ -4048,7 +4162,7 @@ impl FormHost {
     /// Test-only observability: the registered occupants' form objects.
     #[cfg(test)]
     pub(crate) fn occupant_forms(&self) -> Vec<String> {
-        let mut v: Vec<String> = self.occupants.keys().cloned().collect();
+        let mut v: Vec<String> = self.pane.occupants.keys().cloned().collect();
         v.sort();
         v
     }
@@ -4057,7 +4171,7 @@ impl FormHost {
     /// (preserved) occupant keeps the one it was born with.
     #[cfg(test)]
     pub(crate) fn occupant_handle(&self, form_object: &str) -> Option<String> {
-        self.occupants
+        self.pane.occupants
             .get(&form_object.trim().to_ascii_uppercase())
             .map(|o| o.handle.clone())
     }
@@ -4066,7 +4180,7 @@ impl FormHost {
     /// shows; every off-pane occupant always), and schedule the wake-up for
     /// the earliest due tick.
     fn tick_parked_bodies(&mut self, ctx: &egui::Context) {
-        let active = self.active_occupant.clone();
+        let active = self.pane.active_occupant.clone();
         let mut next: Option<std::time::Duration> = None;
         let mut fold = |d: Option<std::time::Duration>, next: &mut Option<std::time::Duration>| {
             if let Some(d) = d {
@@ -4077,12 +4191,12 @@ impl FormHost {
             let d = self.root.tick_parked_timers();
             fold(d, &mut next);
         }
-        let keys: Vec<String> = self.occupants.keys().cloned().collect();
+        let keys: Vec<String> = self.pane.occupants.keys().cloned().collect();
         for k in keys {
             if Some(k.as_str()) == active.as_deref() {
                 continue;
             }
-            if let Some(occ) = self.occupants.get_mut(&k) {
+            if let Some(occ) = self.pane.occupants.get_mut(&k) {
                 let d = occ.body.tick_parked_timers();
                 fold(d, &mut next);
             }
@@ -4113,10 +4227,10 @@ impl FormHost {
         {
             return true;
         }
-        let Some(key) = &self.active_occupant else {
+        let Some(key) = &self.pane.active_occupant else {
             return false;
         };
-        let Some(occ) = self.occupants.get(key) else {
+        let Some(occ) = self.pane.occupants.get(key) else {
             return false;
         };
         !self.supervisor.modal_children_of(&occ.handle).is_empty()
@@ -4132,9 +4246,9 @@ impl FormHost {
             return None;
         }
         let style = self
-            .active_occupant
+            .pane.active_occupant
             .as_ref()
-            .and_then(|key| self.occupants.get(key))
+            .and_then(|key| self.pane.occupants.get(key))
             .map(|occ| occ.body.modal_overlay_style)
             .unwrap_or(self.root.modal_overlay_style);
         Some(style)
@@ -4167,11 +4281,15 @@ impl FormHost {
             Some(egui::ViewportId::ROOT)
         } else if let Some(vp) = self.child_viewport(caller) {
             Some(vp)
-        } else if self.occupants.values().any(|o| o.handle == caller) {
+        } else if let Some((owner, _, _)) = self.occupant_by_handle(caller) {
             // An occupant has no window of its own — it renders inside the
-            // root's own window, so THAT is the viewport whose focus
-            // actually matters.
-            Some(egui::ViewportId::ROOT)
+            // window whose pane holds it, so THAT is the viewport whose focus
+            // actually matters: the root's, or a shell child's (spec 085).
+            if owner == cobolt_runtime::form_host::ROOT_HANDLE {
+                Some(egui::ViewportId::ROOT)
+            } else {
+                self.child_viewport(owner)
+            }
         } else {
             None
         }
@@ -4230,6 +4348,7 @@ impl FormHost {
             initial_state,
             init_sent: false,
             finish_reported: false,
+            pane: None,
         });
         Ok(())
     }
@@ -4718,9 +4837,9 @@ impl FormHost {
     pub(crate) fn shell_wants_os_blur(&self) -> bool {
         self.root.surface_theme.see_through()
             || self
-                .active_occupant
+                .pane.active_occupant
                 .as_ref()
-                .and_then(|k| self.occupants.get(k))
+                .and_then(|k| self.pane.occupants.get(k))
                 .is_some_and(|occ| occ.body.surface_theme.see_through())
     }
 }
@@ -4781,14 +4900,14 @@ impl FormHost {
     /// `run_form` (spec 084 R31): the form the operator is looking at — the
     /// ContentPane's occupant when one is on the pane, else the root form.
     fn script_body(&mut self) -> &mut FormBody {
-        match self.active_occupant.clone() {
-            Some(k) if self.occupants.contains_key(&k) => &mut self.occupants.get_mut(&k).unwrap().body,
+        match self.pane.active_occupant.clone() {
+            Some(k) if self.pane.occupants.contains_key(&k) => &mut self.pane.occupants.get_mut(&k).unwrap().body,
             _ => &mut self.root,
         }
     }
 
     fn script_body_ref(&self) -> &FormBody {
-        match self.active_occupant.as_ref().and_then(|k| self.occupants.get(k)) {
+        match self.pane.active_occupant.as_ref().and_then(|k| self.pane.occupants.get(k)) {
             Some(occ) => &occ.body,
             None => &self.root,
         }
@@ -4863,7 +4982,12 @@ impl FormHost {
     /// Drain a COBOL-driven breadcrumb detail level: `(form object, text)`,
     /// with `None` text meaning the form cleared it.
     pub fn take_breadcrumb_detail(&mut self) -> Option<(String, Option<String>)> {
-        self.pending_crumb_detail.take()
+        self.pane.pending_crumb_detail.take()
+    }
+
+    /// [`Self::take_breadcrumb_detail`] for the window `owner`.
+    pub fn take_breadcrumb_detail_in(&mut self, owner: &str) -> Option<(String, Option<String>)> {
+        self.pane_of_mut(owner)?.pending_crumb_detail.take()
     }
 
     /// The chrome the shell paints between the pane's backdrop and the form's
@@ -4874,23 +4998,32 @@ impl FormHost {
         chrome: Option<Box<dyn Fn(&egui::Painter, egui::Rect)>>,
         band: f32,
     ) {
-        self.pane_chrome = chrome;
-        self.pane_band = band;
+        self.pane.pane_chrome = chrome;
+        self.pane.pane_band = band;
     }
 
     /// Read a published form property (what `super::X` reads) off a pane
     /// occupant, or off the ROOT form when `form_object` names it or is
     /// `None`. The shell asks for `PreventReset` before starting a form over.
     pub fn published_form_prop(&self, form_object: Option<&str>, key: &str) -> Option<String> {
+        self.published_form_prop_in(cobolt_runtime::form_host::ROOT_HANDLE, form_object, key)
+    }
+
+    /// [`Self::published_form_prop`] within the window `owner`: one of its
+    /// pane's occupants, or the window's own form.
+    pub fn published_form_prop_in(&self, owner: &str, form_object: Option<&str>, key: &str) -> Option<String> {
+        let own_object = if owner == cobolt_runtime::form_host::ROOT_HANDLE {
+            self.root.form_object.clone()
+        } else {
+            self.children.iter().find(|c| c.handle == owner)?.body.form_object.clone()
+        };
         let handle = match form_object {
-            None => cobolt_runtime::form_host::ROOT_HANDLE.to_string(),
+            None => owner.to_string(),
             Some(f) => {
                 let up = f.trim().to_ascii_uppercase();
-                match self.occupants.get(&up) {
+                match self.pane_of(owner).and_then(|p| p.occupants.get(&up)) {
                     Some(occ) => occ.handle.clone(),
-                    None if up == self.root.form_object => {
-                        cobolt_runtime::form_host::ROOT_HANDLE.to_string()
-                    }
+                    None if up == own_object => owner.to_string(),
                     None => return None,
                 }
             }
@@ -4901,11 +5034,17 @@ impl FormHost {
     /// Fire a form-level event at a pane occupant, or at the ROOT form when
     /// `form_object` is `None` or names it. `false` = no such form.
     pub fn notify_form(&mut self, form_object: Option<&str>, event: &str) -> bool {
+        self.notify_form_in(cobolt_runtime::form_host::ROOT_HANDLE, form_object, event)
+    }
+
+    /// [`Self::notify_form`] within the window `owner`.
+    pub fn notify_form_in(&mut self, owner: &str, form_object: Option<&str>, event: &str) -> bool {
         let key = form_object.map(|f| f.trim().to_ascii_uppercase());
+        let own = self.window_body_mut(owner).map(|b| b.form_object.clone());
         let body = match &key {
-            None => Some(&mut self.root),
-            Some(k) if *k == self.root.form_object => Some(&mut self.root),
-            Some(k) => self.occupants.get_mut(k).map(|o| &mut o.body),
+            None => self.window_body_mut(owner),
+            Some(k) if Some(k) == own.as_ref() => self.window_body_mut(owner),
+            Some(k) => self.pane_of_mut(owner).and_then(|p| p.occupants.get_mut(k)).map(|o| &mut o.body),
         };
         match body {
             Some(b) => {
@@ -5776,10 +5915,10 @@ impl FormHost {
         self.tick_parked_bodies(ctx);
         // 051 R10 — an active occupant owns the pane; the root form above
         // stayed fully live (its drains ran), just unrendered — parked.
-        if let Some(key) = self.active_occupant.clone() {
-            let chrome = self.pane_chrome.take();
-            let band = self.pane_band;
-            if let Some(occ) = self.occupants.get_mut(&key) {
+        if let Some(key) = self.pane.active_occupant.clone() {
+            let chrome = self.pane.pane_chrome.take();
+            let band = self.pane.pane_band;
+            if let Some(occ) = self.pane.occupants.get_mut(&key) {
                 // 049 — an embedded form is NOT the shell form. The shell may
                 // design its own controls over the breadcrumb band, because
                 // that band is the shell's own coordinate space; a form LOADED
@@ -5812,7 +5951,7 @@ impl FormHost {
                 }
                 let mut rect = pane_rect;
                 rect.min.y += band;
-                self.last_occupant_rect = Some(rect);
+                self.pane.last_occupant_rect = Some(rect);
                 let mut pane = root_ui.new_child(egui::UiBuilder::new().max_rect(rect));
                 occ.body.child_frame(&mut pane, root_blocked, None);
                 ctx.request_repaint_after(std::time::Duration::from_millis(200));
@@ -5847,7 +5986,7 @@ impl FormHost {
             };
             let active_tabs = self.root.active_tabs();
             let backdrop = self.root.backdrop(ctx, ctx.content_rect().size());
-            let pane_chrome = self.pane_chrome.take();
+            let pane_chrome = self.pane.pane_chrome.take();
             let mut out = cobolt_forms::render::RenderOutput::default();
             // On a see-through window the panel must NOT fill: the engine
             // paints the same backdrop across the whole window a moment
@@ -7049,7 +7188,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
 
     /// 049/051 regression — `HostAction::SetFormProperty`'s target lookup
     /// only checked `ROOT_HANDLE` and `self.children` (real windows); it
-    /// never checked `self.occupants`. A `super::"SetProperty"` write aimed
+    /// never checked `self.pane.occupants`. A `super::"SetProperty"` write aimed
     /// at a form embedded in the ContentPane (e.g. opened by the sidebar's
     /// `open-form:` action) was accepted by the supervisor — a windowHandle
     /// `GetProperty` on that handle saw it — but silently never reached
@@ -7106,7 +7245,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         loop {
             let mut f = ctx.run_ui(input.clone(), |ui| host.ui_impl(ui));
             f.textures_delta.clear();
-            if let Some(occ) = host.occupants.get("CALLER") {
+            if let Some(occ) = host.pane.occupants.get("CALLER") {
                 if let Some(cs) = occ.body.state.get("Lbl-1") {
                     if let Some((_, c)) =
                         cs.props.iter().find(|(k, _)| k.eq_ignore_ascii_case("Caption"))
@@ -7177,7 +7316,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         });
 
         // An occupant owns the pane, so the root is PARKED.
-        host.active_occupant = Some("SOMEONE-ELSE".into());
+        host.pane.active_occupant = Some("SOMEONE-ELSE".into());
         let ctx = egui::Context::default();
         host.tick_parked_bodies(&ctx); // seeds the clock
         std::thread::sleep(std::time::Duration::from_millis(40));
@@ -7195,7 +7334,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
 
         // On-pane again: the parked clocks reset so no stale burst follows.
         host.show_occupant(None);
-        assert!(host.root.parked_timer_clocks.is_empty() || host.active_occupant.is_none());
+        assert!(host.root.parked_timer_clocks.is_empty() || host.pane.active_occupant.is_none());
 
         println!(
             "parked timers — root parked behind an occupant: 1 onTick from a 25ms \
@@ -8499,7 +8638,7 @@ mod parity {
             let (reply_tx, _reply_rx) = mpsc::channel();
             let _ = host.supervisor.handle_request(
                 cobolt_runtime::form_host::FormRequest::OpenForm {
-                    caller: host.occupants.get("CALLER").unwrap().handle.clone(),
+                    caller: host.pane.occupants.get("CALLER").unwrap().handle.clone(),
                     form_id: "CHILD".into(),
                     sync: true,
                     window_state: None,
@@ -10513,7 +10652,7 @@ mod parity {
             });
             full.textures_delta.clear();
         }
-        let occ = &app.occupants[&key];
+        let occ = &app.pane.occupants[&key];
         (corpus_rows(&occ.body, app.last_control_rects()), app.last_occupant_rect())
     }
 
@@ -11116,7 +11255,7 @@ mod parity {
             .iter()
             .map(|(id, r)| (id.clone(), r.translate(-pane.min.to_vec2())))
             .collect();
-        let occ = corpus_rows(&app.occupants["PAR-FORM"].body, &shifted);
+        let occ = corpus_rows(&app.pane.occupants["PAR-FORM"].body, &shifted);
         assert_eq!(occ, window, "the pane lays the form out as the window does");
         assert!(window.iter().any(|l| l.starts_with("BTN rect=[700 20 780 50]")), "{window:?}");
         println!("056 T4.7 AC10 host: window and pane at 800×500 agree on {} rows: {}", window.len(), window.join(" · "));

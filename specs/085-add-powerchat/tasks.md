@@ -4,13 +4,13 @@ One commit per task, each bumping `z` with a CHANGELOG entry.
 
 ## Phase A — the child-window shell (R1–R5)
 
-- [ ] **T1 — The pane per window.** Move occupants, the active occupant, the
+- [x] **T1 — The pane per window.** Move occupants, the active occupant, the
   pane chrome/band, the last occupant rect and the pending crumb detail into a
   `Pane` owned by its window (root: `FormHost`; child: its `WindowShell`).
   Every occupant lookup searches every pane and answers with the owning
   window. Behaviour unchanged for the root shell. *Verify:* the whole
   form-host suite unchanged.
-- [ ] **T2 — One click processor.** `ShellApp`'s menu-click, breadcrumb,
+- [x] **T2 — One click processor.** `ShellApp`'s menu-click, breadcrumb,
   reset and fold logic over a `WindowShell` + the host, so a child can use it.
   *Verify:* the shell tests unchanged.
 - [ ] **T3 — A child window runs its SideMenu as a shell.** `spawn_child`

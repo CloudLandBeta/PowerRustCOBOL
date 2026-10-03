@@ -1492,12 +1492,28 @@ pub(crate) struct ShellApp {
     form_req_tx: std::sync::mpsc::Sender<cobolt_runtime::form_host::FormRequest>,
 }
 
-impl ShellApp {
+/// Spec 085 — one window's navigation, borrowed: its shell chrome, its
+/// chain, and the window it belongs to. The root shell and every child window
+/// that runs as a shell drive their menus, breadcrumbs and resets through
+/// this, so the two can never behave differently.
+pub(crate) struct NavCtx<'a> {
+    pub(crate) shell: &'a mut Shell,
+    pub(crate) chain: &'a mut NavChain,
+    pub(crate) side_menu_ctrl: &'a Option<String>,
+    /// The supervisor handle of the window: the root's, or the child's.
+    pub(crate) owner: &'a str,
+    /// The window's own form.
+    pub(crate) ev_tx: &'a std::sync::mpsc::Sender<cobolt_runtime::channels::FormEvent>,
+    pub(crate) input_tx: &'a std::sync::mpsc::Sender<cobolt_runtime::channels::StateUpdate>,
+    pub(crate) form_req_tx: &'a std::sync::mpsc::Sender<cobolt_runtime::form_host::FormRequest>,
+}
+
+impl NavCtx<'_> {
     /// 051 R18/R19 — drain and perform this frame's menu activations. The
     /// UI thread never blocks: a Sync open is modal through the supervisor's
     /// modal tracking (the shell's face disables while the child lives), not
     /// through a blocked thread.
-    fn process_menu_clicks(&mut self) {
+    pub(crate) fn process_menu_clicks(&mut self, host: &mut crate::FormHost) {
         for click in self.shell.take_menu_clicks() {
             match click.action.as_deref() {
                 // Home — the shell's OWN content pane, back on screen, with
@@ -1518,7 +1534,7 @@ impl ShellApp {
                         // the same rule a breadcrumb click on segment 0
                         // follows.
                         self.shell.mount_contextual_menu(None);
-                        self.host.show_occupant(None);
+                        host.show_occupant_in(self.owner, None);
                     }
                 }
                 Some(a) if a.starts_with("open-form:") => {
@@ -1541,14 +1557,14 @@ impl ShellApp {
                     // occupant/chain machinery below entirely. A MenuBar
                     // (horizontal strip) does not collide the same way and
                     // keeps embedding.
-                    match self.host.form_has_side_menu(&target) {
+                    match host.form_has_side_menu(&target) {
                         Ok(true) => {
                             // The reply is the COBOL caller's affordance; a
                             // menu click has no blocked flow to resume.
                             let (rtx, _rrx) = std::sync::mpsc::channel();
                             let _ = self.form_req_tx.send(
                                 cobolt_runtime::form_host::FormRequest::OpenForm {
-                                    caller: cobolt_runtime::form_host::ROOT_HANDLE.into(),
+                                    caller: self.owner.into(),
                                     form_id: target,
                                     sync: false,
                                     window_state: None,
@@ -1584,7 +1600,7 @@ impl ShellApp {
                     {
                         continue; // already displayed
                     }
-                    let occ_ev_tx = match self.host.ensure_occupant(&target) {
+                    let occ_ev_tx = match host.ensure_occupant_in(self.owner, &target) {
                         Ok(tx) => tx,
                         Err(e) => {
                             // R15 — visible, never silent.
@@ -1599,9 +1615,7 @@ impl ShellApp {
                         // the main form's own segment does. The chain used to
                         // carry the form OBJECT name here, so a shell whose
                         // root read "Main Menu" pointed at "inner-form1".
-                        label: self
-                            .host
-                            .occupant_label(&target_upper)
+                        label: host.occupant_label_in(self.owner, &target_upper)
                             .unwrap_or_else(|| target.clone()),
                         // Its own fate is decided by whichever click later
                         // navigates away from it (049 R24).
@@ -1636,8 +1650,8 @@ impl ShellApp {
                             }
                         }
                     }
-                    self.host.retire_occupants(&destroyed);
-                    self.host.show_occupant(Some(&target_upper));
+                    host.retire_occupants_in(self.owner, &destroyed);
+                    host.show_occupant_in(self.owner, Some(&target_upper));
                 }
                 Some(a)
                     if a.starts_with("open-standalone-sync:")
@@ -1662,7 +1676,7 @@ impl ShellApp {
                     let (rtx, _rrx) = std::sync::mpsc::channel();
                     let _ = self.form_req_tx.send(
                         cobolt_runtime::form_host::FormRequest::OpenForm {
-                            caller: cobolt_runtime::form_host::ROOT_HANDLE.into(),
+                            caller: self.owner.into(),
                             form_id: target,
                             sync,
                             window_state: None,
@@ -1699,6 +1713,124 @@ impl ShellApp {
                     }
                 }
             }
+        }
+    }
+
+    /// The form object currently on the pane — the chain's last entry.
+    pub(crate) fn displayed_form(&self) -> Option<String> {
+        self.chain.current().map(|e| e.form_object.clone())
+    }
+
+    /// A COBOL-set breadcrumb detail level (`me::"SetBreadcrumbDetail"`).
+    /// Accepted only from the DISPLAYED form: a crumb is one step under a
+    /// name, and a form that is not on the pane has no name up there to hang
+    /// it from.
+    pub(crate) fn apply_crumb_detail(&mut self, form_object: &str, text: Option<String>) {
+        if self.displayed_form().as_deref() != Some(form_object) {
+            return;
+        }
+        self.shell.detail = text;
+    }
+
+    /// A click on the displayed form's OWN segment, with a detail level after
+    /// it: start that form over.
+    ///
+    /// The form gets the last word. While its `PreventReset` is on — the
+    /// guard its COBOL sets whenever it is holding something worth losing —
+    /// nothing is reset and `onResetRejected` fires instead, so the
+    /// application can say why.
+    ///
+    /// Allowed, the reset is a REBUILD: the displayed occupant is destroyed
+    /// (its `onDestroy` runs, files close, storage is released) and a fresh
+    /// instance takes its place, blank as on the day it was first opened. The
+    /// shell's OWN main form has no separate instance to rebuild — restarting
+    /// it would restart the application — so it is sent `onReset` and does its
+    /// own housekeeping.
+    pub(crate) fn reset_displayed_form(&mut self, host: &mut crate::FormHost) {
+        let Some(form) = self.displayed_form() else {
+            return;
+        };
+        let guarded = host
+            .published_form_prop_in(self.owner, Some(&form), "PreventReset")
+            .map(|v| {
+                let v = v.trim();
+                !(v.is_empty() || v == "0" || v.eq_ignore_ascii_case("false"))
+            })
+            .unwrap_or(false);
+        if guarded {
+            host.notify_form_in(self.owner, Some(&form), "onResetRejected");
+            return;
+        }
+        // The detail level described the data that is going away.
+        self.shell.detail = None;
+        if self.chain.len() <= 1 {
+            // The shell's own form: no second instance to swap in.
+            host.notify_form_in(self.owner, Some(&form), "onReset");
+            return;
+        }
+        // Destroy the occupant (onDestroy through its Resident), retire its
+        // interpreter and handle, then build it again from scratch. Its
+        // PARENT is untouched throughout — it never stopped being an ancestor.
+        let destroyed = self.chain.pop_to(self.chain.len() - 2);
+        host.retire_occupants_in(self.owner, &destroyed);
+        match host.ensure_occupant_in(self.owner, &form) {
+            Ok(ev_tx) => {
+                let label = host
+                    .occupant_label_in(self.owner, &form)
+                    .unwrap_or_else(|| form.clone());
+                self.chain.push_restarted(NavEntry {
+                    form_object: form.clone(),
+                    label,
+                    preserve_on_replace: false,
+                    resident: Box::new(ChannelResident {
+                        form_object: form.clone(),
+                        ev_tx,
+                    }),
+                });
+                host.show_occupant_in(self.owner, Some(&form));
+            }
+            Err(e) => {
+                // R15 — visible, never silent. The pane falls back to the
+                // form the reset left displayed (its parent).
+                println!("Runtime error: cannot restart form '{form}': {e}");
+                eprintln!("shell: reset of '{form}' failed: {e}");
+                if let Some(parent) = self.displayed_form() {
+                    host.show_occupant_in(self.owner, Some(&parent));
+                }
+            }
+        }
+    }
+
+    /// The end of a shell frame, after the chrome was drawn: a COBOL-set
+    /// breadcrumb detail, this frame's menu activations, a breadcrumb click
+    /// and a reset request — in that order, for the window this belongs to.
+    pub(crate) fn after_frame(&mut self, host: &mut crate::FormHost, crumb_click: Option<usize>, reset_click: bool) {
+        // A COBOL-set breadcrumb detail level (`me::"SetBreadcrumbDetail"`).
+        if let Some((form_object, text)) = host.take_breadcrumb_detail_in(self.owner) {
+            self.apply_crumb_detail(&form_object, text);
+        }
+        // Menu activations — each action performed by its own arm.
+        self.process_menu_clicks(host);
+        // 051 R12/R22 — a breadcrumb click truncates the chain: everything
+        // below the clicked segment is destroyed deepest-first, and the
+        // segment's own form returns to the pane.
+        if let Some(ix) = crumb_click {
+            if ix + 1 < self.chain.len() {
+                // The detail level hung off the form being left behind.
+                self.shell.detail = None;
+                let destroyed = self.chain.pop_to(ix);
+                host.retire_occupants_in(self.owner, &destroyed);
+                if ix == 0 {
+                    host.show_occupant_in(self.owner, None);
+                } else if let Some(target) = self.chain.current().map(|e| e.form_object.clone()) {
+                    host.show_occupant_in(self.owner, Some(&target));
+                }
+            }
+        }
+        // The displayed form's own segment, clicked with a detail level after
+        // it: start that form over — unless it says it would lose data.
+        if reset_click {
+            self.reset_displayed_form(host);
         }
     }
 }
@@ -1785,92 +1917,6 @@ impl ShellApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(width, size.y)));
     }
 
-    /// The form object currently on the pane — the chain's last entry.
-    fn displayed_form(&self) -> Option<String> {
-        self.chain.current().map(|e| e.form_object.clone())
-    }
-
-    /// A COBOL-set breadcrumb detail level (`me::"SetBreadcrumbDetail"`).
-    /// Accepted only from the DISPLAYED form: a crumb is one step under a
-    /// name, and a form that is not on the pane has no name up there to hang
-    /// it from.
-    fn apply_crumb_detail(&mut self, form_object: &str, text: Option<String>) {
-        if self.displayed_form().as_deref() != Some(form_object) {
-            return;
-        }
-        self.shell.detail = text;
-    }
-
-    /// A click on the displayed form's OWN segment, with a detail level after
-    /// it: start that form over.
-    ///
-    /// The form gets the last word. While its `PreventReset` is on — the
-    /// guard its COBOL sets whenever it is holding something worth losing —
-    /// nothing is reset and `onResetRejected` fires instead, so the
-    /// application can say why.
-    ///
-    /// Allowed, the reset is a REBUILD: the displayed occupant is destroyed
-    /// (its `onDestroy` runs, files close, storage is released) and a fresh
-    /// instance takes its place, blank as on the day it was first opened. The
-    /// shell's OWN main form has no separate instance to rebuild — restarting
-    /// it would restart the application — so it is sent `onReset` and does its
-    /// own housekeeping.
-    fn reset_displayed_form(&mut self) {
-        let Some(form) = self.displayed_form() else {
-            return;
-        };
-        let guarded = self
-            .host
-            .published_form_prop(Some(&form), "PreventReset")
-            .map(|v| {
-                let v = v.trim();
-                !(v.is_empty() || v == "0" || v.eq_ignore_ascii_case("false"))
-            })
-            .unwrap_or(false);
-        if guarded {
-            self.host.notify_form(Some(&form), "onResetRejected");
-            return;
-        }
-        // The detail level described the data that is going away.
-        self.shell.detail = None;
-        if self.chain.len() <= 1 {
-            // The shell's own form: no second instance to swap in.
-            self.host.notify_form(Some(&form), "onReset");
-            return;
-        }
-        // Destroy the occupant (onDestroy through its Resident), retire its
-        // interpreter and handle, then build it again from scratch. Its
-        // PARENT is untouched throughout — it never stopped being an ancestor.
-        let destroyed = self.chain.pop_to(self.chain.len() - 2);
-        self.host.retire_occupants(&destroyed);
-        match self.host.ensure_occupant(&form) {
-            Ok(ev_tx) => {
-                let label = self
-                    .host
-                    .occupant_label(&form)
-                    .unwrap_or_else(|| form.clone());
-                self.chain.push_restarted(NavEntry {
-                    form_object: form.clone(),
-                    label,
-                    preserve_on_replace: false,
-                    resident: Box::new(ChannelResident {
-                        form_object: form.clone(),
-                        ev_tx,
-                    }),
-                });
-                self.host.show_occupant(Some(&form));
-            }
-            Err(e) => {
-                // R15 — visible, never silent. The pane falls back to the
-                // form the reset left displayed (its parent).
-                println!("Runtime error: cannot restart form '{form}': {e}");
-                eprintln!("shell: reset of '{form}' failed: {e}");
-                if let Some(parent) = self.displayed_form() {
-                    self.host.show_occupant(Some(&parent));
-                }
-            }
-        }
-    }
 }
 
 impl eframe::App for ShellApp {
@@ -1975,35 +2021,42 @@ impl ShellApp {
                 self.persist_collapsed();
             }
         }
-        // A COBOL-set breadcrumb detail level (`me::"SetBreadcrumbDetail"`).
-        if let Some((form_object, text)) = self.host.take_breadcrumb_detail() {
-            self.apply_crumb_detail(&form_object, text);
-        }
-        // Menu activations — each action performed by its own arm.
-        self.process_menu_clicks();
-        // 051 R12/R22 — a breadcrumb click truncates the chain: everything
-        // below the clicked segment is destroyed deepest-first, and the
-        // segment's own form returns to the pane.
-        if let Some(ix) = crumb_click {
-            if ix + 1 < self.chain.len() {
-                // The detail level hung off the form being left behind.
-                self.shell.detail = None;
-                let destroyed = self.chain.pop_to(ix);
-                self.host.retire_occupants(&destroyed);
-                if ix == 0 {
-                    self.host.show_occupant(None);
-                } else if let Some(target) =
-                    self.chain.current().map(|e| e.form_object.clone())
-                {
-                    self.host.show_occupant(Some(&target));
-                }
-            }
-        }
-        // The displayed form's own segment, clicked with a detail level after
-        // it: start that form over — unless it says it would lose data.
-        if reset_click {
-            self.reset_displayed_form();
-        }
+        let (mut nav, host) = self.nav();
+        nav.after_frame(host, crumb_click, reset_click);
+    }
+
+    /// This window's navigation, and the host it acts on.
+    pub(crate) fn nav(&mut self) -> (NavCtx<'_>, &mut crate::FormHost) {
+        (
+            NavCtx {
+                shell: &mut self.shell,
+                chain: &mut self.chain,
+                side_menu_ctrl: &self.side_menu_ctrl,
+                owner: cobolt_runtime::form_host::ROOT_HANDLE,
+                ev_tx: &self.ev_tx,
+                input_tx: &self.input_tx,
+                form_req_tx: &self.form_req_tx,
+            },
+            &mut self.host,
+        )
+    }
+
+    /// 051 R18/R19 — this frame's menu activations, for the main window.
+    #[cfg(test)]
+    fn process_menu_clicks(&mut self) {
+        let (mut nav, host) = self.nav();
+        nav.process_menu_clicks(host);
+    }
+
+    #[cfg(test)]
+    fn apply_crumb_detail(&mut self, form_object: &str, text: Option<String>) {
+        self.nav().0.apply_crumb_detail(form_object, text);
+    }
+
+    #[cfg(test)]
+    fn reset_displayed_form(&mut self) {
+        let (mut nav, host) = self.nav();
+        nav.reset_displayed_form(host);
     }
 }
 

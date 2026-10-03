@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.134] — 2026-10-03
+
+### Spec 085 T1–T2: the ContentPane belongs to its window
+
+Groundwork, no visible change. The forms loaded into a ContentPane, the one
+showing and the breadcrumb chrome are now a `Pane` owned by a window — the
+main window's today, a child window's next — and every occupant operation
+names the window it acts for: loading a form (whose `super::` is that
+window's form), showing it, retiring it, its published properties, its
+breadcrumb detail, closing. The shell's menu, breadcrumb and reset handling
+moved into one piece (`NavCtx`) that any window can drive. The 157 form-host
+tests pass unchanged.
+
 ## [PowerRustCOBOL 1.80.133] — 2026-10-03
 
 ### Fix: the host layout golden follows the PowerDemo3 examples again
