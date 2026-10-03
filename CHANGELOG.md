@@ -8,6 +8,17 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.135] — 2026-10-03
+
+### Fix: the forms engine's example goldens follow the examples again
+
+The same example edits as 1.80.133, seen from the forms engine: PowerDemo3's
+buttons and maps demos and PowerChat's chat form were changed, buttons-form
+became responsive and `Common/main-form` was removed, so three tests failed
+on `main`. The two example counts are updated (74 forms; 59 plain, 15
+responsive by design), the three render goldens regenerated and the removed
+form's golden deleted.
+
 ## [PowerRustCOBOL 1.80.134] — 2026-10-03
 
 ### Spec 085 T1–T2: the ContentPane belongs to its window

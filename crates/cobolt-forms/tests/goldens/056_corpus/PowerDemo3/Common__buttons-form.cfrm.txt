@@ -11,7 +11,8 @@ Button-7 rect=[32 464 296 544] font=16
 Button-8 rect=[928 472 1192 552] font=16
 Button-9 rect=[32 592 296 672] font=16
 Label-1 rect=[40 800 1195 832] font=19
-shapes=687 digest=6a085981722346b7
+PictureBox-1 rect=[304 48 926 755] font=16
+shapes=160 digest=59db5551d5eaef1e
 ## Run 0.75x 918x630
 Button-1 rect=[32 48 296 128] font=16
 Button-10 rect=[928 592 1192 672] font=16
@@ -24,7 +25,8 @@ Button-7 rect=[32 464 296 544] font=16
 Button-8 rect=[928 472 1192 552] font=16
 Button-9 rect=[32 592 296 672] font=16
 Label-1 rect=[40 800 1195 832] font=19
-shapes=690 digest=21a359606380e6ea
+PictureBox-1 rect=[304 48 926 755] font=16
+shapes=161 digest=337b504db53032d9
 ## Preview 0.75x 918x630
 Button-1 rect=[32 48 296 128] font=16
 Button-10 rect=[928 592 1192 672] font=16
@@ -37,7 +39,8 @@ Button-7 rect=[32 464 296 544] font=16
 Button-8 rect=[928 472 1192 552] font=16
 Button-9 rect=[32 592 296 672] font=16
 Label-1 rect=[40 800 1195 832] font=19
-shapes=690 digest=21a359606380e6ea
+PictureBox-1 rect=[304 48 926 755] font=16
+shapes=161 digest=e96688a6b69a6e62
 ## Canvas 1x 1224x840
 Button-1 rect=[32 48 296 128] font=16
 Button-10 rect=[928 592 1192 672] font=16
@@ -50,7 +53,8 @@ Button-7 rect=[32 464 296 544] font=16
 Button-8 rect=[928 472 1192 552] font=16
 Button-9 rect=[32 592 296 672] font=16
 Label-1 rect=[40 800 1195 832] font=19
-shapes=687 digest=a288795226d2bd3f
+PictureBox-1 rect=[304 48 926 755] font=16
+shapes=160 digest=4b798029be27c136
 ## Run 1x 1224x840
 Button-1 rect=[32 48 296 128] font=16
 Button-10 rect=[928 592 1192 672] font=16
@@ -63,7 +67,8 @@ Button-7 rect=[32 464 296 544] font=16
 Button-8 rect=[928 472 1192 552] font=16
 Button-9 rect=[32 592 296 672] font=16
 Label-1 rect=[40 800 1195 832] font=19
-shapes=690 digest=5b80e42556f929bc
+PictureBox-1 rect=[304 48 926 755] font=16
+shapes=161 digest=99e3c7566c46faef
 ## Preview 1x 1224x840
 Button-1 rect=[32 48 296 128] font=16
 Button-10 rect=[928 592 1192 672] font=16
@@ -76,7 +81,8 @@ Button-7 rect=[32 464 296 544] font=16
 Button-8 rect=[928 472 1192 552] font=16
 Button-9 rect=[32 592 296 672] font=16
 Label-1 rect=[40 800 1195 832] font=19
-shapes=690 digest=5b80e42556f929bc
+PictureBox-1 rect=[304 48 926 755] font=16
+shapes=161 digest=553a2e42367e6394
 ## Canvas 1.5x 1836x1260
 Button-1 rect=[32 48 296 128] font=16
 Button-10 rect=[928 592 1192 672] font=16
@@ -89,7 +95,8 @@ Button-7 rect=[32 464 296 544] font=16
 Button-8 rect=[928 472 1192 552] font=16
 Button-9 rect=[32 592 296 672] font=16
 Label-1 rect=[40 800 1195 832] font=19
-shapes=687 digest=5901a1f140daa376
+PictureBox-1 rect=[304 48 926 755] font=16
+shapes=160 digest=81e52cdf5430e347
 ## Run 1.5x 1836x1260
 Button-1 rect=[32 48 296 128] font=16
 Button-10 rect=[928 592 1192 672] font=16
@@ -102,7 +109,8 @@ Button-7 rect=[32 464 296 544] font=16
 Button-8 rect=[928 472 1192 552] font=16
 Button-9 rect=[32 592 296 672] font=16
 Label-1 rect=[40 800 1195 832] font=19
-shapes=690 digest=6362719345e2ddbd
+PictureBox-1 rect=[304 48 926 755] font=16
+shapes=161 digest=f3540a90724a641e
 ## Preview 1.5x 1836x1260
 Button-1 rect=[32 48 296 128] font=16
 Button-10 rect=[928 592 1192 672] font=16
@@ -115,4 +123,5 @@ Button-7 rect=[32 464 296 544] font=16
 Button-8 rect=[928 472 1192 552] font=16
 Button-9 rect=[32 592 296 672] font=16
 Label-1 rect=[40 800 1195 832] font=19
-shapes=690 digest=15bcf5276559e1c5
+PictureBox-1 rect=[304 48 926 755] font=16
+shapes=161 digest=c2bc87d55ba0fd79

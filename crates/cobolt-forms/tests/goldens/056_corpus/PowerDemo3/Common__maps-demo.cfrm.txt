@@ -1,5 +1,5 @@
 # PowerDemo3/Common/maps-demo.cfrm
-## Canvas 0.75x 960x645
+## Canvas 0.75x 972x645
 BTN-CLEAR rect=[944 320 1264 352] font=16
 BTN-DRIVE rect=[944 262 1264 294] font=16
 BTN-MARKERS rect=[944 96 1264 128] font=16
@@ -19,8 +19,8 @@ LBL-STATUS rect=[32 816 1267 844] font=11
 LBL-TITLE rect=[24 16 724 46] font=24
 MAP-1 rect=[32 96 912 796] font=11
 TXT-ORS-KEY rect=[944 688 1264 724] font=16
-shapes=517 digest=0f0d318a67e0ec42
-## Run 0.75x 960x645
+shapes=517 digest=0e10578581565b32
+## Run 0.75x 972x645
 BTN-CLEAR rect=[944 320 1264 352] font=16
 BTN-DRIVE rect=[944 262 1264 294] font=16
 BTN-MARKERS rect=[944 96 1264 128] font=16
@@ -40,8 +40,8 @@ LBL-STATUS rect=[32 816 1267 844] font=11
 LBL-TITLE rect=[24 16 724 46] font=24
 MAP-1 rect=[32 96 912 796] font=11
 TXT-ORS-KEY rect=[944 688 1264 724] font=16
-shapes=519 digest=85ba7c5ae919da4c
-## Preview 0.75x 960x645
+shapes=519 digest=3e5c76921972b826
+## Preview 0.75x 972x645
 BTN-CLEAR rect=[944 320 1264 352] font=16
 BTN-DRIVE rect=[944 262 1264 294] font=16
 BTN-MARKERS rect=[944 96 1264 128] font=16
@@ -61,8 +61,8 @@ LBL-STATUS rect=[32 816 1267 844] font=11
 LBL-TITLE rect=[24 16 724 46] font=24
 MAP-1 rect=[32 96 912 796] font=11
 TXT-ORS-KEY rect=[944 688 1264 724] font=16
-shapes=519 digest=f9d7e1b8fd8c21e8
-## Canvas 1x 1280x860
+shapes=519 digest=ef8e51f331bc1b52
+## Canvas 1x 1296x860
 BTN-CLEAR rect=[944 320 1264 352] font=16
 BTN-DRIVE rect=[944 262 1264 294] font=16
 BTN-MARKERS rect=[944 96 1264 128] font=16
@@ -82,8 +82,8 @@ LBL-STATUS rect=[32 816 1267 844] font=11
 LBL-TITLE rect=[24 16 724 46] font=24
 MAP-1 rect=[32 96 912 796] font=11
 TXT-ORS-KEY rect=[944 688 1264 724] font=16
-shapes=517 digest=c4d12147dc84490b
-## Run 1x 1280x860
+shapes=517 digest=15dd916afa13a609
+## Run 1x 1296x860
 BTN-CLEAR rect=[944 320 1264 352] font=16
 BTN-DRIVE rect=[944 262 1264 294] font=16
 BTN-MARKERS rect=[944 96 1264 128] font=16
@@ -103,8 +103,8 @@ LBL-STATUS rect=[32 816 1267 844] font=11
 LBL-TITLE rect=[24 16 724 46] font=24
 MAP-1 rect=[32 96 912 796] font=11
 TXT-ORS-KEY rect=[944 688 1264 724] font=16
-shapes=520 digest=bbbdabe6dd49771f
-## Preview 1x 1280x860
+shapes=520 digest=ce7a47c6e331f047
+## Preview 1x 1296x860
 BTN-CLEAR rect=[944 320 1264 352] font=16
 BTN-DRIVE rect=[944 262 1264 294] font=16
 BTN-MARKERS rect=[944 96 1264 128] font=16
@@ -124,8 +124,8 @@ LBL-STATUS rect=[32 816 1267 844] font=11
 LBL-TITLE rect=[24 16 724 46] font=24
 MAP-1 rect=[32 96 912 796] font=11
 TXT-ORS-KEY rect=[944 688 1264 724] font=16
-shapes=520 digest=39aef809b182efbd
-## Canvas 1.5x 1920x1290
+shapes=520 digest=58c77a920c29c02d
+## Canvas 1.5x 1944x1290
 BTN-CLEAR rect=[944 320 1264 352] font=16
 BTN-DRIVE rect=[944 262 1264 294] font=16
 BTN-MARKERS rect=[944 96 1264 128] font=16
@@ -145,8 +145,8 @@ LBL-STATUS rect=[32 816 1267 844] font=11
 LBL-TITLE rect=[24 16 724 46] font=24
 MAP-1 rect=[32 96 912 796] font=11
 TXT-ORS-KEY rect=[944 688 1264 724] font=16
-shapes=517 digest=d021ee09603bfb6e
-## Run 1.5x 1920x1290
+shapes=517 digest=22bcb3e40090fb5b
+## Run 1.5x 1944x1290
 BTN-CLEAR rect=[944 320 1264 352] font=16
 BTN-DRIVE rect=[944 262 1264 294] font=16
 BTN-MARKERS rect=[944 96 1264 128] font=16
@@ -166,8 +166,8 @@ LBL-STATUS rect=[32 816 1267 844] font=11
 LBL-TITLE rect=[24 16 724 46] font=24
 MAP-1 rect=[32 96 912 796] font=11
 TXT-ORS-KEY rect=[944 688 1264 724] font=16
-shapes=520 digest=d5d6ded1e7391075
-## Preview 1.5x 1920x1290
+shapes=520 digest=20ee4c3c3516f7c4
+## Preview 1.5x 1944x1290
 BTN-CLEAR rect=[944 320 1264 352] font=16
 BTN-DRIVE rect=[944 262 1264 294] font=16
 BTN-MARKERS rect=[944 96 1264 128] font=16
@@ -187,4 +187,4 @@ LBL-STATUS rect=[32 816 1267 844] font=11
 LBL-TITLE rect=[24 16 724 46] font=24
 MAP-1 rect=[32 96 912 796] font=11
 TXT-ORS-KEY rect=[944 688 1264 724] font=16
-shapes=520 digest=1f3370f9f7afa06b
+shapes=520 digest=6accf08114d8c5a2
