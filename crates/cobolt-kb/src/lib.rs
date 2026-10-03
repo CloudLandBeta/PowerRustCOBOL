@@ -18,6 +18,7 @@
 pub mod chunk;
 pub mod embed;
 pub mod store;
+pub mod system_store;
 pub mod convert;
 pub mod refresh;
 pub mod search;

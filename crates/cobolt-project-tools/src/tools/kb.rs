@@ -149,18 +149,139 @@ fn entry_hits(name: &str, kind: Option<&str>) -> Vec<(String, String, String)> {
     hits
 }
 
+/// Most results `kb_search` returns, and its default.
+pub const MAX_SEARCH_HITS: usize = 25;
+pub const DEFAULT_SEARCH_HITS: usize = 8;
+
+/// `kb_search` (spec 084 R12): free-text search of the System Knowledge Base.
+///
+/// It reads the store the IDE's assistant searches
+/// (`~/PowerRustCOBOL/data/chunked.data`, through the shared reader in
+/// `cobolt_kb::system_store`), scored lexically so it needs no model. Where
+/// that store does not exist yet — `rcrun` on a machine the IDE has not run
+/// on — it ranks the same System KB sections this binary carries.
+pub fn search(query: &str, limit: Option<u64>) -> Result<Value, String> {
+    search_in(&cobolt_kb::system_store::ide_store_path(), query, limit)
+}
+
+pub(crate) fn search_in(store: &std::path::Path, query: &str, limit: Option<u64>) -> Result<Value, String> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Err("kb_search needs a 'query'".to_owned());
+    }
+    let limit = limit.map_or(DEFAULT_SEARCH_HITS, |n| (n as usize).clamp(1, MAX_SEARCH_HITS));
+    let excluded = |path: &str| EXCLUDED_DOCUMENTS.iter().any(|d| path.ends_with(d));
+    let stored = cobolt_kb::system_store::search_lexical(store, query, limit + EXCLUDED_DOCUMENTS.len() * 4)
+        .unwrap_or_default();
+    let (source, hits): (&str, Vec<Value>) = if stored.is_empty() {
+        ("built-in", built_in_sections(query, limit))
+    } else {
+        (
+            "ide-store",
+            stored
+                .into_iter()
+                .filter(|h| !excluded(&h.source_path))
+                .take(limit)
+                .map(|h| json!({
+                    "subject": h.subject, "kind": h.kind, "document": h.source_path,
+                    "score": (h.score * 1000.0).round() / 1000.0, "text": cap(&h.content),
+                }))
+                .collect(),
+        )
+    };
+    Ok(json!({ "query": query, "source": source, "found": !hits.is_empty(), "hits": hits }))
+}
+
+/// Rank the built-in System KB by `##`/`###` section, with the same hashing
+/// scorer the store uses under the hashing embedder.
+fn built_in_sections(query: &str, limit: usize) -> Vec<Value> {
+    use cobolt_kb::embed::HashingEmbedder;
+    let q = HashingEmbedder::vector(query);
+    let mut scored: Vec<(f32, &str, String, String)> = Vec::new();
+    for (doc, text) in documents() {
+        let mut heading = String::from(*doc);
+        let mut body = String::new();
+        let mut flush = |heading: &str, body: &mut String, scored: &mut Vec<(f32, &str, String, String)>| {
+            if !body.trim().is_empty() {
+                let v = HashingEmbedder::vector(&format!("{heading}\n{body}"));
+                let score: f32 = q.iter().zip(&v).map(|(a, b)| a * b).sum();
+                if score > 0.0 {
+                    scored.push((score, doc, heading.to_owned(), std::mem::take(body)));
+                }
+            }
+            body.clear();
+        };
+        for line in text.lines() {
+            if let Some(h) = line.strip_prefix("### ").or_else(|| line.strip_prefix("## ")) {
+                flush(&heading, &mut body, &mut scored);
+                heading = h.trim().to_owned();
+            } else {
+                body.push_str(line);
+                body.push('\n');
+            }
+        }
+        flush(&heading, &mut body, &mut scored);
+    }
+    scored.sort_by(|a, b| b.0.total_cmp(&a.0));
+    scored
+        .into_iter()
+        .take(limit)
+        .map(|(score, doc, subject, body)| json!({
+            "subject": subject, "kind": "section", "document": format!("Knowledge Base/{doc}"),
+            "score": (score * 1000.0).round() / 1000.0, "text": cap(body.trim()),
+        }))
+        .collect()
+}
+
 fn cap(s: &str) -> String {
     if s.chars().count() <= MAX_ANSWER_CHARS {
         return s.to_owned();
     }
     let mut out: String = s.chars().take(MAX_ANSWER_CHARS).collect();
-    out.push_str("\n… (truncated; the full section is in docs/powerrustcobol/controls.md)");
+    out.push_str("\n… (truncated; the full section is in the resource powerrustcobol://reference/controls.md)");
     out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Spec 084 AC6: free text finds the subjects that name it — from the
+    /// built-in sections when no store exists — and refuses an empty query.
+    #[test]
+    fn kb_search_finds_sidemenu_and_contentpane() {
+        let missing = std::env::temp_dir().join("prc-084-no-store.data");
+        let _ = std::fs::remove_file(&missing);
+        let v = search_in(&missing, "SideMenu ContentPane", Some(5)).unwrap();
+        assert_eq!(v["source"], "built-in");
+        let hits = v["hits"].as_array().unwrap();
+        assert!(!hits.is_empty() && hits.len() <= 5);
+        let text = hits.iter().map(|h| format!("{} {}", h["subject"], h["text"])).collect::<String>();
+        assert!(text.contains("SideMenu") && text.contains("ContentPane"), "both named in the hits");
+        assert!(hits.iter().all(|h| !EXCLUDED_DOCUMENTS.iter().any(|d| h["document"].as_str().unwrap().ends_with(d))));
+        assert!(search_in(&missing, "  ", None).is_err());
+        let capped = search_in(&missing, "Button", Some(999)).unwrap();
+        assert!(capped["hits"].as_array().unwrap().len() <= MAX_SEARCH_HITS);
+        println!("kb_search (built-in): 'SideMenu ContentPane' -> {} hits naming both; empty query refused; limit capped at {MAX_SEARCH_HITS}", hits.len());
+    }
+
+    /// AC6 against the store the IDE's assistant searches, where this machine
+    /// has one (the IDE installs it on first run); skipped, and said so, where
+    /// it does not.
+    #[test]
+    fn kb_search_reads_the_ides_store_when_installed() {
+        let store = cobolt_kb::system_store::ide_store_path();
+        if !store.exists() {
+            println!("kb_search (ide-store): no store at {} on this machine — skipped", store.display());
+            return;
+        }
+        let v = search_in(&store, "SideMenu ContentPane", Some(8)).unwrap();
+        assert_eq!(v["source"], "ide-store");
+        let hits = v["hits"].as_array().unwrap();
+        let text = hits.iter().map(|h| format!("{} {}", h["subject"], h["text"])).collect::<String>();
+        assert!(text.contains("SideMenu") && text.contains("ContentPane"), "{v}");
+        println!("kb_search (ide-store): 'SideMenu ContentPane' -> {} subjects from the assistant's store", hits.len());
+    }
 
     #[test]
     fn kb_finds_real_names_and_refuses_invented_ones() {

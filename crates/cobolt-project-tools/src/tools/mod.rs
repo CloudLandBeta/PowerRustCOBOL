@@ -201,6 +201,26 @@ impl<H: ProjectHost> ProjectTools<H> {
                     "additionalProperties": false
                 }),
             },
+            Tool {
+                name: "kb_search".into(),
+                description: Some(
+                    "Search the PowerRustCOBOL Knowledge Base in free text — the same store the IDE's \
+                     assistant searches — when you do not know the exact name: 'navigation rail with forms \
+                     in a pane', 'read an indexed file backwards'. Returns the best-matching subjects with \
+                     their text. Use kb_lookup when you know the name."
+                        .into(),
+                ),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "Words to search for." },
+                        "limit": { "type": "integer", "minimum": 1, "maximum": 25,
+                                   "description": "Most subjects to return (default 8)." }
+                    },
+                    "required": ["query"],
+                    "additionalProperties": false
+                }),
+            },
         ]
     }
 
@@ -209,6 +229,19 @@ impl<H: ProjectHost> ProjectTools<H> {
     pub fn call(&mut self, name: &str, args: &Value) -> Result<Value, String> {
         if !Self::tool_list().iter().any(|t| t.name == name) {
             return Err(format!("no such tool: {name}"));
+        }
+        // Knowledge needs no open project (spec 084): answered before the
+        // project is resolved.
+        match name {
+            "kb_lookup" => {
+                let n = opt_str(args, "name").ok_or("kb_lookup needs a 'name'")?;
+                return kb::run(&n, opt_str(args, "kind").as_deref());
+            }
+            "kb_search" => {
+                let q = opt_str(args, "query").ok_or("kb_search needs a 'query'")?;
+                return kb::search(&q, args.get("limit").and_then(Value::as_u64));
+            }
+            _ => {}
         }
         let root: ProjectRoot = self.host.project().map_err(|e| e.message().to_owned())?;
         let shared = Arc::clone(&self.shared);
@@ -233,10 +266,6 @@ impl<H: ProjectHost> ProjectTools<H> {
             "validate" => {
                 let path = opt_str(args, "path").ok_or("validate needs a 'path'")?;
                 validate::run(&root, &path)
-            }
-            "kb_lookup" => {
-                let n = opt_str(args, "name").ok_or("kb_lookup needs a 'name'")?;
-                kb::run(&n, opt_str(args, "kind").as_deref())
             }
             _ => unreachable!("listed above"),
         }

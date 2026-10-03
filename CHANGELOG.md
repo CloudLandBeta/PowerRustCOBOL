@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.109] — 2026-10-02
+
+### Spec 084 T5: `kb_search` — free-text search of the Knowledge Base for coding agents
+
+A new tool on both servers searches the System Knowledge Base in free text,
+for when the agent does not know the exact name. It reads the very store the
+IDE's assistant searches (`~/PowerRustCOBOL/data/chunked.data`) through a
+reader now shared by both: the record layout, scoring and chain reassembly
+moved from the assistant's code into `cobolt_kb::system_store`, and the
+assistant calls it. Scoring is lexical, so it needs no model; where the store
+is not installed yet, it ranks the System KB sections built into the binary.
+`kb_lookup` and `kb_search` now answer with no project open.
+
 ## [PowerRustCOBOL 1.80.108] — 2026-10-02
 
 ### Spec 084 T4: both tool servers serve the rules and the reference live

@@ -48,7 +48,9 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
   answers `instructions` (rules + product version) and the reference resources;
   `Gated` and `IdeTools` forward them; rcrun reports the product version.
   *Verify:* AC5, AC7 tests over stdio and HTTP. *Serves:* R11, R13, R14.
-- [ ] **T5 (A2c) — `kb_search`.** Lift the chunk-store reader + hashing scorer
+- [x] **T5 (A2c) — `kb_search`.** *(Hashing scoring only; the optional cached
+  semantic model is left out — the store's semantic records are scored by their
+  text, as the assistant does without the model.)* Lift the chunk-store reader + hashing scorer
   into `cobolt-kb`; `chunked_knowledge` re-exports; installed store or in-memory
   fallback; optional cached semantic model; one excluded-documents constant;
   `kb_lookup` text fix. *Verify:* AC6. *Serves:* R12.

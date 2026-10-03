@@ -31,6 +31,9 @@ tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
 # SQLite, i.e. a C amalgamation compiled on every machine). Same version the
 # runtime already uses.
 redb = "4.3"
+# The chunked store's record layout and search, shared with the coding-agent
+# tools (spec 084 T5).
+cobolt-kb = { path = "../cobolt-kb" }
 bincode = { workspace = true }
 tempfile = "3.10"
 # OS TLS (schannel on Windows, Security.framework on macOS) instead of the

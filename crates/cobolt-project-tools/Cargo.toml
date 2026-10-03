@@ -27,6 +27,8 @@ cobolt-parser   = { path = "../cobolt-parser" }
 cobolt-semantic = { path = "../cobolt-semantic" }
 # For `builtins::BUILTINS` only — the kb_lookup tool's built-in entries.
 cobolt-runtime  = { path = "../cobolt-runtime" }
+# kb_search reads the System KB store through its shared reader (spec 084 T5).
+cobolt-kb       = { path = "../cobolt-kb" }
 
 serde      = { workspace = true }
 serde_json = { workspace = true }

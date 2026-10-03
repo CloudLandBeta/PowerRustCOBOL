@@ -32,10 +32,9 @@
 use std::path::{Path, PathBuf};
 
 use redb::{Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
-use serde::{Deserialize, Serialize};
 
 use crate::bert_embedder::EmbedderKind;
-use crate::knowledge_store::{Embedder, HashingEmbedder, VECTOR_DIMENSIONS};
+use crate::knowledge_store::VECTOR_DIMENSIONS;
 use crate::project_knowledge;
 
 /// The semantic embedder stamp a SHIPPED store is built with. Records carrying
@@ -46,46 +45,19 @@ const SEMANTIC_STAMP: &str = "bert-multilingual-e5-small";
 /// The record content field: `PIC X(512)` — at most 512 characters.
 pub const CONTENT_PIC_CHARS: usize = 512;
 
-/// chunk key → bincode [`ChunkRecord`]. Keys are `"<doc path>\u{1}<ordinal>"`,
-/// so one document's records form a contiguous, prefix-addressable range.
-const CHUNKS: TableDefinition<&str, &[u8]> = TableDefinition::new("chunks");
+/// chunk key → bincode [`ChunkRecord`] — the shared definition. Keys are
+/// `"<doc path>\u{1}<ordinal>"`, so one document's records form a contiguous,
+/// prefix-addressable range.
+use cobolt_kb::system_store::CHUNKS;
 /// document path → content hash (mixed with the embedder stamp), for
 /// skip-unchanged syncs.
 const DOCS: TableDefinition<&str, u64> = TableDefinition::new("documents");
 
-/// One stored record: a subject's text (≤ [`CONTENT_PIC_CHARS`] chars) with
-/// the embedding of exactly that text.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ChunkRecord {
-    /// What the record describes, e.g. `DataGrid`, `DataGrid · onRowSelect`.
-    subject: String,
-    /// `control` | `property` | `method` | `event` | `section` | `document`.
-    kind: String,
-    /// The text itself — `PIC X(512)`.
-    content: String,
-    /// Key of the PREVIOUS record when this one continues an overflowing
-    /// content chain; `None` for a chain head (or a record that fits).
-    parent: Option<String>,
-    /// Vector width stamp (must equal [`VECTOR_DIMENSIONS`]).
-    dimensions: u32,
-    /// The embedding of `content`.
-    embedding: Vec<f32>,
-    /// [`EmbedderKind::as_str`] of the embedder that produced `embedding`.
-    embedder: String,
-}
-
-/// One retrieved subject: the record that matched, with its chain reassembled
-/// so the caller sees the subject's complete text.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ChunkHit {
-    /// Source document, relative to the store root (`Knowledge Base/...`).
-    pub source_path: String,
-    pub subject: String,
-    pub kind: String,
-    pub score: f32,
-    /// The full text of the subject (every record of its chain, in order).
-    pub content: String,
-}
+// The stored record and a search hit are defined once, in
+// `cobolt_kb::system_store` (spec 084 T5), so the coding-agent tools read the
+// same layout this module writes.
+pub use cobolt_kb::system_store::ChunkHit;
+use cobolt_kb::system_store::ChunkRecord;
 
 /// A logical chunk produced by the chunker, before the `PIC X(512)` split.
 #[derive(Debug, Clone, PartialEq)]
@@ -130,9 +102,6 @@ fn chunk_key(doc_path: &str, ordinal: usize) -> String {
     format!("{doc_path}\u{1}{ordinal:05}")
 }
 
-fn doc_of_key(key: &str) -> &str {
-    key.split('\u{1}').next().unwrap_or(key)
-}
 
 /// Classify a `###` section heading into a record kind.
 fn section_kind(heading: &str) -> &'static str {
@@ -651,115 +620,10 @@ pub fn search(db_path: &Path, query: &str, limit: usize) -> Result<Vec<ChunkHit>
     let database = open_read_only(db_path)?;
     let (embedder, kind) = project_knowledge::active_embedder();
     let query_vector = embedder.embed_query(query);
-    let read = database.begin_read().map_err(|e| e.to_string())?;
-    let chunks = match read.open_table(CHUNKS) {
-        Ok(table) => table,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-        Err(e) => return Err(e.to_string()),
-    };
-    // Score every record; keep the chain topology for reassembly.
-    struct Scored {
-        key: String,
-        record: ChunkRecord,
-        score: f32,
-    }
-    let mut all: Vec<Scored> = Vec::new();
-    for entry in chunks.iter().map_err(|e| e.to_string())? {
-        let (key, value) = entry.map_err(|e| e.to_string())?;
-        let Ok(record) = bincode::deserialize::<ChunkRecord>(value.value()) else {
-            continue;
-        };
-        if record.embedding.len() != VECTOR_DIMENSIONS {
-            continue;
-        }
-        let score = if record.embedder == kind.as_str() {
-            query_vector
-                .iter()
-                .zip(record.embedding.iter())
-                .map(|(left, right)| left * right)
-                .sum::<f32>()
-        } else if kind == EmbedderKind::Hashing {
-            // A shipped SEMANTIC record searched by a machine that only has
-            // the hashing fallback: score the record's TEXT lexically instead
-            // of skipping it, so the prebuilt store stays useful (and intact)
-            // until the model arrives.
-            let lexical = HashingEmbedder.embed(&record.content);
-            query_vector
-                .iter()
-                .zip(lexical.iter())
-                .map(|(left, right)| left * right)
-                .sum::<f32>()
-        } else {
-            // A hashing record under a semantic embedder is stale by
-            // definition — the next sync re-embeds it; scoring it now would
-            // compare incomparable spaces.
-            continue;
-        };
-        all.push(Scored {
-            key: key.value().to_string(),
-            record,
-            score,
-        });
-    }
-    // Best record per chain HEAD: a hit anywhere in a chain surfaces the whole
-    // chain once, scored by its best member.
-    let head_of = |scored: &Scored, all: &[Scored]| -> String {
-        let mut key = scored.key.clone();
-        let mut parent = scored.record.parent.clone();
-        while let Some(previous) = parent {
-            match all.iter().find(|s| s.key == previous) {
-                Some(prev) => {
-                    key = prev.key.clone();
-                    parent = prev.record.parent.clone();
-                }
-                None => break,
-            }
-        }
-        key
-    };
-    let mut best: std::collections::BTreeMap<String, f32> = std::collections::BTreeMap::new();
-    for scored in &all {
-        if scored.score <= 0.0 {
-            continue;
-        }
-        let head = head_of(scored, &all);
-        let entry = best.entry(head).or_insert(scored.score);
-        if scored.score > *entry {
-            *entry = scored.score;
-        }
-    }
-    let mut ranked: Vec<(String, f32)> = best.into_iter().collect();
-    ranked.sort_by(|left, right| right.1.total_cmp(&left.1));
-    ranked.truncate(limit);
-    let mut hits = Vec::new();
-    for (head_key, score) in ranked {
-        let Some(head) = all.iter().find(|s| s.key == head_key) else {
-            continue;
-        };
-        // Reassemble: the head, then every record whose parent chain reaches it.
-        let mut content = head.record.content.clone();
-        let mut tail_key = head_key.clone();
-        loop {
-            match all
-                .iter()
-                .find(|s| s.record.parent.as_deref() == Some(tail_key.as_str()))
-            {
-                Some(next) => {
-                    content.push_str(&next.record.content);
-                    tail_key = next.key.clone();
-                }
-                None => break,
-            }
-        }
-        hits.push(ChunkHit {
-            source_path: doc_of_key(&head_key).to_string(),
-            subject: head.record.subject.clone(),
-            kind: head.record.kind.clone(),
-            score,
-            content,
-        });
-    }
-    Ok(hits)
+    // Scoring and chain reassembly are shared with the coding-agent tools
+    // (spec 084 T5); a shipped SEMANTIC record under the hashing fallback is
+    // scored by its text there, exactly as it was here.
+    cobolt_kb::system_store::search_database(&database, &query_vector, kind.as_str(), limit)
 }
 
 /// Diagnostic view of every stored record: (key, subject, embedder stamp,

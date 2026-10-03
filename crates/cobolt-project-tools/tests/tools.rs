@@ -293,7 +293,7 @@ fn tools_over_serve_list_check_refuse_paths_and_answer_no_project() {
         .collect();
     assert_eq!(
         names,
-        ["list_files", "check", "regenerate", "add_to_project", "build", "validate", "kb_lookup"]
+        ["list_files", "check", "regenerate", "add_to_project", "build", "validate", "kb_lookup", "kb_search"]
     );
     let (check_text, is_err) = text_of(&replies[2]);
     assert!(!is_err);
@@ -311,19 +311,26 @@ fn tools_over_serve_list_check_refuse_paths_and_answer_no_project() {
         names.len()
     );
 
-    // No project: every tool answers "no project open".
+    // No project: every PROJECT tool answers "no project open"; the knowledge
+    // tools need no project and still answer (spec 084).
     let mut none = ProjectTools::new(HeadlessHost::new(dir.join("missing.project.toml"), "x"));
-    let mut answered = 0;
-    for name in names {
+    let (mut refused, mut knowledge) = (0, 0);
+    for name in &names {
         let reply = exchange(
             &mut none,
-            &[json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":{"path":"forms/MAIN-FORM.cfrm","name":"Button"}}})],
+            &[json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":{"path":"forms/MAIN-FORM.cfrm","name":"Button","query":"Button Caption"}}})],
         );
         let (t, is_err) = text_of(&reply[0]);
-        assert!(is_err && t == "no project open", "{name}: {t}");
-        answered += 1;
+        if name.starts_with("kb_") {
+            assert!(!is_err && t.contains("\"found\":true"), "{name} answers without a project: {t}");
+            knowledge += 1;
+        } else {
+            assert!(is_err && t == "no project open", "{name}: {t}");
+            refused += 1;
+        }
     }
-    println!("serve: no project → {answered}/7 tools answered \"no project open\"");
+    assert_eq!((refused, knowledge), (6, 2));
+    println!("serve: no project → {refused} project tools answered \"no project open\", {knowledge} knowledge tools answered");
 }
 
 #[test]

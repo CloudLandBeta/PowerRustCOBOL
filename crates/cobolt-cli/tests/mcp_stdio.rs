@@ -150,7 +150,9 @@ fn rcrun_mcp_serves_the_same_tools_and_answers_over_stdio() {
 fn rcrun_mcp_with_an_unreadable_manifest_answers_no_project_on_every_tool() {
     let dir = fixture("unreadable");
     std::fs::write(dir.join("CheckDemo.project.toml"), "not = [valid").unwrap();
-    let names = ["list_files", "check", "regenerate", "add_to_project", "build", "validate", "kb_lookup"];
+    // The project tools; the knowledge tools (kb_lookup, kb_search) need no
+    // project and are covered below (spec 084).
+    let names = ["list_files", "check", "regenerate", "add_to_project", "build", "validate"];
     let requests: Vec<Value> = names
         .iter()
         .enumerate()
@@ -164,7 +166,21 @@ fn rcrun_mcp_with_an_unreadable_manifest_answers_no_project_on_every_tool() {
         assert_eq!(r["result"]["isError"], true, "{n}: {r}");
         assert_eq!(r["result"]["content"][0]["text"], "no project open", "{n}");
     }
-    println!("rcrun mcp: unreadable manifest → {}/7 tools answered \"no project open\"", replies.len());
+    // The knowledge tools still answer.
+    let kb = [
+        json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"kb_lookup","arguments":{"name":"Button"}}}),
+        json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"kb_search","arguments":{"query":"SideMenu ContentPane"}}}),
+    ];
+    let (kb_replies, _, _) = session(&dir.join("CheckDemo.project.toml"), &kb, |_| ());
+    for r in &kb_replies {
+        assert_ne!(r["result"]["isError"], true, "a knowledge tool answers without a project: {r}");
+        assert!(r["result"]["content"][0]["text"].as_str().unwrap().contains("\"found\":true"), "{r}");
+    }
+    println!(
+        "rcrun mcp: unreadable manifest → {}/6 project tools answered \"no project open\", {}/2 knowledge tools answered",
+        replies.len(),
+        kb_replies.len()
+    );
 }
 
 mod product {

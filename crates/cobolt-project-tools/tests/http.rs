@@ -99,7 +99,7 @@ fn http_transport_answers_every_row_of_the_table() {
     let list = json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}).to_string();
     let (code, body) = post(p, "/mcp/k-test", "", &list);
     let v: Value = serde_json::from_str(&body).unwrap();
-    assert_eq!(v["result"]["tools"].as_array().unwrap().len(), 7);
+    assert_eq!(v["result"]["tools"].as_array().unwrap().len(), 8);
     rows.push(("tools/list (7)", code));
 
     let note = json!({"jsonrpc":"2.0","method":"notifications/initialized"}).to_string();
@@ -177,7 +177,7 @@ fn http_transport_answers_every_row_of_the_table() {
     assert!(v["result"]["content"][0]["text"].as_str().unwrap().contains("different project"));
     rows.push(("check, other kit", code));
     let (_, body) = post(p, "/mcp/k-other", "", &list);
-    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["result"]["tools"].as_array().unwrap().len(), 7);
+    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["result"]["tools"].as_array().unwrap().len(), 8);
     rows.push(("tools/list, other kit", 200));
 
     *srv.open.lock().unwrap() = OpenKit::NoProject;
