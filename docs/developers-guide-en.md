@@ -1773,6 +1773,17 @@ flowchart LR
   brightens as you hover it. It is a **drawer**: the
   vertically-centered **◀** tab hides it (leaving a thin **▶** tab to slide it
   back), and it reopens at the width you last set.
+  **Search the properties and events.** The box above the **Properties** and
+  **Events** tabs narrows the list as you type. A row shows when it matches
+  by its **name** (`capt` finds Caption), by a **word in its explanation**,
+  by its **section** (`geometry` shows that whole section; for the form's
+  events, a category such as `mouse` or `lifecycle`) or by its **purpose**:
+  `size` finds Width, Height, FontSize, AutoSize and the rest, though none of
+  them is called size — and so do `tamanho`, `taille` or `サイズ`, whatever
+  language you type in. Every word must match, so `font size` finds the
+  font's size alone. The rows keep their sections; a section with nothing to
+  show disappears, and the **✕** in the box clears it and shows everything
+  again. The **User procedures** tab's search has the same ✕.
   **Hover a property's name** to read what it does, in the interface
   language. Each explanation was written from the code that gives the
   property its effect, so it tells you what the control really does with the

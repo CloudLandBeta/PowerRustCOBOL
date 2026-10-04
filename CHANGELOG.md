@@ -8,6 +8,41 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.156] — 2026-10-04
+
+### Feature: search the Properties and Events tabs by name, word, section or purpose
+
+A search box above the Properties and Events tabs of the properties pane
+narrows the rows as the developer types (operator, 2026-10-04). A row shows
+when every typed word is found in its label or property name, in its
+explanation (the hover text, in the IDE's language and in English), in its
+section's name, or names a purpose the row serves (`prop_search`): `size`
+finds Width, Height, FontSize, AutoSize, ScreenFill…; `colour`, `position`,
+`round`, `shadow`, `image`, `window` and a dozen more, each recognised in all
+six IDE languages and from its first three letters. A section whose own name
+answers the search shows whole; the form's event categories (Lifecycle,
+Mouse, …) are searched too, and are drawn flat while a search is in force so
+a collapsed category cannot hide what is looked for. Rows keep their
+sections — a header is drawn just before its first shown row, so a section
+with nothing to show has none — and a ✕ clears the box (the User procedures
+search gains the same ✕). "No property / event matches the search." when
+nothing does.
+
+- **How:** one search state the row helpers consult (`property_row_keyed`,
+  and `search_shows` for properties laid out by hand — combos, pickers, the
+  items editor, the DataGrid/ToolBar/menu editor buttons, ShowFrame);
+  explanations and other non-row content of a section hide while a search does
+  not reach that section (`search_hides_extras`). The A–Z placement of rows is
+  suspended while searching (it measures whole sections).
+- **Measured:** `a_search_that_matches_nothing_shows_nothing_else` renders the
+  pane for the form and every control type on both tabs with a search that
+  matches nothing — 362 texts survived at first, 0 now; and
+  `a_search_finds_rows_by_purpose_section_and_name` (size → Width/Height, not
+  Title; a section's name; events by name and by category). `prop_search`
+  unit tests cover purposes in other languages and whole-name matching of x/y.
+- Strings in six languages (`prop_search_hint`, `event_search_hint`,
+  `search_clear`, `prop_search_none`, `event_search_none`). Guide updated.
+
 ## [PowerRustCOBOL 1.80.155] — 2026-10-04
 
 ### Feature: windows that move together, a fixed-size window, and a window sized to the screen

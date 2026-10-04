@@ -3602,6 +3602,10 @@ pub struct PropertiesPanel {
     stored_credentials: std::collections::HashSet<String>,
     /// What the developer typed in the User procedures search box.
     procedure_filter: String,
+    /// What the developer typed in the Properties search box, and in the
+    /// Events one (operator, 2026-10-04).
+    property_filter: String,
+    event_filter: String,
 }
 
 /// The user procedures to list, as `(index into form.user_procedures, name)`:
@@ -3671,6 +3675,8 @@ impl PropertiesPanel {
             agent_connections: Vec::new(),
             stored_credentials: Default::default(),
             procedure_filter: String::new(),
+            property_filter: String::new(),
+            event_filter: String::new(),
         }
     }
 
@@ -3782,6 +3788,22 @@ impl PropertiesPanel {
         }
         // The tabs stay put above the rows, however far the rows scroll.
         self.show_tabs(ui, tr);
+        // …and so does the search of the Properties and Events tabs: it
+        // narrows the rows to a name, a word of their explanation, their
+        // section or their purpose (operator, 2026-10-04).
+        let lang = crate::i18n::current_language(ui.ctx());
+        match self.active_tab {
+            InspectorTab::Visuals => {
+                search_box(ui, &mut self.property_filter, tr.prop_search_hint, tr.search_clear);
+                begin_row_search(&self.property_filter, lang);
+            }
+            InspectorTab::Events => {
+                search_box(ui, &mut self.event_filter, tr.event_search_hint, tr.search_clear);
+                begin_row_search(&self.event_filter, lang);
+            }
+            _ => {}
+        }
+        let no_match = if self.active_tab == InspectorTab::Events { tr.event_search_none } else { tr.prop_search_none };
         OVERRIDDEN.with(|o| *o.borrow_mut() = self.overridden.clone());
         RESET_LABEL.with(|l| *l.borrow_mut() = tr.prop_reset_to_base.to_owned());
         ScrollArea::vertical()
@@ -3809,6 +3831,10 @@ impl PropertiesPanel {
                     self.show_form(ui, form, &mut action, tr);
                 }
                 sort_end(ui);
+                if end_row_search() == Some(0) {
+                    ui.add_space(8.0);
+                    ui.label(RichText::new(no_match).weak().italics());
+                }
             });
         action.reset_override = RESET_REQUEST.with(|r| r.borrow_mut().take());
         // Read back whatever `property_row`'s grip wrote while the rows were
@@ -3987,6 +4013,7 @@ impl PropertiesPanel {
                     DataBindingVisibility::Hidden => {}
                     DataBindingVisibility::ApprovedTarget(_) => {
                         section_header(ui, tr.sec_data_binding);
+                        if !search_hides_extras() {
                         ui.label(
                             RichText::new(tr.data_binding_target_ready)
                                 .color(Color32::GRAY)
@@ -4053,6 +4080,7 @@ impl PropertiesPanel {
                 });
                         self.show_binding_editor(ui, form, ctrl, indexed_files, action, tr);
                         ui.add_space(4.0);
+                        }
                     }
                     DataBindingVisibility::ArrayMemberMapping { .. } => {
                         section_header(ui, tr.sec_data_binding);
@@ -4115,6 +4143,9 @@ impl PropertiesPanel {
         use cobolt_forms::layout::{defaults as d, props, LayoutMode};
         section_header(ui, tr.sec_layout);
         let hint = |ui: &mut Ui, text: &str| {
+            if search_hides_extras() {
+                return;
+            }
             ui.label(RichText::new(text).small().italics().color(Color32::GRAY));
             ui.add_space(4.0);
         };
@@ -4335,11 +4366,7 @@ impl PropertiesPanel {
         // A search box once there is a list to search, and the list
         // itself A–Z (operator, 2026-09-29).
         if !form.user_procedures.is_empty() {
-            ui.add(
-                egui::TextEdit::singleline(&mut self.procedure_filter)
-                    .hint_text(tr.cs_search_procedures)
-                    .desired_width(f32::INFINITY),
-            );
+            search_box(ui, &mut self.procedure_filter, tr.cs_search_procedures, tr.search_clear);
         }
         let rows = procedure_rows(&form.user_procedures, &self.procedure_filter);
         if rows.is_empty() && !form.user_procedures.is_empty() {
@@ -4652,6 +4679,9 @@ impl PropertiesPanel {
         tr: &Tr,
         action: &mut InspectorAction,
     ) {
+        if !search_shows(ui, label, Some(key)) {
+            return;
+        }
         let cur = ctrl
             .get_prop(key)
             .map(|v| v.as_str().to_owned())
@@ -5902,13 +5932,15 @@ impl PropertiesPanel {
 
     fn show_events(ui: &mut Ui, ctrl: &Control, id: &str, action: &mut InspectorAction, tr: &Tr) {
         section_header(ui, tr.sec_events);
-        ui.label(
-            RichText::new(tr.hint_click_event)
-                .small()
-                .color(crate::contrast::ink(Color32::GRAY))
-                .italics(),
-        );
-        ui.add_space(4.0);
+        if !search_hides_extras() {
+            ui.label(
+                RichText::new(tr.hint_click_event)
+                    .small()
+                    .color(crate::contrast::ink(Color32::GRAY))
+                    .italics(),
+            );
+            ui.add_space(4.0);
+        }
 
         for ev in ctrl.control_type.supported_events() {
             let ev_str = ev.to_string();
@@ -6763,9 +6795,10 @@ impl PropertiesPanel {
                         .get_prop("ShowFrame")
                         .map(|v| v.as_bool())
                         .unwrap_or(true);
-                    if ui
-                        .checkbox(&mut show, "Show frame (uncheck = image only)")
-                        .changed()
+                    if search_shows(ui, "Show frame", Some("ShowFrame"))
+                        && ui
+                            .checkbox(&mut show, "Show frame (uncheck = image only)")
+                            .changed()
                     {
                         action.set_props.push((
                             id.to_owned(),
@@ -6857,16 +6890,18 @@ impl PropertiesPanel {
                 // values, like DroppedFiles — shown so the developer knows what
                 // to read, not to be typed in.
                 ui.add_space(2.0);
-                ui.label(
-                    egui::RichText::new(
-                        "At runtime: Value / SelectedIndex is the ACTIVE row; \
-                         SelectedItems is the Ctrl-click (Cmd on a Mac) selection, \
-                         drawn dimmed; CheckedItems is the ticked set. All three are \
-                         newline-separated where they hold more than one.",
-                    )
-                    .small()
-                    .weak(),
-                );
+                if !search_hides_extras() {
+                    ui.label(
+                        egui::RichText::new(
+                            "At runtime: Value / SelectedIndex is the ACTIVE row; \
+                             SelectedItems is the Ctrl-click (Cmd on a Mac) selection, \
+                             drawn dimmed; CheckedItems is the ticked set. All three are \
+                             newline-separated where they hold more than one.",
+                        )
+                        .small()
+                        .weak(),
+                    );
+                }
                 ui.add_space(2.0);
                 border_rows(ui, id, ctrl, action, &mut self.text_bufs);
                 ui.add_space(4.0);
@@ -7241,18 +7276,24 @@ impl PropertiesPanel {
                 color_row(ui, id, "NeedleColor", ctrl, action);
 
                 ui.add_space(4.0);
-                ui.label(egui::RichText::new("Radial style").small().weak());
+                if !search_active() {
+                    ui.label(egui::RichText::new("Radial style").small().weak());
+                }
                 bool_row_inline(ui, id, "ShowScale", "Show scale", ctrl, action);
                 // Where the value + Unit sit: inside the dial, or under the
                 // needle's pivot. Radial only — a Donut reads out in its hole
                 // and a Linear under its bar.
                 combo_row_inline(ui, id, "ReadoutPosition", ctrl, action, &["Up", "Down"]);
                 ui.add_space(4.0);
-                ui.label(egui::RichText::new("Linear style").small().weak());
+                if !search_active() {
+                    ui.label(egui::RichText::new("Linear style").small().weak());
+                }
                 int_prop_row(ui, id, "BarHeight", "Bar height", ctrl, action, 6..=200, None, 14);
                 bool_row_inline(ui, id, "ShowThumb", "Show thumb", ctrl, action);
                 ui.add_space(4.0);
-                ui.label(egui::RichText::new("Donut style").small().weak());
+                if !search_active() {
+                    ui.label(egui::RichText::new("Donut style").small().weak());
+                }
                 int_prop_row(
                     ui,
                     id,
@@ -7385,27 +7426,31 @@ impl PropertiesPanel {
                     );
                 }
                 ui.add_space(4.0);
-                ui.label(
-                    egui::RichText::new(
-                        "DroppedFiles, RejectedFiles, StagedFiles and CommitSummary are \
-                         populated at runtime by a drop or the native file picker — not \
-                         design-time properties. A blank Extensions accepts any file; 0 KB \
-                         is no size limit; a blank Destination leaves files where they are.",
-                    )
-                    .small()
-                    .weak(),
-                );
-                ui.label(
-                    egui::RichText::new(
-                        "With \"Confirm before copying\" on, a drop copies nothing: the \
-                         files are listed with a tick box each, and your COBOL calls \
-                         CommitFiles() when the operator is happy. Unticked files are \
-                         skipped. The list is an ordinary ListBox — the one created with \
-                         this zone, or any other you name here.",
-                    )
-                    .small()
-                    .weak(),
-                );
+                if !search_hides_extras() {
+                    ui.label(
+                        egui::RichText::new(
+                            "DroppedFiles, RejectedFiles, StagedFiles and CommitSummary are \
+                             populated at runtime by a drop or the native file picker — not \
+                             design-time properties. A blank Extensions accepts any file; 0 KB \
+                             is no size limit; a blank Destination leaves files where they are.",
+                        )
+                        .small()
+                        .weak(),
+                    );
+                }
+                if !search_hides_extras() {
+                    ui.label(
+                        egui::RichText::new(
+                            "With \"Confirm before copying\" on, a drop copies nothing: the \
+                             files are listed with a tick box each, and your COBOL calls \
+                             CommitFiles() when the operator is happy. Unticked files are \
+                             skipped. The list is an ordinary ListBox — the one created with \
+                             this zone, or any other you name here.",
+                        )
+                        .small()
+                        .weak(),
+                    );
+                }
                 ui.add_space(4.0);
             }
 
@@ -7482,6 +7527,7 @@ impl PropertiesPanel {
             ControlType::DataGrid if phase == TypeSection::Rest => {
                 section_header(ui, tr.dg_section);
                 let advanced = DataGridAdvanced::from_control(ctrl);
+                if search_shows(ui, "Edit DataGrid settings", Some("Columns")) {
                 ui.label(
                     RichText::new(format!(
                         "{} columns, {} frozen column(s), {} frozen row(s)",
@@ -7494,6 +7540,7 @@ impl PropertiesPanel {
                 );
                 if ui.button("Edit DataGrid settings...").clicked() {
                     self.datagrid_editor = Some(id.to_owned());
+                }
                 }
                 ui.add_space(4.0);
             }
@@ -8644,7 +8691,7 @@ impl PropertiesPanel {
             // separates them — a MenuBar is a horizontal strip.
             ControlType::MenuBar | ControlType::SideMenu if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
-                if ui.button(tr.menu_edit_btn).clicked() {
+                if search_shows(ui, tr.menu_edit_btn, Some("Items")) && ui.button(tr.menu_edit_btn).clicked() {
                     action.open_menu_editor = Some(id.to_owned());
                 }
                 if ctrl.control_type == ControlType::MenuBar {
@@ -8791,6 +8838,7 @@ impl PropertiesPanel {
             // while looking at it (operator decision, 2026-08-16).
             ControlType::ToolBar if phase == TypeSection::Rest => {
                 section_header(ui, tr.sec_items);
+                if search_shows(ui, tr.toolbar_edit, Some("Buttons")) {
                 if ui.button(tr.toolbar_edit).clicked() {
                     action.open_toolbar_editor = Some(id.to_owned());
                 }
@@ -8863,6 +8911,7 @@ impl PropertiesPanel {
                 );
                 color_row(ui, id, "BackgroundColor", ctrl, action);
                 ui.add_space(4.0);
+                }
             }
 
             ControlType::StatusBar if phase == TypeSection::Rest => {
@@ -10443,11 +10492,13 @@ impl PropertiesPanel {
                 }
 
                 ui.add_space(4.0);
-                ui.label(RichText::new(
-                    "Table binding:\n  INVOKE CHART1 SET-TABLE\n    USING WS-SALES-TABLE WS-SALES-COUNT\n\
-                     \nDirect point:\n  INVOKE CHART1 ADD-POINT\n    USING 'January' WS-VALUE\n\
-                     \n  INVOKE CHART1 CLEAR\n  INVOKE CHART1 REFRESH")
-                    .small().color(Color32::GRAY).italics());
+                if !search_hides_extras() {
+                    ui.label(RichText::new(
+                        "Table binding:\n  INVOKE CHART1 SET-TABLE\n    USING WS-SALES-TABLE WS-SALES-COUNT\n\
+                         \nDirect point:\n  INVOKE CHART1 ADD-POINT\n    USING 'January' WS-VALUE\n\
+                         \n  INVOKE CHART1 CLEAR\n  INVOKE CHART1 REFRESH")
+                        .small().color(Color32::GRAY).italics());
+                }
                 ui.add_space(4.0);
             }
 
@@ -10518,12 +10569,14 @@ impl PropertiesPanel {
                 });
         });
         if form.start_position != cobolt_forms::model::FormStartPosition::Custom {
-            ui.label(
-                RichText::new(tr.hint_start_position_ignores_xy)
-                    .small()
-                    .color(Color32::GRAY)
-                    .italics(),
-            );
+            if !search_hides_extras() {
+                ui.label(
+                    RichText::new(tr.hint_start_position_ignores_xy)
+                        .small()
+                        .color(Color32::GRAY)
+                        .italics(),
+                );
+            }
         }
         // The window's shape sits with its size. Its corners are the OS's
         // while it has a title bar, so the radius is offered only without one
@@ -10618,7 +10671,9 @@ impl PropertiesPanel {
                         }
                     });
                 }
-                ui.label(egui::RichText::new(tr.cs_hint).weak().italics());
+                if !search_hides_extras() {
+                    ui.label(egui::RichText::new(tr.cs_hint).weak().italics());
+                }
 
                 // ── Target device ─────────────────────────────────────────────────────
                 section_header(ui, tr.sec_target);
@@ -11400,12 +11455,14 @@ impl PropertiesPanel {
                             }
                         });
                 });
-                ui.label(
-                    RichText::new(tr.hint_img_modes)
-                    .small()
-                    .color(Color32::GRAY)
-                    .italics(),
-                );
+                if !search_hides_extras() {
+                    ui.label(
+                        RichText::new(tr.hint_img_modes)
+                        .small()
+                        .color(Color32::GRAY)
+                        .italics(),
+                    );
+                }
 
                 // Width/Height now live in the Geometry section at the top
                 // of this tab (`show_form_geometry`), alongside X/Y and Start
@@ -11415,13 +11472,15 @@ impl PropertiesPanel {
             InspectorTab::Events => {
                 // ── Form-level Events ─────────────────────────────────────────────────
                 section_header(ui, tr.sec_form_events);
-                ui.label(
-                    RichText::new(tr.hint_click_event)
-                        .small()
-                        .color(crate::contrast::ink(Color32::GRAY))
-                        .italics(),
-                );
-                ui.add_space(4.0);
+                if !search_hides_extras() {
+                    ui.label(
+                        RichText::new(tr.hint_click_event)
+                            .small()
+                            .color(crate::contrast::ink(Color32::GRAY))
+                            .italics(),
+                    );
+                    ui.add_space(4.0);
+                }
 
                 // All supported form events, grouped by category (collapsible). A group
                 // that has any handler-with-code starts expanded; others collapsed.
@@ -11431,12 +11490,11 @@ impl PropertiesPanel {
                             .iter()
                             .any(|e| e.event == *ev && e.has_code())
                     });
-                    egui::CollapsingHeader::new(
-                        RichText::new(group).strong().color(crate::contrast::ink(Color32::from_gray(170))),
-                    )
-                    .id_salt(format!("form-evgrp-{group}"))
-                    .default_open(any_code)
-                    .show(ui, |ui| {
+                    // The rows of one group. While a search is in force they
+                    // are drawn flat — a collapsed group would hide the very
+                    // event being looked for — and the group's name is
+                    // searched with them; otherwise inside the group's header.
+                    let mut rows = |ui: &mut Ui| {
                         for &ev_name in events {
                             let binding = form.form_events.iter().find(|e| e.event == ev_name);
                             let has_code = binding.map(|e| e.has_code()).unwrap_or(false);
@@ -11480,7 +11538,18 @@ impl PropertiesPanel {
                                 }
                             });
                         }
-                    });
+                    };
+                    if search_active() {
+                        search_subsection(group);
+                        rows(ui);
+                    } else {
+                        egui::CollapsingHeader::new(
+                            RichText::new(group).strong().color(crate::contrast::ink(Color32::from_gray(170))),
+                        )
+                        .id_salt(format!("form-evgrp-{group}"))
+                        .default_open(any_code)
+                        .show(ui, |ui| rows(ui));
+                    }
                 }
 
                 // ── Retired events that STILL CARRY CODE ────────────────────
@@ -11569,11 +11638,13 @@ impl PropertiesPanel {
         }
 
         ui.add_space(8.0);
-        ui.label(
-            RichText::new(tr.hint_click_control)
-                .italics()
-                .color(crate::contrast::ink(Color32::GRAY)),
-        );
+        if !search_hides_extras() {
+            ui.label(
+                RichText::new(tr.hint_click_control)
+                    .italics()
+                    .color(crate::contrast::ink(Color32::GRAY)),
+            );
+        }
     }
 }
 
@@ -11739,6 +11810,130 @@ fn help_label(ui: &mut Ui, text: impl Into<egui::WidgetText>, key: &str) -> egui
     }
 }
 
+/// The Properties / Events search in force while a tab's rows are drawn
+/// (operator, 2026-10-04): which rows show, and which section headers are
+/// still to be drawn. `None` — no search — shows everything, exactly as
+/// before.
+struct RowSearch {
+    query: crate::prop_search::Query,
+    lang: crate::i18n::Language,
+    /// The section being drawn, and whether its own name answers the search
+    /// (then every row in it shows).
+    section: String,
+    section_hit: bool,
+    /// The section's header, drawn just before its first shown row.
+    header_pending: Option<String>,
+    /// How many rows were shown, so an empty result can say so.
+    shown: usize,
+}
+
+thread_local! {
+    static SEARCH: std::cell::RefCell<Option<RowSearch>> = const { std::cell::RefCell::new(None) };
+}
+
+fn search_active() -> bool {
+    SEARCH.with(|s| s.borrow().is_some())
+}
+
+/// Whether a section's own content other than rows — an explanatory line, a
+/// button, an editor — is hidden: a search is in force and the section's name
+/// does not answer it. Rows decide for themselves.
+fn search_hides_extras() -> bool {
+    SEARCH.with(|s| s.borrow().as_ref().is_some_and(|st| !st.section_hit))
+}
+
+/// Start narrowing rows to `query` (nothing happens for an empty one).
+fn begin_row_search(query: &str, lang: crate::i18n::Language) {
+    let query = crate::prop_search::Query::parse(query);
+    SEARCH.with(|s| {
+        *s.borrow_mut() = (!query.is_empty()).then(|| RowSearch {
+            query,
+            lang,
+            section: String::new(),
+            section_hit: false,
+            header_pending: None,
+            shown: 0,
+        })
+    });
+}
+
+/// Stop narrowing; `Some(rows shown)` when a search was in force.
+fn end_row_search() -> Option<usize> {
+    SEARCH.with(|s| s.borrow_mut().take().map(|st| st.shown))
+}
+
+enum RowAdmission {
+    Hidden,
+    /// Shown, and the first of its section: draw the section's header first.
+    FirstInSection(String),
+    Shown,
+}
+
+/// Whether the search lets a row through: its label or property name, a word
+/// in its explanation (in the IDE's language and in English), the section it
+/// sits in, or its purpose (`prop_search`).
+fn search_admits(label: &str, key: Option<&str>) -> RowAdmission {
+    SEARCH.with(|s| {
+        let mut b = s.borrow_mut();
+        let Some(st) = b.as_mut() else { return RowAdmission::Shown };
+        let prop = key.unwrap_or(label);
+        let ty = HELP_TYPE.with(|t| t.borrow().clone());
+        let help = crate::prop_help::lookup(st.lang, &ty, prop).unwrap_or("");
+        let help_en = crate::prop_help::lookup(crate::i18n::Language::English, &ty, prop).unwrap_or("");
+        let ok = st.section_hit || st.query.matches(&[label, prop], &[&st.section, help, help_en]);
+        if !ok {
+            return RowAdmission::Hidden;
+        }
+        st.shown += 1;
+        match st.header_pending.take() {
+            Some(title) => RowAdmission::FirstInSection(title),
+            None => RowAdmission::Shown,
+        }
+    })
+}
+
+/// A named group inside the current section (the form's event categories):
+/// its rows are searched by its name too.
+fn search_subsection(name: &str) {
+    SEARCH.with(|s| {
+        if let Some(st) = s.borrow_mut().as_mut() {
+            let base = st.section.split(" › ").next().unwrap_or("").to_owned();
+            st.section = format!("{base} › {name}");
+            st.section_hit = st.query.matches_section(&base) || st.query.matches_section(name);
+        }
+    });
+}
+
+/// For a property drawn in a layout of its own rather than through
+/// [`property_row_keyed`]: whether the search lets it through, drawing its
+/// section's header first when it is the section's first. Always true with no
+/// search in force.
+fn search_shows(ui: &mut Ui, label: &str, key: Option<&str>) -> bool {
+    match search_admits(label, key) {
+        RowAdmission::Hidden => false,
+        RowAdmission::FirstInSection(title) => {
+            draw_section_header(ui, &title);
+            true
+        }
+        RowAdmission::Shown => true,
+    }
+}
+
+/// A search box with a ✕ that clears it, shown while it holds text.
+fn search_box(ui: &mut Ui, text: &mut String, hint: &str, clear_tip: &str) {
+    ui.horizontal(|ui| {
+        let clear_w = if text.is_empty() { 0.0 } else { 26.0 };
+        ui.add(
+            egui::TextEdit::singleline(text)
+                .hint_text(hint)
+                .desired_width((ui.available_width() - clear_w).max(40.0)),
+        );
+        if !text.is_empty() && ui.small_button("✕").on_hover_text(clear_tip).clicked() {
+            text.clear();
+        }
+    });
+}
+
 fn property_row(ui: &mut Ui, label: &str, value: impl FnOnce(&mut Ui)) {
     property_row_keyed(ui, label, None, value)
 }
@@ -11746,8 +11941,15 @@ fn property_row(ui: &mut Ui, label: &str, value: impl FnOnce(&mut Ui)) {
 /// [`property_row`] for property `key` (when the label is not simply the
 /// property's name): hovering the name explains the property.
 fn property_row_keyed(ui: &mut Ui, label: &str, key: Option<&str>, value: impl FnOnce(&mut Ui)) {
+    match search_admits(label, key) {
+        RowAdmission::Hidden => return,
+        RowAdmission::FirstInSection(title) => draw_section_header(ui, &title),
+        RowAdmission::Shown => {}
+    }
     // Its A–Z place in the section, when the section is sorted.
-    sort_place(ui, label);
+    if !search_active() {
+        sort_place(ui, label);
+    }
     let enabled = ROWS_ENABLED.with(|e| e.get());
     // Rows sit flush against one another so the only separators are the dashed grid
     // lines. The default inter-widget gap left a darker, unfilled strip below each
@@ -12276,6 +12478,24 @@ fn glow_color_rows(ui: &mut Ui, ctrl_id: &str, ctrl: &Control, action: &mut Insp
 fn section_header(ui: &mut Ui, title: &str) {
     // The section before this one ends here: its rows go to their A–Z places.
     sort_end(ui);
+    // While a search narrows the rows, a section is announced only when its
+    // first row is shown — a section with nothing to show has no header.
+    let deferred = SEARCH.with(|s| match s.borrow_mut().as_mut() {
+        Some(st) => {
+            st.section = title.to_owned();
+            st.section_hit = st.query.matches_section(title);
+            st.header_pending = Some(title.to_owned());
+            true
+        }
+        None => false,
+    });
+    if !deferred {
+        draw_section_header(ui, title);
+    }
+}
+
+/// Draw a section's header band.
+fn draw_section_header(ui: &mut Ui, title: &str) {
     // Property rows zero their vertical spacing, so add an explicit gap here to keep
     // sections visually separated.
     ui.add_space(6.0);
@@ -12301,7 +12521,9 @@ fn section_header(ui: &mut Ui, title: &str) {
             egui::FontId::proportional(13.0),
             pal.band_ink,
         );
-        sort_begin(ui, title);
+        if !search_active() {
+            sort_begin(ui, title);
+        }
         return;
     }
     // Derived from the pane the header sits on, not a fixed colour: the old
@@ -12329,7 +12551,11 @@ fn section_header(ui: &mut Ui, title: &str) {
         egui::TextStyle::Button.resolve(ui.style()),
         Color32::WHITE,
     );
-    sort_begin(ui, title);
+    // A search lists its matches in the order they are found: the A–Z
+    // placement measures whole sections, and a narrowed one is not whole.
+    if !search_active() {
+        sort_begin(ui, title);
+    }
 }
 
 /// A small button showing a device outline — tall for portrait, wide for
@@ -13033,6 +13259,9 @@ fn combo_row_labeled(
     action: &mut InspectorAction,
     opts: &[&str],
 ) {
+    if !search_shows(ui, label, Some(key)) {
+        return;
+    }
     let cur = ctrl
         .get_prop(key)
         .map(|v| v.as_str().to_owned())
@@ -13468,6 +13697,9 @@ fn image_browse_row(
     action: &mut InspectorAction,
     bufs: &mut std::collections::HashMap<String, String>,
 ) {
+    if !search_shows(ui, key, Some(key)) {
+        return;
+    }
     let cur = ctrl
         .get_prop(key)
         .map(|v| v.as_str().to_owned())
@@ -13551,6 +13783,9 @@ fn items_file_row(
         *buf = cur.clone();
     }
     let pick_key = format!("itemsfile:{ctrl_id}:{vp:?}");
+    if !search_shows(ui, tr.items_file_label, Some(key)) {
+        return;
+    }
     ui.horizontal(|ui| {
         help_label(ui, tr.items_file_label, key);
         // Asynchronous, like every picker here: a synchronous dialog nests the
@@ -13731,6 +13966,9 @@ fn items_multiline(
     action: &mut InspectorAction,
     bufs: &mut std::collections::HashMap<String, String>,
 ) {
+    if !search_shows(ui, "Items", Some("Items")) {
+        return;
+    }
     let cur = ctrl
         .get_prop("Items")
         .map(|v| v.as_str().to_owned())
@@ -15978,6 +16216,120 @@ mod label_help_tests {
         assert!(ys.iter().all(|v| v.is_finite()), "every row drawn: {order:?} → {ys:?}");
         assert!(ys.windows(2).all(|w| w[0] < w[1]), "A–Z: {order:?} → {ys:?}");
         println!("Geometry reads A–Z: {:?}", order.iter().zip(&ys).collect::<Vec<_>>());
+    }
+
+    /// Render the pane for `ctrl` (or the form) on `tab` with `filter` typed in
+    /// its search box, and return every text it painted.
+    fn painted_texts(form: &Form, ctrl: Option<&Control>, tab: InspectorTab, filter: &str) -> Vec<String> {
+        let tr = &crate::i18n::Language::English.tr();
+        let ctx = egui::Context::default();
+        let mut panel = PropertiesPanel::new();
+        panel.active_tab = tab;
+        panel.property_filter = filter.to_owned();
+        panel.event_filter = filter.to_owned();
+        let mut out = Vec::new();
+        // Two frames: the A–Z placement settles on the second.
+        for _ in 0..2 {
+            let mut full = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 20000.0))),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::CentralPanel::default().show_inside(ui, |ui| {
+                        let _ = panel.show(ui, form, ctrl, &[], tr);
+                    });
+                },
+            );
+            full.textures_delta.clear();
+            fn texts(shape: &egui::Shape, out: &mut Vec<String>) {
+                match shape {
+                    egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| texts(s, out)),
+                    _ => {}
+                }
+            }
+            out.clear();
+            for cs in &full.shapes {
+                texts(&cs.shape, &mut out);
+            }
+        }
+        out
+    }
+
+    /// A search that matches nothing leaves nothing but the tabs, the box, its
+    /// ✕ and the "no match" line — on the Properties and the Events tab, for
+    /// the form and every control type. Anything else painted is content the
+    /// search does not reach (operator, 2026-10-04).
+    #[test]
+    fn a_search_that_matches_nothing_shows_nothing_else() {
+        let tr = &crate::i18n::Language::English.tr();
+        let allowed: Vec<String> = [
+            tr.tab_props, tr.tab_events, tr.tab_procs, tr.tab_anim,
+            "zzqqxx", "✕", tr.prop_search_none, tr.event_search_none,
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let form = Form::new("F", "F", 640, 480);
+        let mut leaks = Vec::new();
+        let mut cases = vec![("Form".to_owned(), None)];
+        for t in cobolt_forms::ControlType::ALL {
+            cases.push((format!("{t:?}"), Some(Control::new("X".to_owned(), t.clone(), 0, 0))));
+        }
+        for (name, ctrl) in &cases {
+            let mut f = form.clone();
+            if let Some(c) = ctrl {
+                f.controls.push(c.clone());
+            }
+            // The selection's own identity — its id and type tag — sits above
+            // the rows and is not something a search narrows.
+            let identity = ctrl.as_ref().map(|c| (c.id.clone(), format!("[{:?}]", c.control_type)));
+            for tab in [InspectorTab::Visuals, InspectorTab::Events] {
+                for text in painted_texts(&f, ctrl.as_ref(), tab, "zzqqxx") {
+                    let is_identity = identity.as_ref().is_some_and(|(id, ty)| &text == id || &text == ty);
+                    if !text.trim().is_empty() && !is_identity && !allowed.iter().any(|a| a == &text) {
+                        leaks.push(format!("{name} {tab:?}: {text:?}"));
+                    }
+                }
+            }
+        }
+        println!("search leaks: {}", leaks.len());
+        for l in &leaks {
+            println!("  {l}");
+        }
+        assert!(leaks.is_empty(), "{} texts survive a search that matches nothing", leaks.len());
+    }
+
+    /// What a search shows: a purpose finds the rows that serve it, a section's
+    /// name brings the whole section, and an empty box shows everything.
+    #[test]
+    fn a_search_finds_rows_by_purpose_section_and_name() {
+        let form = Form::new("F", "F", 640, 480);
+        let shown = |filter: &str| painted_texts(&form, None, InspectorTab::Visuals, filter);
+        let has = |texts: &[String], label: &str| texts.iter().any(|t| t.trim_end_matches(':') == label);
+        let size = shown("size");
+        assert!(has(&size, "Width") && has(&size, "Height"), "size finds Width and Height: {size:?}");
+        assert!(!has(&size, "Title"), "but not the title: {size:?}");
+        let geometry = shown("geometry");
+        assert!(has(&geometry, "X") && has(&geometry, "Start Position"), "the section's name brings it whole: {geometry:?}");
+        let all = shown("");
+        assert!(all.len() > geometry.len() && all.len() > size.len(), "an empty search shows everything");
+        println!("form: size → {} texts, geometry → {}, everything → {}", size.len(), geometry.len(), all.len());
+
+        // Events: by name, and — for the form's grouped events — by the
+        // group's name, though a group is collapsed when nothing is searched.
+        let mut f = form.clone();
+        let btn = Control::new("BTN".to_owned(), cobolt_forms::ControlType::Button, 0, 0);
+        f.controls.push(btn.clone());
+        let clicks = painted_texts(&f, Some(&btn), InspectorTab::Events, "click");
+        assert!(has(&clicks, "onClick"), "click finds onClick: {clicks:?}");
+        assert!(!has(&clicks, "onGotFocus"), "and not focus events: {clicks:?}");
+        let lifecycle = painted_texts(&form, None, InspectorTab::Events, "lifecycle");
+        assert!(has(&lifecycle, "onLoad") && has(&lifecycle, "onClose"), "a group's name finds its events: {lifecycle:?}");
+        assert!(!has(&lifecycle, "onMouseDown"), "and only them: {lifecycle:?}");
+        let mouse = painted_texts(&form, None, InspectorTab::Events, "mouse");
+        assert!(has(&mouse, "onMouseDown"), "a word finds the events named with it: {mouse:?}");
     }
 
     /// Every label the Props tab shows — for the form and for each control

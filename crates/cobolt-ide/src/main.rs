@@ -57,6 +57,7 @@ pub mod pdf_export;
 pub mod prompt_complete;
 pub mod prompt_polish;
 pub mod prop_help;
+pub mod prop_search;
 mod project_fs;
 mod project_model;
 pub mod project_upgrade;
