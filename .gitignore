@@ -77,3 +77,9 @@ HANDOFF*.txt
 handoff*.md
 handoff*.txt
 SESSION-HANDOFF*
+
+# Written locally by the IDE: the coding-agent kit an example project gets
+# when a coding agent is set up for it, and superseded knowledge stores.
+examples/*/.claude/
+examples/*/.mcp.json
+examples/*/data/*.v2-obsolete
