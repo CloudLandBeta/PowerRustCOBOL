@@ -278,7 +278,17 @@ pub const APPLICATION_RULES: [(&str, &str); 8] = [
         "shell",
         "Side menu and embedded forms. The main form carries a SideMenu and every screen is an \
          `Embedded` form loaded into its ContentPane; dialogs are child windows. Build it another way only \
-         when the developer asks you to.",
+         when the developer asks you to. When they ask for floating windows around a main window (a \
+         toolbar above a dashboard, a rail beside it, a tab strip below), make each a `Standalone` form \
+         with `title-visible=\"false\"`, a `corner-radius`, `resizable=\"false\"`, `dock-to-opener` \
+         (`Top`, `Left`, `Bottom`, `Right`), `dock-gap` and `dock-length` (its share of the main \
+         window's edge), and open them all from the main form's `onLoad` with \
+         `INVOKE me::\"OpenFormAsync\"(\"FORM-ID\")` — never position them from COBOL: docked windows \
+         follow the main window, move with it as one, and come forward together. Give the main window \
+         `screen-fill` (a share of the screen), `resizable=\"false\"` and `start-position=\"Center\"`, \
+         and design every one of these forms at its SMALLEST size, laid out in Grid/Flex panels, so it \
+         grows with the screen and never needs to shrink. Each window keeps its own language \
+         timer; the language lives in a setting the forms share through Common Code.",
     ),
     (
         "slick",

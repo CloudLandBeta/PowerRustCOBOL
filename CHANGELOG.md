@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.177] — 2026-10-04
+
+### Feature: the agent instructions describe a group of docked windows
+
+What PowerSpatial needed to look and move right is now in the rules every
+coding agent works under (golden rule 3, operator 2026-10-04: "it must be part
+of the prompt to generate new projects like this one"): floating windows
+around a main window are `Standalone` forms without a title bar, with a
+corner radius, not resizable, docked with `dock-to-opener` / `dock-gap` /
+`dock-length` and opened from the main form's `onLoad` with `OpenFormAsync` —
+never positioned from COBOL; the main window takes a `screen-fill`, is not
+resizable and starts centred; every such form is designed at its smallest
+size in Grid/Flex panels; each keeps its own language timer over a setting
+shared through Common Code.
+
 ## [PowerRustCOBOL 1.80.176] — 2026-10-04
 
 ### Feature: on a Spatial form, a ComboBox's list may overhang the window
