@@ -385,13 +385,18 @@ fn cmd_mcp(args: &[String]) {
     // `render_form` pictures forms with the render engine rcrun already links
     // for run-form (spec 084 R30).
     let renderer: cobolt_project_tools::tools::render::Renderer =
-        std::sync::Arc::new(|cfrm: &std::path::Path, project: &std::path::Path, theme_default: Option<String>, scale: f32| {
+        std::sync::Arc::new(|cfrm: &std::path::Path, project: &std::path::Path, picture: &cobolt_project_tools::tools::render::Picture| {
             let themes_dir = std::env::current_exe()
                 .ok()
                 .and_then(|p| p.parent().map(|d| d.join("assets/themes")))
                 .filter(|d| d.is_dir())
                 .unwrap_or_else(|| PathBuf::from("assets/themes"));
-            let opts = cobolt_forms::snapshot::SnapshotOptions { theme_default, themes_dir: Some(themes_dir), scale };
+            let opts = cobolt_forms::snapshot::SnapshotOptions {
+                theme_default: picture.theme_default.clone(),
+                themes_dir: Some(themes_dir),
+                scale: picture.scale,
+                window: picture.window.map(|[w, h]| (w, h)),
+            };
             cobolt_forms::snapshot::render_form_png(cfrm, project, &opts)
         });
     // `run_form` runs a form in a separate `rcrun run-form --headless` — this

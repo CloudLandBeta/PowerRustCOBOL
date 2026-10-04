@@ -8,6 +8,25 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.161] — 2026-10-04
+
+### Feature: `render_form` pictures a form in a window of any size
+
+`render_form` showed a form at its designed size only, so an agent building a
+responsive form could not see how it holds on a smaller laptop or a wide
+monitor — it could only hope (found building the PowerSpatial dashboard,
+whose grid would not shrink below its designed size: a fact the picture now
+shows). The tool takes **`width`** and **`height`**: the form is laid out for
+a window of that size, as Run Form lays it out, and never below its minimum —
+a running window cannot be made smaller — and the answer gives the `window`
+used and says when it was `held_at_minimum`. `SnapshotOptions::window` and
+`snapshot::picture_window` in the engine; the injected renderer takes a
+`render::Picture` (theme, scale, window), in `rcrun` and in the IDE. The
+build-an-application and design skills now ask for a look at another window
+size. Tests `a_form_pictured_in_another_window_is_laid_out_for_it` and
+`render_form_answers_with_an_image`. Guide updated; `chunked.data`
+regenerated.
+
 ## [PowerRustCOBOL 1.80.160] — 2026-10-04
 
 ### Fix: a Knob's arc is drawn inside the Knob

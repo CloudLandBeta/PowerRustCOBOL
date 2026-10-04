@@ -169,13 +169,18 @@ impl IdeShared {
 /// `render_form`'s renderer (spec 084 R30): the form pictured by the one
 /// render engine, with theme packs from beside the IDE.
 pub fn form_renderer() -> cobolt_project_tools::tools::render::Renderer {
-    Arc::new(|cfrm: &Path, project: &Path, theme_default: Option<String>, scale: f32| {
+    Arc::new(|cfrm: &Path, project: &Path, picture: &cobolt_project_tools::tools::render::Picture| {
         let themes_dir = std::env::current_exe()
             .ok()
             .and_then(|p| p.parent().map(|d| d.join("assets/themes")))
             .filter(|d| d.is_dir())
             .unwrap_or_else(|| PathBuf::from("assets/themes"));
-        let opts = cobolt_forms::snapshot::SnapshotOptions { theme_default, themes_dir: Some(themes_dir), scale };
+        let opts = cobolt_forms::snapshot::SnapshotOptions {
+                theme_default: picture.theme_default.clone(),
+                themes_dir: Some(themes_dir),
+                scale: picture.scale,
+                window: picture.window.map(|[w, h]| (w, h)),
+            };
         cobolt_forms::snapshot::render_form_png(cfrm, project, &opts)
     })
 }

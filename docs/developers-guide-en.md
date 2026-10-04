@@ -10992,7 +10992,11 @@ caller. The agent reads the closest one before writing its own.
   a form your application loads into its ContentPane, the agent can ask for it
   **inside the shell** — beside the side menu, under the breadcrumb. To get
   there the application runs, so the main form's and that form's opening
-  handlers run too.
+  handlers run too. Given a **`width` and `height`**, a responsive form is
+  laid out for a window of that size — the agent sees it on a small laptop
+  and on a wide monitor. A form never lays out smaller than its minimum, as
+  a running window cannot be made smaller; the answer says when it was held
+  there.
 - **`run_form`** — runs a form off screen, with its real program, through a
   script: type into a control, click, wait, read a property back — and, in an
   application with a side menu, load a form into the ContentPane first. The agent

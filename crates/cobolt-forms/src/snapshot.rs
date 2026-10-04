@@ -32,12 +32,25 @@ pub struct SnapshotOptions {
     pub themes_dir: Option<PathBuf>,
     /// Picture scale: 1.0 = one pixel per designed point. Clamped to 0.25–3.
     pub scale: f32,
+    /// The window to picture the form in, inner size in points; `None` is
+    /// the designed size. A responsive form is laid out for it, never below
+    /// the form's minimum — as a running window cannot be made smaller.
+    pub window: Option<(f32, f32)>,
 }
 
 impl Default for SnapshotOptions {
     fn default() -> Self {
-        Self { theme_default: None, themes_dir: None, scale: 1.0 }
+        Self { theme_default: None, themes_dir: None, scale: 1.0, window: None }
     }
+}
+
+/// The window `form` is pictured in: the one asked for, held at the form's
+/// minimum when it lays out, or the designed size.
+pub fn picture_window(form: &Form, asked: Option<(f32, f32)>) -> Vec2 {
+    let designed = Vec2::new(form.width.max(1) as f32, form.height.max(1) as f32);
+    let Some((w, h)) = asked else { return designed };
+    let floor = crate::layout::min_size_of(form).unwrap_or((1.0, 1.0));
+    Vec2::new(w.max(floor.0).max(1.0).round(), h.max(floor.1).max(1.0).round())
 }
 
 /// The run host's merge: every designed property, stringified, live.
@@ -93,9 +106,10 @@ fn backdrop(form: &Form, image: Option<(egui::TextureId, Vec2)>, window: Vec2) -
     }
 }
 
-/// Picture `form` at its designed size. Returns the image.
+/// Picture `form` in its window ([`picture_window`]). Returns the image.
 pub fn render_form_image(form: &Form, opts: &SnapshotOptions) -> egui::ColorImage {
-    let window = Vec2::new(form.width.max(1) as f32, form.height.max(1) as f32);
+    let designed = Vec2::new(form.width.max(1) as f32, form.height.max(1) as f32);
+    let window = picture_window(form, opts.window);
     let ctx = egui::Context::default();
     ctx.set_fonts(crate::fonts::base_font_definitions());
     ctx.set_zoom_factor(opts.scale.clamp(0.25, 3.0));
@@ -123,7 +137,7 @@ pub fn render_form_image(form: &Form, opts: &SnapshotOptions) -> egui::ColorImag
                 let mut form_size = window;
                 if form.lays_out() {
                     let spec = crate::layout::apply::FormSpec {
-                        designed_size: (window.x, window.y),
+                        designed_size: (designed.x, designed.y),
                         layout: &form.layout,
                         breakpoints: &form.breakpoints,
                         system_text_factor: 1.0,
@@ -168,6 +182,35 @@ pub fn render_form_png(cfrm: &Path, project: &Path, opts: &SnapshotOptions) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A responsive form pictured in a bigger window is laid out for it, and
+    /// one asked smaller than its minimum is held there, as a running window
+    /// is; without a window it is pictured at its designed size.
+    #[test]
+    fn a_form_pictured_in_another_window_is_laid_out_for_it() {
+        use crate::model::{ControlType, PropValue};
+        let mut form = Form::new("F", "F", 400, 300);
+        form.responsive = true;
+        let mut p = Control::new("P", ControlType::Panel, 0, 0);
+        p.rect = crate::model::Rect::new(0, 0, 400, 300);
+        p.set_prop("Dock", PropValue::String("Fill".into()));
+        p.set_prop("BackgroundColor", PropValue::String("#FF0000".into()));
+        p.set_prop("MinWidth", PropValue::Int(300));
+        p.set_prop("MinHeight", PropValue::Int(200));
+        form.controls.push(p);
+        let at = |w, h| render_form_image(&form, &SnapshotOptions { window: Some((w, h)), ..Default::default() });
+
+        let big = at(800.0, 500.0);
+        assert_eq!(big.size, [800, 500]);
+        let red = |img: &egui::ColorImage, x: usize, y: usize| {
+            let c = img.pixels[y * img.size[0] + x];
+            c.r() > 200 && c.g() < 60 && c.b() < 60
+        };
+        assert!(red(&big, 780, 480), "the Fill panel follows the window to its far corner");
+
+        assert_eq!(at(100.0, 100.0).size, [300, 200], "held at the form's minimum");
+        assert_eq!(render_form_image(&form, &SnapshotOptions::default()).size, [400, 300], "designed by default");
+    }
 
     /// A PowerDemo3 form pictured: its designed size, not blank, the same
     /// bytes twice (deterministic).

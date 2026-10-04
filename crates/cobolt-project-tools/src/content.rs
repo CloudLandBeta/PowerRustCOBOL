@@ -351,7 +351,7 @@ pub const RESOURCE_MAP: [(&str, &str); 13] = [
     ("The whole product, chapter by chapter", "powerrustcobol://reference/developers-guide.md"),
     ("A working example of a shell, a ContentPane screen, file maintenance, REST, AI, a dialog", "powerrustcobol://patterns/README.md"),
     ("Did my change compile?", "regenerate, then check"),
-    ("What does my form look like?", "render_form (in_shell for a ContentPane form)"),
+    ("What does my form look like?", "render_form (in_shell for a ContentPane form; width and height for another window size)"),
     ("Does my form do what it should?", "run_form"),
     ("Add an AI chat assistant to the application (only when asked)", "add_powerchat"),
 ];
@@ -731,7 +731,8 @@ fn skills(version: &str) -> Vec<Skill> {
                    read each other's data: they talk through published properties, `super::` and \
                    the files they share. Design the data flow with that in mind."),
                 s("After each screen: `regenerate`, `check` until no error, `render_form` to look at \
-                   it (with `in_shell` for a ContentPane screen), then `run_form` with a short \
+                   it (with `in_shell` for a ContentPane screen, and with `width`/`height` for a \
+                   smaller and a bigger window, to see it hold on another screen), then `run_form` with a short \
                    script that types, clicks and reads back what the screen must do. Fix what the \
                    picture or the run shows before going on."),
                 s("Finish with `check` on the whole project and a `run_form` of the main path. \
@@ -819,10 +820,11 @@ fn skills(version: &str) -> Vec<Skill> {
                    choose it in the IDE's Settings — never edit the project file."),
                 s("Text must stay readable on its background: after a theme change, check every \
                    label and button colour against the new background."),
-                s("Look at it with `render_form` (scale 1). It shows the designed size: for the \
-                   behaviour at other sizes rely on the anchors, docks and containers you set, and \
-                   ask the developer to try the window under Run Form. Fix overlaps, clipped text \
-                   and controls past the edge in the `.cfrm`, then `regenerate` and `check`."),
+                s("Look at it with `render_form` (scale 1) at the designed size, then with `width` \
+                   and `height` for a bigger window (a wide monitor) — a responsive form cannot \
+                   open smaller than its minimum, and the answer says when it was held there. \
+                   Fix overlaps, clipped text and controls past the edge in the `.cfrm`, then \
+                   `regenerate` and `check`."),
             ],
             uses_tools: tools(&["kb_lookup", "render_form", "run_form", "regenerate", "check"]),
             example: Some(

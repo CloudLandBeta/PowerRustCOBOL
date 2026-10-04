@@ -227,7 +227,9 @@ impl<H: ProjectHost> ProjectTools<H> {
                 description: Some(
                     "A picture (PNG) of a form as Run Form draws it when it opens — its theme, \
                      backdrop, controls and images — so you can see what you built: layout, \
-                     overlaps, text that does not fit. Before any event handler runs. With \
+                     overlaps, text that does not fit. Before any event handler runs. With width \
+                     and height, the form is laid out for a window of that size — a responsive \
+                     form on a smaller or a bigger screen — never below its minimum. With \
                      in_shell, a form the application loads into its ContentPane is pictured \
                      there, beside the side menu — the application runs to get there, so the main \
                      form's and this form's opening handlers run, with their real effects."
@@ -239,6 +241,10 @@ impl<H: ProjectHost> ProjectTools<H> {
                         "path": { "type": "string", "description": "Project-relative .cfrm, e.g. forms/ORDERS.cfrm" },
                         "scale": { "type": "number", "minimum": 0.25, "maximum": 3,
                                    "description": "Picture scale, 1 = one pixel per designed point (default 1)." },
+                        "width": { "type": "number", "minimum": 64, "maximum": 8000,
+                                   "description": "Picture the form in a window this wide, in points, laid out for it as a responsive form is (default: its designed width). Use it with height to see the form on another screen." },
+                        "height": { "type": "number", "minimum": 64, "maximum": 8000,
+                                    "description": "The window's height, in points (default: its designed height)." },
                         "in_shell": { "type": "boolean",
                                       "description": "Picture the form inside the project's application shell (main form with a SideMenu)." }
                     },
@@ -474,7 +480,11 @@ impl<H: ProjectHost> ProjectTools<H> {
             let _w = shared.write_lock.lock().unwrap_or_else(|p| p.into_inner());
             return run::in_shell(&mut self.host, root, runner.as_ref(), &path);
         }
-        render::run(&self.host, root, self.shared.renderer.as_ref(), &path, scale)
+        let window = match (args.get("width").and_then(Value::as_f64), args.get("height").and_then(Value::as_f64)) {
+            (None, None) => None,
+            (w, h) => Some([w.unwrap_or(0.0) as f32, h.unwrap_or(0.0) as f32]),
+        };
+        render::run(&self.host, root, self.shared.renderer.as_ref(), &path, scale, window)
     }
 
     fn run_project_tool(&mut self, name: &str, args: &Value, root: &ProjectRoot, shared: &Arc<Shared>) -> Result<Value, String> {

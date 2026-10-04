@@ -459,9 +459,11 @@ fn create_project_makes_a_checkable_project_and_open_project_switches() {
 fn render_form_answers_with_an_image() {
     use cobolt_mcp::McpHandler;
     let dir = fixture("render");
-    let stub: cobolt_project_tools::tools::render::Renderer = std::sync::Arc::new(|cfrm: &Path, project: &Path, _theme, scale: f32| {
+    let stub: cobolt_project_tools::tools::render::Renderer = std::sync::Arc::new(|cfrm: &Path, project: &Path, picture: &cobolt_project_tools::tools::render::Picture| {
         assert!(cfrm.ends_with("forms/MAIN-FORM.cfrm") && cfrm.starts_with(project));
-        Ok((vec![0x89, b'P', b'N', b'G'], [(300.0 * scale) as usize, (200.0 * scale) as usize]))
+        // A form whose minimum is 300x200, designed at that.
+        let [w, h] = picture.window.map(|[w, h]| [w.max(300.0), h.max(200.0)]).unwrap_or([300.0, 200.0]);
+        Ok((vec![0x89, b'P', b'N', b'G'], [(w * picture.scale) as usize, (h * picture.scale) as usize]))
     });
     let shared = std::sync::Arc::new(cobolt_project_tools::tools::Shared::new().with_renderer(stub));
     let mut tools = ProjectTools::with_shared(HeadlessHost::new(&dir, "test"), shared);
@@ -471,6 +473,16 @@ fn render_form_answers_with_an_image() {
     let meta: Value = serde_json::from_str(r.content[1].as_text().unwrap()).unwrap();
     assert_eq!((meta["width"].as_u64(), meta["height"].as_u64()), (Some(600), Some(400)));
     assert_eq!(meta["project"], "CheckDemo.project.toml");
+    assert!(meta.get("window").is_none(), "no window asked, none reported");
+    // In a window of another size: laid out there, or held at the minimum.
+    let r = tools.call_tool("render_form", &json!({"path": "forms/MAIN-FORM.cfrm", "width": 1200, "height": 700}));
+    let meta: Value = serde_json::from_str(r.content[1].as_text().unwrap()).unwrap();
+    assert_eq!(meta["window"], json!([1200.0, 700.0]));
+    assert!(meta.get("held_at_minimum").is_none());
+    let r = tools.call_tool("render_form", &json!({"path": "forms/MAIN-FORM.cfrm", "width": 100, "height": 100}));
+    let meta: Value = serde_json::from_str(r.content[1].as_text().unwrap()).unwrap();
+    assert_eq!(meta["window"], json!([300.0, 200.0]));
+    assert!(meta["held_at_minimum"].as_str().unwrap().contains("300x200"));
     assert_eq!(tools.call_tool("render_form", &json!({"path": "src/main.cbl"})).is_error, Some(true), "not a form");
     let mut bare = ProjectTools::new(HeadlessHost::new(&dir, "test"));
     let r = bare.call_tool("render_form", &json!({"path": "forms/MAIN-FORM.cfrm"}));

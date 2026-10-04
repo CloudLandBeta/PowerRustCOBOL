@@ -19,9 +19,21 @@ use serde_json::{json, Value};
 use crate::host::ProjectHost;
 use crate::root::ProjectRoot;
 
-/// Picture the form at `cfrm`, assets resolved against `project`, with the
-/// project's default theme and a scale: `(png, [width, height])`.
-pub type Renderer = Arc<dyn Fn(&Path, &Path, Option<String>, f32) -> Result<(Vec<u8>, [usize; 2]), String> + Send + Sync>;
+/// How a form is to be pictured.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Picture {
+    /// The project's default form theme (`[forms] theme`).
+    pub theme_default: Option<String>,
+    /// 1 = one pixel per designed point.
+    pub scale: f32,
+    /// The window to lay the form out in, `[width, height]` in points;
+    /// `None` is its designed size.
+    pub window: Option<[f32; 2]>,
+}
+
+/// Picture the form at `cfrm`, assets resolved against `project`, as
+/// `picture` says: `(png, [width, height])` in pixels.
+pub type Renderer = Arc<dyn Fn(&Path, &Path, &Picture) -> Result<(Vec<u8>, [usize; 2]), String> + Send + Sync>;
 
 /// The project's default form theme: `[forms] theme` in the manifest.
 fn theme_default(root: &ProjectRoot) -> Option<String> {
@@ -36,7 +48,14 @@ fn theme_default(root: &ProjectRoot) -> Option<String> {
 }
 
 /// Run `render_form`: the PNG and what the agent is told about it.
-pub fn run(host: &impl ProjectHost, root: &ProjectRoot, renderer: Option<&Renderer>, rel: &str, scale: f32) -> Result<(Vec<u8>, Value), String> {
+pub fn run(
+    host: &impl ProjectHost,
+    root: &ProjectRoot,
+    renderer: Option<&Renderer>,
+    rel: &str,
+    scale: f32,
+    window: Option<[f32; 2]>,
+) -> Result<(Vec<u8>, Value), String> {
     let renderer = renderer.ok_or("render_form is not available in this server")?;
     if !rel.to_ascii_lowercase().ends_with(".cfrm") {
         return Err("render_form takes a form (.cfrm)".to_owned());
@@ -45,7 +64,8 @@ pub fn run(host: &impl ProjectHost, root: &ProjectRoot, renderer: Option<&Render
     if !abs.is_file() {
         return Err(format!("no form at {rel}"));
     }
-    let (png, [w, h]) = renderer(&abs, root.dir(), theme_default(root), scale)?;
+    let picture = Picture { theme_default: theme_default(root), scale, window };
+    let (png, [w, h]) = renderer(&abs, root.dir(), &picture)?;
     let mut answer = json!({
         "form": rel,
         "width": w,
@@ -53,6 +73,16 @@ pub fn run(host: &impl ProjectHost, root: &ProjectRoot, renderer: Option<&Render
         "scale": scale,
         "note": "As Run Form draws it when the form opens — before any event handler has run.",
     });
+    if let Some([ww, wh]) = window {
+        // The window the form was laid out in, in points: smaller than asked
+        // when the form's minimum held it, as a running window is held.
+        let (pw, ph) = ((w as f32 / scale).round(), (h as f32 / scale).round());
+        answer["window"] = json!([pw, ph]);
+        if pw > ww.round() || ph > wh.round() {
+            answer["held_at_minimum"] =
+                json!(format!("the form cannot lay out smaller than {pw}x{ph}: a window asked {ww}x{wh} opens at that"));
+        }
+    }
     if host.unsaved(&abs) {
         answer["unsaved"] = json!("the IDE holds unsaved edits to this form: the picture shows the saved file");
     }
