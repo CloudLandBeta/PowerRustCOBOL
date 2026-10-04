@@ -6834,6 +6834,37 @@ children still belong to it). This works for the main window and for child
 windows; a shell application's window (a main form carrying a SideMenu) does
 not move this way yet.
 
+**Rounded corners.** With **Show title bar** off, the inspector offers
+**Corner radius** (`CornerRadius`, in pixels, 0 to 255; 0 keeps the corners
+square). The window's corners are then drawn round, and the desktop shows past
+the curve: the background colour, the gradient, the picture in every mode and
+the controls you put in a corner all stop at it. It works for the main window,
+child windows and a shell application's window — there the rail, the
+breadcrumb strip and the ContentPane each round the corners they touch. The
+designer canvas shows the corners as they will run. While the title bar is on,
+the corners belong to the operating system, so the radius is kept but not used
+(and the row is hidden).
+
+```cobol
+    MOVE 24 TO me::CornerRadius.        *> a softer window
+    MOVE 0  TO me::CornerRadius.        *> square again
+```
+
+> ⚠️ **Caveats.** A window can only be made see-through when it is created, so
+> `me::CornerRadius` rounds a window at run time only if its form was
+> **designed** with a radius above 0; set one in the designer and change it
+> from COBOL as you like. Content that sits right in a corner is cut by the
+> curve, and a DataGrid, FileDropZone, Maps, TabControl, ToolBar or Viewer placed
+> into a corner — or a TreeView flush against one, whose first row is drawn at
+> its very edge — still paints past it: keep those a radius away from a rounded
+> corner. The drop shadow the operating system normally draws around a window
+> is not drawn around one whose form has a radius — even while its title bar
+> shows.
+
+> 📷 Screenshot needed — `rounded-window.png`: a form with Show title bar off
+> and Corner radius 24, running over a contrasting desktop, so the four rounded
+> corners and the desktop behind them are visible.
+
 Each **actual** fullscreen transition fires the form's `onFullScreenChanged`
 event (the OS may refuse a request — the event follows reality, once per real
 change; read `me`'s `FullScreen` for the new value).
@@ -6856,8 +6887,9 @@ the running window, from the form itself or from a form it opened:
     MOVE "Done"      TO super::Title.
 ```
 
-`Title` retitles, `Width`/`Height` resize (64 to 8192), `X`/`Y` move, and
-`BackgroundColor`/`Transparency` repaint the backdrop. In a shell application
+`Title` retitles, `Width`/`Height` resize (64 to 8192), `X`/`Y` move,
+`BackgroundColor`/`Transparency` repaint the backdrop and `CornerRadius`
+re-rounds it. In a shell application
 the shell owns the window, so there only the backdrop changes.
 
 **A see-through form.** `Transparency` above 0 makes the main window show the

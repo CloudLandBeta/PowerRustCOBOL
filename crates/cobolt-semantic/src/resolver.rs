@@ -42,6 +42,9 @@ pub const UNIVERSAL_FORM_PROPS: &[&str] = &[
     "WindowState",
     "FullScreen",
     "TitleVisible",
+    // The window's corner radius — it rounds the window while TitleVisible is
+    // off (operator, 2026-10-03).
+    "CornerRadius",
     "CanMinimize",
     "CanMaximize",
     "FormState",

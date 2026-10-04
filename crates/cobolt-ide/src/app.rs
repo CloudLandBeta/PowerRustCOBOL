@@ -16932,6 +16932,10 @@ impl CoboltApp {
                 // Filled in below, with the DESIGNED extent.
                 image_extent: None,
                 draggable: false,
+                // The preview window always has a title bar, so its corners
+                // are the OS's: a form's CornerRadius rounds only a window
+                // without one (the run form, the designer canvas).
+                window: None,
             }
         };
         let active_tabs: cobolt_forms::containers::ActiveTabs = controls

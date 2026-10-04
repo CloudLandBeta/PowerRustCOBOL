@@ -7586,6 +7586,11 @@ pub struct Form {
     pub full_screen: bool,
     /// Show the native title bar; false = chromeless window (R15).
     pub title_visible: bool,
+    /// The window's corner radius in pixels (operator, 2026-10-03). It rounds
+    /// the window only while it has no title bar — a titled window's corners
+    /// belong to the OS — so read it through [`Form::window_corner_radius`].
+    /// 0 = square, the default.
+    pub corner_radius: u32,
     /// How this form's own face looks while blocked by a Sync-opened (modal)
     /// child of its own — a child window, or a modal a ContentPane occupant
     /// opened (051 R19/R28). Defaults to `None` (the enum's default).
@@ -7638,6 +7643,17 @@ impl Form {
     /// `responsive` flag is never changed by the second.
     pub fn lays_out(&self) -> bool {
         self.responsive || crate::layout::scale::style(&crate::layout::props::FormBag(&self.layout)) != 0
+    }
+
+    /// The radius the window's corners are drawn with: [`Form::corner_radius`]
+    /// while the window has no title bar, 0 while it has one — the title bar
+    /// and the corners above it are the OS's (operator, 2026-10-03).
+    pub fn window_corner_radius(&self) -> u32 {
+        if self.title_visible {
+            0
+        } else {
+            self.corner_radius
+        }
     }
 
     pub fn new(name: impl Into<String>, title: impl Into<String>, width: u32, height: u32) -> Self {
@@ -7699,6 +7715,7 @@ impl Form {
             window_state: WindowState::default(),
             full_screen: false,
             title_visible: true,
+            corner_radius: 0,
             modal_overlay_style: ModalOverlayStyle::default(),
             form_format: FormFormat::default(),
             menu_pane_background: None,

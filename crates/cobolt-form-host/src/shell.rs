@@ -497,6 +497,11 @@ pub struct Shell {
     pub id_scope: String,
     /// How far the MenuPane's rows are scrolled (see `draw_mounted_menus`).
     menu_scroll: f32,
+    /// The rounded window this shell fills, set each frame by whoever runs it
+    /// (form `CornerRadius` on a main form without a title bar). The rail and
+    /// the breadcrumb strip are pieces of it, as the ContentPane is, and each
+    /// rounds only the window corners it reaches. `None` — square.
+    pub window_arc: Option<cobolt_forms::paint::ContainerClip>,
     /// A breadcrumb segment clicked this frame, drained with
     /// [`Self::take_breadcrumb_click`].
     pending_crumb: Option<usize>,
@@ -546,6 +551,7 @@ impl Default for Shell {
             expanded: Vec::new(),
             id_scope: String::new(),
             menu_scroll: 0.0,
+            window_arc: None,
             pending_crumb: None,
             pending_reset: false,
             last_crumb_layout: None,
@@ -589,7 +595,7 @@ impl Shell {
             self.form_backdrop.unwrap_or(egui::Color32::TRANSPARENT),
             CHROME_FILL,
         );
-        ui.painter().rect_filled(ui.max_rect(), 0.0, base);
+        cobolt_forms::paint::fill_in_clip(ui.painter(), ui.max_rect(), base, self.window_arc);
 
         let Some(mp) = &self.menu_background else {
             // With no MenuPaneBackground group configured, the rail's own
@@ -624,6 +630,7 @@ impl Shell {
             behind_fill: None,
             image_extent: None,
             draggable: false,
+            window: self.window_arc,
         };
         let painted =
             cobolt_forms::render::paint_backdrop(ui.painter(), ui.max_rect(), &backdrop);
@@ -755,6 +762,7 @@ impl Shell {
         // The rail's LIVE state, not the designed one: the arrow has to show
         // what the next click does.
         state.collapsed = self.collapsed;
+        state.clip = self.window_arc;
         let layout = bc::layout(painter, rect, &state);
         state.toggle_hovered = ctx
             .pointer_interact_pos()
@@ -818,6 +826,7 @@ impl Shell {
         let detail = self.detail.clone();
         let side = self.side_ctrl.clone();
         let collapsed = self.collapsed;
+        let window_arc = self.window_arc;
         let (layout, hovered) = {
             let mut state = match &side {
                 Some(c) => bc::state_for_control(&ctx, c, &segments, bg),
@@ -840,6 +849,7 @@ impl Shell {
             state.detail = detail.clone();
             state.collapsed = collapsed;
             state.toggle_hovered = hovered;
+            state.clip = window_arc;
             bc::paint(painter, rect, &state, &layout);
         })
     }
@@ -936,6 +946,7 @@ impl Shell {
         let ctrl = self.side_control();
         let expanded = self.expanded.clone();
         let mut state = sidebar::state_for_control(ui.ctx(), &ctrl, &items, 255, &expanded);
+        state.clip = self.window_arc;
 
         // The rail's designed background, over the opaque base the chrome
         // painted. R39's `MenuPaneBackground` group, when the developer
@@ -1282,9 +1293,9 @@ impl Shell {
             .and_then(crate::host::modal_overlay_fill)
         {
             let painter = crate::host::overlay_painter(root_ui);
-            painter.rect_filled(menu_rect, 0.0, fill);
+            cobolt_forms::paint::fill_in_clip(&painter, menu_rect, fill, self.window_arc);
             if crumb_done {
-                painter.rect_filled(breadcrumb_rect, 0.0, fill);
+                cobolt_forms::paint::fill_in_clip(&painter, breadcrumb_rect, fill, self.window_arc);
             }
         }
 
@@ -2129,6 +2140,9 @@ impl ShellApp {
             .into_iter()
             .map(|(_, label)| label)
             .collect();
+        // The main form's CornerRadius rounds the whole window; the rail, the
+        // strip and the pane are each a piece of it.
+        shell.window_arc = host.shell_window_arc(root_ui.ctx());
         shell.show_with_host(root_ui, |_ui| {}, host);
         let crumb_click = shell.take_breadcrumb_click();
         let reset_click = shell.take_reset_request();

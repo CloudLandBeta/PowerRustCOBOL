@@ -258,6 +258,7 @@ pub fn build_object_seed(
             ("WindowState".into(), form.window_state.as_str().to_string()),
             ("FullScreen".into(), b(form.full_screen)),
             ("TitleVisible".into(), b(form.title_visible)),
+            ("CornerRadius".into(), form.corner_radius.to_string()),
             ("CanMinimize".into(), b(form.can_minimize)),
             ("CanMaximize".into(), b(form.can_maximize)),
             // Design-time FormState is always Ready (spec 037 R16).

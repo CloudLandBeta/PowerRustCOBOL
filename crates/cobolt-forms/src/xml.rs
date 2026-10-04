@@ -218,6 +218,7 @@ enum OwnedEvent {
         window_state: crate::model::WindowState,
         full_screen: bool,
         title_visible: bool,
+        corner_radius: u32,
         modal_overlay_style: crate::model::ModalOverlayStyle,
         // 049 Application shell
         form_format: crate::model::FormFormat,
@@ -337,6 +338,10 @@ fn next_owned<R: std::io::BufRead>(
                     let title_visible = get_attr(e, b"title-visible")?
                         .map(|v| v != "false" && v != "0")
                         .unwrap_or(true);
+                    // Absent means square, so every older form looks the same.
+                    let corner_radius = get_attr(e, b"corner-radius")?
+                        .and_then(|v| v.trim().parse::<u32>().ok())
+                        .unwrap_or(0);
                     // Absent means SemiTransparent — the closest match to the
                     // fade `disable()` already gave every blocked form before
                     // this property existed, so an old `.cfrm` looks the same.
@@ -400,6 +405,7 @@ fn next_owned<R: std::io::BufRead>(
                         window_state,
                         full_screen,
                         title_visible,
+                        corner_radius,
                         modal_overlay_style,
                         form_format,
                         window_effects,
@@ -576,6 +582,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 window_state,
                 full_screen,
                 title_visible,
+                corner_radius,
                 modal_overlay_style,
                 form_format,
                 window_effects,
@@ -609,6 +616,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 f.window_state = window_state;
                 f.full_screen = full_screen;
                 f.title_visible = title_visible;
+                f.corner_radius = corner_radius;
                 f.modal_overlay_style = modal_overlay_style;
                 f.form_format = form_format;
                 f.window_effects = window_effects;
@@ -1659,6 +1667,12 @@ pub fn form_to_string(form: &Form) -> Result<String, FormError> {
         }
         if !form.title_visible {
             elem.push_attribute(("title-visible", "false"));
+        }
+        // Additive: only written when the window is rounded, so a square form
+        // round-trips byte-identical. Kept while the title bar is on too — the
+        // developer's value survives switching the title bar back and forth.
+        if form.corner_radius > 0 {
+            elem.push_attribute(("corner-radius", form.corner_radius.to_string().as_str()));
         }
         // Control indexes count from 1 in this file (see
         // `migrate_zero_based_indexes`).
@@ -3634,6 +3648,34 @@ Actor Caption:string</Property>
         assert!(t.contains("PROCEDURE DIVISION."));
         // No event carries data yet → no USING clause.
         assert!(!t.contains("USING"));
+    }
+
+    /// A form's `CornerRadius` (operator, 2026-10-03) round-trips as
+    /// `corner-radius`, is absent from a square form's file, and rounds the
+    /// window only while its title bar is off — the value is kept either way,
+    /// so ticking the title bar back on and off again loses nothing.
+    #[test]
+    fn a_form_corner_radius_round_trips_and_rounds_only_without_a_title_bar() {
+        let square = Form::new("SQ-FORM", "Square", 400, 300);
+        let path = std::env::temp_dir().join("cobolt_test_corner_radius_square.cfrm");
+        save_form(&square, &path).expect("save");
+        let saved = std::fs::read_to_string(&path).expect("read back");
+        assert!(!saved.contains("corner-radius"), "a square form writes no corner-radius");
+
+        let mut round = Form::new("RD-FORM", "Round", 400, 300);
+        round.corner_radius = 24;
+        assert_eq!(round.window_corner_radius(), 0, "a titled window's corners are the OS's");
+        round.title_visible = false;
+        assert_eq!(round.window_corner_radius(), 24);
+        save_form(&round, &path).expect("save");
+        let saved = std::fs::read_to_string(&path).expect("read back");
+        let _ = std::fs::remove_file(&path);
+        assert!(saved.contains(r#"corner-radius="24""#), "{saved}");
+        let back = load_form_from_str(&saved).expect("reload");
+        assert_eq!(back.corner_radius, 24);
+        assert!(!back.title_visible);
+        assert_eq!(back.window_corner_radius(), 24);
+        println!("corner-radius: absent when 0; 24 round-trips; window radius 0 with a title bar, 24 without");
     }
 
     /// Indexes count from 1 (operator, 2026-10-03): a form saved before that

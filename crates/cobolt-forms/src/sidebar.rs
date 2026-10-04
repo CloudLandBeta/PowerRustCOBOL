@@ -936,25 +936,24 @@ pub fn paint(
         sh.paint_in(painter, rect, 1.0, state.clip);
     }
     // The rail's face is square on its own and lifted to a rounded parent's
-    // arc on any corner that lands on one, like every other frame (spec 057).
-    let (face, rounding) = crate::paint::lift_to_container(rect, egui::CornerRadius::ZERO, state.clip)
-        .unwrap_or((rect, egui::CornerRadius::ZERO));
+    // arc on any corner that lands on one, like every other frame (spec 057)
+    // — or to a rounded WINDOW's, when the rail is the shell's (form
+    // `CornerRadius`). A collapsed rail is too narrow to hold a large radius,
+    // so the helpers lay it down as rows trimmed to the arc.
     match &state.gradient {
         // A gradient REPLACES the plain colour. It still lands on the form's
         // backdrop first, so a translucent gradient shows the application
         // through it rather than the desktop.
         Some((start, end, dir)) => {
             if state.backdrop.a() > 0 {
-                painter.rect_filled(face, rounding, state.backdrop);
+                crate::paint::fill_in_clip(painter, rect, state.backdrop, state.clip);
             }
-            painter.add(egui::Shape::mesh(crate::paint::background_gradient_mesh(
-                face, *start, *end, dir, rounding,
-            )));
+            crate::paint::gradient_in_clip(painter, rect, *start, *end, dir, state.clip);
         }
         None => {
             let fill = crate::paint::composite_premultiplied_over(state.bg, state.backdrop);
             if fill.a() > 0 {
-                painter.rect_filled(face, rounding, fill);
+                crate::paint::fill_in_clip(painter, rect, fill, state.clip);
             }
         }
     }

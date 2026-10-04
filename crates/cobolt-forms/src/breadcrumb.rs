@@ -166,6 +166,10 @@ pub struct BreadcrumbState<'a> {
     /// The toggle's size when the developer set one (`BreadcrumbIconSize`).
     /// `None` keeps the historical square-of-the-frame-height rule.
     pub toggle_size: Option<f32>,
+    /// The rounded window the strip is a piece of (form `CornerRadius` on a
+    /// shell window without a title bar): the strip's fill stops at the
+    /// window's arc on the corners it reaches. `None` — square.
+    pub clip: Option<crate::paint::ContainerClip>,
 }
 
 /// Where the strip's parts landed. Painting and hit-testing both walk this, so
@@ -263,6 +267,7 @@ pub fn state_for_control<'a>(
                 .unwrap_or_else(|| crate::paint::ctrl_font_size(ctrl)),
         ),
         toggle_size: ctrl.breadcrumb_icon_size(),
+        clip: None,
         align: TextAlign::parse(
             &ctrl
                 .get_prop("BreadcrumbTextAlign")
@@ -288,6 +293,7 @@ pub fn state_plain<'a>(segments: &'a [String], bg: Color32) -> BreadcrumbState<'
         font: FontId::proportional(13.0),
         align: TextAlign::default(),
         toggle_size: None,
+        clip: None,
     }
 }
 
@@ -360,8 +366,9 @@ pub fn paint(
     l: &BreadcrumbLayout,
 ) {
     // R43 — the chrome paints itself, edge to edge. An unpainted strip in a
-    // transparent shell window is a hole to the desktop.
-    painter.rect_filled(rect, 0.0, state.bg);
+    // transparent shell window is a hole to the desktop — except past a
+    // rounded window's arc, where the desktop is what belongs.
+    crate::paint::fill_in_clip(painter, rect, state.bg, state.clip);
 
     if state.toggle_hovered {
         painter.rect_filled(

@@ -167,6 +167,8 @@ The root element. Its attributes:
   `title-visible`, `start-position`, `x`, `y`, `window-effects`, `modal-overlay-style`,
   `form-format`, `responsive` — window behaviour; the properties of the same names in
   `form-layout-and-events.md` and `controls.md` say what each value means.
+- `corner-radius` — the window's corner radius in pixels, rounding it while `title-visible` is
+  `false`; written only when it is not 0.
 - `index-base` — always `1`: the stored indexes (`tab`, `SelectedIndex`, `SelectedTab`) count
   from 1, with 0 for none. A file without it was saved before indexes counted from 1, and is
   shifted once as it loads. Write `index-base="1"` on every form you write.

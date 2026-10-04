@@ -283,6 +283,21 @@ pub struct Backdrop {
     /// Every painted part of a control keeps its own clicks. Interactive mode
     /// only; `false` for every titled window, pane and canvas.
     pub draggable: bool,
+    /// The rounded WINDOW this backdrop sits in, when its corners are rounded
+    /// — a form's `CornerRadius` on a window without a title bar (operator,
+    /// 2026-10-03): the window's face on screen, its radius and which corners
+    /// round ([`window_arc`]). The caller states it, because only the caller
+    /// knows where its window is: a plain window's backdrop fills all of it,
+    /// a shell's ContentPane is one piece of it (the rail and the breadcrumb
+    /// strip are the others) and must round only where it meets the window's
+    /// corners.
+    ///
+    /// The corners are drawn round, never repaired (the lesson of spec 057):
+    /// the colour, the gradient, the theme art and the picture all stop at the
+    /// arc, and every top-level control is clipped to it exactly as the child
+    /// of a rounded Panel is to its parent's. The host makes the window
+    /// see-through, so what lies outside the arc is the desktop.
+    pub window: Option<crate::paint::ContainerClip>,
 }
 
 impl Backdrop {
@@ -320,8 +335,29 @@ impl Default for Backdrop {
             behind_fill: None,
             image_extent: None,
             draggable: false,
+            window: None,
         }
     }
+}
+
+/// A rounded window as the clip its backdrop and top-level controls are cut
+/// to: its face on screen and its radius, clamped to half the shorter side as
+/// egui would, on all four corners — a piece of the window rounds only the
+/// corners it actually reaches. `None` for a radius of 0, so a square window
+/// changes nothing.
+pub fn window_arc(face: Rect, radius: u32) -> Option<crate::paint::ContainerClip> {
+    if radius == 0 || face.width() <= 0.0 || face.height() <= 0.0 {
+        return None;
+    }
+    let rad = (radius as f32).min(255.0).min(0.5 * face.width().min(face.height()));
+    Some((face, rad, [true; 4]))
+}
+
+/// [`window_arc`] for a form's own window on `face`: its
+/// [`crate::model::Form::window_corner_radius`], so `None` while the window
+/// has a title bar.
+pub fn form_window_arc(form: &crate::model::Form, face: Rect) -> Option<crate::paint::ContainerClip> {
+    window_arc(face, form.window_corner_radius())
 }
 
 /// All inputs to one form render.
@@ -489,18 +525,15 @@ pub fn paint_backdrop(painter: &egui::Painter, rect: Rect, backdrop: &Backdrop) 
             image_alpha: 0,
         };
     }
-    painter.rect_filled(rect, 0.0, bg);
+    // A rounded window (`Backdrop::window`): every layer below is cut to its
+    // arc, so the window ends there and the desktop shows beyond.
+    let window = backdrop.window;
+    crate::paint::fill_in_clip(painter, rect, bg, window);
 
     let gradient = if backdrop.gradient_enabled {
         let start = backdrop_gradient_color(&backdrop.gradient_start_hex, backdrop.transparency);
         let end = backdrop_gradient_color(&backdrop.gradient_end_hex, backdrop.transparency);
-        painter.add(egui::Shape::mesh(crate::paint::background_gradient_mesh(
-            rect,
-            start,
-            end,
-            &backdrop.gradient_direction,
-            egui::CornerRadius::ZERO,
-        )));
+        crate::paint::gradient_in_clip(painter, rect, start, end, &backdrop.gradient_direction, window);
         Some((start, end))
     } else {
         None
@@ -511,11 +544,12 @@ pub fn paint_backdrop(painter: &egui::Painter, rect: Rect, backdrop: &Backdrop) 
     // Themed background (007 R8): when the form opts in and the active pack
     // provides one, the pack's art replaces the form's own image. Same call,
     // same order and same "themed wins" rule as the designer canvas.
-    let themed = crate::paint::draw_theme_background(
+    let themed = crate::paint::draw_theme_background_in(
         painter,
         rect,
         backdrop.use_theme_background,
         alpha_mul,
+        window,
     );
     // The colour and the gradient above filled the WHOLE backdrop. The image
     // may be confined to a smaller area — see `Backdrop::image_extent` — in
@@ -547,7 +581,7 @@ pub fn paint_backdrop(painter: &egui::Painter, rect: Rect, backdrop: &Backdrop) 
                     image_area.min + Vec2::new(tsize.x * i as f32, tsize.y * j as f32),
                     tsize,
                 );
-                clipped.image(tex, dest, uv, tint);
+                crate::paint::image_in_clip(&clipped, tex, dest, uv, tint, window);
             }
             image_tile = Some(tsize);
             // The first tile: it fixes the grid's phase, which is what the
@@ -555,7 +589,7 @@ pub fn paint_backdrop(painter: &egui::Painter, rect: Rect, backdrop: &Backdrop) 
             (tex, Rect::from_min_size(image_area.min, tsize))
         } else {
             let dest = image_dest(image_area, tsize, backdrop.image_mode);
-            clipped.image(tex, dest, uv, tint);
+            crate::paint::image_in_clip(&clipped, tex, dest, uv, tint, window);
             (tex, dest)
         }
     });
@@ -789,6 +823,20 @@ fn container_clip_prop(border: Rect, rad: f32) -> String {
     format!(
         "{},{},{},{},{},1,1,1,1",
         border.min.x, border.min.y, border.max.x, border.max.y, rad
+    )
+}
+
+/// The `_ContainerClip` a top-level control of a rounded window carries: the
+/// window's face, its radius and which of its corners are rounded
+/// ([`window_arc`]). The window is to its top-level controls what a rounded
+/// Panel is to its children, so they take the same lift and stay inside its
+/// arc without anything being repainted.
+fn window_clip_prop((face, rad, flags): crate::paint::ContainerClip) -> String {
+    let f = |b: bool| u8::from(b);
+    format!(
+        "{},{},{},{},{},{},{},{},{}",
+        face.min.x, face.min.y, face.max.x, face.max.y, rad,
+        f(flags[0]), f(flags[1]), f(flags[2]), f(flags[3])
     )
 }
 
@@ -2207,6 +2255,9 @@ fn render_form_inner(
     // clipped to the painter's own viewport when it is drawn.
     let content_rect = backdrop_rect.union(ui.max_rect());
     let painted = paint_backdrop(&painter, backdrop_rect, &input.backdrop);
+    // The rounded window the backdrop sits in — what its top-level controls
+    // are clipped to (`Backdrop::window`).
+    let window = input.backdrop.window;
     let bg = painted.bg;
     // Publish it for the controls whose own background is translucent and so
     // cannot be resolved without knowing what is behind them (the SideMenu's
@@ -2567,6 +2618,8 @@ fn render_form_inner(
 
         if let Some((border, rad)) = pic_border {
             face.set_prop("_ContainerClip", container_clip_prop(border, rad));
+        } else if let Some(w) = window.filter(|_| controls[idx].parent.is_none()) {
+            face.set_prop("_ContainerClip", window_clip_prop(w));
         }
 
         if interactive {
@@ -3415,6 +3468,8 @@ pub fn render_faces(
     let mut out = RenderOutput::default();
     let controls = input.controls;
     let order = containers::render_order(controls);
+    // A rounded window: its top-level controls are cut to its arc.
+    let window = input.backdrop.window;
     for &idx in &order {
         let base = &controls[idx];
         if !input.state.visible(base) {
@@ -3484,6 +3539,8 @@ pub fn render_faces(
         }
         if let Some((border, rad)) = pic_border {
             face.set_prop("_ContainerClip", container_clip_prop(border, rad));
+        } else if let Some(w) = window.filter(|_| controls[idx].parent.is_none()) {
+            face.set_prop("_ContainerClip", window_clip_prop(w));
         }
         let pic_tex = if matches!(face.control_type, ControlType::PictureBox) {
             crate::paint::picturebox_texture(painter.ctx(), sv(&face, "ImagePath").trim())
@@ -20504,6 +20561,7 @@ mod tests {
                             behind_fill: None,
                             image_extent: None,
                             draggable: false,
+                            window: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -25628,6 +25686,7 @@ mod shape_dump {
                             behind_fill: None,
                             image_extent: None,
                             draggable: false,
+                            window: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -25701,6 +25760,7 @@ mod shape_dump {
                             behind_fill: None,
                             image_extent: None,
                             draggable: false,
+                            window: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -25778,6 +25838,7 @@ mod shape_dump {
                             behind_fill: None,
                             image_extent: None,
                             draggable: false,
+                            window: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -25855,6 +25916,7 @@ mod shape_dump {
                             behind_fill: None,
                             image_extent: None,
                             draggable: false,
+                            window: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -26080,6 +26142,7 @@ mod shape_dump {
                             behind_fill: None,
                             image_extent: None,
                             draggable: false,
+                            window: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -26267,6 +26330,7 @@ mod shape_dump {
                             behind_fill: None,
                             image_extent: None,
                             draggable: false,
+                            window: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -26788,6 +26852,7 @@ mod maps_corner_tests {
                             behind_fill: None,
                             image_extent: None,
                             draggable: false,
+                            window: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -27293,6 +27358,7 @@ mod notch_ambient_tests {
                             behind_fill: Some(BEHIND),
                             image_extent: None,
                             draggable: false,
+                            window: None,
                         },
                     };
                     let _ = render_form(ui, &rin);

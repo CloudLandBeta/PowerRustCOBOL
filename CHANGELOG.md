@@ -8,6 +8,61 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.149] — 2026-10-04
+
+### Feature: a window without a title bar can round its corners
+
+A form gains **Corner radius** (`CornerRadius`, pixels 0–255, default 0;
+`.cfrm` attribute `corner-radius`, written only when not 0). It rounds the
+window only while **Show title bar** is off — the inspector offers the row only
+then, and a titled window's corners stay the system's (operator, 2026-10-03).
+The main window, child windows and a shell application's window all round.
+
+- **Drawn round, never repaired** (the lesson of spec 057). A window outside
+  its arc is the desktop, so nothing can be repainted there; every layer that
+  reaches a corner stops at the arc itself. `Backdrop::window` states the
+  window's arc (its face, radius and corners) and the engine cuts every layer
+  to it: colour, gradient, theme art and picture in all five modes
+  (`paint::fill_in_clip`, `gradient_in_clip`, `image_in_clip`, one decision in
+  `clip_pieces`: one anti-aliased rounded rect where a piece sits exactly on
+  the window's corner, otherwise rows trimmed to the arc within the radius and
+  a square middle — exact for a tile smaller than the arc, a 36 px breadcrumb
+  strip or a collapsed rail, and no notch where a piece meets the arc below a
+  corner). Top-level controls get the window's arc as their `_ContainerClip`,
+  so they take the same lift a rounded Panel's children take.
+- **Hosts.** A form designed with a radius gets a see-through window (alpha is
+  chosen at creation), title bar or not; its panel fills nothing and a
+  see-through child clears the shared clear colour. In a shell window the
+  rail (base, `MenuPaneBackground`, the rail face), the breadcrumb strip
+  (`BreadcrumbState::clip`) and the ContentPane (backdrop and top-level
+  controls, root form or occupant) are pieces of one window arc and round only
+  the corners they touch; the modal overlay is cut the same way. A child
+  window running as a shell does the same with its own form's radius.
+- **Run time.** `me::CornerRadius` (universal form surface, build-time
+  checked) re-rounds the window; only a window designed with a radius was
+  created see-through and can show one.
+- **IDE.** The designer canvas paints the rounded window and lifts top-level
+  controls exactly as the run form does; the Preview window keeps its title
+  bar and stays square. Inspector row, property help in six languages.
+- **Measured** — `tests/a_rounded_window_ends_at_its_arc.rs`: the backdrop
+  paints 0 px past the arc in every mode (1212 px for the square window, so
+  the measure is live) and leaves no gap inside it; every control type in a
+  window corner on canvas, preview and run (shadow, glass style, dressed): the
+  types that stay inside are the spec-057 allow-list less TreeView, whose
+  frame stays inside but whose first guide line sits 4 px from its corner and
+  crosses the arc when flush (a Panel's inset keeps it clear); the three
+  pieces of a shell window meet the arc exactly (0 past, 4840/4840 inside) in
+  colour, gradient and picture. Host test
+  `a_rounded_form_gets_a_see_through_window_rounded_without_a_title_bar`; XML
+  test `a_form_corner_radius_round_trips_and_rounds_only_without_a_title_bar`.
+- **Not rounded:** the OS drop shadow is off for a window whose form is
+  designed with a radius (it is created see-through, title bar or not); content
+  placed right in a corner is cut by the curve; DataGrid, FileDropZone, Maps,
+  TabControl, ToolBar and Viewer (and a TreeView's first row) placed into a
+  corner paint past it — the Guide says to keep them a radius away.
+- **Guide** ("Rounded corners"), System KB, `.cfrm` reference prose updated;
+  `chunked.data` regenerated.
+
 ## [PowerRustCOBOL 1.80.148] — 2026-10-04
 
 ### Fix: every index a control hands COBOL counts from 1, and 0 means none

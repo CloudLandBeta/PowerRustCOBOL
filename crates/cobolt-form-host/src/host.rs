@@ -486,14 +486,22 @@ impl FormHost {
         let (fx_hide_chrome, fx_transparent) = fx_window_flags(&fx_entrance);
         // A see-through form theme (Spatial, spec 083) makes the window
         // see-through too: the desktop behind it shows, blurred.
+        // A rounded form too: the desktop must show past its arc, and a window
+        // carries alpha only if it is created with it — so a form DESIGNED with
+        // a corner radius always gets one, title bar or not, and can round its
+        // corners whenever the title bar goes.
         let see_through = fx_transparent
-            || (surface != Surface::Pane && (form.transparency > 0 || surface_theme.see_through()));
+            || (surface != Surface::Pane
+                && (form.transparency > 0 || surface_theme.see_through() || form.corner_radius > 0));
 
         let host = FormHost {
             root: FormBody {
                 drawn_reported: false,
                 form_name: form.name.clone(),
                 title_visible: form.title_visible,
+                corner_radius: form.corner_radius,
+                see_through_window: false,
+                pane_window: None,
                 owns_window: surface == Surface::Window,
             last_window_crumb: None,
                 footer_ids: footer_ids.clone(),
@@ -690,6 +698,20 @@ pub(crate) struct FormBody {
     /// current by `SetTitleVisible`. Without one the window moves by its face
     /// (operator, 2026-10-03; see `Backdrop::draggable`).
     pub(crate) title_visible: bool,
+    /// The form's `CornerRadius`, kept current by `me::CornerRadius`. It
+    /// rounds the window only while the title bar is off (see
+    /// `Backdrop::rounding`), and only a window created see-through can show
+    /// it — `see_through_window`, or the root host's `see_through`.
+    pub(crate) corner_radius: u32,
+    /// This CHILD window was created see-through because its form is rounded:
+    /// its panel then fills nothing, and the engine's rounded backdrop is the
+    /// only paint, so the desktop shows past the arc.
+    pub(crate) see_through_window: bool,
+    /// The rounded window this body is drawn INTO when it does not own one —
+    /// a shell's ContentPane, set fresh each frame by whoever draws it. The
+    /// pane is one piece of that window, so its backdrop and top-level
+    /// controls round only the window corners they reach.
+    pub(crate) pane_window: Option<cobolt_forms::paint::ContainerClip>,
     /// This body IS a window: the root of a `Surface::Window` host, or a
     /// child window. A ContentPane occupant draws inside the shell's window
     /// and must never move it.
@@ -2093,6 +2115,14 @@ impl FormBody {
                     self.transparency = t.clamp(0.0, 100.0) as u8;
                 }
             }
+            // Rounds the window while it has no title bar. Only a window that
+            // was created see-through can show it — one whose form was
+            // DESIGNED with a radius (see `see_through_window`).
+            "cornerradius" => {
+                if let Some(r) = num() {
+                    self.corner_radius = r.clamp(0.0, 255.0) as u32;
+                }
+            }
             "title" => {
                 if let Some(vp) = window {
                     ctx.send_viewport_cmd_to(vp, egui::ViewportCommand::Title(u.value.trim().to_owned()));
@@ -2610,7 +2640,21 @@ impl FormBody {
             behind_fill: None,
             image_extent: None,
             draggable: self.owns_window && !self.title_visible,
+            window: self.window_arc(ctx),
         }
+    }
+
+    /// The rounded window this body's backdrop and top-level controls are cut
+    /// to this frame: its own viewport when it owns a window without a title
+    /// bar, or the window a shell draws it into (`pane_window`).
+    pub(crate) fn window_arc(&self, ctx: &egui::Context) -> Option<cobolt_forms::paint::ContainerClip> {
+        if self.owns_window {
+            if self.title_visible {
+                return None;
+            }
+            return cobolt_forms::render::window_arc(ctx.content_rect(), self.corner_radius);
+        }
+        self.pane_window
     }
 
     /// 051 Q2 (operator ruling) — tick this PARKED form's enabled Timer
@@ -2902,7 +2946,13 @@ impl FormBody {
             self.send_event(FormEvent::new(&name, "onActivated"));
         }
 
-        let bg_fill = cobolt_forms::render::backdrop_color(&self.bg_hex, self.transparency);
+        // A see-through (rounded) child window fills nothing: the engine's
+        // rounded backdrop is its only paint, so the desktop shows past the arc.
+        let bg_fill = if self.see_through_window {
+            egui::Color32::TRANSPARENT
+        } else {
+            cobolt_forms::render::backdrop_color(&self.bg_hex, self.transparency)
+        };
         let form_size = self.form_size;
         // Focus as it stood BEFORE this frame's widgets see the click — the
         // click that presses a toolbar button surrenders the text field's
@@ -3034,7 +3084,8 @@ impl FormBody {
                 // is never disabled) showed the real fill (operator report,
                 // 2026-09-19). The overlay IS the "you are waiting" signal;
                 // it must paint at its designed strength.
-                overlay_painter(panel_ui).rect_filled(panel_rect, 0.0, fill);
+                // …and cut to a rounded window's arc, like everything else.
+                cobolt_forms::paint::fill_in_clip(&overlay_painter(panel_ui), panel_rect, fill, self.window_arc(ctx));
             }
             out
         };
@@ -3242,7 +3293,11 @@ impl crate::shell::PaneHost for ChildPaneView<'_> {
         // A form loaded into the pane starts BELOW the breadcrumb band (it has
         // its own coordinate space); the window's own form may design
         // controls over the band — the same rule as the main window.
+        // A shell in a child window: that window is the child's own, rounded
+        // by the child's form; the pane occupant is a piece of it.
+        let arc = self.body.window_arc(pane_ui.ctx());
         if let Some(occ) = self.pane.active_occupant.as_ref().and_then(|k| self.pane.occupants.get_mut(k)) {
+            occ.body.pane_window = arc;
             if let Some(chrome) = chrome.as_deref() {
                 chrome(pane_ui.painter(), rect);
             }
@@ -4401,6 +4456,10 @@ impl FormHost {
         let side_menu = self.form_side_menu_id(form_id)?;
         let (mut body, form) = self.build_form_instance_as(handle, form_id, side_menu.is_some())?;
         body.owns_window = true;
+        // A window carries alpha only if it is created with it: a form
+        // designed with a corner radius gets a see-through window, so its
+        // corners can be rounded whenever its title bar is off.
+        body.see_through_window = form.corner_radius > 0;
         let nav = side_menu.map(|id| {
             let menu = cobolt_forms::paint::registered_menu_for(form_id, &id).map(|d| (*d).clone());
             Box::new(crate::shell::ChildNav::for_form(handle, &form, Some(id), menu, body.ev_tx.clone()))
@@ -4623,6 +4682,9 @@ impl FormHost {
             drawn_reported: false,
             form_name: form.name.clone(),
             title_visible: form.title_visible,
+            corner_radius: form.corner_radius,
+            see_through_window: false,
+                pane_window: None,
             // A child window says so where it opens one; an occupant never is.
             owns_window: false,
             last_window_crumb: None,
@@ -4745,6 +4807,9 @@ impl FormHost {
                 .with_minimize_button(child.can_minimize)
                 .with_maximize_button(child.can_maximize)
                 .with_fullscreen(child.full_screen);
+            if child.body.see_through_window {
+                builder = builder.with_transparent(true).with_has_shadow(false);
+            }
             if live_modal_caller_vp.is_some() {
                 builder = builder.with_always_on_top();
             }
@@ -4837,6 +4902,8 @@ impl FormHost {
                     }
                     nav.shell.breadcrumb =
                         nav.chain.segments().into_iter().map(|(_, label)| label).collect();
+                    // This window is the child's own, rounded by its form.
+                    nav.shell.window_arc = child.body.window_arc(vp_ui.ctx());
                     let mut view = ChildPaneView { body: &mut child.body, pane, blocked, overlay };
                     nav.shell.show_with_host(vp_ui, |_ui| {}, &mut view);
                     nav_work = Some((
@@ -5082,7 +5149,9 @@ impl eframe::App for FormHost {
     /// desktop. Otherwise it is the form's own background colour, so no
     /// stray frame of eframe's default grey can show through an effect.
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        if self.see_through {
+        // Every viewport is cleared with this one colour, so a see-through
+        // CHILD needs it transparent too while it is open.
+        if self.see_through || self.children.iter().any(|c| c.body.see_through_window) {
             egui::Color32::TRANSPARENT.to_normalized_gamma_f32()
         } else {
             cobolt_forms::render::backdrop_color(&self.root.bg_hex, 0).to_normalized_gamma_f32()
@@ -5233,6 +5302,17 @@ impl FormHost {
     /// [`Self::take_breadcrumb_detail`] for the window `owner`.
     pub fn take_breadcrumb_detail_in(&mut self, owner: &str) -> Option<(String, Option<String>)> {
         self.pane_of_mut(owner)?.pending_crumb_detail.take()
+    }
+
+    /// The rounded window a shell application's main form asks for: the whole
+    /// viewport, at the main form's `CornerRadius`, while it has no title bar.
+    /// The rail, the breadcrumb strip and the ContentPane are each a piece of
+    /// it and round only the corners they reach.
+    pub fn shell_window_arc(&self, ctx: &egui::Context) -> Option<cobolt_forms::paint::ContainerClip> {
+        if self.root.title_visible {
+            return None;
+        }
+        cobolt_forms::render::window_arc(ctx.content_rect(), self.root.corner_radius)
     }
 
     /// The chrome the shell paints between the pane's backdrop and the form's
@@ -6167,12 +6247,19 @@ impl FormHost {
         // 051 Q2 — parked bodies keep their timers running, whoever owns the
         // pane this frame.
         self.tick_parked_bodies(ctx);
+        // A shell's window is rounded by its MAIN form (this root body); the
+        // ContentPane is one piece of it, whoever occupies it.
+        let shell_arc = (self.surface == Surface::Pane).then(|| self.shell_window_arc(ctx)).flatten();
+        if self.surface == Surface::Pane {
+            self.root.pane_window = shell_arc;
+        }
         // 051 R10 — an active occupant owns the pane; the root form above
         // stayed fully live (its drains ran), just unrendered — parked.
         if let Some(key) = self.pane.active_occupant.clone() {
             let chrome = self.pane.pane_chrome.take();
             let band = self.pane.pane_band;
             if let Some(occ) = self.pane.occupants.get_mut(&key) {
+                occ.body.pane_window = shell_arc;
                 // 049 — an embedded form is NOT the shell form. The shell may
                 // design its own controls over the breadcrumb band, because
                 // that band is the shell's own coordinate space; a form LOADED
@@ -6325,6 +6412,9 @@ impl FormHost {
                             behind_fill: Some(painted.bg),
                             image_extent: None,
                             draggable: false,
+                            // The pane painted the (rounded) backdrop above;
+                            // its top-level controls are still cut to the arc.
+                            window: backdrop.window,
                         }
                     } else {
                         backdrop
@@ -6406,7 +6496,12 @@ impl FormHost {
                 // root form shown in Pane mode sits under the shell's
                 // disabled root `Ui`, whose inherited painter would halve
                 // the overlay's alpha.
-                overlay_painter(root_ui).rect_filled(snack_surface, 0.0, fill);
+                cobolt_forms::paint::fill_in_clip(
+                    &overlay_painter(root_ui),
+                    snack_surface,
+                    fill,
+                    self.root.window_arc(ctx),
+                );
             }
             out
         };
@@ -7986,6 +8081,81 @@ mod parity {
         assert!(build(30, Surface::Window));
         assert!(!build(0, Surface::Window));
         assert!(!build(30, Surface::Pane));
+    }
+
+    /// Form `CornerRadius` (operator, 2026-10-03): a form designed with a
+    /// radius gets a see-through window — alpha can only be chosen when the
+    /// window is created — title bar or not, so it can round whenever the
+    /// title bar goes. Its backdrop is cut to the window's arc only while the
+    /// title bar is off, and `me::CornerRadius` changes the radius it uses.
+    #[test]
+    fn a_rounded_form_gets_a_see_through_window_rounded_without_a_title_bar() {
+        let build = |radius: u32, title: bool| -> FormHost {
+            let mut form = cobolt_forms::Form::new("RND", "Round", 320, 200);
+            form.corner_radius = radius;
+            form.title_visible = title;
+            let (ev_tx, _ev_rx) = mpsc::channel();
+            let (input_tx, _input_rx) = mpsc::channel();
+            let (_state_tx, state_rx) = mpsc::channel();
+            let (_display_tx, display_rx) = mpsc::channel();
+            let (form_req_tx, form_req_rx) = mpsc::channel();
+            let (closed_tx, _closed_rx) = mpsc::channel();
+            FormHost::new(FormHostConfig {
+                form,
+                flat: Vec::new(),
+                state: HashMap::new(),
+                ev_tx,
+                input_tx,
+                state_rx,
+                display_rx,
+                pending: Arc::new(AtomicUsize::new(0)),
+                finished: Arc::new(AtomicBool::new(false)),
+                form_req_rx,
+                closed_tx,
+                form_req_tx,
+                form_source: None,
+                child_theme: None,
+                child_interpreter_setup: None,
+                indexed_engine: Default::default(),
+                shared_rust_bridge: None,
+                fx_entrance: FxSpec::default(),
+                fx_exit: FxSpec::default(),
+                fx_restore: false,
+                theme_pack: None,
+                surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+                icon_path: None,
+                title_fallback: String::new(),
+                hooks: Box::new(NoHooks),
+                surface: Surface::Window,
+            })
+            .0
+        };
+        let ctx = egui::Context::default();
+        ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
+        let arc = |h: &FormHost| h.root.backdrop(&ctx, egui::vec2(320.0, 200.0)).window;
+
+        let square = build(0, false);
+        assert!(!square.see_through, "a square form keeps an opaque window");
+        assert_eq!(arc(&square), None);
+
+        let titled = build(20, true);
+        assert!(titled.see_through, "designed with a radius: created see-through, title bar or not");
+        assert_eq!(arc(&titled), None, "a titled window's corners are the OS's");
+
+        let mut frameless = build(20, false);
+        assert!(frameless.see_through);
+        let (face, rad, flags) = arc(&frameless).expect("rounded without a title bar");
+        assert_eq!((rad, flags), (20.0, [true; 4]));
+        assert_eq!(face, ctx.content_rect(), "the arc is the window's own");
+
+        let written = frameless.root.apply_form_window_update(
+            &ctx,
+            &StateUpdate::new("RND", "CornerRadius", "36"),
+            None,
+        );
+        assert!(written, "me::CornerRadius is a form window property");
+        assert_eq!(arc(&frameless).map(|(_, r, _)| r), Some(36.0));
+        println!("CornerRadius: 0 → opaque, square; 20 titled → see-through, square; 20 frameless → rounded 20; me::CornerRadius 36 → 36");
     }
 
     /// Spec 083 R2/R3 (AC2): a Spatial form gets a see-through window and
@@ -9833,6 +10003,9 @@ mod parity {
             drawn_reported: false,
             form_name: "TIMER-FORM".to_owned(),
             title_visible: true,
+            corner_radius: 0,
+            see_through_window: false,
+                pane_window: None,
             owns_window: false,
             last_window_crumb: None,
             footer_ids: std::collections::HashSet::new(),

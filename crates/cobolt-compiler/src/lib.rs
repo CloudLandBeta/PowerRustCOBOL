@@ -5022,7 +5022,7 @@ opened it, on both paths — a menu load and `OpenFormSync` / `OpenFormAsync`.
 
 - **Bare properties are checked at build time** against the universal form
   surface: `Name`, `Title`, `Width`, `Height`, `X`, `Y`, `WindowState`,
-  `FullScreen`, `TitleVisible`, `CanMinimize`, `CanMaximize`, `FormState`,
+  `FullScreen`, `TitleVisible`, `CornerRadius`, `CanMinimize`, `CanMaximize`, `FormState`,
   `FormFormat`, `BackgroundColor`, `Transparency`. A typo such as `super::Widht`
   fails the build at any depth.
 - **Writing them changes the window**: `MOVE "Processing..." TO super::Title`
@@ -7142,7 +7142,16 @@ fn controls_reference_doc() -> String {
          fullscreen returns to the previous state), and `TitleVisible` (Boolean, default true — \
          false renders a chromeless window, which the operator moves by dragging the form's \
          background or any see-through part of a control: a hidden control, the transparent \
-         background of a Label, Panel or GroupBox; not in a shell window yet). Ctrl+W (Cmd+W on \
+         background of a Label, Panel or GroupBox; not in a shell window yet), and `CornerRadius` \
+         (pixels, 0-255, default 0 — rounds the window's corners while `TitleVisible` is false; \
+         offered in the inspector only then, and ignored while the title bar shows, because a \
+         titled window's corners are the system's. The window is created see-through when the \
+         form is designed with a radius, so the desktop shows past the curve; the background \
+         colour, gradient, picture and every control stop at it. In a shell window the rail, \
+         the breadcrumb strip and the ContentPane each round the corners they touch. Content \
+         right at a corner is cut to the curve, and a DataGrid, FileDropZone, Maps, \
+         TabControl, ToolBar or Viewer placed into a corner still paints past it — keep those, \
+         and a TreeView's first row, clear of a rounded corner). Ctrl+W (Cmd+W on \
          macOS) closes the focused window exactly as its close button does: the main window's \
          close ends the application, a child window's closes that window.\n\n",
     );
@@ -7161,8 +7170,9 @@ fn controls_reference_doc() -> String {
          default dark blue), and a colour's own alpha multiplies with `Transparency`.\n\n\
          Writing the form's own properties at run time — `me::X`, or `super::X` from a form it \
          opened — changes the running window: `Title` retitles it, `BackgroundColor` and \
-         `Transparency` repaint the backdrop, `Width`/`Height` resize it (64 to 8192) and \
-         `X`/`Y` move it. In a shell application the shell owns the window, so there only the \
+         `Transparency` repaint the backdrop, `CornerRadius` re-rounds it (only a window \
+         designed with a radius was created see-through and can show one), `Width`/`Height` \
+         resize it (64 to 8192) and `X`/`Y` move it. In a shell application the shell owns the window, so there only the \
          backdrop changes.\n\n",
     );
     doc.push_str(
@@ -7308,8 +7318,8 @@ fn controls_reference_doc() -> String {
          windowHandler method surface), and `super::super::…` walks one loader per step. \
          Bare properties on `me`/`super` are checked at build time against the universal \
          form surface (Name, Title, Width, Height, X, Y, WindowState, FullScreen, \
-         TitleVisible, CanMinimize, CanMaximize, FormState, FormFormat, BackgroundColor, \
-         Transparency, PreventReset) at any depth; form-specific procedures use parentheses and dispatch \
+         TitleVisible, CornerRadius, CanMinimize, CanMaximize, FormState, FormFormat, \
+         BackgroundColor, Transparency, PreventReset) at any depth; form-specific procedures use parentheses and dispatch \
          at run time. In the MAIN form — or after an async opener closed — `super` is NULL \
          and referencing it raises the standard error. \
          `super::<menu-id>::Collapse()` / `Open()` drive the MenuPane (pane-wide; the state \

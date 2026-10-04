@@ -6597,6 +6597,12 @@ impl DesignerPanel {
                 self.form.title_visible = value != "false" && value != "0";
                 self.dirty = true;
             }
+            "CornerRadius" => {
+                if let Ok(r) = value.trim().parse::<f32>() {
+                    self.form.corner_radius = r.clamp(0.0, 255.0) as u32;
+                    self.dirty = true;
+                }
+            }
             "ModalOverlayStyle" => {
                 self.form.modal_overlay_style = cobolt_forms::model::ModalOverlayStyle::from_str(&value);
                 self.dirty = true;
@@ -6744,6 +6750,7 @@ impl DesignerPanel {
             "WindowState" => Some(self.form.window_state.as_str().to_string()),
             "FullScreen" => Some(bool_str(self.form.full_screen)),
             "TitleVisible" => Some(bool_str(self.form.title_visible)),
+            "CornerRadius" => Some(self.form.corner_radius.to_string()),
             "ModalOverlayStyle" => Some(self.form.modal_overlay_style.as_str().to_string()),
             "WindowEffects" => Some(bool_str(self.form.window_effects)),
             "FormFormat" => Some(self.form.form_format.as_str().to_string()),
@@ -8128,12 +8135,28 @@ impl DesignerPanel {
                 } else {
                     None
                 };
-                let canvas_rounding = if self.glass_mode {
+                // A rounded window (form `CornerRadius`, title bar off): the
+                // canvas shows the window as it will run — every layer of the
+                // backdrop stops at the arc, and the top-level controls are cut
+                // to it (`Backdrop::window`), through the same helpers the
+                // running form uses.
+                let window_arc = cobolt_forms::render::form_window_arc(&self.form, resp.rect);
+                let canvas_rounding = if let Some((_, rad, _)) = window_arc {
+                    egui::CornerRadius::same(cobolt_forms::paint::cr8(rad))
+                } else if self.glass_mode {
                     egui::CornerRadius::same(6)
                 } else {
                     egui::CornerRadius::ZERO
                 };
-                if self.glass_mode {
+                if window_arc.is_some() {
+                    cobolt_forms::paint::fill_in_clip(&painter, resp.rect, canvas_bg, window_arc);
+                    painter.rect_stroke(
+                        resp.rect,
+                        canvas_rounding,
+                        egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 60)),
+                        egui::StrokeKind::Inside,
+                    );
+                } else if self.glass_mode {
                     painter.rect_filled(resp.rect, canvas_rounding, canvas_bg);
                     // Thin border so the form boundary is always visible
                     painter.rect_stroke(
@@ -8146,25 +8169,37 @@ impl DesignerPanel {
                     painter.rect_filled(resp.rect, 0.0, canvas_bg);
                 }
                 if let Some((start, end)) = canvas_gradient {
-                    painter.add(egui::Shape::mesh(
-                        cobolt_forms::paint::background_gradient_mesh(
+                    if window_arc.is_some() {
+                        cobolt_forms::paint::gradient_in_clip(
+                            &painter,
                             resp.rect,
                             start,
                             end,
                             &self.form.background_gradient_direction,
-                            canvas_rounding,
-                        ),
-                    ));
+                            window_arc,
+                        );
+                    } else {
+                        painter.add(egui::Shape::mesh(
+                            cobolt_forms::paint::background_gradient_mesh(
+                                resp.rect,
+                                start,
+                                end,
+                                &self.form.background_gradient_direction,
+                                canvas_rounding,
+                            ),
+                        ));
+                    }
                 }
 
                 // ── Themed background (007 R8) ─────────────────────────────────
                 // When the form opts in and the active pack provides one, the
                 // theme background replaces the form's own back-colour image.
-                let themed_bg = cobolt_forms::paint::draw_theme_background(
+                let themed_bg = cobolt_forms::paint::draw_theme_background_in(
                     &painter,
                     resp.rect,
                     self.form.use_theme_background,
                     form_alpha_mul,
+                    window_arc,
                 );
 
                 // ── Background image ───────────────────────────────────────────
@@ -8189,7 +8224,8 @@ impl DesignerPanel {
                             let form_rect = resp.rect;
                             match bg_img_mode {
                                 BgImageMode::Stretch => {
-                                    painter.image(
+                                    cobolt_forms::paint::image_in_clip(
+                                        &painter,
                                         tex_id,
                                         form_rect,
                                         egui::Rect::from_min_max(
@@ -8197,6 +8233,7 @@ impl DesignerPanel {
                                             egui::pos2(1.0, 1.0),
                                         ),
                                         tint,
+                                        window_arc,
                                     );
                                     notch_img = Some((tex_id, form_rect));
                                 }
@@ -8213,7 +8250,8 @@ impl DesignerPanel {
                                         form_rect.min + egui::vec2(ox, oy),
                                         egui::vec2(dw, dh),
                                     );
-                                    painter.image(
+                                    cobolt_forms::paint::image_in_clip(
+                                        &painter,
                                         tex_id,
                                         dest,
                                         egui::Rect::from_min_max(
@@ -8221,6 +8259,7 @@ impl DesignerPanel {
                                             egui::pos2(1.0, 1.0),
                                         ),
                                         tint,
+                                        window_arc,
                                     );
                                     notch_img = Some((tex_id, dest));
                                 }
@@ -8237,7 +8276,8 @@ impl DesignerPanel {
                                         form_rect.min + egui::vec2(ox, oy),
                                         egui::vec2(dw, dh),
                                     );
-                                    painter.image(
+                                    cobolt_forms::paint::image_in_clip(
+                                        &painter,
                                         tex_id,
                                         dest,
                                         egui::Rect::from_min_max(
@@ -8245,6 +8285,7 @@ impl DesignerPanel {
                                             egui::pos2(1.0, 1.0),
                                         ),
                                         tint,
+                                        window_arc,
                                     );
                                     notch_img = Some((tex_id, dest));
                                 }
@@ -8255,7 +8296,8 @@ impl DesignerPanel {
                                         form_rect.min + egui::vec2(ox, oy),
                                         tex_size,
                                     );
-                                    painter.image(
+                                    cobolt_forms::paint::image_in_clip(
+                                        &painter,
                                         tex_id,
                                         dest,
                                         egui::Rect::from_min_max(
@@ -8263,6 +8305,7 @@ impl DesignerPanel {
                                             egui::pos2(1.0, 1.0),
                                         ),
                                         tint,
+                                        window_arc,
                                     );
                                     notch_img = Some((tex_id, dest));
                                 }
@@ -8298,7 +8341,8 @@ impl DesignerPanel {
                                             let v1 = (tile_max.y - tile_min.y) / th;
                                             let dest_tile =
                                                 egui::Rect::from_min_max(tile_min, tile_max);
-                                            painter.image(
+                                            cobolt_forms::paint::image_in_clip(
+                                                &painter,
                                                 tex_id,
                                                 dest_tile,
                                                 egui::Rect::from_min_max(
@@ -8306,6 +8350,7 @@ impl DesignerPanel {
                                                     egui::pos2(u1, v1),
                                                 ),
                                                 tint,
+                                                window_arc,
                                             );
                                         }
                                     }
@@ -8552,7 +8597,10 @@ impl DesignerPanel {
                         glass: self.glass_mode,
                         mode: cobolt_forms::render::RenderMode::Static,
                         active_tabs: &active_tabs,
-                        backdrop: cobolt_forms::render::Backdrop::default(),
+                        backdrop: cobolt_forms::render::Backdrop {
+                            window: window_arc,
+                            ..Default::default()
+                        },
                     };
                     cobolt_forms::render::render_faces(&painter, origin, &input).control_rects
                 };
@@ -14742,6 +14790,7 @@ pub(crate) const FORM_PROP_KEYS: &[&str] = &[
     "WindowState",
     "FullScreen",
     "TitleVisible",
+    "CornerRadius",
     // 051 R19/R28
     "ModalOverlayStyle",
     "WindowEffects",
@@ -19987,7 +20036,7 @@ mod property_key_case_tests {
             "theme", "usethemebackground",
             // 037 main form & window lifecycle
             "mainform", "taskbaricon", "canminimize", "canmaximize", "windowstate",
-            "fullscreen", "titlevisible",
+            "fullscreen", "titlevisible", "cornerradius",
             // 038 window effects opt-out
             "windoweffects",
             // 049 application shell

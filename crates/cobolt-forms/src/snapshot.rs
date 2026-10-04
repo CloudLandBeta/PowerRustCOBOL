@@ -88,6 +88,8 @@ fn backdrop(form: &Form, image: Option<(egui::TextureId, Vec2)>, window: Vec2) -
         behind_fill: None,
         image_extent: None,
         draggable: false,
+        // The picture is of the window, so a rounded one is pictured rounded.
+        window: crate::render::form_window_arc(form, egui::Rect::from_min_size(egui::Pos2::ZERO, window)),
     }
 }
 

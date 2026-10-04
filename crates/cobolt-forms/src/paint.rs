@@ -16294,7 +16294,7 @@ fn parse_container_clip(ctrl: &Control) -> Option<(egui::Rect, f32, [bool; 4])> 
 /// The container clip a child carries (see [`parse_container_clip`]): the
 /// parent's screen-space BORDER rect, its corner radius and the per-corner
 /// roundable flags.
-pub(crate) type ContainerClip = (egui::Rect, f32, [bool; 4]);
+pub type ContainerClip = (egui::Rect, f32, [bool; 4]);
 
 /// The container clip on `ctrl`, if the render engine seeded one.
 pub(crate) fn container_clip_of(ctrl: &Control) -> Option<ContainerClip> {
@@ -18148,6 +18148,19 @@ pub fn draw_theme_background(
     use_theme_background: bool,
     alpha_mul: f32,
 ) -> bool {
+    draw_theme_background_in(painter, rect, use_theme_background, alpha_mul, None)
+}
+
+/// [`draw_theme_background`] cut to a rounded window (`clip`): every cell of
+/// the art is drawn through [`image_in_clip`], so the art stops at the
+/// window's arc instead of filling its square corners.
+pub fn draw_theme_background_in(
+    painter: &egui::Painter,
+    rect: Rect,
+    use_theme_background: bool,
+    alpha_mul: f32,
+    clip: Option<ContainerClip>,
+) -> bool {
     if !use_theme_background {
         return false;
     }
@@ -18180,16 +18193,199 @@ pub fn draw_theme_background(
                         (cell.height() / sz.y).min(1.0),
                     ),
                 );
-                painter.image(tex.id(), cell, uv, tint);
+                image_in_clip(painter, tex.id(), cell, uv, tint, clip);
                 x += sz.x;
             }
             y += sz.y;
         }
     } else {
         let uv = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0));
-        painter.image(tex.id(), rect, uv, tint);
+        image_in_clip(painter, tex.id(), rect, uv, tint, clip);
     }
     true
+}
+
+/// How the part of `rect` inside a rounded clip is laid down.
+///
+/// `Whole` — one rect, every corner that reaches the clip's arc lifted to stay
+/// inside it ([`lift_to_container`], the rule a container's child follows).
+/// `Rows` — 1 px rows trimmed to the arc, for a piece too small to hold the
+/// radius its corner needs: egui caps a radius at half the shorter side, and a
+/// capped arc pokes past the clip's (CORNER-BLEED-PLAYBOOK §1.1). A tile
+/// smaller than the arc, a breadcrumb strip under a large window radius, a
+/// collapsed rail. `Nothing` — no part of `rect` is inside the clip.
+pub(crate) enum ClipPieces {
+    Whole(Rect, egui::CornerRadius),
+    Rows(Vec<Rect>),
+    Nothing,
+}
+
+pub(crate) fn clip_pieces(rect: Rect, clip: ContainerClip) -> ClipPieces {
+    let (border, rad, flags) = clip;
+    let Some((visible, rounding)) = lift_to_container(rect, egui::CornerRadius::ZERO, Some(clip)) else {
+        return ClipPieces::Nothing;
+    };
+    let cap = 0.5 * visible.width().min(visible.height());
+    let insets = [
+        (visible.min.x - border.min.x, visible.min.y - border.min.y),
+        (border.max.x - visible.max.x, visible.min.y - border.min.y),
+        (visible.min.x - border.min.x, border.max.y - visible.max.y),
+        (border.max.x - visible.max.x, border.max.y - visible.max.y),
+    ];
+    // A corner the piece reaches is drawn as one rounded rect only when it
+    // sits EXACTLY on the clip's corner and the piece can hold the radius:
+    // then its arc IS the clip's. A corner that meets the arc anywhere else —
+    // a ContentPane starting below a breadcrumb strip, a letterboxed picture —
+    // would take the concentric lift, whose smaller arc leaves a sliver
+    // between it and the clip's; inside a Panel that sliver shows the Panel,
+    // past a window's edge it shows the desktop, as a notch.
+    let exact = (0..4).all(|i| {
+        !flags[i]
+            || container_lift_radius(insets[i].0, insets[i].1, rad).is_none()
+            || (insets[i].0.abs() < 0.5 && insets[i].1.abs() < 0.5 && rad <= cap + 0.5)
+    });
+    if exact {
+        return ClipPieces::Whole(visible, rounding);
+    }
+    // Otherwise: the rows within the radius of the clip's top and bottom
+    // edges are trimmed to its arcs, and what lies between is square — exact
+    // whatever the piece's shape, and at most 2 × radius rows.
+    let r = cr8(rad);
+    let arc = egui::CornerRadius {
+        nw: if flags[0] { r } else { 0 },
+        ne: if flags[1] { r } else { 0 },
+        sw: if flags[2] { r } else { 0 },
+        se: if flags[3] { r } else { 0 },
+    };
+    let top_end = (border.min.y + rad).min(visible.max.y);
+    let bottom_start = (border.max.y - rad).max(visible.min.y).max(top_end);
+    let mut out = Vec::new();
+    if top_end > visible.min.y {
+        out.extend(rows_inside_rounded_rect(
+            border,
+            arc,
+            Rect::from_min_max(visible.min, egui::pos2(visible.max.x, top_end)),
+        ));
+    }
+    let mid = Rect::from_min_max(
+        egui::pos2(visible.min.x, visible.min.y.max(top_end)),
+        egui::pos2(visible.max.x, bottom_start),
+    );
+    if mid.height() > 0.0 {
+        out.push(mid);
+    }
+    if visible.max.y > bottom_start {
+        out.extend(rows_inside_rounded_rect(
+            border,
+            arc,
+            Rect::from_min_max(egui::pos2(visible.min.x, bottom_start), visible.max),
+        ));
+    }
+    ClipPieces::Rows(out)
+}
+
+/// Fill `rect` with `color`, cut to a rounded clip ([`clip_pieces`]). Without
+/// a clip it is exactly `painter.rect_filled(rect, 0.0, color)`.
+pub fn fill_in_clip(painter: &egui::Painter, rect: Rect, color: Color32, clip: Option<ContainerClip>) {
+    let Some(clip) = clip else {
+        painter.rect_filled(rect, 0.0, color);
+        return;
+    };
+    match clip_pieces(rect, clip) {
+        ClipPieces::Whole(r, cr) => {
+            painter.rect_filled(r, cr, color);
+        }
+        ClipPieces::Rows(rows) => {
+            for row in rows {
+                painter.rect_filled(row, 0.0, color);
+            }
+        }
+        ClipPieces::Nothing => {}
+    }
+}
+
+/// A background gradient over `rect`, cut to a rounded clip. The colours are
+/// always those of the gradient across the WHOLE of `rect`, so a piece shows
+/// its own part of it. Without a clip it is exactly the square mesh.
+pub fn gradient_in_clip(
+    painter: &egui::Painter,
+    rect: Rect,
+    start: Color32,
+    end: Color32,
+    dir: &str,
+    clip: Option<ContainerClip>,
+) {
+    let Some(clip) = clip else {
+        painter.add(egui::Shape::mesh(background_gradient_mesh(rect, start, end, dir, egui::CornerRadius::ZERO)));
+        return;
+    };
+    match clip_pieces(rect, clip) {
+        ClipPieces::Whole(r, cr) if r == rect => {
+            painter.add(egui::Shape::mesh(background_gradient_mesh(rect, start, end, dir, cr)));
+        }
+        ClipPieces::Whole(r, cr) => {
+            // Only part of `rect` is inside: lay the part down, re-coloured
+            // from the whole rect so it shows its own slice of the gradient.
+            let mut mesh = background_gradient_mesh(r, start, end, dir, cr);
+            for v in &mut mesh.vertices {
+                v.color = gradient_color_at(rect, start, end, dir, v.pos);
+            }
+            painter.add(egui::Shape::mesh(mesh));
+        }
+        ClipPieces::Rows(rows) => {
+            let mut mesh = egui::epaint::Mesh::default();
+            for row in rows {
+                let i = mesh.vertices.len() as u32;
+                for p in [row.left_top(), row.right_top(), row.right_bottom(), row.left_bottom()] {
+                    mesh.vertices.push(egui::epaint::Vertex {
+                        pos: p,
+                        uv: egui::epaint::WHITE_UV,
+                        color: gradient_color_at(rect, start, end, dir, p),
+                    });
+                }
+                mesh.indices.extend([i, i + 1, i + 2, i, i + 2, i + 3]);
+            }
+            painter.add(egui::Shape::mesh(mesh));
+        }
+        ClipPieces::Nothing => {}
+    }
+}
+
+/// Draw `tex` (its `uv` part) over `dest`, cut to a rounded clip
+/// ([`clip_pieces`]), so the picture stops at the arc on every corner whatever
+/// its mode put it — letterboxed, centred or tiled. Without a clip it is
+/// exactly `painter.image`.
+pub fn image_in_clip(
+    painter: &egui::Painter,
+    tex: egui::TextureId,
+    dest: Rect,
+    uv: Rect,
+    tint: Color32,
+    clip: Option<ContainerClip>,
+) {
+    let Some(clip) = clip else {
+        painter.image(tex, dest, uv, tint);
+        return;
+    };
+    let (w, h) = (dest.width().max(f32::EPSILON), dest.height().max(f32::EPSILON));
+    let at = |p: Pos2| {
+        Pos2::new(
+            uv.min.x + (p.x - dest.min.x) / w * uv.width(),
+            uv.min.y + (p.y - dest.min.y) / h * uv.height(),
+        )
+    };
+    let sub = |r: Rect| Rect::from_min_max(at(r.min), at(r.max));
+    match clip_pieces(dest, clip) {
+        ClipPieces::Whole(r, cr) => {
+            painter.add(egui::epaint::RectShape::filled(r, cr, tint).with_texture(tex, sub(r)));
+        }
+        ClipPieces::Rows(rows) => {
+            for row in rows {
+                painter.image(tex, row, sub(row), tint);
+            }
+        }
+        ClipPieces::Nothing => {}
+    }
 }
 
 /// Map a control type to its asset-pack manifest key (lowercase). An empty

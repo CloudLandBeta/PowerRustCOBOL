@@ -2673,6 +2673,14 @@ pub static PROP_HELP: &[PropHelp] = &[
         "显示系统标题栏。设为 false 则打开无边框窗口。默认 true；运行时可用 SetTitleVisible 更改。",
         "Affiche la barre de titre native. Faux ouvre une fenêtre sans cadre. Vrai par défaut ; modifiable à l'exécution avec SetTitleVisible.",
     ] },
+    PropHelp { ty: "Form", prop: "CornerRadius", text: [
+        "Rounds the window's corners, in pixels (0 = square). Offered only while Show title bar is off: a titled window's corners are the system's. Content near a corner is cut to the curve.",
+        "Redondea las esquinas de la ventana, en píxeles (0 = rectas). Solo se ofrece con Mostrar barra de título desactivado: las esquinas de una ventana con título son del sistema. Lo que quede cerca de una esquina se recorta a la curva.",
+        "Arredonda os cantos da janela, em pixels (0 = retos). Só é oferecido com Mostrar barra de título desligado: os cantos de uma janela com título são do sistema. O que estiver perto de um canto é cortado pela curva.",
+        "ウィンドウの角を丸めます（ピクセル、0 は直角）。「タイトルバーを表示」がオフのときだけ表示されます。タイトルバーのあるウィンドウの角はシステムのものです。角の近くの内容は曲線で切り取られます。",
+        "将窗口的角变为圆角，单位为像素（0 为直角）。仅在关闭“显示标题栏”时提供：有标题栏的窗口其角由系统决定。靠近角的内容会被曲线裁切。",
+        "Arrondit les coins de la fenêtre, en pixels (0 = droits). Proposé seulement quand Afficher la barre de titre est désactivé : les coins d'une fenêtre à titre appartiennent au système. Ce qui est près d'un coin est coupé par la courbe.",
+    ] },
     PropHelp { ty: "Form", prop: "Transparency", text: [
         "How see-through the form is, 0 to 100 % (0 = opaque): above 0 the main window shows the desktop through it. It also fades the gradient and image.",
         "Cuánto se transparenta el formulario, de 0 a 100 % (0 = opaco): por encima de 0 la ventana principal deja ver el escritorio. También atenúa el degradado y la imagen.",
