@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="BUTTONS-FORM" title="Buttons" width="1224" height="840" background="40404008" transparency="50" grid-size="8" snap-to-grid="true" target="Custom" theme="spatial" glass-style="Neumorphic Dark" title-visible="false" index-base="1" form-format="Both" start-position="Center" responsive="true">
+<Form name="BUTTONS-FORM" title="Buttons" width="1224" height="840" background="40404008" transparency="50" grid-size="8" snap-to-grid="true" target="Custom" theme="spatial" glass-style="Neumorphic Dark" title-visible="false" corner-radius="15" index-base="1" form-format="Both" start-position="Center" responsive="true">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"
@@ -461,7 +461,7 @@
 ]]></Event>
     <Animation name="bt1" trigger="OnFormLoad" kind="ZoomIn" duration="1000" delay="10" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="Button-9" type="Button" x="32" y="592" w="264" h="80" tab-order="0" z-order="9" visible="true" enabled="true">
+  <Control id="Button-9" type="Button" x="-8" y="768" w="264" h="80" tab-order="0" z-order="9" visible="true" enabled="true">
     <Property name="Caption">Button with icon 5</Property>
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
