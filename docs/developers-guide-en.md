@@ -6150,6 +6150,11 @@ unsaturated accents. It is the one **see-through** theme:
   the one the theme is designed for — so a ComboBox or TextBox left at its
   default black ink is shown white. Set `ForegroundColor` yourself and it
   stands.
+- **A ComboBox's list may overhang the window.** When an open list would be
+  cut off by the bottom of a Spatial window, it opens in a small window of
+  its own just below the box, the way a native dropdown does; it takes the
+  keyboard, and a click anywhere else closes it. Under every other theme the
+  list stays inside the form.
 
 ```text
 Project-wide   Settings → Appearance → Default form theme → Spatial

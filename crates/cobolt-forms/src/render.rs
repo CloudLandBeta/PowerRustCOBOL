@@ -2779,27 +2779,78 @@ fn render_form_inner(
             .data(|d| d.get_temp(combo_highlight_id(scope, &cid)))
 
             .unwrap_or(0);
-        let outcome = crate::paint::glass_combo_popup(
-            ui,
-            crate::paint::ComboPopup {
-                ctrl_id: &cid,
-                header,
-                items: &items,
-                selected: &cur,
-                highlight,
-                gesture,
-                fills,
-                face,
-                item_h,
-                font,
-                text,
-                style,
-                max_h,
-                enabled: true,
-                reveal,
-                type_ahead,
-            },
-        );
+        let popup = |ui: &mut egui::Ui, header: Rect| {
+            crate::paint::glass_combo_popup(
+                ui,
+                crate::paint::ComboPopup {
+                    ctrl_id: &cid,
+                    header,
+                    items: &items,
+                    selected: &cur,
+                    highlight,
+                    gesture,
+                    fills,
+                    face: face.clone(),
+                    item_h,
+                    font: font.clone(),
+                    text,
+                    style,
+                    max_h,
+                    enabled: true,
+                    reveal,
+                    type_ahead,
+                },
+            )
+        };
+        // A dropdown that does not fit in the window is not cut off by it: it
+        // opens in a window of its own, just below the header, the way a
+        // native dropdown overhangs its window (operator, 2026-10-04). That
+        // window takes the keyboard — the arrows, Enter, Escape and type-ahead
+        // reach it — and losing it is a click elsewhere: the dropdown closes.
+        // Where every window is drawn in one viewport (the headless host) there
+        // is no other window to open, and the panel is clipped as before.
+        let panel = crate::paint::combo_popup_rect(header, items.len(), item_h, max_h);
+        let window = ui.ctx().content_rect();
+        let inner = ui.ctx().input(|i| i.viewport().inner_rect);
+        let outcome = match inner.filter(|_| {
+            dropdown_needs_a_window(panel, window, ui.ctx().embed_viewports(), crate::paint::is_see_through(ui.ctx()))
+        }) {
+            None => popup(ui, header),
+            Some(inner) => {
+                let vp = egui::ViewportId::from_hash_of(("combo-dropdown", rt_id_in(scope, &cid)));
+                let builder = egui::ViewportBuilder::default()
+                    .with_title(cid.clone())
+                    .with_decorations(false)
+                    .with_transparent(true)
+                    .with_has_shadow(false)
+                    .with_always_on_top()
+                    .with_taskbar(false)
+                    .with_resizable(false)
+                    .with_active(true)
+                    .with_position(inner.min + (panel.min - window.min))
+                    .with_inner_size(panel.size());
+                let had_focus = rt_id_in(scope, &cid).with("combo_window_focused");
+                ui.ctx().show_viewport_immediate(vp, builder, |vui, _| {
+                    let mut o = egui::CentralPanel::default()
+                        .frame(egui::Frame::NONE)
+                        .show_inside(vui, |ui| {
+                            // The panel at the window's own origin: the header
+                            // hangs above it, out of this window.
+                            let at = ui.max_rect().min - panel.min;
+                            popup(ui, header.translate(at))
+                        })
+                        .inner;
+                    let focused = vui.input(|i| i.viewport().focused);
+                    let was = vui.data(|d| d.get_temp::<bool>(had_focus)).unwrap_or(false);
+                    if focused == Some(true) {
+                        vui.data_mut(|d| d.insert_temp(had_focus, true));
+                    } else if was && focused == Some(false) {
+                        o.action = o.action.or(Some(crate::paint::GlassComboAction::Close));
+                    }
+                    o
+                })
+            }
+        };
         let open_id = rt_id_in(scope, &cid).with("combo_open");
 
         ui.data_mut(|d| {
@@ -2829,8 +2880,21 @@ fn render_form_inner(
             }
             None => {}
         }
+        if !ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false) {
+            let had_focus = rt_id_in(scope, &cid).with("combo_window_focused");
+            ui.data_mut(|d| d.remove::<bool>(had_focus));
+        }
     }
     out
+}
+
+/// Whether an open dropdown's `panel` needs a window of its own: the form wears
+/// the see-through theme (Spatial — the one theme whose ComboBox may overhang
+/// its window, operator 2026-10-04), the panel reaches past the bottom of the
+/// `window` it hangs in, and there are real windows to open (not every
+/// viewport `embedded` in one).
+fn dropdown_needs_a_window(panel: Rect, window: Rect, embedded: bool, see_through: bool) -> bool {
+    see_through && !embedded && panel.bottom() > window.bottom() + 0.5
 }
 
 /// Where this frame records that its surface is a frameless, draggable window.
@@ -17376,6 +17440,21 @@ mod tests {
             }
             self.ink.height() / self.full.height()
         }
+    }
+
+    /// A dropdown opens in a window of its own only on a Spatial form, only
+    /// when it would be cut off by the bottom of its window, and only where
+    /// real windows exist.
+    #[test]
+    fn a_dropdown_gets_a_window_only_when_it_overhangs() {
+        let window = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(440.0, 240.0));
+        let header = Rect::from_min_size(pos2(28.0, 106.0), Vec2::new(384.0, 40.0));
+        let six = crate::paint::combo_popup_rect(header, 6, 26.0, 300.0);
+        let two = crate::paint::combo_popup_rect(header, 2, 26.0, 300.0);
+        assert!(dropdown_needs_a_window(six, window, false, true), "six items overhang a 240-high window: {six:?}");
+        assert!(!dropdown_needs_a_window(two, window, false, true), "two fit: {two:?}");
+        assert!(!dropdown_needs_a_window(six, window, true, true), "no real windows: clipped as before");
+        assert!(!dropdown_needs_a_window(six, window, false, false), "only Spatial overhangs");
     }
 
     /// On a see-through (Spatial) form a ComboBox's value — its default black

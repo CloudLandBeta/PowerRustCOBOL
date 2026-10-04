@@ -8973,6 +8973,23 @@ pub fn glass_combo_header(
 /// and **scrolls** past that. It used to stop at 180 px and `break` out of the
 /// item loop, so anything past about the eighth item was not clipped or
 /// scrollable — it was simply never drawn, and unreachable.
+/// Where a dropdown of `n` items hangs below its `header`: as tall as its items
+/// need, up to `max_h`, scrolling past that. The panel holds its items AND the
+/// margin its scrolling pane keeps off the border, so a list short enough to
+/// fit does not scroll for want of the six pixels the margin costs it. One
+/// definition for the painter and for the host deciding whether the panel
+/// fits in the window.
+pub fn combo_popup_rect(header: egui::Rect, n: usize, item_h: f32, max_h: f32) -> egui::Rect {
+    let item_h = item_h.max(1.0);
+    let pad = crate::model::LIST_FRAME_PAD * 2.0;
+    let content_h = n as f32 * item_h + pad;
+    let popup_h = content_h.min(max_h.max(item_h + pad));
+    egui::Rect::from_min_size(
+        egui::pos2(header.min.x, header.max.y + 1.0),
+        egui::vec2(header.width(), popup_h),
+    )
+}
+
 pub fn glass_combo_popup(ui: &mut egui::Ui, p: ComboPopup<'_>) -> GlassComboOutcome {
     use egui::{Align2, Pos2, Sense, Vec2};
 
@@ -8986,16 +9003,7 @@ pub fn glass_combo_popup(ui: &mut egui::Ui, p: ComboPopup<'_>) -> GlassComboOutc
     let mut pressed_in_list = false;
 
     let item_h = p.item_h.max(1.0);
-    // The panel holds its items AND the margin its scrolling pane keeps off the
-    // border, so a list short enough to fit does not scroll for want of the six
-    // pixels the margin costs it.
-    let pad = crate::model::LIST_FRAME_PAD * 2.0;
-    let content_h = n as f32 * item_h + pad;
-    let popup_h = content_h.min(p.max_h.max(item_h + pad));
-    let popup_rect = egui::Rect::from_min_size(
-        Pos2::new(p.header.min.x, p.header.max.y + 1.0),
-        Vec2::new(p.header.width(), popup_h),
-    );
+    let popup_rect = combo_popup_rect(p.header, n, item_h, p.max_h);
 
     let (pressed, held, released, pointer) = ui.input(|i| {
         (

@@ -8,6 +8,22 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.176] — 2026-10-04
+
+### Feature: on a Spatial form, a ComboBox's list may overhang the window
+
+An open ComboBox list was cut off by the bottom of its window, and scrolled
+in what little room was left (operator, 2026-10-04). On a Spatial form — the
+one theme whose ComboBox may overhang its window, by the operator's ruling — a
+list that would be cut off now opens in a small borderless window of its own,
+just below the box, as a native dropdown does: it takes the keyboard (arrows,
+Enter, Escape, type-ahead) and closes when it loses it, i.e. on a click
+anywhere else. A list that fits, every other theme, and the headless host
+(all windows in one viewport) are unchanged. `paint::combo_popup_rect` is the
+one definition of where a list hangs, for the painter and this decision. Test
+`a_dropdown_gets_a_window_only_when_it_overhangs`; cobolt-forms 1353/0.
+Guide updated.
+
 ## [PowerRustCOBOL 1.80.175] — 2026-10-04
 
 ### Feature: a click on any window of a docked group brings the group forward
