@@ -14646,29 +14646,11 @@ pub fn draw_chart_preview(
         );
     }
 
-    // type badge
-    let badge = match ctrl.control_type {
-        CT::BarChart => "BAR",
-        CT::LineChart => "LINE",
-        CT::PieChart => "PIE",
-        CT::AreaChart => "AREA",
-        CT::ScatterChart => "SCATTER",
-        CT::DonutChart => "DONUT",
-        _ => "",
-    };
-    if !badge.is_empty() {
-        let badge_c = {
-            let c = caret_color(bg, Color32::from_rgb(80, 100, 180));
-            Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), a)
-        };
-        painter.text(
-            Pos2::new(rect.max.x - margin_r - 2.0, rect.min.y + margin_t * 0.45),
-            egui::Align2::RIGHT_CENTER,
-            badge,
-            egui::FontId::proportional(8.0 * type_scale),
-            badge_c,
-        );
-    }
+    // No type badge. The chart's kind ("BAR", "PIE", …) used to be lettered in
+    // its top-right corner on every surface, and nothing could turn it off: a
+    // waveform drawn with a BarChart read "BAR" over the music player (operator,
+    // 2026-10-04 — "never place the name of the chart control in the form").
+    // A chart shows its data, its title and its axes — what the developer set.
 
     // No trailing outline. A fixed 1 px line — grey under glass, blue without —
     // used to be stroked here, LAST, over the frame `draw_chart_border` had
@@ -24120,13 +24102,14 @@ slice = [4, 4, 4, 4]
             !untouched.is_empty(),
             "the chart drew no text at all — the fixture is wrong, not the code"
         );
-        // The sizes the chart shipped with: 8, 9 and 10 pt through
-        // `CHART_FONT_SCALE`. Pinned, because scaling type is only safe if a
-        // chart nobody restyled — including one read from a `.cfrm` that
-        // predates the property — is left exactly where it was.
+        // The sizes the chart shipped with: 9 and 10 pt through
+        // `CHART_FONT_SCALE` (the 8 pt type badge is gone since 1.80.184).
+        // Pinned, because scaling type is only safe if a chart nobody
+        // restyled — including one read from a `.cfrm` that predates the
+        // property — is left exactly where it was.
         assert_eq!(
             untouched,
-            vec![1600, 1800, 2000],
+            vec![1800, 2000],
             "an untouched chart no longer draws at its original sizes"
         );
         assert_ne!(
@@ -26901,15 +26884,17 @@ mod elegance_baseline_tests {
         // Nothing else in that change paints; the fixture's TabControl is the
         // whole move.
         let expected: [(&str, GS, usize); 8] = [
-            ("liquid-glass", GS::Classic, 640),
-            ("asset-pack", GS::Classic, 646),
-            ("liquid-glass", GS::Enhanced, 731),
-            ("asset-pack", GS::Enhanced, 721),
-            ("liquid-glass", GS::Neumorphic, 604),
-            ("asset-pack", GS::Neumorphic, 618),
-            ("liquid-glass", GS::NeumorphicDark, 604),
-            ("asset-pack", GS::NeumorphicDark, 618),
+            ("liquid-glass", GS::Classic, 634),
+            ("asset-pack", GS::Classic, 640),
+            ("liquid-glass", GS::Enhanced, 725),
+            ("asset-pack", GS::Enhanced, 715),
+            ("liquid-glass", GS::Neumorphic, 598),
+            ("asset-pack", GS::Neumorphic, 612),
+            ("liquid-glass", GS::NeumorphicDark, 598),
+            ("asset-pack", GS::NeumorphicDark, 612),
         ];
+        // (Every row fell by 6 at 1.80.184: the fixture's six charts no longer
+        // letter their type — "BAR", "PIE", … — in a corner.)
         // (The Neumorphic rows fell by 36 / 24 at 1.70.263: a `Single` border
         // is one flat stroke there now, where it was the multi-stroke relief —
         // the fixture's single-bordered controls, not the seam.)

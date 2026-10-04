@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.184] — 2026-10-04
+
+### Fix: a chart no longer letters its type in a corner
+
+Every chart drew its kind — "BAR", "LINE", "PIE", "AREA", "SCATTER",
+"DONUT" — in its top-right corner, on the designer canvas and in the running
+form alike, and no property turned it off: PowerSpatial's waveform, drawn
+with a BarChart, read "BAR" over the music player (operator, 2026-10-04:
+"never place the name of the chart control in the form"). The badge is gone;
+a chart shows what the developer set — its data, title and axes. The three
+PowerDemo3 chart forms' corpus goldens are re-recorded for it; the chart
+font-size test and the painter baseline drop the badge's text.
+
 ## [PowerRustCOBOL 1.80.183] — 2026-10-04
 
 ### Fix: the critical-exception notice shows the whole message
