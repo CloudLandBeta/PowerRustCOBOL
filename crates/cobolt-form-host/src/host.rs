@@ -3376,104 +3376,75 @@ pub(crate) fn pane_layout(
 }
 
 /// Keep a docked child against its opener (form `DockToOpener`, operator
-/// 2026-10-04). Each frame the window is put where `dock_position` says, from
-/// the opener's real outer rect. A docked window found somewhere other than
-/// where the host last put it was dragged by the operator: the opener is moved
-/// by the same amount instead, and every window docked to it follows on the
-/// next frame — so dragging any window of the group moves the group, and the
-/// gaps stay as designed.
+/// 2026-10-04). The window is placed — and sized, for `DockLength` — only when
+/// the opener's window has moved or changed size since the window was last
+/// placed, once per change. A docked window never moves anything itself: it
+/// follows its opener, and nothing follows it.
+///
+/// It used to be put back every frame, and a docked window found anywhere but
+/// where it was last put was taken to have been dragged, so the opener was
+/// moved after it. The operating system applies a move a frame or more later
+/// and keeps a window inside the screen, so a position read back early, or
+/// clamped, looked like a drag: the bars pushed the main window, the main
+/// window pulled the other bars, and the stream of moves kept every window
+/// from taking the focus ("the forms are fighting each other").
 fn dock_child_window(ctx: &egui::Context, child: &mut ChildWindow, opener_vp: egui::ViewportId) {
     let opener = ctx.input_for(opener_vp, |i| i.viewport().outer_rect);
     let mine = ctx.input_for(child.viewport_id, |i| i.viewport().outer_rect);
     let (Some(o), Some(m)) = (opener, mine) else { return };
+    if !opener_changed(child.dock_opener_seen, o) {
+        return;
+    }
     // `DockLength`: the window's length along the edge follows the opener's.
     // Its inner size is what the viewport is declared with each frame, so
-    // changing it is the resize.
+    // changing it is the resize; the place below is worked out for that size.
     let inner = ctx.input_for(child.viewport_id, |i| i.viewport().inner_rect).map_or(m.size(), |r| r.size());
+    let frame = ((m.width() - inner.x).max(0.0), (m.height() - inner.y).max(0.0));
+    let mut outer = m.size();
     if let Some((w, h)) = cobolt_forms::model::dock_size(
         child.dock,
         child.dock_length,
         (o.width(), o.height()),
         (child.size.x, child.size.y),
-        ((m.width() - inner.x).max(0.0), (m.height() - inner.y).max(0.0)),
+        frame,
     ) {
-        let want = egui::vec2(w, h);
-        if (want - child.size).length() > 0.5 {
-            child.size = want;
-        }
+        child.size = egui::vec2(w, h);
+        outer = egui::vec2(w + frame.0, h + frame.1);
     }
-    let Some((x, y)) = cobolt_forms::model::dock_position(
+    if let Some((x, y)) = cobolt_forms::model::dock_position(
         child.dock,
         child.dock_gap,
         (o.min.x, o.min.y, o.width(), o.height()),
-        (m.width(), m.height()),
-    ) else {
-        return;
-    };
-    match dock_step(egui::pos2(x, y), m.min, child.dock_expected) {
-        DockStep::MoveOpener(dragged) => {
-            ctx.send_viewport_cmd_to(opener_vp, egui::ViewportCommand::OuterPosition(o.min + dragged));
-            child.dock_expected = Some(m.min);
-        }
-        DockStep::MoveWindow(target) => {
-            ctx.send_viewport_cmd_to(child.viewport_id, egui::ViewportCommand::OuterPosition(target));
-            child.dock_expected = Some(target);
-        }
-        DockStep::Stay => child.dock_expected = Some(m.min),
+        (outer.x, outer.y),
+    ) {
+        ctx.send_viewport_cmd_to(child.viewport_id, egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
     }
+    child.dock_opener_seen = Some(o);
 }
 
-/// What one frame does for a docked window.
-#[derive(Debug, PartialEq)]
-enum DockStep {
-    /// The operator dragged this window by this much: move the opener with it.
-    MoveOpener(egui::Vec2),
-    /// The opener moved (or this is the first frame): put the window here.
-    MoveWindow(egui::Pos2),
-    /// Already where it belongs.
-    Stay,
-}
-
-/// Decide a docked window's frame from where it should be (`target`), where it
-/// is (`actual`) and where the host last put it (`put`).
-fn dock_step(target: egui::Pos2, actual: egui::Pos2, put: Option<egui::Pos2>) -> DockStep {
-    match put {
-        Some(put) if (actual - put).length() > 1.0 && (actual - target).length() > 1.0 => {
-            DockStep::MoveOpener(actual - put)
-        }
-        _ if (actual - target).length() > 0.5 => DockStep::MoveWindow(target),
-        _ => DockStep::Stay,
-    }
+/// Whether the opener's window is somewhere else, or another size, than when
+/// its docked window was last placed (`seen`) — the one thing that moves a
+/// docked window. Half a point of drift is the same place.
+fn opener_changed(seen: Option<egui::Rect>, now: egui::Rect) -> bool {
+    seen.is_none_or(|r| (r.min - now.min).length() > 0.5 || (r.size() - now.size()).length() > 0.5)
 }
 
 #[cfg(test)]
 mod dock_tests {
     use super::*;
 
-    /// The three things a docked window's frame can do: follow its opener,
-    /// drag its opener along, or stay.
+    /// A docked window is placed the first time, and again only when its
+    /// opener moves or resizes — never because of where the window itself was
+    /// found, so it cannot push its opener or chase the operating system.
     #[test]
-    fn a_docked_window_follows_its_opener_and_drags_it_along() {
-        let p = egui::pos2;
-        // First frame: wherever the OS put it, it goes to its place.
-        assert_eq!(dock_step(p(200.0, 124.0), p(0.0, 0.0), None), DockStep::MoveWindow(p(200.0, 124.0)));
-        // In place: nothing to do.
-        assert_eq!(dock_step(p(200.0, 124.0), p(200.0, 124.0), Some(p(200.0, 124.0))), DockStep::Stay);
-        // The opener moved 50 right: the window is still where it was put, so
-        // it follows to its new place.
-        assert_eq!(
-            dock_step(p(250.0, 124.0), p(200.0, 124.0), Some(p(200.0, 124.0))),
-            DockStep::MoveWindow(p(250.0, 124.0))
-        );
-        // The operator dragged the window 30 down and 10 left: the opener is
-        // moved by the same amount, and the window stays where it was dropped.
-        assert_eq!(
-            dock_step(p(200.0, 124.0), p(190.0, 154.0), Some(p(200.0, 124.0))),
-            DockStep::MoveOpener(egui::vec2(-10.0, 30.0))
-        );
-        // Next frame the opener has caught up: the target is where the window
-        // already is.
-        assert_eq!(dock_step(p(190.0, 154.0), p(190.0, 154.0), Some(p(190.0, 154.0))), DockStep::Stay);
+    fn a_docked_window_moves_only_when_its_opener_changes() {
+        let r = |x: f32, y: f32, w: f32, h: f32| egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(w, h));
+        let main = r(100.0, 100.0, 1000.0, 600.0);
+        assert!(opener_changed(None, main), "the first frame places it");
+        assert!(!opener_changed(Some(main), main), "the opener has not moved: nothing to do");
+        assert!(!opener_changed(Some(main), r(100.3, 100.0, 1000.0, 600.0)), "sub-point drift is the same place");
+        assert!(opener_changed(Some(main), r(150.0, 100.0, 1000.0, 600.0)), "the opener moved");
+        assert!(opener_changed(Some(main), r(100.0, 100.0, 1200.0, 720.0)), "the opener was resized");
     }
 }
 
@@ -3500,9 +3471,9 @@ pub(crate) struct ChildWindow {
     pub(crate) dock_gap: f32,
     /// The form's `DockLength`: a share of the opener's edge (0 = designed).
     pub(crate) dock_length: u32,
-    /// Where the host last put a docked window. A window found elsewhere was
-    /// dragged by the operator, and takes its group along.
-    pub(crate) dock_expected: Option<egui::Pos2>,
+    /// The opener's window rect when this docked window was last placed: it
+    /// is placed again only when that changes.
+    pub(crate) dock_opener_seen: Option<egui::Rect>,
     /// A screen-relative designed `StartPosition`, applied on the first frame
     /// the monitor's size is known, when the caller gave no position.
     pub(crate) pending_start: Option<cobolt_forms::model::FormStartPosition>,
@@ -4648,7 +4619,7 @@ impl FormHost {
             dock: form.dock_to_opener,
             dock_gap: form.dock_gap as f32,
             dock_length: form.dock_length,
-            dock_expected: None,
+            dock_opener_seen: None,
             pending_start,
             initial_state,
             init_sent: false,

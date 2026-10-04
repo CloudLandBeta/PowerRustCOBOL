@@ -7316,8 +7316,8 @@ fn controls_reference_doc() -> String {
          responsive layout), `DockToOpener` (`\"None\"` | `\"Top\"` | `\"Bottom\"` | \
          `\"Left\"` | `\"Right\"`, default None — a window opened with OpenFormSync or \
          OpenFormAsync sits just outside that edge of its opener's window, centred along \
-         it; dragging the opener or any window docked to it moves the whole group, so the \
-         gaps stay as designed), `DockGap` (Integer px, default 16 — the gap to the \
+         it; when the opener moves or changes size the docked window follows, once per \
+         change, so the gaps stay as designed — a docked window never moves its opener), `DockGap` (Integer px, default 16 — the gap to the \
          opener) and `DockLength` (Integer 0-100, default 0 — the docked window's length \
          along that edge as a percentage of it, following the opener when it changes size; \
          0 keeps the designed size; make the docked form responsive so it adapts). A floating toolbar, a tab strip and a rail around a dashboard are three \

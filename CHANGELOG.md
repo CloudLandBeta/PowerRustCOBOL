@@ -8,6 +8,25 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.171] — 2026-10-04
+
+### Fix: docked windows follow their opener instead of fighting it
+
+Windows docked to their opener (`DockToOpener`) fought each other: the bars
+around PowerSpatial's dashboard jumped about and could not even be brought
+to the front (operator, 2026-10-04). Each frame the host put every docked
+window back in place, and a docked window read back anywhere else was taken
+to have been dragged — so the opener was moved after it. The operating system
+applies a move a frame or more later and keeps windows inside the screen, so
+a late or clamped position looked like a drag: the bars pushed the main
+window, the main window pulled the other bars, and the stream of moves kept
+every window from taking the focus. Now a docked window is placed — and
+sized, for `DockLength` — only when its opener's window has moved or changed
+size, once per change, and it never moves its opener (drag the opener to
+move the group). Test `a_docked_window_moves_only_when_its_opener_changes`;
+property help in six languages, Guide and System KB updated; `chunked.data`
+regenerated.
+
 ## [PowerRustCOBOL 1.80.170] — 2026-10-04
 
 ### Feature: the Spatial look — what a Spatial form and its controls wear by default

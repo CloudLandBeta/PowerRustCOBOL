@@ -7371,9 +7371,10 @@ impl ModalOverlayStyle {
 
 /// Which edge of its OPENER a window docks to (form `DockToOpener`, operator
 /// 2026-10-04). A docked window sits just outside that edge, centred along
-/// it, `DockGap` pixels away; dragging the opener or any window docked to it
-/// moves the whole group, so the gaps stay as designed — a floating toolbar
-/// above a dashboard, a tab strip below it, a rail beside it.
+/// it, `DockGap` pixels away; when the opener moves or changes size the docked
+/// window follows, once per change, so the gaps stay as designed. It never
+/// moves its opener. A floating toolbar above a dashboard, a tab strip below
+/// it, a rail beside it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DockEdge {
     /// Not docked — the default: the window goes where its StartPosition or

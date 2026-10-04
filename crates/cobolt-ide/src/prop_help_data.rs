@@ -2698,12 +2698,12 @@ pub static PROP_HELP: &[PropHelp] = &[
         "Ouvre la fenêtre à cette part de l'écran sur chaque axe (1-100 %), dans les limites de taille du formulaire. 0 l'ouvre à la taille conçue. À combiner avec une mise en page adaptative.",
     ] },
     PropHelp { ty: "Form", prop: "DockToOpener", text: [
-        "Docks this window outside an edge of the form that opened it (Top, Bottom, Left, Right), centred along it. Dragging the opener or any docked window moves the whole group.",
-        "Acopla esta ventana fuera de un borde del formulario que la abrió (Top, Bottom, Left, Right), centrada en él. Arrastrar el formulario o cualquier ventana acoplada mueve todo el grupo.",
-        "Acopla esta janela do lado de fora de uma borda do formulário que a abriu (Top, Bottom, Left, Right), centrada nela. Arrastar o formulário ou qualquer janela acoplada move o grupo inteiro.",
-        "このウィンドウを、開いたフォームの辺（Top、Bottom、Left、Right）の外側に中央揃えでドッキングします。開いたフォームやドッキングしたウィンドウをドラッグすると、グループ全体が動きます。",
-        "将此窗口停靠在打开它的窗体某条边（Top、Bottom、Left、Right）的外侧并居中。拖动该窗体或任一停靠窗口都会移动整组窗口。",
-        "Ancre cette fenêtre à l'extérieur d'un bord du formulaire qui l'a ouverte (Top, Bottom, Left, Right), centrée sur ce bord. Faire glisser le formulaire ou toute fenêtre ancrée déplace tout le groupe.",
+        "Docks this window outside an edge of the form that opened it (Top, Bottom, Left, Right), centred along it. When the opener moves or changes size, the window follows it.",
+        "Acopla esta ventana fuera de un borde del formulario que la abrió (Top, Bottom, Left, Right), centrada en él. Cuando el formulario se mueve o cambia de tamaño, la ventana lo sigue.",
+        "Acopla esta janela do lado de fora de uma borda do formulário que a abriu (Top, Bottom, Left, Right), centrada nela. Quando o formulário se move ou muda de tamanho, a janela o acompanha.",
+        "このウィンドウを、開いたフォームの辺（Top、Bottom、Left、Right）の外側に中央揃えでドッキングします。開いたフォームが移動またはサイズ変更されると、ウィンドウが追従します。",
+        "将此窗口停靠在打开它的窗体某条边（Top、Bottom、Left、Right）的外侧并居中。该窗体移动或改变大小时，此窗口随之移动。",
+        "Ancre cette fenêtre à l'extérieur d'un bord du formulaire qui l'a ouverte (Top, Bottom, Left, Right), centrée sur ce bord. Quand le formulaire se déplace ou change de taille, la fenêtre le suit.",
     ] },
     PropHelp { ty: "Form", prop: "DockGap", text: [
         "The gap, in pixels, between a docked window and the form that opened it. Default 16.",
