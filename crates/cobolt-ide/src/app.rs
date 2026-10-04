@@ -16931,6 +16931,7 @@ impl CoboltApp {
                 behind_fill: None,
                 // Filled in below, with the DESIGNED extent.
                 image_extent: None,
+                draggable: false,
             }
         };
         let active_tabs: cobolt_forms::containers::ActiveTabs = controls

@@ -623,6 +623,7 @@ impl Shell {
             // through `render_form`, so no corner-notch mask reads this.
             behind_fill: None,
             image_extent: None,
+            draggable: false,
         };
         let painted =
             cobolt_forms::render::paint_backdrop(ui.painter(), ui.max_rect(), &backdrop);

@@ -275,6 +275,14 @@ pub struct Backdrop {
     /// obeying its Mode against the designed extent, and the colour fills
     /// whatever it does not cover.
     pub image_extent: Option<Vec2>,
+    /// The surface is a window WITHOUT a title bar, which the operator moves
+    /// by its face (operator, 2026-10-03). A press-and-drag on the form's
+    /// background, or on a part of a control that paints nothing — a hidden
+    /// control, the transparent background of a Label, Panel or GroupBox —
+    /// sets [`RenderOutput::window_drag`]; the host then moves the window.
+    /// Every painted part of a control keeps its own clicks. Interactive mode
+    /// only; `false` for every titled window, pane and canvas.
+    pub draggable: bool,
 }
 
 impl Backdrop {
@@ -311,6 +319,7 @@ impl Default for Backdrop {
             window_size: None,
             behind_fill: None,
             image_extent: None,
+            draggable: false,
         }
     }
 }
@@ -355,6 +364,12 @@ pub struct UiEvent {
 /// What the engine produces for the caller to act on.
 #[derive(Default)]
 pub struct RenderOutput {
+    /// A drag started on a part of a [`Backdrop::draggable`] window that
+    /// paints nothing: the host moves the window (`ViewportCommand::StartDrag`).
+    pub window_drag: bool,
+    /// Where each Label's text lies this frame, by control id — what a
+    /// see-through Label paints, so a window drag can start beside it.
+    pub caption_rects: HashMap<String, Rect>,
     /// UI events from interactive controls (clicks, changes, focus, keys, â¦).
     pub events: Vec<UiEvent>,
     /// Live property updates to apply back to the caller's state: (id, key, value).
@@ -2193,6 +2208,15 @@ fn render_form_inner(
     if let Some(chrome) = chrome {
         chrome(&painter, form_rect);
     }
+    // A window without a title bar moves by its face. The drag area is
+    // registered BEFORE the controls, so every control that senses the pointer
+    // takes a press on itself first; whether a press it did not take landed on
+    // something painted is decided once the controls are drawn (below).
+    let draggable = input.mode == RenderMode::Interactive && input.backdrop.draggable;
+    // For the Label arm, which claims only its text on such a window.
+    ui.data_mut(|d| d.insert_temp(window_draggable_id(scope), draggable));
+    let window_drag_area = draggable
+        .then(|| ui.interact(content_rect, rt_id_in(scope, "form").with("window-drag"), egui::Sense::drag()));
     let backdrop_gradient = painted.gradient;
     let backdrop_img_alpha = painted.image_alpha;
     let backdrop_img = painted.image;
@@ -2617,6 +2641,13 @@ fn render_form_inner(
     clear_radio_group_siblings(input, controls, &mut out);
     move_radio_focus(ui, scope, controls, &out);
 
+    if let Some(p) = window_drag_area
+        .filter(|area| area.drag_started())
+        .and_then(|area| area.interact_pointer_pos())
+    {
+        out.window_drag = !window_drag_blocked(controls, &out, p);
+    }
+
     // ââ Second pass: open ComboBox dropdowns float above everything. ââââââââââ
     for combo in open_combos {
         let OpenCombo {
@@ -2694,6 +2725,63 @@ fn render_form_inner(
         }
     }
     out
+}
+
+/// Where this frame records that its surface is a frameless, draggable window.
+fn window_draggable_id(scope: Option<egui::Id>) -> egui::Id {
+    rt_id_in(scope, "form").with("window-draggable")
+}
+
+/// A face that paints nothing: `Transparency` 100, or a background colour with
+/// zero alpha (a Label's seeded `#00000000`).
+fn face_see_through(ctrl: &Control) -> bool {
+    crate::model::transparency_of(ctrl) >= 100
+        || ctrl
+            .get_prop("BackgroundColor")
+            .map(|v| v.as_str().trim().to_owned())
+            .filter(|raw| !raw.is_empty())
+            .is_some_and(|raw| crate::paint::parse_color(&raw).a() == 0)
+}
+
+/// Whether `p` lies on a part of a control that paints something, so a press
+/// there belongs to the control and must not move a frameless window.
+///
+/// Hidden controls were never drawn (they have no rect) and non-visual
+/// controls draw nothing at run time. A Label, Panel or GroupBox whose face is
+/// see-through — `Transparency` 100, or a background with zero alpha — paints
+/// only its text (a Label), or its border and caption (a Panel, a GroupBox);
+/// a press elsewhere on it passes through. Every other visible control blocks
+/// over its whole rectangle.
+fn window_drag_blocked(controls: &[Control], out: &RenderOutput, p: egui::Pos2) -> bool {
+    controls.iter().any(|ctrl| {
+        if ctrl.control_type.is_non_visual() {
+            return false;
+        }
+        let Some(rect) = out.control_rects.get(&ctrl.id).filter(|r| r.contains(p)) else {
+            return false;
+        };
+        let see_through = face_see_through(ctrl);
+        match ctrl.control_type {
+            ControlType::Label if see_through => {
+                out.caption_rects.get(&ctrl.id).is_some_and(|text| text.contains(p))
+            }
+            ControlType::Panel | ControlType::GroupBox if see_through => {
+                // The border, and a GroupBox's caption along the top edge.
+                let border = ctrl.get_prop("BorderWidth").map_or(1.0, |v| v.as_i64() as f32).max(1.0) + 2.0;
+                let caption = if ctrl.control_type == ControlType::GroupBox {
+                    crate::paint::ctrl_font_size(ctrl) * 1.6
+                } else {
+                    0.0
+                };
+                let open = Rect::from_min_max(
+                    pos2(rect.min.x + border, rect.min.y + border.max(caption)),
+                    pos2(rect.max.x - border, rect.max.y - border),
+                );
+                !open.contains(p)
+            }
+            _ => true,
+        }
+    })
 }
 
 /// One ComboBox whose dropdown is open, held over for the second pass.
@@ -13216,6 +13304,8 @@ fn render_interactive(
                 &painter, screen.min, ctrl, false, glass, alpha, 1.0, None,
             );
             if let Some(cap) = caption {
+                let text_rect = Rect::from_min_size(cap.pos, cap.galley.size());
+                out.caption_rects.insert(id.to_owned(), text_rect);
                 // Bold is a second stamp at a half-pixel offset (egui has no
                 // guaranteed bold face for an arbitrary system font). It goes
                 // UNDER the selectable copy, which paints last and carries the
@@ -13237,8 +13327,18 @@ fn render_interactive(
                     // caption is not a tab stop, it is text that happens to be
                     // selectable, and TAB must keep walking the form's own
                     // controls in their designed order.
+                    // On a frameless window a see-through Label claims only its
+                    // text, so a drag beside it moves the window.
+                    let draggable = ui
+                        .data(|d| d.get_temp::<bool>(window_draggable_id(scope)))
+                        .unwrap_or(false);
+                    let claim = if draggable && face_see_through(ctrl) {
+                        Rect::from_min_size(cap.pos, cap.galley.size())
+                    } else {
+                        screen
+                    };
                     let resp = ui.interact(
-                        screen,
+                        claim,
                         ctrl_id.with("caption"),
                         Sense::click_and_drag() - Sense::FOCUSABLE,
                     );
@@ -20385,6 +20485,7 @@ mod tests {
                             window_size: None,
                             behind_fill: None,
                             image_extent: None,
+                            draggable: false,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -24969,6 +25070,93 @@ mod tests {
         );
     }
 
+    /// A window without a title bar moves by its face (operator, 2026-10-03):
+    /// a drag on the background, or on a part of a control that paints
+    /// nothing, reports `window_drag`; a drag on anything painted does not.
+    #[test]
+    fn a_frameless_window_moves_by_its_background_and_see_through_parts() {
+        let started = std::time::Instant::now();
+        let mut btn = ctrl("Btn", ControlType::Button, 20, 20, 100, 30);
+        btn.set_prop("Caption", crate::PropValue::String("OK".into()));
+        let mut lbl = ctrl("Lbl", ControlType::Label, 20, 70, 200, 30);
+        lbl.set_prop("Caption", crate::PropValue::String("Hi".into()));
+        lbl.set_prop("BackgroundColor", crate::PropValue::String("#00000000".into()));
+        let mut clear = ctrl("Clear", ControlType::Panel, 250, 20, 120, 120);
+        clear.set_prop("BackgroundColor", crate::PropValue::String("#00000000".into()));
+        let mut solid = ctrl("Solid", ControlType::Panel, 250, 160, 120, 100);
+        solid.set_prop("BackgroundColor", crate::PropValue::String("#336699".into()));
+        let mut hidden = ctrl("Hidden", ControlType::Button, 20, 200, 100, 40);
+        hidden.visible = false;
+        let controls = vec![btn, lbl, clear, solid, hidden];
+
+        // Hides what `visible` says is hidden, as every host's state does
+        // (the shared `MapState` shows everything).
+        struct Shown;
+        impl FormState for Shown {
+            fn live(&self, base: &Control) -> Control {
+                base.clone()
+            }
+            fn visible(&self, base: &Control) -> bool {
+                base.visible
+            }
+        }
+        let drags = |at: Pos2, draggable: bool| -> bool {
+            let ctx = egui::Context::default();
+            ctx.set_fonts(egui::FontDefinitions::default());
+            let active = ActiveTabs::new();
+            let frames = [
+                vec![Event::PointerMoved(at)],
+                vec![press(at)],
+                vec![Event::PointerMoved(at + egui::vec2(12.0, 9.0))],
+                vec![Event::PointerMoved(at + egui::vec2(24.0, 18.0))],
+            ];
+            let mut moved = false;
+            for (i, evs) in frames.into_iter().enumerate() {
+                let mut input = egui::RawInput::default();
+                input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(1000.0, 800.0)));
+                input.focused = true;
+                input.time = Some(i as f64 * 0.05);
+                input.events = evs;
+                let st = Shown;
+                let mut full = ctx.run_ui(input, |root_ui| {
+                    egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                        let inp = RenderInput {
+                            controls: &controls,
+                            state: &st,
+                            form_size: Vec2::new(400.0, 300.0),
+                            glass: true,
+                            mode: RenderMode::Interactive,
+                            active_tabs: &active,
+                            backdrop: Backdrop { draggable, ..Default::default() },
+                        };
+                        moved |= render_form(ui, &inp).window_drag;
+                    });
+                });
+                full.textures_delta.clear();
+            }
+            moved
+        };
+
+        let cases: [(&str, Pos2, bool); 7] = [
+            ("form background", pos2(150.0, 260.0), true),
+            ("a button", pos2(70.0, 35.0), false),
+            ("a see-through label, beside its text", pos2(200.0, 85.0), true),
+            ("a see-through panel, inside its border", pos2(310.0, 80.0), true),
+            ("a see-through panel, on its border", pos2(251.0, 80.0), false),
+            ("an opaque panel", pos2(310.0, 210.0), false),
+            ("where a hidden button sits", pos2(70.0, 220.0), true),
+        ];
+        for (what, at, expected) in cases {
+            assert_eq!(drags(at, true), expected, "frameless window, press on {what}");
+        }
+        assert!(!drags(pos2(150.0, 260.0), false), "a titled window never moves by its face");
+        println!(
+            "\n  frameless window drag: {} press points + a titled window, {:.0} ms\n",
+            cases.len(),
+            started.elapsed().as_secs_f64() * 1000.0
+        );
+    }
+
     /// An open dropdown letters its items in the control's OWN font and colour,
     /// and gives each one a line of that font's height. All three were
     /// hardcoded â 22 px, 12 pt and a fixed near-white â so a combo set to
@@ -25421,6 +25609,7 @@ mod shape_dump {
                             window_size: None,
                             behind_fill: None,
                             image_extent: None,
+                            draggable: false,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -25493,6 +25682,7 @@ mod shape_dump {
                             window_size: None,
                             behind_fill: None,
                             image_extent: None,
+                            draggable: false,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -25569,6 +25759,7 @@ mod shape_dump {
                             window_size: None,
                             behind_fill: None,
                             image_extent: None,
+                            draggable: false,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -25645,6 +25836,7 @@ mod shape_dump {
                             window_size: None,
                             behind_fill: None,
                             image_extent: None,
+                            draggable: false,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -25869,6 +26061,7 @@ mod shape_dump {
                             window_size: None,
                             behind_fill: None,
                             image_extent: None,
+                            draggable: false,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -26055,6 +26248,7 @@ mod shape_dump {
                             window_size: None,
                             behind_fill: None,
                             image_extent: None,
+                            draggable: false,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -26575,6 +26769,7 @@ mod maps_corner_tests {
                             window_size: None,
                             behind_fill: None,
                             image_extent: None,
+                            draggable: false,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -27079,6 +27274,7 @@ mod notch_ambient_tests {
                             // What the pane painted, which the engine cannot see.
                             behind_fill: Some(BEHIND),
                             image_extent: None,
+                            draggable: false,
                         },
                     };
                     let _ = render_form(ui, &rin);

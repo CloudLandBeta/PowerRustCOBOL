@@ -87,6 +87,7 @@ fn backdrop(form: &Form, image: Option<(egui::TextureId, Vec2)>, window: Vec2) -
         window_size: Some(window),
         behind_fill: None,
         image_extent: None,
+        draggable: false,
     }
 }
 

@@ -6789,6 +6789,15 @@ leaving fullscreen returns to the previous state). At runtime:
     INVOKE me "SetTitleVisible" USING "false".
 ```
 
+**Moving a window without a title bar.** A chromeless window is moved by its
+face: press anywhere on the form's background and drag. A press on a control
+stays the control's — a button still clicks, a list still selects — except
+where the control paints nothing: a hidden control, and the transparent
+background of a Label, Panel or GroupBox (its text, border, caption and
+children still belong to it). This works for the main window and for child
+windows; a shell application's window (a main form carrying a SideMenu) does
+not move this way yet.
+
 Each **actual** fullscreen transition fires the form's `onFullScreenChanged`
 event (the OS may refuse a request — the event follows reality, once per real
 change; read `me`'s `FullScreen` for the new value).

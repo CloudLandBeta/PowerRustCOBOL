@@ -493,6 +493,8 @@ impl FormHost {
             root: FormBody {
                 drawn_reported: false,
                 form_name: form.name.clone(),
+                title_visible: form.title_visible,
+                owns_window: surface == Surface::Window,
             last_window_crumb: None,
                 footer_ids: footer_ids.clone(),
                 theme_pack,
@@ -684,6 +686,14 @@ impl Default for OsHandoffChannel {
 
 pub(crate) struct FormBody {
     pub(crate) form_name: String,
+    /// The window shows its title bar — the form's `TitleVisible`, kept
+    /// current by `SetTitleVisible`. Without one the window moves by its face
+    /// (operator, 2026-10-03; see `Backdrop::draggable`).
+    pub(crate) title_visible: bool,
+    /// This body IS a window: the root of a `Surface::Window` host, or a
+    /// child window. A ContentPane occupant draws inside the shell's window
+    /// and must never move it.
+    pub(crate) owns_window: bool,
     /// 049/051 — where this body's OWN breadcrumb strip put its pieces last
     /// frame, for a form running in a stand-alone WINDOW. `None` for a body
     /// with no SideMenu, and for the ContentPane occupant, whose strip is the
@@ -2596,6 +2606,7 @@ impl FormBody {
             // it: see the `Surface::Pane` branch in `ui_impl`.
             behind_fill: None,
             image_extent: None,
+            draggable: self.owns_window && !self.title_visible,
         }
     }
 
@@ -2994,6 +3005,11 @@ impl FormBody {
                             );
                         });
                 });
+            // A child window without a title bar moves by its face. Inside
+            // `show_viewport_immediate` the context's viewport IS this window.
+            if out.window_drag && self.owns_window {
+                ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+            }
             // 051 R19/R28 — `disable()` above already refuses input; this is
             // only the paint that lets the operator SEE this form is waiting,
             // in the style ITS OWN design chose (a ContentPane occupant is
@@ -3743,8 +3759,12 @@ impl FormHost {
                     }
                     HostAction::SetTitleVisible { handle, on } => {
                         if handle == ROOT_HANDLE {
+                            self.root.title_visible = on;
                             self.viewport_cmd(ctx,egui::ViewportCommand::Decorations(on));
                         } else if let Some(vp) = self.child_viewport(&handle) {
+                            if let Some(child) = self.children.iter_mut().find(|c| c.handle == handle) {
+                                child.body.title_visible = on;
+                            }
                             ctx.send_viewport_cmd_to(vp, egui::ViewportCommand::Decorations(on));
                         }
                     }
@@ -4376,7 +4396,8 @@ impl FormHost {
         // Spec 085 — a form that carries a SideMenu runs as a shell of its
         // own in its window: rail, breadcrumb, ContentPane, chain.
         let side_menu = self.form_side_menu_id(form_id)?;
-        let (body, form) = self.build_form_instance_as(handle, form_id, side_menu.is_some())?;
+        let (mut body, form) = self.build_form_instance_as(handle, form_id, side_menu.is_some())?;
+        body.owns_window = true;
         let nav = side_menu.map(|id| {
             let menu = cobolt_forms::paint::registered_menu_for(form_id, &id).map(|d| (*d).clone());
             Box::new(crate::shell::ChildNav::for_form(handle, &form, Some(id), menu, body.ev_tx.clone()))
@@ -4598,6 +4619,9 @@ impl FormHost {
         let body = FormBody {
             drawn_reported: false,
             form_name: form.name.clone(),
+            title_visible: form.title_visible,
+            // A child window says so where it opens one; an occupant never is.
+            owns_window: false,
             last_window_crumb: None,
             // An occupant is a form INSIDE the pane; the rail belongs to the
             // shell's main form, so an occupant has no footer band of its own
@@ -6284,6 +6308,7 @@ impl FormHost {
                             // lines above; tell the engine what it says.
                             behind_fill: Some(painted.bg),
                             image_extent: None,
+                            draggable: false,
                         }
                     } else {
                         backdrop
@@ -6375,6 +6400,11 @@ impl FormHost {
         // Where the engine actually put every control this frame — see
         // `FormBody::last_control_rects`.
         self.root.last_control_rects = output.control_rects.clone();
+        // A main window without a title bar moves by its face (`viewport_cmd`
+        // does nothing outside `Surface::Window`).
+        if output.window_drag {
+            self.viewport_cmd(ctx, egui::ViewportCommand::StartDrag);
+        }
         self.root.last_layout = laid_layout;
         self.root.mirror_layout();
 
@@ -9757,6 +9787,8 @@ mod parity {
         FormBody {
             drawn_reported: false,
             form_name: "TIMER-FORM".to_owned(),
+            title_visible: true,
+            owns_window: false,
             last_window_crumb: None,
             footer_ids: std::collections::HashSet::new(),
             theme_pack: None,

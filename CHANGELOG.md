@@ -8,6 +8,38 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.146] — 2026-10-03
+
+### Fix: a window without a title bar moves by its face
+
+A form with **Show title bar** off (`TitleVisible = false`) opened a window
+nothing could move: the title bar is what the OS drags by. Now a press and drag
+on the form's background moves it (operator, 2026-10-03), for the main window
+and for child windows.
+
+- **What moves the window:** the form's background, and any part of a control
+  that paints nothing — a hidden control, the transparent background of a
+  Label, Panel or GroupBox (`Transparency` 100, or a background with zero
+  alpha). A Label's text, a Panel's or GroupBox's border and caption, every
+  child, and every other control keep their own presses: a button still
+  clicks, a list still selects.
+- **How:** the engine registers a window-drag area under every control when
+  the host marks the surface draggable (`Backdrop::draggable`, set from the
+  body's `title_visible` and whether it owns its window; `SetTitleVisible`
+  keeps it current). A drag the controls did not take is hit-tested against
+  the painted parts (`window_drag_blocked`) and reported as
+  `RenderOutput::window_drag`; the host sends `ViewportCommand::StartDrag`. On
+  such a window a see-through Label claims only its text
+  (`RenderOutput::caption_rects`), so a drag beside it moves the window.
+- **Not yet:** a shell application's window (a main form carrying a SideMenu)
+  draws its form inside its ContentPane and does not move this way yet.
+- **Test:** `a_frameless_window_moves_by_its_background_and_see_through_parts`
+  (seven press points — background, button, beside a see-through Label's
+  text, inside and on a see-through Panel's border, an opaque Panel, a hidden
+  control — and a titled window, which never moves).
+- **Guide** ("Moving a window without a title bar") and System KB
+  (`TitleVisible`) updated; `chunked.data` regenerated.
+
 ## [PowerRustCOBOL 1.80.145] — 2026-10-03
 
 ### Fix: writing a list's Value moves its SelectedIndex, and pick-only lists search as you type
