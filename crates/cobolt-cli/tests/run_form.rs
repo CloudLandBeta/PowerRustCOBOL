@@ -323,3 +323,75 @@ fn powerchat_added_to_an_application_opens_as_a_shell_window_of_its_own() {
     let _ = std::fs::remove_dir_all(&base);
     println!("powerchat in a host: CHAT-FORM opened as a shell window; on its pane: {}", windows[0]["on_pane"]);
 }
+
+const TWIN_MAIN: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="TWIN-MAIN" title="Twins" width="420" height="240" title-visible="false">
+  <form-events>
+    <Event name="onLoad" paragraph="TWIN-MAIN--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           INVOKE ME::"OpenFormAsync"("TWIN-CHILD").
+]]></Event>
+  </form-events>
+  <Control id="BTN-SAME" type="Button" x="20" y="20" w="160" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Main</Property>
+    <Event name="onClick" paragraph="BTN-SAME--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           DISPLAY "MAIN-CLICKED".
+]]></Event>
+  </Control>
+</Form>
+"#;
+
+const TWIN_CHILD: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="TWIN-CHILD" title="Twins" width="300" height="120" title-visible="false" dock-to-opener="Bottom">
+  <Control id="BTN-SAME" type="Button" x="20" y="20" w="160" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Child</Property>
+  </Control>
+</Form>
+"#;
+
+/// Two forms whose controls share an id — a main form and the window it opens,
+/// both with a `BTN-SAME` — run off screen, where every window is drawn in ONE
+/// pass. Each window's controls were in the same id space, so egui saw one
+/// widget on two layers and the debug build stopped with a panic: a dashboard
+/// opening its docked bars could not be run at all (PowerSpatial, whose room
+/// bar has a "Play Room" `Btn-Play` beside the player's). Each window now
+/// draws in an id space of its own.
+#[test]
+fn a_window_whose_controls_share_ids_with_its_opener_runs() {
+    let base = std::env::temp_dir().join(format!("prc-twin-ids-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let start = base.join("start");
+    std::fs::create_dir_all(&start).unwrap();
+    let runner = run::rcrun_runner(Path::new(env!("CARGO_BIN_EXE_rcrun")).to_path_buf());
+    let shared = Arc::new(Shared::new().with_runner(runner));
+    let mut tools = ProjectTools::with_shared(HeadlessHost::new(start.join("none.project.toml"), "test"), shared);
+    let project = base.join("Twins");
+    let (_, made, err) = call(&mut tools, "create_project", json!({"folder": project.to_string_lossy(), "name": "Twins"}));
+    assert!(!err, "{made}");
+    for (file, xml) in [("twin-main", TWIN_MAIN), ("twin-child", TWIN_CHILD)] {
+        std::fs::write(project.join(format!("forms/{file}.cfrm")), xml).unwrap();
+        let (_, out, err) = call(&mut tools, "add_to_project", json!({"path": format!("forms/{file}.cfrm")}));
+        assert!(!err, "{file}: {out}");
+        let (_, out, err) = call(&mut tools, "regenerate", json!({"path": format!("forms/{file}.cfrm")}));
+        assert!(!err, "{file}: {out}");
+    }
+    let (_, out, err) = call(
+        &mut tools,
+        "run_form",
+        json!({"path": "forms/twin-main.cfrm", "time_limit_s": 20, "steps": [
+            {"wait_ms": 800},
+            {"event": {"control": "BTN-SAME", "name": "onClick"}},
+            {"wait_ms": 300}
+        ]}),
+    );
+    assert!(!err, "the run must not stop: {out}");
+    let windows = out["windows"].as_array().cloned().unwrap_or_default();
+    assert_eq!(windows.len(), 1, "the child window is open: {out}");
+    assert_eq!(windows[0]["form"], "TWIN-CHILD");
+    assert!(out["display"].as_array().unwrap().iter().any(|l| l.as_str().unwrap_or("").contains("MAIN-CLICKED")), "{out}");
+    let _ = std::fs::remove_dir_all(&base);
+    println!("two windows, one BTN-SAME each, drawn in one pass: ran, child open, main's click handled");
+}

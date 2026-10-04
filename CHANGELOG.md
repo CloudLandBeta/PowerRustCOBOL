@@ -8,6 +8,23 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.165] — 2026-10-04
+
+### Fix: a window whose controls share ids with its opener's can be run off screen
+
+`run_form` (and any host that draws every window in one pass — viewports
+embedded in the main one) stopped with a panic as soon as a form opened a
+window holding a control with the same id as one of its own: each window's
+controls were in the same egui id space, so one widget sat on two layers in
+a frame, which egui refuses. Even where it did not panic, two such controls
+could take each other's clicks and keyboard focus. Found running the
+PowerSpatial dashboard, whose room bar's "Play Room" tab is a `Btn-Play`
+like the player's. A child window now draws in an id space of its own (the
+layer it is drawn on), and the platform verbs that match the focused widget
+back to a control use the same space. Test
+`a_window_whose_controls_share_ids_with_its_opener_runs`, red before the
+change.
+
 ## [PowerRustCOBOL 1.80.164] — 2026-10-04
 
 ### Fix: `rcrun run-form forms/x.cfrm` in the project folder opens child forms

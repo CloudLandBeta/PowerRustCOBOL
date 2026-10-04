@@ -2892,6 +2892,16 @@ impl FormBody {
         // against a rect at (0,0) reports every control off-surface and means
         // nothing.
         let panel_rect = panel_ui.max_rect();
+        // A child window's controls live in an id space of their own. Where
+        // every window is drawn in ONE pass — viewports embedded in the main
+        // one, as the headless host draws them — two forms that both have a
+        // `Btn-Play` would otherwise claim one widget id on two layers (egui
+        // refuses it), and take each other's clicks and focus. The layer is
+        // the window's: its own Area when embedded, its viewport's background
+        // otherwise, and stable from frame to frame.
+        let scope = self
+            .owns_window
+            .then(|| egui::Id::new("form-window").with(panel_ui.layer_id()));
         // Theme state for the unified painter — this viewport's own context.
         cobolt_forms::paint::set_active_theme(ctx, self.theme_pack.clone());
         cobolt_forms::paint::set_glass_style(ctx, self.glass_style);
@@ -3066,9 +3076,10 @@ impl FormBody {
                                 active_tabs: &active_tabs,
                                 backdrop,
                             };
-                            out = cobolt_forms::render::render_form_with_chrome(
-                                ui, &input, chrome,
-                            );
+                            out = match scope {
+                                Some(s) => cobolt_forms::render::render_form_scoped(ui, &input, chrome, s),
+                                None => cobolt_forms::render::render_form_with_chrome(ui, &input, chrome),
+                            };
                         });
                 });
             // A child window without a title bar moves by its face. Inside
@@ -3178,7 +3189,7 @@ impl FormBody {
                 &output.csv_export_requests,
                 &output.toolbar_actions,
                 pre_focus,
-                None,
+                scope,
             ) {
                 platform_acted = true;
 
