@@ -2951,28 +2951,23 @@
            CALL "PS-DEVICE-TOGGLE"
 ]]></Event>
   </Control>
-  <Control id="Pic-Thermostat" type="PictureBox" x="446" y="455" w="102" h="109" tab-order="89" z-order="0" visible="true" enabled="true" parent="Crd-Thermostat">
-    <Property name="ImagePath">Assets/images/thermostat.svg</Property>
-    <Property name="SizeMode">Fit</Property>
-    <Property name="ShowFrame">false</Property>
+  <Control id="Knb-Thermostat" type="Knob" x="446" y="455" w="102" h="109" tab-order="89" z-order="0" visible="true" enabled="true" parent="Crd-Thermostat">
+    <Property name="Minimum">50</Property>
+    <Property name="Maximum">90</Property>
+    <Property name="Value">70</Property>
+    <Property name="Step">1</Property>
+    <Property name="DefaultValue">70</Property>
+    <Property name="ShowValue">true</Property>
+    <Property name="Accent">#2DC653FF</Property>
+    <Property name="FaceColor">#1E1F21FF</Property>
+    <Property name="RimColor">#7A7C80FF</Property>
+    <Property name="TrackColor">#FFFFFF26</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontSize">22</Property>
     <Property name="BorderStyle">None</Property>
+    <Property name="Tooltip">°F</Property>
     <Property name="GridColumn">1</Property>
     <Property name="GridRow">3</Property>
-    <Property name="BackgroundColor">#F0F0F0</Property>
-    <Property name="ForegroundColor">#FFFFFF</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="CornerRadius">0</Property>
   </Control>
   <Control id="Crd-Lighting" type="Panel" x="618" y="389" w="174" h="191" tab-order="90" z-order="0" visible="true" enabled="true" parent="Pnl-Right">
     <Property name="LayoutMode">Grid</Property>

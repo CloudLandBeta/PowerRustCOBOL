@@ -40,6 +40,8 @@ examples/*/temp/
 # Knowledge-base indexes: derived from the project's own documents, rebuilt on
 # open. The DOCUMENTS are tracked; their embeddings are not.
 examples/*/data/*.redb
+# PowerSpatial keeps the operator's language here when it runs.
+examples/PowerSpatial/data/settings.idx
 examples/*/data/*.sqlite
 examples/*/data/*chunked.data
 # The application Knowledge Base's semantic model (~470 MB), fetched by the

@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.180] — 2026-10-04
+
+### Fix: PowerSpatial's thermostat dial turns
+
+The Thermostat card's dial was a picture of one: it did nothing, and — having
+no mouse behaviour and no click handler — a press on it moved the frameless
+window, as such a control is meant to (operator, 2026-10-04: "the click drags
+the window instead of interacting with the knob"). It is now a Knob — 50 to
+90, showing its value, styled like the drawing it replaces — so a drag turns
+it. The example's manifest carries the IDE's save of it, and the language a
+run keeps in `data/settings.idx` is ignored.
+
 ## [PowerRustCOBOL 1.80.179] — 2026-10-04
 
 ### Fix: a Knob's value, a Gauge's reading and toggles read on Spatial's glass
