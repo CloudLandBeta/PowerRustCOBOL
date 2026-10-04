@@ -6607,6 +6607,26 @@ impl DesignerPanel {
                     self.dirty = true;
                 }
             }
+            "Resizable" => {
+                self.form.resizable = value != "false" && value != "0";
+                self.dirty = true;
+            }
+            "ScreenFill" => {
+                if let Ok(v) = value.trim().parse::<f32>() {
+                    self.form.screen_fill = v.clamp(0.0, 100.0) as u32;
+                    self.dirty = true;
+                }
+            }
+            "DockToOpener" => {
+                self.form.dock_to_opener = cobolt_forms::model::DockEdge::from_str(&value);
+                self.dirty = true;
+            }
+            "DockGap" => {
+                if let Ok(v) = value.trim().parse::<f32>() {
+                    self.form.dock_gap = v.clamp(0.0, 400.0) as u32;
+                    self.dirty = true;
+                }
+            }
             "ModalOverlayStyle" => {
                 self.form.modal_overlay_style = cobolt_forms::model::ModalOverlayStyle::from_str(&value);
                 self.dirty = true;
@@ -6755,6 +6775,10 @@ impl DesignerPanel {
             "FullScreen" => Some(bool_str(self.form.full_screen)),
             "TitleVisible" => Some(bool_str(self.form.title_visible)),
             "CornerRadius" => Some(self.form.corner_radius.to_string()),
+            "Resizable" => Some(bool_str(self.form.resizable)),
+            "ScreenFill" => Some(self.form.screen_fill.to_string()),
+            "DockToOpener" => Some(self.form.dock_to_opener.as_str().to_string()),
+            "DockGap" => Some(self.form.dock_gap.to_string()),
             "ModalOverlayStyle" => Some(self.form.modal_overlay_style.as_str().to_string()),
             "WindowEffects" => Some(bool_str(self.form.window_effects)),
             "FormFormat" => Some(self.form.form_format.as_str().to_string()),
@@ -14795,6 +14819,11 @@ pub(crate) const FORM_PROP_KEYS: &[&str] = &[
     "FullScreen",
     "TitleVisible",
     "CornerRadius",
+    // The window group and its size (operator, 2026-10-04)
+    "Resizable",
+    "ScreenFill",
+    "DockToOpener",
+    "DockGap",
     // 051 R19/R28
     "ModalOverlayStyle",
     "WindowEffects",
@@ -20041,6 +20070,7 @@ mod property_key_case_tests {
             // 037 main form & window lifecycle
             "mainform", "taskbaricon", "canminimize", "canmaximize", "windowstate",
             "fullscreen", "titlevisible", "cornerradius",
+            "resizable", "screenfill", "docktoopener", "dockgap",
             // 038 window effects opt-out
             "windoweffects",
             // 049 application shell

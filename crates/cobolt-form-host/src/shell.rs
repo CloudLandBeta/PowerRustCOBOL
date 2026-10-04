@@ -1397,7 +1397,8 @@ impl ShellApp {
         let mut viewport = egui::ViewportBuilder::default()
             .with_title(&title)
             .with_inner_size([designed.x, designed.y])
-            .with_resizable(true)
+            // `Resizable` false: the borders do not drag (operator, 2026-10-04).
+            .with_resizable(form.resizable)
             // R43 — the shell window carries alpha; the chrome paints itself.
             .with_transparent(true)
             .with_minimize_button(form.can_minimize)
@@ -1422,9 +1423,20 @@ impl ShellApp {
         }
         let start_minimized = form.window_state == cobolt_forms::model::WindowState::Minimized;
         let pending_start = form.start_position.is_screen_relative().then_some(form.start_position);
+        // `ScreenFill`, within the form's own size limits, as `host::run`.
+        let pending_screen_fill = (form.screen_fill > 0).then(|| {
+            let limits = cobolt_forms::layout::size_limits_of(&form);
+            let min = limits.as_ref().map_or((0.0, 0.0), |l| l.min);
+            let max = limits.as_ref().map_or(
+                (cobolt_forms::model::FORM_MAX_SIZE as f32, cobolt_forms::model::FORM_MAX_SIZE as f32),
+                |l| l.window_max(),
+            );
+            (form.screen_fill, min, max)
+        });
         let app = ShellApp {
             start_minimized,
             pending_start,
+            pending_screen_fill,
             shell,
             chain,
             host,
@@ -1446,6 +1458,9 @@ pub(crate) struct ShellApp {
     /// A screen-relative designed StartPosition, applied once the monitor's
     /// size is known.
     pending_start: Option<cobolt_forms::model::FormStartPosition>,
+    /// `ScreenFill` waiting for the monitor's size: the percentage and the
+    /// window's smallest and largest sizes.
+    pending_screen_fill: Option<(u32, (f32, f32), (f32, f32))>,
     shell: Shell,
     chain: NavChain,
     host: crate::FormHost,
@@ -2104,18 +2119,31 @@ impl ShellApp {
             self.start_minimized = false;
             root_ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         }
-        if let Some(start) = self.pending_start {
+        if self.pending_start.is_some() || self.pending_screen_fill.is_some() {
             let ready = root_ui.ctx().input(|i| {
                 let v = i.viewport();
-                Some((v.monitor_size?, v.outer_rect?.size()))
+                Some((v.monitor_size?, v.outer_rect?.size(), v.inner_rect?.size()))
             });
-            if let Some((monitor, window)) = ready {
-                if let Some((x, y)) =
-                    cobolt_forms::model::resolved_start_position(start, (monitor.x, monitor.y), (window.x, window.y))
-                {
-                    root_ui.ctx().send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
+            if let Some((monitor, mut window, inner)) = ready {
+                // Size first, so the start position places the window it
+                // will actually be.
+                if let Some((fill, min, max)) = self.pending_screen_fill.take() {
+                    if let Some((w, h)) =
+                        cobolt_forms::model::screen_fill_size(fill, (monitor.x, monitor.y), min, max)
+                    {
+                        root_ui.ctx().send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(w, h)));
+                        window = egui::vec2(w, h) + (window - inner);
+                    }
                 }
-                self.pending_start = None;
+                if let Some(start) = self.pending_start.take() {
+                    if let Some((x, y)) = cobolt_forms::model::resolved_start_position(
+                        start,
+                        (monitor.x, monitor.y),
+                        (window.x, window.y),
+                    ) {
+                        root_ui.ctx().send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
+                    }
+                }
             }
         }
         // 051 R19 — while a Sync-opened (modal) child window lives, the WHOLE
@@ -3943,6 +3971,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         let mut app = ShellApp {
             start_minimized: false,
             pending_start: None,
+            pending_screen_fill: None,
             shell: Shell::default(),
             chain: NavChain::default(),
             host,
@@ -4081,6 +4110,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         let mut app = ShellApp {
             start_minimized: false,
             pending_start: None,
+            pending_screen_fill: None,
             shell: Shell::default(),
             chain,
             host,
@@ -4254,6 +4284,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         let mut app = ShellApp {
             start_minimized: false,
             pending_start: None,
+            pending_screen_fill: None,
             shell: Shell::default(),
             chain,
             host,
@@ -4400,6 +4431,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         let mut app = ShellApp {
             start_minimized: false,
             pending_start: None,
+            pending_screen_fill: None,
             shell: Shell::default(),
             chain,
             host,
@@ -4530,6 +4562,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         let mut app = ShellApp {
             start_minimized: false,
             pending_start: None,
+            pending_screen_fill: None,
             shell: Shell::default(),
             chain,
             host,
@@ -4653,6 +4686,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         let mut app = ShellApp {
             start_minimized: false,
             pending_start: None,
+            pending_screen_fill: None,
             shell: Shell::default(),
             chain,
             host,
@@ -5877,6 +5911,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             let mut app = ShellApp {
             start_minimized: false,
             pending_start: None,
+            pending_screen_fill: None,
                 shell,
                 chain,
                 host,

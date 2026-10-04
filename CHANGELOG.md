@@ -8,6 +8,42 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.155] — 2026-10-04
+
+### Feature: windows that move together, a fixed-size window, and a window sized to the screen
+
+Three form properties, asked for to build a dashboard with floating windows
+around it (operator, 2026-10-04), in the form's Geometry section:
+
+- **`DockToOpener`** (`None` | `Top` | `Bottom` | `Left` | `Right`) and
+  **`DockGap`** (px, default 16): a window opened with `OpenFormSync` /
+  `OpenFormAsync` sits just outside that edge of its opener's window, centred
+  along it (`model::dock_position`). Each frame the host puts a docked child
+  where its opener's real outer rect says; a docked child found elsewhere than
+  where the host last put it was dragged by the operator, so the opener is
+  moved by the same amount and the group follows on the next frame
+  (`host::dock_step`) — drag any window of the group and the group moves, the
+  gaps as designed. The opener is the caller the supervisor recorded: another
+  child window, or the main window.
+- **`Resizable`** (default true): false creates the main window, a child window
+  or a shell window without border resizing (`with_resizable`); the IDE's
+  Preview follows it too.
+- **`ScreenFill`** (0–100 %, default 0): the main window or a shell window opens
+  at that share of the monitor on each axis, within the form's responsive size
+  limits (`model::screen_fill_size`), applied on the first frame before the
+  start position so a Center start centres the window it really is.
+
+`.cfrm` attributes `dock-to-opener`, `dock-gap`, `resizable`, `screen-fill`,
+each written only when not at its default. Inspector rows (Dock gap only while
+docked), property help and labels in six languages; designer and agent
+validator accept the four names. Tests: `window_group_tests` (dock positions on
+four edges, screen fill within limits, capped at 100 %),
+`window_group_properties_round_trip_and_default_to_nothing`,
+`dock_tests::a_docked_window_follows_its_opener_and_drags_it_along` (follow,
+drag along, settle). Guide ("Sizing the window, and windows that move
+together"), System KB and `.cfrm` reference updated; `chunked.data`
+regenerated.
+
 ## [PowerRustCOBOL 1.80.154] — 2026-10-04
 
 ### Feature: a window without a title bar moves from any control nobody clicks

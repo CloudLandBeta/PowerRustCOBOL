@@ -497,6 +497,11 @@ pub(crate) fn form_property_valid(key: &str) -> bool {
             | "titlevisible"
             // the window's corner radius, used while the title bar is off
             | "cornerradius"
+            // the window group and its size
+            | "resizable"
+            | "screenfill"
+            | "docktoopener"
+            | "dockgap"
             // 051 R19/R28 — how this form looks while blocked by its own modal child
             | "modaloverlaystyle"
             // 038 window effects opt-out

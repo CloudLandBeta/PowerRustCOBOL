@@ -6891,6 +6891,37 @@ also opens where its `StartPosition` says when the caller passes no position,
 and a shell window takes `TitleVisible`, `StartPosition` and the taskbar icon
 too. Entrance/exit effects stay the main window's.
 
+**Sizing the window, and windows that move together.** Four designer
+properties, in the form's **Geometry** section, decide how a window opens:
+
+- **Resizable** (`Resizable`, on by default). Off, the borders do not drag:
+  the window keeps the size it opened at, and a responsive layout still
+  adapts to that size.
+- **Screen fill** (`ScreenFill`, 0 to 100 %). Above 0 the window opens at that
+  share of the screen on each axis — within the form's own smallest and
+  largest layout — instead of at its designed size. Pair it with a responsive
+  layout and a Center start position, and the window fits any monitor.
+- **Dock to opener** (`DockToOpener`: None, Top, Bottom, Left, Right) and
+  **Dock gap** (`DockGap`, 16 px by default). A window opened from another
+  form with `OpenFormSync` or `OpenFormAsync` sits just outside that edge of
+  its opener's window, centred along it. Drag the opener, or any window docked
+  to it, and the whole group moves: the gaps stay as designed.
+
+A floating toolbar above a dashboard, a tab strip below it and a rail beside it
+are three small forms docked Top, Bottom and Left, which the dashboard opens
+from its `onLoad`:
+
+```cobol
+       INVOKE me::"OpenFormAsync"("TOOLBAR-FORM") RETURNING WS-TOOLBAR
+       INVOKE me::"OpenFormAsync"("ROOMS-FORM") RETURNING WS-ROOMS
+       INVOKE me::"OpenFormAsync"("RAIL-FORM") RETURNING WS-RAIL
+```
+
+> ⚠️ **Caveat.** A docked window follows its opener a frame behind, so a fast
+> drag can show the gap stretch for an instant before it settles. Docking is
+> read when the window opens; a form loaded into a shell's ContentPane has no
+> window of its own and is not docked.
+
 **Changing the window from COBOL.** Writing the form's own properties changes
 the running window, from the form itself or from a form it opened:
 

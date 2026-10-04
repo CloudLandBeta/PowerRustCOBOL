@@ -10539,6 +10539,40 @@ impl PropertiesPanel {
                 }
             });
         }
+        // How the window is sized and where it sits (operator, 2026-10-04).
+        property_row_keyed(ui, tr.lbl_resizable, Some("Resizable"), |ui| {
+            let mut v = form.resizable;
+            if ui.checkbox(&mut v, "").changed() {
+                action.form_props.push(("Resizable".into(), v.to_string()));
+            }
+        });
+        let mut fill = form.screen_fill as i64;
+        property_row_keyed(ui, tr.lbl_screen_fill, Some("ScreenFill"), |ui| {
+            if ui.add(DragValue::new(&mut fill).speed(1).range(0..=100).suffix("%")).changed() {
+                action.form_props.push(("ScreenFill".into(), fill.to_string()));
+            }
+        });
+        property_row_keyed(ui, tr.lbl_dock_to_opener, Some("DockToOpener"), |ui| {
+            let cur = form.dock_to_opener;
+            egui::ComboBox::from_id_salt("form_dock_to_opener")
+                .selected_text(cur.as_str())
+                .width(ui.available_width())
+                .show_ui(ui, |ui| {
+                    for opt in cobolt_forms::model::DockEdge::ALL {
+                        if ui.selectable_label(cur == opt, opt.as_str()).clicked() {
+                            action.form_props.push(("DockToOpener".into(), opt.as_str().to_string()));
+                        }
+                    }
+                });
+        });
+        if form.dock_to_opener != cobolt_forms::model::DockEdge::None {
+            let mut gap = form.dock_gap as i64;
+            property_row_keyed(ui, tr.lbl_dock_gap, Some("DockGap"), |ui| {
+                if ui.add(DragValue::new(&mut gap).speed(1).range(0..=400).suffix("px")).changed() {
+                    action.form_props.push(("DockGap".into(), gap.to_string()));
+                }
+            });
+        }
     }
 
     fn show_form(&mut self, ui: &mut Ui, form: &Form, action: &mut InspectorAction, tr: &Tr) {

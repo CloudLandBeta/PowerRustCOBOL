@@ -326,7 +326,8 @@ pub fn run(config: FormHostConfig) {
         // Size the window exactly to the form. A +4 slack here leaves a
         // strip of panel/scrollbar-gutter visible on the right and bottom edges.
         .with_inner_size([fw, fh])
-        .with_resizable(true)
+        // `Resizable` false: the borders do not drag (operator, 2026-10-04).
+        .with_resizable(form.resizable)
         // ── 037 window chrome from the designed form ──────────────────────
         // Title-bar buttons (R12), chromeless (R15), fullscreen (R14) and the
         // opening WindowState (R13; Maximized here, Minimized via a first-
@@ -621,6 +622,18 @@ impl FormHost {
                 .start_position
                 .is_screen_relative()
                 .then_some(form.start_position),
+            // `ScreenFill`: the share of the screen the window opens at, within
+            // the form's own size limits — applied on the first frame the
+            // monitor's size is known, before the start position.
+            pending_screen_fill: (surface == Surface::Window && form.screen_fill > 0).then(|| {
+                let limits = cobolt_forms::layout::size_limits_of(&form);
+                let min = limits.as_ref().map_or((0.0, 0.0), |l| l.min);
+                let max = limits.as_ref().map_or(
+                    (cobolt_forms::model::FORM_MAX_SIZE as f32, cobolt_forms::model::FORM_MAX_SIZE as f32),
+                    |l| l.window_max(),
+                );
+                (form.screen_fill, min, max)
+            }),
             hooks,
             last_pane_backdrop_rect: None,
             last_pane_backdrop_fill: None,
@@ -3351,6 +3364,92 @@ pub(crate) fn pane_layout(
     (flat, footer_ids, side_dx)
 }
 
+/// Keep a docked child against its opener (form `DockToOpener`, operator
+/// 2026-10-04). Each frame the window is put where `dock_position` says, from
+/// the opener's real outer rect. A docked window found somewhere other than
+/// where the host last put it was dragged by the operator: the opener is moved
+/// by the same amount instead, and every window docked to it follows on the
+/// next frame — so dragging any window of the group moves the group, and the
+/// gaps stay as designed.
+fn dock_child_window(ctx: &egui::Context, child: &mut ChildWindow, opener_vp: egui::ViewportId) {
+    let opener = ctx.input_for(opener_vp, |i| i.viewport().outer_rect);
+    let mine = ctx.input_for(child.viewport_id, |i| i.viewport().outer_rect);
+    let (Some(o), Some(m)) = (opener, mine) else { return };
+    let Some((x, y)) = cobolt_forms::model::dock_position(
+        child.dock,
+        child.dock_gap,
+        (o.min.x, o.min.y, o.width(), o.height()),
+        (m.width(), m.height()),
+    ) else {
+        return;
+    };
+    match dock_step(egui::pos2(x, y), m.min, child.dock_expected) {
+        DockStep::MoveOpener(dragged) => {
+            ctx.send_viewport_cmd_to(opener_vp, egui::ViewportCommand::OuterPosition(o.min + dragged));
+            child.dock_expected = Some(m.min);
+        }
+        DockStep::MoveWindow(target) => {
+            ctx.send_viewport_cmd_to(child.viewport_id, egui::ViewportCommand::OuterPosition(target));
+            child.dock_expected = Some(target);
+        }
+        DockStep::Stay => child.dock_expected = Some(m.min),
+    }
+}
+
+/// What one frame does for a docked window.
+#[derive(Debug, PartialEq)]
+enum DockStep {
+    /// The operator dragged this window by this much: move the opener with it.
+    MoveOpener(egui::Vec2),
+    /// The opener moved (or this is the first frame): put the window here.
+    MoveWindow(egui::Pos2),
+    /// Already where it belongs.
+    Stay,
+}
+
+/// Decide a docked window's frame from where it should be (`target`), where it
+/// is (`actual`) and where the host last put it (`put`).
+fn dock_step(target: egui::Pos2, actual: egui::Pos2, put: Option<egui::Pos2>) -> DockStep {
+    match put {
+        Some(put) if (actual - put).length() > 1.0 && (actual - target).length() > 1.0 => {
+            DockStep::MoveOpener(actual - put)
+        }
+        _ if (actual - target).length() > 0.5 => DockStep::MoveWindow(target),
+        _ => DockStep::Stay,
+    }
+}
+
+#[cfg(test)]
+mod dock_tests {
+    use super::*;
+
+    /// The three things a docked window's frame can do: follow its opener,
+    /// drag its opener along, or stay.
+    #[test]
+    fn a_docked_window_follows_its_opener_and_drags_it_along() {
+        let p = egui::pos2;
+        // First frame: wherever the OS put it, it goes to its place.
+        assert_eq!(dock_step(p(200.0, 124.0), p(0.0, 0.0), None), DockStep::MoveWindow(p(200.0, 124.0)));
+        // In place: nothing to do.
+        assert_eq!(dock_step(p(200.0, 124.0), p(200.0, 124.0), Some(p(200.0, 124.0))), DockStep::Stay);
+        // The opener moved 50 right: the window is still where it was put, so
+        // it follows to its new place.
+        assert_eq!(
+            dock_step(p(250.0, 124.0), p(200.0, 124.0), Some(p(200.0, 124.0))),
+            DockStep::MoveWindow(p(250.0, 124.0))
+        );
+        // The operator dragged the window 30 down and 10 left: the opener is
+        // moved by the same amount, and the window stays where it was dropped.
+        assert_eq!(
+            dock_step(p(200.0, 124.0), p(190.0, 154.0), Some(p(200.0, 124.0))),
+            DockStep::MoveOpener(egui::vec2(-10.0, 30.0))
+        );
+        // Next frame the opener has caught up: the target is where the window
+        // already is.
+        assert_eq!(dock_step(p(190.0, 154.0), p(190.0, 154.0), Some(p(190.0, 154.0))), DockStep::Stay);
+    }
+}
+
 /// 051 — one spawned child window: its form body plus the window dressing
 /// the viewport is re-declared with every frame.
 pub(crate) struct ChildWindow {
@@ -3366,6 +3465,15 @@ pub(crate) struct ChildWindow {
     pub(crate) can_minimize: bool,
     pub(crate) can_maximize: bool,
     pub(crate) full_screen: bool,
+    /// The form's `Resizable`: false and the borders do not drag.
+    pub(crate) resizable: bool,
+    /// The form's `DockToOpener` and `DockGap`: where this window sits
+    /// against the window of the form that opened it.
+    pub(crate) dock: cobolt_forms::model::DockEdge,
+    pub(crate) dock_gap: f32,
+    /// Where the host last put a docked window. A window found elsewhere was
+    /// dragged by the operator, and takes its group along.
+    pub(crate) dock_expected: Option<egui::Pos2>,
     /// A screen-relative designed `StartPosition`, applied on the first frame
     /// the monitor's size is known, when the caller gave no position.
     pub(crate) pending_start: Option<cobolt_forms::model::FormStartPosition>,
@@ -3560,6 +3668,9 @@ pub struct FormHost {
     /// and needs no first-frame command at all (`Custom` is already in the
     /// viewport builder; `System` means "do not touch it").
     pending_start_position: Option<cobolt_forms::model::FormStartPosition>,
+    /// `ScreenFill` waiting for the monitor's size: the percentage and the
+    /// window's smallest and largest sizes.
+    pending_screen_fill: Option<(u32, (f32, f32), (f32, f32))>,
     /// 037 — the window lifecycle state machine (vetoes, cascades, handles).
     supervisor: cobolt_runtime::form_host::FormSupervisor,
     /// Requests from the interpreter thread (OpenForm*, handle methods, …).
@@ -4483,7 +4594,10 @@ impl FormHost {
             }
             _ => None,
         };
-        let pending_start = (pos.is_none() && form.start_position.is_screen_relative())
+        // A docked window goes where its opener is; nothing else places it.
+        let docked = form.dock_to_opener != cobolt_forms::model::DockEdge::None;
+        let pos = pos.filter(|_| !docked);
+        let pending_start = (!docked && pos.is_none() && form.start_position.is_screen_relative())
             .then_some(form.start_position);
         let initial_state = window_state.or_else(|| match form.window_state {
             cobolt_forms::model::WindowState::Maximized => Some("Maximized".into()),
@@ -4501,6 +4615,10 @@ impl FormHost {
             can_minimize: form.can_minimize,
             can_maximize: form.can_maximize,
             full_screen: form.full_screen,
+            resizable: form.resizable,
+            dock: form.dock_to_opener,
+            dock_gap: form.dock_gap as f32,
+            dock_expected: None,
             pending_start,
             initial_state,
             init_sent: false,
@@ -4799,11 +4917,24 @@ impl FormHost {
             // — only the raise-to-front behavior is mitigated (operator
             // report, PowerDemo3's Call Form demo, 2026-09-18).
             let live_modal_caller_vp = self.live_modal_caller_viewport(&self.children[i].handle);
+            // The window a docked child sits against: its opener's — another
+            // child window, or the main window (an occupant's opener draws in
+            // the main window too).
+            let dock_opener_vp = (self.children[i].dock != cobolt_forms::model::DockEdge::None).then(|| {
+                self.supervisor
+                    .caller_of(&self.children[i].handle)
+                    .and_then(|caller| self.children.iter().find(|w| w.handle == caller))
+                    .map_or(egui::ViewportId::ROOT, |w| w.viewport_id)
+            });
             let child = &mut self.children[i];
+            if let Some(opener_vp) = dock_opener_vp {
+                dock_child_window(ctx, child, opener_vp);
+            }
             let mut builder = egui::ViewportBuilder::default()
                 .with_title(child.title.clone())
                 .with_inner_size(child.size)
                 .with_decorations(child.decorations)
+                .with_resizable(child.resizable)
                 .with_minimize_button(child.can_minimize)
                 .with_maximize_button(child.can_maximize)
                 .with_fullscreen(child.full_screen);
@@ -5482,20 +5613,31 @@ impl FormHost {
         // winit may not have reported yet on the very first frame; keep this
         // pending until both it and the window's own outer size are known,
         // rather than consuming the flag against absent data.
-        if let Some(pos) = self.pending_start_position {
+        if self.pending_start_position.is_some() || self.pending_screen_fill.is_some() {
             let ready = ctx.input(|i| {
                 let v = i.viewport();
-                Some((v.monitor_size?, v.outer_rect?.size()))
+                Some((v.monitor_size?, v.outer_rect?.size(), v.inner_rect?.size()))
             });
-            if let Some((monitor, window)) = ready {
-                if let Some((x, y)) = cobolt_forms::model::resolved_start_position(
-                    pos,
-                    (monitor.x, monitor.y),
-                    (window.x, window.y),
-                ) {
-                    self.viewport_cmd(ctx,egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
+            if let Some((monitor, mut window, inner)) = ready {
+                // Size first, so the start position places the window it
+                // will actually be.
+                if let Some((fill, min, max)) = self.pending_screen_fill.take() {
+                    if let Some((w, h)) =
+                        cobolt_forms::model::screen_fill_size(fill, (monitor.x, monitor.y), min, max)
+                    {
+                        self.viewport_cmd(ctx, egui::ViewportCommand::InnerSize(egui::vec2(w, h)));
+                        window = egui::vec2(w, h) + (window - inner);
+                    }
                 }
-                self.pending_start_position = None;
+                if let Some(pos) = self.pending_start_position.take() {
+                    if let Some((x, y)) = cobolt_forms::model::resolved_start_position(
+                        pos,
+                        (monitor.x, monitor.y),
+                        (window.x, window.y),
+                    ) {
+                        self.viewport_cmd(ctx, egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
+                    }
+                }
             }
         }
         // Theme pack + glass style for the unified painter (per frame — same

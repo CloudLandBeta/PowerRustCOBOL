@@ -7339,6 +7339,122 @@ impl ModalOverlayStyle {
     }
 }
 
+/// Which edge of its OPENER a window docks to (form `DockToOpener`, operator
+/// 2026-10-04). A docked window sits just outside that edge, centred along
+/// it, `DockGap` pixels away; dragging the opener or any window docked to it
+/// moves the whole group, so the gaps stay as designed — a floating toolbar
+/// above a dashboard, a tab strip below it, a rail beside it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DockEdge {
+    /// Not docked — the default: the window goes where its StartPosition or
+    /// its opener puts it, and moves alone.
+    #[default]
+    None,
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+impl DockEdge {
+    pub const ALL: [DockEdge; 5] = [DockEdge::None, DockEdge::Top, DockEdge::Bottom, DockEdge::Left, DockEdge::Right];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DockEdge::None => "None",
+            DockEdge::Top => "Top",
+            DockEdge::Bottom => "Bottom",
+            DockEdge::Left => "Left",
+            DockEdge::Right => "Right",
+        }
+    }
+
+    /// Lenient parse; anything unrecognised is `None`.
+    pub fn from_str(value: &str) -> Self {
+        let v = value.trim();
+        DockEdge::ALL
+            .into_iter()
+            .find(|e| e.as_str().eq_ignore_ascii_case(v))
+            .unwrap_or_default()
+    }
+}
+
+/// Where a window docked to `edge` of its opener goes: just outside that
+/// edge, `gap` away, centred along it. `opener` is the opener's outer rect
+/// `(x, y, width, height)`, `window` the docked window's outer size. `None`
+/// when it is not docked.
+pub fn dock_position(
+    edge: DockEdge,
+    gap: f32,
+    opener: (f32, f32, f32, f32),
+    window: (f32, f32),
+) -> Option<(f32, f32)> {
+    let (ox, oy, ow, oh) = opener;
+    let (ww, wh) = window;
+    let across_x = ox + (ow - ww) / 2.0;
+    let across_y = oy + (oh - wh) / 2.0;
+    Some(match edge {
+        DockEdge::None => return None,
+        DockEdge::Top => (across_x, oy - gap - wh),
+        DockEdge::Bottom => (across_x, oy + oh + gap),
+        DockEdge::Left => (ox - gap - ww, across_y),
+        DockEdge::Right => (ox + ow + gap, across_y),
+    })
+}
+
+/// The size a window with `ScreenFill` (a percentage of the screen, operator
+/// 2026-10-04) opens at: that share of `screen` on each axis, kept within the
+/// window's own limits — a responsive form's smallest layout (`min`) and
+/// largest (`max`). `None` for 0, which keeps the designed size.
+pub fn screen_fill_size(
+    fill_percent: u32,
+    screen: (f32, f32),
+    min: (f32, f32),
+    max: (f32, f32),
+) -> Option<(f32, f32)> {
+    if fill_percent == 0 {
+        return None;
+    }
+    let f = fill_percent.min(100) as f32 / 100.0;
+    let axis = |screen: f32, min: f32, max: f32| (screen * f).min(max).max(min).max(64.0);
+    Some((axis(screen.0, min.0, max.0), axis(screen.1, min.1, max.1)))
+}
+
+#[cfg(test)]
+mod window_group_tests {
+    use super::*;
+
+    #[test]
+    fn a_docked_window_sits_outside_its_openers_edge_centred_along_it() {
+        let opener = (100.0, 200.0, 800.0, 500.0);
+        assert_eq!(dock_position(DockEdge::None, 16.0, opener, (300.0, 60.0)), None);
+        assert_eq!(dock_position(DockEdge::Top, 16.0, opener, (600.0, 60.0)), Some((200.0, 124.0)));
+        assert_eq!(dock_position(DockEdge::Bottom, 16.0, opener, (400.0, 60.0)), Some((300.0, 716.0)));
+        assert_eq!(dock_position(DockEdge::Left, 20.0, opener, (80.0, 300.0)), Some((0.0, 300.0)));
+        assert_eq!(dock_position(DockEdge::Right, 20.0, opener, (80.0, 300.0)), Some((920.0, 300.0)));
+        assert_eq!(DockEdge::from_str("bottom"), DockEdge::Bottom);
+        assert_eq!(DockEdge::from_str("sideways"), DockEdge::None);
+    }
+
+    #[test]
+    fn screen_fill_takes_its_share_within_the_windows_limits() {
+        let screen = (1920.0, 1080.0);
+        assert_eq!(screen_fill_size(0, screen, (0.0, 0.0), (8192.0, 8192.0)), None, "0 keeps the design");
+        assert_eq!(screen_fill_size(80, screen, (0.0, 0.0), (8192.0, 8192.0)), Some((1536.0, 864.0)));
+        assert_eq!(
+            screen_fill_size(30, screen, (900.0, 600.0), (8192.0, 8192.0)),
+            Some((900.0, 600.0)),
+            "never smaller than the smallest layout"
+        );
+        assert_eq!(
+            screen_fill_size(100, screen, (0.0, 0.0), (1400.0, 900.0)),
+            Some((1400.0, 900.0)),
+            "never larger than the largest"
+        );
+        assert_eq!(screen_fill_size(250, screen, (0.0, 0.0), (8192.0, 8192.0)), Some((1920.0, 1080.0)), "capped at 100 %");
+    }
+}
+
 /// The shell MenuPane's own background (spec 049 R39), persisted on the main
 /// form — the shell's owner (spec Q7). Deliberately the same field shapes as the
 /// form background so `paint_backdrop` renders both: one background dialect.
@@ -7591,6 +7707,19 @@ pub struct Form {
     /// belong to the OS — so read it through [`Form::window_corner_radius`].
     /// 0 = square, the default.
     pub corner_radius: u32,
+    /// The operator may resize the window by dragging its borders. `false`
+    /// fixes the size the window opened at — the layout still adapts to it.
+    /// Default true.
+    pub resizable: bool,
+    /// Open the window at this percentage of the screen on each axis (1–100),
+    /// within the form's own size limits; 0 — the default — opens it at the
+    /// designed size. With a responsive layout, the form adapts to it.
+    pub screen_fill: u32,
+    /// Dock this window to an edge of the form that opened it ([`DockEdge`]):
+    /// it sits outside that edge, and moves with its opener as one group.
+    pub dock_to_opener: DockEdge,
+    /// The gap between a docked window and its opener, in pixels. Default 16.
+    pub dock_gap: u32,
     /// How this form's own face looks while blocked by a Sync-opened (modal)
     /// child of its own — a child window, or a modal a ContentPane occupant
     /// opened (051 R19/R28). Defaults to `None` (the enum's default).
@@ -7716,6 +7845,10 @@ impl Form {
             full_screen: false,
             title_visible: true,
             corner_radius: 0,
+            resizable: true,
+            screen_fill: 0,
+            dock_to_opener: DockEdge::None,
+            dock_gap: 16,
             modal_overlay_style: ModalOverlayStyle::default(),
             form_format: FormFormat::default(),
             menu_pane_background: None,

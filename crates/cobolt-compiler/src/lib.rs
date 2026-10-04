@@ -7174,6 +7174,19 @@ fn controls_reference_doc() -> String {
          window is created carrying alpha whenever it is above 0. `BackgroundColor` \
          `#000000FF` paints black (only `#00000000`, a 6-digit black or empty mean 'unset', the \
          default dark blue), and a colour's own alpha multiplies with `Transparency`.\n\n\
+         Window size and grouping (designer properties, read when the window opens): \
+         `Resizable` (Boolean, default true — false: the borders do not drag; the layout \
+         still adapts to the size the window opened at), `ScreenFill` (Integer 0-100, \
+         default 0 — opens the window at that percentage of the screen on each axis, \
+         within the form's own size limits; 0 keeps the designed size; pair it with a \
+         responsive layout), `DockToOpener` (`\"None\"` | `\"Top\"` | `\"Bottom\"` | \
+         `\"Left\"` | `\"Right\"`, default None — a window opened with OpenFormSync or \
+         OpenFormAsync sits just outside that edge of its opener's window, centred along \
+         it; dragging the opener or any window docked to it moves the whole group, so the \
+         gaps stay as designed) and `DockGap` (Integer px, default 16 — the gap to the \
+         opener). A floating toolbar, a tab strip and a rail around a dashboard are three \
+         forms docked Top, Bottom and Left, opened by the dashboard's onLoad with \
+         OpenFormAsync.\n\n\
          Writing the form's own properties at run time — `me::X`, or `super::X` from a form it \
          opened — changes the running window: `Title` retitles it, `BackgroundColor` and \
          `Transparency` repaint the backdrop, `CornerRadius` re-rounds it (only a window \

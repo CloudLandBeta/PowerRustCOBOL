@@ -169,6 +169,10 @@ The root element. Its attributes:
   `form-layout-and-events.md` and `controls.md` say what each value means.
 - `corner-radius` — the window's corner radius in pixels, rounding it while `title-visible` is
   `false`; written only when it is not 0.
+- `resizable` (`false` — the borders do not drag), `screen-fill` (a percentage of the
+  screen the window opens at), `dock-to-opener` (`Top`, `Bottom`, `Left`, `Right` — the window
+  sits outside that edge of its opener and moves with it) and `dock-gap` (px) — each written
+  only when it differs from its default (true, 0, None, 16).
 - `index-base` — always `1`: the stored indexes (`tab`, `SelectedIndex`, `SelectedTab`) count
   from 1, with 0 for none. A file without it was saved before indexes counted from 1, and is
   shifted once as it loads. Write `index-base="1"` on every form you write.

@@ -16238,7 +16238,7 @@ impl eframe::App for CoboltApp {
                 ViewportBuilder::default()
                     .with_title(&title)
                     .with_inner_size([form_w, form_h])
-                    .with_resizable(true)
+                    .with_resizable(self.designers[idx].1.form.resizable)
                     .with_transparent(true)
                     .with_decorations(!frameless)
                     .with_has_shadow(!rounded),
