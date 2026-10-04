@@ -19533,7 +19533,7 @@ mod text_align_tests {
         let id = d.form.controls.last().unwrap().id.clone();
         let b = d.form.find_control(&id).unwrap();
         assert_eq!(b.get_prop("BackgroundGradientEnabled"), Some(&PropValue::Bool(true)), "{id}");
-        assert_eq!(b.get_prop("Transparency"), Some(&PropValue::Int(30)), "{id}");
+        assert_eq!(b.get_prop("BackgroundColor"), Some(&PropValue::String(cobolt_forms::model::SPATIAL_FACE_COLOR.into())), "{id}");
 
         // A Liquid Glass form in a Spatial project: clearing its theme makes it
         // Spatial, and its controls take the look.

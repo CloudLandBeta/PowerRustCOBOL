@@ -6170,9 +6170,15 @@ One form only  Designer → form Appearance → Theme → Spatial
 way the *Buttons* example in PowerDemo3 is dressed: a new form gets a dim
 glass window (`BackgroundColor` `40404008`, `Transparency` 50), and every
 control you drop on it a dark face — a gradient from `#4E4E4E` down to
-black, a soft shadow to the lower right, no border, white text. Buttons,
-panels and group boxes are also 30 % transparent, so the glass shows through
-them. Switching a form to Spatial dresses its controls the same way, and
+black, a soft shadow to the lower right, no border, white text. The faces of
+buttons, panels and group boxes are 70 % opaque — set in their colours
+(`#36383EB3`, `#4E4E4EB3` to `#000000B3`) — so the glass shows through them
+while what they hold keeps its own colours.
+
+> ⚠️ **Caveat.** A Panel's `Transparency` fades everything inside it, not
+> just its face: a picture in a Panel at `Transparency` 30 is drawn at 70 %.
+> To see through a card but not through its contents, give its colours an
+> alpha instead. Switching a form to Spatial dresses its controls the same way, and
 switching it away takes the look back off — a value you set on a control
 yourself is kept either way. To change what Spatial means for your project,
 use the **Default Theme Settings** button in the project settings: the project's table is laid over

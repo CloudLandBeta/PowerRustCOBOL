@@ -73,7 +73,7 @@ fn editor_for(key: &str) -> Editor {
         "BorderStyle" => Editor::Choice(BORDER_STYLES),
         "ShadowDirection" | "BackgroundGradientDirection" => Editor::Choice(DIRECTIONS),
         "CornerRadius" => Editor::Int(0, 200),
-        "ShadowOpacity" | "Transparency" => Editor::Int(0, 100),
+        "ShadowOpacity" => Editor::Int(0, 100),
         "ShadowDistance" => Editor::Int(0, 60),
         // Negative is the SUNKEN variant — the shadow goes over the face
         // instead of under it. A range starting at 0 would make the sunken

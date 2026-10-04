@@ -263,9 +263,10 @@ pub const APPLICATION_RULES: [(&str, &str); 8] = [
          edit the project file. The Spatial look, which the IDE gives a new form and every control dropped \
          on one, and which you give every form you write: on the `<Form>`, `background=\"40404008\"` and \
          `transparency=\"50\"` (dim glass); on every Button, Panel and GroupBox that shows a face — \
-         `BackgroundColor` `#36383EFF`, `BackgroundGradientEnabled` `true` from \
-         `BackgroundGradientStartColor` `#4E4E4EFF` to `BackgroundGradientEndColor` `#000000FF` \
-         (`BackgroundGradientDirection` `South`), `ForegroundColor` `#FFFFFFFF`, `Transparency` `30`, \
+         `BackgroundColor` `#36383EB3`, `BackgroundGradientEnabled` `true` from \
+         `BackgroundGradientStartColor` `#4E4E4EB3` to `BackgroundGradientEndColor` `#000000B3` \
+         (`BackgroundGradientDirection` `South`; the `B3` alpha makes the face see-through — never use \
+         `Transparency` for that on a Panel, it fades everything inside), `ForegroundColor` `#FFFFFFFF`, \
          `BorderStyle` `None`, `ShadowEnabled` `true` with `ShadowOpacity` `6`, `ShadowColor` `#000000FF`, \
          `ShadowLightColor` `#4E4E4EFF`, `ShadowDirection` `SouthEast`, `ShadowDistance` `7`, \
          `ShadowBlur` `true`, `ShadowBlurStrength` `8`; Labels in `#FFFFFFFF`. A button whose colour \

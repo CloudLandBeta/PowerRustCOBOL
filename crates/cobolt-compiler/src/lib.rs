@@ -4819,12 +4819,13 @@ without blur. White text reads best over a darker wallpaper. Pair it with
 **The Spatial look** is what the IDE gives a new Spatial form and every
 control dropped on one: on the form, `background="40404008"` and
 `transparency="50"` (dim glass); on every Button, Panel and GroupBox,
-`BackgroundColor` `#36383EFF`, a `South` gradient from `#4E4E4EFF` to
-`#000000FF`, `ForegroundColor` `#FFFFFFFF`, `Transparency` 30, `BorderStyle`
-`None`, and a shadow (`ShadowEnabled` true, `ShadowOpacity` 6, `ShadowColor`
+`BackgroundColor` `#36383EB3`, a `South` gradient from `#4E4E4EB3` to
+`#000000B3` (the `B3` alpha makes the face see-through while what the control
+holds keeps its colours — `Transparency` on a Panel fades its contents too),
+`ForegroundColor` `#FFFFFFFF`, `BorderStyle` `None`, and a shadow (`ShadowEnabled` true, `ShadowOpacity` 6, `ShadowColor`
 `#000000FF`, `ShadowLightColor` `#4E4E4EFF`, `ShadowDirection` `SouthEast`,
 `ShadowDistance` 7, `ShadowBlur` true, `ShadowBlurStrength` 8); every other
-control the same face without the transparency, and Labels white text with
+control the same face, opaque (`#36383E`, `#4E4E4E` to `#000000`), and Labels white text with
 no face. Switching a form away from Spatial takes it back off; a value set by
 hand is kept. A project's Default Theme Settings table is laid over it.
 

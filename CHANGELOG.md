@@ -8,6 +8,22 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.181] — 2026-10-04
+
+### Fix: the Spatial look no longer dims what a card holds
+
+A white picture placed in a Spatial card came out grey — `#FFFFFF` painted as
+`#C1C1C1` (operator, 2026-10-04). The Spatial look (1.80.170) made the faces of
+Buttons, Panels and GroupBoxes see-through with `Transparency` 30, and a Panel's
+`Transparency` fades everything inside it, not only its face, so every picture,
+label and control in a card was drawn at 70 %. The look now makes the FACE
+see-through in its colours — `#36383EB3`, a gradient from `#4E4E4EB3` to
+`#000000B3` — and leaves `Transparency` at 0, so the glass still shows through
+the card while what it holds keeps its own colours. `Transparency` is no longer
+a theme-owned property. The agent instructions, the System KB and the Guide say
+so (with a caveat on Panel `Transparency`); `chunked.data` regenerated. Test
+`what_a_spatial_card_holds_is_drawn_at_full_strength`; cobolt-forms 1355/0.
+
 ## [PowerRustCOBOL 1.80.180] — 2026-10-04
 
 ### Fix: PowerSpatial's thermostat dial turns

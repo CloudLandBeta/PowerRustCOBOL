@@ -4181,9 +4181,6 @@ pub const THEME_OWNED_PROPS: &[&str] = &[
     "BackgroundGradientStartColor",
     "BackgroundGradientEndColor",
     "BackgroundGradientDirection",
-    // Stamped by the Spatial look (the faces are part see-through), so a
-    // switch away from Spatial takes it back off.
-    "Transparency",
 ];
 
 /// The appearance a theme stamps: one **base** every control takes, plus the
@@ -4341,9 +4338,13 @@ pub const NEUMORPHIC_DARK_LIGHT_SHADOW: &str = "#4E4E4EFF";
 pub const NEUMORPHIC_DARK_GRADIENT_START: &str = "#4E4E4EFF";
 pub const NEUMORPHIC_DARK_GRADIENT_END: &str = "#000000FF";
 /// The Spatial look (operator, 2026-10-04 — "the look of PowerDemo3's Buttons
-/// example"): the Neumorphic Dark faces, part see-through on buttons and
-/// containers, over a window of dim glass.
-pub const SPATIAL_FACE_TRANSPARENCY: i64 = 30;
+/// example"): the Neumorphic Dark faces over a window of dim glass, the faces
+/// of buttons and containers see-through at 70 % — in their COLOURS, not by
+/// `Transparency`, which on a Panel fades everything inside it: a white bulb in
+/// a card came out `#C1C1C1` (operator, 2026-10-04).
+pub const SPATIAL_FACE_COLOR: &str = "#36383EB3";
+pub const SPATIAL_FACE_GRADIENT_START: &str = "#4E4E4EB3";
+pub const SPATIAL_FACE_GRADIENT_END: &str = "#000000B3";
 pub const SPATIAL_FORM_BACKGROUND: &str = "40404008";
 pub const SPATIAL_FORM_TRANSPARENCY: i64 = 50;
 
@@ -6875,13 +6876,16 @@ impl Control {
     }
 
     /// The Spatial look on one control: the Neumorphic Dark faces — dark
-    /// gradient, soft shadow, no border, white text — with buttons and
-    /// containers part see-through, so the window's glass shows in them. One
-    /// definition with Neumorphic Dark, so the two cannot drift apart.
+    /// gradient, soft shadow, no border, white text — with the faces of buttons
+    /// and containers see-through, so the window's glass shows in them while
+    /// what they hold keeps its own colours. One definition with Neumorphic
+    /// Dark, so the two cannot drift apart.
     pub fn apply_spatial_defaults(&mut self) {
         self.apply_neumorphic_dark_defaults();
         if matches!(self.control_type, ControlType::Button | ControlType::Panel | ControlType::GroupBox) {
-            self.set_prop("Transparency", PropValue::Int(SPATIAL_FACE_TRANSPARENCY));
+            self.set_prop("BackgroundColor", PropValue::String(SPATIAL_FACE_COLOR.into()));
+            self.set_prop("BackgroundGradientStartColor", PropValue::String(SPATIAL_FACE_GRADIENT_START.into()));
+            self.set_prop("BackgroundGradientEndColor", PropValue::String(SPATIAL_FACE_GRADIENT_END.into()));
         }
     }
 
