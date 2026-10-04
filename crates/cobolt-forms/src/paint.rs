@@ -16006,14 +16006,25 @@ fn stroke_arc(
 /// widget this replaced picked one of three fixed pixel sizes and ignored the
 /// designed rect entirely, which is why the canvas and the preview disagreed.)
 pub fn knob_layout(rect: egui::Rect, show_value: bool, value_h: f32) -> (Pos2, f32, f32) {
-    knob_layout_with(rect, if show_value { value_h + 4.0 } else { 0.0 })
+    knob_layout_with(rect, if show_value { value_h + 4.0 } else { 0.0 }, KNOB_LINE_REACH)
 }
 
+/// How far past the arc's centreline a Knob paints, as a share of the arc's
+/// radius: half the arc's stroke for the pointer style, the thumb's radius
+/// (and its outline) for `IndicatorStyle` `Thumb`. The arc stroke is
+/// `0.147 r`, the thumb `0.85` of that.
+const KNOB_LINE_REACH: f32 = 0.147 * 0.5;
+const KNOB_THUMB_REACH: f32 = 0.147 * 0.85;
+
 /// [`knob_layout`] with `reserved` points kept free under the dial for the
-/// value and the `Label`.
-pub fn knob_layout_with(rect: egui::Rect, reserved: f32) -> (Pos2, f32, f32) {
+/// value and the `Label`, and `reach` (a share of the radius) painted beyond
+/// the arc. The radius is chosen so that the arc's outer edge — the thumb's,
+/// when there is one — lands inside the control: the arc used to be centred
+/// on a circle 2 points in from the edge, so half its stroke was painted
+/// outside the control and a container clipped the dial flat.
+pub fn knob_layout_with(rect: egui::Rect, reserved: f32, reach: f32) -> (Pos2, f32, f32) {
     let dial_h = (rect.height() - reserved).max(8.0);
-    let radius = (rect.width().min(dial_h) * 0.5 - 2.0).max(6.0);
+    let radius = ((rect.width().min(dial_h) * 0.5 - 1.5) / (1.0 + reach)).max(6.0);
     let center = Pos2::new(rect.center().x, rect.top() + dial_h * 0.5);
     (center, radius, center.y + radius + 4.0)
 }
@@ -16079,7 +16090,8 @@ pub fn draw_knob(painter: &egui::Painter, rect: egui::Rect, ctrl: &Control, alph
     let line_h = fsize * 1.3;
     let reserved = if show_value { line_h + 4.0 } else { 0.0 }
         + if label.is_empty() { 0.0 } else { line_h + 2.0 };
-    let (center, radius, value_y) = knob_layout_with(rect, reserved);
+    let reach = if knob_thumb(ctrl) { KNOB_THUMB_REACH } else { KNOB_LINE_REACH };
+    let (center, radius, value_y) = knob_layout_with(rect, reserved, reach);
 
     // Proportions taken from the dial the preview draws, expressed against the
     // arc radius so every knob keeps the same look at any size.
@@ -25139,6 +25151,46 @@ slice = [4, 4, 4, 4]
         k.set_prop("FaceColor", PropValue::String("not a colour".into()));
         let (circles, _) = shapes(&k);
         assert!(circles.iter().filter(|(_, _, f)| f.a() > 0).count() >= 2, "{circles:?}");
+    }
+
+    /// Everything a Knob paints stays inside the control, in both indicator
+    /// styles and at every size: the arc used to be centred 2 points in from
+    /// the edge, so half its stroke fell outside and a container clipped the
+    /// dial flat (PowerSpatial's thermostat).
+    #[test]
+    fn a_knob_paints_inside_its_own_rect() {
+        use crate::model::PropValue;
+
+        fn bounds(ct: &Control) -> Rect {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, eleg());
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 800.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::new(50.0, 50.0), ct, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            let mut r = Rect::NOTHING;
+            for cs in &full.shapes {
+                r = r.union(cs.shape.visual_bounding_rect());
+            }
+            r
+        }
+        for style in ["Line", "Thumb"] {
+            for (w, h) in [(80, 96), (240, 240), (400, 300)] {
+                let mut k = Control::new("K", CT::Knob, 0, 0);
+                k.rect = crate::model::Rect::new(0, 0, w, h);
+                k.set_prop("Value", PropValue::Int(20));
+                k.set_prop("ShowValue", PropValue::Bool(false));
+                k.set_prop("IndicatorStyle", PropValue::String(style.into()));
+                let control = Rect::from_min_size(Pos2::new(50.0, 50.0), Vec2::new(w as f32, h as f32));
+                let painted = bounds(&k);
+                assert!(
+                    control.expand(0.5).contains_rect(painted),
+                    "{style} {w}x{h}: painted {painted:?} outside {control:?}"
+                );
+            }
+        }
     }
 
     /// The dial's own parts answer to the developer, and an untouched Knob

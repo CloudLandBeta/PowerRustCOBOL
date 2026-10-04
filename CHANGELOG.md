@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.160] — 2026-10-04
+
+### Fix: a Knob's arc is drawn inside the Knob
+
+The dial's arc was centred on a circle 2 points in from the control's edge,
+so half its stroke — about 7 % of the radius — was painted outside the
+Knob; inside a container the overhang was clipped and the top of the dial
+came out flat (found building the PowerSpatial thermostat). The radius is
+now chosen so the arc's outer edge, or the thumb's with `IndicatorStyle`
+`Thumb`, lands inside the control (`knob_layout_with` takes the reach).
+Every Knob's dial is a few points smaller; the three PowerDemo3 forms that
+carry one (`knob-form`, `inner-form1`, `sidebar-form`) have their corpus
+goldens re-recorded for it. Test `a_knob_paints_inside_its_own_rect`.
+
 ## [PowerRustCOBOL 1.80.159] — 2026-10-04
 
 ### Feature: a Knob with a clear face and a thumb on its arc (`IndicatorStyle`)

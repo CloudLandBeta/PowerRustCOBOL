@@ -59,7 +59,7 @@ btnExcluirNew rect=[103 402 345 478] font=16
 btnRejeitarNew rect=[103 596 345 672] font=16
 lblSolicitacoes rect=[55 96 175 116] font=14
 lblSolicitacoesNew rect=[87 144 267 176] font=20
-shapes=1664 digest=769351509ef8a936
+shapes=1664 digest=ccb3a0ec329baf6d
 ## Run 0.75x 1200x702
 CheckBox-1 rect=[640 336 760 358] font=16
 CheckBox-2 rect=[792 336 912 358] font=16
@@ -120,7 +120,7 @@ btnExcluirNew rect=[344 402 586 478] font=16
 btnRejeitarNew rect=[344 596 586 672] font=16
 lblSolicitacoes rect=[16 96 136 116] font=14
 lblSolicitacoesNew rect=[328 144 508 176] font=20
-shapes=1610 digest=bbcaba3f79f4201f
+shapes=1610 digest=2304cd3d0f9e2dac
 ## Preview 0.75x 1200x702
 CheckBox-1 rect=[399 336 519 358] font=16
 CheckBox-2 rect=[551 336 671 358] font=16
@@ -181,7 +181,7 @@ btnExcluirNew rect=[103 402 345 478] font=16
 btnRejeitarNew rect=[103 596 345 672] font=16
 lblSolicitacoes rect=[55 96 175 116] font=14
 lblSolicitacoesNew rect=[87 144 267 176] font=20
-shapes=1610 digest=55ec98e2fe0ca293
+shapes=1610 digest=10bdffc75907fe1c
 ## Canvas 1x 1600x936
 CheckBox-1 rect=[399 336 519 358] font=16
 CheckBox-2 rect=[551 336 671 358] font=16
@@ -242,7 +242,7 @@ btnExcluirNew rect=[103 402 345 478] font=16
 btnRejeitarNew rect=[103 596 345 672] font=16
 lblSolicitacoes rect=[55 96 175 116] font=14
 lblSolicitacoesNew rect=[87 144 267 176] font=20
-shapes=1664 digest=aa21c14679beedbb
+shapes=1664 digest=0671f5862a9c52fc
 ## Run 1x 1600x936
 CheckBox-1 rect=[640 336 760 358] font=16
 CheckBox-2 rect=[792 336 912 358] font=16
@@ -303,7 +303,7 @@ btnExcluirNew rect=[344 402 586 478] font=16
 btnRejeitarNew rect=[344 596 586 672] font=16
 lblSolicitacoes rect=[16 96 136 116] font=14
 lblSolicitacoesNew rect=[328 144 508 176] font=20
-shapes=1613 digest=cc1580d041e2e07c
+shapes=1613 digest=35555592d18bd867
 ## Preview 1x 1600x936
 CheckBox-1 rect=[399 336 519 358] font=16
 CheckBox-2 rect=[551 336 671 358] font=16
@@ -364,7 +364,7 @@ btnExcluirNew rect=[103 402 345 478] font=16
 btnRejeitarNew rect=[103 596 345 672] font=16
 lblSolicitacoes rect=[55 96 175 116] font=14
 lblSolicitacoesNew rect=[87 144 267 176] font=20
-shapes=1613 digest=160dc7274ed76d57
+shapes=1613 digest=4e065c822f0e8098
 ## Canvas 1.5x 2400x1404
 CheckBox-1 rect=[399 336 519 358] font=16
 CheckBox-2 rect=[551 336 671 358] font=16
@@ -425,7 +425,7 @@ btnExcluirNew rect=[103 402 345 478] font=16
 btnRejeitarNew rect=[103 596 345 672] font=16
 lblSolicitacoes rect=[55 96 175 116] font=14
 lblSolicitacoesNew rect=[87 144 267 176] font=20
-shapes=1664 digest=9f8929e4855db36b
+shapes=1664 digest=bebcd1e47df3c92c
 ## Run 1.5x 2400x1404
 CheckBox-1 rect=[640 336 760 358] font=16
 CheckBox-2 rect=[792 336 912 358] font=16
@@ -486,7 +486,7 @@ btnExcluirNew rect=[344 402 586 478] font=16
 btnRejeitarNew rect=[344 596 586 672] font=16
 lblSolicitacoes rect=[16 96 136 116] font=14
 lblSolicitacoesNew rect=[328 144 508 176] font=20
-shapes=1613 digest=112e78d19532ff56
+shapes=1613 digest=c7ae19f239f26551
 ## Preview 1.5x 2400x1404
 CheckBox-1 rect=[399 336 519 358] font=16
 CheckBox-2 rect=[551 336 671 358] font=16
@@ -547,4 +547,4 @@ btnExcluirNew rect=[103 402 345 478] font=16
 btnRejeitarNew rect=[103 596 345 672] font=16
 lblSolicitacoes rect=[55 96 175 116] font=14
 lblSolicitacoesNew rect=[87 144 267 176] font=20
-shapes=1613 digest=5f7ab2fe3819e147
+shapes=1613 digest=b39a969c9ea6c8c8

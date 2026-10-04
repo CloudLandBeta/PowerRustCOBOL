@@ -18,7 +18,7 @@ Slider-2 rect=[128 560 528 596] font=16
 Switch-1 rect=[128 480 176 504] font=14
 Timer-1 rect=[1232 0 1280 48] font=16
 ToolBar-1 rect=[16 0 1200 64] font=16
-shapes=299 digest=52df1b3db413fba2
+shapes=299 digest=5d9794f683c70191
 ## Run 0.75x 960x636
 CheckBox-1 rect=[128 320 248 342] font=16
 ComboBox-1 rect=[128 432 336 464] font=16
@@ -38,7 +38,7 @@ Slider-2 rect=[128 560 528 596] font=16
 Switch-1 rect=[128 480 176 504] font=14
 Timer-1 rect=[1232 0 1280 48] font=16
 ToolBar-1 rect=[16 0 1200 64] font=16
-shapes=197 digest=83608ba7eea174c5
+shapes=197 digest=a51b2b8fb4cdf3fc
 ## Preview 0.75x 960x636
 CheckBox-1 rect=[128 320 248 342] font=16
 ComboBox-1 rect=[128 432 336 464] font=16
@@ -58,7 +58,7 @@ Slider-2 rect=[128 560 528 596] font=16
 Switch-1 rect=[128 480 176 504] font=14
 Timer-1 rect=[1232 0 1280 48] font=16
 ToolBar-1 rect=[16 0 1200 64] font=16
-shapes=197 digest=83608ba7eea174c5
+shapes=197 digest=a51b2b8fb4cdf3fc
 ## Canvas 1x 1280x848
 CheckBox-1 rect=[128 320 248 342] font=16
 ComboBox-1 rect=[128 432 336 464] font=16
@@ -78,7 +78,7 @@ Slider-2 rect=[128 560 528 596] font=16
 Switch-1 rect=[128 480 176 504] font=14
 Timer-1 rect=[1232 0 1280 48] font=16
 ToolBar-1 rect=[16 0 1200 64] font=16
-shapes=299 digest=d92d5270aaeb6ba4
+shapes=299 digest=d82a28b76b55e5f7
 ## Run 1x 1280x848
 CheckBox-1 rect=[128 320 248 342] font=16
 ComboBox-1 rect=[128 432 336 464] font=16
@@ -98,7 +98,7 @@ Slider-2 rect=[128 560 528 596] font=16
 Switch-1 rect=[128 480 176 504] font=14
 Timer-1 rect=[1232 0 1280 48] font=16
 ToolBar-1 rect=[16 0 1200 64] font=16
-shapes=315 digest=24a7272aa2c7dbe6
+shapes=315 digest=abd81792a5f639a5
 ## Preview 1x 1280x848
 CheckBox-1 rect=[128 320 248 342] font=16
 ComboBox-1 rect=[128 432 336 464] font=16
@@ -118,7 +118,7 @@ Slider-2 rect=[128 560 528 596] font=16
 Switch-1 rect=[128 480 176 504] font=14
 Timer-1 rect=[1232 0 1280 48] font=16
 ToolBar-1 rect=[16 0 1200 64] font=16
-shapes=315 digest=24a7272aa2c7dbe6
+shapes=315 digest=abd81792a5f639a5
 ## Canvas 1.5x 1920x1272
 CheckBox-1 rect=[128 320 248 342] font=16
 ComboBox-1 rect=[128 432 336 464] font=16
@@ -138,7 +138,7 @@ Slider-2 rect=[128 560 528 596] font=16
 Switch-1 rect=[128 480 176 504] font=14
 Timer-1 rect=[1232 0 1280 48] font=16
 ToolBar-1 rect=[16 0 1200 64] font=16
-shapes=299 digest=e88635270f6cf3f0
+shapes=299 digest=75d3bd50bb0a8a0b
 ## Run 1.5x 1920x1272
 CheckBox-1 rect=[128 320 248 342] font=16
 ComboBox-1 rect=[128 432 336 464] font=16
@@ -158,7 +158,7 @@ Slider-2 rect=[128 560 528 596] font=16
 Switch-1 rect=[128 480 176 504] font=14
 Timer-1 rect=[1232 0 1280 48] font=16
 ToolBar-1 rect=[16 0 1200 64] font=16
-shapes=315 digest=83424329765d9298
+shapes=315 digest=471715af9cad3adb
 ## Preview 1.5x 1920x1272
 CheckBox-1 rect=[128 320 248 342] font=16
 ComboBox-1 rect=[128 432 336 464] font=16
@@ -178,4 +178,4 @@ Slider-2 rect=[128 560 528 596] font=16
 Switch-1 rect=[128 480 176 504] font=14
 Timer-1 rect=[1232 0 1280 48] font=16
 ToolBar-1 rect=[16 0 1200 64] font=16
-shapes=315 digest=83424329765d9298
+shapes=315 digest=471715af9cad3adb
