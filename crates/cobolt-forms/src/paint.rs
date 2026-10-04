@@ -27930,3 +27930,59 @@ pub fn paint_viewer_export(
     let fonts = ctx.fonts(|f| f.definitions().clone());
     ExportPaint { shapes, textures, fonts, height }
 }
+
+#[cfg(test)]
+mod spatial_shadow_tests {
+    use super::*;
+    use crate::model::{Control, ControlType, GlassStyle, PropValue};
+
+    /// Under the Spatial theme a control casts no drop shadow unless its own
+    /// `ShadowEnabled` asks for one — and then it does. The form's GlassStyle
+    /// is set to Neumorphic here on purpose: that style defaults every
+    /// control's shadow ON, and a self-contained theme must not inherit it.
+    #[test]
+    fn spatial_casts_a_drop_shadow_only_when_the_control_asks_for_one() {
+        let painted_outside = |ct: ControlType, shadow: Option<bool>| -> usize {
+            let ctx = egui::Context::default();
+            set_glass_style(&ctx, GlassStyle::Neumorphic);
+            set_surface_theme(&ctx, crate::surface_theme::spatial());
+            let mut c = Control::new("C", ct, 0, 0);
+            c.rect = crate::model::Rect::new(0, 0, 160, 80);
+            match shadow {
+                Some(on) => c.set_prop("ShadowEnabled", PropValue::Bool(on)),
+                None => {
+                    c.properties.remove("ShadowEnabled");
+                }
+            }
+            c.set_prop("ShadowDistance", PropValue::Int(12));
+            let origin = Pos2::new(100.0, 100.0);
+            let face = Rect::from_min_size(origin, Vec2::new(160.0, 80.0));
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(500.0, 400.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), origin, &c, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            fn leaves<'a>(s: &'a egui::Shape, out: &mut Vec<&'a egui::Shape>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| leaves(s, out)),
+                    s => out.push(s),
+                }
+            }
+            let mut all = Vec::new();
+            full.shapes.iter().for_each(|cs| leaves(&cs.shape, &mut all));
+            all.iter()
+                .filter(|s| !face.expand(0.5).contains_rect(s.visual_bounding_rect()))
+                .count()
+        };
+        for ct in [ControlType::Panel, ControlType::Button, ControlType::TextBox] {
+            let unset = painted_outside(ct.clone(), None);
+            let off = painted_outside(ct.clone(), Some(false));
+            let on = painted_outside(ct.clone(), Some(true));
+            println!("Spatial {ct:?}: shadow unset -> {unset} shapes past the face, off -> {off}, on -> {on}");
+            assert_eq!(unset, 0, "{ct:?}: Spatial casts no shadow by default (Neumorphic's ON must not leak)");
+            assert_eq!(off, 0, "{ct:?}: ShadowEnabled false casts none");
+            assert!(on > 0, "{ct:?}: ShadowEnabled true must still cast a shadow under Spatial");
+        }
+    }
+}
