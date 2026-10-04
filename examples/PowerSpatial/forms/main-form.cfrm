@@ -586,6 +586,7 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Pnl-Left" type="Panel" x="18" y="18" w="396" h="564" tab-order="1" z-order="0" visible="true" enabled="true" parent="Pnl-Root">
     <Property name="LayoutMode">Grid</Property>
@@ -613,6 +614,7 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Pnl-Right" type="Panel" x="428" y="18" w="554" h="564" tab-order="2" z-order="0" visible="true" enabled="true" parent="Pnl-Root">
     <Property name="LayoutMode">Grid</Property>
@@ -640,6 +642,7 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Crd-Clock" type="Panel" x="20" y="20" w="189" h="100" tab-order="3" z-order="0" visible="true" enabled="true" parent="Pnl-Left">
     <Property name="LayoutMode">Grid</Property>
@@ -652,13 +655,13 @@
     <Property name="GridRow">1</Property>
     <Property name="ColumnSpan">3</Property>
     <Property name="CornerRadius">28</Property>
-    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundColor">#36383EB3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EB3</Property>
+    <Property name="BackgroundGradientEndColor">#000000B3</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="Transparency">30</Property>
+    <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000FF</Property>
@@ -730,13 +733,13 @@
     <Property name="GridRow">1</Property>
     <Property name="ColumnSpan">3</Property>
     <Property name="CornerRadius">28</Property>
-    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundColor">#36383EB3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EB3</Property>
+    <Property name="BackgroundGradientEndColor">#000000B3</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="Transparency">30</Property>
+    <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000FF</Property>
@@ -770,6 +773,7 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Pic-Pin" type="PictureBox" x="317" y="34" w="16" h="18" tab-order="8" z-order="0" visible="true" enabled="true" parent="Crd-Weather">
     <Property name="ImagePath">Assets/icons/pin.svg</Property>
@@ -794,6 +798,7 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Lbl-City" type="Label" x="335" y="34" w="63" h="19" tab-order="9" z-order="0" visible="true" enabled="true" parent="Crd-Weather">
     <Property name="Caption">Yogyakarta</Property>
@@ -881,13 +886,13 @@
     <Property name="GridRow">2</Property>
     <Property name="ColumnSpan">2</Property>
     <Property name="CornerRadius">28</Property>
-    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundColor">#36383EB3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EB3</Property>
+    <Property name="BackgroundGradientEndColor">#000000B3</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="Transparency">30</Property>
+    <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000FF</Property>
@@ -973,6 +978,7 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Sw-Light" type="Switch" x="34" y="222" w="60" h="30" tab-order="16" z-order="0" visible="true" enabled="true" parent="Crd-Light">
     <Property name="Checked">true</Property>
@@ -1000,6 +1006,7 @@
     <Property name="BorderColor">#888888</Property>
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Crd-AirCon" type="Panel" x="155" y="134" w="121" h="133" tab-order="17" z-order="0" visible="true" enabled="true" parent="Pnl-Left">
     <Property name="LayoutMode">Grid</Property>
@@ -1013,13 +1020,13 @@
     <Property name="GridRow">2</Property>
     <Property name="ColumnSpan">2</Property>
     <Property name="CornerRadius">28</Property>
-    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundColor">#36383EB3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EB3</Property>
+    <Property name="BackgroundGradientEndColor">#000000B3</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="Transparency">30</Property>
+    <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000FF</Property>
@@ -1105,6 +1112,7 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Sw-AirCon" type="Switch" x="169" y="222" w="60" h="30" tab-order="21" z-order="0" visible="true" enabled="true" parent="Crd-AirCon">
     <Property name="Checked">true</Property>
@@ -1132,6 +1140,7 @@
     <Property name="BorderColor">#888888</Property>
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Crd-Wifi" type="Panel" x="291" y="134" w="121" h="133" tab-order="22" z-order="0" visible="true" enabled="true" parent="Pnl-Left">
     <Property name="LayoutMode">Grid</Property>
@@ -1145,13 +1154,13 @@
     <Property name="GridRow">2</Property>
     <Property name="ColumnSpan">2</Property>
     <Property name="CornerRadius">28</Property>
-    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundColor">#36383EB3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EB3</Property>
+    <Property name="BackgroundGradientEndColor">#000000B3</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="Transparency">30</Property>
+    <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000FF</Property>
@@ -1237,6 +1246,7 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Sw-Wifi" type="Switch" x="305" y="222" w="60" h="30" tab-order="26" z-order="0" visible="true" enabled="true" parent="Crd-Wifi">
     <Property name="Checked">false</Property>
@@ -1264,6 +1274,7 @@
     <Property name="BorderColor">#888888</Property>
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Crd-AC" type="Panel" x="20" y="281" w="392" h="299" tab-order="27" z-order="0" visible="true" enabled="true" parent="Pnl-Left">
     <Property name="LayoutMode">Grid</Property>
@@ -1277,13 +1288,13 @@
     <Property name="GridRow">3</Property>
     <Property name="ColumnSpan">6</Property>
     <Property name="CornerRadius">28</Property>
-    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundColor">#36383EB3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EB3</Property>
+    <Property name="BackgroundGradientEndColor">#000000B3</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="Transparency">30</Property>
+    <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000FF</Property>
@@ -1368,6 +1379,7 @@
     <Property name="BorderColor">#888888</Property>
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
     <Event name="onCheckedChanged" paragraph="SW-AC--ONCHECKEDCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -1400,6 +1412,7 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Knb-AC" type="Knob" x="42" y="359" w="348" h="113" tab-order="32" z-order="0" visible="true" enabled="true" parent="Pnl-Dial">
     <Property name="Minimum">16</Property>
@@ -1433,6 +1446,7 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
     <Event name="onValueChanged" paragraph="KNB-AC--ONVALUECHANGED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -1466,7 +1480,7 @@
   </Control>
   <Control id="Lbl-Target" type="Label" x="42" y="390" w="348" h="40" tab-order="34" z-order="0" visible="true" enabled="true" parent="Pnl-Dial">
     <Property name="Caption">28°C</Property>
-    <Property name="FontSize">30</Property>
+    <Property name="FontSize">27</Property>
     <Property name="TextAlignment">Center</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="Transparency">100</Property>
@@ -1568,18 +1582,18 @@
     <Property name="IconSize">32</Property>
     <Property name="CornerRadius">23</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundColor">#36383EB3</Property>
     <Property name="GridColumn">1</Property>
     <Property name="GridRow">4</Property>
     <Property name="ColumnSpan">2</Property>
     <Property name="JustifySelf">Center</Property>
     <Property name="AlignSelf">Center</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EB3</Property>
+    <Property name="BackgroundGradientEndColor">#000000B3</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="Transparency">30</Property>
+    <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000FF</Property>
@@ -1621,6 +1635,7 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Lbl-Fan" type="Label" x="42" y="534" w="40" h="24" tab-order="40" z-order="0" visible="true" enabled="true" parent="Pnl-AC-Sliders">
     <Property name="Caption">72%</Property>
@@ -1673,6 +1688,7 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
     <Event name="onValueChanged" paragraph="SLD-FAN--ONVALUECHANGED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -1734,6 +1750,7 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
     <Event name="onValueChanged" paragraph="SLD-SWING--ONVALUECHANGED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -1771,6 +1788,7 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Pnl-Search" type="Panel" x="432" y="22" w="281" h="40" tab-order="45" z-order="0" visible="true" enabled="true" parent="Pnl-Top">
     <Property name="LayoutMode">Grid</Property>
@@ -1783,13 +1801,13 @@
     <Property name="GridColumn">1</Property>
     <Property name="GridRow">1</Property>
     <Property name="CornerRadius">22</Property>
-    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundColor">#36383EB3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EB3</Property>
+    <Property name="BackgroundGradientEndColor">#000000B3</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="Transparency">30</Property>
+    <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000FF</Property>
@@ -1824,6 +1842,7 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Txt-Search" type="TextBox" x="477" y="28" w="191" h="28" tab-order="47" z-order="0" visible="true" enabled="true" parent="Pnl-Search">
     <Property name="HintText">Remote…</Property>
@@ -1883,17 +1902,17 @@
     <Property name="IconSize">32</Property>
     <Property name="CornerRadius">16</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundColor">#36383EB3</Property>
     <Property name="GridColumn">3</Property>
     <Property name="GridRow">1</Property>
     <Property name="JustifySelf">Center</Property>
     <Property name="AlignSelf">Center</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EB3</Property>
+    <Property name="BackgroundGradientEndColor">#000000B3</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="Transparency">30</Property>
+    <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000FF</Property>
@@ -1918,13 +1937,13 @@
     <Property name="GridColumn">4</Property>
     <Property name="GridRow">1</Property>
     <Property name="CornerRadius">22</Property>
-    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundColor">#36383EB3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EB3</Property>
+    <Property name="BackgroundGradientEndColor">#000000B3</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="Transparency">30</Property>
+    <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000FF</Property>
@@ -1960,6 +1979,7 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Lbl-Hi" type="Label" x="828" y="25" w="118" h="17" tab-order="52" z-order="0" visible="true" enabled="true" parent="Pnl-User">
     <Property name="Caption">Hi, Wade Warren</Property>
@@ -2056,13 +2076,13 @@
     <Property name="GridRow">2</Property>
     <Property name="ColumnSpan">3</Property>
     <Property name="CornerRadius">28</Property>
-    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundColor">#36383EB3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EB3</Property>
+    <Property name="BackgroundGradientEndColor">#000000B3</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="Transparency">30</Property>
+    <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000FF</Property>
@@ -2096,6 +2116,7 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Pnl-Album-Line" type="Panel" x="626" y="94" w="304" h="20" tab-order="57" z-order="0" visible="true" enabled="true" parent="Crd-Music">
     <Property name="LayoutMode">Grid</Property>
@@ -2123,6 +2144,7 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Lbl-Album" type="Label" x="628" y="96" w="64" h="16" tab-order="58" z-order="0" visible="true" enabled="true" parent="Pnl-Album-Line">
     <Property name="Caption">Album</Property>
@@ -2197,7 +2219,7 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
   </Control>
-  <Control id="Cht-Wave" type="BarChart" x="626" y="154" w="304" h="33" tab-order="61" z-order="0" visible="true" enabled="true" parent="Crd-Music">
+  <Control id="Cht-Wave" type="BarChart" x="626" y="160" w="304" h="16" tab-order="61" z-order="0" visible="true" enabled="true" parent="Crd-Music">
     <Property name="Title"></Property>
     <Property name="ShowLegend">false</Property>
     <Property name="ShowGridLines">false</Property>
@@ -2235,8 +2257,9 @@
     <Property name="BorderBlur">0</Property>
     <Property name="BorderTransparency">0</Property>
     <Property name="CornerRadius">8</Property>
+    <Property name="Transparency">0</Property>
   </Control>
-  <Control id="Pnl-Player" type="Panel" x="626" y="193" w="304" h="46" tab-order="62" z-order="0" visible="true" enabled="true" parent="Crd-Music">
+  <Control id="Pnl-Player" type="Panel" x="626" y="144" w="304" h="72" tab-order="62" z-order="0" visible="true" enabled="true" parent="Crd-Music">
     <Property name="LayoutMode">Grid</Property>
     <Property name="GridColumns">36px 36px 46px 36px 36px 1fr</Property>
     <Property name="GridRows">1fr</Property>
@@ -2262,8 +2285,9 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
-  <Control id="Btn-Shuffle" type="Button" x="629" y="199" w="34" h="34" tab-order="63" z-order="0" visible="true" enabled="true" parent="Pnl-Player">
+  <Control id="Btn-Shuffle" type="Button" x="629" y="159" w="34" h="34" tab-order="63" z-order="0" visible="true" enabled="true" parent="Pnl-Player">
     <Property name="Caption"></Property>
     <Property name="IconPath">Assets/icons/shuffle.svg</Property>
     <Property name="IconSize">32</Property>
@@ -2289,7 +2313,7 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
   </Control>
-  <Control id="Btn-Prev" type="Button" x="673" y="199" w="34" h="34" tab-order="64" z-order="0" visible="true" enabled="true" parent="Pnl-Player">
+  <Control id="Btn-Prev" type="Button" x="673" y="159" w="34" h="34" tab-order="64" z-order="0" visible="true" enabled="true" parent="Pnl-Player">
     <Property name="Caption"></Property>
     <Property name="IconPath">Assets/icons/previous.svg</Property>
     <Property name="IconSize">32</Property>
@@ -2320,7 +2344,7 @@
            CALL "PS-SONG-PREV"
 ]]></Event>
   </Control>
-  <Control id="Btn-Play" type="Button" x="716" y="193" w="46" h="46" tab-order="65" z-order="0" visible="true" enabled="true" parent="Pnl-Player">
+  <Control id="Btn-Play" type="Button" x="716" y="137" w="40" h="40" tab-order="65" z-order="0" visible="true" enabled="true" parent="Pnl-Player">
     <Property name="Caption"></Property>
     <Property name="IconPath">Assets/icons/play.svg</Property>
     <Property name="IconSize">32</Property>
@@ -2344,13 +2368,14 @@
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="Transparency">0</Property>
     <Event name="onClick" paragraph="BTN-PLAY--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
            CALL "PS-PLAY-TOGGLE"
 ]]></Event>
   </Control>
-  <Control id="Btn-Next" type="Button" x="771" y="199" w="34" h="34" tab-order="66" z-order="0" visible="true" enabled="true" parent="Pnl-Player">
+  <Control id="Btn-Next" type="Button" x="771" y="159" w="34" h="34" tab-order="66" z-order="0" visible="true" enabled="true" parent="Pnl-Player">
     <Property name="Caption"></Property>
     <Property name="IconPath">Assets/icons/next.svg</Property>
     <Property name="IconSize">32</Property>
@@ -2381,7 +2406,7 @@
            CALL "PS-SONG-NEXT"
 ]]></Event>
   </Control>
-  <Control id="Btn-Repeat" type="Button" x="815" y="199" w="34" h="34" tab-order="67" z-order="0" visible="true" enabled="true" parent="Pnl-Player">
+  <Control id="Btn-Repeat" type="Button" x="815" y="159" w="34" h="34" tab-order="67" z-order="0" visible="true" enabled="true" parent="Pnl-Player">
     <Property name="Caption"></Property>
     <Property name="IconPath">Assets/icons/repeat.svg</Property>
     <Property name="IconSize">32</Property>
@@ -2437,6 +2462,7 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Pic-Volume" type="PictureBox" x="941" y="207" w="18" h="18" tab-order="69" z-order="0" visible="true" enabled="true" parent="Crd-Music">
     <Property name="ImagePath">Assets/icons/volume.svg</Property>
@@ -2462,6 +2488,7 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Tmr-Wave" type="Timer" x="0" y="0" w="24" h="24" tab-order="70" z-order="0" visible="true" enabled="true">
     <Property name="Interval">140</Property>
@@ -2480,6 +2507,7 @@
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="Transparency">0</Property>
     <Event name="onTick" paragraph="TMR-WAVE--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -2497,13 +2525,13 @@
     <Property name="GridColumn">1</Property>
     <Property name="GridRow">3</Property>
     <Property name="CornerRadius">28</Property>
-    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundColor">#36383EB3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EB3</Property>
+    <Property name="BackgroundGradientEndColor">#000000B3</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="Transparency">30</Property>
+    <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000FF</Property>
@@ -2586,6 +2614,7 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Crd-Humidity" type="Panel" x="618" y="269" w="174" h="106" tab-order="75" z-order="0" visible="true" enabled="true" parent="Pnl-Right">
     <Property name="LayoutMode">Grid</Property>
@@ -2598,13 +2627,13 @@
     <Property name="GridColumn">2</Property>
     <Property name="GridRow">3</Property>
     <Property name="CornerRadius">28</Property>
-    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundColor">#36383EB3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EB3</Property>
+    <Property name="BackgroundGradientEndColor">#000000B3</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="Transparency">30</Property>
+    <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000FF</Property>
@@ -2687,6 +2716,7 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Crd-Pressure" type="Panel" x="806" y="269" w="174" h="106" tab-order="79" z-order="0" visible="true" enabled="true" parent="Pnl-Right">
     <Property name="LayoutMode">Grid</Property>
@@ -2699,13 +2729,13 @@
     <Property name="GridColumn">3</Property>
     <Property name="GridRow">3</Property>
     <Property name="CornerRadius">28</Property>
-    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundColor">#36383EB3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EB3</Property>
+    <Property name="BackgroundGradientEndColor">#000000B3</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="Transparency">30</Property>
+    <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000FF</Property>
@@ -2788,6 +2818,7 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Crd-Thermostat" type="Panel" x="430" y="389" w="174" h="191" tab-order="83" z-order="0" visible="true" enabled="true" parent="Pnl-Right">
     <Property name="LayoutMode">Grid</Property>
@@ -2800,13 +2831,13 @@
     <Property name="GridColumn">1</Property>
     <Property name="GridRow">4</Property>
     <Property name="CornerRadius">28</Property>
-    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundColor">#36383EB3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EB3</Property>
+    <Property name="BackgroundGradientEndColor">#000000B3</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="Transparency">30</Property>
+    <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000FF</Property>
@@ -2892,6 +2923,7 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Btn-Thermostat-Cast" type="Button" x="556" y="407" w="30" h="34" tab-order="87" z-order="0" visible="true" enabled="true" parent="Pnl-Thermostat-Buttons">
     <Property name="Caption"></Property>
@@ -2915,6 +2947,7 @@
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="Transparency">0</Property>
     <Event name="onClick" paragraph="BTN-THERMOSTAT-CAST--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -2944,6 +2977,7 @@
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="Transparency">0</Property>
     <Event name="onClick" paragraph="BTN-THERMOSTAT-PLUG--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -2958,8 +2992,8 @@
     <Property name="Step">1</Property>
     <Property name="DefaultValue">70</Property>
     <Property name="ShowValue">true</Property>
-    <Property name="Accent">#2DC653FF</Property>
-    <Property name="FaceColor">#1E1F21FF</Property>
+    <Property name="Accent">#0095FFFF</Property>
+    <Property name="FaceColor">#337F4014</Property>
     <Property name="RimColor">#7A7C80FF</Property>
     <Property name="TrackColor">#FFFFFF26</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
@@ -2968,6 +3002,22 @@
     <Property name="Tooltip">°F</Property>
     <Property name="GridColumn">1</Property>
     <Property name="GridRow">3</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="IndicatorStyle">Line</Property>
   </Control>
   <Control id="Crd-Lighting" type="Panel" x="618" y="389" w="174" h="191" tab-order="90" z-order="0" visible="true" enabled="true" parent="Pnl-Right">
     <Property name="LayoutMode">Grid</Property>
@@ -2980,13 +3030,13 @@
     <Property name="GridColumn">2</Property>
     <Property name="GridRow">4</Property>
     <Property name="CornerRadius">28</Property>
-    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundColor">#36383EB3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EB3</Property>
+    <Property name="BackgroundGradientEndColor">#000000B3</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="Transparency">30</Property>
+    <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000FF</Property>
@@ -3072,6 +3122,7 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Btn-Lighting-Cast" type="Button" x="744" y="407" w="30" h="34" tab-order="94" z-order="0" visible="true" enabled="true" parent="Pnl-Lighting-Buttons">
     <Property name="Caption"></Property>
@@ -3095,6 +3146,7 @@
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="Transparency">0</Property>
     <Event name="onClick" paragraph="BTN-LIGHTING-CAST--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -3124,6 +3176,7 @@
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="Transparency">0</Property>
     <Event name="onClick" paragraph="BTN-LIGHTING-PLUG--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -3132,13 +3185,13 @@
 ]]></Event>
   </Control>
   <Control id="Pic-Lighting" type="PictureBox" x="634" y="455" w="102" h="109" tab-order="96" z-order="0" visible="true" enabled="true" parent="Crd-Lighting">
-    <Property name="ImagePath">Assets/images/bulb.svg</Property>
+    <Property name="ImagePath">Assets/images/bulb.png</Property>
     <Property name="SizeMode">Fit</Property>
     <Property name="ShowFrame">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="GridColumn">1</Property>
     <Property name="GridRow">3</Property>
-    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
     <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -3153,6 +3206,7 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Crd-Speaker" type="Panel" x="806" y="389" w="174" h="191" tab-order="97" z-order="0" visible="true" enabled="true" parent="Pnl-Right">
     <Property name="LayoutMode">Grid</Property>
@@ -3165,13 +3219,13 @@
     <Property name="GridColumn">3</Property>
     <Property name="GridRow">4</Property>
     <Property name="CornerRadius">28</Property>
-    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundColor">#36383EB3</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
-    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EB3</Property>
+    <Property name="BackgroundGradientEndColor">#000000B3</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ForegroundColor">#FFFFFFFF</Property>
-    <Property name="Transparency">30</Property>
+    <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000FF</Property>
@@ -3257,6 +3311,7 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="BorderWidth">1</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Btn-Speaker-Cast" type="Button" x="932" y="407" w="30" h="34" tab-order="101" z-order="0" visible="true" enabled="true" parent="Pnl-Speaker-Buttons">
     <Property name="Caption"></Property>
@@ -3280,6 +3335,7 @@
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="Transparency">0</Property>
     <Event name="onClick" paragraph="BTN-SPEAKER-CAST--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -3309,6 +3365,7 @@
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="Transparency">0</Property>
     <Event name="onClick" paragraph="BTN-SPEAKER-PLUG--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -3317,7 +3374,7 @@
 ]]></Event>
   </Control>
   <Control id="Pic-Speaker" type="PictureBox" x="822" y="455" w="102" h="109" tab-order="103" z-order="0" visible="true" enabled="true" parent="Crd-Speaker">
-    <Property name="ImagePath">Assets/images/speaker.svg</Property>
+    <Property name="ImagePath">Assets/images/speaker.png</Property>
     <Property name="SizeMode">Fit</Property>
     <Property name="ShowFrame">false</Property>
     <Property name="BorderStyle">None</Property>
@@ -3338,6 +3395,7 @@
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="CornerRadius">0</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Tmr-Clock" type="Timer" x="0" y="0" w="24" h="24" tab-order="104" z-order="0" visible="true" enabled="true">
     <Property name="Interval">1000</Property>
@@ -3355,6 +3413,7 @@
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="Transparency">0</Property>
     <Event name="onTick" paragraph="TMR-CLOCK--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -3376,6 +3435,7 @@
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="Transparency">0</Property>
   </Control>
   <Control id="Tmr-Lang" type="Timer" x="0" y="0" w="24" h="24" tab-order="106" z-order="0" visible="true" enabled="true">
     <Property name="Interval">1000</Property>
@@ -3393,6 +3453,7 @@
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="Transparency">0</Property>
     <Event name="onTick" paragraph="TMR-LANG--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
