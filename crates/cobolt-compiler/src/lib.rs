@@ -7141,7 +7141,12 @@ fn controls_reference_doc() -> String {
          settable at runtime), `FullScreen` (Boolean — orthogonal to WindowState; leaving \
          fullscreen returns to the previous state), and `TitleVisible` (Boolean, default true — \
          false renders a chromeless window, which the operator moves by dragging the form's \
-         background or any see-through part of a control: a hidden control, the transparent \
+         background, any control with no mouse behaviour of its own and no press handler \
+         bound (a Label beside its text, PictureBox, Animator, a non-scrolling Panel or \
+         GroupBox, Shape, Line, charts, ProgressBar, Gauge, StatusBar; press handlers are \
+         onClick, onDoubleClick, onMouseDown, onMouseUp, onRightClick, onMiddleClick, \
+         onContextMenu — a Button, Knob, Slider, input, list, grid, tab strip or menu \
+         always keeps the press), or any see-through part of a control: a hidden control, the transparent \
          background of a Label, Panel or GroupBox, a frameless PictureBox (ShowFrame false) \
          beside its picture or on its transparent pixels; not in a shell window yet), and `CornerRadius` \
          (pixels, 0-255, default 0 — rounds the window's corners while `TitleVisible` is false; \

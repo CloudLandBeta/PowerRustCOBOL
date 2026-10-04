@@ -8,6 +8,28 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.154] — 2026-10-04
+
+### Feature: a window without a title bar moves from any control nobody clicks
+
+On a window without a title bar, a press on a control with no mouse behaviour
+of its own and no press handler bound now moves the window (operator,
+2026-10-04). Passive types (`render::passive_to_the_mouse`): Label, PictureBox,
+Animator, Panel and GroupBox when they do not scroll, Shape, Line, the six
+charts, ProgressBar, Gauge, StatusBar. Press handlers (`binds_a_press`):
+`onClick`, `onDoubleClick`/`onDblClick`, `onMouseDown`, `onMouseUp`,
+`onRightClick`, `onMiddleClick`, `onContextMenu`. A Label's text still selects
+(it claims only its text whenever nobody handles a press on it). Every control
+that reacts to the mouse by itself — Button, Knob, Slider, inputs, lists,
+grids, tab strips, menus, maps, viewers, a scrolling Panel — keeps the press,
+handled or not; a passive control WITH a press handler keeps the previous
+rule (its painted parts block, see-through parts pass). Test
+`a_frameless_window_moves_by_its_background_and_see_through_parts`: the
+painted-part cases now bind `onClick`, and unbound twins (an opaque Label
+beside and on its text, an opaque Panel's border and inside, a framed
+picture's opaque pixel) prove the new rule — 15 press points. Guide and System
+KB updated; `chunked.data` regenerated.
+
 ## [PowerRustCOBOL 1.80.153] — 2026-10-04
 
 ### Fix: a window without a title bar moves from the transparent parts of a picture

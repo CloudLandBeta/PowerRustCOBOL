@@ -6826,9 +6826,17 @@ ends the application (and its `onClose` handler can still refuse, raising
 `onCloseRejected`); a child window's closes that window only.
 
 **Moving a window without a title bar.** A chromeless window is moved by its
-face: press anywhere on the form's background and drag. A press on a control
-stays the control's — a button still clicks, a list still selects — except
-where the control paints nothing: a hidden control, the transparent
+face: press anywhere on the form's background and drag. A control that does
+nothing with the mouse on its own — a Label (beside its text; the text still
+selects), a PictureBox, an Animator, a Panel or GroupBox that does not scroll,
+a Shape, a Line, a chart, a ProgressBar, a Gauge, a StatusBar — moves the
+window too, from anywhere on it, **unless you bound a handler to a press on
+it** (`onClick`, `onDoubleClick`, `onMouseDown`, `onMouseUp`, `onRightClick`,
+`onMiddleClick`, `onContextMenu`). Every control that reacts to the mouse by
+itself keeps the press whether or not you handle it: a Button still lights and
+presses, a Knob or Slider still turns, a field still takes the cursor, a list
+still selects, a scrolling Panel still scrolls. A control that does have a
+press handler keeps its painted parts and lets the rest through: a hidden control, the transparent
 background of a Label, Panel or GroupBox (its text, border, caption and
 children still belong to it), and a PictureBox without a frame
 (`ShowFrame` off) beside its picture or on the picture's transparent pixels —

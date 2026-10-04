@@ -2837,6 +2837,56 @@ fn face_see_through(ctrl: &Control) -> bool {
             .is_some_and(|raw| crate::paint::parse_color(&raw).a() == 0)
 }
 
+/// The events a mouse PRESS raises — left, right or middle button, single or
+/// double. A control bound to none of them gives a press nothing to do.
+const PRESS_EVENTS: [&str; 8] = [
+    "onClick",
+    "onDoubleClick",
+    "onDblClick",
+    "onMouseDown",
+    "onMouseUp",
+    "onRightClick",
+    "onMiddleClick",
+    "onContextMenu",
+];
+
+/// Whether the developer bound a COBOL handler to a mouse press on `ctrl`.
+fn binds_a_press(ctrl: &Control) -> bool {
+    ctrl.events.iter().any(|e| PRESS_EVENTS.iter().any(|p| e.event.eq_ignore_ascii_case(p)))
+}
+
+/// A control with no mouse behaviour of its own: a press on it does nothing
+/// unless the developer bound a handler to one. Everything else — a Button
+/// (it lights and presses), a Knob, a Slider, every input, list, grid, tab
+/// strip, menu, map, viewer, a scrolling Panel (it drags its content) — reacts
+/// to the mouse by itself and always keeps the press (operator, 2026-10-04).
+/// A Label's TEXT is not passive (it selects) and is kept apart by the caller.
+fn passive_to_the_mouse(ctrl: &Control) -> bool {
+    use ControlType as CT;
+    match ctrl.control_type {
+        CT::Panel | CT::GroupBox => {
+            !(scrolls_its_content(&ctrl.control_type)
+                && (ctrl.get_prop("HScroll").is_some_and(|v| v.as_bool())
+                    || ctrl.get_prop("VScroll").is_some_and(|v| v.as_bool())))
+        }
+        CT::Label
+        | CT::PictureBox
+        | CT::Animator
+        | CT::Shape
+        | CT::Line
+        | CT::BarChart
+        | CT::LineChart
+        | CT::PieChart
+        | CT::AreaChart
+        | CT::ScatterChart
+        | CT::DonutChart
+        | CT::ProgressBar
+        | CT::Gauge
+        | CT::StatusBar => true,
+        _ => false,
+    }
+}
+
 /// Whether `p` lies on a part of a control that paints something, so a press
 /// there belongs to the control and must not move a frameless window.
 ///
@@ -2856,6 +2906,13 @@ fn window_drag_blocked(ctx: &egui::Context, controls: &[Control], out: &RenderOu
             return false;
         };
         let see_through = face_see_through(ctrl);
+        // A control with no mouse behaviour of its own and no press handler:
+        // nothing happens if the press stays with it, so it moves the window
+        // instead — anywhere on it but a Label's text, which selects.
+        if passive_to_the_mouse(ctrl) && !binds_a_press(ctrl) {
+            return ctrl.control_type == ControlType::Label
+                && out.caption_rects.get(&ctrl.id).is_some_and(|text| text.contains(p));
+        }
         match ctrl.control_type {
             ControlType::Label if see_through => {
                 out.caption_rects.get(&ctrl.id).is_some_and(|text| text.contains(p))
@@ -13443,7 +13500,10 @@ fn render_interactive(
                     let draggable = ui
                         .data(|d| d.get_temp::<bool>(window_draggable_id(scope)))
                         .unwrap_or(false);
-                    let claim = if draggable && face_see_through(ctrl) {
+                    // …and so does any Label nobody listens to a press on: its
+                    // background has no behaviour of its own, its text does
+                    // (it selects).
+                    let claim = if draggable && (face_see_through(ctrl) || !binds_a_press(ctrl)) {
                         Rect::from_min_size(cap.pos, cap.galley.size())
                     } else {
                         screen
@@ -25186,6 +25246,13 @@ mod tests {
     /// A window without a title bar moves by its face (operator, 2026-10-03):
     /// a drag on the background, or on a part of a control that paints
     /// nothing, reports `window_drag`; a drag on anything painted does not.
+    ///
+    /// Since 2026-10-04 a control with no mouse behaviour of its own (a Label,
+    /// a PictureBox, a Panel, a chart…) moves the window from ANYWHERE on it
+    /// unless a press handler is bound — so the painted-part rules below are
+    /// exercised on controls that bind `onClick`, and their unbound twins
+    /// must drag. A control that reacts to the mouse by itself (a Button)
+    /// keeps the press bound or not, and a Label's text always selects.
     #[test]
     fn a_frameless_window_moves_by_its_background_and_see_through_parts() {
         let started = std::time::Instant::now();
@@ -25217,7 +25284,32 @@ mod tests {
             pic.set_prop("ShowFrame", crate::PropValue::Bool(frame));
             pic
         };
-        let controls = vec![btn, lbl, clear, solid, hidden, picture("Pic", 120, false), picture("Framed", 190, true)];
+        let bind = |mut c: Control| {
+            c.events.push(crate::model::EventBinding::new("onClick", format!("{}--ONCLICK", c.id)));
+            c
+        };
+        // Unbound twins, at the right of the form: they move the window from
+        // anywhere — except the Label's text, which selects.
+        let mut free_lbl = ctrl("FreeLbl", ControlType::Label, 400, 20, 200, 30);
+        free_lbl.set_prop("Caption", crate::PropValue::String("Hi".into()));
+        free_lbl.set_prop("BackgroundColor", crate::PropValue::String("#336699".into()));
+        let mut free_panel = ctrl("FreePanel", ControlType::Panel, 400, 70, 120, 100);
+        free_panel.set_prop("BackgroundColor", crate::PropValue::String("#336699".into()));
+        let mut free_pic = ctrl("FreePic", ControlType::PictureBox, 400, 190, 100, 50);
+        free_pic.set_prop("ImagePath", crate::PropValue::String(png.to_string_lossy().into_owned()));
+        free_pic.set_prop("SizeMode", crate::PropValue::String("Stretch".into()));
+        let controls = vec![
+            btn,
+            bind(lbl),
+            bind(clear),
+            bind(solid),
+            hidden,
+            bind(picture("Pic", 120, false)),
+            bind(picture("Framed", 190, true)),
+            free_lbl,
+            free_panel,
+            free_pic,
+        ];
 
         // Hides what `visible` says is hidden, as every host's state does
         // (the shared `MapState` shows everything).
@@ -25253,7 +25345,7 @@ mod tests {
                         let inp = RenderInput {
                             controls: &controls,
                             state: &st,
-                            form_size: Vec2::new(400.0, 300.0),
+                            form_size: Vec2::new(640.0, 300.0),
                             glass: true,
                             mode: RenderMode::Interactive,
                             active_tabs: &active,
@@ -25267,7 +25359,7 @@ mod tests {
             moved
         };
 
-        let cases: [(&str, Pos2, bool); 10] = [
+        let cases: [(&str, Pos2, bool); 15] = [
             ("form background", pos2(150.0, 260.0), true),
             ("a button", pos2(70.0, 35.0), false),
             ("a see-through label, beside its text", pos2(200.0, 85.0), true),
@@ -25278,6 +25370,11 @@ mod tests {
             ("a frameless picture, on an opaque pixel", pos2(150.0, 145.0), false),
             ("a frameless picture, on a transparent pixel", pos2(210.0, 145.0), true),
             ("a framed picture, over its transparent pixels", pos2(210.0, 215.0), false),
+            ("an opaque label nobody clicks, beside its text", pos2(560.0, 35.0), true),
+            ("an opaque label nobody clicks, on its text", pos2(408.0, 35.0), false),
+            ("an opaque panel nobody clicks, on its border", pos2(401.0, 120.0), true),
+            ("an opaque panel nobody clicks, inside", pos2(460.0, 120.0), true),
+            ("a framed picture nobody clicks, on an opaque pixel", pos2(420.0, 215.0), true),
         ];
         for (what, at, expected) in cases {
             assert_eq!(drags(at, true), expected, "frameless window, press on {what}");
