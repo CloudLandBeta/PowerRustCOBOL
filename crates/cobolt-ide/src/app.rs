@@ -13942,8 +13942,18 @@ impl CoboltApp {
         let glass_applies = !self
             .resolve_surface_theme(Some(chosen_theme.as_str()))
             .is_self_contained();
+        // The theme this form will wear: the dialog's pick, or the project's.
+        let wears = cobolt_forms::theme::resolve_theme_id(
+            Some(chosen_theme.as_str()).filter(|t| !t.is_empty()),
+            self.cobolt_project.as_ref().and_then(|p| p.form_theme_default()),
+        );
         if modern {
             // The modern look is the form's own surface; no glass seeding.
+        } else if wears == cobolt_forms::theme::SPATIAL {
+            // The Spatial look: dim glass, and the controls a template brings
+            // dressed as every new control on it will be (operator, 2026-10-04).
+            form.glass_style = style;
+            form.apply_spatial_defaults();
         } else if style.is_neumorphic() && glass_applies {
             form.apply_glass_style_defaults(style);
         } else {
@@ -19482,6 +19492,11 @@ impl CoboltApp {
             .as_ref()
             .map(|p| p.ide.theme_defaults.clone())
             .unwrap_or_default();
+        self.designers[idx].1.project_form_theme = self
+            .cobolt_project
+            .as_ref()
+            .and_then(|p| p.form_theme_default())
+            .map(str::to_owned);
 
         let llm_cfg = self.llm.clone();
         // Project directory (holds the `agentic_ai/` prompt + skills) for the

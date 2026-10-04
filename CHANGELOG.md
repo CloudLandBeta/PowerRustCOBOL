@@ -8,6 +8,34 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.170] — 2026-10-04
+
+### Feature: the Spatial look — what a Spatial form and its controls wear by default
+
+A Spatial form was a bare sheet of the theme's glass: every control the
+developer dropped on it came out in the theme's flat warm grey, and the look
+the operator wanted — PowerDemo3's *Buttons* example — had to be set by hand,
+property by property. Now the IDE dresses them (operator, 2026-10-04):
+
+- a **new form** whose theme is Spatial (its own, or the project's default)
+  gets the dim glass window: `background` `40404008`, `transparency` 50;
+- **every control dropped on one** (palette or the IDE's agent) gets the
+  Neumorphic Dark face — the Buttons example's, value for value: `#36383E`,
+  a `South` gradient `#4E4E4E` → `#000000`, white text, no border, a soft
+  `SouthEast` shadow — and Buttons, Panels and GroupBoxes 30 % transparency;
+- **switching a form to Spatial** dresses its controls the same way, and
+  switching away takes it back off, keeping anything set by hand.
+
+`Control::apply_spatial_defaults` reuses the Neumorphic Dark applier, so the
+two cannot drift; `Form::apply_spatial_defaults` / `apply_look_defaults_with`;
+`Transparency` joins the theme-owned properties (and gets a 0–100 editor in
+Default Theme Settings, whose project table is still laid over the shipped
+look). The MCP server's golden rule 2 and the layout-and-themes skill — the
+instructions every coding agent works under — spell out the same values, so
+a `.cfrm` an agent writes wears the look too. Tests `the_spatial_look` (2)
+and `a_spatial_form_dresses_its_controls_in_the_spatial_look`; Guide and
+System KB updated; `chunked.data` regenerated.
+
 ## [PowerRustCOBOL 1.80.169] — 2026-10-04
 
 ### Fix: a glass-style switch reaches the controls inside a container

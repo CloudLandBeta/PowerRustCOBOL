@@ -4181,6 +4181,9 @@ pub const THEME_OWNED_PROPS: &[&str] = &[
     "BackgroundGradientStartColor",
     "BackgroundGradientEndColor",
     "BackgroundGradientDirection",
+    // Stamped by the Spatial look (the faces are part see-through), so a
+    // switch away from Spatial takes it back off.
+    "Transparency",
 ];
 
 /// The appearance a theme stamps: one **base** every control takes, plus the
@@ -4337,6 +4340,12 @@ pub const NEUMORPHIC_DARK_FORM_BACKGROUND: &str = "36383EFF";
 pub const NEUMORPHIC_DARK_LIGHT_SHADOW: &str = "#4E4E4EFF";
 pub const NEUMORPHIC_DARK_GRADIENT_START: &str = "#4E4E4EFF";
 pub const NEUMORPHIC_DARK_GRADIENT_END: &str = "#000000FF";
+/// The Spatial look (operator, 2026-10-04 — "the look of PowerDemo3's Buttons
+/// example"): the Neumorphic Dark faces, part see-through on buttons and
+/// containers, over a window of dim glass.
+pub const SPATIAL_FACE_TRANSPARENCY: i64 = 30;
+pub const SPATIAL_FORM_BACKGROUND: &str = "40404008";
+pub const SPATIAL_FORM_TRANSPARENCY: i64 = 50;
 
 /// The `Transparency` a freshly dropped control starts with, 0–100.
 ///
@@ -6865,6 +6874,17 @@ impl Control {
         );
     }
 
+    /// The Spatial look on one control: the Neumorphic Dark faces — dark
+    /// gradient, soft shadow, no border, white text — with buttons and
+    /// containers part see-through, so the window's glass shows in them. One
+    /// definition with Neumorphic Dark, so the two cannot drift apart.
+    pub fn apply_spatial_defaults(&mut self) {
+        self.apply_neumorphic_dark_defaults();
+        if matches!(self.control_type, ControlType::Button | ControlType::Panel | ControlType::GroupBox) {
+            self.set_prop("Transparency", PropValue::Int(SPATIAL_FACE_TRANSPARENCY));
+        }
+    }
+
     /// Put every [`THEME_OWNED_PROPS`] entry back to what a **new** control of
     /// this type carries, so a style switch starts from a clean surface rather
     /// than the previous style's stamps.
@@ -6950,6 +6970,9 @@ impl Control {
             }
             candidates.push(c);
         }
+        let mut spatial = fresh.clone();
+        spatial.apply_spatial_defaults();
+        candidates.push(spatial);
         for key in THEME_OWNED_PROPS {
             let values: Vec<PropValue> = candidates
                 .iter()
@@ -8176,6 +8199,11 @@ impl Form {
     /// designation, hosting and COBOL structure are the developer's.
     pub fn reset_theme_owned_appearance(&mut self) {
         let fresh = Form::new("_", "_", self.width, self.height);
+        // The Spatial look's window glass is taken back off; a transparency
+        // the developer chose is theirs and stays.
+        if i64::from(self.transparency) == SPATIAL_FORM_TRANSPARENCY && self.background_color == SPATIAL_FORM_BACKGROUND {
+            self.transparency = fresh.transparency;
+        }
         self.background_color = fresh.background_color;
         self.background_gradient_enabled = fresh.background_gradient_enabled;
         self.background_gradient_start_color = fresh.background_gradient_start_color;
@@ -8216,6 +8244,32 @@ impl Form {
         }
     }
 
+
+    /// The Spatial look on the whole form: the window's dim glass, and every
+    /// control (children included) wearing [`Control::apply_spatial_defaults`].
+    /// The glass style is left as it is — Spatial owns the look, so it is
+    /// inert under it.
+    pub fn apply_spatial_defaults(&mut self) {
+        self.background_color = SPATIAL_FORM_BACKGROUND.into();
+        self.transparency = SPATIAL_FORM_TRANSPARENCY as u8;
+        each_control(&mut self.controls, &mut Control::apply_spatial_defaults);
+    }
+
+    /// [`Self::apply_glass_style_defaults_with`], or — when the theme the form
+    /// actually wears is Spatial (`spatial`) — the Spatial look in place of the
+    /// glass style's, with the project's table over it either way.
+    pub fn apply_look_defaults_with(&mut self, spatial: bool, style: GlassStyle, defaults: Option<&ThemeDefaults>) {
+        if !spatial {
+            self.apply_glass_style_defaults_with(style, defaults);
+            return;
+        }
+        self.reset_theme_owned_appearance();
+        each_control(&mut self.controls, &mut Control::reset_theme_owned_props);
+        self.apply_spatial_defaults();
+        if let Some(d) = defaults {
+            each_control(&mut self.controls, &mut |c: &mut Control| d.apply_to(c));
+        }
+    }
 
     /// Re-apply the defaults a new form would carry, after the **Theme** was
     /// changed (spec 007 / 050) — the theme's own half of the same rule.

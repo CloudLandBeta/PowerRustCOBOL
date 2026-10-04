@@ -260,7 +260,16 @@ pub const APPLICATION_RULES: [(&str, &str); 8] = [
          `create_project` sets both; leave each form's own `theme` unset so it inherits Spatial, and do \
          not copy another theme or glass style from a pattern. In a project that is not in Spatial, ask \
          the developer to choose Spatial for the IDE theme and the default form theme in Settings — never \
-         edit the project file.",
+         edit the project file. The Spatial look, which the IDE gives a new form and every control dropped \
+         on one, and which you give every form you write: on the `<Form>`, `background=\"40404008\"` and \
+         `transparency=\"50\"` (dim glass); on every Button, Panel and GroupBox that shows a face — \
+         `BackgroundColor` `#36383EFF`, `BackgroundGradientEnabled` `true` from \
+         `BackgroundGradientStartColor` `#4E4E4EFF` to `BackgroundGradientEndColor` `#000000FF` \
+         (`BackgroundGradientDirection` `South`), `ForegroundColor` `#FFFFFFFF`, `Transparency` `30`, \
+         `BorderStyle` `None`, `ShadowEnabled` `true` with `ShadowOpacity` `6`, `ShadowColor` `#000000FF`, \
+         `ShadowLightColor` `#4E4E4EFF`, `ShadowDirection` `SouthEast`, `ShadowDistance` `7`, \
+         `ShadowBlur` `true`, `ShadowBlurStrength` `8`; Labels in `#FFFFFFFF`. A button whose colour \
+         carries a meaning (the accent action, an on/off state) keeps its own colour.",
     ),
     (
         "shell",
@@ -817,7 +826,10 @@ fn skills(version: &str) -> Vec<Skill> {
                    default theme unless its `<Form>` sets `theme`; leave it unset so every form \
                    inherits Spatial, which `create_project` makes the default. Set no `glass-style` \
                    and no other theme. In a project that is not yet Spatial, ask the developer to \
-                   choose it in the IDE's Settings — never edit the project file."),
+                   choose it in the IDE's Settings — never edit the project file. Dress the form in \
+                   the Spatial look the golden rule spells out: dim glass on the `<Form>`, the dark \
+                   gradient faces with their soft shadow on its Buttons, Panels and GroupBoxes, \
+                   white text."),
                 s("Text must stay readable on its background: after a theme change, check every \
                    label and button colour against the new background."),
                 s("Look at it with `render_form` (scale 1) at the designed size, then with `width` \

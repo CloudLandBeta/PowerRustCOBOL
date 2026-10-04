@@ -2634,6 +2634,10 @@ pub struct DesignerPanel {
     /// modal, and then a theme switch stamps exactly what it always did.
     pub theme_defaults:
         std::collections::BTreeMap<String, cobolt_forms::model::ThemeDefaults>,
+    /// The project's default form theme (`[forms] theme`), refreshed with
+    /// `theme_defaults`: a form with no theme of its own wears it, so a theme
+    /// switch must know it to tell what the form will look like.
+    pub project_form_theme: Option<String>,
 
 
     /// The font the user most recently set on a control in this form. New controls
@@ -2973,6 +2977,7 @@ impl DesignerPanel {
             active_theme_pack: None,
             active_surface_theme: cobolt_forms::surface_theme::liquid_glass(),
             theme_defaults: std::collections::BTreeMap::new(),
+            project_form_theme: None,
 
             placement_release_starts: HashMap::new(),
         }
@@ -3506,7 +3511,9 @@ impl DesignerPanel {
                         on_grid(20 + 28 * (self.form.controls.len() + added) as i32)
                     });
                     let mut c = Control::new(cid.clone(), ct.clone(), gx, gy);
-                    if let Some(style) = self.neumorphic_seed() {
+                    if self.wears_spatial() {
+                        c.apply_spatial_defaults();
+                    } else if let Some(style) = self.neumorphic_seed() {
                         c.apply_glass_style_defaults(style);
                     }
                     if let Some(w) = json_prop_i32(properties, "Width") {
@@ -4542,7 +4549,9 @@ impl DesignerPanel {
         let gp = self.form.grid_size as i32;
         let sn = self.form.snap_to_grid;
         let mut ctrl = Control::new(id.clone(), ct.clone(), snap(x, gp, sn), snap(y, gp, sn));
-        if let Some(style) = self.neumorphic_seed() {
+        if self.wears_spatial() {
+            ctrl.apply_spatial_defaults();
+        } else if let Some(style) = self.neumorphic_seed() {
             ctrl.apply_glass_style_defaults(style);
         }
         // 079 — on a modern form every new control takes the modern look.
@@ -6551,7 +6560,15 @@ impl DesignerPanel {
                     let known = target
                         .as_deref()
                         .is_none_or(|t| t == cobolt_forms::theme::LIQUID_GLASS);
-                    self.form.apply_theme_defaults_with(target, table.as_ref());
+                    // The theme the form will WEAR: its own, or the project's
+                    // default when the switch clears it. Spatial brings its
+                    // own look; any other theme, the glass style's.
+                    let spatial = cobolt_forms::theme::resolve_theme_id(
+                        target.as_deref(),
+                        self.project_form_theme.as_deref(),
+                    ) == cobolt_forms::theme::SPATIAL;
+                    self.form.theme = target;
+                    self.form.apply_look_defaults_with(spatial, style, table.as_ref());
                     cobolt_forms::style::ensure_text_contrast(&mut self.form, known);
                     self.dirty = true;
                 }
@@ -12035,6 +12052,13 @@ impl DesignerPanel {
     /// background colours and shadow properties for a register the theme
     /// ignores, so the developer's form would accumulate settings that change
     /// nothing on screen — and switching back to Liquid Glass would show them.
+    /// Whether this form wears the Spatial theme — its own `Theme`, or the
+    /// project's default when it has none. A new control on it takes the
+    /// Spatial look (operator, 2026-10-04).
+    fn wears_spatial(&self) -> bool {
+        self.active_surface_theme.id() == cobolt_forms::theme::SPATIAL
+    }
+
     fn neumorphic_seed(&self) -> Option<cobolt_forms::model::GlassStyle> {
         (!self.active_surface_theme.is_self_contained()
             && self.form.glass_style.is_neumorphic())
@@ -19492,6 +19516,37 @@ mod text_align_tests {
         assert!(c.visible, "Visible undoes");
         assert!(c.enabled, "Enabled undoes");
         assert_eq!(c.tab_order, 0, "TabOrder undoes");
+    }
+
+    /// On a Spatial form a new control wears the Spatial look — the look of
+    /// PowerDemo3's Buttons example — and a switch of the form's theme to
+    /// Spatial (here by clearing it, so it inherits the project's) stamps it,
+    /// while a switch away takes it back off (operator, 2026-10-04).
+    #[test]
+    fn a_spatial_form_dresses_its_controls_in_the_spatial_look() {
+        let gradient = |d: &DesignerPanel, id: &str| {
+            d.form.find_control(id).unwrap().get_prop("BackgroundGradientEnabled").cloned()
+        };
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.active_surface_theme = cobolt_forms::surface_theme::spatial();
+        d.add_control(ControlType::Button, 40, 40);
+        let id = d.form.controls.last().unwrap().id.clone();
+        let b = d.form.find_control(&id).unwrap();
+        assert_eq!(b.get_prop("BackgroundGradientEnabled"), Some(&PropValue::Bool(true)), "{id}");
+        assert_eq!(b.get_prop("Transparency"), Some(&PropValue::Int(30)), "{id}");
+
+        // A Liquid Glass form in a Spatial project: clearing its theme makes it
+        // Spatial, and its controls take the look.
+        let mut e = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        e.form.theme = Some("liquid-glass".into());
+        e.project_form_theme = Some("spatial".into());
+        e.form.controls.push(Control::new("B1", ControlType::Button, 0, 0));
+        e.set_property("", "Theme", PropValue::String(String::new()));
+        assert_eq!(gradient(&e, "B1"), Some(PropValue::Bool(true)), "the Spatial look");
+        assert_eq!(e.form.background_color, cobolt_forms::model::SPATIAL_FORM_BACKGROUND, "the window's dim glass");
+        e.set_property("", "Theme", PropValue::String("liquid-glass".into()));
+        assert_eq!(gradient(&e, "B1"), Some(PropValue::Bool(false)), "taken back off");
+        assert_eq!(e.form.transparency, 0);
     }
 
     /// A theme switch made in the designer stamps the PROJECT's table, not

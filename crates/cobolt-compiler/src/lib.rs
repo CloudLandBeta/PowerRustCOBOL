@@ -4816,6 +4816,18 @@ compositor offers it (KDE on Wayland); elsewhere the window is see-through
 without blur. White text reads best over a darker wallpaper. Pair it with
 `BorderStyle` `Glow` for the corner-lit glass edge.
 
+**The Spatial look** is what the IDE gives a new Spatial form and every
+control dropped on one: on the form, `background="40404008"` and
+`transparency="50"` (dim glass); on every Button, Panel and GroupBox,
+`BackgroundColor` `#36383EFF`, a `South` gradient from `#4E4E4EFF` to
+`#000000FF`, `ForegroundColor` `#FFFFFFFF`, `Transparency` 30, `BorderStyle`
+`None`, and a shadow (`ShadowEnabled` true, `ShadowOpacity` 6, `ShadowColor`
+`#000000FF`, `ShadowLightColor` `#4E4E4EFF`, `ShadowDirection` `SouthEast`,
+`ShadowDistance` 7, `ShadowBlur` true, `ShadowBlurStrength` 8); every other
+control the same face without the transparency, and Labels white text with
+no face. Switching a form away from Spatial takes it back off; a value set by
+hand is kept. A project's Default Theme Settings table is laid over it.
+
 **An unknown id, an empty id, or no selection at all resolves to
 `liquid-glass`.** Nothing fails and nothing is reported: that is the fallback
 rule, not an error path. Do not tell a developer that a theme id was rejected.

@@ -6150,9 +6150,21 @@ Project-wide   Settings → Appearance → Default form theme → Spatial
 One form only  Designer → form Appearance → Theme → Spatial
 ```
 
-Spatial pairs naturally with `BorderStyle` `Glow`: a card with the default
-white glow looks like a lit glass edge. The same look is available for the
-IDE itself as the **Spatial** IDE theme (see *Appearance and
+**The Spatial look.** On a Spatial form, the IDE dresses what you add the
+way the *Buttons* example in PowerDemo3 is dressed: a new form gets a dim
+glass window (`BackgroundColor` `40404008`, `Transparency` 50), and every
+control you drop on it a dark face — a gradient from `#4E4E4E` down to
+black, a soft shadow to the lower right, no border, white text. Buttons,
+panels and group boxes are also 30 % transparent, so the glass shows through
+them. Switching a form to Spatial dresses its controls the same way, and
+switching it away takes the look back off — a value you set on a control
+yourself is kept either way. To change what Spatial means for your project,
+use the **Default Theme Settings** button in the project settings: the project's table is laid over
+the shipped look.
+
+Spatial also pairs with `BorderStyle` `Glow`: a card with the default white
+glow looks like a lit glass edge. The same look is available for the IDE
+itself as the **Spatial** IDE theme (see *Appearance and
 internationalisation*).
 
 > 📷 Screenshot needed — `form-theme-spatial.png`: a running Spatial form over
