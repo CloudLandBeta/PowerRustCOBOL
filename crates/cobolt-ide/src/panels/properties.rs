@@ -11929,17 +11929,28 @@ fn search_shows(ui: &mut Ui, label: &str, key: Option<&str>) -> bool {
 
 /// A search box with a ✕ that clears it, shown while it holds text.
 fn search_box(ui: &mut Ui, text: &mut String, hint: &str, clear_tip: &str) {
-    ui.horizontal(|ui| {
-        let clear_w = if text.is_empty() { 0.0 } else { 26.0 };
-        ui.add(
-            egui::TextEdit::singleline(text)
-                .hint_text(hint)
-                .desired_width((ui.available_width() - clear_w).max(40.0)),
-        );
-        if !text.is_empty() && ui.small_button("✕").on_hover_text(clear_tip).clicked() {
-            text.clear();
-        }
-    });
+    // Laid out from the width the pane HAS, never wider: the ✕ is placed first,
+    // from the right, and the box takes exactly what is left. Guessing the ✕'s
+    // width (26 points; it took more) overflowed the row, the pane grew to hold
+    // it, and the next frame filled the grown width again — the pane crept.
+    let h = ui.spacing().interact_size.y;
+    let width = ui.available_width();
+    ui.allocate_ui_with_layout(
+        egui::vec2(width, h),
+        egui::Layout::right_to_left(egui::Align::Center),
+        |ui| {
+            if !text.is_empty() && ui.small_button("✕").on_hover_text(clear_tip).clicked() {
+                text.clear();
+            }
+            // Its own id: the ✕ comes and goes BEFORE it, and an automatic id
+            // would change with it, so the first letter typed lost the focus.
+            let left = ui.available_width().max(0.0);
+            ui.add_sized(
+                [left, h],
+                egui::TextEdit::singleline(text).hint_text(hint).id_salt(("search_box", hint)),
+            );
+        },
+    );
 }
 
 fn property_row(ui: &mut Ui, label: &str, value: impl FnOnce(&mut Ui)) {
@@ -16263,6 +16274,74 @@ mod label_help_tests {
             }
         }
         out
+    }
+
+    /// Typing in a search box never makes the pane wider: the box and its ✕
+    /// fit the width the pane HAS. The ✕ was given 26 points and took more, so
+    /// the row overflowed, the pane grew to hold it — and the next frame laid the
+    /// box out across the grown width again, so the pane crept (operator,
+    /// 2026-10-04: "the property search is resizing the property pane").
+    #[test]
+    fn a_search_box_with_text_fits_the_pane() {
+        let tr = &crate::i18n::Language::English.tr();
+        let form = Form::new("F", "F", 640, 480);
+        let mut ctrl = Control::new("Pnl".to_owned(), cobolt_forms::ControlType::Panel, 0, 0);
+        ctrl.rect = cobolt_forms::model::Rect::new(0, 0, 100, 100);
+        for tab in [InspectorTab::Visuals, InspectorTab::Events] {
+            for filter in ["", "transp"] {
+                let ctx = egui::Context::default();
+                let mut panel = PropertiesPanel::new();
+                panel.active_tab = tab;
+                panel.property_filter = filter.to_owned();
+                panel.event_filter = filter.to_owned();
+                let mut over = 0.0f32;
+                for _ in 0..3 {
+                    let mut full = ctx.run_ui(
+                        egui::RawInput {
+                            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 4000.0))),
+                            ..Default::default()
+                        },
+                        |ui| {
+                            egui::CentralPanel::default().show_inside(ui, |ui| {
+                                let room = ui.max_rect().right();
+                                let _ = panel.show(ui, &form, Some(&ctrl), &[], tr);
+                                over = over.max(ui.min_rect().right() - room);
+                            });
+                        },
+                    );
+                    full.textures_delta.clear();
+                }
+                assert!(over <= 0.5, "{tab:?} with {filter:?}: the content is {over} points wider than the pane");
+            }
+        }
+    }
+
+    /// The box keeps the keyboard when the ✕ appears beside it: the first
+    /// letter typed brings the ✕, and the second must still reach the box.
+    #[test]
+    fn a_search_box_keeps_its_focus_when_the_clear_button_appears() {
+        let ctx = egui::Context::default();
+        let mut text = String::new();
+        let screen = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 200.0)));
+        let at = egui::pos2(100.0, 18.0);
+        let frames: Vec<Vec<egui::Event>> = vec![
+            vec![],
+            vec![egui::Event::PointerMoved(at), egui::Event::PointerButton {
+                pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }],
+            vec![egui::Event::PointerButton {
+                pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }],
+            vec![egui::Event::Text("t".into())],
+            vec![],
+            vec![egui::Event::Text("r".into())],
+            vec![],
+        ];
+        for events in frames {
+            let mut full = ctx.run_ui(egui::RawInput { screen_rect: screen, events, ..Default::default() }, |ui| {
+                egui::CentralPanel::default().show_inside(ui, |ui| search_box(ui, &mut text, "Search", "Clear"));
+            });
+            full.textures_delta.clear();
+        }
+        assert_eq!(text, "tr", "both letters reached the box");
     }
 
     /// A search that matches nothing leaves nothing but the tabs, the box, its

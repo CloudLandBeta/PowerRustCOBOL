@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.168] — 2026-10-04
+
+### Fix: typing in the Properties search no longer widens the pane
+
+With text in the Properties, Events or Procedures search box, the box was
+given the pane's width less 26 points for its ✕, and the ✕ took more — so
+the row overflowed, the pane grew to hold it, and the next frame filled the
+grown width again: the pane crept wider (operator, 2026-10-04). The ✕ is
+now laid out first, from the right, and the box takes exactly what is left;
+the box keeps one id whether the ✕ shows or not, so the letter that brings
+the ✕ does not take the keyboard away. Tests
+`a_search_box_with_text_fits_the_pane` (red before: 1.3 points over) and
+`a_search_box_keeps_its_focus_when_the_clear_button_appears`.
+
 ## [PowerRustCOBOL 1.80.167] — 2026-10-04
 
 ### Fix: a form's handlers can CALL Common Code
