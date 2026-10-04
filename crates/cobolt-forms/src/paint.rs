@@ -8024,6 +8024,11 @@ pub fn combo_popup_fills(ctrl: &Control) -> (Color32, Color32) {
 /// The opaque base an undesigned dropdown lays down, so the list is readable
 /// whatever is behind the form.
 pub const COMBO_PANEL_BASE: Color32 = Color32::from_rgb(22, 30, 58);
+
+/// What a see-through window (Spatial) is measured — and, off screen,
+/// pictured — over: the operating system blurs the real desktop behind it,
+/// which no painter can read, and the theme is designed for a darker one.
+pub const SEE_THROUGH_DESKTOP: Color32 = Color32::from_rgb(0x4A, 0x46, 0x42);
 /// The translucent card an undesigned dropdown frosts over [`COMBO_PANEL_BASE`].
 pub const COMBO_PANEL_TINT: Color32 = Color32::from_rgb(30, 42, 80);
 /// The rim an undesigned dropdown draws around itself.
@@ -9143,6 +9148,13 @@ pub fn glass_combo_popup(ui: &mut egui::Ui, p: ComboPopup<'_>) -> GlassComboOutc
 
     // ── The items, in a pane that scrolls ───────────────────────────────────
     let (selected_fill, hover_fill) = p.fills;
+    // The panel's tone under its items: the designed gradient's start, the
+    // designed colour over the opaque base, or the base itself.
+    let panel_tone = match (&p.face.gradient, p.face.bg) {
+        (Some((start, _, _)), _) => composite_premultiplied_over(*start, COMBO_PANEL_BASE),
+        (None, Some(bg)) => composite_premultiplied_over(bg, COMBO_PANEL_BASE),
+        (None, None) => COMBO_PANEL_TINT,
+    };
     let border_w = p.face.border.map(|(_, w)| w).unwrap_or(1.0);
     // The band keeps off the rim by the border plus a hairline, and is cut by
     // the panel's own arc where it meets one — a list's rule exactly, through
@@ -9218,10 +9230,11 @@ pub fn glass_combo_popup(ui: &mut egui::Ui, p: ComboPopup<'_>) -> GlassComboOutc
                             Align2::LEFT_CENTER,
                             item,
                             p.font.clone(),
-                            match fill {
-                                Some(fill) => caret_color(fill, p.text),
-                                None => p.text,
-                            },
+                            // Every line is measured against what it is drawn
+                            // on: the highlight, or the panel itself. The panel
+                            // was assumed to suit the header's ink, and on
+                            // Spatial the two differ (operator, 2026-10-04).
+                            caret_color(fill.unwrap_or(panel_tone), p.text),
                         );
                     }
                 });
@@ -15596,8 +15609,26 @@ pub fn user_background_color(ctrl: &Control) -> Option<Color32> {
 /// Neumorphic surfaces are solid, while Classic/Enhanced frost lets `under`
 /// (the form's backdrop) show through. Used to pick colours that must stay
 /// legible on the face, whatever theme and background the developer chose.
+/// Whether the theme painting this frame is see-through (Spatial): its window
+/// is translucent over the desktop.
+pub fn is_see_through(ctx: &egui::Context) -> bool {
+    active_surface_theme(ctx).see_through()
+}
+
 pub fn control_surface_tone(ctx: &egui::Context, ctrl: &Control, under: Color32) -> Color32 {
-    let opaque_under = Color32::from_rgb(under.r(), under.g(), under.b());
+    // Under a see-through theme (Spatial) the window's glass is translucent
+    // over the DESKTOP, which no painter can read — and dropping the alpha of
+    // that glass, as for an ordinary backdrop, measured text against a light
+    // grey that is not on screen: a ComboBox's value came out black on what
+    // the operator sees as dark, blurred glass (operator, 2026-10-04). The
+    // theme's own text is white because it is designed over a darker desktop,
+    // so translucent surfaces are measured over that stand-in.
+    let opaque_under = if active_surface_theme(ctx).see_through() {
+        let o = composite_premultiplied_over(under, SEE_THROUGH_DESKTOP);
+        Color32::from_rgb(o.r(), o.g(), o.b())
+    } else {
+        Color32::from_rgb(under.r(), under.g(), under.b())
+    };
     if let Some(c) = user_background_color(ctrl) {
         return composite_premultiplied_over(c, opaque_under);
     }

@@ -67,7 +67,7 @@ impl FormState for Stringified {
 /// soft, dim field, which this stands in for. White text on Spatial glass —
 /// the theme's whole look — reads on it as it does on a desktop; over the
 /// transparent pixels a viewer shows as white, it vanished.
-pub const STAND_IN_DESKTOP: Color32 = Color32::from_rgb(0x4A, 0x46, 0x42);
+pub const STAND_IN_DESKTOP: Color32 = crate::paint::SEE_THROUGH_DESKTOP;
 
 /// Install the form's theme on `ctx`; returns the glass a see-through theme
 /// (Spatial) paints the window with, as the run host does.

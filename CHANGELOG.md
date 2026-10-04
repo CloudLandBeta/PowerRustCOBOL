@@ -8,6 +8,25 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.173] — 2026-10-04
+
+### Fix: on a Spatial form, text is measured against the glass the operator sees
+
+A ComboBox on a Spatial form showed its value, and its list's items, in
+near-black on what the operator sees as dark glass (operator, 2026-10-04). A
+control's ink is rescued for legibility against the form's colour — but under
+a see-through theme that colour is translucent glass over the DESKTOP, and the
+engine composited it over the host's light ambient panel colour instead, so
+the ground read as light grey and black ink was "rescued" in. Under a
+see-through theme the ground is now the glass over the dark stand-in desktop
+the theme is designed for (`paint::SEE_THROUGH_DESKTOP`, also what
+`render_form` pictures it over), and a dropdown's unhighlighted items are
+measured against the panel they are drawn on. The corner-notch mask keeps its
+own colour. The agent instructions now require high-contrast text on every
+control, data-entry ones included. Test
+`a_spatial_combobox_value_reads_light_on_the_dark_glass`, red before the change;
+cobolt-forms 1352/0. Guide updated.
+
 ## [PowerRustCOBOL 1.80.172] — 2026-10-04
 
 ### Feature: on macOS, a window docked to its opener moves with it as one

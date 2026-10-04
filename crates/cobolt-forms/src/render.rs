@@ -2323,6 +2323,18 @@ fn render_form_inner(
         .behind_fill
         .unwrap_or_else(|| ui.visuals().panel_fill);
     let notch_bg = crate::paint::composite_premultiplied_over(bg, behind);
+    // What a control's text is measured against. Under a see-through theme
+    // (Spatial) the form's glass is translucent over the DESKTOP: measured over
+    // the ambient panel colour instead, it read as light grey, so a ComboBox's
+    // value — and every other rescued ink — came out black on what the
+    // operator sees as dark glass (operator, 2026-10-04). It is measured over
+    // the stand-in desktop the theme is designed for. The notch mask keeps
+    // `notch_bg`: it repaints pixels, and must not paint a desktop.
+    let ink_ground = if crate::paint::is_see_through(ui.ctx()) {
+        crate::paint::composite_premultiplied_over(bg, crate::paint::SEE_THROUGH_DESKTOP)
+    } else {
+        notch_bg
+    };
     // ââ Controls: designer order, clipped + faded by container ancestry. ââââââ
     // Expand repeating groups (spec 015 / 024) into their N runtime instances so
     // the render loop below draws one card per item.
@@ -2665,7 +2677,7 @@ fn render_form_inner(
                 input.glass,
                 alpha,
                 enabled,
-                notch_bg,
+                ink_ground,
                 input.state.decimal_comma(),
                 input.state.currency(),
                 &mut out,
@@ -17364,6 +17376,72 @@ mod tests {
             }
             self.ink.height() / self.full.height()
         }
+    }
+
+    /// On a see-through (Spatial) form a ComboBox's value — its default black
+    /// `ForegroundColor` rescued for legibility — is measured against the glass
+    /// over a dark desktop, not over the host's light ambient panel colour, so
+    /// it comes out light. It was black on what the operator saw as dark glass
+    /// (operator, 2026-10-04).
+    #[test]
+    fn a_spatial_combobox_value_reads_light_on_the_dark_glass() {
+        let mut cmb = Control::new("CMB", ControlType::ComboBox, 20, 20);
+        cmb.rect = crate::model::Rect::new(20, 20, 300, 32);
+        cmb.set_prop("Items", "English\nFrançais");
+        cmb.set_prop("DropDownStyle", "DropDownList");
+        assert_eq!(cmb.get_prop("ForegroundColor"), Some(&PropValue::String("#000000".into())));
+        let ink_of = |theme: std::sync::Arc<dyn crate::surface_theme::SurfaceTheme>, glass_hex: &str| {
+            let ctx = egui::Context::default();
+            crate::paint::set_surface_theme(&ctx, theme);
+            // The host's ambient panel colour is light: it is what the glass
+            // used to be measured over.
+            ctx.all_styles_mut(|s| s.visuals.panel_fill = Color32::from_gray(235));
+            let active = ActiveTabs::new();
+            let controls = [cmb.clone()];
+            let mut full = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(400.0, 200.0))),
+                    ..Default::default()
+                },
+                |root| {
+                    egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
+                        let input = RenderInput {
+                            controls: &controls,
+                            state: &DesignedState,
+                            form_size: Vec2::new(400.0, 200.0),
+                            glass: true,
+                            mode: RenderMode::Interactive,
+                            active_tabs: &active,
+                            backdrop: Backdrop { color_hex: glass_hex.into(), ..Backdrop::default() },
+                        };
+                        let _ = render_form(ui, &input);
+                    });
+                },
+            );
+            full.textures_delta.clear();
+            fn find(s: &egui::Shape, out: &mut Option<Color32>) {
+                match s {
+                    egui::Shape::Text(t) if t.galley.text() == "English" => {
+                        *out = t.galley.job.sections.first().map(|sec| sec.format.color).filter(|c| c.a() > 0)
+                            .or(Some(t.fallback_color));
+                    }
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| find(s, out)),
+                    _ => {}
+                }
+            }
+            let mut ink = None;
+            for cs in &full.shapes {
+                find(&cs.shape, &mut ink);
+            }
+            ink.expect("the value is painted")
+        };
+        let luma = |c: Color32| (c.r() as u32 + c.g() as u32 + c.b() as u32) / 3;
+        // Spatial's own window glass.
+        let spatial = ink_of(crate::surface_theme::spatial(), "#42413E96");
+        assert!(luma(spatial) > 200, "light on the dark glass: {spatial:?}");
+        // Liquid Glass is not see-through: the light ambient still decides.
+        let liquid = ink_of(crate::surface_theme::liquid_glass(), "#42413E96");
+        assert!(luma(liquid) < 60, "unchanged elsewhere: {liquid:?}");
     }
 
     /// Every text run painted for `controls`, plus each control's screen rect.

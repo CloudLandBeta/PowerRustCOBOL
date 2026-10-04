@@ -269,7 +269,10 @@ pub const APPLICATION_RULES: [(&str, &str); 8] = [
          `BorderStyle` `None`, `ShadowEnabled` `true` with `ShadowOpacity` `6`, `ShadowColor` `#000000FF`, \
          `ShadowLightColor` `#4E4E4EFF`, `ShadowDirection` `SouthEast`, `ShadowDistance` `7`, \
          `ShadowBlur` `true`, `ShadowBlurStrength` `8`; Labels in `#FFFFFFFF`. A button whose colour \
-         carries a meaning (the accent action, an on/off state) keeps its own colour.",
+         carries a meaning (the accent action, an on/off state) keeps its own colour. Every text the \
+         operator reads contrasts strongly with what it sits on: on Spatial's dark glass that is white \
+         text — set `ForegroundColor` `#FFFFFFFF` on every TextBox, ComboBox, ListBox and other \
+         data-entry control too, never their default black.",
     ),
     (
         "shell",

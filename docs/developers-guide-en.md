@@ -6144,6 +6144,12 @@ unsaturated accents. It is the one **see-through** theme:
   come back unchanged.
 - **Read it over a darker desktop.** White text stays crisp over a dark or
   colourful wallpaper; over a very bright one it fades.
+- **Text is chosen for the glass, not for the form's colour.** Where a
+  control's text would not read on what it sits on, PowerRustCOBOL lightens
+  or darkens it; under Spatial it measures the glass over a dark desktop —
+  the one the theme is designed for — so a ComboBox or TextBox left at its
+  default black ink is shown white. Set `ForegroundColor` yourself and it
+  stands.
 
 ```text
 Project-wide   Settings → Appearance → Default form theme → Spatial
