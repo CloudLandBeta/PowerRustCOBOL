@@ -316,3 +316,24 @@ fn the_table_round_trips_through_toml_as_plain_scalars() {
     let back: ThemeDefaults = toml::from_str(&text).expect("parses");
     assert_eq!(back, d);
 }
+
+/// A style switch reaches the controls INSIDE a container as it reaches the
+/// form's own: stamped by Neumorphic Dark, and back to what a new control
+/// carries on the way to Classic. The reset and the built-in appliers walked
+/// the top level only, so a container's child kept the dark style's missing
+/// border after the switch away.
+#[test]
+fn a_style_switch_reaches_a_containers_children() {
+    let fresh = Control::new("IN", ControlType::Button, 0, 0);
+    let mut inner = fresh.clone();
+    inner.parent = Some("P".into());
+    let mut p = control("P", ControlType::Panel, &[]);
+    p.children.push(inner);
+    let mut f = form_of(vec![p]);
+    let border = |f: &Form| f.controls[0].children[0].get_prop("BorderStyle").cloned();
+
+    f.apply_glass_style_defaults(GlassStyle::NeumorphicDark);
+    assert_eq!(border(&f), Some(PropValue::String("None".into())), "the dark style reaches the child");
+    f.apply_glass_style_defaults(GlassStyle::Classic);
+    assert_eq!(border(&f), fresh.get_prop("BorderStyle").cloned(), "and the switch away takes it back off");
+}

@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.169] — 2026-10-04
+
+### Fix: a glass-style switch reaches the controls inside a container
+
+Switching a form's glass style resets every control to what a new one
+carries and then stamps the incoming style. The project's theme table was
+stamped on a container's children too, but the reset and the built-in
+Neumorphic appliers walked the form's top-level controls only — so a child
+inside a container neither took Neumorphic Dark nor lost it on the switch
+back to Classic (it kept a border-less face). One walk, `each_control`, now
+serves all three. Test `a_style_switch_reaches_a_containers_children`, red
+before the change; cobolt-forms 1349/0.
+
 ## [PowerRustCOBOL 1.80.168] — 2026-10-04
 
 ### Fix: typing in the Properties search no longer widens the pane

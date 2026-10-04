@@ -7806,6 +7806,19 @@ pub struct Form {
     pub breakpoints: Vec<crate::layout::breakpoints::Breakpoint>,
 }
 
+/// Run `f` on every control in `controls` and, depth first, on the children
+/// held inside each — a style switch reaches a container's contents as it
+/// reaches the form's own controls. The table stamp already recursed; the
+/// reset and the built-in appliers did not, so a switch from Neumorphic Dark
+/// to Classic left a container's children with no border while stamping the
+/// incoming theme over them.
+fn each_control(controls: &mut [Control], f: &mut impl FnMut(&mut Control)) {
+    for c in controls {
+        f(c);
+        each_control(&mut c.children, f);
+    }
+}
+
 impl Form {
     /// Whether the responsive engine lays this form out: `Responsive` is on,
     /// or an obsolete scaling style is set (spec 081 R4). The stored
@@ -8140,9 +8153,7 @@ impl Form {
         self.glass_style = GlassStyle::Neumorphic;
         self.background_color = NEUMORPHIC_FORM_BACKGROUND.into();
         self.background_gradient_enabled = false;
-        for ctrl in &mut self.controls {
-            ctrl.apply_neumorphic_defaults();
-        }
+        each_control(&mut self.controls, &mut Control::apply_neumorphic_defaults);
     }
 
     pub fn apply_neumorphic_dark_defaults(&mut self) {
@@ -8152,9 +8163,7 @@ impl Form {
         self.background_gradient_start_color = NEUMORPHIC_DARK_GRADIENT_START.into();
         self.background_gradient_end_color = NEUMORPHIC_DARK_GRADIENT_END.into();
         self.background_gradient_direction = "South".into();
-        for ctrl in &mut self.controls {
-            ctrl.apply_neumorphic_dark_defaults();
-        }
+        each_control(&mut self.controls, &mut Control::apply_neumorphic_dark_defaults);
     }
 
     /// The form's own appearance, back to what a **new** form carries — the
@@ -8190,9 +8199,7 @@ impl Form {
         defaults: Option<&ThemeDefaults>,
     ) {
         self.reset_theme_owned_appearance();
-        for ctrl in &mut self.controls {
-            ctrl.reset_theme_owned_props();
-        }
+        each_control(&mut self.controls, &mut Control::reset_theme_owned_props);
         match style {
             GlassStyle::Neumorphic => self.apply_neumorphic_defaults(),
             GlassStyle::NeumorphicDark => self.apply_neumorphic_dark_defaults(),
