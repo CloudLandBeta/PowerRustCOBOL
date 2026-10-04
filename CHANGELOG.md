@@ -8,6 +8,16 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.182] — 2026-10-04
+
+### PowerSpatial: the operator's pictures
+
+The operator's own artwork for the PowerSpatial example: a reworked light bulb
+(`bulb.svg`, and `bulb.png`, which the Lighting card now shows), the Google
+Home speaker as `speaker.png` / `speaker.jpg`, and one more picture — each
+registered in the project's assets so a built application bundles it. Also
+PowerDemo3's `actors.idx` as the demo left it.
+
 ## [PowerRustCOBOL 1.80.181] — 2026-10-04
 
 ### Fix: the Spatial look no longer dims what a card holds

@@ -1,1 +1,179 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 110" width="320" height="440"><defs><radialGradient id="w" cx="45%" cy="35%" r="65%"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#DCE2EA"/></radialGradient><linearGradient id="m" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#9AA0A8"/><stop offset=".5" stop-color="#E6E9ED"/><stop offset="1" stop-color="#8A9098"/></linearGradient></defs><path d="M40 4a32 32 0 0 0-20 57c4 4 6 8 6 13h28c0-5 2-9 6-13A32 32 0 0 0 40 4z" fill="url(#w)"/><rect x="26" y="74" width="28" height="22" rx="3" fill="url(#m)"/><g stroke="#7A8088" stroke-width="2"><line x1="26" y1="80" x2="54" y2="80"/><line x1="26" y1="86" x2="54" y2="86"/><line x1="26" y1="92" x2="54" y2="92"/></g><path d="M32 96h16l-4 10h-8z" fill="#5A6068"/></svg>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   viewBox="0 0 80 110"
+   width="320"
+   height="440"
+   version="1.1"
+   id="svg7"
+   sodipodi:docname="bulb.svg"
+   inkscape:version="1.3.2 (091e20e, 2023-11-25)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview7"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="0.63565427"
+     inkscape:cx="-22.024551"
+     inkscape:cy="147.09254"
+     inkscape:window-width="1400"
+     inkscape:window-height="566"
+     inkscape:window-x="0"
+     inkscape:window-y="44"
+     inkscape:window-maximized="0"
+     inkscape:current-layer="svg7" />
+  <defs
+     id="defs5">
+    <radialGradient
+       id="w"
+       cx="45%"
+       cy="35%"
+       r="65%">
+      <stop
+         offset="0"
+         stop-color="#FFFFFF"
+         id="stop1" />
+      <stop
+         offset="1"
+         stop-color="#DCE2EA"
+         id="stop2" />
+    </radialGradient>
+    <linearGradient
+       id="m"
+       x1="0"
+       y1="0"
+       x2="1"
+       y2="0">
+      <stop
+         offset="0"
+         stop-color="#9AA0A8"
+         id="stop3" />
+      <stop
+         offset=".5"
+         stop-color="#E6E9ED"
+         id="stop4" />
+      <stop
+         offset="1"
+         stop-color="#8A9098"
+         id="stop5" />
+    </linearGradient>
+    <filter
+       y="-0.11308447"
+       height="1.2261689"
+       inkscape:menu-tooltip="Darkens the edge with an inner blur and adds a flexible glow"
+       inkscape:menu="Shadows and Glows"
+       inkscape:label="Drop Shadow"
+       style="color-interpolation-filters:sRGB;"
+       id="filter8"
+       x="-0.12358949"
+       width="1.247179">
+      <feGaussianBlur
+         stdDeviation="0.098297397"
+         result="result6"
+         id="feGaussianBlur7" />
+      <feComposite
+         result="result8"
+         in="SourceGraphic"
+         operator="atop"
+         in2="result6"
+         id="feComposite7" />
+      <feComposite
+         result="result9"
+         operator="over"
+         in2="SourceAlpha"
+         in="result8"
+         id="feComposite8" />
+      <feColorMatrix
+         values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0 "
+         result="result10"
+         id="feColorMatrix8" />
+      <feBlend
+         in="result10"
+         mode="normal"
+         in2="result6"
+         id="feBlend8"
+         result="fbSourceGraphic" />
+      <feColorMatrix
+         result="fbSourceGraphicAlpha"
+         in="fbSourceGraphic"
+         values="0 0 0 -1 0 0 0 0 -1 0 0 0 0 -1 0 0 0 0 1 0"
+         id="feColorMatrix32" />
+      <feFlood
+         id="feFlood32"
+         result="flood"
+         in="fbSourceGraphic"
+         flood-opacity="0.341176"
+         flood-color="rgb(255,255,255)" />
+      <feGaussianBlur
+         id="feGaussianBlur32"
+         result="blur"
+         in="fbSourceGraphic"
+         stdDeviation="3.200000" />
+      <feOffset
+         id="feOffset32"
+         result="offset"
+         in="blur"
+         dx="0.000000"
+         dy="0.000000" />
+      <feComposite
+         id="feComposite32"
+         result="comp1"
+         operator="in"
+         in="offset"
+         in2="flood" />
+      <feComposite
+         id="feComposite33"
+         result="comp2"
+         operator="over"
+         in="fbSourceGraphic"
+         in2="comp1" />
+    </filter>
+  </defs>
+  <path
+     d="M40 4a32 32 0 0 0-20 57c4 4 6 8 6 13h28c0-5 2-9 6-13A32 32 0 0 0 40 4z"
+     fill="url(#w)"
+     id="path5"
+     style="fill:#ffffff;filter:url(#filter8)" />
+  <rect
+     x="26"
+     y="74"
+     width="28"
+     height="22"
+     rx="3"
+     fill="url(#m)"
+     id="rect5" />
+  <g
+     stroke="#7A8088"
+     stroke-width="2"
+     id="g7">
+    <line
+       x1="26"
+       y1="80"
+       x2="54"
+       y2="80"
+       id="line5" />
+    <line
+       x1="26"
+       y1="86"
+       x2="54"
+       y2="86"
+       id="line6" />
+    <line
+       x1="26"
+       y1="92"
+       x2="54"
+       y2="92"
+       id="line7" />
+  </g>
+  <path
+     d="M32 96h16l-4 10h-8z"
+     fill="#5A6068"
+     id="path7" />
+</svg>
