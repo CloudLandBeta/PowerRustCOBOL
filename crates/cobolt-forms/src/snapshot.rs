@@ -62,7 +62,16 @@ impl FormState for Stringified {
     }
 }
 
-fn install_theme(ctx: &egui::Context, form: &Form, opts: &SnapshotOptions) {
+/// What a see-through theme's window is pictured over: there is no desktop
+/// behind a picture, and the operating system's blur makes any wallpaper a
+/// soft, dim field, which this stands in for. White text on Spatial glass —
+/// the theme's whole look — reads on it as it does on a desktop; over the
+/// transparent pixels a viewer shows as white, it vanished.
+pub const STAND_IN_DESKTOP: Color32 = Color32::from_rgb(0x4A, 0x46, 0x42);
+
+/// Install the form's theme on `ctx`; returns the glass a see-through theme
+/// (Spatial) paints the window with, as the run host does.
+fn install_theme(ctx: &egui::Context, form: &Form, opts: &SnapshotOptions) -> Option<Color32> {
     let theme_id = crate::theme::resolve_theme_id(form.theme.as_deref(), opts.theme_default.as_deref());
     let pack = if crate::theme::ThemeCatalog::procedural_ids().contains(&theme_id.as_str()) {
         None
@@ -83,14 +92,28 @@ fn install_theme(ctx: &egui::Context, form: &Form, opts: &SnapshotOptions) {
     crate::paint::set_glass_style(ctx, form.glass_style);
     crate::paint::set_surface_theme(ctx, surface.clone());
     surface.install_widget_visuals(ctx);
+    surface
+        .see_through()
+        .then(|| surface.token(crate::surface_theme::ColorToken::FormBackground))
+        .flatten()
 }
 
-fn backdrop(form: &Form, image: Option<(egui::TextureId, Vec2)>, window: Vec2) -> Backdrop {
+/// The window's backdrop, as the run host builds it: under a see-through
+/// theme it is the theme's `glass`, and the form's own colour, gradient and
+/// picture are set aside (they would hide the desktop the theme shows).
+fn backdrop(form: &Form, image: Option<(egui::TextureId, Vec2)>, window: Vec2, glass: Option<Color32>) -> Backdrop {
+    let (image, color_hex) = match glass {
+        Some(g) => {
+            let [r, gg, b, a] = g.to_srgba_unmultiplied();
+            (None, format!("#{r:02X}{gg:02X}{b:02X}{a:02X}"))
+        }
+        None => (image, form.background_color.clone()),
+    };
     Backdrop {
         paint: true,
-        color_hex: form.background_color.clone(),
+        color_hex,
         transparency: form.transparency.clamp(0, 100) as u8,
-        gradient_enabled: form.background_gradient_enabled,
+        gradient_enabled: form.background_gradient_enabled && glass.is_none(),
         gradient_start_hex: form.background_gradient_start_color.clone(),
         gradient_end_hex: form.background_gradient_end_color.clone(),
         gradient_direction: form.background_gradient_direction.clone(),
@@ -113,7 +136,7 @@ pub fn render_form_image(form: &Form, opts: &SnapshotOptions) -> egui::ColorImag
     let ctx = egui::Context::default();
     ctx.set_fonts(crate::fonts::base_font_definitions());
     ctx.set_zoom_factor(opts.scale.clamp(0.25, 3.0));
-    install_theme(&ctx, form, opts);
+    let glass = install_theme(&ctx, form, opts);
     let mut raster = crate::raster::Rasterizer::new();
     let mut image_tex: Option<Option<egui::TextureHandle>> = None;
     let active = ActiveTabs::new();
@@ -155,7 +178,7 @@ pub fn render_form_image(form: &Form, opts: &SnapshotOptions) -> egui::ColorImag
                     glass: true,
                     mode: RenderMode::Interactive,
                     active_tabs: &active,
-                    backdrop: backdrop(form, image, window),
+                    backdrop: backdrop(form, image, window, glass),
                 };
                 crate::render::render_form(ui, &inp);
             });
@@ -163,7 +186,9 @@ pub fn render_form_image(form: &Form, opts: &SnapshotOptions) -> egui::ColorImag
         if i < 2 {
             crate::raster::advance_frame(&ctx, &mut raster, window, time, draw);
         } else {
-            picture = crate::raster::render_frame(&ctx, &mut raster, window, Color32::TRANSPARENT, time, draw);
+            // A see-through window is pictured over a stand-in desktop.
+            let behind = if glass.is_some() { STAND_IN_DESKTOP } else { Color32::TRANSPARENT };
+            picture = crate::raster::render_frame(&ctx, &mut raster, window, behind, time, draw);
         }
     }
     picture
@@ -182,6 +207,26 @@ pub fn render_form_png(cfrm: &Path, project: &Path, opts: &SnapshotOptions) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A Spatial form is pictured as Run Form shows it: the window is the
+    /// theme's glass over a desktop — a stand-in for the one the operating
+    /// system blurs — and not the form's own solid colour. It used to come out
+    /// opaque white, so every white caption the theme draws was invisible.
+    #[test]
+    fn a_see_through_form_is_pictured_over_a_stand_in_desktop() {
+        let mut form = Form::new("F", "F", 200, 120);
+        form.background_color = "#FFFFFF".into();
+        let px = |img: &egui::ColorImage| img.pixels[60 * img.size[0] + 100];
+        let plain = render_form_image(&form, &SnapshotOptions::default());
+        let spatial = render_form_image(
+            &form,
+            &SnapshotOptions { theme_default: Some(crate::theme::SPATIAL.into()), ..Default::default() },
+        );
+        assert_eq!(px(&plain).to_srgba_unmultiplied()[..3], [255, 255, 255], "Liquid Glass keeps the form's colour");
+        let [r, g, b, a] = px(&spatial).to_srgba_unmultiplied();
+        assert_eq!(a, 255, "opaque: the stand-in desktop is behind the glass");
+        assert!(r < 160 && g < 160 && b < 160, "glass over a dim desktop, not the form's white: {:?}", [r, g, b]);
+    }
 
     /// A responsive form pictured in a bigger window is laid out for it, and
     /// one asked smaller than its minimum is held there, as a running window

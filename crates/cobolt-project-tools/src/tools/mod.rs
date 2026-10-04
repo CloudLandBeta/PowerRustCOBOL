@@ -229,7 +229,9 @@ impl<H: ProjectHost> ProjectTools<H> {
                      backdrop, controls and images — so you can see what you built: layout, \
                      overlaps, text that does not fit. Before any event handler runs. With width \
                      and height, the form is laid out for a window of that size — a responsive \
-                     form on a smaller or a bigger screen — never below its minimum. With \
+                     form on a smaller or a bigger screen — never below its minimum. A \
+                     see-through theme (Spatial) is pictured over a dim stand-in for the desktop \
+                     its window shows. With \
                      in_shell, a form the application loads into its ContentPane is pictured \
                      there, beside the side menu — the application runs to get there, so the main \
                      form's and this form's opening handlers run, with their real effects."

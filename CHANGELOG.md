@@ -8,6 +8,23 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.162] — 2026-10-04
+
+### Fix: `render_form` pictures a Spatial form as its window shows it
+
+A Spatial window is see-through: Run Form paints the theme's translucent
+glass and sets the form's own colour, gradient and picture aside, and the
+operating system blurs the desktop behind it. The picture painted the form's
+own colour instead — usually white — so every white caption and icon the
+theme draws vanished, and an agent looking at a Spatial screen saw empty
+cards (found building PowerSpatial; Spatial is the golden-rule theme for
+every application). The snapshot now builds the backdrop as the run host
+does, from the theme's `FormBackground` glass, and pictures the window over
+`snapshot::STAND_IN_DESKTOP`, a dim field standing in for the blurred
+desktop. Other themes are unchanged. Test
+`a_see_through_form_is_pictured_over_a_stand_in_desktop`; tool description
+and Guide updated; `chunked.data` regenerated.
+
 ## [PowerRustCOBOL 1.80.161] — 2026-10-04
 
 ### Feature: `render_form` pictures a form in a window of any size

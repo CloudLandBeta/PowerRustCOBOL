@@ -10996,7 +10996,9 @@ caller. The agent reads the closest one before writing its own.
   laid out for a window of that size — the agent sees it on a small laptop
   and on a wide monitor. A form never lays out smaller than its minimum, as
   a running window cannot be made smaller; the answer says when it was held
-  there.
+  there. A form in a see-through theme (Spatial) is pictured as its window
+  shows it — the theme's glass — over a dim stand-in for the desktop, so its
+  white text reads as it will on screen.
 - **`run_form`** — runs a form off screen, with its real program, through a
   script: type into a control, click, wait, read a property back — and, in an
   application with a side menu, load a form into the ContentPane first. The agent
