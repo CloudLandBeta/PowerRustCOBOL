@@ -8,6 +8,25 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.172] — 2026-10-04
+
+### Feature: on macOS, a window docked to its opener moves with it as one
+
+Dragging PowerSpatial's dashboard, the bars docked around it trailed a frame
+behind: the operating system moves the dragged window, the host learns the
+new place afterwards and only then moves the bars (operator, 2026-10-04). On
+macOS a docked window is now made its opener's native child window
+(`-[NSWindow addChildWindow:ordered:]`, as an inspector palette stays with
+its document), so the window server moves the whole group in the same screen
+update while it is dragged — nothing is recalculated or repainted for the
+move, and nothing trails. The host still places and sizes the docked windows
+once each time the opener moves or changes size (1.80.171), which is what
+remains on Windows and Linux, where no such grouping exists.
+`cobolt_os_blur::attach_child_window` (the crate's native window calls),
+matching each window by its frame; tested for the Cocoa ↔ egui frame
+conversion, and seen attaching all three of PowerSpatial's bars, each placed
+once. Guide and System KB updated; `chunked.data` regenerated.
+
 ## [PowerRustCOBOL 1.80.171] — 2026-10-04
 
 ### Fix: docked windows follow their opener instead of fighting it

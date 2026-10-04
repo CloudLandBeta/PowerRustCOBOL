@@ -23,9 +23,36 @@
 //! - **Linux and elsewhere:** nothing here. The compositor decides; the host
 //!   asks winit for the main window, which KDE on Wayland honours.
 //!
+//! It also groups windows ([`attach_child_window`]): on macOS a window docked
+//! to another is made its native child, so the window server moves the two in
+//! the same screen update.
+//!
 //! Call it on the thread that owns the windows — the main thread, where egui
 //! runs its frame. It is cheap and idempotent, so a host may call it every
 //! second to catch windows opened since the last call.
+
+/// Make the window whose frame is `child` a native child of the window whose
+/// frame is `parent`, so the operating system moves it WITH its parent — in
+/// the same screen update, while the parent is dragged — instead of the
+/// application chasing the parent a frame behind. Frames are outer rects in
+/// points, `(x, y, width, height)`, top-left origin on the primary screen, as
+/// egui reports them. `true` once the child is attached (already attached
+/// included); `false` when either window is not found, or where the platform
+/// has no such grouping (only macOS has it), so a caller keeps positioning
+/// the window itself.
+///
+/// Call it on the thread that owns the windows, like [`set_all_windows`].
+pub fn attach_child_window(parent: (f64, f64, f64, f64), child: (f64, f64, f64, f64)) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        macos_group::attach(parent, child)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (parent, child);
+        false
+    }
+}
 
 /// Blur (`true`) or stop blurring (`false`) the desktop behind every window of
 /// this application. Does nothing where the platform offers no blur.
@@ -101,6 +128,110 @@ mod macos {
                     let _ = CGSSetWindowBackgroundBlurRadius(connection, id, radius);
                 }
             }
+        }
+    }
+}
+
+/// macOS window groups: `-[NSWindow addChildWindow:ordered:]`, the way an
+/// inspector palette stays with its document window.
+#[cfg(target_os = "macos")]
+mod macos_group {
+    use std::ffi::{c_char, c_void};
+
+    type Id = *mut c_void;
+    type Sel = *mut c_void;
+
+    #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    struct Rect {
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+    }
+
+    #[link(name = "objc")]
+    unsafe extern "C" {
+        fn objc_getClass(name: *const c_char) -> Id;
+        fn sel_registerName(name: *const c_char) -> Sel;
+        fn objc_msgSend();
+        #[cfg(target_arch = "x86_64")]
+        fn objc_msgSend_stret();
+    }
+
+    /// `[object frame]`: an `NSRect` comes back in registers on arm64 and
+    /// through a hidden pointer (`objc_msgSend_stret`) on x86_64.
+    unsafe fn frame_of(object: Id) -> Rect {
+        unsafe {
+            let sel = sel_registerName(c"frame".as_ptr());
+            #[cfg(target_arch = "x86_64")]
+            {
+                let send: extern "C" fn(*mut Rect, Id, Sel) = std::mem::transmute(objc_msgSend_stret as *const ());
+                let mut r = Rect::default();
+                send(&mut r, object, sel);
+                r
+            }
+            #[cfg(not(target_arch = "x86_64"))]
+            {
+                let send: extern "C" fn(Id, Sel) -> Rect = std::mem::transmute(objc_msgSend as *const ());
+                send(object, sel)
+            }
+        }
+    }
+
+    /// Whether a Cocoa frame (bottom-left origin) is the egui frame `want`
+    /// (top-left origin) on a primary screen `screen_h` points tall.
+    pub(super) fn same_frame(cocoa: (f64, f64, f64, f64), want: (f64, f64, f64, f64), screen_h: f64) -> bool {
+        let (x, y, w, h) = cocoa;
+        let top = screen_h - (y + h);
+        (x - want.0).abs() <= 2.0 && (top - want.1).abs() <= 2.0 && (w - want.2).abs() <= 2.0 && (h - want.3).abs() <= 2.0
+    }
+
+    pub(super) fn attach(parent: (f64, f64, f64, f64), child: (f64, f64, f64, f64)) -> bool {
+        unsafe {
+            let send_id: extern "C" fn(Id, Sel) -> Id = std::mem::transmute(objc_msgSend as *const ());
+            let send_usize: extern "C" fn(Id, Sel) -> usize = std::mem::transmute(objc_msgSend as *const ());
+            let send_index: extern "C" fn(Id, Sel, usize) -> Id = std::mem::transmute(objc_msgSend as *const ());
+            let send_add: extern "C" fn(Id, Sel, Id, isize) = std::mem::transmute(objc_msgSend as *const ());
+
+            let at = sel_registerName(c"objectAtIndex:".as_ptr());
+            let count = sel_registerName(c"count".as_ptr());
+            let screens = send_id(objc_getClass(c"NSScreen".as_ptr()), sel_registerName(c"screens".as_ptr()));
+            if screens.is_null() || send_usize(screens, count) == 0 {
+                return false;
+            }
+            let screen_h = frame_of(send_index(screens, at, 0)).h;
+            let app = send_id(objc_getClass(c"NSApplication".as_ptr()), sel_registerName(c"sharedApplication".as_ptr()));
+            if app.is_null() {
+                return false;
+            }
+            let windows = send_id(app, sel_registerName(c"windows".as_ptr()));
+            if windows.is_null() {
+                return false;
+            }
+            let (mut p, mut c): (Id, Id) = (std::ptr::null_mut(), std::ptr::null_mut());
+            for i in 0..send_usize(windows, count) {
+                let w = send_index(windows, at, i);
+                if w.is_null() {
+                    continue;
+                }
+                let f = frame_of(w);
+                let f = (f.x, f.y, f.w, f.h);
+                if p.is_null() && same_frame(f, parent, screen_h) {
+                    p = w;
+                } else if c.is_null() && same_frame(f, child, screen_h) {
+                    c = w;
+                }
+            }
+            if p.is_null() || c.is_null() || p == c {
+                return false;
+            }
+            if send_id(c, sel_registerName(c"parentWindow".as_ptr())) == p {
+                return true;
+            }
+            // NSWindowAbove = 1: the child stays above its parent.
+            send_add(p, sel_registerName(c"addChildWindow:ordered:".as_ptr()), c, 1);
+            true
         }
     }
 }
@@ -197,5 +328,26 @@ mod tests {
     #[test]
     fn support_matches_the_platform() {
         assert_eq!(super::supported(), cfg!(any(target_os = "macos", target_os = "windows")));
+    }
+
+    /// Cocoa counts y up from the primary screen's bottom; egui counts it down
+    /// from the top. A 1000×600 window whose top-left is at (100, 200) on a
+    /// 1117-point screen has its Cocoa origin at y = 1117 − 200 − 600 = 317.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_cocoa_frame_is_matched_against_eguis_top_left_one() {
+        use super::macos_group::same_frame;
+        let egui = (100.0, 200.0, 1000.0, 600.0);
+        assert!(same_frame((100.0, 317.0, 1000.0, 600.0), egui, 1117.0));
+        assert!(same_frame((101.5, 318.0, 1000.0, 600.0), egui, 1117.0), "within two points");
+        assert!(!same_frame((100.0, 200.0, 1000.0, 600.0), egui, 1117.0), "not with y left uncounted");
+        assert!(!same_frame((100.0, 317.0, 900.0, 600.0), egui, 1117.0), "another size is another window");
+    }
+
+    /// Off the main thread of an app with no windows, nothing is found and
+    /// nothing is attached — the caller keeps placing the window itself.
+    #[test]
+    fn nothing_is_attached_where_no_window_matches() {
+        assert!(!super::attach_child_window((0.0, 0.0, 10.0, 10.0), (20.0, 0.0, 10.0, 10.0)));
     }
 }

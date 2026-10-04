@@ -6,7 +6,7 @@
 
 [package]
 name         = "cobolt-os-blur"
-description  = "Blur the desktop behind PowerRustCOBOL windows (macOS window server, Windows DWM), shared by the IDE and the form host"
+description  = "Native window calls for PowerRustCOBOL windows: the desktop blur behind them (macOS window server, Windows DWM) and window groups that move as one (macOS), shared by the IDE and the form host"
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true

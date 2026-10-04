@@ -6974,7 +6974,10 @@ properties, in the form's **Geometry** section, decide how a window opens:
   its opener's window, centred along it. When the opener moves or changes
   size, the docked window follows — once per change, so the gaps stay as
   designed. A docked window never moves its opener: drag the opener to move
-  the group.
+  the group. On macOS the docked windows are attached to their opener as the
+  system's own child windows, so the window server moves the whole group in
+  the same screen update while you drag — no window trails behind another.
+  Elsewhere they follow as soon as the opener has moved.
 - **Dock length** (`DockLength`, 0 to 100 %). Above 0 the docked window is
   that share of its opener's edge long — a toolbar the opener's full width at
   100, a tab strip at 60 — and follows when the opener changes size, as it

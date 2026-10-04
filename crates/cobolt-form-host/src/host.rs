@@ -3392,6 +3392,15 @@ fn dock_child_window(ctx: &egui::Context, child: &mut ChildWindow, opener_vp: eg
     let opener = ctx.input_for(opener_vp, |i| i.viewport().outer_rect);
     let mine = ctx.input_for(child.viewport_id, |i| i.viewport().outer_rect);
     let (Some(o), Some(m)) = (opener, mine) else { return };
+    // Where the platform has window groups (macOS), the docked window is made
+    // a native child of its opener: the operating system then moves the two
+    // in the same screen update, while the opener is dragged, instead of this
+    // host chasing it a frame behind — the jagged edge between a moving
+    // dashboard and its bars. Tried each frame until it takes.
+    if !child.dock_attached {
+        let rect = |r: egui::Rect| (r.min.x as f64, r.min.y as f64, r.width() as f64, r.height() as f64);
+        child.dock_attached = cobolt_os_blur::attach_child_window(rect(o), rect(m));
+    }
     if !opener_changed(child.dock_opener_seen, o) {
         return;
     }
@@ -3474,6 +3483,9 @@ pub(crate) struct ChildWindow {
     /// The opener's window rect when this docked window was last placed: it
     /// is placed again only when that changes.
     pub(crate) dock_opener_seen: Option<egui::Rect>,
+    /// Whether the operating system now moves this docked window with its
+    /// opener (a native child window, macOS).
+    pub(crate) dock_attached: bool,
     /// A screen-relative designed `StartPosition`, applied on the first frame
     /// the monitor's size is known, when the caller gave no position.
     pub(crate) pending_start: Option<cobolt_forms::model::FormStartPosition>,
@@ -4620,6 +4632,7 @@ impl FormHost {
             dock_gap: form.dock_gap as f32,
             dock_length: form.dock_length,
             dock_opener_seen: None,
+            dock_attached: false,
             pending_start,
             initial_state,
             init_sent: false,
