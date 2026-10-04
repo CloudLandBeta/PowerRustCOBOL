@@ -8,6 +8,24 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.159] — 2026-10-04
+
+### Feature: a Knob with a clear face and a thumb on its arc (`IndicatorStyle`)
+
+A thermostat dial — a ring with a handle riding it and "COOLING TO 28°C" in
+the middle — could not be built from a Knob (found building the PowerSpatial
+example): a clear `FaceColor` (`#00000000`) was read as "not chosen" and the
+theme's face was painted over whatever was laid on the dial, and the pointer
+crossed the middle. Now a well-formed clear colour is honoured on
+`FaceColor`, `RimColor` and `TrackColor` (that part is not painted; the rim's
+fill, lightened from the face, clears with it), while text that is not a
+colour still falls back to the theme. **`IndicatorStyle`** (`Line`, the
+default | `Thumb`) puts a disc on the arc at the value instead of the
+pointer. Seeded on every Knob, inspector row, property help in six languages,
+System KB domain; test
+`a_knob_with_a_clear_face_and_a_thumb_leaves_its_middle_empty`. Guide
+updated; `chunked.data` regenerated.
+
 ## [PowerRustCOBOL 1.80.158] — 2026-10-04
 
 ### Feature: a Slider without its range text (`ShowRange`)

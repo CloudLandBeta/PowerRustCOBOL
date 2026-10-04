@@ -16049,13 +16049,16 @@ pub fn draw_knob(painter: &egui::Painter, rect: egui::Rect, ctrl: &Control, alph
     // The dial's own parts. Empty — the default — means the developer chose
     // nothing, so the theme keeps painting precisely what it painted before
     // these properties existed. Accent still owns the arc and the indicator.
+    // A clear colour (`#RRGGBB00`) is a choice too: that part is not painted,
+    // so a readout laid over the dial shows through (PowerSpatial's
+    // thermostat). Only text that is not a colour falls back to the theme.
     let chosen = |prop: &str| -> Option<Color32> {
         let raw = ctrl.get_prop(prop).map(|v| v.as_str().to_owned())?;
         if raw.trim().is_empty() {
             return None;
         }
         let c = parse_color(&raw);
-        (c.a() > 0).then_some(c)
+        (c.a() > 0 || is_clear_colour(&raw)).then_some(c)
     };
     let face = chosen("FaceColor").unwrap_or(card);
     let rim = alpha_color(chosen("RimColor").unwrap_or(border));
@@ -16104,7 +16107,13 @@ pub fn draw_knob(painter: &egui::Painter, rect: egui::Rect, ctrl: &Control, alph
         stroke_arc(painter, center, radius, arc_stroke, 135.0, 270.0, frac, accent, track);
     }
 
-    let rim_fill = alpha_color(lighten(face, 0.12));
+    // A clear face clears the rim's fill with it: lightening a colour with no
+    // alpha would ADD light where nothing should be painted.
+    let rim_fill = if face.a() == 0 {
+        Color32::TRANSPARENT
+    } else {
+        alpha_color(lighten(face, 0.12))
+    };
     painter.circle(center, rim_r, rim_fill, Stroke::new(1.0, rim));
     painter.circle_filled(center, face_r, alpha_color(face));
     if inner_r > 2.0 {
@@ -16114,10 +16123,20 @@ pub fn draw_knob(painter: &egui::Painter, rect: egui::Rect, ctrl: &Control, alph
     // The indicator points at the value: 0 is bottom-left, 1 bottom-right.
     let angle = (135.0 + 270.0 * frac).to_radians();
     let dir = Vec2::new(angle.cos(), angle.sin());
-    painter.line_segment(
-        [center + dir * ind_inner, center + dir * ind_outer],
-        Stroke::new(ind_w, accent),
-    );
+    if knob_thumb(ctrl) {
+        // A disc riding the arc, a little wider than the arc is thick.
+        painter.circle(
+            center + dir * radius,
+            arc_stroke * 0.85,
+            alpha_color(Color32::WHITE),
+            Stroke::new(1.0, accent),
+        );
+    } else {
+        painter.line_segment(
+            [center + dir * ind_inner, center + dir * ind_outer],
+            Stroke::new(ind_w, accent),
+        );
+    }
 
     if show_value {
         // Centred on the control, clear of the dial — and in the control's own
@@ -16201,6 +16220,21 @@ pub fn format_knob_value(ctrl: &Control, val: f32) -> String {
 fn lighten(c: Color32, t: f32) -> Color32 {
     let mix = |v: u8| -> u8 { (v as f32 + (255.0 - v as f32) * t).round().clamp(0.0, 255.0) as u8 };
     Color32::from_rgba_premultiplied(mix(c.r()), mix(c.g()), mix(c.b()), c.a())
+}
+
+/// Whether `raw` is a well-formed colour with no alpha at all (`#RRGGBB00`):
+/// a developer's "paint nothing here", which [`parse_color`] cannot tell
+/// apart from text that is not a colour.
+fn is_clear_colour(raw: &str) -> bool {
+    let s = raw.trim().trim_start_matches('#');
+    s.len() == 8 && s.chars().all(|c| c.is_ascii_hexdigit()) && &s[6..] == "00"
+}
+
+/// Whether a Knob shows its value as a disc on the arc (`IndicatorStyle`
+/// `Thumb`) rather than the pointer across the face.
+fn knob_thumb(ctrl: &Control) -> bool {
+    ctrl.get_prop("IndicatorStyle")
+        .is_some_and(|v| v.as_str().trim().eq_ignore_ascii_case("Thumb"))
 }
 
 /// A toggle's indicator size and the two spacings around it: `(diameter, pad,
@@ -25048,6 +25082,63 @@ slice = [4, 4, 4, 4]
         assert_eq!(knob_accent("#FF0"), knob_accent("nonsense"));
 
         println!("\n  Accent — #FF00FF paints magenta; Red/Sky keep their preset; junk falls back to Blue\n");
+    }
+
+    /// A clear `FaceColor` paints no face — nor a rim fill lightened from it —
+    /// and `IndicatorStyle` `Thumb` puts a disc on the arc in place of the
+    /// pointer across the face, so a readout laid over the dial stays clear
+    /// (PowerSpatial's thermostat).
+    #[test]
+    fn a_knob_with_a_clear_face_and_a_thumb_leaves_its_middle_empty() {
+        use crate::model::PropValue;
+
+        /// `(circles as (centre, radius, fill), line segments)`.
+        fn shapes(ct: &Control) -> (Vec<(Pos2, f32, Color32)>, usize) {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, eleg());
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, ct, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            fn walk(s: &egui::Shape, circles: &mut Vec<(Pos2, f32, Color32)>, lines: &mut usize) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, circles, lines)),
+                    egui::Shape::Circle(c) => circles.push((c.center, c.radius, c.fill)),
+                    egui::Shape::LineSegment { .. } => *lines += 1,
+                    _ => {}
+                }
+            }
+            let (mut circles, mut lines) = (Vec::new(), 0);
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut circles, &mut lines);
+            }
+            (circles, lines)
+        }
+
+        let mut k = Control::new("K", CT::Knob, 0, 0);
+        k.rect = crate::model::Rect::new(0, 0, 200, 200);
+        k.set_prop("Value", PropValue::Int(50));
+        k.set_prop("ShowValue", PropValue::Bool(false));
+        let (themed, pointer_lines) = shapes(&k);
+        assert!(themed.iter().any(|(_, _, f)| f.a() > 0), "a themed dial paints a face");
+        assert!(pointer_lines >= 1, "the default indicator is a line");
+
+        k.set_prop("FaceColor", PropValue::String("#00000000".into()));
+        k.set_prop("IndicatorStyle", PropValue::String("Thumb".into()));
+        let (circles, lines) = shapes(&k);
+        assert_eq!(lines, pointer_lines - 1, "the thumb replaces the pointer");
+        let centre = Pos2::new(100.0, 100.0);
+        let filled: Vec<_> = circles.iter().filter(|(_, _, f)| *f != Color32::TRANSPARENT).collect();
+        assert_eq!(filled.len(), 1, "only the thumb is filled: {circles:?}");
+        let (at, _, _) = filled[0];
+        assert!(at.distance(centre) > 50.0, "the thumb rides the arc, not the face: {at:?}");
+
+        // Text that is not a colour still leaves the face to the theme.
+        k.set_prop("FaceColor", PropValue::String("not a colour".into()));
+        let (circles, _) = shapes(&k);
+        assert!(circles.iter().filter(|(_, _, f)| f.a() > 0).count() >= 2, "{circles:?}");
     }
 
     /// The dial's own parts answer to the developer, and an untouched Knob

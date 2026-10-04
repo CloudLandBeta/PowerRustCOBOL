@@ -3409,6 +3409,13 @@ empty by default, and empty means the active theme paints that part exactly
 as before, so a knob you never coloured looks unchanged. `Accent` still
 covers the travelled arc and the indicator together. The rim's fill is the
 face colour lightened, so setting `FaceColor` alone carries the whole dial.
+A clear colour (`#00000000`) is a choice as well: that part is not painted,
+so a clear face lets whatever lies behind the dial show.
+
+`IndicatorStyle` says how the value is shown: `Line` (the default) is the
+pointer across the face; `Thumb` is a disc riding the arc at the value. With
+a clear face and the thumb, the middle of the dial is empty — lay Labels over
+it for a thermostat's readout ("COOLING TO 28°C") and keep `ShowValue` off.
 
 Its primary event is `onChange`
 (also `onValueChanged`), fired as the user drags. Methods: `SetValue()` /

@@ -7111,6 +7111,7 @@ impl PropertiesPanel {
                 color_row_labeled(ui, id, "RimColor", "Rim and inner ring", ctrl, action);
                 color_row_labeled(ui, id, "TrackColor", "Track (remaining)", ctrl, action);
                 bool_row_inline(ui, id, "Bipolar", "Bipolar (fill from centre)", ctrl, action);
+                combo_row_inline(ui, id, "IndicatorStyle", ctrl, action, &["Line", "Thumb"]);
                 bool_row_inline(ui, id, "ShowValue", "Show value label", ctrl, action);
                 {
                     let cur = ctrl

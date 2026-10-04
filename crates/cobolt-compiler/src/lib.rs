@@ -5595,7 +5595,8 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "TickStyle" => ("one of: `None` | `Top` | `Bottom` | `Both`", "Where slider ticks are drawn. On a vertical slider `Top` is the left side and `Bottom` the right."),
         "TrackColor" => (COLOR_DOMAIN, "The part still to travel: a Slider's rail from Value to Maximum, a Knob's arc from Value round to Maximum. Outranks the Appearance BackgroundColor; left at its default the active theme paints."),
         "ThumbColor" => (COLOR_DOMAIN, "Slider knob color. Outranks the Appearance ForegroundColor; left at its default the active theme paints."),
-        "FaceColor" => (COLOR_DOMAIN, "Knob dial face — the round body the indicator turns over. Empty (the default) leaves it to the theme. The rim's own fill is this colour lightened, so a face colour carries the whole dial."),
+        "FaceColor" => (COLOR_DOMAIN, "Knob dial face — the round body the indicator turns over. Empty (the default) leaves it to the theme. The rim's own fill is this colour lightened, so a face colour carries the whole dial. A clear colour (`#00000000`) paints no face and no rim fill, so what is behind the dial — a readout laid over it — shows. The same holds for RimColor and TrackColor."),
+        "IndicatorStyle" => ("one of: `Line` | `Thumb`", "How a Knob shows its value: `Line` (the default) is the pointer across the face; `Thumb` is a disc riding the arc at the value, leaving the face clear — a thermostat dial with its readout laid over it."),
         "RimColor" => (COLOR_DOMAIN, "Knob rim and inner ring — the two outlines around the dial face. Empty (the default) leaves them to the theme."),
 
         // ── Date/time ──

@@ -5700,6 +5700,10 @@ impl Control {
                 props.insert("RimColor".into(), PropValue::String("".into()));
                 props.insert("TrackColor".into(), PropValue::String("".into()));
                 props.insert("Bipolar".into(), PropValue::Bool(false));
+                // Line: the classic pointer across the face. Thumb: a disc
+                // riding the arc at the value, which leaves the face clear for
+                // a readout the developer lays over it.
+                props.insert("IndicatorStyle".into(), PropValue::String("Line".into()));
                 props.insert("ShowValue".into(), PropValue::Bool(true));
                 props.insert("DefaultValue".into(), PropValue::Int(0));
                 props.insert("Label".into(), PropValue::String("".into()));
