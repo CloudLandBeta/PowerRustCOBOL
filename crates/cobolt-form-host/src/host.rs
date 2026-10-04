@@ -1359,7 +1359,11 @@ impl FormBody {
             // every notification — not a property, and not a `Buttons` entry —
             // so the operator's "with an x to close it" needs nothing here.
             template.set_prop("Timeout", cobolt_forms::PropValue::Int(0));
-            let (visual, _) = cobolt_forms::snackbar::mint(&template);
+            let (mut visual, _) = cobolt_forms::snackbar::mint(&template);
+            // The whole message, never ellipsized: its end says what to do
+            // (operator, 2026-10-04 — a refused toolbar call's list of what is
+            // allowed was cut off).
+            visual.size = cobolt_forms::snackbar::SnackSize::Whole;
             self.snackbars
                 .raise(ctrl_id, visual, std::time::Instant::now());
             return true;

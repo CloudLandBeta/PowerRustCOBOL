@@ -47,6 +47,11 @@ pub enum SnackSize {
     #[default]
     Medium,
     Large,
+    /// The host's own critical-exception notice: Large, a little wider, and
+    /// never ellipsized — the message is something the developer has to act
+    /// on, and its end (what to do, what is allowed) was being cut off. Not a
+    /// `Size` a developer can choose: [`SnackSize::from_prop`] never answers it.
+    Whole,
 }
 
 /// Where the stack sits on the surface (R16). Nine positions, resolved against
@@ -166,6 +171,7 @@ impl SnackSize {
             SnackSize::Small => "Small",
             SnackSize::Medium => "Medium",
             SnackSize::Large => "Large",
+            SnackSize::Whole => "Whole",
         }
     }
     pub const ALL: [SnackSize; 3] = [SnackSize::Small, SnackSize::Medium, SnackSize::Large];
@@ -348,6 +354,11 @@ impl SnackSize {
                 line_h: 22.0,
                 line_budget: 3,
                 button_h: 32.0,
+            },
+            SnackSize::Whole => SizeMetrics {
+                max_width: 760.0,
+                line_budget: usize::MAX,
+                ..SnackSize::Large.metrics()
             },
         }
     }
@@ -1437,6 +1448,28 @@ mod tests {
             assert!(close.y >= full.y && close.y + close.h <= full.y + full.h, "{}: close stays inside the card vertically", s.as_str());
         }
         eprintln!("\n  → a buttonless notification's close rect stays within its own bounds in all 3 classes\n");
+    }
+
+    #[test]
+    fn the_whole_size_never_cuts_its_message() {
+        // A refused call's message, about 300 characters: Large shows three
+        // lines of it and an ellipsis; Whole shows every line, and its
+        // notification is as tall as those lines need.
+        let long = "x".repeat(300);
+        let m = SnackSize::Whole.metrics();
+        let rect = Rect::new(0, 0, 760, 400);
+        let l = layout_content(rect, SnackSize::Whole, Some(m.icon), &long, &[], &measure, true);
+        assert!(!l.ellipsized, "never ellipsized");
+        let needed = (measure(&long) / l.text.w as f32).ceil() as usize;
+        assert_eq!(l.lines_used, needed, "every line shown");
+        let surface = Rect::new(0, 0, 1200, 800);
+        let (_, whole_h) = notification_size(SnackSize::Whole, Some(m.icon), &long, &[], &measure, true, surface);
+        let (_, large_h) = notification_size(SnackSize::Large, Some(m.icon), &long, &[], &measure, true, surface);
+        assert!(whole_h > large_h, "it grows to hold them: {whole_h} vs {large_h}");
+        // And no developer can ask for it.
+        for v in ["Whole", "whole", "Large", ""] {
+            assert_ne!(SnackSize::from_prop(v), SnackSize::Whole, "{v}");
+        }
     }
 
     #[test]

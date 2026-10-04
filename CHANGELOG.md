@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.183] — 2026-10-04
+
+### Fix: the critical-exception notice shows the whole message
+
+A COBOL failure nobody handles is shown as a critical notification — and it
+was cut off with "…" after two lines, so the end of the message, usually what
+tells the developer what to do, was lost: a refused toolbar-button call never
+showed its list of what is allowed (a developer's report, 2026-10-04). The host
+now raises it in an internal size class, `Whole` — Large's measurements, a
+little wider, no line limit — so it grows to hold every line. A developer's own
+Snackbar is unchanged, and no `Size` value selects `Whole`. Test
+`the_whole_size_never_cuts_its_message`. Guide updated.
+
 ## [PowerRustCOBOL 1.80.182] — 2026-10-04
 
 ### PowerSpatial: the operator's pictures

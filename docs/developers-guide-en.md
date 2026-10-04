@@ -1282,7 +1282,9 @@ Bind nothing and the operator sees a **critical notification** instead:
 > onUnhandledException to get better control over the exception.
 
 It never expires and carries the ✕ that dismisses it, and it needs no Snackbar
-control on the form.
+control on the form. It always shows the **whole** message, however long: it
+grows to fit rather than cutting the end off with "…", because the end is
+usually what tells you what to do.
 
 **An unguarded size error is an exception.** `COMPUTE`, `ADD`, `SUBTRACT`,
 `MULTIPLY` and `DIVIDE` raise the SIZE ERROR condition when a result will not
