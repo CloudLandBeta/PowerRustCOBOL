@@ -2892,16 +2892,19 @@ impl FormBody {
         // against a rect at (0,0) reports every control off-surface and means
         // nothing.
         let panel_rect = panel_ui.max_rect();
-        // A child window's controls live in an id space of their own. Where
-        // every window is drawn in ONE pass — viewports embedded in the main
-        // one, as the headless host draws them — two forms that both have a
-        // `Btn-Play` would otherwise claim one widget id on two layers (egui
-        // refuses it), and take each other's clicks and focus. The layer is
-        // the window's: its own Area when embedded, its viewport's background
-        // otherwise, and stable from frame to frame.
+        // A child window's controls live in an id space of their own, or two
+        // forms that both have a `Btn-Play` claim one widget id, take each
+        // other's clicks and focus — and share each other's state: every form
+        // here has a `Tmr-Lang`, a timer keeps its last tick under its id, and
+        // windows sharing one id space shared ONE timer, so only one of them
+        // ticked each second (operator, 2026-10-04: "the bottom form is not
+        // changing the language"). The space is the window's own: its
+        // viewport when it is a real window, and the layer it is drawn on
+        // when every window is embedded in one viewport, as the headless host
+        // draws them. Both are stable from frame to frame.
         let scope = self
             .owns_window
-            .then(|| egui::Id::new("form-window").with(panel_ui.layer_id()));
+            .then(|| child_window_scope(ctx.viewport_id(), panel_ui.layer_id()));
         // Theme state for the unified painter — this viewport's own context.
         cobolt_forms::paint::set_active_theme(ctx, self.theme_pack.clone());
         cobolt_forms::paint::set_glass_style(ctx, self.glass_style);
@@ -3431,6 +3434,12 @@ fn dock_child_window(ctx: &egui::Context, child: &mut ChildWindow, opener_vp: eg
     child.dock_opener_seen = Some(o);
 }
 
+/// The id space a child window's controls are rendered in: its viewport, for a
+/// real window, and its layer, for one embedded in another's viewport.
+fn child_window_scope(viewport: egui::ViewportId, layer: egui::LayerId) -> egui::Id {
+    egui::Id::new("form-window").with(viewport).with(layer)
+}
+
 /// Whether the opener's window is somewhere else, or another size, than when
 /// its docked window was last placed (`seen`) — the one thing that moves a
 /// docked window. Half a point of drift is the same place.
@@ -3441,6 +3450,24 @@ fn opener_changed(seen: Option<egui::Rect>, now: egui::Rect) -> bool {
 #[cfg(test)]
 mod dock_tests {
     use super::*;
+
+    /// Every child window has an id space of its own: two real windows draw on
+    /// the same (background) layer of their own viewports, and two embedded
+    /// ones on their own layers of the same viewport — either way the spaces
+    /// differ, so two forms' same-named controls (a `Tmr-Lang` in each) never
+    /// share state.
+    #[test]
+    fn each_child_window_has_its_own_id_space() {
+        let background = egui::LayerId::background();
+        let a = egui::ViewportId::from_hash_of("a");
+        let b = egui::ViewportId::from_hash_of("b");
+        assert_ne!(child_window_scope(a, background), child_window_scope(b, background), "two real windows");
+        let la = egui::LayerId::new(egui::Order::Middle, egui::Id::new("la"));
+        let lb = egui::LayerId::new(egui::Order::Middle, egui::Id::new("lb"));
+        let root = egui::ViewportId::ROOT;
+        assert_ne!(child_window_scope(root, la), child_window_scope(root, lb), "two embedded windows");
+        assert_eq!(child_window_scope(a, background), child_window_scope(a, background), "stable");
+    }
 
     /// A docked window is placed the first time, and again only when its
     /// opener moves or resizes — never because of where the window itself was

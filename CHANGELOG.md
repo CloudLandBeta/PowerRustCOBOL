@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.174] — 2026-10-04
+
+### Fix: windows opened by a form no longer share their controls' state
+
+PowerSpatial's room bar changed language only when it was touched (operator,
+2026-10-04). Each form window draws its controls in an id space of its own
+(1.80.165), and that space was keyed by the LAYER the window draws on — which
+told windows apart only where they are embedded in one viewport (the headless
+host). As real windows each draws on its own viewport's background layer, so
+every window opened by a form shared ONE id space: their same-named controls
+shared state, and the three bars' `Tmr-Lang` timers shared one "last tick" —
+one of them ticked each second and the others waited. The space is now keyed
+by the window's viewport and its layer together. Test
+`each_child_window_has_its_own_id_space`.
+
 ## [PowerRustCOBOL 1.80.173] — 2026-10-04
 
 ### Fix: on a Spatial form, text is measured against the glass the operator sees
