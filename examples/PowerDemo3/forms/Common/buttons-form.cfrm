@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="BUTTONS-FORM" title="Buttons" width="1224" height="840" background="40404008" transparency="50" grid-size="8" snap-to-grid="true" target="Custom" theme="spatial" glass-style="Neumorphic Dark" form-format="Both" responsive="true">
+<Form name="BUTTONS-FORM" title="Buttons" width="1224" height="840" background="40404008" transparency="50" grid-size="8" snap-to-grid="true" target="Custom" theme="spatial" glass-style="Neumorphic Dark" title-visible="false" form-format="Both" start-position="Center" responsive="true">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"
