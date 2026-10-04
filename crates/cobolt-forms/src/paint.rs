@@ -3287,6 +3287,13 @@ fn draw_control_body(
             .get_prop("ShowValue")
             .map(|v| v.as_bool())
             .unwrap_or(false);
+        // The Minimum and Maximum at the rail's ends. Off, they are not drawn
+        // and the horizontal assembly keeps no room for them, so the rail
+        // centres in the control on its own.
+        let show_range = ctrl
+            .get_prop("ShowRange")
+            .map(|v| v.as_bool())
+            .unwrap_or(true);
 
         let pct = ((val - min_v) / (max_v - min_v)).clamp(0.0, 1.0);
         let range_units = max_v - min_v;
@@ -3607,7 +3614,7 @@ fn draw_control_body(
             // and every pixel of extra height opened a gap at the TOP only. A
             // 780x75 slider carried 22px of dead space above and 3 below.
             let tick_room = if tick_st != "None" { TICK_LEN + 1.0 } else { 0.0 };
-            let label_room = SLIDER_LABEL_H;
+            let label_room = if show_range { SLIDER_LABEL_H } else { 0.0 };
             let above = (track_half_h * 2.0 + 6.0) * 0.5;
             let below = (above).max(track_half_h + tick_room) + label_room;
             let content_h = above + below;
@@ -3706,7 +3713,7 @@ fn draw_control_body(
         // Step label (min / max corners)
         let font_s = egui::FontId::proportional(9.0);
         let lbl_c = Color32::from_rgba_premultiplied(80, 80, 80, a);
-        if vertical {
+        if show_range && vertical {
             painter.text(
                 Pos2::new(rect.center().x, rect.max.y - 2.0),
                 egui::Align2::CENTER_BOTTOM,
@@ -3721,7 +3728,7 @@ fn draw_control_body(
                 font_s.clone(),
                 lbl_c,
             );
-        } else {
+        } else if show_range {
             painter.text(
                 Pos2::new(rect.min.x + 2.0, h_label_y),
                 egui::Align2::LEFT_BOTTOM,
@@ -24900,6 +24907,48 @@ slice = [4, 4, 4, 4]
             a[0],
             s.len()
         );
+    }
+
+    /// `ShowRange` off takes the Minimum and Maximum off both orientations
+    /// (PowerSpatial's pill sliders carry no range text).
+    #[test]
+    fn a_slider_prints_its_range_only_while_show_range_is_on() {
+        use crate::model::PropValue;
+
+        /// Every text the control painted.
+        fn texts(ct: &Control) -> Vec<String> {
+            let ctx = egui::Context::default();
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 400.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, ct, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            fn walk(s: &egui::Shape, out: &mut Vec<String>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+                    _ => {}
+                }
+            }
+            let mut out = Vec::new();
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut out);
+            }
+            out
+        }
+        for orientation in ["Horizontal", "Vertical"] {
+            let mut s = Control::new("S", CT::Slider, 0, 0);
+            s.rect = crate::model::Rect::new(0, 0, 200, 200);
+            s.set_prop("Orientation", PropValue::String(orientation.into()));
+            s.set_prop("Minimum", PropValue::Int(16));
+            s.set_prop("Maximum", PropValue::Int(30));
+            let on = texts(&s);
+            assert!(on.contains(&"16".to_owned()) && on.contains(&"30".to_owned()), "{orientation}: {on:?}");
+            s.set_prop("ShowRange", PropValue::Bool(false));
+            let off = texts(&s);
+            assert!(!off.contains(&"16".to_owned()) && !off.contains(&"30".to_owned()), "{orientation}: {off:?}");
+        }
     }
 
     /// A Slider's rail reads the right way round — the travelled part is the

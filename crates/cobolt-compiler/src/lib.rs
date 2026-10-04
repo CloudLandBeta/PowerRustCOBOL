@@ -5591,6 +5591,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         ),
         "ShowValue" => (BOOL_DOMAIN, "Draws the numeric value on the control."),
         "TickFrequency" => ("integer > 0 (value units)", "Draw a tick every N units."),
+        "ShowRange" => (BOOL_DOMAIN, "Slider: prints Minimum and Maximum at the ends of the rail. Off, the slider is the rail and its knob alone."),
         "TickStyle" => ("one of: `None` | `Top` | `Bottom` | `Both`", "Where slider ticks are drawn. On a vertical slider `Top` is the left side and `Bottom` the right."),
         "TrackColor" => (COLOR_DOMAIN, "The part still to travel: a Slider's rail from Value to Maximum, a Knob's arc from Value round to Maximum. Outranks the Appearance BackgroundColor; left at its default the active theme paints."),
         "ThumbColor" => (COLOR_DOMAIN, "Slider knob color. Outranks the Appearance ForegroundColor; left at its default the active theme paints."),

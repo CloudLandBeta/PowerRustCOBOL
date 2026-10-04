@@ -8,6 +8,20 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.158] — 2026-10-04
+
+### Feature: a Slider without its range text (`ShowRange`)
+
+A Slider printed its `Minimum` and `Maximum` at the ends of the rail, always,
+so a pill slider in a modern card read "0 … 100" under it (found building the
+PowerSpatial example, whose fan and swing sliders are the rail and the knob
+alone). **`ShowRange`** (Boolean, default true) turns them off, on both
+orientations; a horizontal slider then keeps no room for them, so with
+`TickStyle` `None` the rail centres in the control. Seeded on every Slider,
+inspector row, property help in six languages, System KB domain; test
+`a_slider_prints_its_range_only_while_show_range_is_on`. Guide updated;
+`chunked.data` regenerated.
+
 ## [PowerRustCOBOL 1.80.157] — 2026-10-04
 
 ### Feature: a docked window's length follows its opener (`DockLength`)

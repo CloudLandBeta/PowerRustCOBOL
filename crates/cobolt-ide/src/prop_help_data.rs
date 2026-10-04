@@ -5353,6 +5353,14 @@ pub static PROP_HELP: &[PropHelp] = &[
         "刻度线之间的间隔(以数值为单位,默认 10),从 Minimum 开始计算。",
         "Écart entre les graduations, en unités de valeur (10 par défaut), compté à partir de Minimum.",
     ] },
+    PropHelp { ty: "Slider", prop: "ShowRange", text: [
+        "Prints Minimum and Maximum at the ends of the rail (on by default). Turn it off for a slider that is only the rail and its knob.",
+        "Muestra Minimum y Maximum en los extremos del riel (activado por defecto). Desactívelo para un slider que sea solo el riel y su perilla.",
+        "Mostra Minimum e Maximum nas pontas do trilho (ligado por padrão). Desligue para um slider que seja só o trilho e o botão.",
+        "レールの両端に Minimum と Maximum を表示します(既定でオン)。オフにするとレールとつまみだけのスライダーになります。",
+        "在滑轨两端显示 Minimum 和 Maximum(默认开启)。关闭后滑块只剩滑轨和滑钮。",
+        "Affiche Minimum et Maximum aux extrémités du rail (activé par défaut). Désactivez-le pour un curseur réduit au rail et à son bouton.",
+    ] },
     PropHelp { ty: "Slider", prop: "TickStyle", text: [
         "Where tick marks go: None, Top, Bottom (default) or Both. On a vertical slider Top is the left side and Bottom the right.",
         "Dónde van las marcas: None, Top, Bottom (predeterminado) o Both. En un slider vertical, Top es el lado izquierdo y Bottom el derecho.",

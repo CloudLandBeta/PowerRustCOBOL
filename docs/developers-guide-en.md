@@ -3353,6 +3353,10 @@ or key; it is still shown and focusable, and your program still sets it.
 On a **vertical** Slider, `TickStyle` `Top` puts the ticks on the left and
 `Bottom` on the right.
 
+A Slider prints its `Minimum` and `Maximum` at the ends of the rail. Turn
+`ShowRange` off for a slider that is only the rail and its knob — with
+`TickStyle` `None` as well, a horizontal rail then centres in the control.
+
 #### Styling a ProgressBar
 
 A progress bar reports where `Value` sits between `Minimum` and `Maximum`.

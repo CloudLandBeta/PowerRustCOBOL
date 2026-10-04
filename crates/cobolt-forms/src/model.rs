@@ -5661,6 +5661,9 @@ impl Control {
                 props.insert("Orientation".into(), PropValue::String("Horizontal".into())); // Horizontal | Vertical
                 props.insert("TickFrequency".into(), PropValue::Int(10)); // Draw a tick every N units
                 props.insert("TickStyle".into(), PropValue::String("Bottom".into())); // None | Top | Bottom | Both
+                // The Minimum and Maximum printed at the rail's ends; off, the
+                // slider is the rail and the knob alone.
+                props.insert("ShowRange".into(), PropValue::Bool(true));
                                                                                       // Back color → track body (along the scale); Fore color → knob.
                                                                                       // Defaulting to the standard sentinels keeps the Liquid Glass look
                                                                                       // until the user picks a colour (the renderer only overrides on a

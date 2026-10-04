@@ -7042,6 +7042,7 @@ impl PropertiesPanel {
                     &["Bottom", "Top", "Both", "None"],
                 );
                 bool_row_inline(ui, id, "ShowValue", "Show value label", ctrl, action);
+                bool_row_inline(ui, id, "ShowRange", "Show minimum and maximum", ctrl, action);
                 // The three parts of a rail, each with its own colour. They
                 // outrank the Appearance section's Back colour (the rail) and
                 // Fore colour (the knob), which still work for anyone who set
