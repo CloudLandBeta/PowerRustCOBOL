@@ -8,6 +8,29 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.151] — 2026-10-04
+
+### Feature: a control hanging past a rounded window's corner is rounded too
+
+A button parked across a rounded window's corner — partly outside the window,
+like PowerDemo3's "Button with icon 5" at (-8, 768) — kept a square corner in
+the run form (operator, 2026-10-04). Its frame took the window's arc, but the
+arc is drawn at the corner of the rect a painter is given, and that was the
+whole control: the arc landed past the window's edge and the OS cut the window
+square across the button. A top-level control that hangs past a rounded window
+AND reaches one of its rounded corners is now drawn into the part of it inside
+the window (`render::into_rounded_window`), on the run form, the preview path
+and the designer canvas alike; the window cuts the rest off anyway.
+
+- **Measured:** the window harness gains an overhanging placement (8 px past
+  the corner) and all three form themes (Liquid Glass, Elegance, Spatial). An
+  overhanging Button painted 275 px past the arc without the fix, 0 with it;
+  the set of types that stay inside the arc is unchanged. The real buttons
+  form rendered through `rcrun run-form --headless`: bottom-left corner pixels
+  alpha 252–254 before, 0 after, matching the top-left corner.
+- A control cut this way lays its text out in the part that shows, so a
+  caption centred in it moves by half the overhang.
+
 ## [PowerRustCOBOL 1.80.150] — 2026-10-04
 
 ### Feature: Corner radius sits in the form's Geometry section

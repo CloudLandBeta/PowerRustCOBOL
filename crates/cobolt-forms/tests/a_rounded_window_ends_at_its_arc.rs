@@ -33,6 +33,16 @@ use egui::epaint::ClippedShape;
 use egui::{pos2, Pos2, Rect, Vec2};
 
 const R: f32 = 40.0;
+
+thread_local! {
+    /// Place the control hanging 8 px past the window's corner instead of
+    /// inside it — the window cuts the overhang, and the frame must still
+    /// round at the window's corner (operator, 2026-10-04).
+    static OVERHANG: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// The form theme the next render paints with ("" = Liquid Glass). Every
+    /// theme has its own face painters, and each must take the window's arc.
+    static THEME: std::cell::Cell<&'static str> = const { std::cell::Cell::new("") };
+}
 const W: f32 = 600.0;
 const H: f32 = 400.0;
 
@@ -99,6 +109,7 @@ fn shapes(
     let size = Vec2::new(W, H);
     let ctx = egui::Context::default();
     set_glass_style(&ctx, style);
+    cobolt_forms::paint::set_surface_theme(&ctx, cobolt_forms::surface_theme::for_theme_id(THEME.get()));
     // A picture smaller than the window, so Fit, Center and Tile all leave
     // corners the picture itself does not reach — and one Stretch covers.
     let tex = ctx.load_texture(
@@ -349,7 +360,7 @@ fn the_backdrop_of_a_rounded_window_stops_at_its_arc() {
 fn scene(child: Option<&ControlType>, shadow: bool, dressed: bool) -> Vec<Control> {
     let Some(ct) = child else { return Vec::new() };
     let mut c = Control::new("C", ct.clone(), 0, 0);
-    c.rect = MRect::new(0, 0, 160, 120);
+    c.rect = if OVERHANG.get() { MRect::new(-8, -8, 168, 128) } else { MRect::new(0, 0, 160, 120) };
     c.set_prop("ShadowEnabled", PropValue::Bool(shadow));
     if dressed {
         c.set_prop("BackgroundColor", PropValue::String("#3060C0FF".into()));
@@ -403,13 +414,18 @@ fn every_control_type_is_measured_at_a_rounded_window_corner() {
     for ct in ControlType::ALL.iter() {
         let name = format!("{ct:?}");
         let (mut total, mut shapes_n, mut worst) = (0, 0, [0usize; 3]);
+        for overhang in [false, true] {
+        OVERHANG.set(overhang);
+        for theme in ["", cobolt_forms::theme::ELEGANCE, cobolt_forms::theme::SPATIAL] {
+        THEME.set(theme);
         for (si, s) in [Surface::Canvas, Surface::Preview, Surface::Run].into_iter().enumerate() {
             for shadow in [false, true] {
                 for style in [GlassStyle::Classic, GlassStyle::Neumorphic] {
                     for dressed in [false, true] {
                         let (b, n, flags) = bleed(ct, s, shadow, style, dressed);
                         println!(
-                            "WINDOW {name:<14} {s:<8?} shadow={:<3} style={:<10} dressed={:<3} bleed_px={b:<4} shapes={n:<4} flags={flags:?}",
+                            "WINDOW {name:<14} overhang={overhang:<5} theme={:<9} {s:<8?} shadow={:<3} style={:<10} dressed={:<3} bleed_px={b:<4} shapes={n:<4} flags={flags:?}",
+                            if theme.is_empty() { "glass" } else { theme },
                             if shadow { "on" } else { "off" },
                             format!("{style:?}"),
                             if dressed { "yes" } else { "no" },
@@ -421,6 +437,10 @@ fn every_control_type_is_measured_at_a_rounded_window_corner() {
                 }
             }
         }
+        }
+        }
+        THEME.set("");
+        OVERHANG.set(false);
         verdicts.insert(name, (total, shapes_n, worst));
     }
     println!("WINDOW-TABLE | Type | Canvas | Preview | Run | Verdict |");

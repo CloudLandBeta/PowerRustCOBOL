@@ -6857,7 +6857,8 @@ the corners belong to the operating system, so the radius is kept but not used
 > curve, and a DataGrid, FileDropZone, Maps, TabControl, ToolBar or Viewer placed
 > into a corner — or a TreeView flush against one, whose first row is drawn at
 > its very edge — still paints past it: keep those a radius away from a rounded
-> corner. The drop shadow the operating system normally draws around a window
+> corner. A control you park partly outside the window, across a rounded
+> corner, is drawn in the part the window shows, so its caption centres there. The drop shadow the operating system normally draws around a window
 > is not drawn around one whose form has a radius — even while its title bar
 > shows.
 

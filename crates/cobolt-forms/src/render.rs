@@ -826,6 +826,33 @@ fn container_clip_prop(border: Rect, rad: f32) -> String {
     )
 }
 
+/// Where a top-level control of a rounded window is drawn: its own rect —
+/// unless it hangs past the window AND reaches one of the window's rounded
+/// corners, in which case the part of it inside the window. Its frame takes the
+/// window's arc at that corner ([`window_clip_prop`]), but the arc is drawn at
+/// the corner of the rect it is given: drawn over the whole control it lands
+/// past the window's edge, and the OS cuts the window square across it
+/// (operator, 2026-10-04: a button parked across the bottom-left corner). The
+/// window cuts the overhang off anyway; only what it keeps is drawn.
+fn into_rounded_window(screen: Rect, (face, rad, flags): crate::paint::ContainerClip) -> Rect {
+    let visible = screen.intersect(face);
+    if visible == screen || visible.width() <= 0.0 || visible.height() <= 0.0 {
+        return screen;
+    }
+    let insets = [
+        (visible.min.x - face.min.x, visible.min.y - face.min.y),
+        (face.max.x - visible.max.x, visible.min.y - face.min.y),
+        (visible.min.x - face.min.x, face.max.y - visible.max.y),
+        (face.max.x - visible.max.x, face.max.y - visible.max.y),
+    ];
+    let reaches = (0..4).any(|i| flags[i] && crate::paint::container_lift_radius(insets[i].0, insets[i].1, rad).is_some());
+    if reaches {
+        visible
+    } else {
+        screen
+    }
+}
+
 /// The `_ContainerClip` a top-level control of a rounded window carries: the
 /// window's face, its radius and which of its corners are rounded
 /// ([`window_arc`]). The window is to its top-level controls what a rounded
@@ -2471,6 +2498,10 @@ fn render_form_inner(
             Vec2::new(r.w as f32, r.h as f32),
         );
         let screen = crate::paint::scale_rect_about_center(base_screen, tf.scale);
+        let screen = match window.filter(|_| controls[idx].parent.is_none()) {
+            Some(w) => into_rounded_window(screen, w),
+            None => screen,
+        };
         out.control_rects.insert(live.id.clone(), screen);
 
         // Drive AutoScroll for Panels (interactive only). We show a ScrollArea at
@@ -3487,6 +3518,10 @@ pub fn render_faces(
             Vec2::new(r.w as f32, r.h as f32),
         );
         let screen = crate::paint::scale_rect_about_center(base_screen, tf.scale);
+        let screen = match window.filter(|_| controls[idx].parent.is_none()) {
+            Some(w) => into_rounded_window(screen, w),
+            None => screen,
+        };
         out.control_rects.insert(live.id.clone(), screen);
 
         // A PictureBox inside a rounded GroupBox/Panel is clipped to the parent's
