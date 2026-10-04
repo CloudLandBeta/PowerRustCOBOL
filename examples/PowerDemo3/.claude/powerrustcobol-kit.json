@@ -1,0 +1,168 @@
+{
+  "format": "powerrustcobol-agent-kit",
+  "version": 1,
+  "target": "claude-code",
+  "ide_version": "1.80.100",
+  "kit_id": "k-x1ec53mo3q",
+  "mcp_port": 5720,
+  "files": [
+    {
+      "path": "CLAUDE.md",
+      "section": true,
+      "written_by": "1.80.100",
+      "sha256": "ad29ef023ecb87335077ef9512decc4636cc2f40387b4246441e96e1eb728388"
+    },
+    {
+      "path": ".claude/settings.json",
+      "written_by": "1.80.100",
+      "sha256": "4ef19b1ffb7095ae71b581ef272b22ce0a83695968f4e692dec1d3c525701218",
+      "owned": {
+        "permissions": {
+          "allow": [
+            "Edit(./**)",
+            "Read(./**)",
+            "mcp__powerrustcobol-ide__list_files",
+            "mcp__powerrustcobol-ide__check",
+            "mcp__powerrustcobol-ide__regenerate",
+            "mcp__powerrustcobol-ide__add_to_project",
+            "mcp__powerrustcobol-ide__build",
+            "mcp__powerrustcobol-ide__validate",
+            "mcp__powerrustcobol-ide__kb_lookup",
+            "mcp__powerrustcobol__list_files",
+            "mcp__powerrustcobol__check",
+            "mcp__powerrustcobol__regenerate",
+            "mcp__powerrustcobol__add_to_project",
+            "mcp__powerrustcobol__build",
+            "mcp__powerrustcobol__validate",
+            "mcp__powerrustcobol__kb_lookup"
+          ],
+          "deny": [
+            "Bash"
+          ]
+        }
+      }
+    },
+    {
+      "path": ".claude/skills/powerrustcobol-create-form/SKILL.md",
+      "written_by": "1.80.100",
+      "sha256": "de866ebd97314e0593176d2ad25faf365b1a45ed02963d3b16cff1bbe20bb397"
+    },
+    {
+      "path": ".claude/skills/powerrustcobol-add-control/SKILL.md",
+      "written_by": "1.80.100",
+      "sha256": "614fda92459e790fbc37adf3cb6ef72269e4cd0c54acd793adc68956e3e00ebe"
+    },
+    {
+      "path": ".claude/skills/powerrustcobol-define-indexed-file/SKILL.md",
+      "written_by": "1.80.100",
+      "sha256": "418e08752e5b67ef757e0ddeb066b58a6c6b2d6075fe3849ea41e33dab3ffb3a"
+    },
+    {
+      "path": ".claude/skills/powerrustcobol-add-assets/SKILL.md",
+      "written_by": "1.80.100",
+      "sha256": "21f40e5f8a6fbac6c71ff464266530c60ae8a38081e17e9cd2b034b3468639e7"
+    },
+    {
+      "path": ".claude/skills/powerrustcobol-write-common-procedure/SKILL.md",
+      "written_by": "1.80.100",
+      "sha256": "a57bca27360bdd8f033b21e7557df756504d4662f4d1bb7318dc4db0b33fe3e2"
+    },
+    {
+      "path": ".claude/skills/powerrustcobol-check-and-fix/SKILL.md",
+      "written_by": "1.80.100",
+      "sha256": "4a040e08b4aa940b2e4d3ea4aff900616700cdbaa87e51171ef27d5ec813e2fa"
+    },
+    {
+      "path": ".claude/skills/powerrustcobol-gap-report/SKILL.md",
+      "written_by": "1.80.100",
+      "sha256": "b7b594aacae789e52c7cc4c2e1cb48cb3144cf23a5f9104570dc963d7a9a4bab"
+    },
+    {
+      "path": ".claude/agents/powerrustcobol-reviewer.md",
+      "written_by": "1.80.100",
+      "sha256": "3b0a310fdfcc388635423f4660ec75d895ed7a4dfb5e51f425d11a6e4c1d8e8e"
+    },
+    {
+      "path": ".mcp.json",
+      "written_by": "1.80.100",
+      "sha256": "b8a6ff60fe3313237be16788df0a234eb56d5a4734d691a4bb2bfacbdc3c5b4c",
+      "owned": {
+        "mcpServers": {
+          "powerrustcobol": {
+            "args": [
+              "mcp",
+              "--project",
+              "${CLAUDE_PROJECT_DIR}"
+            ],
+            "command": "${HOME}/Documents/PowerRustCOBOL/target/release/rcrun",
+            "type": "stdio"
+          },
+          "powerrustcobol-ide": {
+            "type": "http",
+            "url": "http://127.0.0.1:5720/mcp/k-x1ec53mo3q"
+          }
+        }
+      }
+    },
+    {
+      "path": "docs/powerrustcobol/README.md",
+      "written_by": "1.80.100",
+      "sha256": "b93126f457f41592d6556bd64b25d1caf0daed6b3edcc15d16435fcc957b2e15"
+    },
+    {
+      "path": "docs/powerrustcobol/developers-guide.md",
+      "written_by": "1.80.100",
+      "sha256": "c39cd35761c48d5f580aa0d417ea273c10ad55d3b0c47791f148e0cf61f41471"
+    },
+    {
+      "path": "docs/powerrustcobol/cobol85-supported-syntax.md",
+      "written_by": "1.80.100",
+      "sha256": "36a9052e78110bf002f9f8d9fb0e484881c8937a8cd66f7cbe2b50edd4fd06a2"
+    },
+    {
+      "path": "docs/powerrustcobol/controls.md",
+      "written_by": "1.80.100",
+      "sha256": "2e70124eb9ed6aa3c6e7c77203384691234819c39ab52d0c7c3f226a8eb20315"
+    },
+    {
+      "path": "docs/powerrustcobol/control-methods.md",
+      "written_by": "1.80.100",
+      "sha256": "ba13b9c526593a40491f11da2b18bfa583e8b39c3004eee4fa35a8fc06ac9d2a"
+    },
+    {
+      "path": "docs/powerrustcobol/rustcobol-extensions.md",
+      "written_by": "1.80.100",
+      "sha256": "980775513e2a09e9c2cdbf4854698469009beb3ce1859ab9c5ec66a30833c1e2"
+    },
+    {
+      "path": "docs/powerrustcobol/form-layout-and-events.md",
+      "written_by": "1.80.100",
+      "sha256": "95e53ee70a5e60ae89172b3b1665771f7de947f5327226101d1a83495e0b5c8f"
+    },
+    {
+      "path": "docs/powerrustcobol/form-themes.md",
+      "written_by": "1.80.100",
+      "sha256": "dcdc01bf36bcdd89cc0df1bbcca28bdbb89d4347a49b9fa945f0edd13aabd915"
+    },
+    {
+      "path": "docs/powerrustcobol/project-model-and-settings.md",
+      "written_by": "1.80.100",
+      "sha256": "d777b902d910d7103a9a5b78c2730629d23e44e04c13283eea8da717f9d61523"
+    },
+    {
+      "path": "docs/powerrustcobol/builtins.md",
+      "written_by": "1.80.100",
+      "sha256": "1908c16b61bdd8181dc67d115982f4e84eaaf9b28a9c74481ba92f579b0625f8"
+    },
+    {
+      "path": "docs/powerrustcobol/cfrm-format.md",
+      "written_by": "1.80.100",
+      "sha256": "43fe0aa07e39988fd6b14310402853dcfa4d3d967b844f3f46eff503c076f1b4"
+    },
+    {
+      "path": "docs/powerrustcobol/cidx-format.md",
+      "written_by": "1.80.100",
+      "sha256": "fe07c12376724bb5620efce954e9162f9c2f5f725ec361f186eae010e068e4d4"
+    }
+  ]
+}

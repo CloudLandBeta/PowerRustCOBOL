@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "powerrustcobol": {
+      "args": [
+        "mcp",
+        "--project",
+        "${CLAUDE_PROJECT_DIR}"
+      ],
+      "command": "${HOME}/Documents/PowerRustCOBOL/target/release/rcrun",
+      "type": "stdio"
+    },
+    "powerrustcobol-ide": {
+      "type": "http",
+      "url": "http://127.0.0.1:5720/mcp/k-x1ec53mo3q"
+    }
+  }
+}

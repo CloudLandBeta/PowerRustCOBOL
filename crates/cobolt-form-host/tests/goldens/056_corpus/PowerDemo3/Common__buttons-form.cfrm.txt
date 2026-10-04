@@ -9,7 +9,7 @@ Button-5 rect=[32 344 296 424] font=16
 Button-6 rect=[928 344 1192 424] font=16
 Button-7 rect=[32 464 296 544] font=16
 Button-8 rect=[928 472 1192 552] font=16
-Button-9 rect=[-8 768 256 848] font=16
+Button-9 rect=[32 592 296 672] font=16
 Label-1 rect=[40 800 1195 832] font=19
 PictureBox-1 rect=[304 48 918 630] font=16
 ## Occupant 0.75x 918x630
@@ -22,7 +22,7 @@ Button-5 rect=[252 372 516 452] font=16
 Button-6 rect=[1148 372 1412 452] font=16
 Button-7 rect=[252 492 516 572] font=16
 Button-8 rect=[1148 500 1412 580] font=16
-Button-9 rect=[212 796 476 876] font=16
+Button-9 rect=[252 620 516 700] font=16
 Label-1 rect=[260 828 1415 860] font=19
 PictureBox-1 rect=[524 76 1146 783] font=16
 ## Window 1x 1224x840
@@ -35,7 +35,7 @@ Button-5 rect=[32 344 296 424] font=16
 Button-6 rect=[928 344 1192 424] font=16
 Button-7 rect=[32 464 296 544] font=16
 Button-8 rect=[928 472 1192 552] font=16
-Button-9 rect=[0 768 256 840] font=16
+Button-9 rect=[32 592 296 672] font=16
 Label-1 rect=[40 800 1195 832] font=19
 PictureBox-1 rect=[304 48 926 755] font=16
 ## Occupant 1x 1224x840
@@ -48,7 +48,7 @@ Button-5 rect=[252 372 516 452] font=16
 Button-6 rect=[1148 372 1412 452] font=16
 Button-7 rect=[252 492 516 572] font=16
 Button-8 rect=[1148 500 1412 580] font=16
-Button-9 rect=[212 796 476 876] font=16
+Button-9 rect=[252 620 516 700] font=16
 Label-1 rect=[260 828 1415 860] font=19
 PictureBox-1 rect=[524 76 1146 783] font=16
 ## Window 1.5x 1836x1260
@@ -61,7 +61,7 @@ Button-5 rect=[32 344 296 424] font=16
 Button-6 rect=[928 344 1192 424] font=16
 Button-7 rect=[32 464 296 544] font=16
 Button-8 rect=[928 472 1192 552] font=16
-Button-9 rect=[-8 768 256 848] font=16
+Button-9 rect=[32 592 296 672] font=16
 Label-1 rect=[40 800 1195 832] font=19
 PictureBox-1 rect=[304 48 926 755] font=16
 ## Occupant 1.5x 1836x1260
@@ -74,6 +74,6 @@ Button-5 rect=[252 372 516 452] font=16
 Button-6 rect=[1148 372 1412 452] font=16
 Button-7 rect=[252 492 516 572] font=16
 Button-8 rect=[1148 500 1412 580] font=16
-Button-9 rect=[212 796 476 876] font=16
+Button-9 rect=[252 620 516 700] font=16
 Label-1 rect=[260 828 1415 860] font=19
 PictureBox-1 rect=[524 76 1146 783] font=16

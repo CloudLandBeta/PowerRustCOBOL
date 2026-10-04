@@ -461,7 +461,7 @@
 ]]></Event>
     <Animation name="bt1" trigger="OnFormLoad" kind="ZoomIn" duration="1000" delay="10" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="Button-9" type="Button" x="-8" y="768" w="264" h="80" tab-order="0" z-order="9" visible="true" enabled="true">
+  <Control id="Button-9" type="Button" x="32" y="592" w="264" h="80" tab-order="0" z-order="9" visible="true" enabled="true">
     <Property name="Caption">Button with icon 5</Property>
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
