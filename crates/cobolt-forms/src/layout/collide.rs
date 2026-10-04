@@ -402,14 +402,14 @@ mod tests {
         let y = tabs.content_rect().y + 10;
         let mut f = with(ctrl("F", ControlType::TextBox, (20, y, 200, 30), Some("K")), "Anchor", s("Top,Left"));
         let mut b = with(ctrl("B", ControlType::Button, (300, y, 100, 30), Some("K")), "Anchor", s("Top,Right"));
-        f.tab = Some(0);
-        b.tab = Some(1);
+        f.tab = Some(1);
+        b.tab = Some(2);
         let apart = limits(&[tabs.clone(), f.clone(), b.clone()], (420.0, 200.0));
         let alone_f = limits(&[tabs.clone(), f.clone()], (420.0, 200.0)).min;
         let alone_b = limits(&[tabs.clone(), b.clone()], (420.0, 200.0)).min;
         let alone = (alone_f.0.max(alone_b.0), alone_f.1.max(alone_b.1));
         assert_eq!(apart.min, alone, "different pages: {apart:?}");
-        b.tab = Some(0);
+        b.tab = Some(1);
         let together = limits(&[tabs, f, b], (420.0, 200.0));
         assert!(together.min.0 > 300.0, "same page: {together:?}");
         println!("tab pages: floor {:?} apart, {:?} on one page", apart.min, together.min);

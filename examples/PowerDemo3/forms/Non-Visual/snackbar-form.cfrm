@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="SNACKBAR-FORM" title="Snackbar - every capability" width="1000" height="720" background="36383EFF" background-gradient-enabled="true" background-gradient-start="#4E4E4EFF" background-gradient-end="#000000FF" background-gradient-direction="South" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Dark" form-format="Both">
+<Form name="SNACKBAR-FORM" title="Snackbar - every capability" width="1000" height="720" background="36383EFF" background-gradient-enabled="true" background-gradient-start="#4E4E4EFF" background-gradient-end="#000000FF" background-gradient-direction="South" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Dark" form-format="Both" index-base="1">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"
@@ -977,7 +977,7 @@
        PROCEDURE DIVISION.
 
       *> WHICH button was pressed: LastButtonId is your own id from the
-      *> AddButton spec, LastButtonIndex is its 0-based place in the row.
+      *> AddButton spec, LastButtonIndex is its place in the row, counting from 1.
       *> Both are written BEFORE this handler runs.
       *> A button whose dismiss is true closes the notification AFTER this
       *> fires, so you can still read the message it was clicked on.

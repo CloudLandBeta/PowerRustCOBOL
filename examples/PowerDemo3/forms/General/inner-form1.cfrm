@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="INNER-FORM1" title="Customers" width="1280" height="848" background="00000000" transparency="0" grid-size="16" snap-to-grid="true" target="Custom" theme="elegance" form-format="Embedded">
+<Form name="INNER-FORM1" title="Customers" width="1280" height="848" background="00000000" transparency="0" grid-size="16" snap-to-grid="true" target="Custom" theme="elegance" form-format="Embedded" index-base="1">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"
@@ -176,7 +176,7 @@
 8
 9
 10</Property>
-    <Property name="SelectedIndex">-1</Property>
+    <Property name="SelectedIndex">0</Property>
     <Property name="MultiSelect">false</Property>
     <Property name="Sorted">false</Property>
     <Property name="BorderStyle">None</Property>
@@ -708,7 +708,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="SelectedIndex">-1</Property>
+    <Property name="SelectedIndex">0</Property>
     <Property name="MultiSelect">false</Property>
     <Property name="ShowCheckBoxes">true</Property>
     <Property name="Sorted">false</Property>
@@ -756,7 +756,7 @@
 9
 12
 10</Property>
-    <Property name="SelectedIndex">-1</Property>
+    <Property name="SelectedIndex">0</Property>
     <Property name="Sorted">true</Property>
     <Property name="DropDownStyle">DropDown</Property>
     <Property name="DropDownHeight">200</Property>

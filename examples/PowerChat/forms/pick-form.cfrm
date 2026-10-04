@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="PICK-FORM" title="PowerChat" width="520" height="420" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
+<Form name="PICK-FORM" title="PowerChat" width="520" height="420" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" index-base="1" modal-overlay-style="Greyed">
   <working-storage><![CDATA[01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -176,7 +176,7 @@
       *>   Choose one of a list, for any form (operator, 2026-09-27):
       *>   the caller sets PickItems - one item per line - and, translated,
       *>   PickTitle / PickOk / PickCancel on itself, PickSelected (the
-      *>   item preselected, 0 = the first) and PickAnswer = 0; opens this
+      *>   item preselected, 1 = the first) and PickAnswer = 0; opens this
       *>   with OpenFormSync; and reads PickAnswer when it returns: the
       *>   chosen item, 1 = the first, or 0 when nothing was chosen.
       *>   The designed texts in the user's language first; what the
@@ -210,7 +210,7 @@
            END-PERFORM
            INVOKE super::"GetProperty"("PickSelected") RETURNING WS-TEXT
            IF WS-TEXT = SPACES
-               MOVE 0 TO WS-IDX
+               MOVE 1 TO WS-IDX
            ELSE
                MOVE FUNCTION NUMVAL(WS-TEXT) TO WS-IDX
            END-IF
@@ -244,7 +244,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -282,11 +281,10 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="SelectedIndex">-1</Property>
+    <Property name="SelectedIndex">0</Property>
     <Property name="MultiSelect">false</Property>
     <Property name="ShowCheckBoxes">false</Property>
     <Property name="Sorted">false</Property>
@@ -327,7 +325,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -375,7 +372,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -396,10 +392,10 @@
        PROCEDURE DIVISION.
       *>   The chosen item, 1 = the first; nothing chosen, nothing to do.
            MOVE Lst-Items::SelectedIndex TO WS-IDX
-           IF WS-IDX < 0
+           IF WS-IDX < 1
                EXIT PROGRAM
            END-IF
-           COMPUTE WS-ANSWER = WS-IDX + 1
+           MOVE WS-IDX TO WS-ANSWER
            INVOKE super::"SetProperty"("PickAnswer", WS-ANSWER)
            INVOKE ME::Close()
 ]]></Event>

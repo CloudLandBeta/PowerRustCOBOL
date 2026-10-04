@@ -451,7 +451,7 @@
                MOVE Cmb-Conn::AddItem(FUNCTION TRIM(WS-CONN-NAME(WS-P))) TO WS-OK
            END-PERFORM
       *>   Opening connects: the first connection and its models, at once.
-           MOVE Cmb-Conn::SetSelectedIndex(0) TO WS-OK
+           MOVE Cmb-Conn::SetSelectedIndex(1) TO WS-OK
            CALL "PC-OPEN-CONN"
 
            GOBACK.
@@ -804,8 +804,8 @@
       *>   The picked connection: its rank and tools on screen, then connect
       *>   and list the models its provider offers, the saved one selected.
       *>   The stored key is used, never read (COBOL-MODEL-LIST's entry).
+      *>   The picker's items are the connections in order, from 1.
            MOVE Cmb-Conn::GetSelectedIndex() TO WS-INDEX
-           ADD 1 TO WS-INDEX
            IF WS-INDEX < 1 OR WS-INDEX > WS-CONN-COUNT
                EXIT PROGRAM
            END-IF
@@ -848,28 +848,27 @@
                MOVE WS-LONG TO Lbl-Status::Caption
                IF WS-MODEL-ID NOT = SPACES
                    MOVE Cmb-Model::AddItem(FUNCTION TRIM(WS-MODEL-ID)) TO WS-OK
-                   MOVE Cmb-Model::SetSelectedIndex(0) TO WS-OK
+                   MOVE Cmb-Model::SetSelectedIndex(1) TO WS-OK
                END-IF
                MOVE WS-MODEL-ID TO Cmb-Model::Value
                EXIT PROGRAM
            END-IF
-           MOVE -1 TO WS-INDEX
+           MOVE 0 TO WS-INDEX
            PERFORM VARYING WS-M FROM 1 BY 1 UNTIL WS-M > WS-N
                COBOL::"MODEL-LIST-GET" ( WS-M WS-XVAL )
                MOVE Cmb-Model::AddItem(FUNCTION TRIM(WS-XVAL)) TO WS-OK
                IF WS-XVAL = WS-MODEL-ID
-                   COMPUTE WS-INDEX = WS-M - 1
+                   MOVE WS-M TO WS-INDEX
                END-IF
            END-PERFORM
       *>   Keep the saved model when the provider still offers it.
-           IF WS-INDEX < 0
-               MOVE 0 TO WS-INDEX
+           IF WS-INDEX = 0
+               MOVE 1 TO WS-INDEX
                MOVE 1 TO WS-M
                COBOL::"MODEL-LIST-GET" ( WS-M WS-MODEL-ID )
            END-IF
            MOVE WS-INDEX TO WS-P
            MOVE Cmb-Model::SetSelectedIndex(WS-P) TO WS-OK
-      *>   SetSelectedIndex does not move Value; the model is set here.
            MOVE WS-MODEL-ID TO Cmb-Model::Value
            MOVE T-MODELS-AVAILABLE TO WS-FMT
            MOVE WS-N TO WS-NE

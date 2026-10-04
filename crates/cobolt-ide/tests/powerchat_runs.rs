@@ -167,6 +167,7 @@ impl Session {
         self.input.send(StateUpdate::new(ctrl, "Text", text)).unwrap();
     }
 
+    /// `index` counts from 1, as `SelectedIndex` does.
     fn pick(&self, ctrl: &str, index: usize) {
         self.input.send(StateUpdate::new(ctrl, "SelectedIndex", &index.to_string())).unwrap();
     }
@@ -407,7 +408,7 @@ fn powerchat_settings_topics_documents_and_chat() {
     let mut s = Session::start("providers-form.cfrm");
     s.settle();
     s.type_into("Txt-Name", "local-model");
-    s.pick("Cmb-Provider", 14); // Ollama (Local), the IDE's 15th provider
+    s.pick("Cmb-Provider", 15); // Ollama (Local), the IDE's 15th provider
     s.type_into("Txt-Url", &url);
     s.type_into("Txt-Key", "sk-POWERCHAT-secret");
     s.click("Btn-Test");
@@ -430,7 +431,7 @@ fn powerchat_settings_topics_documents_and_chat() {
     // Agents: agent 1 on local-model.
     let mut s = Session::start("agents-form.cfrm");
     s.settle();
-    s.pick("Cmb-Agent-1", 1);
+    s.pick("Cmb-Agent-1", 2);
     s.click("Btn-Save");
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("Agents saved"));
     s.quit();
@@ -487,7 +488,7 @@ fn powerchat_settings_topics_documents_and_chat() {
     // The CRUD pattern: New opens the Create/Update tab, Save goes back to
     // the grid, and a row's chat icon (column 3) opens that topic.
     s.click("Btn-New");
-    s.wait_for("Tab-Crud", "SelectedTab", |v| v == "1");
+    s.wait_for("Tab-Crud", "SelectedTab", |v| v == "2");
     s.type_into("Txt-Name", "Human Resources");
     s.type_into("Txt-Prompt", "You answer questions about the company's HR policies.");
     s.click("Btn-Save");
@@ -618,9 +619,9 @@ fn powerchat_settings_topics_documents_and_chat() {
     let mut s = Session::start("providers-form.cfrm");
     s.settle();
     s.click("Btn-New"); // an empty Create/Update page for a new connection
-    s.wait_for("Tab-Crud", "SelectedTab", |v| v == "1");
+    s.wait_for("Tab-Crud", "SelectedTab", |v| v == "2");
     s.type_into("Txt-Name", "planner");
-    s.pick("Cmb-Provider", 14); // Ollama (Local), the IDE's 15th provider
+    s.pick("Cmb-Provider", 15); // Ollama (Local), the IDE's 15th provider
     s.type_into("Txt-Url", &url);
     s.type_into("Txt-Key", "");
     s.click("Btn-Save");
@@ -638,7 +639,7 @@ fn powerchat_settings_topics_documents_and_chat() {
     s.quit();
     let mut s = Session::start("agents-form.cfrm");
     s.settle();
-    s.pick("Cmb-Agent-2", 2); // planner
+    s.pick("Cmb-Agent-2", 3); // planner
     s.click("Btn-Save");
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("Agents saved"));
     s.quit();
@@ -691,7 +692,7 @@ fn powerchat_settings_topics_documents_and_chat() {
     let mut s = Session::start("files-form.cfrm");
     s.settle();
     s.click("Btn-New"); // the Create/Update page, empty
-    s.wait_for("Tab-Crud", "SelectedTab", |v| v == "1");
+    s.wait_for("Tab-Crud", "SelectedTab", |v| v == "2");
     s.type_into("Txt-Data", &root.join("missing.idx").display().to_string());
     s.type_into("Txt-Cidx", &actors_cidx.display().to_string());
     s.click("Btn-Save");
@@ -740,7 +741,7 @@ fn powerchat_settings_topics_documents_and_chat() {
     // marker, a preview, then promote (5), edit (6) and delete (7).
     s.wait_for("Dg-List", "Rows", |v| v.starts_with("1\t") && v.contains("[active]"));
     s.click("Btn-New");
-    s.wait_for("Tab-Crud", "SelectedTab", |v| v == "1");
+    s.wait_for("Tab-Crud", "SelectedTab", |v| v == "2");
     s.type_into("Txt-Prompt", "You answer HR questions in two sentences at most.");
     s.click("Btn-Save");
     s.wait_for("Lbl-Status", "Caption", |v| v.contains("Saved as v2, now active"));
@@ -1810,7 +1811,7 @@ fn powerchat_browses_for_a_data_file_and_its_description() {
     let mut s = Session::start_with_dialogs("files-form.cfrm", vec![Some(idx.clone()), Some(cidx.clone()), None]);
     s.settle();
     s.click("Btn-New");
-    s.wait_for("Tab-Crud", "SelectedTab", |v| v == "1");
+    s.wait_for("Tab-Crud", "SelectedTab", |v| v == "2");
     s.click("Btn-BrowseData");
     let got = s.wait_for("Txt-Data", "Text", |v| v.trim() == idx);
     s.click("Btn-BrowseCidx");
@@ -2243,7 +2244,7 @@ fn powerchat_main_prompt_is_every_instruction_and_the_user_edits_it() {
     let main_rows = s.wait_for("Dg-List", "Rows", |v| v.contains("main prompt"));
     assert!(main_rows.starts_with("1\t") && main_rows.contains("[active]"), "v1 is the shipped main prompt: {main_rows}");
     s.click("Btn-New");
-    s.wait_for("Tab-Crud", "SelectedTab", |v| v == "1");
+    s.wait_for("Tab-Crud", "SelectedTab", |v| v == "2");
     s.type_into(
         "Txt-Prompt",
         "=== SYSTEM ===\nCUSTOM SYSTEM RULES.\n{TOPIC}\n=== ASSISTANT ===\nCUSTOM ASSISTANT RULES.\n=== PLAN ===\nSplit the user question - CUSTOM PLAN.\n",

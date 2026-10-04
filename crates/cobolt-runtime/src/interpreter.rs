@@ -13569,13 +13569,21 @@ impl Interpreter {
         self.obj_set(obj, key, cobolt_forms::datagrid::format_row_height_overrides(&map));
     }
 
+    /// A chain subscript as COBOL writes it (from 1) to the 0-based position
+    /// the object store uses; 0 or less becomes a position nothing has.
+    fn chain_position(raw: &str) -> usize {
+        raw.trim()
+            .parse::<i64>()
+            .ok()
+            .filter(|n| *n >= 1)
+            .map_or(usize::MAX, |n| (n - 1) as usize)
+    }
+
+    /// A row or column number as COBOL gives it (from 1) to its 0-based
+    /// position; 0 names nothing (it used to be taken as the first).
     fn datagrid_cell_index(value: &str) -> Option<usize> {
         let n = value.trim().parse::<usize>().ok()?;
-        if n == 0 {
-            Some(0)
-        } else {
-            Some(n - 1)
-        }
+        n.checked_sub(1)
     }
 
     fn set_datagrid_runtime_kv(&mut self, control_id: &str, prop: &str, key: &str, value: &str) {
@@ -13764,13 +13772,14 @@ impl Interpreter {
             // CBO-UF::Value` showed the item but left SelectedIndex where it
             // was, so GetSelectedIndex() answered the old position. The index
             // follows the value: the first item equal to it as the list SHOWS
-            // it, or -1 when no item is (a typed value in an editable combo).
-            // A COBOL field arrives space-padded, so trailing spaces do not count.
+            // it, counting from 1, or 0 when no item is (a typed value in an
+            // editable combo). A COBOL field arrives space-padded, so trailing
+            // spaces do not count.
             let wanted = val.trim_end();
             let index = items
                 .iter()
                 .position(|item| item.trim_end() == wanted)
-                .map_or(-1, |i| i as i64)
+                .map_or(0, |i| i as i64 + 1)
                 .to_string();
             if self.obj_get(obj, "SelectedIndex") != index {
                 self.objects.set_property(obj, "SelectedIndex", index.clone());
@@ -13780,11 +13789,12 @@ impl Interpreter {
             }
             return;
         }
+        // From 1, as COBOL counts: 1 is the first item; 0 (or less) selects nothing.
         let chosen = val
             .trim()
             .parse::<i64>()
             .ok()
-            .and_then(|i| usize::try_from(i).ok())
+            .and_then(|i| usize::try_from(i - 1).ok())
             .and_then(|i| items.get(i).cloned())
             .unwrap_or_default();
         if self.obj_get(obj, "Value") != chosen {
@@ -14256,9 +14266,10 @@ impl Interpreter {
     fn viewer_step_find(&mut self, obj: &str, forward: bool) {
         let as_index = |v: String| v.trim().parse::<i64>().unwrap_or(0).max(0) as usize;
         let total = as_index(self.viewer_prop(obj, "SearchMatchCount"));
-        let current = as_index(self.viewer_prop(obj, "SearchCurrentMatch"));
+        // The property counts matches from 1 (0 = none); `step_match` from 0.
+        let current = as_index(self.viewer_prop(obj, "SearchCurrentMatch")).saturating_sub(1);
         if let Some(next) = cobolt_forms::viewer::step_match(current, total, forward) {
-            self.obj_set(obj, "View1SearchCurrentMatch", next.to_string());
+            self.obj_set(obj, "View1SearchCurrentMatch", (next + 1).to_string());
         }
     }
 
@@ -14611,7 +14622,7 @@ impl Interpreter {
             .unwrap_or_default()
     }
 
-    /// A traversal answer: the index of a relative, or `-1` when there is none.
+    /// A traversal answer: the index of a relative, or `0` when there is none.
     fn tree_node_link(
         &self,
         obj: &str,
@@ -14622,7 +14633,7 @@ impl Interpreter {
             .and_then(|i| cobolt_forms::treenodes::node_at(&self.obj_get(obj, "Items"), i))
             .and_then(|n| link(&n))
             .map(Self::tree_handle)
-            .unwrap_or_else(|| "-1".into())
+            .unwrap_or_else(|| "0".into())
     }
 
     /// A node handle, as COBOL holds it, to its 0-based line in `Items`.
@@ -14853,12 +14864,9 @@ impl Interpreter {
                     },
                 ));
             }
-            let idx = seg.args[0]
-                .as_display_string()
-                .trim()
-                .parse::<i64>()
-                .unwrap_or(0)
-                .max(0) as usize;
+            // A subscript counts from 1, as a COBOL table does: `Rows(1)` is
+            // the first row. 0 (or less) names nothing.
+            let idx = Self::chain_position(&seg.args[0].as_display_string());
             path.push(PathSeg::Prop(seg.member));
             path.push(PathSeg::Index(idx));
         }
@@ -15106,7 +15114,7 @@ impl Interpreter {
                     self.objects.remove_path(root, path);
                 } else if !arg0.is_empty() {
                     let mut p = path.to_vec();
-                    p.push(PathSeg::Index(arg0.parse::<usize>().unwrap_or(0)));
+                    p.push(PathSeg::Index(Self::chain_position(&arg0)));
                     self.objects.remove_path(root, &p);
                 }
                 none
@@ -15488,7 +15496,7 @@ impl Interpreter {
                 // A ComboBox / ListBox also lets go of its selection: an item
                 // that no longer exists cannot stay selected.
                 if self.is_list_object(obj) {
-                    self.obj_set(obj, "SelectedIndex", "-1".to_owned());
+                    self.obj_set(obj, "SelectedIndex", "0".to_owned());
                     self.obj_set(obj, "Value", String::new());
                 }
                 none
@@ -15505,7 +15513,7 @@ impl Interpreter {
                     Some(items) => {
                         let n = if items.is_empty() { 0 } else { items.lines().count() };
                         self.obj_set(obj, "Items", items);
-                        self.obj_set(obj, "SelectedIndex", "-1".to_owned());
+                        self.obj_set(obj, "SelectedIndex", "0".to_owned());
                         self.obj_set(obj, "Value", String::new());
                         val(n.to_string())
                     }
@@ -15615,14 +15623,29 @@ impl Interpreter {
                 self.obj_set(obj, "Items", nv);
                 none
             }
-            "REMOVEITEM" => {
-                let idx = arg(0).trim().parse::<usize>().unwrap_or(usize::MAX);
+            // `RemoveItem(text)` removes the first item equal to the text, as
+            // documented — it used to take a 0-based POSITION, so a text
+            // argument silently did nothing. `RemoveAt(n)` removes by position,
+            // counting from 1 (operator, 2026-10-03). A removed item that was
+            // selected takes the selection with it.
+            "REMOVEITEM" | "REMOVEAT" => {
                 let cur = self.obj_get(obj, "Items");
                 let mut lines: Vec<String> = cur.lines().map(|l| l.to_string()).collect();
-                if idx < lines.len() {
-                    lines.remove(idx);
+                let at = if m == "REMOVEAT" {
+                    arg(0).trim().parse::<usize>().ok().filter(|n| *n >= 1).map(|n| n - 1)
+                } else {
+                    let wanted = arg(0);
+                    let wanted = wanted.trim_end();
+                    lines.iter().position(|l| l.trim_end() == wanted)
+                };
+                if let Some(i) = at.filter(|i| *i < lines.len()) {
+                    let removed = lines.remove(i);
+                    self.obj_set(obj, "Items", lines.join("\n"));
+                    if self.is_list_object(obj) && self.obj_get(obj, "Value") == removed {
+                        self.obj_set(obj, "SelectedIndex", "0".to_owned());
+                        self.obj_set(obj, "Value", String::new());
+                    }
                 }
-                self.obj_set(obj, "Items", lines.join("\n"));
                 none
             }
             "GETSELECTED" => val(self.obj_get(obj, "Value")),
@@ -15653,7 +15676,9 @@ impl Interpreter {
             // colour, in the order they appear on the line. Omitted is empty is
             // "as the tree draws it".
             "ADDNODE" => {
-                let level = arg(0).parse::<usize>().unwrap_or(0);
+                // The depth counts from 1, as CONTROL-NODE-LEVEL does: 1 is a
+                // root (0 is taken as a root too).
+                let level = arg(0).trim().parse::<usize>().unwrap_or(1).saturating_sub(1);
                 let text = arg(1);
                 if !text.is_empty() {
                     // Trailing empty fields are dropped so a plain node stays a
@@ -15685,7 +15710,7 @@ impl Interpreter {
             // index is simply re-read against whatever the tree holds now.
             //
             // The traversal calls RETURN an index, so they chain: the answer
-            // from `NodeParent` is what you hand to `NodeText`. `-1` means
+            // from `NodeParent` is what you hand to `NodeText`. `0` means
             // there is no such node — no parent above a root, no sibling past
             // the last one — which is what a COBOL loop tests for.
             "NODECOUNT" => val(
@@ -15696,11 +15721,12 @@ impl Interpreter {
             "NODEINDEXOF" => val(
                 cobolt_forms::treenodes::index_of(&self.obj_get(obj, "Items"), &arg(0))
                     .map(Self::tree_handle)
-                    .unwrap_or_else(|| "-1".into()),
+                    .unwrap_or_else(|| "0".into()),
             ),
             "NODETEXT" | "NODENAME" => val(self.tree_node_field(obj, &arg(0), |n| n.text.clone())),
             "NODEPATH" => val(self.tree_node_field(obj, &arg(0), |n| n.path.clone())),
-            "NODELEVEL" => val(self.tree_node_field(obj, &arg(0), |n| n.level.to_string())),
+            // From 1 for a root, the same depth CONTROL-NODE-LEVEL reports.
+            "NODELEVEL" => val(self.tree_node_field(obj, &arg(0), |n| (n.level + 1).to_string())),
             "NODEICON" => {
                 val(self.tree_node_field(obj, &arg(0), |n| n.icon.clone().unwrap_or_default()))
             }
@@ -20870,8 +20896,8 @@ MAIN.
         }
         println!("3 matches — FindNext x5  -> {forward:?}");
         println!("            FindPrevious x3 -> {backward:?}");
-        assert_eq!(forward, ["1", "2", "0", "1", "2"], "R28: wraps past the last");
-        assert_eq!(backward, ["1", "0", "2"], "R28: and past the first");
+        assert_eq!(forward, ["2", "3", "1", "2", "3"], "R28: wraps past the last (matches count from 1)");
+        assert_eq!(backward, ["2", "1", "3"], "R28: and past the first");
     }
 
     /// R26.1 from COBOL's side: with nothing to find, Next is a no-op rather
@@ -21688,7 +21714,7 @@ MAIN.
     }
 
     /// Setting SelectedIndex from COBOL moves Value with it, counting the
-    /// items as the list shows them (Sorted applied); -1 clears it. The index
+    /// items from 1 as the list shows them (Sorted applied); 0 clears it. The index
     /// alone changed nothing on screen (property audit, 2026-09-25).
     #[test]
     fn set_selected_index_moves_the_value_of_a_combo_and_a_list() {
@@ -21697,8 +21723,8 @@ IDENTIFICATION DIVISION.
 PROGRAM-ID. T.
 PROCEDURE DIVISION.
 MAIN.
-    INVOKE CMB-1 'SetSelectedIndex' USING 1
-    MOVE 2 TO LST-1::SelectedIndex
+    INVOKE CMB-1 'SetSelectedIndex' USING 2
+    MOVE 3 TO LST-1::SelectedIndex
     STOP RUN.
 ";
         let parsed = parse(tokenize(source, SourceFormat::Free));
@@ -21714,8 +21740,55 @@ MAIN.
         interp.run().expect("runs");
         assert_eq!(interp.obj_get("CMB-1", "Value"), "AL");
         assert_eq!(interp.obj_get("LST-1", "Value"), "pear", "sorted: apple, fig, pear");
-        interp.obj_set("CMB-1", "SelectedIndex", "-1".into());
-        assert_eq!(interp.obj_get("CMB-1", "Value"), "", "-1 clears it");
+        interp.obj_set("CMB-1", "SelectedIndex", "0".into());
+        assert_eq!(interp.obj_get("CMB-1", "Value"), "", "0 clears it");
+    }
+
+    /// `RemoveItem(text)` removes the item with that text, as documented (it
+    /// used to take a 0-based position, so a text argument did nothing);
+    /// `RemoveAt(n)` removes by position, counting from 1, and 0 or a position
+    /// past the end removes nothing. Removing the selected item clears the
+    /// selection (operator, 2026-10-03).
+    #[test]
+    fn remove_item_takes_the_text_and_remove_at_the_position_from_1() {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. T.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-NAME PIC X(10) VALUE \"fig\".
+PROCEDURE DIVISION.
+MAIN.
+    LST-1::RemoveItem(WS-NAME)
+    LST-1::RemoveAt(1)
+    LST-1::RemoveAt(0)
+    LST-1::RemoveAt(9)
+    INVOKE CMB-1 'RemoveItem' USING \"AL\"
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let mut interp = Interpreter::new(parsed.program.expect("parses"));
+        interp.seed_objects([
+            ("LST-1".to_owned(), "ListBox".to_owned(), vec![("Items".to_owned(), "pear\napple\nfig\nkiwi".to_owned())]),
+            (
+                "CMB-1".to_owned(),
+                "ComboBox".to_owned(),
+                vec![
+                    ("Items".to_owned(), "AC\nAL\nAM".to_owned()),
+                    ("SelectedIndex".to_owned(), "2".to_owned()),
+                    ("Value".to_owned(), "AL".to_owned()),
+                ],
+            ),
+        ]);
+        interp.run().expect("runs");
+        assert_eq!(
+            interp.obj_get("LST-1", "Items"),
+            "apple\nkiwi",
+            "fig removed by text (padding ignored), pear by position 1, nothing by 0 or 9"
+        );
+        assert_eq!(interp.obj_get("CMB-1", "Items"), "AC\nAM");
+        assert_eq!(interp.obj_get("CMB-1", "SelectedIndex"), "0", "the selected item went, so no selection");
+        assert_eq!(interp.obj_get("CMB-1", "Value"), "");
     }
 
     /// `ComboBox::LoadFromFile(path)` replaces the items with a text file's
@@ -21752,24 +21825,24 @@ MAIN.
         let program = parsed.program.expect("program should parse");
         let mut interp = Interpreter::new(program);
         interp.seed_objects([
-            ("CMB-1".to_owned(), "ComboBox".to_owned(), vec![("SelectedIndex".to_owned(), "2".to_owned())]),
-            ("LST-1".to_owned(), "ListBox".to_owned(), vec![("SelectedIndex".to_owned(), "1".to_owned())]),
+            ("CMB-1".to_owned(), "ComboBox".to_owned(), vec![("SelectedIndex".to_owned(), "3".to_owned())]),
+            ("LST-1".to_owned(), "ListBox".to_owned(), vec![("SelectedIndex".to_owned(), "2".to_owned())]),
         ]);
         interp.run().expect("runs");
         assert_eq!(interp.obj_get("CMB-1", "Items"), "AC\nAL\nAM", "one item per line, blanks left out");
-        assert_eq!(interp.obj_get("CMB-1", "SelectedIndex"), "-1", "the old selection is dropped");
+        assert_eq!(interp.obj_get("CMB-1", "SelectedIndex"), "0", "the old selection is dropped");
         assert_eq!(interp.env.get("WS-N").and_then(|v| v.as_i64()), Some(3));
         assert_eq!(interp.env.get("WS-M").and_then(|v| v.as_i64()), Some(3), "INVOKE form too");
         assert_eq!(interp.env.get("WS-GONE").and_then(|v| v.as_i64()), Some(-1), "unreadable file");
         assert_eq!(interp.obj_get("LST-1", "Items"), "", "Clear() empties the list");
-        assert_eq!(interp.obj_get("LST-1", "SelectedIndex"), "-1", "and its selection");
+        assert_eq!(interp.obj_get("LST-1", "SelectedIndex"), "0", "and its selection");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Writing a ComboBox / ListBox `Value` moves `SelectedIndex` to that item
     /// (operator, 2026-10-03): `MOVE EMP-UF TO CBO-UF::Value` showed "SP" while
-    /// `GetSelectedIndex()` still answered the old position. Index 0-based, as
-    /// the list shows it (Sorted applied); -1 when no item matches; the COBOL
+    /// `GetSelectedIndex()` still answered the old position. Index from 1, as
+    /// the list shows it (Sorted applied); 0 when no item matches; the COBOL
     /// field's trailing spaces do not count.
     #[test]
     fn writing_a_list_value_moves_its_selected_index() {
@@ -21806,10 +21879,10 @@ MAIN.
             ),
         ]);
         interp.run().expect("runs");
-        assert_eq!(interp.env.get("WS-I").and_then(|v| v.as_i64()), Some(2), "SP is the third item");
+        assert_eq!(interp.env.get("WS-I").and_then(|v| v.as_i64()), Some(3), "SP is the third item");
         assert_eq!(interp.env.get("WS-S").map(|v| v.to_string().trim_end().to_owned()), Some("SP".into()));
-        assert_eq!(interp.env.get("WS-J").and_then(|v| v.as_i64()), Some(-1), "no item XX");
-        assert_eq!(interp.env.get("WS-K").and_then(|v| v.as_i64()), Some(1), "AL is second as SHOWN (sorted AC, AL, TO)");
+        assert_eq!(interp.env.get("WS-J").and_then(|v| v.as_i64()), Some(0), "no item XX");
+        assert_eq!(interp.env.get("WS-K").and_then(|v| v.as_i64()), Some(2), "AL is second as SHOWN (sorted AC, AL, TO)");
     }
 
     #[test]

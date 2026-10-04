@@ -317,7 +317,7 @@
       *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
       *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
       *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Lst-Tasks::RemoveItem(Lst-Tasks::GetIndex()).
+           Lst-Tasks::RemoveAt(Lst-Tasks::GetIndex()).
       *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
       *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
       *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.

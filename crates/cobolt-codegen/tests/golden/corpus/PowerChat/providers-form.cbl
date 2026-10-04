@@ -672,7 +672,7 @@
            CALL "PC-FILL-GRID"
            MOVE SPACES TO WS-KEY-NAME
            CALL "PC-SHOW-CONN"
-           MOVE 0 TO Tab-Crud::SelectedTab
+           MOVE 1 TO Tab-Crud::SelectedTab
 
            GOBACK.
 
@@ -789,7 +789,7 @@
            MOVE SPACES TO WS-KEY-NAME
            CALL "PC-SHOW-CONN"
            MOVE SPACES TO Lbl-List-Status::Caption
-           MOVE 1 TO Tab-Crud::SelectedTab
+           MOVE 2 TO Tab-Crud::SelectedTab
 
            GOBACK.
 
@@ -830,7 +830,7 @@
                WHEN 6
                    CALL "PC-SHOW-CONN"
                    MOVE SPACES TO Lbl-List-Status::Caption
-                   MOVE 1 TO Tab-Crud::SelectedTab
+                   MOVE 2 TO Tab-Crud::SelectedTab
                WHEN 7
                    CALL "PC-DELETE-CONN"
            END-EVALUATE
@@ -1170,7 +1170,7 @@
                MOVE SPACES TO Txt-Url::Text
                MOVE SPACES TO WS-LAST-DEFAULT
                MOVE "true" TO Txt-Name::Enabled
-               MOVE Cmb-Provider::SetSelectedIndex(-1) TO WS-OK
+               MOVE Cmb-Provider::SetSelectedIndex(0) TO WS-OK
                EXIT PROGRAM
            END-IF
            MOVE "E" TO WS-EDIT-MODE
@@ -1190,7 +1190,7 @@
                    MOVE MDL-API TO WS-PROV-ID
                    CALL "PC-PROVIDER-LABEL"
                    IF WS-PROV-IX > 0
-                       COMPUTE WS-P = WS-PROV-IX - 1
+                       MOVE WS-PROV-IX TO WS-P
                        MOVE Cmb-Provider::SetSelectedIndex(WS-P) TO WS-OK
                    END-IF
                    MOVE WS-PROV-EP TO WS-LAST-DEFAULT
@@ -1289,7 +1289,7 @@
       *>   Saved: back to Browse, refreshed.
            CALL "PC-FILL-GRID"
            MOVE WS-STATUS TO Lbl-List-Status::Caption
-           MOVE 0 TO Tab-Crud::SelectedTab
+           MOVE 1 TO Tab-Crud::SelectedTab
 
            GOBACK.
 
@@ -1305,7 +1305,7 @@
       *>   typed and not saved is dropped, never kept in the field.
            MOVE SPACES TO WS-KEY
            MOVE SPACES TO Txt-Key::Text
-           MOVE 0 TO Tab-Crud::SelectedTab
+           MOVE 1 TO Tab-Crud::SelectedTab
 
            GOBACK.
 
@@ -1480,7 +1480,6 @@
        PROCEDURE DIVISION.
       *>   The provider the combo shows: WS-PROV-IX (0 = none) and its fields.
            MOVE Cmb-Provider::GetSelectedIndex() TO WS-PROV-IX
-           ADD 1 TO WS-PROV-IX
            IF WS-PROV-IX < 1 OR WS-PROV-IX > WS-PROV-COUNT
                MOVE 0 TO WS-PROV-IX
                MOVE SPACES TO WS-PROV-ID WS-PROV-EP

@@ -3735,7 +3735,8 @@
       *>   2026-09-27). The topics go to PICK-FORM by name, the current one
       *>   preselected; the one chosen becomes the current topic and a fresh
       *>   conversation starts in it. Cancel changes nothing.
-           MOVE 0 TO WS-PICK-COUNT WS-PICK-SEL
+           MOVE 0 TO WS-PICK-COUNT
+           MOVE 1 TO WS-PICK-SEL
            MOVE SPACES TO WS-PICK-LIST
            MOVE 1 TO WS-PICK-PTR
            OPEN I-O TOPICS-FILE
@@ -3756,7 +3757,7 @@
                        ADD 1 TO WS-PICK-COUNT
                        MOVE TOP-ID TO WS-PICK-ID(WS-PICK-COUNT)
                        IF TOP-ID = WS-CUR-TOPIC
-                           COMPUTE WS-PICK-SEL = WS-PICK-COUNT - 1
+                           MOVE WS-PICK-COUNT TO WS-PICK-SEL
                        END-IF
                        IF WS-PICK-COUNT > 1
                            STRING X"0A" DELIMITED BY SIZE

@@ -34,7 +34,7 @@ pub fn is_known_method(name: &str) -> bool {
         // Numeric value
             | "SETVALUE" | "GETVALUE" | "INCREMENT" | "DECREMENT" | "RESET"
         // Items / list / combo
-            | "ADDITEM" | "REMOVEITEM" | "GETSELECTED" | "GETSELECTEDINDEX"
+            | "ADDITEM" | "REMOVEITEM" | "REMOVEAT" | "GETSELECTED" | "GETSELECTEDINDEX"
             | "GETINDEX" | "SETSELECTEDINDEX" | "SETINDEX" | "GETCOUNT"
             | "LOADFROMFILE"
         // DataGrid

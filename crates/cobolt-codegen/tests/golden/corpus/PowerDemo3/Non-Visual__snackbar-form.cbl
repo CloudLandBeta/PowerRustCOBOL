@@ -909,7 +909,7 @@
        PROCEDURE DIVISION.
 
       *> WHICH button was pressed: LastButtonId is your own id from the
-      *> AddButton spec, LastButtonIndex is its 0-based place in the row.
+      *> AddButton spec, LastButtonIndex is its place in the row, counting from 1.
       *> Both are written BEFORE this handler runs.
       *> A button whose dismiss is true closes the notification AFTER this
       *> fires, so you can still read the message it was clicked on.

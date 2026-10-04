@@ -1216,16 +1216,25 @@ fn shadow_room(outer: Rect, parent: &Control) -> Rect {
 }
 
 /// Make tab `to` of TabControl `id` the active one, exactly as a click on it
-/// does — whether a click, an arrow key or Tab chose it.
+/// does — whether a click, an arrow key or Tab chose it. `to` and `from` are
+/// positions in the strip (from 0); what is written and reported is the PAGE,
+/// counting from 1 like every control index COBOL sees.
 fn select_tab(out: &mut RenderOutput, id: &str, to: usize, from: usize) {
-    out.prop_updates.push((id.to_owned(), "SelectedTab".to_owned(), to.to_string()));
+    let page = (to + 1).to_string();
+    out.prop_updates.push((id.to_owned(), "SelectedTab".to_owned(), page.clone()));
     out.events.push(UiEvent::ev(id, "onChange"));
     // spec 021 T12: every tab click, plus the change event only when the
     // selection actually moved.
-    out.events.push(UiEvent::with_value(id, "onTabClick", &to.to_string()));
+    out.events.push(UiEvent::with_value(id, "onTabClick", &page));
     if to != from {
-        out.events.push(UiEvent::with_value(id, "onTabChanged", &to.to_string()));
+        out.events.push(UiEvent::with_value(id, "onTabChanged", &page));
     }
+}
+
+/// The strip position (from 0) of the page a TabControl's `SelectedTab` names
+/// (from 1); 0 or less reads as the first page.
+fn selected_tab_position(ctrl: &Control) -> usize {
+    ctrl.get_prop("SelectedTab").map(|v| v.as_i64()).unwrap_or(1).max(1) as usize - 1
 }
 
 fn draw_deferred_tabcontrol_tabs(
@@ -1325,7 +1334,8 @@ fn combo_text_field(
         })
         .inner;
     if resp.changed() && editable {
-        let index = items.iter().position(|it| it == &buf).map_or(-1, |i| i as i64);
+        // From 1, as COBOL counts; 0 when the text names no item.
+        let index = items.iter().position(|it| it == &buf).map_or(0, |i| i as i64 + 1);
         out.prop_updates.push((id.to_owned(), "Value".to_owned(), buf.clone()));
         out.prop_updates.push((id.to_owned(), "SelectedIndex".to_owned(), index.to_string()));
         out.events.push(UiEvent::change(id, &buf));
@@ -2713,7 +2723,7 @@ fn render_form_inner(
                 out.prop_updates
                     .push((cid.clone(), "Value".to_owned(), val.clone()));
                 out.prop_updates
-                    .push((cid.clone(), "SelectedIndex".to_owned(), idx.to_string()));
+                    .push((cid.clone(), "SelectedIndex".to_owned(), (idx + 1).to_string()));
                 out.events.push(UiEvent::change(&cid, &val));
                 out.events.push(UiEvent::ev(&cid, "onSelectedIndexChanged"));
                 ui.data_mut(|d| d.insert_temp(open_id, false));
@@ -2883,7 +2893,7 @@ fn collect_tab_targets(
                 announces: is_label && live.events.iter().any(|e| e.event == "onGotFocus"),
                 enter_as_tab: live.enter_as_tab(),
                 tabs: (live.control_type == ControlType::TabControl).then(|| {
-                    let sel = live.get_prop("SelectedTab").map(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
+                    let sel = selected_tab_position(&live);
                     (sel, crate::paint::tabcontrol_tab_rects(egui::Pos2::ZERO, &live).len())
                 }),
             });
@@ -3107,7 +3117,7 @@ fn paint_focus_ring(
         if !ring.enabled {
             return;
         }
-        let sel = c.get_prop("SelectedTab").map(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
+        let sel = selected_tab_position(c);
         let mut sized = c.clone();
         sized.rect = crate::model::Rect::new(0, 0, rect.width().round() as i32, rect.height().round() as i32);
         if let Some(tab) = crate::paint::tabcontrol_tab_rects(rect.min, &sized).get(sel) {
@@ -4575,6 +4585,10 @@ struct ViewerLive {
     find_case: SharedValue<bool>,
     find_highlight: SharedValue<bool>,
     find_current: SharedValue<usize>,
+    /// The `SearchCurrentMatch` this view last reported (from 1; "0" = no
+    /// match), so the property is corrected whenever the matches change under
+    /// it — a first match found while it still said "0", say.
+    pushed_match: Option<String>,
     /// §8.3/§8.4 — is this `Streamed` view following the end, and has content
     /// arrived where the reader cannot see it?
     ///
@@ -4628,6 +4642,7 @@ impl ViewerLive {
             find_case: SharedValue::new(st.find_case_sensitive),
             find_highlight: SharedValue::new(st.find_highlight),
             find_current: SharedValue::new(st.find_current),
+            pushed_match: None,
             following: crate::viewer::AutoFollow::default(),
             jumped_seen: 0,
             last_max: 0.0,
@@ -5845,9 +5860,7 @@ fn viewer_view_interactive(
     if live.find_highlight.diverged(find_highlight) {
         push("View#SearchHighlightEnabled", find_highlight.to_string());
     }
-    if live.find_current.diverged(find_current) {
-        push("View#SearchCurrentMatch", find_current.to_string());
-    }
+
     let offset = live.scroll.offset().round() as i64;
     if offset != live.pushed_scroll {
         push("View#ScrollPosition", offset.to_string());
@@ -5876,12 +5889,16 @@ fn viewer_view_interactive(
         push("View#SearchMatchCount", measured_total.to_string());
         live.pushed_total = measured_total;
     }
-    if measured_total == 0 && find_current != 0 {
+    if measured_total == 0 {
         find_current = 0;
-        push("View#SearchCurrentMatch", "0".to_string());
-    } else if measured_total > 0 && find_current >= measured_total {
+    } else if find_current >= measured_total {
         find_current = measured_total - 1;
-        push("View#SearchCurrentMatch", find_current.to_string());
+    }
+    // The property counts matches from 1, as COBOL does; 0 when there is none.
+    let current_match = if measured_total == 0 { "0".to_string() } else { (find_current + 1).to_string() };
+    if live.pushed_match.as_deref() != Some(current_match.as_str()) {
+        push("View#SearchCurrentMatch", current_match.clone());
+        live.pushed_match = Some(current_match);
     }
     live.find_current.own = find_current;
     if split_changed && shared_view && want("onSplitModeChanged") {
@@ -8103,7 +8120,7 @@ fn render_interactive(
                         out.prop_updates.push((
                             id.to_owned(),
                             "SelectedIndex".to_owned(),
-                            to.to_string(),
+                            (to + 1).to_string(),
                         ));
                         out.events.push(UiEvent::change(id, &items[to]));
                         out.events.push(UiEvent::ev(id, "onSelectedIndexChanged"));
@@ -8669,7 +8686,7 @@ fn render_interactive(
                 out.prop_updates
                     .push((id.to_owned(), "Value".to_owned(), item.clone()));
                 out.prop_updates
-                    .push((id.to_owned(), "SelectedIndex".to_owned(), idx.to_string()));
+                    .push((id.to_owned(), "SelectedIndex".to_owned(), (idx + 1).to_string()));
                 out.events.push(UiEvent::change(id, &item));
                 out.events.push(UiEvent::ev(id, "onSelectedIndexChanged"));
             }
@@ -11479,7 +11496,7 @@ fn render_interactive(
         }
         CT::TabControl => {
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
-            let selected = sv(ctrl, "SelectedTab").parse::<usize>().unwrap_or(0);
+            let selected = selected_tab_position(ctrl);
             let tabs = paint::tabcontrol_tab_rects(screen.min, ctrl);
             // The control's keyboard stop: what the form's tab order focuses
             // (`tab_focus_id`). Registered over the strip BEFORE the tabs, so
@@ -14151,7 +14168,7 @@ mod tests {
         let (after, _) = h.frame(0.08, vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }]);
         let moved = writes_of(&after, "SearchCurrentMatch");
         println!("Next clicked with highlighting off -> SearchCurrentMatch {moved:?}");
-        assert_eq!(moved, vec!["1".to_string()], "AC23: navigation still works");
+        assert_eq!(moved, vec!["2".to_string()], "AC23: navigation still works");
     }
 
     /// **AC22**, wraparound — F3 walks forward past the last match and back
@@ -14181,8 +14198,8 @@ mod tests {
         }
         println!("3 matches — F3 x5 -> {forward:?}");
         println!("           Shift+F3 x3 -> {backward:?}");
-        assert_eq!(forward, ["1", "2", "0", "1", "2"], "R28: wraps past the last");
-        assert_eq!(backward, ["1", "0", "2"], "R28: and past the first");
+        assert_eq!(forward, ["2", "3", "1", "2", "3"], "R28: wraps past the last");
+        assert_eq!(backward, ["2", "1", "3"], "R28: and past the first");
     }
 
     /// **R26** — "`Esc` closes it and takes priority over R13's Zoom/
@@ -14797,12 +14814,13 @@ mod tests {
             active_marks(&shapes)
         };
 
-        let first = at(0);
-        let second = at(1);
-        let third = at(2);
+        // Matches count from 1; 0 is "no current match".
+        let first = at(1);
+        let second = at(2);
+        let third = at(3);
         println!("the ACTIVE mark, as the current match moves:");
         for (i, marks) in [&first, &second, &third].iter().enumerate() {
-            println!("  match {i}: {} active mark(s) at {:?}", marks.len(), marks.first().map(|r| (r.min.x, r.min.y)));
+            println!("  match {}: {} active mark(s) at {:?}", i + 1, marks.len(), marks.first().map(|r| (r.min.x, r.min.y)));
         }
         assert_eq!(first.len(), 1, "exactly ONE match is the current one");
         assert_eq!(second.len(), 1);
@@ -16612,12 +16630,12 @@ mod tests {
     #[test]
     fn a_designed_selected_index_selects_its_item() {
         let items = vec!["AC".to_owned(), "AL".to_owned(), "AM".to_owned()];
-        let mut c = ctrlp("C", ControlType::ComboBox, 0, 0, 100, 24, &[("SelectedIndex", "2")]);
+        let mut c = ctrlp("C", ControlType::ComboBox, 0, 0, 100, 24, &[("SelectedIndex", "3")]);
         assert_eq!(crate::paint::list_current_value(&c, &items), "AM");
         c.set_prop("Value", crate::PropValue::String("AC".into()));
         assert_eq!(crate::paint::list_current_value(&c, &items), "AC");
         c.set_prop("Value", crate::PropValue::String(String::new()));
-        c.set_prop("SelectedIndex", crate::PropValue::Int(-1));
+        c.set_prop("SelectedIndex", crate::PropValue::Int(0));
         assert_eq!(crate::paint::list_current_value(&c, &items), "");
     }
 
@@ -18195,7 +18213,7 @@ mod tests {
             "the range follows the pointer back up: anchor row 0 to row 1"
         );
         assert_eq!(prop("Value"), Some("Beta"), "the active row is the one under the pointer");
-        assert_eq!(prop("SelectedIndex"), Some("1"));
+        assert_eq!(prop("SelectedIndex"), Some("2"));
 
         // Dragging past the ENDS holds at the ends rather than selecting
         // nothing: far above the control, then far below it.
@@ -18738,7 +18756,7 @@ mod tests {
             o.get("ListBox-1").and_then(|p| p.get(k)).cloned()
         };
         assert_eq!(prop(&overrides, "Value").as_deref(), Some("Gamma"), "two rows down");
-        assert_eq!(prop(&overrides, "SelectedIndex").as_deref(), Some("2"));
+        assert_eq!(prop(&overrides, "SelectedIndex").as_deref(), Some("3"));
         assert_eq!(
             prop(&overrides, "SelectedItems").as_deref(),
             Some("Gamma"),
@@ -21585,7 +21603,7 @@ mod tests {
                 0,
                 400,
                 240,
-                &[("Tabs", "One\nTwo\nThree"), ("TabPosition", pos), ("SelectedTab", "0")],
+                &[("Tabs", "One\nTwo\nThree"), ("TabPosition", pos), ("SelectedTab", "1")],
             )];
             let mut frames = vec![(0.0, vec![]), (1.0, vec![tab_key(false, true)]), (2.0, vec![tab_key(false, false)])];
             for (i, k) in [next, next, next, back, Key::Home, Key::End, back].into_iter().enumerate() {
@@ -21598,13 +21616,13 @@ mod tests {
                 .filter(|e| e.event == "onTabChanged")
                 .filter_map(|e| e.value.as_deref())
                 .collect();
-            // → 1, → 2, → (already last: a click's onTabClick, no change),
-            // ← 1, Home 0, End 2, ← 1.
-            assert_eq!(changed, ["1", "2", "1", "0", "2", "1"], "{pos}: {:?}", names(&evs));
+            // Pages count from 1: → 2, → 3, → (already last: a click's
+            // onTabClick, no change), ← 2, Home 1, End 3, ← 2.
+            assert_eq!(changed, ["2", "3", "2", "1", "3", "2"], "{pos}: {:?}", names(&evs));
             assert_eq!(evs.iter().filter(|e| e.event == "onTabClick").count(), 7, "{pos}");
             assert_eq!(
                 map.get("TAB-1").and_then(|m| m.get("SelectedTab")).map(String::as_str),
-                Some("1"),
+                Some("2"),
                 "{pos}"
             );
         }
@@ -21624,7 +21642,7 @@ mod tests {
             40,
             400,
             200,
-            &[("Tabs", "One\nTwo\nThree"), ("SelectedTab", "0")],
+            &[("Tabs", "One\nTwo\nThree"), ("SelectedTab", "1")],
         );
         tabs.tab_order = 2;
         let mut after = ctrlp("After", ControlType::TextBox, 0, 260, 160, 24, &[("Text", "")]);
@@ -21653,7 +21671,7 @@ mod tests {
             .filter(|e| e.event == "onTabChanged")
             .filter_map(|e| e.value.as_deref())
             .collect();
-        assert_eq!(changed, ["1", "2", "1"], "{:?}", names(&evs));
+        assert_eq!(changed, ["2", "3", "2"], "pages count from 1: {:?}", names(&evs));
         assert_eq!(
             map.get("After").and_then(|m| m.get("Text")).map(String::as_str),
             Some("A"),
@@ -21661,7 +21679,7 @@ mod tests {
         );
         assert_eq!(
             map.get("TAB-1").and_then(|m| m.get("SelectedTab")).map(String::as_str),
-            Some("1")
+            Some("2")
         );
     }
 
@@ -21677,7 +21695,7 @@ mod tests {
             0,
             400,
             200,
-            &[("Tabs", "One\nTwo"), ("SelectedTab", "0")],
+            &[("Tabs", "One\nTwo"), ("SelectedTab", "1")],
         )];
         let ctx = egui::Context::default();
         ctx.set_fonts(egui::FontDefinitions::default());
@@ -22925,11 +22943,11 @@ mod tests {
         let (events, overrides) = type_into(&cmb, "Ri");
         assert!(!names(&events).contains(&"onDropDown"), "a press on the field must not open the list: {:?}", names(&events));
         assert_eq!(get(&overrides, "Value").as_deref(), Some("Ri"), "free text becomes Value");
-        assert_eq!(get(&overrides, "SelectedIndex").as_deref(), Some("-1"), "text naming no item selects none");
+        assert_eq!(get(&overrides, "SelectedIndex").as_deref(), Some("0"), "text naming no item selects none");
         assert!(names(&events).contains(&"onTextChanged"));
 
         let (_, overrides) = type_into(&cmb, "Rio");
-        assert_eq!(get(&overrides, "SelectedIndex").as_deref(), Some("1"), "text naming an item selects it");
+        assert_eq!(get(&overrides, "SelectedIndex").as_deref(), Some("2"), "text naming an item selects it");
 
         let (events, _) = drive(
             std::slice::from_ref(&cmb),
@@ -22982,7 +23000,7 @@ mod tests {
             ],
         );
         assert_eq!(get(&overrides, "Value").as_deref(), Some("Beta"), "a row of the inline list is picked");
-        assert_eq!(get(&overrides, "SelectedIndex").as_deref(), Some("1"));
+        assert_eq!(get(&overrides, "SelectedIndex").as_deref(), Some("2"));
         assert!(!names(&events).contains(&"onDropDown"), "a Simple combo has no dropdown");
 
         let field = pos2(60.0, head.center().y);
@@ -23206,7 +23224,7 @@ mod tests {
             ],
         );
         grid.parent = Some("TAB".into());
-        grid.tab = Some(0);
+        grid.tab = Some(1);
         let controls = vec![tab, grid];
         let ctx = egui::Context::default();
         crate::paint::set_glass_style(&ctx, crate::model::GlassStyle::Neumorphic);
@@ -23291,7 +23309,7 @@ mod tests {
                 ],
             );
             grid.parent = Some("TAB".into());
-            grid.tab = Some(0);
+            grid.tab = Some(1);
             let page = crate::paint::tabcontrol_page_rect(
                 Rect::from_min_size(pos2(24.0, 24.0), Vec2::new(920.0, 344.0)),
                 &tab,
@@ -24727,7 +24745,7 @@ mod tests {
                 .get("Cmb")
                 .and_then(|p| p.get("SelectedIndex"))
                 .map(String::as_str),
-            Some("1")
+            Some("2")
         );
         assert!(
             names(&events).contains(&"onSelectedIndexChanged"),

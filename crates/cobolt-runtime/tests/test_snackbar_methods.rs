@@ -326,7 +326,7 @@ fn a_handler_reads_which_button_was_pressed() {
     // handler to answer before the next — a human clicking, not a burst.
     // host.rs's ordering: both properties first, THEN the event.
     let mut lines: Vec<String> = Vec::new();
-    for (id, index) in [("retry", 0usize), ("later", 1usize)] {
+    for (id, index) in [("retry", 1usize), ("later", 2usize)] {
         input_tx
             .send(StateUpdate::new("SNACKBAR-1", "LastButtonId", id))
             .unwrap();
@@ -349,7 +349,7 @@ fn a_handler_reads_which_button_was_pressed() {
     lines.extend(display_rx.try_iter().map(|l| l.trim().to_owned()));
     eprintln!("\n  clicked   index   what the handler read back");
     eprintln!("  -------   -----   --------------------------");
-    for (id, index) in [("retry", 0usize), ("later", 1usize)] {
+    for (id, index) in [("retry", 1usize), ("later", 2usize)] {
         let want = format!("id={id} index={index}");
         let got = lines.iter().find(|l| l.starts_with(&format!("id={id}")));
         eprintln!("  {id:<7}   {index:>5}   {}", got.map(String::as_str).unwrap_or("NOTHING"));

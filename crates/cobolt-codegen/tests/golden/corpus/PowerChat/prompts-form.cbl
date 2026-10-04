@@ -908,7 +908,7 @@
        PROCEDURE DIVISION.
       *>   Back to the list as it was: nothing saved, nothing re-read.
            MOVE 0 TO WS-EDIT-VER
-           MOVE 0 TO Tab-Crud::SelectedTab
+           MOVE 1 TO Tab-Crud::SelectedTab
 
            GOBACK.
 
@@ -934,7 +934,7 @@
        PROCEDURE DIVISION.
       *>   Back to the list as it was: nothing saved, nothing re-read.
            MOVE 0 TO WS-EDIT-VER
-           MOVE 0 TO Tab-Crud::SelectedTab
+           MOVE 1 TO Tab-Crud::SelectedTab
 
            GOBACK.
 
@@ -1305,7 +1305,7 @@
                MOVE FUNCTION TRIM(T-HINT-MAIN-EDITOR) TO Txt-Prompt::HintText
                SET Btn-Default::Visible TO TRUE
                CALL "PC-LOAD-VERSIONS"
-               MOVE 0 TO Tab-Crud::SelectedTab
+               MOVE 1 TO Tab-Crud::SelectedTab
                EXIT PROGRAM
            END-IF
            SET Btn-Default::Visible TO FALSE
@@ -1330,7 +1330,7 @@
            CALL "PC-FMT"
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Title::Caption
            CALL "PC-LOAD-VERSIONS"
-           MOVE 0 TO Tab-Crud::SelectedTab
+           MOVE 1 TO Tab-Crud::SelectedTab
 
            GOBACK.
 
@@ -1351,7 +1351,7 @@
            MOVE SPACES TO WS-TEXT
            MOVE WS-TEXT TO Txt-Prompt::Text
            MOVE FUNCTION TRIM(T-NEW-VERSION) TO Lbl-Edit-Ver::Caption
-           MOVE 1 TO Tab-Crud::SelectedTab
+           MOVE 2 TO Tab-Crud::SelectedTab
 
            GOBACK.
 
@@ -1389,7 +1389,7 @@
            MOVE WS-VNUM TO WS-ARG1
            CALL "PC-FMT"
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Edit-Ver::Caption
-           MOVE 1 TO Tab-Crud::SelectedTab
+           MOVE 2 TO Tab-Crud::SelectedTab
 
            GOBACK.
 
@@ -1479,7 +1479,7 @@
            MOVE FUNCTION TRIM(WS-FMT-OUT) TO Lbl-Status::Caption
            MOVE 0 TO WS-EDIT-VER
            CALL "PC-LOAD-VERSIONS"
-           MOVE 0 TO Tab-Crud::SelectedTab
+           MOVE 1 TO Tab-Crud::SelectedTab
 
            GOBACK.
 

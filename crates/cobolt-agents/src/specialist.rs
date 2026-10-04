@@ -76,7 +76,7 @@ wrapped in a single fenced block:
 ```
 
 Each element of `operations` is exactly one of:
-- `{ "op": "deploy_control", "control_type": "Button", "id": "SAVE-BUTTON", "properties": { "Caption": "Save", "X": 300, "Y": 240, "Parent": "TabControl-1", "Tab": 0 } }`
+- `{ "op": "deploy_control", "control_type": "Button", "id": "SAVE-BUTTON", "properties": { "Caption": "Save", "X": 300, "Y": 240, "Parent": "TabControl-1", "Tab": 1 } }`
 - `{ "op": "set_property", "control_id": "TOTAL-LABEL", "key": "ForegroundColor", "value": "#008000" }`
 - `{ "op": "generate_event_handler", "control_id": "SAVE-BUTTON", "event": "onClick", "code": "       ENVIRONMENT DIVISION..." }`
 - `{ "op": "create_procedure", "name": "VALIDATE-INPUT", "code": "       ENVIRONMENT DIVISION..." }`

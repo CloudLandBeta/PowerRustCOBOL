@@ -3893,7 +3893,7 @@ mod tests {
         let reply = r#"```json
 { "operations": [
   { "op": "deploy_control", "control_type": "Button", "id": "B1",
-    "properties": { "Caption": "OK", "X": 40, "Y": 80, "Parent": "Tab1", "Tab": 0 } }
+    "properties": { "Caption": "OK", "X": 40, "Y": 80, "Parent": "Tab1", "Tab": 1 } }
 ] }
 ```"#;
         let cs = parse_change_set(reply).expect("structural deploy properties parse");

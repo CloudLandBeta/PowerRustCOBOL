@@ -423,14 +423,14 @@
 
        PROCEDURE DIVISION.
 
-      *> RemoveItem takes the zero-based position, which is what GetIndex() returns.
+      *> RemoveAt takes the position (from 1), which is what GetIndex() returns.
       *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
       *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
       *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
       *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
       *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
       *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Cbo-City::RemoveItem(Cbo-City::GetIndex()).
+           Cbo-City::RemoveAt(Cbo-City::GetIndex()).
 
            GOBACK.
 

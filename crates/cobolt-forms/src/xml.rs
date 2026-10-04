@@ -188,6 +188,10 @@ type AttrPairs = Vec<(Vec<u8>, String)>; // (key-bytes, value-string)
 
 enum OwnedEvent {
     FormStart {
+        /// The `index-base` attribute: 1 for a form saved since control
+        /// indexes became 1-based (1.80.148); 0 (absent) for an older file,
+        /// whose stored indexes are migrated on load.
+        index_base: u8,
         name: String,
         title: String,
         width: u32,
@@ -365,8 +369,12 @@ fn next_owned<R: std::io::BufRead>(
                         .unwrap_or(false);
                     // 079 — absent means the classic seeding.
                     let control_style = get_attr(e, b"control-style")?.unwrap_or_default();
+                    let index_base = get_attr(e, b"index-base")?
+                        .and_then(|v| v.trim().parse::<u8>().ok())
+                        .unwrap_or(0);
 
                     Ok(OwnedEvent::FormStart {
+                        index_base,
                         name,
                         title,
                         width,
@@ -507,14 +515,42 @@ pub fn load_form_from_str(xml: &str) -> Result<Form, FormError> {
     read_form(&mut reader)
 }
 
+/// A form saved before control indexes became 1-based (operator, 2026-10-03;
+/// no `index-base` attribute) stored them counting from 0, with -1 for
+/// "nothing". Shift what was stored, once, as it is read: a list's
+/// `SelectedIndex` (-1 → 0, n → n + 1), a TabControl's `SelectedTab`, and the
+/// page (`tab`) a control sits on. The next save writes `index-base="1"`.
+/// The developer's COBOL is never touched.
+pub fn migrate_zero_based_indexes(controls: &mut [Control]) {
+    for ctrl in controls.iter_mut() {
+        if let Some(t) = ctrl.tab.as_mut() {
+            *t += 1;
+        }
+        for prop in ["SelectedIndex", "SelectedTab"] {
+            let Some(old) = ctrl.get_prop(prop).map(|v| v.as_i64()) else {
+                continue;
+            };
+            let new = if old < 0 { 0 } else { old + 1 };
+            let value = match ctrl.properties.get(prop) {
+                Some(PropValue::String(_)) => PropValue::String(new.to_string()),
+                _ => PropValue::Int(new),
+            };
+            ctrl.properties.insert(prop.to_owned(), value);
+        }
+        migrate_zero_based_indexes(&mut ctrl.children);
+    }
+}
+
 /// Shared form-reading loop used by both `load_form` and `load_form_from_str`.
 fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormError> {
     let mut buf = Vec::new();
     let mut form: Option<Form> = None;
+    let mut legacy_indexes = false;
 
     loop {
         match next_owned(reader, &mut buf)? {
             OwnedEvent::FormStart {
+                index_base,
                 name,
                 title,
                 width,
@@ -549,6 +585,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 responsive,
                 control_style,
             } => {
+                legacy_indexes = index_base < 1;
                 // Build a base Form using Form::new (populates default form_events)
                 let mut f = Form::new(&name, &title, width, height);
                 f.background_color = background;
@@ -599,6 +636,10 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
     // editing list with `parent` links, and migrate the old Panel `Scrollable`
     // flag to the unified `HScroll`/`VScroll` properties.
     normalize_containers(&mut form);
+    // Before the defaults are seeded: a seeded default is already 1-based.
+    if legacy_indexes {
+        migrate_zero_based_indexes(&mut form.controls);
+    }
     seed_missing_props(&mut form);
     // 049 — a FullHeight SideMenu spans the form's whole height. Doing it here
     // means every consumer (designer, preview, run, shell, codegen) reads one
@@ -1619,6 +1660,9 @@ pub fn form_to_string(form: &Form) -> Result<String, FormError> {
         if !form.title_visible {
             elem.push_attribute(("title-visible", "false"));
         }
+        // Control indexes count from 1 in this file (see
+        // `migrate_zero_based_indexes`).
+        elem.push_attribute(("index-base", "1"));
         // Additive: only written when it is not the SemiTransparent default,
         // so a form nobody touched this on round-trips byte-identical.
         if form.modal_overlay_style != crate::model::ModalOverlayStyle::default() {
@@ -3590,5 +3634,69 @@ Actor Caption:string</Property>
         assert!(t.contains("PROCEDURE DIVISION."));
         // No event carries data yet → no USING clause.
         assert!(!t.contains("USING"));
+    }
+
+    /// Indexes count from 1 (operator, 2026-10-03): a form saved before that
+    /// has no `index-base` and is shifted once on load; a form that carries
+    /// `index-base="1"` is read as written; and the save of a migrated form
+    /// reads back identical — never shifted a second time.
+    #[test]
+    fn a_legacy_form_shifts_its_indexes_once_and_a_saved_one_never_again() {
+        let body = r##"
+  <Control id="Tab-Main" type="TabControl" x="0" y="0" w="400" h="300">
+    <Property name="Tabs">One
+Two
+Three</Property>
+    <Property name="SelectedTab">2</Property>
+  </Control>
+  <Control id="Lst-None" type="ListBox" x="10" y="40" w="100" h="80" parent="Tab-Main" tab="0">
+    <Property name="Items">a
+b</Property>
+    <Property name="SelectedIndex">-1</Property>
+  </Control>
+  <Control id="Cmb-Second" type="ComboBox" x="10" y="40" w="100" h="24" parent="Tab-Main" tab="2">
+    <Property name="Items">a
+b</Property>
+    <Property name="SelectedIndex">1</Property>
+  </Control>
+</Form>"##;
+        let tab_of = |f: &Form, id: &str| f.controls.iter().find(|c| c.id == id).unwrap().tab;
+        let prop_of = |f: &Form, id: &str, p: &str| {
+            f.controls.iter().find(|c| c.id == id).unwrap().get_prop(p).map(|v| v.as_i64())
+        };
+        let check = |f: &Form, label: &str| {
+            assert_eq!(prop_of(f, "Tab-Main", "SelectedTab"), Some(3), "{label}: SelectedTab 2 → 3");
+            assert_eq!(tab_of(f, "Lst-None"), Some(1), "{label}: page 0 → 1");
+            assert_eq!(prop_of(f, "Lst-None", "SelectedIndex"), Some(0), "{label}: -1 (none) → 0");
+            assert_eq!(tab_of(f, "Cmb-Second"), Some(3), "{label}: page 2 → 3");
+            assert_eq!(prop_of(f, "Cmb-Second", "SelectedIndex"), Some(2), "{label}: 1 → 2");
+        };
+
+        let legacy = format!(r#"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="IDX-FORM" title="Idx" width="640" height="480">{body}"#);
+        let migrated = load_form_from_str(&legacy).expect("load legacy form");
+        check(&migrated, "legacy load");
+
+        let current = format!(r#"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="IDX-FORM" title="Idx" width="640" height="480" index-base="1">{body}"#);
+        let as_written = load_form_from_str(&current).expect("load 1-based form");
+        assert_eq!(prop_of(&as_written, "Tab-Main", "SelectedTab"), Some(2));
+        assert_eq!(tab_of(&as_written, "Lst-None"), Some(0), "a 1-based file is never shifted");
+        assert_eq!(prop_of(&as_written, "Lst-None", "SelectedIndex"), Some(-1));
+        assert_eq!(tab_of(&as_written, "Cmb-Second"), Some(2));
+        assert_eq!(prop_of(&as_written, "Cmb-Second", "SelectedIndex"), Some(1));
+
+        let path = std::env::temp_dir().join("cobolt_test_index_base_once.cfrm");
+        save_form(&migrated, &path).expect("save");
+        let saved = std::fs::read_to_string(&path).expect("read back");
+        let _ = std::fs::remove_file(&path);
+        assert!(saved.contains(r#"index-base="1""#), "the save marks the file 1-based");
+        let reloaded = load_form_from_str(&saved).expect("reload saved form");
+        check(&reloaded, "reload after save");
+        println!(
+            "index-base migration: legacy SelectedTab 2→3, tab 0→1 and 2→3, \
+             SelectedIndex -1→0 and 1→2; index-base=\"1\" file read as written; \
+             saved copy reloads unchanged"
+        );
     }
 }

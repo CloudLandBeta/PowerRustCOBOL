@@ -2570,7 +2570,8 @@ pub fn list_current_value(ctrl: &Control, items: &[String]) -> String {
         .trim()
         .parse::<i64>()
         .ok()
-        .and_then(|i| usize::try_from(i).ok())
+        // From 1, as COBOL counts; 0 (or less) selects nothing.
+        .and_then(|i| usize::try_from(i - 1).ok())
         .and_then(|i| items.get(i).cloned())
         .unwrap_or_default()
 }
@@ -7325,7 +7326,8 @@ pub fn draw_tabcontrol_tabs(painter: &egui::Painter, origin: Pos2, ctrl: &Contro
         .get_prop("Tabs")
         .map(|v| v.as_str().lines().map(|s| s.to_string()).collect())
         .unwrap_or_default();
-    let sel = ctrl.get_prop("SelectedTab").map(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
+    // `SelectedTab` names a page from 1; `sel` is its position in the strip.
+    let sel = ctrl.get_prop("SelectedTab").map(|v| v.as_i64()).unwrap_or(1).max(1) as usize - 1;
     let TabColors { active_fill, active_ink, inactive_fill, inactive_ink } = tabcontrol_tab_colors(ctx, ctrl);
     let font_name = ctrl.get_prop("FontName").map(|v| v.as_str().to_owned()).unwrap_or_default();
     let font_id = crate::fonts::font_id(ctx, &font_name, ctrl_font_size(ctrl));
@@ -11378,7 +11380,8 @@ impl<'a> ViewerPaintState<'a> {
                 .get_prop(&v("SearchHighlightEnabled"))
                 .map(|v| v.as_bool())
                 .unwrap_or(true),
-            find_current: int(&v("SearchCurrentMatch"), 0).max(0) as usize,
+            // The property counts matches from 1 (0 = none); the engine from 0.
+            find_current: (int(&v("SearchCurrentMatch"), 0) - 1).max(0) as usize,
             find_total: int(&v("SearchMatchCount"), 0).max(0) as usize,
             conversation_html: text("_ConversationHtml").unwrap_or_default(),
             page_count: 1,
@@ -18993,7 +18996,7 @@ mod toggle_surface_tests {
             let mut c = Control::new("TAB-1", ControlType::TabControl, 0, 0);
             c.rect = crate::model::Rect::new(0, 0, 400, 200);
             c.set_prop("Tabs", PropValue::String("One\nTwo".into()));
-            c.set_prop("SelectedTab", PropValue::Int(1));
+            c.set_prop("SelectedTab", PropValue::Int(2));
             c.set_prop("ForegroundColor", PropValue::String("#003758FF".into()));
             c.set_prop("ActiveTabForegroundColor", PropValue::String(ink.into()));
             let ctx = egui::Context::default();
@@ -19463,7 +19466,7 @@ mod theme_render_tests {
             let mut c = Control::new("TAB-1", ControlType::TabControl, 0, 0);
             c.rect = crate::model::Rect::new(0, 0, 400, 240);
             c.set_prop("Tabs", PropValue::String("Browse\nCreate/Update".into()));
-            c.set_prop("SelectedTab", PropValue::Int(1));
+            c.set_prop("SelectedTab", PropValue::Int(2));
             c.set_prop("TabPosition", PropValue::String(pos.into()));
             c.set_prop("CornerRadius", PropValue::Int(16));
             let ctx = egui::Context::default();

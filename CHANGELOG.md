@@ -8,6 +8,60 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.148] — 2026-10-04
+
+### Fix: every index a control hands COBOL counts from 1, and 0 means none
+
+⚠️ **Breaking for existing COBOL.** A control's positions counted from 0 with
+`-1` for "none", while every COBOL table counts from 1, so a handler had to add
+or subtract 1 at each boundary (operator, 2026-10-03). They now count from 1,
+and `0` means none:
+
+- **ListBox / ComboBox** — `SelectedIndex`, `GetSelectedIndex()` /
+  `GetIndex()`, `SetSelectedIndex(n)`; `0` clears the selection, and
+  `Clear()` / `LoadFromFile` reset it to `0`.
+- **`RemoveItem(text)`** now removes the item with that text, as documented —
+  it took a 0-based position, so a text argument did nothing. **New
+  `RemoveAt(n)`** removes by position, from 1.
+- **TabControl** — `SelectedTab`, each control's page (`Tab`), and the values
+  `onTabClick` / `onTabChanged` report.
+- **TreeView** — `AddNode(1, …)` is a root (0 is still taken as one);
+  `NodeLevel` answers 1 for a root; traversal calls answer `0` for no node
+  (no parent, no further sibling), not `-1`.
+- **Snackbar** — `LastButtonIndex` and the `onButtonClick` value.
+- **Viewer** — `SearchCurrentMatch` (`0` = no match).
+- **DataGrid** numeric column keys, and **chain subscripts** —
+  `Grid-1::Rows(1)` is the first row, `List-1::Items(1)` the first item;
+  `Rows(0)` names nothing, so a write to it stores nothing.
+
+**Forms are converted; your COBOL is not.** A `.cfrm` saved before this
+change has no `index-base` attribute: on load its stored `SelectedIndex`,
+`SelectedTab` and every control's `tab` move up by one (`-1` → `0`), once,
+and the next save writes `index-base="1"`. Handlers are never touched — search
+them for `SelectedIndex`, `SelectedTab`, `GetIndex`, `SetSelectedIndex`,
+`LastButtonIndex`, `RemoveItem`, `Rows(` and `Items(`, and for comparisons
+with `-1`. ⚠️ Do not save a form with an IDE older than 1.80.148: it drops
+`index-base` and the next load shifts every index a second time.
+
+- **Examples:** the 74 `.cfrm` of PowerDemo3 and PowerChat migrated (74 `tab`,
+  27 `SelectedIndex`, 8 `SelectedTab`, each checked to have moved exactly
+  once), and their handlers rewritten for 1-based indexes (TabControl page
+  moves, combo/list `RemoveAt`, the agents/model/providers pickers, PowerChat's
+  pick-form `PickSelected` contract and the documents tree's depth).
+  PowerChat's generated programs regenerated.
+- **`RemoveAt` is inline-callable** (`is_known_method`) — without it
+  `Lst::RemoveAt(n)` parsed as a subscript and silently did nothing.
+- **Format reference:** the `.cfrm` prose names `index-base`.
+- **Tests:** `a_legacy_form_shifts_its_indexes_once_and_a_saved_one_never_again`,
+  `remove_item_takes_the_text_and_remove_at_the_position_from_1`,
+  `subscript_one_is_the_first_element_and_zero_is_none`; the TreeView, list,
+  TabControl, Viewer, Snackbar and chain tests rewritten to the new numbers
+  (inputs moved with them, so each still exercises the same item); codegen
+  corpus snapshots regenerated. Screen output is unchanged: the 056 host
+  corpus golden (453 renders) and the form corpus golden show no difference.
+- **Guide** ("Indexes count from 1", with the migration caveat) and System KB
+  updated; `chunked.data` regenerated.
+
 ## [PowerRustCOBOL 1.80.147] — 2026-10-03
 
 ### Fix: Ctrl+W (Cmd+W on macOS) closes the focused window

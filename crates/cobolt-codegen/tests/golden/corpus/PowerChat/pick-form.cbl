@@ -213,7 +213,7 @@
       *>   Choose one of a list, for any form (operator, 2026-09-27):
       *>   the caller sets PickItems - one item per line - and, translated,
       *>   PickTitle / PickOk / PickCancel on itself, PickSelected (the
-      *>   item preselected, 0 = the first) and PickAnswer = 0; opens this
+      *>   item preselected, 1 = the first) and PickAnswer = 0; opens this
       *>   with OpenFormSync; and reads PickAnswer when it returns: the
       *>   chosen item, 1 = the first, or 0 when nothing was chosen.
       *>   The designed texts in the user's language first; what the
@@ -247,7 +247,7 @@
            END-PERFORM
            INVOKE super::"GetProperty"("PickSelected") RETURNING WS-TEXT
            IF WS-TEXT = SPACES
-               MOVE 0 TO WS-IDX
+               MOVE 1 TO WS-IDX
            ELSE
                MOVE FUNCTION NUMVAL(WS-TEXT) TO WS-IDX
            END-IF
@@ -294,10 +294,10 @@
        PROCEDURE DIVISION.
       *>   The chosen item, 1 = the first; nothing chosen, nothing to do.
            MOVE Lst-Items::SelectedIndex TO WS-IDX
-           IF WS-IDX < 0
+           IF WS-IDX < 1
                EXIT PROGRAM
            END-IF
-           COMPUTE WS-ANSWER = WS-IDX + 1
+           MOVE WS-IDX TO WS-ANSWER
            INVOKE super::"SetProperty"("PickAnswer", WS-ANSWER)
            INVOKE ME::Close()
 

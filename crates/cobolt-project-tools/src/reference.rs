@@ -167,6 +167,9 @@ The root element. Its attributes:
   `title-visible`, `start-position`, `x`, `y`, `window-effects`, `modal-overlay-style`,
   `form-format`, `responsive` — window behaviour; the properties of the same names in
   `form-layout-and-events.md` and `controls.md` say what each value means.
+- `index-base` — always `1`: the stored indexes (`tab`, `SelectedIndex`, `SelectedTab`) count
+  from 1, with 0 for none. A file without it was saved before indexes counted from 1, and is
+  shifted once as it loads. Write `index-base="1"` on every form you write.
 
 An attribute that is left out takes its default; the IDE writes many of them only when they
 differ from it.
@@ -195,7 +198,7 @@ One per control, in the order they are painted. Attributes:
 - `tab-order` — keyboard order. `z-order` — stacking. `visible`, `enabled` — `true`/`false`.
 - `parent` — the id of the container (GroupBox, Panel, TabControl, Splitter, …) the control
   is inside. **Membership is this attribute, never the geometry.**
-- `tab` — inside a TabControl, the 0-based page the control sits on.
+- `tab` — inside a TabControl, the page the control sits on, counting from 1 like `SelectedTab`.
 
 Inside a `Control`:
 

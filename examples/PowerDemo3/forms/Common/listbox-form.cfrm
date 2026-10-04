@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="LISTBOX-FORM" title="ListBox - the whole list, always visible" width="1000" height="660" background="BFBFBFFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" form-format="Both">
+<Form name="LISTBOX-FORM" title="ListBox - the whole list, always visible" width="1000" height="660" background="BFBFBFFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" form-format="Both" index-base="1">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"
@@ -290,7 +290,7 @@ Re-index the knowledge base
 Rebuild the installer
 Answer the forum thread
 Profile the indexed writer</Property>
-    <Property name="SelectedIndex">-1</Property>
+    <Property name="SelectedIndex">0</Property>
     <Property name="MultiSelect">false</Property>
     <Property name="ShowCheckBoxes">false</Property>
     <Property name="Sorted">false</Property>
@@ -348,7 +348,7 @@ Profile the indexed writer</Property>
       *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
       *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
       *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Lst-Tasks::RemoveItem(Lst-Tasks::GetIndex()).
+           Lst-Tasks::RemoveAt(Lst-Tasks::GetIndex()).
       *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
       *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
       *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
@@ -429,7 +429,7 @@ Profile the indexed writer</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="SelectedIndex">-1</Property>
+    <Property name="SelectedIndex">0</Property>
     <Property name="MultiSelect">false</Property>
     <Property name="ShowCheckBoxes">true</Property>
     <Property name="Sorted">false</Property>

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="TABCONTROL-FORM" title="TabControl - pages in one rectangle" width="1000" height="660" background="#20242CFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Both">
+<Form name="TABCONTROL-FORM" title="TabControl - pages in one rectangle" width="1000" height="660" background="#20242CFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Both" index-base="1">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"
@@ -254,7 +254,7 @@
 Items
 Shipping</Property>
     <Property name="TabPosition">Top</Property>
-    <Property name="SelectedTab">0</Property>
+    <Property name="SelectedTab">1</Property>
     <Property name="ActiveTabColor">#488DFFFF</Property>
     <Property name="TabPadding">16</Property>
     <Property name="HScroll">false</Property>
@@ -290,7 +290,7 @@ Shipping</Property>
 
 ]]></Event>
   </Control>
-  <Control id="Lbl-P0" type="Label" x="76" y="186" w="200" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="0">
+  <Control id="Lbl-P0" type="Label" x="76" y="186" w="200" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="1">
     <Property name="Caption">Customer name</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -325,7 +325,7 @@ Shipping</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Txt-Name" type="TextBox" x="280" y="182" w="320" h="28" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="0">
+  <Control id="Txt-Name" type="TextBox" x="280" y="182" w="320" h="28" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="1">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -365,7 +365,7 @@ Shipping</Property>
     <Property name="BorderColor">#AAAAAA</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Lbl-P0b" type="Label" x="76" y="226" w="200" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="0">
+  <Control id="Lbl-P0b" type="Label" x="76" y="226" w="200" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="1">
     <Property name="Caption">Loyalty tier</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -400,7 +400,7 @@ Shipping</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Cbo-Tier" type="ComboBox" x="280" y="222" w="220" h="28" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="0">
+  <Control id="Cbo-Tier" type="ComboBox" x="280" y="222" w="220" h="28" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="1">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -430,7 +430,7 @@ Shipping</Property>
     <Property name="Items">Bronze
 Silver
 Gold</Property>
-    <Property name="SelectedIndex">2</Property>
+    <Property name="SelectedIndex">3</Property>
     <Property name="Sorted">false</Property>
     <Property name="DropDownStyle">DropDown</Property>
     <Property name="DropDownHeight">200</Property>
@@ -438,7 +438,7 @@ Gold</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">Single</Property>
   </Control>
-  <Control id="Lst-Items" type="ListBox" x="76" y="182" w="400" h="140" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="1">
+  <Control id="Lst-Items" type="ListBox" x="76" y="182" w="400" h="140" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="2">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -468,7 +468,7 @@ Gold</Property>
     <Property name="Items">Rust in Action
 COBOL for the curious
 A year of forms</Property>
-    <Property name="SelectedIndex">-1</Property>
+    <Property name="SelectedIndex">0</Property>
     <Property name="MultiSelect">false</Property>
     <Property name="ShowCheckBoxes">false</Property>
     <Property name="Sorted">false</Property>
@@ -476,7 +476,7 @@ A year of forms</Property>
     <Property name="BorderColor">#888888</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Lbl-P1" type="Label" x="500" y="182" w="420" h="60" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="1">
+  <Control id="Lbl-P1" type="Label" x="500" y="182" w="420" h="60" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="2">
     <Property name="Caption">Controls on this page exist all the time; only the visible page is painted.</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -511,7 +511,7 @@ A year of forms</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Chk-Gift" type="CheckBox" x="76" y="186" w="300" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="2">
+  <Control id="Chk-Gift" type="CheckBox" x="76" y="186" w="300" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="3">
     <Property name="Caption">Gift wrap</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -551,7 +551,7 @@ A year of forms</Property>
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Dtp-When" type="DateTimePicker" x="76" y="224" w="240" h="28" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="2">
+  <Control id="Dtp-When" type="DateTimePicker" x="76" y="224" w="240" h="28" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="3">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -629,14 +629,14 @@ A year of forms</Property>
 
        PROCEDURE DIVISION.
 
-      *> Three pages, numbered from zero - wrap round at the end.
+      *> Three pages, numbered from 1 - wrap round at the end.
       *> EN: EXTENSION - a numeric property compares and computes algebraically; no PIC item needed.
       *> PT: EXTENSAO - propriedade numerica compara e calcula algebricamente; sem item PIC.
       *> ES: EXTENSION - la propiedad numerica compara y calcula algebraicamente; sin item PIC.
       *> FR: EXTENSION - une propriete numerique compare et calcule algebriquement; sans item PIC.
       *> JP: EXTENSION - 数値プロパティは代数的に比較・計算できる。中間の PIC 項目は不要。
       *> CN: EXTENSION - 数值属性按代数方式比较与计算；无需中间 PIC 数据项。
-           IF Tab-Order::SelectedTab < 2
+           IF Tab-Order::SelectedTab < 3
       *> EN: EXTENSION - arithmetic writes straight into the property, which is a receiving field.
       *> PT: EXTENSAO - a aritmetica escreve direto na propriedade, que e um campo receptor.
       *> ES: EXTENSION - la aritmetica escribe directo en la propiedad, que es campo receptor.
@@ -651,7 +651,7 @@ A year of forms</Property>
       *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
       *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
            ELSE
-               MOVE 0 TO Tab-Order::SelectedTab
+               MOVE 1 TO Tab-Order::SelectedTab
            END-IF.
 ]]></Event>
   </Control>
@@ -705,7 +705,7 @@ A year of forms</Property>
       *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
       *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
       *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-           MOVE 2 TO Tab-Order::SelectedTab.
+           MOVE 3 TO Tab-Order::SelectedTab.
 ]]></Event>
   </Control>
   <Control id="Btn-Read" type="Button" x="376" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">

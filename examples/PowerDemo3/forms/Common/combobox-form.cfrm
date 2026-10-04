@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="COMBOBOX-FORM" title="ComboBox - a list that folds away" width="1000" height="660" background="#20242CFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Both">
+<Form name="COMBOBOX-FORM" title="ComboBox - a list that folds away" width="1000" height="660" background="#20242CFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Both" index-base="1">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"
@@ -292,7 +292,7 @@ Rio de Janeiro
 Salvador
 Recife
 Porto Alegre</Property>
-    <Property name="SelectedIndex">0</Property>
+    <Property name="SelectedIndex">1</Property>
     <Property name="Sorted">false</Property>
     <Property name="DropDownStyle">DropDown</Property>
     <Property name="DropDownHeight">200</Property>
@@ -423,7 +423,7 @@ Porto Alegre</Property>
 Premium economy
 Business
 First</Property>
-    <Property name="SelectedIndex">1</Property>
+    <Property name="SelectedIndex">2</Property>
     <Property name="Sorted">false</Property>
     <Property name="DropDownStyle">DropDownList</Property>
     <Property name="DropDownHeight">200</Property>
@@ -660,14 +660,14 @@ First</Property>
 
        PROCEDURE DIVISION.
 
-      *> RemoveItem takes the zero-based position, which is what GetIndex() returns.
+      *> RemoveAt takes the position (from 1), which is what GetIndex() returns.
       *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
       *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
       *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
       *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
       *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
       *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Cbo-City::RemoveItem(Cbo-City::GetIndex()).
+           Cbo-City::RemoveAt(Cbo-City::GetIndex()).
 ]]></Event>
   </Control>
   <Control id="Btn-Count" type="Button" x="376" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">

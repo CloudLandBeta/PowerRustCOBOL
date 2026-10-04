@@ -209,9 +209,9 @@ const NESTED_SRC: &str = r#"
        IDENTIFICATION DIVISION.
        PROGRAM-ID. T.
        PROCEDURE DIVISION.
-           MOVE "hello" TO GRID::Rows(0)::Columns(1)::Value.
-           DISPLAY "cell=[" GRID::Rows(0)::Columns(1)::Value "]".
-           DISPLAY "up=[" GRID::Rows(0)::Columns(1)::Value::toUpperCase() "]".
+           MOVE "hello" TO GRID::Rows(1)::Columns(2)::Value.
+           DISPLAY "cell=[" GRID::Rows(1)::Columns(2)::Value "]".
+           DISPLAY "up=[" GRID::Rows(1)::Columns(2)::Value::toUpperCase() "]".
            STOP RUN.
 "#;
 
@@ -222,7 +222,7 @@ fn nested_chain_get_set_and_transform() {
     assert!(out.contains("up=[HELLO"), "tail transform failed: {out}");
 }
 
-// `Items(n)` indexes the legacy newline-string list form.
+// `Items(n)` indexes the legacy newline-string list form, counting from 1.
 const ITEMS_SRC: &str = r#"
        IDENTIFICATION DIVISION.
        PROGRAM-ID. T.
@@ -230,7 +230,7 @@ const ITEMS_SRC: &str = r#"
            INVOKE LST "AddItem" USING "alpha".
            INVOKE LST "AddItem" USING "beta".
            INVOKE LST "AddItem" USING "gamma".
-           DISPLAY "i1=[" LST::Items(1) "]".
+           DISPLAY "i2=[" LST::Items(2) "]".
            DISPLAY "n=[" LST::Items::Count() "]".
            STOP RUN.
 "#;
@@ -239,8 +239,8 @@ const ITEMS_SRC: &str = r#"
 fn indexed_legacy_string_list() {
     let out = run_capture(ITEMS_SRC).join("\n");
     assert!(
-        out.contains("i1=[beta"),
-        "Items(1) line index failed: {out}"
+        out.contains("i2=[beta"),
+        "Items(2) line index failed: {out}"
     );
     assert!(out.contains("n=[3"), "Items::Count() failed: {out}");
 }
@@ -250,10 +250,10 @@ const DELETE_SRC: &str = r#"
        IDENTIFICATION DIVISION.
        PROGRAM-ID. T.
        PROCEDURE DIVISION.
-           MOVE "a" TO LST::Rows(0)::Value.
-           MOVE "b" TO LST::Rows(1)::Value.
-           LST::Rows(0)::Delete().
-           DISPLAY "row0=[" LST::Rows(0)::Value "]".
+           MOVE "a" TO LST::Rows(1)::Value.
+           MOVE "b" TO LST::Rows(2)::Value.
+           LST::Rows(1)::Delete().
+           DISPLAY "row1=[" LST::Rows(1)::Value "]".
            STOP RUN.
 "#;
 
@@ -261,9 +261,32 @@ const DELETE_SRC: &str = r#"
 fn collection_element_delete() {
     let out = run_capture(DELETE_SRC).join("\n");
     assert!(
-        out.contains("row0=[b"),
+        out.contains("row1=[b"),
         "delete did not shift elements: {out}"
     );
+}
+
+// Subscripts count from 1 (operator, 2026-10-03): `Rows(1)` is the first
+// element, and `Rows(0)` names none — a write to it stores nothing, and a
+// read of it answers empty.
+const ZERO_SUB_SRC: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. T.
+       PROCEDURE DIVISION.
+           MOVE "first" TO LST::Rows(1)::Value.
+           MOVE "nowhere" TO LST::Rows(0)::Value.
+           DISPLAY "row1=[" LST::Rows(1)::Value "]".
+           DISPLAY "row0=[" LST::Rows(0)::Value "]".
+           DISPLAY "n=[" LST::Rows::Count() "]".
+           STOP RUN.
+"#;
+
+#[test]
+fn subscript_one_is_the_first_element_and_zero_is_none() {
+    let out = run_capture(ZERO_SUB_SRC).join("\n");
+    assert!(out.contains("row1=[first"), "Rows(1) is the first element: {out}");
+    assert!(out.contains("row0=[]"), "Rows(0) names no element: {out}");
+    assert!(out.contains("n=[1"), "the write to Rows(0) stored nothing: {out}");
 }
 
 // Property as a receiving field for verbs beyond MOVE/SET (STRING, ADD).

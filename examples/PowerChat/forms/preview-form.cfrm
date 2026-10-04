@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="PREVIEW-FORM" title="PowerChat" width="960" height="640" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
+<Form name="PREVIEW-FORM" title="PowerChat" width="960" height="640" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" index-base="1" modal-overlay-style="Greyed">
   <working-storage><![CDATA[       01 WS-TEXT            GLOBAL PIC X(400).
        01 WS-OK              GLOBAL PIC X(4).
 ]]></working-storage>
@@ -96,7 +96,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -134,7 +133,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -176,6 +174,11 @@
     <Property name="View1SearchText"></Property>
     <Property name="View2Source"></Property>
     <Property name="View2SearchText"></Property>
+    <Property name="UserBubbleColor">#2E7D32FF</Property>
+    <Property name="UserBubbleTextColor">#FFFFFFFF</Property>
+    <Property name="AgentBubbleColor">#2C6FD2FF</Property>
+    <Property name="AgentBubbleTextColor">#FFFFFFFF</Property>
+    <Property name="UserBubbleBold">false</Property>
   </Control>
   <Control id="Btn-Close" type="Button" x="832" y="16" w="104" h="36" tab-order="1" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
@@ -202,7 +205,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>

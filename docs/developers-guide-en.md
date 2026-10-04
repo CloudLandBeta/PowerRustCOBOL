@@ -1361,7 +1361,7 @@ files, prompt versions, provider connections — is built the same way, so an
 operator learns it once:
 
 - a **TabControl** with two pages, **Browse** and **Create/Update**, turned from
-  COBOL with `MOVE 1 TO Tab-Crud::SelectedTab`;
+  COBOL with `MOVE 2 TO Tab-Crud::SelectedTab`;
 - on **Browse**, a **New** button above a **DataGrid** of the records; each row ends
   in two icon buttons, a pencil and a trash can (`icon:pencil`, `icon:trash` in a
   Button column), and `onCellClick` reads `ClickedRow` / `ClickedColumn` to know
@@ -3605,31 +3605,31 @@ designer canvas, the preview, Run Form and the compiled binary.
 > ```cobol
 >       *> Climb from the node that fired to the one it hangs under.
 >            MOVE TREE-1::NodeParent(CONTROL-NODE-INDEX) TO WS-IDX
->            IF WS-IDX >= 0
+>            IF WS-IDX > 0
 >                MOVE TREE-1::NodeText(WS-IDX) TO WS-PARENT-NAME
 >            END-IF
 >
 >       *> Run along everything under it — and no further.
 >            MOVE TREE-1::NodeFirstChild(CONTROL-NODE-INDEX) TO WS-IDX
->            PERFORM UNTIL WS-IDX < 0
+>            PERFORM UNTIL WS-IDX = 0
 >                MOVE TREE-1::NodeText(WS-IDX) TO WS-NAME
 >                DISPLAY "child: " WS-NAME
 >                MOVE TREE-1::NodeNextSibling(WS-IDX) TO WS-IDX
 >            END-PERFORM
 > ```
 >
-> **`-1` means there is no such node** — no parent above a root, no sibling past
+> **`0` means there is no such node** — no parent above a root, no sibling past
 > the last one — which is what ends the loop. A sibling walk never descends into
 > children and never escapes into the next parent.
 >
 >
 > | Call                                                | Answers                                                       |
 > | --------------------------------------------------- | ------------------------------------------------------------- |
-> | `NodeParent(i)`                                     | the node it hangs under,`-1` on a root                        |
+> | `NodeParent(i)`                                     | the node it hangs under, `0` on a root                        |
 > | `NodeFirstChild(i)` / `NodeLastChild(i)`            | its first / last direct child                                 |
 > | `NodeNextSibling(i)` / `NodePrevSibling(i)`         | the next / previous node at the same level, same parent       |
 > | `NodeChildCount(i)` / `NodeHasChildren(i)`          | direct children only — grandchildren are not children        |
-> | `NodeText(i)` / `NodePath(i)` / `NodeLevel(i)`      | its label, its `Root/Child/Leaf` path, its depth               |
+> | `NodeText(i)` / `NodePath(i)` / `NodeLevel(i)`      | its label, its `Root/Child/Leaf` path, its depth (1 = a root)  |
 > | `NodeIcon(i)` / `NodeColor(i)` / `NodeBackColor(i)` | what the node itself carries                                  |
 > | `NodeChecked(i)` / `NodeCollapsed(i)`               | `1`/`0`, read from the live `CheckedNodes` / `CollapsedNodes` |
 > | `NodeCount()` / `NodeIndexOf(text)`                 | how many nodes; the handle for a label you already know       |
@@ -3646,15 +3646,15 @@ designer canvas, the preview, Run Form and the compiled binary.
 > stale the moment `Items` changed under it; an index is simply re-read against
 > whatever the tree holds now. For the same reason, asking about a node that is
 > not there answers *empty* rather than raising — a walk runs off the end of a
-> tree by design, and the `-1` is the guard, not an error every loop would have
+> tree by design, and the `0` is the guard, not an error every loop would have
 > to trap.
 >
 > **Building a tree from COBOL:** use `AddNode`, **not** `AddItem`.
 >
 > ```cobol
->            TREE-1::AddNode(0, "Warehouse")
->            TREE-1::AddNode(1, "Inbound")
->            TREE-1::AddNode(2, "Dock A")
+>            TREE-1::AddNode(1, "Warehouse")
+>            TREE-1::AddNode(2, "Inbound")
+>            TREE-1::AddNode(3, "Dock A")
 > ```
 >
 > ⚠️ `AddItem` **trims its argument** — it has to, because a `PIC X` field
@@ -3851,7 +3851,7 @@ combo with `Editable` off behaves exactly like a `DropDownList`.
 
 What is typed becomes `Value` — **even when it is not one of the items**, which
 is the point of a combo that takes text (a city that is not in the list yet).
-`SelectedIndex` follows: the item the text names exactly, or `-1`. Each
+`SelectedIndex` follows: the item the text names exactly, or `0`. Each
 keystroke raises `onChange` and `onTextChanged`, and while the list is open the
 highlight jumps to the first item that begins with what has been typed, so
 Enter picks it.
@@ -3860,7 +3860,7 @@ Enter picks it.
        CBO-CITY-ONCHANGE.
            MOVE CBO-CITY::Value         TO WS-CITY
            MOVE CBO-CITY::SelectedIndex TO WS-CITY-IX
-           IF WS-CITY-IX < 0
+           IF WS-CITY-IX = 0
                DISPLAY "New city typed: " WS-CITY
            END-IF.
 ```
@@ -3914,6 +3914,36 @@ longer and the next key starts a new search with itself. The arrows carry on
 from the item found: ↓ to the ones after it, ↑ to the ones before. A combo you
 can type in searches with its own text instead, as you type it.
 
+**Indexes count from 1.** Every position a control hands your COBOL counts the
+way a COBOL table does: item 1 is the first. That is `SelectedIndex` (a ListBox
+or ComboBox), `SelectedTab` and a control's `Tab` page (a TabControl), a
+Snackbar's `LastButtonIndex`, a Viewer's `SearchCurrentMatch`, a DataGrid's rows
+and columns, chain subscripts such as `Grid-1::Rows(1)` and `List-1::Items(1)`,
+and a TreeView's node handles and depths (`AddNode(1, …)` is a root). **`0`
+means none** — nothing selected, no match, no such node.
+
+```cobol
+       MOVE CBO-UF::GetSelectedIndex() TO WS-IX
+       IF WS-IX > 0
+           MOVE WS-UF-TABLE(WS-IX) TO EMP-UF      *> the same number indexes your table
+       END-IF
+       MOVE CBO-UF::GetCount() TO WS-N
+       MOVE WS-N TO CBO-UF::SelectedIndex          *> the last item
+       Lst-Tasks::RemoveAt(Lst-Tasks::GetIndex())  *> remove the selected item
+       Lst-Tasks::RemoveItem("Done")              *> remove an item by its text
+```
+
+> ⚠️ **Coming from an earlier version.** Until 1.80.148 these counted from 0,
+> with `-1` for none. A form saved before then is converted the first time it
+> opens — the values the designer stored (`SelectedIndex`, `SelectedTab`, each
+> control's `Tab` page) move up by one, and the next save marks the file as
+> converted — so your forms look and open as before. **Your COBOL is never
+> changed**: a handler that compares with `-1`, moves `0` to select the first
+> item or adds 1 to reach a table entry needs adjusting by hand, and Check cannot
+> tell you where. Search your handlers for `SelectedIndex`, `SelectedTab`,
+> `GetIndex`, `SetSelectedIndex`, `LastButtonIndex`, `RemoveItem` (which now takes
+> the item's **text**; use `RemoveAt` for a position), `Rows(` and `Items(`.
+
 **Sorting the items.** Tick **Sorted** and the list shows its items in
 alphabetical order. Three things worth knowing:
 
@@ -3927,9 +3957,10 @@ alphabetical order. Three things worth knowing:
   the operator picked. `Value` is the item's text and is the same either way.
   Setting `SelectedIndex` — in the designer, or from COBOL with
   `MOVE 2 TO CBO-CITY::SelectedIndex` or `SetSelectedIndex` — selects that item
-  and moves `Value` with it; `-1` clears the selection. It works the other way
+  and moves `Value` with it — `1` is the first item — and `0` clears the
+  selection. It works the other way
   too: `MOVE EMP-UF TO CBO-UF::Value` selects the item with that text and moves
-  `SelectedIndex` to it (trailing spaces in the field do not count), or to `-1`
+  `SelectedIndex` to it (trailing spaces in the field do not count), or to `0`
   when no item has that text. The same holds for a ListBox.
 
 > A **TreeView** carries `Sorted` too, and since 1.61.153 it acts on it — by
@@ -5752,8 +5783,8 @@ A minimal chatbot form, then, is a Viewer, a ListBox and two buttons:
        PROGRAM-ID. LST-HISTORY--ONSELECTEDINDEXCHANGED.
        PROCEDURE DIVISION.
            MOVE LST-HISTORY::SelectedIndex TO WS-ROW
-           IF WS-ROW >= 0
-               MOVE WS-CHAT-ID-TABLE(WS-ROW + 1) TO WS-CHAT-ID
+           IF WS-ROW > 0
+               MOVE WS-CHAT-ID-TABLE(WS-ROW) TO WS-CHAT-ID
                INVOKE VWR-1::SelectConversation(WS-CHAT-ID)
            END-IF
            .
@@ -6461,7 +6492,7 @@ move or compute between a data item and a property — e.g. `MOVE WS-N TO Spinne
 >
 > In the second and third the **inner** control owns the member being typed —
 > `Slider-1`, not `Grid-1`. A subscript stays part of its own expression, so a
-> chain tail such as `Grid-1::Rows(0)::` still lists `Grid-1`'s members.
+> chain tail such as `Grid-1::Rows(1)::` still lists `Grid-1`'s members.
 
 ### Calling control methods
 
@@ -6535,7 +6566,7 @@ control's methods after you type `::`, each with a one-line description.
 | Text box                    | `SetText`, `GetText`, `AppendText`, `Clear`                                                                                                                     |
 | Check box / radio           | `IsChecked`, `SetChecked`, `Toggle`, `Select`                                                                                                                   |
 | Progress / slider / numeric | `SetValue`, `GetValue`, `Increment`, `Decrement`, `Reset`                                                                                                       |
-| List / combo                | `AddItem`, `RemoveItem`, `GetCount`, `GetSelected`, `SetIndex`, `LoadFromFile`, `Clear`, `RefreshBinding`                                                         |
+| List / combo                | `AddItem`, `RemoveItem`, `RemoveAt`, `GetCount`, `GetSelected`, `SetIndex`, `LoadFromFile`, `Clear`, `RefreshBinding`                                                         |
 | Timer                       | `Start`, `Stop`, `SetInterval`, `IsEnabled`                                                                                                                     |
 | REST Client                 | `get`, `post`, `put`, `delete`, `call`, `setHeader`, `clearHeaders`                                                                                             |
 | SQL Database                | `open`, `execute`, `query`, `fetch`, `fetchAll`, `close`                                                                                                        |
@@ -6565,12 +6596,12 @@ rows, a list's items, a row's columns); a bare name is a property; a name with
            DISPLAY Grid-1::Rows(I)::Columns(2)::Value::toUpperCase().
 
       *> write a nested cell — the structure is created on demand
-           MOVE "Total" TO Grid-1::Rows(0)::Columns(0)::Value.
+           MOVE "Total" TO Grid-1::Rows(1)::Columns(1)::Value.
 
       *> a method on a collection element (mutates it)
            List-1::Rows(I)::Delete().
 
-      *> index the legacy item list; count its entries
+      *> index the legacy item list (from 1); count its entries
            DISPLAY List-1::Items(3).
            DISPLAY List-1::Items::Count().
 ```

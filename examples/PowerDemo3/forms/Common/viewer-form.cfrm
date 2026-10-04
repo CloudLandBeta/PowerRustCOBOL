@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="VIEWER-FORM" title="Viewer - documents, split views, search and a live stream" width="1280" height="982" background="#EAEBEFFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" form-format="Both">
+<Form name="VIEWER-FORM" title="Viewer - documents, split views, search and a live stream" width="1280" height="982" background="#EAEBEFFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" form-format="Both" index-base="1">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"

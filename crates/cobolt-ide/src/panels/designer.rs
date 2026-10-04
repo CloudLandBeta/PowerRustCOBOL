@@ -4490,7 +4490,8 @@ impl DesignerPanel {
                 .enumerate()
             {
                 if tr.contains(p) {
-                    return Some((c.id.clone(), i as u32));
+                    // The PAGE, counting from 1 like `SelectedTab`.
+                    return Some((c.id.clone(), i as u32 + 1));
                 }
             }
         }
@@ -14954,7 +14955,8 @@ fn apply_structural_prop(ctrl: &mut Control, key: &str, value: &PropValue) {
     }
 }
 
-/// Resolve a tab-page name (e.g. `"Tab1"`) to `(tab_control_id, tab_index)` by
+/// Resolve a tab-page name (e.g. `"Tab1"`) to `(tab_control_id, page)` — the
+/// page counting from 1, like `SelectedTab` — by
 /// searching every `TabControl` on the form. Returns `None` if no tab page with
 /// that name is found.
 fn resolve_tab_page(form: &cobolt_forms::Form, name: &str) -> Option<(String, u32)> {
@@ -14966,7 +14968,7 @@ fn resolve_tab_page(form: &cobolt_forms::Form, name: &str) -> Option<(String, u3
             let tabs_str = tabs_prop.as_str();
             for (i, tab_name) in tabs_str.split('\n').enumerate() {
                 if tab_name.trim().eq_ignore_ascii_case(name) {
-                    return Some((ctrl.id.clone(), i as u32));
+                    return Some((ctrl.id.clone(), i as u32 + 1));
                 }
             }
         }
@@ -19719,7 +19721,7 @@ mod text_align_tests {
         assert_eq!(d.apply_agent_change_set(&cs), 1);
         let button = d.form.find_control("Button-1").expect("button deployed");
         assert_eq!(button.parent.as_deref(), Some("TabControl-1"));
-        assert_eq!(button.tab, Some(0));
+        assert_eq!(button.tab, Some(1), "Tab1 is page 1 — pages count from 1");
         assert_eq!(button.rect.x, 120, "already on the 8px grid");
         assert_eq!(button.rect.y, 152, "150 snaps to the nearest grid point");
     }

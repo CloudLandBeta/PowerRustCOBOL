@@ -4275,7 +4275,7 @@ The runtime's built-in calls — HTTP, SQL, files, native dialogs, API keys, the
 - **Boolean properties** store `1` (true) / `0` (false). Write `SET C::Visible TO 1`. On method arguments, `true`/`yes`/`on` (any case) also count as true.
 - **Colors** are hex strings: `"#RRGGBB"` or `"#RRGGBBAA"` (e.g. `"#FF0000"`, `"#00000000"` = transparent).
 - **Coordinates and sizes** (`X`, `Y`, `Width`, `Height`, paddings, radii) are integer pixels.
-- **List content** (`Items` of ListBox/ComboBox/ToolBar/StatusBar/TreeView) is ONE ITEM PER LINE (newline-separated); TreeView nests children with two leading spaces per level, and a node may carry up to three TAB-separated fields of its own after its label (`label\\ticon\\tcolour\\tbackground`). Indexes (`SelectedIndex`, grid rows/columns) are 0-based; -1 = no selection. A TreeView node's handle is its **1-based** LINE in `Items` as written — the number a node event hands the handler in `CONTROL-NODE-INDEX` — and it is what every `Node…` method takes and every traversal method returns; `-1` (or `0`) names no node.
+- **List content** (`Items` of ListBox/ComboBox/ToolBar/StatusBar/TreeView) is ONE ITEM PER LINE (newline-separated); TreeView nests children with two leading spaces per level, and a node may carry up to three TAB-separated fields of its own after its label (`label\\ticon\\tcolour\\tbackground`). Every index a control shows COBOL counts from 1, as a COBOL table does — `SelectedIndex`, `SelectedTab`, a control's `Tab` page, grid rows and columns, `LastButtonIndex`, `SearchCurrentMatch`, chain subscripts such as `Rows(1)` — and 0 means none. A TreeView node's handle is its **1-based** LINE in `Items` as written — the number a node event hands the handler in `CONTROL-NODE-INDEX` — and it is what every `Node…` method takes and every traversal method returns; `0` names no node.
 - **DataGrid data**: `Columns` is one `Name:Type` per line (`Type` ∈ `string`|`number`|`datetime`); `Rows` separates rows with newlines and cells with TAB.
 - **Enumerated properties** accept only their listed values EXACTLY as spelled (e.g. `Orientation` is `Horizontal` or `Vertical`); an unrecognised value falls back to the default without an error.
 - **Property names**: setting a misspelled property silently creates a new, unused property — never guess names; use the ones in the Form Controls Reference.
@@ -4804,7 +4804,7 @@ A form holds a **flat list** of controls; nesting is derived from each control's
   `X`/`Y` are relative to its container (the form, or the parent control).
 - **`parent`** — the id of the enclosing container, or none for a direct child
   of the form. A control whose parent is a **TabControl** also carries `tab`,
-  the 0-based page it belongs to.
+  the page it belongs to, counting from 1 like `SelectedTab`.
 - **`z_order`** — higher is drawn on top; 0 is bottommost; negatives are legal.
 - **`tab_order`** — the keyboard traversal sequence.
 
@@ -5419,7 +5419,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "ConversationId" => ("free text", "Viewer, conversation mode. The id of the conversation currently open, and what `onConversationSelected` carries. Set it before `NewConversation()` so the archived entry is filed under a name your program chose."),
         "SearchCaseSensitive" => (BOOL_DOMAIN, "Viewer, per view. Off (case-insensitive) by default. Changing it changes which matches are found WITHOUT the query being retyped."),
         "SearchHighlightEnabled" => (BOOL_DOMAIN, "Viewer, per view. On by default: every match is marked, with the current one picked out. Turning it off stops the marking and breaks neither the match count nor Next/Previous."),
-        "SearchCurrentMatch" => ("`0`-based index, read/write", "Viewer, per view. Which match is current. `FindNext()`/`FindPrevious()` move it, wrapping past either end."),
+        "SearchCurrentMatch" => ("integer from 1; 0 = no match, read/write", "Viewer, per view. Which match is current, counting from 1. `FindNext()`/`FindPrevious()` move it, wrapping past either end."),
         "SearchMatchCount" => ("read-only", "Viewer, per view. How many matches the text on screen holds — `0` for a format with no extractable text, such as a standalone image, which is not an error."),
         "FindOpen" => (BOOL_DOMAIN, "Viewer, per view. Whether the Find bar is showing. `Ctrl+F`/`Cmd+F` opens it and `Esc` closes it — and while it is open, `Esc` closes the bar rather than doing its usual job of returning the zoom to 100 %."),
         "Progress" => ("`0`–`100`, read-only", "Viewer. How far a document is through opening. `onLoadProgress` reports it as it climbs and `onLoaded` follows at 100."),
@@ -5614,7 +5614,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             "project-relative or absolute path of a .txt, or empty",
             "ComboBox / ListBox: a text file the list reads its items from each time the form opens — one item per line, blank lines left out — so editing the file changes the list without touching the form. When the file cannot be read, the designed Items stay. Keep it in the project's assets/ folder so a built application carries it. In the inspector, 📂 picks the file and ✕ clears the path and the items. From COBOL, LoadFromFile(path) does the same at any time.",
         ),
-        "SelectedIndex" => ("0-based index; -1 = no selection", "The selected item's position among the items AS SHOWN (`Sorted` applied), which is also what a pick reports. Setting it — in the designer or from COBOL, by the property or `SetSelectedIndex` — selects that item: `Value` becomes its text; -1, or a position past the end, clears the selection. Writing `Value` moves it the other way: to the first item equal to the value (trailing spaces ignored, so a space-padded COBOL field matches), or -1 when no item is. ComboBox and ListBox."),
+        "SelectedIndex" => ("index from 1; 0 = no selection", "The selected item's position among the items AS SHOWN (`Sorted` applied), which is also what a pick reports. Setting it — in the designer or from COBOL, by the property or `SetSelectedIndex` — selects that item (1 is the first): `Value` becomes its text; 0, or a position past the end, clears the selection. Writing `Value` moves it the other way: to the first item equal to the value (trailing spaces ignored, so a space-padded COBOL field matches), or 0 when no item is. ComboBox and ListBox."),
         "MultiSelect" => (
             BOOL_DOMAIN,
             "Lets the user build a selection with Ctrl-click (Cmd on a Mac), reported in SelectedItems.",
@@ -5656,7 +5656,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "Sorted" => (BOOL_DOMAIN, "Shows the items in alphabetical order, by TEXT and ignoring case, so 10 sorts before 9. Display order only - the stored Items keeps the order it was written in. ListBox, ComboBox and TreeView. A TreeView sorts SIBLINGS only — every child stays under the parent it was written under — and a node's handle (`CONTROL-NODE-INDEX`, the `Node…` methods) is still its line as written, so sorting never renumbers a handler."),
         "DropDownStyle" => ("one of: `DropDown` | `DropDownList` | `Simple`", "`DropDown` (the default): a text field that takes typing, with a button on the right that opens the list — a press on the text places the caret. `DropDownList`: pick-only — a press anywhere opens the list and typing is refused. `Simple`: the text field with the list always shown beneath it, inside the control, and no dropdown (no `onDropDown`)."),
         "DropDownHeight" => ("pixels > 0", "Maximum height of the opened list. The list is as tall as its items need up to this, and scrolls past it."),
-        "Editable" => (BOOL_DOMAIN, "Whether the combo's text field takes typing (the `DropDown` and `Simple` styles; a `DropDownList` never does). Typed text becomes `Value` even when it names no item — `SelectedIndex` is then -1 — and raises `onChange` and `onTextChanged`; while the list is open, typing moves its highlight to the first item that begins with the text. Off, a `DropDown` combo is pick-only. The arrow keys always walk the list."),
+        "Editable" => (BOOL_DOMAIN, "Whether the combo's text field takes typing (the `DropDown` and `Simple` styles; a `DropDownList` never does). Typed text becomes `Value` even when it names no item — `SelectedIndex` is then 0 — and raises `onChange` and `onTextChanged`; while the list is open, typing moves its highlight to the first item that begins with the text. Off, a `DropDown` combo is pick-only. The arrow keys always walk the list."),
 
         // ── TreeView ──
         "AllowEdit" => (BOOL_DOMAIN, "TreeView (default false): the operator may rename a node in place — a double-click on its label, or F2 on the selected node, opens the label in a text box; Enter or clicking away keeps it, Escape drops it, and an empty label is refused. A kept rename rewrites that node's line in `Items` (its indentation and icon/colour fields kept), follows it in `SelectedNode`, `CheckedNodes` and `CollapsedNodes`, writes the old label to `PreviousNodeText`, and fires `onNodeRenamed` with the node — the new label in `CONTROL-NODE`. Storing the new name is the handler's job; to refuse it, write `Items` back. A tab or line break typed into the label becomes a space."),
@@ -5774,7 +5774,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         // ── TabControl ──
         "Tabs" => ("one tab title per line", "The tab pages."),
         "TabPosition" => ("one of: `Top` | `Bottom` | `Left` | `Right`", "Edge the tab strip sits on."),
-        "SelectedTab" => ("0-based tab index", "Currently active tab. The operator clicking a tab header writes this, and writing it from COBOL turns the page exactly as a click does — the page a running form shows is always this value, never the one the form was designed with."),
+        "SelectedTab" => ("page from 1", "Currently active tab: 1 is the first page. The operator clicking a tab header writes this, and writing it from COBOL turns the page exactly as a click does — the page a running form shows is always this value, never the one the form was designed with."),
         "ActiveTabColor" => (COLOR_DOMAIN, "Fill of the selected tab (default blue `#2C6FD2FF`). The selected tab flows into the page: its side against the page is straight, with no line between them, so this fill is what marks the active tab."),
         "ActiveTabForegroundColor" => (COLOR_DOMAIN, "Text color of the selected tab's title. Empty (the default) = whichever of white or black reads on `ActiveTabColor` (white on the default blue). Settable from COBOL: `MOVE \"#FFFFFFFF\" TO TAB-1::ActiveTabForegroundColor`."),
         "TabPadding" => ("integer 0-64 (default 16)", "The space between a tab's title and its left and right edges; each tab is as wide as its title plus this on both sides. Tabs sit edge to edge and the strip joins the page with no gap. (Before 1.70.272 this was the gap between tabs.)"),
@@ -6122,8 +6122,8 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             "Which of the notification's buttons was pressed. Written before `onButtonClick` fires, so ONE handler can serve every button on the message: `EVALUATE SNACK-1::LastButtonId`. It holds the `id` field from the `Buttons` line — your own English name for the button.",
         ),
         "LastButtonIndex" => (
-            "0-based integer (runtime-only, never a design-time default)",
-            "The 0-based position of the button that was pressed, in `Buttons` order. Written alongside `LastButtonId`, for a handler that would rather switch on the position than the name.",
+            "integer from 1 (runtime-only, never a design-time default)",
+            "The position of the button that was pressed, in `Buttons` order, counting from 1. Written alongside `LastButtonId`, for a handler that would rather switch on the position than the name.",
         ),
         "Buttons" => (
             "one button per line: id|text|icon|position|dismiss",
@@ -6271,7 +6271,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "View1Page" => ("integer ≥ 1", "Viewer. The page view 1 is on, counted from 1. Default 1. The unprefixed `Page` is an alias for it."),
         "View1ScrollPosition" => ("pixels ≥ 0", "Viewer. View 1's vertical scroll offset; 0 (the default) is the top. Written back as the user scrolls; a COBOL write moves the view. The unprefixed `ScrollPosition` is an alias for it."),
         "View1SearchCaseSensitive" => ("`1` (true) or `0` (false)", "Viewer. Makes view 1's Find case-sensitive. Default off. The unprefixed `SearchCaseSensitive` is an alias for it."),
-        "View1SearchCurrentMatch" => ("integer ≥ 0", "Viewer. Index of the selected Find match in view 1, counted from 0 (the bar shows `1 / N`). Moves with Find next/previous. The unprefixed `SearchCurrentMatch` is an alias for it."),
+        "View1SearchCurrentMatch" => ("integer ≥ 0", "Viewer. Index of the selected Find match in view 1, counting from 1 as the bar shows it (`1 / N`); 0 when there is no match. Moves with Find next/previous. The unprefixed `SearchCurrentMatch` is an alias for it."),
         "View1SearchHighlightEnabled" => ("`1` (true) or `0` (false)", "Viewer. Highlights every Find match in view 1. Default on. The unprefixed `SearchHighlightEnabled` is an alias for it."),
         "View1SearchMatchCount" => ("integer, read-only", "Viewer. Number of Find matches in view 1's document. The unprefixed `SearchMatchCount` is an alias for it."),
         "View1SearchText" => ("free text", "Viewer. The text view 1's Find looks for. Matches are counted in SearchMatchCount and highlighted while SearchHighlightEnabled is on. The unprefixed `SearchText` is an alias for it."),
@@ -6284,7 +6284,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "View2Page" => ("integer ≥ 1", "Viewer. The page view 2 is on, counted from 1. Default 1. Meaningful only when `SplitMode` is `LeftRight` or `TopBottom`."),
         "View2ScrollPosition" => ("pixels ≥ 0", "Viewer. View 2's vertical scroll offset; 0 (the default) is the top. Written back as the user scrolls; a COBOL write moves the view. Meaningful only when `SplitMode` is `LeftRight` or `TopBottom`."),
         "View2SearchCaseSensitive" => ("`1` (true) or `0` (false)", "Viewer. Makes view 2's Find case-sensitive. Default off. Meaningful only when `SplitMode` is `LeftRight` or `TopBottom`."),
-        "View2SearchCurrentMatch" => ("integer ≥ 0", "Viewer. Index of the selected Find match in view 2, counted from 0 (the bar shows `1 / N`). Moves with Find next/previous. Meaningful only when `SplitMode` is `LeftRight` or `TopBottom`."),
+        "View2SearchCurrentMatch" => ("integer ≥ 0", "Viewer. Index of the selected Find match in view 2, counting from 1 as the bar shows it (`1 / N`); 0 when there is no match. Moves with Find next/previous. Meaningful only when `SplitMode` is `LeftRight` or `TopBottom`."),
         "View2SearchHighlightEnabled" => ("`1` (true) or `0` (false)", "Viewer. Highlights every Find match in view 2. Default on. Meaningful only when `SplitMode` is `LeftRight` or `TopBottom`."),
         "View2SearchMatchCount" => ("integer, read-only", "Viewer. Number of Find matches in view 2's document. Meaningful only when `SplitMode` is `LeftRight` or `TopBottom`."),
         "View2SearchText" => ("free text", "Viewer. The text view 2's Find looks for. Matches are counted in SearchMatchCount and highlighted while SearchHighlightEnabled is on. Meaningful only when `SplitMode` is `LeftRight` or `TopBottom`."),
@@ -6407,7 +6407,7 @@ fn control_structure(name: &str) -> &'static str {
         "ToolBar" => "The buttons are in the `ToolbarLayout` property: JSON written by the Toolbar Editor, holding the groups in order, each group's frame and button defaults, and each button's label or icon, tooltip, enabled state and action. An agent reads it in the control's `CONTROLS` line. Change it in the Toolbar Editor; a `set_property` on `ToolbarLayout` replaces the whole definition, so it must carry every group and button, not only the changed one.",
         "TreeView" => "The tree is the `Items` property: one node per line, in display order, each child indented two spaces (or one tab) more than its parent, optionally followed by TAB-separated icon, colour and background fields. An agent reads it in the control's `CONTROLS` line and changes it with `set_property` on `Items`, sending the whole tree. From COBOL, `AddNode(level, text)` builds it at run time.",
         "ListBox" | "ComboBox" => "The entries are the `Items` property: one entry per line, in display order. An agent reads it in the control's `CONTROLS` line and changes it with `set_property` on `Items`, sending the whole list (sorting, adding or removing an entry means sending every line). When `ItemsFile` names a text file, the list reads its entries from that file each time the form opens instead.",
-        "TabControl" => "The pages are the `Tabs` property: one tab title per line, in order. A control sits on a page through its own `Tab` property (the 0-based page index) with this TabControl as its `Parent`, so reordering titles in `Tabs` does not move the controls with them: a page move also needs each child's `Tab` changed.",
+        "TabControl" => "The pages are the `Tabs` property: one tab title per line, in order. A control sits on a page through its own `Tab` property (the page, counting from 1) with this TabControl as its `Parent`, so reordering titles in `Tabs` does not move the controls with them: a page move also needs each child's `Tab` changed.",
         "DataGrid" => "The columns are the `Columns` property, one `Name:Type` per line in display order (`string`, `number` or `datetime`); the cells are `Rows`, one row per line with cells separated by TAB, usually filled at run time. An agent changes the columns with `set_property` on `Columns`, sending every column.",
         _ => "",
     }
@@ -6492,32 +6492,33 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
     ];
     let items_methods: Vec<(&'static str, &'static str)> = vec![
         ("AddItem(text: String)", "Append one item."),
-        ("RemoveItem(text: String)", "Remove the first item equal to `text`."),
+        ("RemoveItem(text: String)", "Remove the first item equal to `text` (trailing spaces ignored)."),
+        ("RemoveAt(index: Integer)", "Remove the item at `index`, counting from 1 (what `GetSelectedIndex` answers)."),
         ("GetSelected() → String", "Read the selected item's value."),
-        ("GetSelectedIndex() → Integer", "Read the 0-based selected index (-1 = none)."),
-        ("SetSelectedIndex(index: Integer)", "Select by 0-based index."),
+        ("GetSelectedIndex() → Integer", "Read the selected index, counting from 1 (0 = none)."),
+        ("SetSelectedIndex(index: Integer)", "Select by index, counting from 1 (0 clears)."),
         ("GetCount() → Integer", "Number of items."),
-        ("Clear()", "Remove all items (a ComboBox / ListBox also clears its selection: SelectedIndex -1, Value empty)."),
+        ("Clear()", "Remove all items (a ComboBox / ListBox also clears its selection: SelectedIndex 0, Value empty)."),
     ];
     // TreeView nodes. Every call takes the node's 1-based INDEX — the same number the
     // node event hands the handler in `CONTROL-NODE-INDEX`. The traversal calls
-    // RETURN an index, so they chain; -1 means there is no such node.
+    // RETURN an index, so they chain; 0 means there is no such node.
     let tree_node_methods: Vec<(&'static str, &'static str)> = vec![
         (
             "AddNode(level: Integer, text: String [, icon, color, background])",
-            "Append a node at `level` (0 = root). The level is a NUMBER because `AddItem` trims its argument and a node's level is leading spaces — an indented literal cannot build a child. The optional fields are the node's own icon, label colour and row colour.",
+            "Append a node at `level` (1 = root, as `CONTROL-NODE-LEVEL` counts). The level is a NUMBER because `AddItem` trims its argument and a node's level is leading spaces — an indented literal cannot build a child. The optional fields are the node's own icon, label colour and row colour.",
         ),
         ("NodeCount() → Integer", "How many nodes the tree holds."),
-        ("NodeIndexOf(text: String) → Integer", "The index of the first node with this label, -1 when there is none — how a handler holding only a name (from `SelectedNode`) gets a handle to walk from."),
+        ("NodeIndexOf(text: String) → Integer", "The index of the first node with this label, 0 when there is none — how a handler holding only a name (from `SelectedNode`) gets a handle to walk from."),
         ("NodeText(index) → String (alias NodeName)", "The node's label."),
         ("NodePath(index) → String", "Root to node joined by `/` — what tells two nodes with the same label apart."),
-        ("NodeLevel(index) → Integer", "How deep it sits, 0 for a root."),
+        ("NodeLevel(index) → Integer", "How deep it sits, 1 for a root."),
         ("NodeIcon(index) → String", "The icon it names, empty when it names none."),
         ("NodeColor(index) → String (alias NodeColour)", "Its own label colour, empty when it names none."),
         ("NodeBackColor(index) → String (alias NodeBackground)", "Its own row colour, empty when it names none."),
-        ("NodeParent(index) → Integer", "The node it hangs under, -1 on a root."),
-        ("NodeFirstChild(index) / NodeLastChild(index) → Integer", "Its first/last direct child, -1 on a leaf."),
-        ("NodeNextSibling(index) / NodePrevSibling(index) → Integer", "The next/previous node at the SAME level under the same parent, -1 at the end of the run. A sibling walk never descends into children and never escapes into the next parent."),
+        ("NodeParent(index) → Integer", "The node it hangs under, 0 on a root."),
+        ("NodeFirstChild(index) / NodeLastChild(index) → Integer", "Its first/last direct child, 0 on a leaf."),
+        ("NodeNextSibling(index) / NodePrevSibling(index) → Integer", "The next/previous node at the SAME level under the same parent, 0 at the end of the run. A sibling walk never descends into children and never escapes into the next parent."),
         ("NodeChildCount(index) → Integer", "How many nodes hang DIRECTLY under it — grandchildren not counted."),
         ("NodeHasChildren(index) → 1/0", "Whether anything hangs under it."),
         ("NodeChecked(index) → 1/0", "Whether its box is ticked — read from the control's live `CheckedNodes`, not from the node's line."),
@@ -7026,7 +7027,7 @@ fn controls_reference_doc() -> String {
         ("Height", "Integer — pixels > 0", "Control height."),
         ("TabOrder", "Integer ≥ 0", "Keyboard Tab traversal order: Tab goes up the numbers, Shift+Tab down, and both wrap; equal numbers go in the order the form is painted. Only visible, enabled controls that can take the keyboard are visited. A Label holds a place too but never keeps the focus: when Tab, Enter or a click reaches it, it raises `onGotFocus` (for a screen reader, say) and the focus walks straight on to the next control."),
         ("Parent", "String — container control id or empty", "The container that owns this control."),
-        ("Tab", "Integer — 0-based tab page index", "Which TabControl page the control sits on (only inside a TabControl)."),
+        ("Tab", "Integer — the tab page, counting from 1", "Which TabControl page the control sits on (only inside a TabControl)."),
     ] {
         doc.push_str(&format!("- `{sig}` ({dom}) — {desc}\n"));
     }
@@ -7674,12 +7675,13 @@ fn methods_reference_doc() -> String {
         ),
         (
             "Item lists (ListBox, ComboBox, ToolBar, StatusBar)",
-            "`Items` is a newline-separated list; indexes are 0-based.",
+            "`Items` is a newline-separated list; indexes count from 1, and 0 means none.",
             &[
                 ("AddItem(text: String)", "Append one item."),
                 ("RemoveItem(text: String)", "Remove the first matching item."),
+                ("RemoveAt(index: Integer)", "Remove the item at that position, counting from 1."),
                 ("GetSelected() → String", "The selected value."),
-                ("GetSelectedIndex() → Integer (alias GetIndex())", "The selected index, -1 = none."),
+                ("GetSelectedIndex() → Integer (alias GetIndex())", "The selected index, counting from 1; 0 = none."),
                 ("SetSelectedIndex(index: Integer) (alias SetIndex())", "Select by index."),
                 ("GetCount() → Integer", "Item count."),
                 ("Clear()", "Remove every item."),
@@ -7687,18 +7689,18 @@ fn methods_reference_doc() -> String {
         ),
         (
             "TreeView nodes",
-            "Every call takes the node's INDEX — its 1-based line in `Items`, the same number a node event hands the handler in `CONTROL-NODE-INDEX`. That index IS the node's handle: there is no node object to hold, because a held object would go stale the moment `Items` changed. The traversal calls RETURN an index, so they chain; -1 means there is no such node, and that is what ends a walk.",
+            "Every call takes the node's INDEX — its 1-based line in `Items`, the same number a node event hands the handler in `CONTROL-NODE-INDEX`. That index IS the node's handle: there is no node object to hold, because a held object would go stale the moment `Items` changed. The traversal calls RETURN an index, so they chain; 0 means there is no such node, and that is what ends a walk.",
             &[
-                ("AddNode(level, text [, icon, color, background])", "Append a node at `level` (0 = root). The level is a number, not leading spaces — `AddItem` trims its argument."),
+                ("AddNode(level, text [, icon, color, background])", "Append a node at `level` (1 = root, as `CONTROL-NODE-LEVEL` counts). The level is a number, not leading spaces — `AddItem` trims its argument."),
                 ("NodeCount() → Integer", "How many nodes the tree holds."),
-                ("NodeIndexOf(text) → Integer", "The index of the first node with that label, -1 when none."),
+                ("NodeIndexOf(text) → Integer", "The index of the first node with that label, 0 when none."),
                 ("NodeText(index) → String (alias NodeName)", "Its label."),
                 ("NodePath(index) → String", "Root to node joined by `/`."),
-                ("NodeLevel(index) → Integer", "Its depth, 0 for a root."),
+                ("NodeLevel(index) → Integer", "Its depth, 1 for a root."),
                 ("NodeIcon / NodeColor / NodeBackColor (index) → String", "What the node itself carries; empty when it carries none."),
-                ("NodeParent(index) → Integer", "The node it hangs under, -1 on a root."),
-                ("NodeFirstChild / NodeLastChild (index) → Integer", "Its first/last direct child, -1 on a leaf."),
-                ("NodeNextSibling / NodePrevSibling (index) → Integer", "The next/previous node at the same level under the same parent, -1 at the end."),
+                ("NodeParent(index) → Integer", "The node it hangs under, 0 on a root."),
+                ("NodeFirstChild / NodeLastChild (index) → Integer", "Its first/last direct child, 0 on a leaf."),
+                ("NodeNextSibling / NodePrevSibling (index) → Integer", "The next/previous node at the same level under the same parent, 0 at the end."),
                 ("NodeChildCount(index) → Integer", "Direct children only."),
                 ("NodeHasChildren(index) → 1/0", "Whether anything hangs under it."),
                 ("NodeChecked / NodeCollapsed (index) → 1/0", "Live state, read from `CheckedNodes` / `CollapsedNodes`."),

@@ -334,37 +334,38 @@
            CALL "PC-TEXTS"
            CALL "PC-LOAD-CONNS"
            CALL "PC-LOAD-AGENTS"
-      *>   Each agent's picker: "(off)" first, then every saved connection;
-      *>   the one the agent uses now is selected.
+      *>   Each agent's picker: "(off)" first (item 1), then every saved
+      *>   connection (connection N is item N + 1); the one the agent uses now
+      *>   is selected.
            MOVE Cmb-Agent-1::Clear() TO WS-OK
            MOVE Cmb-Agent-1::AddItem(FUNCTION TRIM(T-AGENT-NONE)) TO WS-OK
-           MOVE 0 TO WS-INDEX
+           MOVE 1 TO WS-INDEX
            PERFORM VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-CONN-COUNT
                MOVE Cmb-Agent-1::AddItem(FUNCTION TRIM(WS-CONN-NAME(WS-P))) TO WS-OK
                IF WS-CONN-NAME(WS-P) = WS-AGENT-ENTRY(1)
-                   MOVE WS-P TO WS-INDEX
+                   COMPUTE WS-INDEX = WS-P + 1
                END-IF
            END-PERFORM
            MOVE WS-INDEX TO WS-P
            MOVE Cmb-Agent-1::SetSelectedIndex(WS-P) TO WS-OK
            MOVE Cmb-Agent-2::Clear() TO WS-OK
            MOVE Cmb-Agent-2::AddItem(FUNCTION TRIM(T-AGENT-NONE)) TO WS-OK
-           MOVE 0 TO WS-INDEX
+           MOVE 1 TO WS-INDEX
            PERFORM VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-CONN-COUNT
                MOVE Cmb-Agent-2::AddItem(FUNCTION TRIM(WS-CONN-NAME(WS-P))) TO WS-OK
                IF WS-CONN-NAME(WS-P) = WS-AGENT-ENTRY(2)
-                   MOVE WS-P TO WS-INDEX
+                   COMPUTE WS-INDEX = WS-P + 1
                END-IF
            END-PERFORM
            MOVE WS-INDEX TO WS-P
            MOVE Cmb-Agent-2::SetSelectedIndex(WS-P) TO WS-OK
            MOVE Cmb-Agent-3::Clear() TO WS-OK
            MOVE Cmb-Agent-3::AddItem(FUNCTION TRIM(T-AGENT-NONE)) TO WS-OK
-           MOVE 0 TO WS-INDEX
+           MOVE 1 TO WS-INDEX
            PERFORM VARYING WS-P FROM 1 BY 1 UNTIL WS-P > WS-CONN-COUNT
                MOVE Cmb-Agent-3::AddItem(FUNCTION TRIM(WS-CONN-NAME(WS-P))) TO WS-OK
                IF WS-CONN-NAME(WS-P) = WS-AGENT-ENTRY(3)
-                   MOVE WS-P TO WS-INDEX
+                   COMPUTE WS-INDEX = WS-P + 1
                END-IF
            END-PERFORM
            MOVE WS-INDEX TO WS-P
@@ -799,6 +800,8 @@
       *>   Each agent's connection, or none. Agent 1's is also PowerChat 1's
       *>   single MODEL-ENTRY, so "(off)" does not fall back to it.
            MOVE Cmb-Agent-1::GetSelectedIndex() TO WS-INDEX
+      *>   Item 1 is "(off)"; connection N is item N + 1.
+           SUBTRACT 1 FROM WS-INDEX
            MOVE SPACES TO WS-SET-VALUE
            IF WS-INDEX > 0 AND WS-INDEX <= WS-CONN-COUNT
                MOVE WS-CONN-NAME(WS-INDEX) TO WS-SET-VALUE
@@ -808,6 +811,8 @@
            MOVE "MODEL-ENTRY" TO WS-SET-NAME
            CALL "PC-SETTING-PUT"
            MOVE Cmb-Agent-2::GetSelectedIndex() TO WS-INDEX
+      *>   Item 1 is "(off)"; connection N is item N + 1.
+           SUBTRACT 1 FROM WS-INDEX
            MOVE SPACES TO WS-SET-VALUE
            IF WS-INDEX > 0 AND WS-INDEX <= WS-CONN-COUNT
                MOVE WS-CONN-NAME(WS-INDEX) TO WS-SET-VALUE
@@ -815,6 +820,8 @@
            MOVE "AGENT-2-ENTRY" TO WS-SET-NAME
            CALL "PC-SETTING-PUT"
            MOVE Cmb-Agent-3::GetSelectedIndex() TO WS-INDEX
+      *>   Item 1 is "(off)"; connection N is item N + 1.
+           SUBTRACT 1 FROM WS-INDEX
            MOVE SPACES TO WS-SET-VALUE
            IF WS-INDEX > 0 AND WS-INDEX <= WS-CONN-COUNT
                MOVE WS-CONN-NAME(WS-INDEX) TO WS-SET-VALUE

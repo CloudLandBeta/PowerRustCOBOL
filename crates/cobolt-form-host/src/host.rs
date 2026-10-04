@@ -1487,9 +1487,12 @@ impl FormBody {
                 // event also carries id and index TAB-separated as its value,
                 // the encoding a TreeView node event uses.
                 E::ButtonClick { ctrl_id, button_id, index, .. } => {
+                    // The button's place counts from 1, as COBOL does (the
+                    // stack's own index counts from 0).
+                    let place = index + 1;
                     for (k, v) in [
                         ("LastButtonId", button_id.clone()),
-                        ("LastButtonIndex", index.to_string()),
+                        ("LastButtonIndex", place.to_string()),
                     ] {
                         self.state_entry_mut(&ctrl_id).set(k, v.clone());
                         let _ = self.input_tx.send(cobolt_runtime::channels::StateUpdate::new(
@@ -1498,7 +1501,7 @@ impl FormBody {
                             v,
                         ));
                     }
-                    (ctrl_id, "onButtonClick", format!("{button_id}\t{index}"))
+                    (ctrl_id, "onButtonClick", format!("{button_id}\t{place}"))
                 }
             };
             let mut fe = FormEvent::new(ctrl_id, name);
@@ -8213,15 +8216,15 @@ mod parity {
             cobolt_forms::Control::new("TABS-1", cobolt_forms::ControlType::TabControl, 10, 10);
         tabs.rect = cobolt_forms::model::Rect::new(10, 10, 360, 240);
         tabs.set_prop("Tabs", cobolt_forms::PropValue::String("One\nTwo".into()));
-        tabs.set_prop("SelectedTab", cobolt_forms::PropValue::Int(0));
+        tabs.set_prop("SelectedTab", cobolt_forms::PropValue::Int(1));
         let mut page0 =
             cobolt_forms::Control::new("LBL-ONE", cobolt_forms::ControlType::Label, 30, 60);
         page0.parent = Some("TABS-1".into());
-        page0.tab = Some(0);
+        page0.tab = Some(1);
         let mut page1 =
             cobolt_forms::Control::new("LBL-TWO", cobolt_forms::ControlType::Label, 30, 60);
         page1.parent = Some("TABS-1".into());
-        page1.tab = Some(1);
+        page1.tab = Some(2);
         form.controls.push(tabs.clone());
         let flat = vec![tabs, page0, page1];
 
@@ -8280,26 +8283,26 @@ mod parity {
             })
         };
 
-        assert!(shows(&host, "LBL-ONE"), "page 0 is the designed page");
-        assert!(!shows(&host, "LBL-TWO"), "page 1 starts hidden");
+        assert!(shows(&host, "LBL-ONE"), "page 1 is the designed page");
+        assert!(!shows(&host, "LBL-TWO"), "page 2 starts hidden");
 
         // What a click does: `forward_interaction` writes the prop update into
         // the live state under the DESIGNED spelling.
-        host.root.state_entry_mut("TABS-1").set("SelectedTab", "1".into());
+        host.root.state_entry_mut("TABS-1").set("SelectedTab", "2".into());
         assert!(
             shows(&host, "LBL-TWO"),
-            "clicking tab 2 must show page 1 — this is the operator's report"
+            "clicking tab 2 must show page 2 — this is the operator's report"
         );
-        assert!(!shows(&host, "LBL-ONE"), "…and hide page 0");
+        assert!(!shows(&host, "LBL-ONE"), "…and hide page 1");
 
         // And through the interpreter's own spelling, which arrives upper-cased.
         host.root
-            .apply_interpreter_update(StateUpdate::new("TABS-1", "SELECTEDTAB", "0"), false);
+            .apply_interpreter_update(StateUpdate::new("TABS-1", "SELECTEDTAB", "1"), false);
         assert!(
             shows(&host, "LBL-ONE"),
-            "SET TABS-1::SelectedTab TO 0 must go back to page 0"
+            "SET TABS-1::SelectedTab TO 1 must go back to page 1"
         );
-        assert!(!shows(&host, "LBL-TWO"), "…and hide page 1 again");
+        assert!(!shows(&host, "LBL-TWO"), "…and hide page 2 again");
     }
 
     /// **A main form's Viewer gets its Save panel answered.** Only the child

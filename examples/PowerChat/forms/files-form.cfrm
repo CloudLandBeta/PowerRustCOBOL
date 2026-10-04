@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="FILES-FORM" title="PowerChat" width="976" height="536" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed" form-format="Embedded">
+<Form name="FILES-FORM" title="PowerChat" width="976" height="536" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" index-base="1" modal-overlay-style="Greyed" form-format="Embedded">
   <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -678,7 +678,7 @@
            MOVE 0 TO WS-EDIT-SEQ
            MOVE SPACES TO Txt-Data::Text
            MOVE SPACES TO Txt-Cidx::Text
-           MOVE 1 TO Tab-Crud::SelectedTab
+           MOVE 2 TO Tab-Crud::SelectedTab
 ]]></Event>
     <Event name="PC-EDIT" paragraph="PC-EDIT"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -707,7 +707,7 @@
            MOVE TF-SEQ TO WS-EDIT-SEQ
            MOVE FUNCTION TRIM(TF-DATA) TO Txt-Data::Text
            MOVE FUNCTION TRIM(TF-CIDX) TO Txt-Cidx::Text
-           MOVE 1 TO Tab-Crud::SelectedTab
+           MOVE 2 TO Tab-Crud::SelectedTab
 ]]></Event>
     <Event name="PC-SAVE" paragraph="PC-SAVE"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -780,7 +780,7 @@
            MOVE SPACES TO Txt-Data::Text
            MOVE SPACES TO Txt-Cidx::Text
            CALL "PC-LOAD-FILES"
-           MOVE 0 TO Tab-Crud::SelectedTab
+           MOVE 1 TO Tab-Crud::SelectedTab
 ]]></Event>
     <Event name="PC-CANCEL" paragraph="PC-CANCEL"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -789,7 +789,7 @@
            MOVE "N" TO WS-EDIT-MODE
            MOVE SPACES TO Txt-Data::Text
            MOVE SPACES TO Txt-Cidx::Text
-           MOVE 0 TO Tab-Crud::SelectedTab
+           MOVE 1 TO Tab-Crud::SelectedTab
 ]]></Event>
     <Event name="PC-DELETE" paragraph="PC-DELETE"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -886,7 +886,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -924,7 +923,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -952,7 +950,6 @@
     <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -967,7 +964,7 @@
     <Property name="Tabs">Browse
 Create/Update</Property>
     <Property name="TabPosition">Top</Property>
-    <Property name="SelectedTab">0</Property>
+    <Property name="SelectedTab">1</Property>
     <Property name="ActiveTabColor">#2C6FD2FF</Property>
     <Property name="TabPadding">31</Property>
     <Property name="HScroll">false</Property>
@@ -978,7 +975,7 @@ Create/Update</Property>
     <Property name="InactiveTabColor"></Property>
     <Property name="InactiveTabForegroundColor"></Property>
   </Control>
-  <Control id="Lbl-Data" type="Label" x="40" y="218" w="120" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Lbl-Data" type="Label" x="40" y="218" w="120" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="Caption">Data file</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -1004,7 +1001,6 @@ Create/Update</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -1016,7 +1012,7 @@ Create/Update</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Txt-Data" type="TextBox" x="168" y="216" w="632" h="28" tab-order="3" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Txt-Data" type="TextBox" x="168" y="216" w="632" h="28" tab-order="3" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="HintText">A path, a network path, or smb://server/share/file</Property>
     <Property name="MaximumLength">250</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
@@ -1045,7 +1041,6 @@ Create/Update</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -1064,7 +1059,7 @@ Create/Update</Property>
     <Property name="Picture"></Property>
     <Property name="PasswordCharacter"></Property>
   </Control>
-  <Control id="Lbl-Cidx" type="Label" x="40" y="258" w="120" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Lbl-Cidx" type="Label" x="40" y="258" w="120" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="Caption">Description</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -1090,7 +1085,6 @@ Create/Update</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -1102,7 +1096,7 @@ Create/Update</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Txt-Cidx" type="TextBox" x="168" y="256" w="632" h="28" tab-order="4" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Txt-Cidx" type="TextBox" x="168" y="256" w="632" h="28" tab-order="4" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="HintText">Its .cidx</Property>
     <Property name="MaximumLength">250</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
@@ -1131,7 +1125,6 @@ Create/Update</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -1150,7 +1143,7 @@ Create/Update</Property>
     <Property name="Picture"></Property>
     <Property name="PasswordCharacter"></Property>
   </Control>
-  <Control id="Lbl-Status" type="Label" x="24" y="384" w="648" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Lbl-Status" type="Label" x="24" y="384" w="648" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1176,7 +1169,6 @@ Create/Update</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -1213,7 +1205,6 @@ Create/Update</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -1239,6 +1230,7 @@ Create/Update</Property>
     <Property name="ResponseDataItem"></Property>
     <Property name="StreamReply">false</Property>
     <Property name="StartTimeoutSeconds">60</Property>
+    <Property name="MaximumContinuations">4</Property>
   </Control>
   <Control id="Tmr-Lang" type="Timer" x="680" y="16" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
@@ -1266,7 +1258,6 @@ Create/Update</Property>
     <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -1285,7 +1276,7 @@ Create/Update</Property>
            END-IF
 ]]></Event>
   </Control>
-  <Control id="Btn-New" type="Button" x="800" y="136" w="128" h="32" tab-order="1" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
+  <Control id="Btn-New" type="Button" x="800" y="136" w="128" h="32" tab-order="1" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="Caption">New</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
@@ -1302,7 +1293,6 @@ Create/Update</Property>
     <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1330,7 +1320,7 @@ Create/Update</Property>
            CALL "PC-NEW"
 ]]></Event>
   </Control>
-  <Control id="Dg-List" type="DataGrid" x="40" y="176" w="888" h="304" tab-order="2" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
+  <Control id="Dg-List" type="DataGrid" x="40" y="176" w="888" h="304" tab-order="2" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
@@ -1346,7 +1336,6 @@ Create/Update</Property>
     <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1416,7 +1405,7 @@ Col-Del:string</Property>
            END-EVALUATE
 ]]></Event>
   </Control>
-  <Control id="Btn-Save" type="Button" x="656" y="152" w="128" h="32" tab-order="1" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Btn-Save" type="Button" x="656" y="152" w="128" h="32" tab-order="1" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="Caption">Save</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
@@ -1433,7 +1422,6 @@ Col-Del:string</Property>
     <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1461,7 +1449,7 @@ Col-Del:string</Property>
            CALL "PC-SAVE"
 ]]></Event>
   </Control>
-  <Control id="Btn-BrowseData" type="Button" x="808" y="216" w="112" h="28" tab-order="5" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Btn-BrowseData" type="Button" x="808" y="216" w="112" h="28" tab-order="5" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="Caption">Browse...</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
@@ -1478,7 +1466,6 @@ Col-Del:string</Property>
     <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1515,7 +1502,7 @@ Col-Del:string</Property>
            END-IF
 ]]></Event>
   </Control>
-  <Control id="Btn-BrowseCidx" type="Button" x="808" y="256" w="112" h="28" tab-order="6" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Btn-BrowseCidx" type="Button" x="808" y="256" w="112" h="28" tab-order="6" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="Caption">Browse...</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
@@ -1532,7 +1519,6 @@ Col-Del:string</Property>
     <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1568,7 +1554,7 @@ Col-Del:string</Property>
            END-IF
 ]]></Event>
   </Control>
-  <Control id="Btn-Cancel" type="Button" x="792" y="152" w="128" h="32" tab-order="2" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Btn-Cancel" type="Button" x="792" y="152" w="128" h="32" tab-order="2" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="Caption">Cancel</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
@@ -1585,7 +1571,6 @@ Col-Del:string</Property>
     <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1613,7 +1598,7 @@ Col-Del:string</Property>
            CALL "PC-CANCEL"
 ]]></Event>
   </Control>
-  <Control id="Btn-Save2" type="Button" x="648" y="344" w="128" h="32" tab-order="5" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Btn-Save2" type="Button" x="648" y="344" w="128" h="32" tab-order="5" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="Caption">Save</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
@@ -1630,7 +1615,6 @@ Col-Del:string</Property>
     <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1658,7 +1642,7 @@ Col-Del:string</Property>
            CALL "PC-SAVE"
 ]]></Event>
   </Control>
-  <Control id="Btn-Cancel2" type="Button" x="784" y="344" w="128" h="32" tab-order="6" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Btn-Cancel2" type="Button" x="784" y="344" w="128" h="32" tab-order="6" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="Caption">Cancel</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
@@ -1675,7 +1659,6 @@ Col-Del:string</Property>
     <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>

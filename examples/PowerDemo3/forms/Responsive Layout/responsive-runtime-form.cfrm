@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="RESPONSIVE-RUNTIME-FORM" title="Responsive - driven from COBOL" width="1100" height="720" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" form-format="Both" responsive="true" control-style="modern">
+<Form name="RESPONSIVE-RUNTIME-FORM" title="Responsive - driven from COBOL" width="1100" height="720" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" form-format="Both" responsive="true" control-style="modern" index-base="1">
   <working-storage><![CDATA[       01 WS-NUM GLOBAL PIC 9(5).
        01 WS-WIN-W GLOBAL PIC Z(4)9.
        01 WS-WIN-H GLOBAL PIC Z(4)9.

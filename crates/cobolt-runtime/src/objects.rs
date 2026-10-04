@@ -393,6 +393,11 @@ fn place_in_value_mut<'a>(
     };
     match seg {
         PathSeg::Index(i) => {
+            // A position nothing has (a COBOL subscript of 0) is never
+            // vivified: padding a list up to it would never end.
+            if *i == usize::MAX {
+                return None;
+            }
             // Vivify a bare/empty slot into a list before indexing.
             if vivify && !matches!(cur, PropertyValue::List(_)) {
                 if matches!(cur, PropertyValue::String(s) if s.is_empty()) {

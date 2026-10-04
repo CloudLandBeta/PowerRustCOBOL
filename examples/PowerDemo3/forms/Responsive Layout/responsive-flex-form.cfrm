@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="RESPONSIVE-FLEX-FORM" title="Responsive - flex containers" width="1200" height="780" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" form-format="Both" responsive="true" control-style="modern">
+<Form name="RESPONSIVE-FLEX-FORM" title="Responsive - flex containers" width="1200" height="780" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" form-format="Both" responsive="true" control-style="modern" index-base="1">
   <working-storage><![CDATA[       01 WS-NUM GLOBAL PIC 9(5).
        01 WS-WIN-W GLOBAL PIC Z(4)9.
        01 WS-WIN-H GLOBAL PIC Z(4)9.
@@ -213,7 +213,7 @@ Wrap and align content
 Grow, shrink, basis
 Order - and from COBOL</Property>
     <Property name="TabPosition">Top</Property>
-    <Property name="SelectedTab">0</Property>
+    <Property name="SelectedTab">1</Property>
     <Property name="ActiveTabColor">#2C6FD2FF</Property>
     <Property name="ActiveTabForegroundColor"></Property>
     <Property name="InactiveTabColor"></Property>
@@ -227,7 +227,7 @@ Order - and from COBOL</Property>
     <Property name="MinWidth">640</Property>
     <Property name="MinHeight">420</Property>
   </Control>
-  <Control id="P0-HOST" type="Panel" x="26" y="113" w="1148" h="633" tab-order="0" z-order="3" visible="true" enabled="true" parent="TAB-FLEX" tab="0">
+  <Control id="P0-HOST" type="Panel" x="26" y="113" w="1148" h="633" tab-order="0" z-order="3" visible="true" enabled="true" parent="TAB-FLEX" tab="1">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -1086,7 +1086,7 @@ Order - and from COBOL</Property>
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
   </Control>
-  <Control id="P1-HOST" type="Panel" x="26" y="113" w="1148" h="633" tab-order="0" z-order="24" visible="true" enabled="true" parent="TAB-FLEX" tab="1">
+  <Control id="P1-HOST" type="Panel" x="26" y="113" w="1148" h="633" tab-order="0" z-order="24" visible="true" enabled="true" parent="TAB-FLEX" tab="2">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -2144,7 +2144,7 @@ Order - and from COBOL</Property>
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
   </Control>
-  <Control id="P2-HOST" type="Panel" x="26" y="113" w="1148" h="633" tab-order="0" z-order="49" visible="true" enabled="true" parent="TAB-FLEX" tab="2">
+  <Control id="P2-HOST" type="Panel" x="26" y="113" w="1148" h="633" tab-order="0" z-order="49" visible="true" enabled="true" parent="TAB-FLEX" tab="3">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -3236,7 +3236,7 @@ Order - and from COBOL</Property>
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
   </Control>
-  <Control id="P3-HOST" type="Panel" x="26" y="113" w="1148" h="633" tab-order="0" z-order="75" visible="true" enabled="true" parent="TAB-FLEX" tab="3">
+  <Control id="P3-HOST" type="Panel" x="26" y="113" w="1148" h="633" tab-order="0" z-order="75" visible="true" enabled="true" parent="TAB-FLEX" tab="4">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -5973,7 +5973,7 @@ Order - and from COBOL</Property>
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
   </Control>
-  <Control id="P4-HOST" type="Panel" x="26" y="113" w="1148" h="633" tab-order="0" z-order="146" visible="true" enabled="true" parent="TAB-FLEX" tab="4">
+  <Control id="P4-HOST" type="Panel" x="26" y="113" w="1148" h="633" tab-order="0" z-order="146" visible="true" enabled="true" parent="TAB-FLEX" tab="5">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -6743,7 +6743,7 @@ Order - and from COBOL</Property>
     <Property name="MinWidth">260</Property>
     <Property name="FlexGrow">1</Property>
   </Control>
-  <Control id="P5-HOST" type="Panel" x="26" y="113" w="1148" h="633" tab-order="0" z-order="164" visible="true" enabled="true" parent="TAB-FLEX" tab="5">
+  <Control id="P5-HOST" type="Panel" x="26" y="113" w="1148" h="633" tab-order="0" z-order="164" visible="true" enabled="true" parent="TAB-FLEX" tab="6">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>

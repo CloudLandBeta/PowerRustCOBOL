@@ -315,14 +315,14 @@
 
        PROCEDURE DIVISION.
 
-      *> Three pages, numbered from zero - wrap round at the end.
+      *> Three pages, numbered from 1 - wrap round at the end.
       *> EN: EXTENSION - a numeric property compares and computes algebraically; no PIC item needed.
       *> PT: EXTENSAO - propriedade numerica compara e calcula algebricamente; sem item PIC.
       *> ES: EXTENSION - la propiedad numerica compara y calcula algebraicamente; sin item PIC.
       *> FR: EXTENSION - une propriete numerique compare et calcule algebriquement; sans item PIC.
       *> JP: EXTENSION - 数値プロパティは代数的に比較・計算できる。中間の PIC 項目は不要。
       *> CN: EXTENSION - 数值属性按代数方式比较与计算；无需中间 PIC 数据项。
-           IF Tab-Order::SelectedTab < 2
+           IF Tab-Order::SelectedTab < 3
       *> EN: EXTENSION - arithmetic writes straight into the property, which is a receiving field.
       *> PT: EXTENSAO - a aritmetica escreve direto na propriedade, que e um campo receptor.
       *> ES: EXTENSION - la aritmetica escribe directo en la propiedad, que es campo receptor.
@@ -337,7 +337,7 @@
       *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
       *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
            ELSE
-               MOVE 0 TO Tab-Order::SelectedTab
+               MOVE 1 TO Tab-Order::SelectedTab
            END-IF.
 
            GOBACK.
@@ -360,7 +360,7 @@
       *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
       *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
       *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-           MOVE 2 TO Tab-Order::SelectedTab.
+           MOVE 3 TO Tab-Order::SelectedTab.
 
            GOBACK.
 

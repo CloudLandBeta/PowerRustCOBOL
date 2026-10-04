@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="INDEXEDFILE-FORM" title="IndexedFile - a keyed file as a first-class resource" width="1000" height="660" background="#20242CFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Both">
+<Form name="INDEXEDFILE-FORM" title="IndexedFile - a keyed file as a first-class resource" width="1000" height="660" background="#20242CFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Both" index-base="1">
   <working-storage><![CDATA[       01 WS-FS GLOBAL PIC XX VALUE "00".
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
@@ -637,7 +637,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="SelectedIndex">-1</Property>
+    <Property name="SelectedIndex">0</Property>
     <Property name="MultiSelect">false</Property>
     <Property name="ShowCheckBoxes">false</Property>
     <Property name="Sorted">false</Property>

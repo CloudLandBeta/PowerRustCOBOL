@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="KB-FOLDER-FORM" title="PowerChat" width="800" height="450" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
+<Form name="KB-FOLDER-FORM" title="PowerChat" width="800" height="450" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" index-base="1" modal-overlay-style="Greyed">
   <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -347,7 +347,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -385,7 +384,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -425,7 +423,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -471,7 +468,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -524,7 +520,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -562,7 +557,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -610,7 +604,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -650,7 +643,6 @@
     <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -695,7 +687,6 @@
     <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>

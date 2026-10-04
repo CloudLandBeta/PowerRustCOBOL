@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="FERRIS-SAYS-FORM" title="Ferry Says example (FFI)" width="840" height="456" background="00000000" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" form-format="Both">
+<Form name="FERRIS-SAYS-FORM" title="Ferry Says example (FFI)" width="840" height="456" background="00000000" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" form-format="Both" index-base="1">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"

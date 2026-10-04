@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="RESPONSIVE-NESTED-FORM" title="Responsive - nested containers" width="1200" height="780" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" form-format="Both" responsive="true" control-style="modern">
+<Form name="RESPONSIVE-NESTED-FORM" title="Responsive - nested containers" width="1200" height="780" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" form-format="Both" responsive="true" control-style="modern" index-base="1">
   <FormLayout Gap="12" GridColumns="MinMax(200px, 280px) MinMax(360px, 1fr)" GridRows="56px MinMax(340px, 1fr) 26px" LayoutMode="Grid" Padding="12"/>
   <Breakpoints>
     <Breakpoint name="Compact" min-width="0" font-factor="1">
@@ -922,7 +922,7 @@
     <Property name="Tabs">Anchored inside a tab
 A grid of flex groups</Property>
     <Property name="TabPosition">Top</Property>
-    <Property name="SelectedTab">0</Property>
+    <Property name="SelectedTab">1</Property>
     <Property name="ActiveTabColor">#2C6FD2FF</Property>
     <Property name="ActiveTabForegroundColor"></Property>
     <Property name="InactiveTabColor"></Property>
@@ -934,7 +934,7 @@ A grid of flex groups</Property>
     <Property name="BorderStyle">Single</Property>
     <Property name="FlexGrow">1</Property>
   </Control>
-  <Control id="NS-P0-TXT" type="TextBox" x="346" y="137" w="812" h="30" tab-order="4" z-order="20" visible="true" enabled="true" parent="NS-TABS" tab="0">
+  <Control id="NS-P0-TXT" type="TextBox" x="346" y="137" w="812" h="30" tab-order="4" z-order="20" visible="true" enabled="true" parent="NS-TABS" tab="1">
     <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -980,7 +980,7 @@ A grid of flex groups</Property>
     <Property name="CornerRadius">6</Property>
     <Property name="Anchor">Top,Left,Right</Property>
   </Control>
-  <Control id="NS-P0-LST" type="ListBox" x="346" y="177" w="812" h="405" tab-order="5" z-order="21" visible="true" enabled="true" parent="NS-TABS" tab="0">
+  <Control id="NS-P0-LST" type="ListBox" x="346" y="177" w="812" h="405" tab-order="5" z-order="21" visible="true" enabled="true" parent="NS-TABS" tab="1">
     <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -1012,7 +1012,7 @@ The page is the TabControl&apos;s client area
 The TabControl is a flex item that grows
 Its parent is a Grid cell of the form</Property>
     <Property name="ItemsFile"></Property>
-    <Property name="SelectedIndex">-1</Property>
+    <Property name="SelectedIndex">0</Property>
     <Property name="MultiSelect">false</Property>
     <Property name="SelectedItems"></Property>
     <Property name="ShowCheckBoxes">false</Property>
@@ -1026,7 +1026,7 @@ Its parent is a Grid cell of the form</Property>
     <Property name="CornerRadius">6</Property>
     <Property name="Anchor">Top,Bottom,Left,Right</Property>
   </Control>
-  <Control id="NS-P0-BTN" type="Button" x="1008" y="598" w="150" h="36" tab-order="6" z-order="22" visible="true" enabled="true" parent="NS-TABS" tab="0">
+  <Control id="NS-P0-BTN" type="Button" x="1008" y="598" w="150" h="36" tab-order="6" z-order="22" visible="true" enabled="true" parent="NS-TABS" tab="1">
     <Property name="Caption">Bottom,Right</Property>
     <Property name="BackgroundColor">#2563EBFF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -1066,7 +1066,7 @@ Its parent is a Grid cell of the form</Property>
     <Property name="CornerRadius">6</Property>
     <Property name="Anchor">Bottom,Right</Property>
   </Control>
-  <Control id="NS-PG" type="Panel" x="338" y="129" w="828" h="513" tab-order="0" z-order="23" visible="true" enabled="true" parent="NS-TABS" tab="1">
+  <Control id="NS-PG" type="Panel" x="338" y="129" w="828" h="513" tab-order="0" z-order="23" visible="true" enabled="true" parent="NS-TABS" tab="2">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>

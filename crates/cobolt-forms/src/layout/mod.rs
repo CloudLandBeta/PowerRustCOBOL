@@ -304,9 +304,9 @@ fn tab_control<'c>(controls: &'c [Control], parent: Option<&str>) -> Option<&'c 
         .filter(|c| c.control_type == ControlType::TabControl)
 }
 
-/// A TabControl child's page: its `tab`, page 0 when unset.
+/// A TabControl child's page: its `tab` (from 1), the first page when unset.
 pub(crate) fn page_of(c: &Control) -> u32 {
-    c.tab.unwrap_or(0)
+    c.tab.unwrap_or(1)
 }
 
 /// The sibling sets `parent`'s children `kids` lay out as: one per page of a
@@ -335,7 +335,7 @@ pub(crate) fn same_layout_set(controls: &[Control], a: &Control, b: &Control) ->
 /// designer's grid track lines are that page's.
 fn shown_page(controls: &[Control], parent: Option<&str>, c: &Control) -> bool {
     tab_control(controls, parent).is_none_or(|t| {
-        let sel = t.get_prop("SelectedTab").map(|v| v.as_i64()).unwrap_or(0).max(0);
+        let sel = t.get_prop("SelectedTab").map(|v| v.as_i64()).unwrap_or(1).max(1);
         page_of(c) as i64 == sel
     })
 }
@@ -1068,8 +1068,8 @@ mod tests {
         };
         let k = tabs("K");
         let d = k.content_rect();
-        let a = page(with(ctrl("A", ControlType::Panel, (d.x, d.y, 50, 50), Some("K")), "Dock", s("Fill")), 0, 1);
-        let b = page(with(ctrl("B", ControlType::Panel, (d.x, d.y, 50, 50), Some("K")), "Dock", s("Fill")), 1, 2);
+        let a = page(with(ctrl("A", ControlType::Panel, (d.x, d.y, 50, 50), Some("K")), "Dock", s("Fill")), 1, 1);
+        let b = page(with(ctrl("B", ControlType::Panel, (d.x, d.y, 50, 50), Some("K")), "Dock", s("Fill")), 2, 2);
         let o = solve_at(&[k, a, b], (400.0, 300.0), (600.0, 500.0));
         let kc = o.containers["K"].client;
         let full = (kc.x, kc.y, kc.w, kc.h);

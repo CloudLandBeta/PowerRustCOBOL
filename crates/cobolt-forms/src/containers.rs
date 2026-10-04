@@ -20,8 +20,8 @@ use std::collections::HashMap;
 use crate::model::Rect;
 use crate::{Control, ControlType};
 
-/// Active tab page (0-based) per `TabControl` id, used to hide controls that
-/// belong to a non-selected tab.
+/// Active tab page (from 1, like `SelectedTab`) per `TabControl` id, used to
+/// hide controls that belong to a non-selected tab.
 pub type ActiveTabs = HashMap<String, u32>;
 
 /// Where a dragged control should be parented after a drop (spec 012 R7–R10).
@@ -148,10 +148,10 @@ pub fn is_visible(
             let act = active.get(&pid).copied().unwrap_or_else(|| {
                 controls[p]
                     .get_prop("SelectedTab")
-                    .map(|v| v.as_i64() as u32)
-                    .unwrap_or(0)
+                    .map(|v| v.as_i64().max(1) as u32)
+                    .unwrap_or(1)
             });
-            if controls[cur].tab.unwrap_or(0) != act {
+            if controls[cur].tab.unwrap_or(1) != act {
                 return false;
             }
         }
@@ -310,8 +310,8 @@ pub fn resolve_drop_target(
                 let tab = if c.control_type == ControlType::TabControl {
                     Some(active.get(&c.id).copied().unwrap_or_else(|| {
                         c.get_prop("SelectedTab")
-                            .map(|v| v.as_i64() as u32)
-                            .unwrap_or(0)
+                            .map(|v| v.as_i64().max(1) as u32)
+                            .unwrap_or(1)
                     }))
                 } else {
                     None
@@ -472,13 +472,14 @@ mod tests {
             ctrl("A", ControlType::Button, 10, 40, 60, 20, Some("Tabs")),
             ctrl("B", ControlType::Button, 10, 70, 60, 20, Some("Tabs")),
         ];
-        c[1].tab = Some(0);
-        c[2].tab = Some(1);
+        // Pages count from 1.
+        c[1].tab = Some(1);
+        c[2].tab = Some(2);
         let mut active = ActiveTabs::new();
-        active.insert("Tabs".into(), 0);
+        active.insert("Tabs".into(), 1);
         assert!(is_visible(&c, 1, &active, &|_| true));
         assert!(!is_visible(&c, 2, &active, &|_| true));
-        active.insert("Tabs".into(), 1);
+        active.insert("Tabs".into(), 2);
         assert!(is_visible(&c, 2, &active, &|_| true));
     }
 
@@ -521,9 +522,9 @@ mod tests {
             ctrl("Tabs", ControlType::TabControl, 0, 0, 300, 200, None),
             ctrl("SB", ControlType::StatusBar, 20, 20, 200, 22, None),
         ];
-        c[1].tab = Some(0);
+        c[1].tab = Some(1);
         let mut active = ActiveTabs::new();
-        active.insert("Tabs".into(), 0);
+        active.insert("Tabs".into(), 1);
 
         // Over the panel's content, over the tab page's content, over both.
         for (x, y) in [(100, 100), (150, 150), (20, 250)] {
@@ -550,9 +551,9 @@ mod tests {
             ctrl("Tabs", ControlType::TabControl, 0, 0, 300, 200, None),
             ctrl("A", ControlType::Button, 10, 40, 60, 20, Some("Tabs")),
         ];
-        c[1].tab = Some(0);
+        c[1].tab = Some(1);
         let mut active = ActiveTabs::new();
-        active.insert("Tabs".into(), 0);
+        active.insert("Tabs".into(), 1);
         assert_eq!(
             resolve_drop_target(&c, 100, 10, 1, &active),
             DropTarget::Form
@@ -566,7 +567,7 @@ mod tests {
             resolve_drop_target(&c, 150, 100, 1, &active),
             DropTarget::Into {
                 container: "Tabs".into(),
-                tab: Some(0)
+                tab: Some(1)
             }
         );
     }
@@ -582,9 +583,9 @@ mod tests {
         tab.set_prop("TabPosition", crate::PropValue::String("Top".into()));
         let page_top = tab.content_rect();
         let mut grid = ctrl("Grid", ControlType::DataGrid, page_top.x + 8, page_top.y + 40, 460, 150, Some("Tabs"));
-        grid.tab = Some(0);
+        grid.tab = Some(1);
         let mut new_btn = ctrl("New", ControlType::Button, page_top.x + 380, page_top.y + 8, 88, 28, Some("Tabs"));
-        new_btn.tab = Some(0);
+        new_btn.tab = Some(1);
         let controls = vec![tab.clone(), grid.clone(), new_btn.clone()];
 
         let r = reflow_for_tab_position(&controls, 0, "Left");

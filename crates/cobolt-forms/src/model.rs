@@ -748,14 +748,11 @@ impl DataGridAdvanced {
         if trimmed.is_empty() {
             return None;
         }
-        if let Ok(index) = trimmed.parse::<usize>() {
-            if index < self.columns.len() {
-                return Some(index);
-            }
-            let one_based = index.saturating_sub(1);
-            if one_based < self.columns.len() {
-                return Some(one_based);
-            }
+        // A number is the column's place, counting from 1 as COBOL does; 0
+        // names none. (It used to try 0-based first, so `2` meant the third
+        // column whenever there was one.)
+        if let Ok(place) = trimmed.parse::<usize>() {
+            return place.checked_sub(1).filter(|ix| *ix < self.columns.len());
         }
         self.columns.iter().position(|column| {
             column.id.eq_ignore_ascii_case(trimmed)
@@ -4000,8 +3997,8 @@ pub struct Control {
     /// this link; the `.cfrm` `<Children>` tree is (re)built from it at save
     /// (spec 012).
     pub parent: Option<String>,
-    /// For a control whose `parent` is a `TabControl`: which tab page (0-based) it
-    /// belongs to. `None` otherwise.
+    /// For a control whose `parent` is a `TabControl`: which tab page it belongs
+    /// to, counting from 1 like `SelectedTab`. `None` otherwise.
     pub tab: Option<u32>,
 }
 
@@ -5010,7 +5007,7 @@ impl Control {
                 props.insert("Items".into(), PropValue::String("".into()));
                 // A text file the list reads its items from as the form opens.
                 props.insert(crate::items_file::ITEMS_FILE.into(), PropValue::String("".into()));
-                props.insert("SelectedIndex".into(), PropValue::Int(-1));
+                props.insert("SelectedIndex".into(), PropValue::Int(0)); // 1-based; 0 = none
                 props.insert("MultiSelect".into(), PropValue::Bool(false));
                 // The two selections a list carries: `Value`/`SelectedIndex` is
                 // the ACTIVE row (the one the cursor is on, fully highlighted),
@@ -5047,7 +5044,7 @@ impl Control {
                 props.insert("Items".into(), PropValue::String("".into()));
                 // A text file the list reads its items from as the form opens.
                 props.insert(crate::items_file::ITEMS_FILE.into(), PropValue::String("".into()));
-                props.insert("SelectedIndex".into(), PropValue::Int(-1));
+                props.insert("SelectedIndex".into(), PropValue::Int(0)); // 1-based; 0 = none
                 props.insert("Sorted".into(), PropValue::Bool(false));
                 // The two highlights the OPEN dropdown draws, on the same
                 // empty-means-unchosen rule as the ListBox's: the selected item
@@ -5236,7 +5233,7 @@ impl Control {
             ControlType::TabControl => {
                 props.insert("Tabs".into(), PropValue::String("Tab1\nTab2".into()));
                 props.insert("TabPosition".into(), PropValue::String("Top".into()));
-                props.insert("SelectedTab".into(), PropValue::Int(0));
+                props.insert("SelectedTab".into(), PropValue::Int(1)); // 1-based: the first page
                 props.insert(
                     "ActiveTabColor".into(),
                     PropValue::String("#2C6FD2FF".into()),

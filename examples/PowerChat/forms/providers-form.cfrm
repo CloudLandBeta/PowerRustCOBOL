@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="PROVIDERS-FORM" title="PowerChat" width="1072" height="552" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
+<Form name="PROVIDERS-FORM" title="PowerChat" width="1072" height="552" background="DFE0E1FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" index-base="1" modal-overlay-style="Greyed">
   <working-storage><![CDATA[       01 WS-FS              GLOBAL PIC XX VALUE "00".
        01 WS-DATA-DIR        GLOBAL PIC X(200).
        01 WS-SET-NAME        GLOBAL PIC X(20).
@@ -697,7 +697,7 @@
                MOVE SPACES TO Txt-Url::Text
                MOVE SPACES TO WS-LAST-DEFAULT
                MOVE "true" TO Txt-Name::Enabled
-               MOVE Cmb-Provider::SetSelectedIndex(-1) TO WS-OK
+               MOVE Cmb-Provider::SetSelectedIndex(0) TO WS-OK
                EXIT PROGRAM
            END-IF
            MOVE "E" TO WS-EDIT-MODE
@@ -717,7 +717,7 @@
                    MOVE MDL-API TO WS-PROV-ID
                    CALL "PC-PROVIDER-LABEL"
                    IF WS-PROV-IX > 0
-                       COMPUTE WS-P = WS-PROV-IX - 1
+                       MOVE WS-PROV-IX TO WS-P
                        MOVE Cmb-Provider::SetSelectedIndex(WS-P) TO WS-OK
                    END-IF
                    MOVE WS-PROV-EP TO WS-LAST-DEFAULT
@@ -809,7 +809,7 @@
       *>   Saved: back to Browse, refreshed.
            CALL "PC-FILL-GRID"
            MOVE WS-STATUS TO Lbl-List-Status::Caption
-           MOVE 0 TO Tab-Crud::SelectedTab
+           MOVE 1 TO Tab-Crud::SelectedTab
 ]]></Event>
     <Event name="PC-CANCEL-EDIT" paragraph="PC-CANCEL-EDIT"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -818,7 +818,7 @@
       *>   typed and not saved is dropped, never kept in the field.
            MOVE SPACES TO WS-KEY
            MOVE SPACES TO Txt-Key::Text
-           MOVE 0 TO Tab-Crud::SelectedTab
+           MOVE 1 TO Tab-Crud::SelectedTab
 ]]></Event>
     <Event name="PC-DELETE-CONN" paragraph="PC-DELETE-CONN"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -958,7 +958,6 @@
        PROCEDURE DIVISION.
       *>   The provider the combo shows: WS-PROV-IX (0 = none) and its fields.
            MOVE Cmb-Provider::GetSelectedIndex() TO WS-PROV-IX
-           ADD 1 TO WS-PROV-IX
            IF WS-PROV-IX < 1 OR WS-PROV-IX > WS-PROV-COUNT
                MOVE 0 TO WS-PROV-IX
                MOVE SPACES TO WS-PROV-ID WS-PROV-EP
@@ -1073,7 +1072,7 @@
            CALL "PC-FILL-GRID"
            MOVE SPACES TO WS-KEY-NAME
            CALL "PC-SHOW-CONN"
-           MOVE 0 TO Tab-Crud::SelectedTab
+           MOVE 1 TO Tab-Crud::SelectedTab
 ]]></Event>
     <Event name="onClose" paragraph="PROVIDERS-FORM--ONCLOSE">
     </Event>
@@ -1103,7 +1102,6 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -1132,7 +1130,6 @@
     <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">true</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1147,7 +1144,7 @@
     <Property name="Tabs">Browse
 Create/Update</Property>
     <Property name="TabPosition">Top</Property>
-    <Property name="SelectedTab">1</Property>
+    <Property name="SelectedTab">2</Property>
     <Property name="ActiveTabColor">#2C6FD2FF</Property>
     <Property name="TabPadding">16</Property>
     <Property name="HScroll">false</Property>
@@ -1157,8 +1154,9 @@ Create/Update</Property>
     <Property name="ActiveTabForegroundColor"></Property>
     <Property name="InactiveTabColor"></Property>
     <Property name="InactiveTabForegroundColor"></Property>
+    <Property name="Locked">true</Property>
   </Control>
-  <Control id="Lbl-Name" type="Label" x="40" y="144" w="144" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Lbl-Name" type="Label" x="40" y="144" w="144" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1183,7 +1181,6 @@ Create/Update</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -1196,7 +1193,7 @@ Create/Update</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Txt-Name" type="TextBox" x="192" y="144" w="808" h="32" tab-order="2" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Txt-Name" type="TextBox" x="192" y="144" w="808" h="32" tab-order="2" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="MaximumLength">30</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -1224,7 +1221,6 @@ Create/Update</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -1244,7 +1240,7 @@ Create/Update</Property>
     <Property name="Picture"></Property>
     <Property name="PasswordCharacter"></Property>
   </Control>
-  <Control id="Lbl-Api" type="Label" x="40" y="192" w="144" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Lbl-Api" type="Label" x="40" y="192" w="144" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1269,7 +1265,6 @@ Create/Update</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -1282,7 +1277,7 @@ Create/Update</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Cmb-Provider" type="ComboBox" x="192" y="192" w="808" h="32" tab-order="3" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Cmb-Provider" type="ComboBox" x="192" y="192" w="808" h="32" tab-order="3" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1311,11 +1306,10 @@ Create/Update</Property>
     <Property name="EnterAsTab">true</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="SelectedIndex">-1</Property>
+    <Property name="SelectedIndex">0</Property>
     <Property name="Sorted">false</Property>
     <Property name="DropDownStyle">DropDown</Property>
     <Property name="Editable">true</Property>
@@ -1341,7 +1335,7 @@ Create/Update</Property>
            MOVE WS-PROV-EP TO WS-LAST-DEFAULT
 ]]></Event>
   </Control>
-  <Control id="Lbl-Url" type="Label" x="40" y="240" w="144" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Lbl-Url" type="Label" x="40" y="240" w="144" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1366,7 +1360,6 @@ Create/Update</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -1379,7 +1372,7 @@ Create/Update</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Txt-Url" type="TextBox" x="192" y="240" w="808" h="32" tab-order="4" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Txt-Url" type="TextBox" x="192" y="240" w="808" h="32" tab-order="4" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1406,7 +1399,6 @@ Create/Update</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -1427,7 +1419,7 @@ Create/Update</Property>
     <Property name="Picture"></Property>
     <Property name="PasswordCharacter"></Property>
   </Control>
-  <Control id="Lbl-Key" type="Label" x="40" y="288" w="144" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Lbl-Key" type="Label" x="40" y="288" w="144" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1452,7 +1444,6 @@ Create/Update</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -1465,7 +1456,7 @@ Create/Update</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Txt-Key" type="TextBox" x="192" y="288" w="808" h="32" tab-order="5" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Txt-Key" type="TextBox" x="192" y="288" w="808" h="32" tab-order="5" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="PasswordCharacter">*</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
@@ -1493,7 +1484,6 @@ Create/Update</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -1513,7 +1503,7 @@ Create/Update</Property>
     <Property name="Text"></Property>
     <Property name="Picture"></Property>
   </Control>
-  <Control id="Lbl-Status" type="Label" x="248" y="360" w="512" h="72" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Lbl-Status" type="Label" x="248" y="360" w="512" h="72" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1538,7 +1528,6 @@ Create/Update</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -1551,7 +1540,7 @@ Create/Update</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
   </Control>
-  <Control id="Btn-Test" type="Button" x="40" y="360" w="192" h="32" tab-order="7" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Btn-Test" type="Button" x="40" y="360" w="192" h="32" tab-order="7" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1576,7 +1565,6 @@ Create/Update</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -1623,7 +1611,7 @@ Create/Update</Property>
            END-IF
 ]]></Event>
   </Control>
-  <Control id="Btn-Cancel" type="Button" x="768" y="448" w="112" h="32" tab-order="8" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Btn-Cancel" type="Button" x="768" y="448" w="112" h="32" tab-order="8" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1648,7 +1636,6 @@ Create/Update</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -1671,7 +1658,7 @@ Create/Update</Property>
            CALL "PC-CANCEL-EDIT"
 ]]></Event>
   </Control>
-  <Control id="Btn-Save" type="Button" x="888" y="448" w="112" h="32" tab-order="9" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Btn-Save" type="Button" x="888" y="448" w="112" h="32" tab-order="9" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="ForegroundColor">#003758FF</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1696,7 +1683,6 @@ Create/Update</Property>
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ZOrder">0</Property>
@@ -1719,7 +1705,7 @@ Create/Update</Property>
            CALL "PC-SAVE-CONN"
 ]]></Event>
   </Control>
-  <Control id="Btn-New" type="Button" x="40" y="104" w="120" h="32" tab-order="1" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
+  <Control id="Btn-New" type="Button" x="40" y="104" w="120" h="32" tab-order="1" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="Caption">New</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
@@ -1736,7 +1722,6 @@ Create/Update</Property>
     <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1765,10 +1750,10 @@ Create/Update</Property>
            MOVE SPACES TO WS-KEY-NAME
            CALL "PC-SHOW-CONN"
            MOVE SPACES TO Lbl-List-Status::Caption
-           MOVE 1 TO Tab-Crud::SelectedTab
+           MOVE 2 TO Tab-Crud::SelectedTab
 ]]></Event>
   </Control>
-  <Control id="Lbl-List-Status" type="Label" x="176" y="104" w="456" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
+  <Control id="Lbl-List-Status" type="Label" x="176" y="104" w="456" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="Caption"></Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -1785,7 +1770,6 @@ Create/Update</Property>
     <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -1804,7 +1788,7 @@ Create/Update</Property>
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
   </Control>
-  <Control id="Btn-Close" type="Button" x="648" y="104" w="112" h="32" tab-order="3" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
+  <Control id="Btn-Close" type="Button" x="648" y="104" w="112" h="32" tab-order="3" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="Caption">Close</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
@@ -1821,7 +1805,6 @@ Create/Update</Property>
     <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1851,7 +1834,7 @@ Create/Update</Property>
            INVOKE ME::Close()
 ]]></Event>
   </Control>
-  <Control id="Dg-List" type="DataGrid" x="40" y="152" w="720" h="264" tab-order="2" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="0">
+  <Control id="Dg-List" type="DataGrid" x="40" y="152" w="720" h="264" tab-order="2" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
@@ -1867,7 +1850,6 @@ Create/Update</Property>
     <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1942,13 +1924,13 @@ delete:string</Property>
                WHEN 6
                    CALL "PC-SHOW-CONN"
                    MOVE SPACES TO Lbl-List-Status::Caption
-                   MOVE 1 TO Tab-Crud::SelectedTab
+                   MOVE 2 TO Tab-Crud::SelectedTab
                WHEN 7
                    CALL "PC-DELETE-CONN"
            END-EVALUATE
 ]]></Event>
   </Control>
-  <Control id="Btn-Cancel-Top" type="Button" x="768" y="96" w="112" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Btn-Cancel-Top" type="Button" x="768" y="96" w="112" h="32" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="Caption">Cancel</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
@@ -1965,7 +1947,6 @@ delete:string</Property>
     <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
@@ -1994,7 +1975,7 @@ delete:string</Property>
            CALL "PC-CANCEL-EDIT"
 ]]></Event>
   </Control>
-  <Control id="Btn-Save-Top" type="Button" x="888" y="96" w="112" h="32" tab-order="1" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="1">
+  <Control id="Btn-Save-Top" type="Button" x="888" y="96" w="112" h="32" tab-order="1" z-order="0" visible="true" enabled="true" parent="Tab-Crud" tab="2">
     <Property name="Caption">Save</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
@@ -2011,7 +1992,6 @@ delete:string</Property>
     <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>

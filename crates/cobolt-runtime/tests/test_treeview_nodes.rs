@@ -53,11 +53,11 @@ fn run(src: &str) -> Vec<String> {
 /// 5 Office
 /// ```
 const BUILD: &str = r#"
-           TREE-1::AddNode(0, "Warehouse").
-           TREE-1::AddNode(1, "Inbound").
-           TREE-1::AddNode(2, "Dock A").
-           TREE-1::AddNode(1, "Outbound").
-           TREE-1::AddNode(0, "Office").
+           TREE-1::AddNode(1, "Warehouse").
+           TREE-1::AddNode(2, "Inbound").
+           TREE-1::AddNode(3, "Dock A").
+           TREE-1::AddNode(2, "Outbound").
+           TREE-1::AddNode(1, "Office").
 "#;
 
 fn program(body: &str) -> String {
@@ -95,7 +95,7 @@ fn a_tree_is_built_by_level_and_counted() {
     let joined = out.join("\n");
     assert!(joined.contains("COUNT=0005"), "five nodes: {joined}");
     assert!(joined.contains("N2=[Dock A"), "handle 3 is Dock A: {joined}");
-    assert!(joined.contains("L2=0002"), "Dock A sits two deep: {joined}");
+    assert!(joined.contains("L2=0003"), "Dock A is level 3 — a root is level 1: {joined}");
 }
 
 /// Climbing: a handler that has the node an event fired on can reach the node
@@ -119,19 +119,19 @@ fn a_handler_climbs_from_a_node_to_its_root() {
     assert!(joined.contains("PT=[Inbound"), "and the index reads back: {joined}");
     assert!(joined.contains("GP=0001"), "Inbound hangs under Warehouse: {joined}");
     assert!(
-        joined.contains("ROOT-PARENT=-0001"),
-        "a root has no parent, and says so with -1: {joined}"
+        joined.contains("ROOT-PARENT=0000"),
+        "a root has no parent, and says so with 0: {joined}"
     );
 }
 
 /// Running along the siblings — the loop a handler writes to visit everything
-/// under one parent. `-1` is what ends it.
+/// under one parent. `0` is what ends it.
 #[test]
 fn a_handler_runs_along_the_siblings() {
     let out = run(&program(
         r#"
            MOVE TREE-1::NodeFirstChild(1) TO WS-IDX.
-           PERFORM UNTIL WS-IDX < 0
+           PERFORM UNTIL WS-IDX = 0
                MOVE TREE-1::NodeText(WS-IDX) TO WS-TEXT
                DISPLAY "CHILD=[" WS-TEXT "]"
                MOVE TREE-1::NodeNextSibling(WS-IDX) TO WS-IDX
@@ -160,7 +160,7 @@ fn a_handler_runs_along_the_siblings() {
 fn a_node_carries_and_returns_its_own_dress() {
     let out = run(&program(
         r##"
-           TREE-1::AddNode(0, "Overdue", "alert", "#C81E1E", "#202020").
+           TREE-1::AddNode(1, "Overdue", "alert", "#C81E1E", "#202020").
            MOVE TREE-1::NodeIndexOf("Overdue") TO WS-IDX.
            DISPLAY "AT=" WS-IDX.
            MOVE TREE-1::NodeIcon(WS-IDX) TO WS-TEXT.
@@ -210,7 +210,7 @@ fn checked_and_collapsed_read_the_controls_live_state() {
 }
 
 /// A walk runs off the end of a tree by design. Asking about a node that is not
-/// there answers empty rather than raising — the walk is guarded by the `-1`
+/// there answers empty rather than raising — the walk is guarded by the `0`
 /// the traversal calls return, not by an error every loop would have to trap.
 #[test]
 fn asking_past_the_end_is_answered_not_raised() {
@@ -226,8 +226,8 @@ fn asking_past_the_end_is_answered_not_raised() {
     ));
     let joined = out.join("\n");
     assert!(joined.contains("GONE=[ "), "an absent node reads empty: {joined}");
-    assert!(joined.contains("GONE-P=-0001"), "{joined}");
-    assert!(joined.contains("MISSING=-0001"), "{joined}");
+    assert!(joined.contains("GONE-P=0000"), "{joined}");
+    assert!(joined.contains("MISSING=0000"), "{joined}");
 }
 
 /// The handle a node event hands over IS the one the methods take: the node on

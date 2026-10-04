@@ -1177,7 +1177,7 @@
            MOVE 0 TO WS-EDIT-SEQ
            MOVE SPACES TO Txt-Data::Text
            MOVE SPACES TO Txt-Cidx::Text
-           MOVE 1 TO Tab-Crud::SelectedTab
+           MOVE 2 TO Tab-Crud::SelectedTab
 
            GOBACK.
 
@@ -1213,7 +1213,7 @@
            MOVE TF-SEQ TO WS-EDIT-SEQ
            MOVE FUNCTION TRIM(TF-DATA) TO Txt-Data::Text
            MOVE FUNCTION TRIM(TF-CIDX) TO Txt-Cidx::Text
-           MOVE 1 TO Tab-Crud::SelectedTab
+           MOVE 2 TO Tab-Crud::SelectedTab
 
            GOBACK.
 
@@ -1293,7 +1293,7 @@
            MOVE SPACES TO Txt-Data::Text
            MOVE SPACES TO Txt-Cidx::Text
            CALL "PC-LOAD-FILES"
-           MOVE 0 TO Tab-Crud::SelectedTab
+           MOVE 1 TO Tab-Crud::SelectedTab
 
            GOBACK.
 
@@ -1309,7 +1309,7 @@
            MOVE "N" TO WS-EDIT-MODE
            MOVE SPACES TO Txt-Data::Text
            MOVE SPACES TO Txt-Cidx::Text
-           MOVE 0 TO Tab-Crud::SelectedTab
+           MOVE 1 TO Tab-Crud::SelectedTab
 
            GOBACK.
 

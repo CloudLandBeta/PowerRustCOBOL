@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="RESPONSIVE-FONTS-FORM" title="Responsive - font scaling" width="1000" height="700" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" form-format="Both" responsive="true" control-style="modern">
+<Form name="RESPONSIVE-FONTS-FORM" title="Responsive - font scaling" width="1000" height="700" background="#F4F6F9FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" form-format="Both" responsive="true" control-style="modern" index-base="1">
   <FormLayout FontScaling="Fluid" MaxFontScale="1.6" MinFontScale="0.8"/>
   <Breakpoints>
     <Breakpoint name="Compact" min-width="0" font-factor="0.85"/>

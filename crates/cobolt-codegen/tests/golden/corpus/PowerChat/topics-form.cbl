@@ -1581,7 +1581,7 @@
            MOVE SPACES TO Txt-Name::Text
            MOVE SPACES TO Txt-Prompt::Text
            MOVE FUNCTION TRIM(T-NEW-TOPIC) TO Lbl-New::Caption
-           MOVE 1 TO Tab-Crud::SelectedTab
+           MOVE 2 TO Tab-Crud::SelectedTab
 
            GOBACK.
 
@@ -1617,7 +1617,7 @@
            MOVE FUNCTION TRIM(TOP-NAME) TO Txt-Name::Text
            MOVE FUNCTION TRIM(TOP-PROMPT) TO Txt-Prompt::Text
            MOVE FUNCTION TRIM(T-EDIT-TOPIC) TO Lbl-New::Caption
-           MOVE 1 TO Tab-Crud::SelectedTab
+           MOVE 2 TO Tab-Crud::SelectedTab
 
            GOBACK.
 
@@ -1703,7 +1703,7 @@
            MOVE SPACES TO Txt-Name::Text
            MOVE SPACES TO Txt-Prompt::Text
            CALL "PC-LOAD-TOPICS"
-           MOVE 0 TO Tab-Crud::SelectedTab
+           MOVE 1 TO Tab-Crud::SelectedTab
 
            GOBACK.
 
@@ -1717,7 +1717,7 @@
        PROCEDURE DIVISION.
       *>   Back to Browse, nothing written and the list not reloaded.
            MOVE SPACES TO WS-EDIT-ID
-           MOVE 0 TO Tab-Crud::SelectedTab
+           MOVE 1 TO Tab-Crud::SelectedTab
 
            GOBACK.
 

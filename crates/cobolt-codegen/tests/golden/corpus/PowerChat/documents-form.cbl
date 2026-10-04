@@ -1890,7 +1890,8 @@
            END-PERFORM
            MOVE Trv-Docs::Clear() TO WS-OK
            PERFORM VARYING WS-J FROM 1 BY 1 UNTIL WS-J > WS-NODE-N
-               MOVE 0 TO WS-DEPTH
+      *>       Depth from 1 (a top-level entry), one more per "/".
+               MOVE 1 TO WS-DEPTH
                INSPECT WS-NODE-PATH(WS-J) TALLYING WS-DEPTH FOR ALL "/"
                MOVE FUNCTION LENGTH(FUNCTION TRIM(WS-NODE-PATH(WS-J))) TO WS-L
                MOVE 0 TO WS-P
