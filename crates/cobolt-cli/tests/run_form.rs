@@ -395,3 +395,72 @@ fn a_window_whose_controls_share_ids_with_its_opener_runs() {
     let _ = std::fs::remove_dir_all(&base);
     println!("two windows, one BTN-SAME each, drawn in one pass: ran, child open, main's click handled");
 }
+
+const SHOUT_FORM: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="SHOUT-FORM" title="Shout" width="360" height="160">
+  <working-storage><![CDATA[       01 WS-WORD GLOBAL PIC X(20).
+]]></working-storage>
+  <Control id="BTN-SHOUT" type="Button" x="20" y="20" w="120" h="28" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Shout</Property>
+    <Event name="onClick" paragraph="BTN-SHOUT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE "hello" TO WS-WORD
+           CALL "SHOUT" USING WS-WORD
+           MOVE WS-WORD TO LBL-OUT::Caption.
+]]></Event>
+  </Control>
+  <Control id="LBL-OUT" type="Label" x="20" y="70" w="300" h="28" tab-order="1" z-order="1" visible="true" enabled="true">
+    <Property name="Caption">-</Property>
+  </Control>
+</Form>
+"#;
+
+const SHOUT_CBL: &str = "       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SHOUT.
+      *>   Common Code: upper-cases the word it is given.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01 LK-WORD PIC X(20).
+       PROCEDURE DIVISION USING LK-WORD.
+           MOVE FUNCTION UPPER-CASE(LK-WORD) TO LK-WORD
+           GOBACK.
+";
+
+/// A handler CALLs a Common Code program (`src/`), as the Developer's Guide
+/// has always said it does — through the real `rcrun`. Nothing linked the
+/// project's Common Code into a form's program, so the CALL reached
+/// "unknown program" and the word came back unchanged.
+#[test]
+fn a_handler_calls_common_code() {
+    let base = std::env::temp_dir().join(format!("prc-common-code-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let start = base.join("start");
+    std::fs::create_dir_all(&start).unwrap();
+    let runner = run::rcrun_runner(Path::new(env!("CARGO_BIN_EXE_rcrun")).to_path_buf());
+    let shared = Arc::new(Shared::new().with_runner(runner));
+    let mut tools = ProjectTools::with_shared(HeadlessHost::new(start.join("none.project.toml"), "test"), shared);
+    let project = base.join("Shouter");
+    let (_, made, err) = call(&mut tools, "create_project", json!({"folder": project.to_string_lossy(), "name": "Shouter"}));
+    assert!(!err, "{made}");
+    std::fs::write(project.join("src/shout.cbl"), SHOUT_CBL).unwrap();
+    std::fs::write(project.join("forms/shout-form.cfrm"), SHOUT_FORM).unwrap();
+    for path in ["src/shout.cbl", "forms/shout-form.cfrm"] {
+        let (_, out, err) = call(&mut tools, "add_to_project", json!({"path": path}));
+        assert!(!err, "{path}: {out}");
+    }
+    let (_, out, err) = call(&mut tools, "regenerate", json!({"path": "forms/shout-form.cfrm"}));
+    assert!(!err, "{out}");
+    let (_, out, err) = call(
+        &mut tools,
+        "run_form",
+        json!({"path": "forms/shout-form.cfrm", "steps": [
+            {"event": {"control": "BTN-SHOUT", "name": "onClick"}},
+            {"read": {"control": "LBL-OUT", "property": "Caption"}}
+        ]}),
+    );
+    assert!(!err, "{out}");
+    assert_eq!(out["reads"]["LBL-OUT::Caption"].as_str().map(str::trim), Some("HELLO"), "SHOUT ran: {out}");
+    let _ = std::fs::remove_dir_all(&base);
+    println!("a handler CALLed Common Code SHOUT through rcrun: hello -> HELLO");
+}

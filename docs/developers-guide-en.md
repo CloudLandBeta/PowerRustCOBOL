@@ -1626,6 +1626,39 @@ you can **Run** straight away and then grow.
 | **Assets**         | images, audio, fonts, data files bundled with the app        | imported                        |
 | **Knowledge Base** | project-specific Markdown / text / PDF material              | yes                             |
 
+### Calling Common Code from a form
+
+Each program in **Common Code** is linked into every form's program, in Run
+Form and in the built application alike, so a handler reaches it by its
+`PROGRAM-ID` and passes its data with `USING`, as it would a subprogram:
+
+```cobol
+      *> src/calc-tax.cbl
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CALC-TAX.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01 LK-AMOUNT PIC 9(7)V99.
+       01 LK-TAX    PIC 9(7)V99.
+       PROCEDURE DIVISION USING LK-AMOUNT LK-TAX.
+           COMPUTE LK-TAX ROUNDED = LK-AMOUNT * 0.2
+           GOBACK.
+```
+
+```cobol
+      *> a button's onClick handler
+           CALL "CALC-TAX" USING WS-AMOUNT WS-TAX
+           MOVE WS-TAX TO LBL-TAX::Caption
+```
+
+The called program keeps its own WORKING-STORAGE between calls, and its own
+files: `SELECT … ASSIGN TO WS-PATH` opens the path its `WS-PATH` holds.
+
+> ⚠️ **Caveat.** Three sources are not linked: the project's main program,
+> a source that is a form's own generated program, and a Common Code program
+> holding `EXEC RUST` blocks (their ids are numbered per application). A form
+> that defines a program of the same name keeps its own.
+
 ### Creating vs. importing
 
 The **➕** on a category **creates a new item**:

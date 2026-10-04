@@ -8,6 +8,26 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.167] — 2026-10-04
+
+### Fix: a form's handlers can CALL Common Code
+
+The Developer's Guide has always said reusable logic goes in **Common Code**
+and is `CALL`ed from handlers — but no host linked the project's `src/`
+programs into a form's program, so such a `CALL` reached "unknown program" in
+Run Form and in the built application, and did nothing (found building
+PowerSpatial, whose language setting lives in two Common Code programs). The
+project's Common Code is now linked into each program as nested programs —
+with their own storage, files and `LINKAGE` — by `link_common_code` in Run
+Form (the root form and every form it opens) and by the build (the main
+program and every embedded form program), so the compiled application
+matches Run Form. Left out: the project's main program, a source that is a
+form's own program, one that does not parse, a program holding `EXEC RUST`
+blocks (warned: block ids are numbered per binary), and a name the program
+already answers to. Tests `a_forms_program_is_linked_with_the_projects_common_code`
+(compiler) and `a_handler_calls_common_code` (through `rcrun`, red before the
+change). Guide: new section "Calling Common Code from a form".
+
 ## [PowerRustCOBOL 1.80.166] — 2026-10-04
 
 ### Fix: a nested program's `ASSIGN TO data-item` opens the file the item names

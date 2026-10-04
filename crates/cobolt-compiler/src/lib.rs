@@ -1208,6 +1208,100 @@ pub fn form_program_path(cfrm: &Path, id: &str) -> Option<PathBuf> {
     generated_program_path(&proj, dir, id).or_else(beside)
 }
 
+/// The project's **Common Code** — the hand-written programs under `files.sources`
+/// a form's handlers `CALL` — parsed, ready to be linked into a program. Left
+/// out: the project's main program, any source that is a form's own program
+/// (legacy projects tracked generated code under `sources`), and a source that
+/// does not parse (`check` reports it). A program holding `EXEC RUST` blocks is
+/// left out too, with a warning: block ids are numbered per binary, and a
+/// shared program's blocks would collide with each form's own.
+///
+/// Returns the programs and one warning per source left out for a fault.
+fn common_code_programs(proj: &CoboltProject, dir: &Path) -> (Vec<cobolt_ast::program::Program>, Vec<String>) {
+    let form_stems: std::collections::HashSet<String> = proj
+        .files
+        .forms
+        .iter()
+        .filter_map(|f| Path::new(f).file_stem().and_then(|s| s.to_str()).map(str::to_ascii_lowercase))
+        .collect();
+    let mut programs = Vec::new();
+    let mut warnings = Vec::new();
+    for rel in &proj.files.sources {
+        let stem = Path::new(rel).file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_ascii_lowercase();
+        if rel == &proj.project.main || form_stems.contains(&stem) {
+            continue;
+        }
+        let abs = dir.join(rel);
+        let Ok(src) = cobolt_lexer::read_source_file(&abs) else {
+            continue;
+        };
+        let fmt = detect_format(&src);
+        let tokens = match cobolt_lexer::preprocess_program(&src, &abs, fmt) {
+            Some(exp) if exp.errors.is_empty() => cobolt_lexer::tokenize_expansion(&exp),
+            Some(_) => {
+                warnings.push(format!("Common Code {rel}: copybook error — not linked"));
+                continue;
+            }
+            None => cobolt_lexer::tokenize(&src, fmt),
+        };
+        let pr = cobolt_parser::parse(tokens);
+        let parsed = pr.diagnostics.iter().all(|d| d.severity != cobolt_parser::Severity::Error);
+        match pr.program.filter(|_| parsed) {
+            Some(_) if pr.next_block_id > 0 => warnings.push(format!(
+                "Common Code {rel}: holds EXEC RUST blocks, which a form cannot CALL into — not linked"
+            )),
+            Some(program) => programs.push(program),
+            None => warnings.push(format!("Common Code {rel}: does not parse — not linked")),
+        }
+    }
+    (programs, warnings)
+}
+
+/// Append `common` to `program`'s nested programs, so a `CALL` from any of its
+/// handlers finds them by PROGRAM-ID — with their own data, files and
+/// `LINKAGE`, exactly as a nested program is called. A name the program
+/// already answers to (its own, or a nested program of its own) wins.
+fn link_into(program: &mut cobolt_ast::program::Program, common: &[cobolt_ast::program::Program]) -> usize {
+    let mut taken: std::collections::HashSet<String> = program
+        .nested_programs
+        .iter()
+        .map(|p| p.identification.program_id.to_ascii_uppercase())
+        .collect();
+    taken.insert(program.identification.program_id.to_ascii_uppercase());
+    let mut linked = 0;
+    for c in common {
+        if taken.insert(c.identification.program_id.to_ascii_uppercase()) {
+            program.nested_programs.push(c.clone());
+            linked += 1;
+        }
+    }
+    linked
+}
+
+/// Link the project's Common Code into `program`, the program of the form or
+/// source at `path` (any file inside the project). The Developer's Guide has
+/// always said a handler `CALL`s Common Code; no host linked it, so such a
+/// `CALL` reached "unknown program" in Run Form and in the built application.
+/// Run Form calls this when it loads a form's program; the build does the same
+/// before it embeds each program. Returns the warnings for sources left out.
+pub fn link_common_code(path: &Path, program: &mut cobolt_ast::program::Program) -> Vec<String> {
+    let Some(manifest) = find_project_manifest(path) else {
+        return Vec::new();
+    };
+    let Ok(text) = std::fs::read_to_string(&manifest) else {
+        return Vec::new();
+    };
+    let Ok(proj) = toml::from_str::<CoboltProject>(&text) else {
+        return Vec::new();
+    };
+    let Some(dir) = manifest.parent() else {
+        return Vec::new();
+    };
+    let (common, warnings) = common_code_programs(&proj, dir);
+    link_into(program, &common);
+    warnings
+}
+
 fn main_form_program(proj: &CoboltProject, dir: &Path) -> Option<String> {
     if proj.files.forms.is_empty() {
         return None;
@@ -1703,7 +1797,7 @@ fn build_core(
     // block the same id — and the survivor would run for both.
     let next_block_id = parse_result.next_block_id;
 
-    let program = parse_result.program.ok_or_else(|| CompilerError::Parse {
+    let mut program = parse_result.program.ok_or_else(|| CompilerError::Parse {
         file: main_rel.clone(),
         message: "Parse produced no program".into(),
     })?;
@@ -1818,6 +1912,22 @@ fn build_core(
             });
         }
     }
+
+    // Common Code rides inside every program that may CALL it: the main one
+    // here, each form's below — as Run Form links it when it loads them.
+    let common = if has_project {
+        let (common, warnings) = common_code_programs(&proj, &project_dir);
+        for w in &warnings {
+            log(&format!("⚠️  {w}"));
+        }
+        if !common.is_empty() {
+            log(&format!("   {} Common Code program(s) linked", common.len()));
+        }
+        common
+    } else {
+        Vec::new()
+    };
+    link_into(&mut program, &common);
 
     // ── 4. Serialize + compress the AST ──────────────────────────────────────
     report(0.35, "Serialising the program…");
@@ -1967,7 +2077,7 @@ fn build_core(
             .iter()
             .all(|d| d.severity != cobolt_parser::Severity::Error);
         let next = pr.next_block_id;
-        let Some(form_program) = pr.program.filter(|_| program_ok) else {
+        let Some(mut form_program) = pr.program.filter(|_| program_ok) else {
             log(&format!(
                 "⚠️  form {id}: its generated program does not parse — omitted \
                  (rebuild the form in the IDE and check the generated code)"
@@ -1975,6 +2085,7 @@ fn build_core(
             continue;
         };
         block_id_base = next;
+        link_into(&mut form_program, &common);
         let bytes = bincode::serialize(&form_program)
             .map_err(|e| CompilerError::Serialize(e.to_string()))?;
         let mut gz = GzEncoder::new(Vec::new(), Compression::best());
@@ -10708,6 +10819,45 @@ generated = ["generated/inner-form1.cbl"]
             find_project_manifest(&cfrm),
             Some(dir.join("PowerDemo3.project.toml"))
         );
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A form's program is linked with the project's Common Code: each
+    /// `files.sources` program becomes one it can CALL, except the project's
+    /// main program, a source that is a form's own program, one that does not
+    /// parse, and a name the program already answers to.
+    #[test]
+    fn a_forms_program_is_linked_with_the_projects_common_code() {
+        let dir = temp_dir("commoncode");
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::create_dir_all(dir.join("forms")).unwrap();
+        fs::create_dir_all(dir.join("generated")).unwrap();
+        fs::write(
+            dir.join("Shop.project.toml"),
+            "[project]\nname = \"Shop\"\nversion = \"1.0.0\"\nmain = \"src/main.cbl\"\n\n[files]\n\
+             sources = [\"src/main.cbl\", \"src/tax.cbl\", \"src/broken.cbl\", \"src/order-form.cbl\", \"src/own.cbl\"]\n\
+             forms = [\"forms/order-form.cfrm\"]\ngenerated = [\"generated/order-form.cbl\"]\n",
+        )
+        .unwrap();
+        let prog = |id: &str| format!("       IDENTIFICATION DIVISION.\n       PROGRAM-ID. {id}.\n       PROCEDURE DIVISION.\n           GOBACK.\n");
+        fs::write(dir.join("src/main.cbl"), prog("MAIN")).unwrap();
+        fs::write(dir.join("src/tax.cbl"), prog("CALC-TAX")).unwrap();
+        fs::write(dir.join("src/broken.cbl"), "       IDENTIFICATION DIVISION.\n       PROGRAM-ID BROKEN\n").unwrap();
+        fs::write(dir.join("src/order-form.cbl"), prog("ORDER-FORM")).unwrap();
+        fs::write(dir.join("src/own.cbl"), prog("ORDER-FORM-OWN")).unwrap();
+        fs::write(dir.join("forms/order-form.cfrm"), "<Form/>").unwrap();
+
+        let caller = "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. ORDER-FORM.\n       PROCEDURE DIVISION.\n           CALL \"CALC-TAX\".\n           GOBACK.\n\
+                      \n       IDENTIFICATION DIVISION.\n       PROGRAM-ID. ORDER-FORM-OWN.\n       PROCEDURE DIVISION.\n           GOBACK.\n       END PROGRAM ORDER-FORM-OWN.\n       END PROGRAM ORDER-FORM.\n";
+        let mut program = cobolt_parser::parse(cobolt_lexer::tokenize(caller, cobolt_lexer::SourceFormat::Free))
+            .program
+            .expect("the caller parses");
+        let own_before = program.nested_programs.len();
+        let warnings = link_common_code(&dir.join("generated/order-form.cbl"), &mut program);
+        let ids: Vec<String> = program.nested_programs.iter().map(|p| p.identification.program_id.to_ascii_uppercase()).collect();
+        assert_eq!(own_before, 1, "{ids:?}");
+        assert_eq!(ids, ["ORDER-FORM-OWN", "CALC-TAX"], "only the Common Code it does not already have");
+        assert!(warnings.iter().any(|w| w.contains("broken.cbl")), "a source that does not parse is named: {warnings:?}");
         fs::remove_dir_all(&dir).ok();
     }
 

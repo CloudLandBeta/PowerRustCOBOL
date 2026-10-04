@@ -398,6 +398,12 @@ pub fn cmd_run_form(args: &[String]) {
         eprintln!("run-form: aborting — semantic errors found.");
         process::exit(1);
     }
+    // The project's Common Code, which the form's handlers CALL — linked as the
+    // build links it into the application.
+    let mut program = program;
+    for w in cobolt_compiler::link_common_code(&cbl_path, &mut program) {
+        eprintln!("run-form: {w}");
+    }
 
     // ── Flatten controls + initial state + object-registry seed ──────────────
     let mut flat: Vec<cobolt_forms::Control> = Vec::new();
@@ -677,9 +683,11 @@ pub fn cmd_run_form(args: &[String]) {
         {
             return Err(format!("the generated program {} does not parse", cbl.display()));
         }
-        let program = pr
+        let mut program = pr
             .program
             .ok_or_else(|| format!("{}: parse produced no program", cbl.display()))?;
+        // Its handlers CALL the same Common Code as the root's.
+        cobolt_compiler::link_common_code(&cbl, &mut program);
         Ok((child_form, program))
     });
     // A child form resolves its theme by the same rule as the root: per-form
