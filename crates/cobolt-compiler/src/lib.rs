@@ -1107,6 +1107,10 @@ struct FormProgramUnit {
 }
 
 fn generated_program_path(proj: &CoboltProject, dir: &Path, id: &str) -> Option<PathBuf> {
+    // A form id usually arrives from a COBOL field, padded with spaces
+    // (`PIC X(30)`), and every other step of finding a form trims it: this
+    // one did not, so the form's design was found and its program was not.
+    let id = id.trim();
     let stem_matches = |rel: &str| {
         Path::new(rel)
             .file_stem()
@@ -10686,6 +10690,12 @@ generated = ["generated/inner-form1.cbl"]
             form_program_path(&cfrm, "inner-form1"),
             Some(dir.join("generated/inner-form1.cbl")),
             "the program is in the project's generated/ folder, not beside the design"
+        );
+        // The id as a COBOL field passes it: upper case and padded.
+        assert_eq!(
+            form_program_path(&cfrm, "INNER-FORM1          "),
+            Some(dir.join("generated/inner-form1.cbl")),
+            "a padded id names the same form"
         );
         // The manifest is discovered from a form nested two levels down, and
         // is named after the project rather than a fixed `cobolt.toml`.

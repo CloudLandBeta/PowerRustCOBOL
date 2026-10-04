@@ -8,6 +8,19 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.163] — 2026-10-04
+
+### Fix: a form named by a padded id finds its generated program
+
+A form id usually reaches `OpenFormSync` / `OpenFormAsync` from a COBOL
+field, padded with spaces. Every step of finding the form trimmed it except
+the one that looks for its generated program in the project's `generated/`
+folder, so the design was found and the program was not ("has no generated
+program yet") — in Run Form and in the compiled application alike, which
+share `generated_program_path`. The id is trimmed there now. Test:
+`a_forms_program_is_found_in_the_projects_generated_folder` asks with an
+upper-case, padded id.
+
 ## [PowerRustCOBOL 1.80.162] — 2026-10-04
 
 ### Fix: `render_form` pictures a Spatial form as its window shows it
