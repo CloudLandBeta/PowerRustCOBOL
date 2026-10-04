@@ -8,6 +8,24 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.153] — 2026-10-04
+
+### Fix: a window without a title bar moves from the transparent parts of a picture
+
+A press on a PictureBox never moved a window without a title bar, even where
+the PictureBox paints nothing (operator, 2026-10-04: "can't drag a title bar
+less window by clicking in transparent area of images"). A frameless
+PictureBox (`ShowFrame` false) paints only its picture, so a press beside the
+picture, or on a pixel the picture leaves transparent (alpha 16 or less), now
+moves the window, like a press on a see-through Label or Panel. The picture is
+placed exactly as its painter places it (`media_dest_rect_aligned`, the same
+native size and `SizeMode`/`ImageAlignment`), and its alpha is read from a mask
+decoded once per file (`paint::picturebox_paints_at`). A framed PictureBox
+still keeps its whole rectangle. Applies to the run form and every host; test
+`a_frameless_window_moves_by_its_background_and_see_through_parts` gains three
+press points (opaque pixel, transparent pixel, framed picture) and fails
+without the fix. Guide and System KB updated; `chunked.data` regenerated.
+(1.80.152 is the Preview change.)
 ## [PowerRustCOBOL 1.80.152] — 2026-10-04
 
 ### Feature: Preview matches the run form's window

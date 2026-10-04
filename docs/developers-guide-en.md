@@ -6828,9 +6828,11 @@ ends the application (and its `onClose` handler can still refuse, raising
 **Moving a window without a title bar.** A chromeless window is moved by its
 face: press anywhere on the form's background and drag. A press on a control
 stays the control's — a button still clicks, a list still selects — except
-where the control paints nothing: a hidden control, and the transparent
+where the control paints nothing: a hidden control, the transparent
 background of a Label, Panel or GroupBox (its text, border, caption and
-children still belong to it). This works for the main window and for child
+children still belong to it), and a PictureBox without a frame
+(`ShowFrame` off) beside its picture or on the picture's transparent pixels —
+a cut-out PNG moves the window from everywhere it shows the form behind it. This works for the main window and for child
 windows; a shell application's window (a main form carrying a SideMenu) does
 not move this way yet.
 

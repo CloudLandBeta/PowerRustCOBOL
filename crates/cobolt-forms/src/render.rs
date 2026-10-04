@@ -2739,7 +2739,7 @@ fn render_form_inner(
         .filter(|area| area.drag_started())
         .and_then(|area| area.interact_pointer_pos())
     {
-        out.window_drag = !window_drag_blocked(controls, &out, p);
+        out.window_drag = !window_drag_blocked(ui.ctx(), controls, &out, p);
     }
 
     // ââ Second pass: open ComboBox dropdowns float above everything. ââââââââââ
@@ -2844,9 +2844,10 @@ fn face_see_through(ctrl: &Control) -> bool {
 /// controls draw nothing at run time. A Label, Panel or GroupBox whose face is
 /// see-through — `Transparency` 100, or a background with zero alpha — paints
 /// only its text (a Label), or its border and caption (a Panel, a GroupBox);
-/// a press elsewhere on it passes through. Every other visible control blocks
-/// over its whole rectangle.
-fn window_drag_blocked(controls: &[Control], out: &RenderOutput, p: egui::Pos2) -> bool {
+/// a press elsewhere on it passes through. A PictureBox without a frame paints
+/// only its picture, so a press beside it or on a transparent pixel passes
+/// through too. Every other visible control blocks over its whole rectangle.
+fn window_drag_blocked(ctx: &egui::Context, controls: &[Control], out: &RenderOutput, p: egui::Pos2) -> bool {
     controls.iter().any(|ctrl| {
         if ctrl.control_type.is_non_visual() {
             return false;
@@ -2873,6 +2874,7 @@ fn window_drag_blocked(controls: &[Control], out: &RenderOutput, p: egui::Pos2) 
                 );
                 !open.contains(p)
             }
+            ControlType::PictureBox => crate::paint::picturebox_paints_at(ctx, ctrl, *rect, p),
             _ => true,
         }
     })
@@ -25198,7 +25200,24 @@ mod tests {
         solid.set_prop("BackgroundColor", crate::PropValue::String("#336699".into()));
         let mut hidden = ctrl("Hidden", ControlType::Button, 20, 200, 100, 40);
         hidden.visible = false;
-        let controls = vec![btn, lbl, clear, solid, hidden];
+        // A picture whose left half is opaque and right half transparent,
+        // stretched over a frameless PictureBox (operator, 2026-10-04: "can't
+        // drag a title bar less window by clicking in transparent area of
+        // images"), and the same picture in a framed one.
+        let dir = tempfile::tempdir().unwrap();
+        let png = dir.path().join("half.png");
+        image::RgbaImage::from_raw(2, 1, vec![200, 40, 40, 255, 0, 0, 0, 0])
+            .unwrap()
+            .save(&png)
+            .unwrap();
+        let picture = |id: &str, y: i32, frame: bool| {
+            let mut pic = ctrl(id, ControlType::PictureBox, 130, y, 100, 50);
+            pic.set_prop("ImagePath", crate::PropValue::String(png.to_string_lossy().into_owned()));
+            pic.set_prop("SizeMode", crate::PropValue::String("Stretch".into()));
+            pic.set_prop("ShowFrame", crate::PropValue::Bool(frame));
+            pic
+        };
+        let controls = vec![btn, lbl, clear, solid, hidden, picture("Pic", 120, false), picture("Framed", 190, true)];
 
         // Hides what `visible` says is hidden, as every host's state does
         // (the shared `MapState` shows everything).
@@ -25248,7 +25267,7 @@ mod tests {
             moved
         };
 
-        let cases: [(&str, Pos2, bool); 7] = [
+        let cases: [(&str, Pos2, bool); 10] = [
             ("form background", pos2(150.0, 260.0), true),
             ("a button", pos2(70.0, 35.0), false),
             ("a see-through label, beside its text", pos2(200.0, 85.0), true),
@@ -25256,6 +25275,9 @@ mod tests {
             ("a see-through panel, on its border", pos2(251.0, 80.0), false),
             ("an opaque panel", pos2(310.0, 210.0), false),
             ("where a hidden button sits", pos2(70.0, 220.0), true),
+            ("a frameless picture, on an opaque pixel", pos2(150.0, 145.0), false),
+            ("a frameless picture, on a transparent pixel", pos2(210.0, 145.0), true),
+            ("a framed picture, over its transparent pixels", pos2(210.0, 215.0), false),
         ];
         for (what, at, expected) in cases {
             assert_eq!(drags(at, true), expected, "frameless window, press on {what}");

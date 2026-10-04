@@ -7761,6 +7761,57 @@ fn draw_picturebox_image(
 }
 
 /// The image's own size, in points, when it can be read (SVG or raster).
+/// Whether a PictureBox paints anything at `p`, for a window without a title
+/// bar that the operator moves by its face. A frameless PictureBox
+/// (`ShowFrame = false`) paints only its picture: a press outside the picture,
+/// or on a pixel the picture leaves transparent, lands on nothing and moves
+/// the window (operator, 2026-10-04). The picture is placed exactly as
+/// [`draw_picturebox_image`] places it, and read from the same file.
+/// With a frame, the whole rect is painted.
+pub(crate) fn picturebox_paints_at(ctx: &egui::Context, ctrl: &Control, rect: Rect, p: Pos2) -> bool {
+    let framed = ctrl.get_prop("ShowFrame").map(|v| v.as_bool()).unwrap_or(true);
+    if framed {
+        return true;
+    }
+    let path = ctrl.get_prop("ImagePath").map(|v| v.as_str().trim().to_owned()).unwrap_or_default();
+    let Some(native) = picturebox_native_size(ctx, &path) else {
+        return false;
+    };
+    let size_mode = ctrl.get_prop("SizeMode").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "Normal".into());
+    let align = ctrl.get_prop("ImageAlignment").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "MiddleCenter".into());
+    let dest = media_dest_rect_aligned(rect, native, pic_size_mode(&size_mode), &align);
+    if !dest.contains(p) || !rect.contains(p) {
+        return false;
+    }
+    let u = (p.x - dest.min.x) / dest.width().max(1.0);
+    let v = (p.y - dest.min.y) / dest.height().max(1.0);
+    image_alpha_at(ctx, &path, u, v).map_or(true, |a| a > 16)
+}
+
+/// The alpha of the picture at `path` at (`u`, `v`) in 0..1, from a mask
+/// decoded once and kept in the context. `None` when the file cannot be read
+/// — the caller then treats the picture as solid.
+fn image_alpha_at(ctx: &egui::Context, path: &str, u: f32, v: f32) -> Option<u8> {
+    type Mask = Option<std::sync::Arc<(usize, usize, Vec<u8>)>>;
+    let id = egui::Id::new(("pb_alpha", path));
+    let mask: Mask = match ctx.memory(|m| m.data.get_temp::<Mask>(id)) {
+        Some(m) => m,
+        None => {
+            let m = std::fs::read(crate::assets::resolve(path))
+                .ok()
+                .and_then(|bytes| decode_image_bytes(path, &bytes))
+                .map(|ci| std::sync::Arc::new((ci.size[0], ci.size[1], ci.pixels.iter().map(|c| c.a()).collect())));
+            ctx.memory_mut(|mem| mem.data.insert_temp(id, m.clone()));
+            m
+        }
+    };
+    let mask = mask?;
+    let (w, h, alpha) = (&mask.0, &mask.1, &mask.2);
+    let x = ((u.clamp(0.0, 1.0) * *w as f32) as usize).min(w.saturating_sub(1));
+    let y = ((v.clamp(0.0, 1.0) * *h as f32) as usize).min(h.saturating_sub(1));
+    alpha.get(y * w + x).copied()
+}
+
 pub fn picturebox_native_size(ctx: &egui::Context, image_path: &str) -> Option<Vec2> {
     let path = image_path.trim();
     if path.is_empty() {

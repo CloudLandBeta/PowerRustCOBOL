@@ -7142,7 +7142,8 @@ fn controls_reference_doc() -> String {
          fullscreen returns to the previous state), and `TitleVisible` (Boolean, default true — \
          false renders a chromeless window, which the operator moves by dragging the form's \
          background or any see-through part of a control: a hidden control, the transparent \
-         background of a Label, Panel or GroupBox; not in a shell window yet), and `CornerRadius` \
+         background of a Label, Panel or GroupBox, a frameless PictureBox (ShowFrame false) \
+         beside its picture or on its transparent pixels; not in a shell window yet), and `CornerRadius` \
          (pixels, 0-255, default 0 — rounds the window's corners while `TitleVisible` is false; \
          offered in the inspector only then, and ignored while the title bar shows, because a \
          titled window's corners are the system's. The window is created see-through when the \
