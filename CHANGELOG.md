@@ -8,6 +8,21 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.179] — 2026-10-04
+
+### Fix: a Knob's value, a Gauge's reading and toggles read on Spatial's glass
+
+The painters that letter a control without being handed what it sits on — a
+Knob's value and label, a Gauge's reading, a CheckBox / RadioButton / Switch
+caption and mark, the themed text of a high-contrast control — measured their
+ink against a fixed light grey. On a Spatial form that rescued white text to
+black on what the operator sees as dark glass: a Knob's "70" came out black
+(operator, 2026-10-04). Under a see-through theme they now measure against the
+form's glass over the dark desktop (`paint::ground_under_controls`), as the
+render walk's own controls have since 1.80.173; every other theme keeps the
+default, and its goldens are unchanged. Test `a_spatial_knobs_value_reads_light`;
+cobolt-forms 1354/0.
+
 ## [PowerRustCOBOL 1.80.178] — 2026-10-04
 
 ### Feature: PowerSpatial joins Help → Examples

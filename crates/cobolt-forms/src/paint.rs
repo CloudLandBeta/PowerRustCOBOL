@@ -4149,11 +4149,7 @@ fn draw_control_body(
                 };
                 // The reading in the control's own font and colour, rescued so it
                 // stays legible on whatever the gauge sits on.
-                let tone = control_surface_tone(
-                    painter.ctx(),
-                    ctrl,
-                    parse_color(crate::model::DEFAULT_BACKGROUND_COLOR),
-                );
+                let tone = control_surface_tone(painter.ctx(), ctrl, ground_under_controls(painter.ctx()));
                 let text_colour = caret_color(
                     tone,
                     user_fg.unwrap_or(Color32::from_rgb(230, 230, 230)),
@@ -5973,11 +5969,7 @@ fn draw_control_body(
             // sits on the FRAME, and a toggle's BackgroundColor is its box. A
             // frame too transparent to read (a CheckBox at its 100 % default)
             // answers `None`, and the developer's colour is left alone.
-            match caption_surface_tone(
-                painter.ctx(),
-                ctrl,
-                parse_color(crate::model::DEFAULT_BACKGROUND_COLOR),
-            ) {
+            match caption_surface_tone(painter.ctx(), ctrl, ground_under_controls(painter.ctx())) {
                 Some(behind) => caret_color(behind, label_color),
                 None => label_color,
             }
@@ -11641,12 +11633,23 @@ fn viewer_face_tone(ctx: &egui::Context, ctrl: &Control) -> Color32 {
     // designer canvas and the tests have none, and there the universal default
     // is the same stand-in every other caller of `control_surface_tone` uses.
     let backdrop = form_backdrop_of(ctx);
-    let under = if backdrop.a() > 0 {
-        backdrop
+    let under = if backdrop.a() > 0 { backdrop } else { ground_under_controls(ctx) };
+    control_surface_tone(ctx, ctrl, under)
+}
+
+/// What a control sits on, for a painter that is not handed it: the universal
+/// default — except under a see-through theme (Spatial), where it is the form's
+/// glass (the backdrop the render walk published, or clear glass where none
+/// was), which [`control_surface_tone`] lays over the dark desktop the theme is
+/// designed for. The default's fixed light grey is what turned a Spatial
+/// Knob's value — and every other ink rescued against it — black on dark glass
+/// (operator, 2026-10-04). Every other theme keeps the default, as before.
+pub(crate) fn ground_under_controls(ctx: &egui::Context) -> Color32 {
+    if is_see_through(ctx) {
+        form_backdrop_of(ctx)
     } else {
         parse_color(crate::model::DEFAULT_BACKGROUND_COLOR)
-    };
-    control_surface_tone(ctx, ctrl, under)
+    }
 }
 
 pub(crate) fn draw_viewer(
@@ -16197,11 +16200,7 @@ pub fn draw_knob(painter: &egui::Painter, rect: egui::Rect, ctrl: &Control, alph
             .map(|v| parse_color(v.as_str()))
             .filter(|c| c.a() > 0)
             .unwrap_or(Color32::from_rgb(230, 230, 230));
-        let tone = control_surface_tone(
-            painter.ctx(),
-            ctrl,
-            parse_color(crate::model::DEFAULT_BACKGROUND_COLOR),
-        );
+        let tone = control_surface_tone(painter.ctx(), ctrl, ground_under_controls(painter.ctx()));
         let colour = caret_color(tone, fg);
         let font = crate::fonts::font_id(
             painter.ctx(),
@@ -16225,7 +16224,7 @@ pub fn draw_knob(painter: &egui::Painter, rect: egui::Rect, ctrl: &Control, alph
             .map(|v| parse_color(v.as_str()))
             .filter(|c| c.a() > 0)
             .unwrap_or(Color32::from_rgb(230, 230, 230));
-        let tone = control_surface_tone(painter.ctx(), ctrl, parse_color(crate::model::DEFAULT_BACKGROUND_COLOR));
+        let tone = control_surface_tone(painter.ctx(), ctrl, ground_under_controls(painter.ctx()));
         let colour = caret_color(tone, fg);
         let font = crate::fonts::font_id(
             painter.ctx(),
@@ -16395,11 +16394,7 @@ pub fn checkbox_box_border(ctrl: &Control) -> (String, f32, Color32) {
 /// `box_fill` is the theme's toggle fill, if it supplies one; the mark is
 /// measured against that composited over whatever the control sits on.
 fn toggle_mark_color(painter: &egui::Painter, ctrl: &Control, box_fill: Option<Color32>) -> Color32 {
-    let behind = control_surface_tone(
-        painter.ctx(),
-        ctrl,
-        parse_color(crate::model::DEFAULT_BACKGROUND_COLOR),
-    );
+    let behind = control_surface_tone(painter.ctx(), ctrl, ground_under_controls(painter.ctx()));
     // The developer's own box colour outranks the theme's fill here exactly as
     // it does when the box is painted — otherwise the tick would be rescued
     // against a colour the box no longer wears.
@@ -17731,7 +17726,7 @@ pub fn treeview_ink(ctx: &egui::Context, ctrl: &Control) -> Color32 {
     if !high_contrast {
         return themed;
     }
-    let behind = control_surface_tone(ctx, ctrl, parse_color(crate::model::DEFAULT_BACKGROUND_COLOR));
+    let behind = control_surface_tone(ctx, ctrl, ground_under_controls(ctx));
     caret_color(behind, themed)
 }
 
@@ -17778,8 +17773,8 @@ pub(crate) fn radio_indicator_colors(
     if checked {
         return (on, on, 1.0);
     }
-    let behind = caption_surface_tone(ctx, ctrl, parse_color(crate::model::DEFAULT_BACKGROUND_COLOR))
-        .unwrap_or_else(|| parse_color(crate::model::DEFAULT_BACKGROUND_COLOR));
+    let behind = caption_surface_tone(ctx, ctrl, ground_under_controls(ctx))
+        .unwrap_or_else(|| ground_under_controls(ctx));
     (Color32::TRANSPARENT, caret_color(behind, on), 1.0)
 }
 
@@ -25133,6 +25128,49 @@ slice = [4, 4, 4, 4]
         assert_eq!(knob_accent("#FF0"), knob_accent("nonsense"));
 
         println!("\n  Accent — #FF00FF paints magenta; Red/Sky keep their preset; junk falls back to Blue\n");
+    }
+
+    /// A Knob's value on a Spatial form reads light on the dark glass: its ink
+    /// is measured against the form's glass over the desktop, not against the
+    /// fixed light grey a painter that is not handed the ground assumes — which
+    /// rescued a white value to black (operator, 2026-10-04). Liquid Glass is
+    /// unchanged.
+    #[test]
+    fn a_spatial_knobs_value_reads_light() {
+        use crate::model::PropValue;
+        let mut k = Control::new("K", CT::Knob, 0, 0);
+        k.rect = crate::model::Rect::new(0, 0, 120, 140);
+        k.set_prop("Value", PropValue::Int(70));
+        k.set_prop("Maximum", PropValue::Int(90));
+        k.set_prop("ForegroundColor", PropValue::String("#FFFFFFFF".into()));
+        let ink = |theme: Arc<dyn crate::surface_theme::SurfaceTheme>| -> Color32 {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, theme);
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 400.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, &k, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            fn find(s: &egui::Shape, out: &mut Option<Color32>) {
+                match s {
+                    egui::Shape::Text(t) if t.galley.text() == "70" => {
+                        *out = t.galley.job.sections.first().map(|x| x.format.color).filter(|c| c.a() > 0)
+                            .or(Some(t.fallback_color));
+                    }
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| find(s, out)),
+                    _ => {}
+                }
+            }
+            let mut c = None;
+            for cs in &full.shapes {
+                find(&cs.shape, &mut c);
+            }
+            c.expect("the value is painted")
+        };
+        let luma = |c: Color32| (c.r() as u32 + c.g() as u32 + c.b() as u32) / 3;
+        assert!(luma(ink(crate::surface_theme::spatial())) > 200, "white on Spatial's glass");
+        assert!(luma(ink(crate::surface_theme::liquid_glass())) < 60, "rescued to black on the light default, as before");
     }
 
     /// A clear `FaceColor` paints no face — nor a rim fill lightened from it —
