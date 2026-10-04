@@ -3404,6 +3404,16 @@ fn dock_child_window(ctx: &egui::Context, child: &mut ChildWindow, opener_vp: eg
         let rect = |r: egui::Rect| (r.min.x as f64, r.min.y as f64, r.width() as f64, r.height() as f64);
         child.dock_attached = cobolt_os_blur::attach_child_window(rect(o), rect(m));
     }
+    // A click on a docked window brings its whole group forward: the opener
+    // is ordered front, and its attached windows with it — the window clicked
+    // keeps the keyboard (operator, 2026-10-04: "a click in a single form
+    // brings all of them to the front"). Once per gain of focus.
+    let focused = ctx.input_for(child.viewport_id, |i| i.viewport().focused).unwrap_or(false);
+    if focused && !child.dock_focused {
+        let rect = |r: egui::Rect| (r.min.x as f64, r.min.y as f64, r.width() as f64, r.height() as f64);
+        cobolt_os_blur::raise_group(rect(o));
+    }
+    child.dock_focused = focused;
     if !opener_changed(child.dock_opener_seen, o) {
         return;
     }
@@ -3513,6 +3523,9 @@ pub(crate) struct ChildWindow {
     /// Whether the operating system now moves this docked window with its
     /// opener (a native child window, macOS).
     pub(crate) dock_attached: bool,
+    /// Whether this docked window had the keyboard last frame — its gaining it
+    /// brings the group forward.
+    pub(crate) dock_focused: bool,
     /// A screen-relative designed `StartPosition`, applied on the first frame
     /// the monitor's size is known, when the caller gave no position.
     pub(crate) pending_start: Option<cobolt_forms::model::FormStartPosition>,
@@ -4660,6 +4673,7 @@ impl FormHost {
             dock_length: form.dock_length,
             dock_opener_seen: None,
             dock_attached: false,
+            dock_focused: false,
             pending_start,
             initial_state,
             init_sent: false,

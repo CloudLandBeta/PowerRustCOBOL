@@ -8,6 +8,18 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.175] — 2026-10-04
+
+### Feature: a click on any window of a docked group brings the group forward
+
+A click on one of PowerSpatial's bars brought that bar alone in front of the
+other applications' windows, leaving the dashboard and the other bars behind
+(operator, 2026-10-04). On macOS, when a docked window gains the keyboard its
+opener is now ordered front — and with it every window attached to it (the
+native child windows of 1.80.172) — without taking the keyboard from the
+window clicked. A click on the opener already brings its attached windows
+along. `cobolt_os_blur::raise_group`. Guide updated.
+
 ## [PowerRustCOBOL 1.80.174] — 2026-10-04
 
 ### Fix: windows opened by a form no longer share their controls' state

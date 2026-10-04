@@ -54,6 +54,23 @@ pub fn attach_child_window(parent: (f64, f64, f64, f64), child: (f64, f64, f64, 
     }
 }
 
+/// Bring the window whose frame is `parent` — and, with it, every native child
+/// window attached to it ([`attach_child_window`]) — in front of other
+/// windows, without taking the keyboard from the window that has it. So a
+/// click on any window of a group brings the whole group forward. `false`
+/// where the window is not found or the platform has no grouping.
+pub fn raise_group(parent: (f64, f64, f64, f64)) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        macos_group::raise(parent)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = parent;
+        false
+    }
+}
+
 /// Blur (`true`) or stop blurring (`false`) the desktop behind every window of
 /// this application. Does nothing where the platform offers no blur.
 pub fn set_all_windows(blur: bool) {
@@ -185,6 +202,54 @@ mod macos_group {
         let (x, y, w, h) = cocoa;
         let top = screen_h - (y + h);
         (x - want.0).abs() <= 2.0 && (top - want.1).abs() <= 2.0 && (w - want.2).abs() <= 2.0 && (h - want.3).abs() <= 2.0
+    }
+
+    /// The application window whose frame is `want`, if one is.
+    unsafe fn window_at(want: (f64, f64, f64, f64)) -> Id {
+        unsafe {
+            let send_id: extern "C" fn(Id, Sel) -> Id = std::mem::transmute(objc_msgSend as *const ());
+            let send_usize: extern "C" fn(Id, Sel) -> usize = std::mem::transmute(objc_msgSend as *const ());
+            let send_index: extern "C" fn(Id, Sel, usize) -> Id = std::mem::transmute(objc_msgSend as *const ());
+            let at = sel_registerName(c"objectAtIndex:".as_ptr());
+            let count = sel_registerName(c"count".as_ptr());
+            let screens = send_id(objc_getClass(c"NSScreen".as_ptr()), sel_registerName(c"screens".as_ptr()));
+            if screens.is_null() || send_usize(screens, count) == 0 {
+                return std::ptr::null_mut();
+            }
+            let screen_h = frame_of(send_index(screens, at, 0)).h;
+            let app = send_id(objc_getClass(c"NSApplication".as_ptr()), sel_registerName(c"sharedApplication".as_ptr()));
+            if app.is_null() {
+                return std::ptr::null_mut();
+            }
+            let windows = send_id(app, sel_registerName(c"windows".as_ptr()));
+            if windows.is_null() {
+                return std::ptr::null_mut();
+            }
+            for i in 0..send_usize(windows, count) {
+                let w = send_index(windows, at, i);
+                if !w.is_null() {
+                    let f = frame_of(w);
+                    if same_frame((f.x, f.y, f.w, f.h), want, screen_h) {
+                        return w;
+                    }
+                }
+            }
+            std::ptr::null_mut()
+        }
+    }
+
+    pub(super) fn raise(parent: (f64, f64, f64, f64)) -> bool {
+        unsafe {
+            let w = window_at(parent);
+            if w.is_null() {
+                return false;
+            }
+            // orderFront: brings the window and its child windows forward and
+            // leaves the key window as it is.
+            let send_obj: extern "C" fn(Id, Sel, Id) = std::mem::transmute(objc_msgSend as *const ());
+            send_obj(w, sel_registerName(c"orderFront:".as_ptr()), std::ptr::null_mut());
+            true
+        }
     }
 
     pub(super) fn attach(parent: (f64, f64, f64, f64), child: (f64, f64, f64, f64)) -> bool {
