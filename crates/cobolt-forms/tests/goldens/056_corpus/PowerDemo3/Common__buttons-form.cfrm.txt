@@ -9,10 +9,10 @@ Button-5 rect=[32 344 296 424] font=16
 Button-6 rect=[928 344 1192 424] font=16
 Button-7 rect=[32 464 296 544] font=16
 Button-8 rect=[928 472 1192 552] font=16
-Button-9 rect=[32 592 296 672] font=16
+Button-9 rect=[-8 768 256 848] font=16
 Label-1 rect=[40 800 1195 832] font=19
 PictureBox-1 rect=[304 48 926 755] font=16
-shapes=160 digest=59db5551d5eaef1e
+shapes=160 digest=0893cb44801b0345
 ## Run 0.75x 918x630
 Button-1 rect=[32 48 296 128] font=16
 Button-10 rect=[928 592 1192 672] font=16
@@ -23,10 +23,10 @@ Button-5 rect=[32 344 296 424] font=16
 Button-6 rect=[928 344 1192 424] font=16
 Button-7 rect=[32 464 296 544] font=16
 Button-8 rect=[928 472 1192 552] font=16
-Button-9 rect=[32 592 296 672] font=16
+Button-9 rect=[-8 768 256 848] font=16
 Label-1 rect=[40 800 1195 832] font=19
 PictureBox-1 rect=[304 48 926 755] font=16
-shapes=161 digest=337b504db53032d9
+shapes=161 digest=8525992022986794
 ## Preview 0.75x 918x630
 Button-1 rect=[32 48 296 128] font=16
 Button-10 rect=[928 592 1192 672] font=16
@@ -37,10 +37,10 @@ Button-5 rect=[32 344 296 424] font=16
 Button-6 rect=[928 344 1192 424] font=16
 Button-7 rect=[32 464 296 544] font=16
 Button-8 rect=[928 472 1192 552] font=16
-Button-9 rect=[32 592 296 672] font=16
+Button-9 rect=[-8 768 256 848] font=16
 Label-1 rect=[40 800 1195 832] font=19
 PictureBox-1 rect=[304 48 926 755] font=16
-shapes=161 digest=e96688a6b69a6e62
+shapes=161 digest=64b9c2e61e941d29
 ## Canvas 1x 1224x840
 Button-1 rect=[32 48 296 128] font=16
 Button-10 rect=[928 592 1192 672] font=16
@@ -51,10 +51,10 @@ Button-5 rect=[32 344 296 424] font=16
 Button-6 rect=[928 344 1192 424] font=16
 Button-7 rect=[32 464 296 544] font=16
 Button-8 rect=[928 472 1192 552] font=16
-Button-9 rect=[32 592 296 672] font=16
+Button-9 rect=[-8 768 256 848] font=16
 Label-1 rect=[40 800 1195 832] font=19
 PictureBox-1 rect=[304 48 926 755] font=16
-shapes=160 digest=4b798029be27c136
+shapes=160 digest=27fef904075eb26d
 ## Run 1x 1224x840
 Button-1 rect=[32 48 296 128] font=16
 Button-10 rect=[928 592 1192 672] font=16
@@ -65,10 +65,10 @@ Button-5 rect=[32 344 296 424] font=16
 Button-6 rect=[928 344 1192 424] font=16
 Button-7 rect=[32 464 296 544] font=16
 Button-8 rect=[928 472 1192 552] font=16
-Button-9 rect=[32 592 296 672] font=16
+Button-9 rect=[-8 768 256 848] font=16
 Label-1 rect=[40 800 1195 832] font=19
 PictureBox-1 rect=[304 48 926 755] font=16
-shapes=161 digest=99e3c7566c46faef
+shapes=161 digest=df4648c558b52eb2
 ## Preview 1x 1224x840
 Button-1 rect=[32 48 296 128] font=16
 Button-10 rect=[928 592 1192 672] font=16
@@ -79,10 +79,10 @@ Button-5 rect=[32 344 296 424] font=16
 Button-6 rect=[928 344 1192 424] font=16
 Button-7 rect=[32 464 296 544] font=16
 Button-8 rect=[928 472 1192 552] font=16
-Button-9 rect=[32 592 296 672] font=16
+Button-9 rect=[-8 768 256 848] font=16
 Label-1 rect=[40 800 1195 832] font=19
 PictureBox-1 rect=[304 48 926 755] font=16
-shapes=161 digest=553a2e42367e6394
+shapes=161 digest=1a390d6c4f1772f7
 ## Canvas 1.5x 1836x1260
 Button-1 rect=[32 48 296 128] font=16
 Button-10 rect=[928 592 1192 672] font=16
@@ -93,10 +93,10 @@ Button-5 rect=[32 344 296 424] font=16
 Button-6 rect=[928 344 1192 424] font=16
 Button-7 rect=[32 464 296 544] font=16
 Button-8 rect=[928 472 1192 552] font=16
-Button-9 rect=[32 592 296 672] font=16
+Button-9 rect=[-8 768 256 848] font=16
 Label-1 rect=[40 800 1195 832] font=19
 PictureBox-1 rect=[304 48 926 755] font=16
-shapes=160 digest=81e52cdf5430e347
+shapes=160 digest=48455c15bd44ce30
 ## Run 1.5x 1836x1260
 Button-1 rect=[32 48 296 128] font=16
 Button-10 rect=[928 592 1192 672] font=16
@@ -107,10 +107,10 @@ Button-5 rect=[32 344 296 424] font=16
 Button-6 rect=[928 344 1192 424] font=16
 Button-7 rect=[32 464 296 544] font=16
 Button-8 rect=[928 472 1192 552] font=16
-Button-9 rect=[32 592 296 672] font=16
+Button-9 rect=[-8 768 256 848] font=16
 Label-1 rect=[40 800 1195 832] font=19
 PictureBox-1 rect=[304 48 926 755] font=16
-shapes=161 digest=f3540a90724a641e
+shapes=161 digest=e7f9891e8e6bb97f
 ## Preview 1.5x 1836x1260
 Button-1 rect=[32 48 296 128] font=16
 Button-10 rect=[928 592 1192 672] font=16
@@ -121,7 +121,7 @@ Button-5 rect=[32 344 296 424] font=16
 Button-6 rect=[928 344 1192 424] font=16
 Button-7 rect=[32 464 296 544] font=16
 Button-8 rect=[928 472 1192 552] font=16
-Button-9 rect=[32 592 296 672] font=16
+Button-9 rect=[-8 768 256 848] font=16
 Label-1 rect=[40 800 1195 832] font=19
 PictureBox-1 rect=[304 48 926 755] font=16
-shapes=161 digest=c2bc87d55ba0fd79
+shapes=161 digest=b91f0eea1b0d1136
