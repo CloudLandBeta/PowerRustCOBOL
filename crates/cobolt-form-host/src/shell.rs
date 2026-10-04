@@ -2056,6 +2056,11 @@ impl eframe::App for ShellApp {
         // see-through form theme also blurs what is behind it (spec 083),
         // whether it is the shell's own or the ContentPane occupant's.
         crate::host::sync_os_blur(frame, self.host.shell_wants_os_blur());
+        // Ctrl+W — Cmd+W on macOS — asks the application's window to close,
+        // as its close button does (operator, 2026-10-03).
+        if root_ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::W)) {
+            root_ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         self.frame(root_ui);
     }
 }

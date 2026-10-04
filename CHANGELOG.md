@@ -8,6 +8,22 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.80.147] — 2026-10-03
+
+### Fix: Ctrl+W (Cmd+W on macOS) closes the focused window
+
+Nothing in any host answered the platform's close-window shortcut (operator,
+2026-10-03). It now sends the window the same close request its close button
+does, so everything that follows is the existing close path: the main
+window's close ends the application, its `onClose` handler can still refuse
+(`onCloseRejected`), and the exit effect plays; a child window's closes that
+window only. The main window (`host::ui_impl`, real windows only), each child
+window (inside its own viewport) and a shell application's window
+(`ShellApp::ui`) each take the key. Test:
+`command_w_asks_the_main_window_to_close` (a window sends `Close`; a host in a
+shell's pane leaves the key to the shell). Guide ("Closing from the
+keyboard") and System KB updated; `chunked.data` regenerated.
+
 ## [PowerRustCOBOL 1.80.146] — 2026-10-03
 
 ### Fix: a window without a title bar moves by its face

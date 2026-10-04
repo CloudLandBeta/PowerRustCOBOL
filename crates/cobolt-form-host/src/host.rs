@@ -4810,6 +4810,10 @@ impl FormHost {
                         }
                     }
                 }
+                // Ctrl+W / Cmd+W closes THIS window, as its close button does.
+                if vp_ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::W)) {
+                    vp_ui.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
                 if vp_ui.input(|i| i.viewport().close_requested()) {
                     // The supervisor decides (vetoes, cascades) — cancel the
                     // OS close and route it like every other close.
@@ -5461,6 +5465,15 @@ impl FormHost {
         // is ALSO cancelled when an exit effect is about to play — the
         // playback block performs the real close when the animation ends
         // (038 R10; the veto fires FIRST, so a refused close plays nothing).
+        // Ctrl+W — Cmd+W on macOS — asks the main window to close, exactly as
+        // its close button does: the same request, so the same veto, cascade
+        // and exit effect (operator, 2026-10-03). A shell window takes its own
+        // (`ShellApp::ui`).
+        if self.surface == Surface::Window
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::W))
+        {
+            self.viewport_cmd(ctx, egui::ViewportCommand::Close);
+        }
         if ctx.input(|i| i.viewport().close_requested()) && !self.quit_sent {
             let acts = self
                 .supervisor
@@ -8070,6 +8083,35 @@ mod parity {
         assert_eq!(pane.root.bg_hex, "#445566FF");
         let cmds = out.viewport_output.get(&egui::ViewportId::ROOT).map(|v| v.commands.clone()).unwrap_or_default();
         assert!(!cmds.iter().any(|c| matches!(c, egui::ViewportCommand::Title(_))), "the pane sends no title");
+    }
+
+    /// Ctrl+W (Cmd+W on macOS) asks the main window to close, the same request
+    /// its close button makes (operator, 2026-10-03); a host drawn in a shell's
+    /// pane does not own the window and leaves the key to the shell.
+    #[test]
+    fn command_w_asks_the_main_window_to_close() {
+        let closes = |surface: Surface| -> bool {
+            let (mut host, _pipes) = host_with_surface("none:600:ease-out", "none:600:ease-out", false, surface);
+            let ctx = egui::Context::default();
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(640.0, 480.0))),
+                events: vec![egui::Event::ModifiersChanged(egui::Modifiers::COMMAND), egui::Event::Key {
+                    key: egui::Key::W,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::COMMAND,
+                }],
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| host.ui_impl(ui));
+            out.textures_delta.clear();
+            out.viewport_output
+                .get(&egui::ViewportId::ROOT)
+                .is_some_and(|v| v.commands.iter().any(|c| matches!(c, egui::ViewportCommand::Close)))
+        };
+        assert!(closes(Surface::Window), "Cmd/Ctrl+W asks the window to close");
+        assert!(!closes(Surface::Pane), "a pane leaves the key to the shell that owns the window");
     }
 
     fn host_with(entrance: &str, exit: &str, restore: bool) -> (FormHost, Pipes) {

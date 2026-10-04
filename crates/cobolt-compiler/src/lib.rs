@@ -7141,7 +7141,9 @@ fn controls_reference_doc() -> String {
          fullscreen returns to the previous state), and `TitleVisible` (Boolean, default true — \
          false renders a chromeless window, which the operator moves by dragging the form's \
          background or any see-through part of a control: a hidden control, the transparent \
-         background of a Label, Panel or GroupBox; not in a shell window yet).\n\n",
+         background of a Label, Panel or GroupBox; not in a shell window yet). Ctrl+W (Cmd+W on \
+         macOS) closes the focused window exactly as its close button does: the main window's \
+         close ends the application, a child window's closes that window.\n\n",
     );
     doc.push_str(
         "Where the window properties apply: the main window, a SHELL application's window (a \

@@ -6789,6 +6789,11 @@ leaving fullscreen returns to the previous state). At runtime:
     INVOKE me "SetTitleVisible" USING "false".
 ```
 
+**Closing from the keyboard.** **Ctrl+W** (**⌘W** on macOS) closes the window
+that has the focus exactly as its close button does: the main window's close
+ends the application (and its `onClose` handler can still refuse, raising
+`onCloseRejected`); a child window's closes that window only.
+
 **Moving a window without a title bar.** A chromeless window is moved by its
 face: press anywhere on the form's background and drag. A press on a control
 stays the control's — a button still clicks, a list still selects — except
